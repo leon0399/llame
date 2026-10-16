@@ -29,12 +29,11 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 import { getAllowedWebOrigins } from '../app.setup';
 import { AuthService } from '../auth/auth.service';
-import { getRequestToken } from '../auth/session-auth.guard';
+import { getRequestToken } from '../auth/request-token';
 import {
   ChangeHubService,
   type ChangeHubSubscriptions,
 } from './change-hub.service';
-import type { LiveMessage } from './live-messages';
 
 export const LIVE_PATH = '/api/v1/live';
 /** Heartbeat and session re-validation cadence. */
@@ -49,6 +48,11 @@ const CLOSE_SESSION_ENDED = 4401;
 const CLOSE_TOO_SLOW = 4408;
 
 export type LiveAuth = Pick<AuthService, 'validateToken'>;
+
+/** The part of Nest's `HttpAdapterHost` the gateway reads. */
+export type GatewayHttpHost = {
+  httpAdapter: { getHttpServer(): object };
+};
 
 type LiveSocket = {
   socket: WebSocket;
@@ -67,7 +71,7 @@ export class LiveGatewayService
   private readonly allowedOrigins: ReadonlySet<string> = new Set(
     getAllowedWebOrigins(),
   );
-  private heartbeat: NodeJS.Timeout | undefined;
+  private heartbeatTimer: NodeJS.Timeout | undefined;
   private server: Server | undefined;
   private readonly onUpgrade = (
     request: IncomingMessage,
@@ -77,7 +81,7 @@ export class LiveGatewayService
 
   constructor(
     @Inject(HttpAdapterHost)
-    private readonly adapterHost: HttpAdapterHost,
+    private readonly adapterHost: GatewayHttpHost,
     @Inject(AuthService)
     private readonly auth: LiveAuth,
     @Inject(ChangeHubService)
@@ -94,15 +98,18 @@ export class LiveGatewayService
     }
     this.server = server;
     server.on('upgrade', this.onUpgrade);
-    this.heartbeat = setInterval(() => void this.beat(), HEARTBEAT_MS);
-    this.heartbeat.unref();
+    this.heartbeatTimer = setInterval(
+      () => void this.checkHeartbeats(),
+      HEARTBEAT_MS,
+    );
+    this.heartbeatTimer.unref();
   }
 
   onModuleDestroy(): void {
-    clearInterval(this.heartbeat);
+    clearInterval(this.heartbeatTimer);
     this.server?.off('upgrade', this.onUpgrade);
+    // Each socket's close handler unsubscribes it.
     for (const live of this.sockets) {
-      live.unsubscribe();
       live.socket.close(1001, 'server shutting down');
     }
     this.sockets.clear();
@@ -136,8 +143,8 @@ export class LiveGatewayService
       alive: true,
       unsubscribe: () => undefined,
     };
-    live.unsubscribe = this.hub.subscribe(userId, (message) =>
-      this.deliver(live, message),
+    live.unsubscribe = this.hub.subscribe(userId, (frame) =>
+      this.deliver(live, frame),
     );
     this.sockets.add(live);
     socket.on('pong', () => {
@@ -151,16 +158,21 @@ export class LiveGatewayService
     // Inbound frames are ignored: the client has nothing to subscribe to.
   }
 
-  private deliver(live: LiveSocket, message: LiveMessage): void {
+  private deliver(live: LiveSocket, frame: string): void {
     if (live.socket.readyState !== WebSocket.OPEN) return;
     if (live.socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       live.socket.close(CLOSE_TOO_SLOW, 'client too slow');
       return;
     }
-    live.socket.send(JSON.stringify(message));
+    live.socket.send(frame);
   }
 
-  private async beat(): Promise<void> {
+  /**
+   * One heartbeat round, run every `HEARTBEAT_MS`: terminates a socket that
+   * did not answer the previous ping, pings the rest, and closes any socket
+   * whose session no longer validates.
+   */
+  async checkHeartbeats(): Promise<void> {
     for (const live of this.sockets) {
       if (!live.alive) {
         live.socket.terminate();

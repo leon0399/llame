@@ -312,8 +312,8 @@ export class MessagesRepository {
    *
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
    * RLS is the primary guarantee, the ownerUserId predicate is the seatbelt.
+   * `chatId` narrows the result to that one chat (live chat updates).
    */
-  /** Latest listable message per owned chat; `chatId` narrows to one chat. */
   async findLatestPerOwnedChat(
     ownerUserId: string,
     chatId?: string,

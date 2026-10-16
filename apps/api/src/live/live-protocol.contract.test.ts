@@ -40,11 +40,9 @@ describe('live protocol contract', () => {
     const tracker = new RunProgressTracker();
     const progress = tracker.apply({
       k: 'run_event',
-      op: 'insert',
       owner: LIVE_OWNER,
       chat: LIVE_CHAT_ID,
       run: LIVE_RUN_ID,
-      seq: 1,
       type: 'tool.started',
     });
     if (!progress) throw new Error('expected run progress');

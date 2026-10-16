@@ -4,12 +4,12 @@
 --
 -- `llame_notify_change` sends one `pg_notify('llame_changes', <json>)` per
 -- changed row of chats, projects, pins, runs and run_events. The API's live
--- change hub LISTENs on that channel and forwards owner-scoped invalidations
--- to that owner's WebSocket connections.
+-- change hub LISTENs on that channel, reads each changed record as its owner,
+-- and sends it to that owner's WebSocket connections.
 --
--- Payloads are pointers, never record content: kind, operation, owner id,
--- record ids, and for runs the status and for run_events the sequence and
--- event type. NOTIFY channels are database-global and outside RLS, so a title,
+-- Payloads are pointers, never record content: kind, owner id, record ids,
+-- whether a chat or project was deleted, a run's status, and a run event's
+-- type. NOTIFY channels are database-global and outside RLS, so a title,
 -- message text or tool output must never be placed here. NOTIFY inside a
 -- transaction is delivered only on commit, so a rolled-back write sends
 -- nothing.
@@ -33,41 +33,37 @@ DECLARE
 BEGIN
   IF TG_TABLE_NAME = 'chats' THEN
     IF TG_OP = 'DELETE' THEN
-      payload := jsonb_build_object('k', 'chat', 'op', 'delete',
-        'owner', OLD.owner_user_id, 'chat', OLD.id);
+      payload := jsonb_build_object('k', 'chat', 'owner', OLD.owner_user_id,
+        'chat', OLD.id, 'deleted', true);
     ELSE
-      payload := jsonb_build_object('k', 'chat', 'op', lower(TG_OP),
-        'owner', NEW.owner_user_id, 'chat', NEW.id);
+      payload := jsonb_build_object('k', 'chat', 'owner', NEW.owner_user_id,
+        'chat', NEW.id, 'deleted', false);
     END IF;
   ELSIF TG_TABLE_NAME = 'projects' THEN
     IF TG_OP = 'DELETE' THEN
-      payload := jsonb_build_object('k', 'project', 'op', 'delete',
-        'owner', OLD.owner_user_id, 'project', OLD.id);
+      payload := jsonb_build_object('k', 'project', 'owner', OLD.owner_user_id,
+        'project', OLD.id, 'deleted', true);
     ELSE
-      payload := jsonb_build_object('k', 'project', 'op', lower(TG_OP),
-        'owner', NEW.owner_user_id, 'project', NEW.id);
+      payload := jsonb_build_object('k', 'project', 'owner', NEW.owner_user_id,
+        'project', NEW.id, 'deleted', false);
     END IF;
   ELSIF TG_TABLE_NAME = 'pins' THEN
     IF TG_OP = 'DELETE' THEN
-      payload := jsonb_build_object('k', 'pin', 'op', 'delete',
-        'owner', OLD.user_id, 'item', OLD.item_id);
+      payload := jsonb_build_object('k', 'pin', 'owner', OLD.user_id);
     ELSE
-      payload := jsonb_build_object('k', 'pin', 'op', lower(TG_OP),
-        'owner', NEW.user_id, 'item', NEW.item_id);
+      payload := jsonb_build_object('k', 'pin', 'owner', NEW.user_id);
     END IF;
   ELSIF TG_TABLE_NAME = 'runs' THEN
-    payload := jsonb_build_object('k', 'run', 'op', lower(TG_OP),
-      'owner', NEW.user_id, 'chat', NEW.chat_id, 'run', NEW.id,
-      'status', NEW.status);
+    payload := jsonb_build_object('k', 'run', 'owner', NEW.user_id,
+      'run', NEW.id, 'status', NEW.status);
   ELSIF TG_TABLE_NAME = 'run_events' THEN
     SELECT r.user_id, r.chat_id INTO run_owner, run_chat
       FROM runs r WHERE r.id = NEW.run_id;
     IF run_owner IS NULL THEN
       RETURN NULL;
     END IF;
-    payload := jsonb_build_object('k', 'run_event', 'op', 'insert',
-      'owner', run_owner, 'chat', run_chat, 'run', NEW.run_id,
-      'seq', NEW.sequence, 'type', NEW.event_type);
+    payload := jsonb_build_object('k', 'run_event', 'owner', run_owner,
+      'chat', run_chat, 'run', NEW.run_id, 'type', NEW.event_type);
   ELSE
     RETURN NULL;
   END IF;

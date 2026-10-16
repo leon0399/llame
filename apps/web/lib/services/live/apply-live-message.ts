@@ -1,20 +1,18 @@
-import type {
-  InfiniteData,
-  QueryClient,
-  QueryKey,
-} from "@tanstack/react-query";
-import { z } from "zod";
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 
 import { activeRunsQueryKeys } from "../chat/active-runs";
 import {
+  chatListFiltersFromKey,
   chatQueryKeys,
-  type ChatListFilters,
   type ChatResponse,
 } from "../chat/queries";
 import type { ChatSearchResult } from "../chat/search";
 import { pinQueryKeys } from "../pins/queries";
 import type { PinnedItem } from "../pins/types";
-import { projectQueryKeys, type ProjectListFilters } from "../project/queries";
+import {
+  projectListFiltersFromKey,
+  projectQueryKeys,
+} from "../project/queries";
 import type { ProjectResponse } from "../project/types";
 import type {
   ChatListItemResponse,
@@ -120,23 +118,6 @@ export function placeRecord<T extends { id: string; updatedAt: string }>(
     : [...rest.slice(0, at), record, ...rest.slice(at)];
 }
 
-/** The filter object at the end of a list query key (absent = no filters). */
-const listFiltersSchema = z.object({
-  projectId: z.string().optional(),
-  pinned: z.enum(["only", "exclude"]).optional(),
-  archived: z.enum(["only", "with"]).optional(),
-});
-
-function keyFilters(part: unknown): ChatListFilters {
-  const parsed = listFiltersSchema.safeParse(part);
-  return parsed.success ? parsed.data : {};
-}
-
-function chatListFilters(queryKey: QueryKey): ChatListFilters | undefined {
-  // chatQueryKeys.infinite(filters?) = ["chats", "list", "infinite", filters?]
-  return queryKey[2] === "infinite" ? keyFilters(queryKey[3]) : undefined;
-}
-
 function applyChat(queryClient: QueryClient, chat: ChatListItemResponse): void {
   const { lastMessage: _lastMessage, ...detail } = chat;
   queryClient.setQueryData(chatQueryKeys.detail(chat.id), detail);
@@ -144,7 +125,7 @@ function applyChat(queryClient: QueryClient, chat: ChatListItemResponse): void {
   for (const [queryKey, data] of queryClient.getQueriesData<
     InfiniteData<Array<ChatResponse>>
   >({ queryKey: chatQueryKeys.lists() })) {
-    const filters = chatListFilters(queryKey);
+    const filters = chatListFiltersFromKey(queryKey);
     if (!filters || !data) continue;
     const member = matchesListFilters(chat, filters, pinnedIds);
     const inProject =
@@ -186,7 +167,7 @@ function removeChat(queryClient: QueryClient, chatId: string): void {
   for (const [queryKey, data] of queryClient.getQueriesData<
     InfiniteData<Array<ChatResponse>>
   >({ queryKey: chatQueryKeys.lists() })) {
-    if (!chatListFilters(queryKey) || !data) continue;
+    if (!chatListFiltersFromKey(queryKey) || !data) continue;
     queryClient.setQueryData<InfiniteData<Array<ChatResponse>>>(queryKey, {
       ...data,
       pages: data.pages.map((page) =>
@@ -208,9 +189,8 @@ function applyProject(
   >({
     queryKey: projectQueryKeys.lists(),
   })) {
-    if (!data) continue;
-    // projectQueryKeys.filtered(filters?) = ["projects", "list", filters?]
-    const filters: ProjectListFilters = keyFilters(queryKey[2]);
+    const filters = projectListFiltersFromKey(queryKey);
+    if (!data || !filters) continue;
     const member = matchesListFilters(project, filters, pinnedIds);
     if (member === "unknown") {
       void queryClient.invalidateQueries({ queryKey, exact: true });
@@ -258,10 +238,8 @@ function applyPins(queryClient: QueryClient, items: Array<PinnedItem>): void {
   // Pin-filtered lists change membership and order with the pin set.
   void queryClient.invalidateQueries({
     predicate: ({ queryKey }) =>
-      (queryKey[0] === "chats" || queryKey[0] === "projects") &&
-      queryKey.some(
-        (part) => listFiltersSchema.safeParse(part).data?.pinned !== undefined,
-      ),
+      (chatListFiltersFromKey(queryKey) ?? projectListFiltersFromKey(queryKey))
+        ?.pinned !== undefined,
   });
 }
 

@@ -10,7 +10,7 @@
  */
 
 import {
-  isNumber,
+  isBoolean,
   isRecord,
   isString,
   type UnknownRecord,
@@ -47,40 +47,17 @@ export type ServerLiveMessage =
 /** The NOTIFY channel `llame_notify_change` writes to. */
 export const LIVE_CHANGES_CHANNEL = 'llame_changes';
 
-export type ChangeOp = 'insert' | 'update' | 'delete';
-
 export type ChangeNotification =
-  | { k: 'chat'; op: ChangeOp; owner: string; chat: string }
-  | { k: 'project'; op: ChangeOp; owner: string; project: string }
-  | { k: 'pin'; op: ChangeOp; owner: string; item: string }
-  | {
-      k: 'run';
-      op: ChangeOp;
-      owner: string;
-      chat: string;
-      run: string;
-      status: RunStatus;
-    }
-  | {
-      k: 'run_event';
-      op: ChangeOp;
-      owner: string;
-      chat: string;
-      run: string;
-      seq: number;
-      type: string;
-    };
+  | { k: 'chat'; owner: string; chat: string; deleted: boolean }
+  | { k: 'project'; owner: string; project: string; deleted: boolean }
+  | { k: 'pin'; owner: string }
+  | { k: 'run'; owner: string; run: string; status: RunStatus }
+  | { k: 'run_event'; owner: string; chat: string; run: string; type: string };
 
 const RUN_STATUSES: ReadonlySet<string> = new Set(runStatus.enumValues);
 
 function isRunStatus(value: string | undefined): value is RunStatus {
   return value !== undefined && RUN_STATUSES.has(value);
-}
-
-const OPS: ReadonlySet<string> = new Set(['insert', 'update', 'delete']);
-
-function isOp(value: unknown): value is ChangeOp {
-  return isString(value) && OPS.has(value);
 }
 
 /** Field reader over a parsed payload; `undefined` unless it is a non-empty string. */
@@ -102,55 +79,46 @@ export function parseChangeNotification(
   } catch {
     return undefined;
   }
-  if (!isRecord(parsed) || !isOp(parsed['op'])) return undefined;
-  const op = parsed['op'];
+  if (!isRecord(parsed)) return undefined;
   const owner = str(parsed, 'owner');
-  if (!owner) return undefined;
+  return owner ? parseKind(parsed, owner) : undefined;
+}
+
+function parseKind(
+  parsed: UnknownRecord,
+  owner: string,
+): ChangeNotification | undefined {
+  const deleted = parsed['deleted'];
+  const chat = str(parsed, 'chat');
+  const run = str(parsed, 'run');
   switch (parsed['k']) {
-    case 'chat': {
-      const chat = str(parsed, 'chat');
-      return chat ? { k: 'chat', op, owner, chat } : undefined;
-    }
+    case 'chat':
+      return chat && isBoolean(deleted)
+        ? { k: 'chat', owner, chat, deleted }
+        : undefined;
     case 'project': {
       const project = str(parsed, 'project');
-      return project ? { k: 'project', op, owner, project } : undefined;
+      return project && isBoolean(deleted)
+        ? { k: 'project', owner, project, deleted }
+        : undefined;
     }
-    case 'pin': {
-      const item = str(parsed, 'item');
-      return item ? { k: 'pin', op, owner, item } : undefined;
+    case 'pin':
+      return { k: 'pin', owner };
+    case 'run': {
+      const status = str(parsed, 'status');
+      return run && isRunStatus(status)
+        ? { k: 'run', owner, run, status }
+        : undefined;
     }
-    case 'run':
-      return parseRun(parsed, op, owner);
-    case 'run_event':
-      return parseRunEvent(parsed, op, owner);
+    case 'run_event': {
+      const type = str(parsed, 'type');
+      return chat && run && type
+        ? { k: 'run_event', owner, chat, run, type }
+        : undefined;
+    }
     default:
       return undefined;
   }
-}
-
-function parseRun(
-  parsed: UnknownRecord,
-  op: ChangeOp,
-  owner: string,
-): ChangeNotification | undefined {
-  const chat = str(parsed, 'chat');
-  const run = str(parsed, 'run');
-  const status = str(parsed, 'status');
-  if (!chat || !run || !isRunStatus(status)) return undefined;
-  return { k: 'run', op, owner, chat, run, status };
-}
-
-function parseRunEvent(
-  parsed: UnknownRecord,
-  op: ChangeOp,
-  owner: string,
-): ChangeNotification | undefined {
-  const chat = str(parsed, 'chat');
-  const run = str(parsed, 'run');
-  const type = str(parsed, 'type');
-  const seq = parsed['seq'];
-  if (!chat || !run || !type || !isNumber(seq)) return undefined;
-  return { k: 'run_event', op, owner, chat, run, seq, type };
 }
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(TERMINAL_RUN_STATUSES);
@@ -249,11 +217,11 @@ export type RecordJob = {
 export function recordJobFor(n: ChangeNotification): RecordJob | undefined {
   switch (n.k) {
     case 'chat':
-      return n.op === 'delete'
+      return n.deleted
         ? ready({ type: 'chat.deleted', chatId: n.chat })
         : chatJob(n.owner, n.chat);
     case 'project':
-      return n.op === 'delete'
+      return n.deleted
         ? ready({ type: 'project.deleted', projectId: n.project })
         : projectJob(n.owner, n.project);
     case 'pin':

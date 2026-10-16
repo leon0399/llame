@@ -8,8 +8,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AuthContext, type AuthenticatedRequest } from './auth-context';
 import { AuthService } from './auth.service';
-import { SESSION_COOKIE_NAME } from './constants';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { getRequestToken } from './request-token';
 
 export type SessionAuthService = Pick<AuthService, 'validateToken'>;
 export type SessionAuthReflector = Pick<Reflector, 'getAllAndOverride'>;
@@ -49,46 +49,4 @@ export class SessionAuthGuard implements CanActivate {
 
     return true;
   }
-}
-
-/** Session token from a bearer header or the session cookie; shared with the live gateway's upgrade check. */
-export function getRequestToken(
-  request: Pick<AuthenticatedRequest, 'headers'>,
-): string | undefined {
-  // Node's IncomingHttpHeaders types (and documents) `authorization`/`cookie`
-  // as always a single string on this platform-express app — duplicates of
-  // these specific headers are discarded by Node's own parser, never
-  // combined into an array — so no defensive array handling is needed here.
-  const bearerToken = extractBearerToken(request.headers.authorization);
-  if (bearerToken) {
-    return bearerToken;
-  }
-
-  const cookieHeader = request.headers.cookie;
-  return cookieHeader
-    ? parseCookie(cookieHeader)[SESSION_COOKIE_NAME]
-    : undefined;
-}
-
-function extractBearerToken(header: string | undefined): string | undefined {
-  // RFC 6750 §2.1: the auth-scheme is case-insensitive; also tolerate repeated
-  // whitespace between scheme and token ("Bearer   <token>").
-  return header?.match(/^bearer\s+(\S+)\s*$/i)?.[1];
-}
-
-function parseCookie(header: string): Record<string, string> {
-  return header.split(';').reduce<Record<string, string>>((cookies, part) => {
-    const [rawName, ...rawValue] = part.trim().split('=');
-    if (!rawName || rawValue.length === 0) {
-      return cookies;
-    }
-
-    try {
-      cookies[rawName] = decodeURIComponent(rawValue.join('='));
-    } catch {
-      return cookies;
-    }
-
-    return cookies;
-  }, {});
 }

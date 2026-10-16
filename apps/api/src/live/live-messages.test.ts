@@ -18,95 +18,71 @@ const owner = 'user-a';
 const chat = '11111111-1111-4111-8111-111111111111';
 const run = '22222222-2222-4222-8222-222222222222';
 
-const runEvent = (type: string, seq = 1): ChangeNotification => ({
+const runEvent = (type: string, runId = run): ChangeNotification => ({
   k: 'run_event',
-  op: 'insert',
   owner,
   chat,
-  run,
-  seq,
+  run: runId,
   type,
 });
 
 const runStatus = (status: RunStatus): ChangeNotification => ({
   k: 'run',
-  op: 'update',
   owner,
-  chat,
   run,
   status,
 });
 
 describe('parseChangeNotification', () => {
+  const parse = (payload: Record<string, string | boolean>) =>
+    parseChangeNotification(JSON.stringify(payload));
+
   it('parses each payload kind the trigger emits', () => {
+    expect(parse({ k: 'chat', owner, chat, deleted: false })).toEqual({
+      k: 'chat',
+      owner,
+      chat,
+      deleted: false,
+    });
     expect(
-      parseChangeNotification(
-        JSON.stringify({ k: 'chat', op: 'update', owner, chat }),
-      ),
-    ).toEqual({ k: 'chat', op: 'update', owner, chat });
+      parse({ k: 'project', owner, project: chat, deleted: true }),
+    ).toEqual({ k: 'project', owner, project: chat, deleted: true });
+    expect(parse({ k: 'pin', owner })).toEqual({ k: 'pin', owner });
+    expect(parse({ k: 'run', owner, run, status: 'queued' })).toEqual(
+      runStatus('queued'),
+    );
     expect(
-      parseChangeNotification(
-        JSON.stringify({ k: 'project', op: 'delete', owner, project: chat }),
-      ),
-    ).toEqual({ k: 'project', op: 'delete', owner, project: chat });
-    expect(
-      parseChangeNotification(
-        JSON.stringify({ k: 'pin', op: 'insert', owner, item: chat }),
-      ),
-    ).toEqual({ k: 'pin', op: 'insert', owner, item: chat });
-    expect(
-      parseChangeNotification(
-        JSON.stringify({
-          k: 'run',
-          op: 'insert',
-          owner,
-          chat,
-          run,
-          status: 'queued',
-        }),
-      ),
-    ).toEqual({ ...runStatus('queued'), op: 'insert' });
-    expect(
-      parseChangeNotification(
-        JSON.stringify({
-          k: 'run_event',
-          op: 'insert',
-          owner,
-          chat,
-          run,
-          seq: 7,
-          type: 'model.delta',
-        }),
-      ),
-    ).toEqual(runEvent('model.delta', 7));
+      parse({ k: 'run_event', owner, chat, run, type: 'model.delta' }),
+    ).toEqual(runEvent('model.delta'));
   });
 
   it.each([
     ['not json', '{'],
     ['not an object', '"chat"'],
-    ['unknown kind', JSON.stringify({ k: 'user', op: 'insert', owner })],
-    ['unknown op', JSON.stringify({ k: 'chat', op: 'truncate', owner, chat })],
-    ['no owner', JSON.stringify({ k: 'chat', op: 'insert', chat })],
+    ['unknown kind', JSON.stringify({ k: 'user', owner })],
+    ['no owner', JSON.stringify({ k: 'chat', chat, deleted: false })],
     [
       'empty owner',
-      JSON.stringify({ k: 'chat', op: 'insert', owner: '', chat }),
+      JSON.stringify({ k: 'chat', owner: '', chat, deleted: false }),
     ],
-    ['no record id', JSON.stringify({ k: 'chat', op: 'insert', owner })],
+    ['no record id', JSON.stringify({ k: 'chat', owner, deleted: false })],
+    ['no deleted flag', JSON.stringify({ k: 'chat', owner, chat })],
     [
-      'non-numeric seq',
-      JSON.stringify({
-        k: 'run_event',
-        op: 'insert',
-        owner,
-        chat,
-        run,
-        seq: '1',
-        type: 'x',
-      }),
+      'a non-boolean deleted flag',
+      JSON.stringify({ k: 'project', owner, project: chat, deleted: 'yes' }),
+    ],
+    ['run without status', JSON.stringify({ k: 'run', owner, run })],
+    [
+      'run with unknown status',
+      JSON.stringify({ k: 'run', owner, run, status: 'x' }),
     ],
     [
-      'run without status',
-      JSON.stringify({ k: 'run', op: 'insert', owner, chat, run }),
+      'run event without type',
+      JSON.stringify({ k: 'run_event', owner, chat, run }),
+    ],
+    [
+      'run event without chat',
+      JSON.stringify({ k: 'run_event', owner, run, type: 'x' }),
     ],
   ])('drops a payload with %s', (_label, raw) => {
     expect(parseChangeNotification(raw)).toBeUndefined();
@@ -178,10 +154,32 @@ describe('RunProgressTracker', () => {
     expect(tracker.apply(runEvent('model.requested'))).toBeUndefined();
   });
 
+  it('sends nothing for an event that sets neither phase nor step', () => {
+    expect(
+      new RunProgressTracker().apply(runEvent('native.result')),
+    ).toBeUndefined();
+  });
+
+  it('remembers a bounded number of finished Runs', () => {
+    const tracker = new RunProgressTracker();
+    const finish = (id: string) => tracker.apply(runEvent('run.completed', id));
+    const straggler = (id: string) =>
+      tracker.apply(runEvent('tool.started', id));
+
+    finish('run-0');
+    finish('run-1');
+    expect(straggler('run-0')).toBeUndefined();
+
+    for (let i = 2; i <= 1024; i += 1) finish(`run-${i}`);
+    // Past the cap the oldest memory is dropped: at worst one stale message.
+    expect(straggler('run-0')).toMatchObject({ runId: 'run-0', phase: 'tool' });
+    expect(straggler('run-1024')).toBeUndefined();
+  });
+
   it('ignores record notifications and non-terminal statuses', () => {
     const tracker = new RunProgressTracker();
     expect(
-      tracker.apply({ k: 'chat', op: 'update', owner, chat }),
+      tracker.apply({ k: 'chat', owner, chat, deleted: false }),
     ).toBeUndefined();
     expect(tracker.apply(runStatus('running_model'))).toBeUndefined();
     expect(tracker.apply(runEvent('model.delta'))).toMatchObject({
@@ -214,12 +212,12 @@ describe('recordJobFor', () => {
   };
 
   it('reads an upserted chat, project, or run as its owner', async () => {
-    expect(await load({ k: 'chat', op: 'update', owner, chat })).toEqual({
+    expect(await load({ k: 'chat', owner, chat, deleted: false })).toEqual({
       type: 'chat.upserted',
       chat: chatRecord,
     });
     expect(
-      await load({ k: 'project', op: 'insert', owner, project: chat }),
+      await load({ k: 'project', owner, project: chat, deleted: false }),
     ).toEqual({ type: 'project.upserted', project: projectRecord });
     expect(await load(runStatus('running_model'))).toEqual({
       type: 'run.updated',
@@ -228,7 +226,7 @@ describe('recordJobFor', () => {
   });
 
   it('replaces the whole pin list on any pin change', async () => {
-    expect(await load({ k: 'pin', op: 'delete', owner, item: chat })).toEqual({
+    expect(await load({ k: 'pin', owner })).toEqual({
       type: 'pins.replaced',
       items: pinRecords,
     });
@@ -236,46 +234,37 @@ describe('recordJobFor', () => {
 
   it('sends nothing when the record is gone by the time it is read', async () => {
     expect(
-      await load({ k: 'chat', op: 'update', owner, chat: run }),
+      await load({ k: 'chat', owner, chat: run, deleted: false }),
     ).toBeUndefined();
     expect(
-      await load({ k: 'project', op: 'update', owner, project: run }),
+      await load({ k: 'project', owner, project: run, deleted: false }),
     ).toBeUndefined();
     expect(
-      await load({
-        k: 'run',
-        op: 'update',
-        owner,
-        chat,
-        run: chat,
-        status: 'queued',
-      }),
+      await load({ k: 'run', owner, run: chat, status: 'queued' }),
     ).toBeUndefined();
   });
 
   it('announces deletions without a read', async () => {
-    expect(await load({ k: 'chat', op: 'delete', owner, chat })).toEqual({
+    expect(await load({ k: 'chat', owner, chat, deleted: true })).toEqual({
       type: 'chat.deleted',
       chatId: chat,
     });
     expect(
-      await load({ k: 'project', op: 'delete', owner, project: chat }),
+      await load({ k: 'project', owner, project: chat, deleted: true }),
     ).toEqual({ type: 'project.deleted', projectId: chat });
-    expect(recordJobFor({ k: 'chat', op: 'delete', owner, chat })?.key).toBe(
+    expect(recordJobFor({ k: 'chat', owner, chat, deleted: true })?.key).toBe(
       undefined,
     );
   });
 
   it('keys reads by record so they can be merged', () => {
-    expect(recordJobFor({ k: 'chat', op: 'update', owner, chat })?.key).toBe(
+    expect(recordJobFor({ k: 'chat', owner, chat, deleted: false })?.key).toBe(
       `chat:${chat}`,
     );
     expect(
-      recordJobFor({ k: 'project', op: 'update', owner, project: chat })?.key,
+      recordJobFor({ k: 'project', owner, project: chat, deleted: false })?.key,
     ).toBe(`project:${chat}`);
-    expect(
-      recordJobFor({ k: 'pin', op: 'insert', owner, item: chat })?.key,
-    ).toBe('pins');
+    expect(recordJobFor({ k: 'pin', owner })?.key).toBe('pins');
     expect(recordJobFor(runStatus('queued'))?.key).toBe(`run:${run}`);
     expect(recordJobFor(runEvent('model.delta'))).toBeUndefined();
   });

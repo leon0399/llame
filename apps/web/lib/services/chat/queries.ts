@@ -3,10 +3,12 @@ import {
   infiniteQueryOptions,
   type QueryClient,
   type QueryFunctionContext,
+  type QueryKey,
   useInfiniteQuery,
   useQuery,
 } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
+import { z } from "zod";
 import {
   getChat,
   getChatMessages,
@@ -88,6 +90,20 @@ export const chatQueryKeys = {
   targetMessages: (chatId: string, targetSeq: number) =>
     [...chatQueryKeys.messages(chatId), "target", targetSeq] as const,
 };
+
+const chatListFiltersSchema = z.object({
+  projectId: z.string().optional(),
+  pinned: z.enum(["only", "exclude"]).optional(),
+  archived: z.enum(["only", "with"]).optional(),
+});
+
+/** The filters of a `chatQueryKeys.infinite` key; `undefined` for any other key. */
+export function chatListFiltersFromKey(
+  queryKey: QueryKey,
+): ChatListFilters | undefined {
+  if (queryKey[2] !== "infinite") return undefined;
+  return chatListFiltersSchema.safeParse(queryKey[3]).data ?? {};
+}
 
 type ChatMessagesQueryKey =
   | ReturnType<typeof chatQueryKeys.messages>

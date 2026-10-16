@@ -88,22 +88,24 @@ describeIfDb('llame_notify_change triggers', () => {
     );
     expect(payload).toEqual({
       k: 'chat',
-      op: 'insert',
       owner: a,
       chat: chatId,
+      deleted: false,
     });
     expect(JSON.stringify(payload)).not.toContain('Secret title');
   });
 
   it('notifies a rename', async () => {
     const chatId = await newChat(a, 'Before');
-    await waitForPayload((p) => p['chat'] === chatId && p['op'] === 'insert');
+    await waitForPayload((p) => p['chat'] === chatId);
 
     await tenantDb.runAs(a, (tx) =>
       new ChatsRepository(tx).update(chatId, a, { title: 'After' }),
     );
 
-    await waitForPayload((p) => p['chat'] === chatId && p['op'] === 'update');
+    await waitForPayload(
+      () => received.filter((p) => p['chat'] === chatId).length === 2,
+    );
   });
 
   it('notifies nothing for a rolled-back write', async () => {
@@ -146,7 +148,7 @@ describeIfDb('llame_notify_change triggers', () => {
       (p) => p['k'] === 'run' && p['run'] === runId && p['status'] === 'queued',
     );
 
-    const event = await tenantDb.runAs(a, (tx) =>
+    await tenantDb.runAs(a, (tx) =>
       new RunEventsRepository(tx).append(runId, 'tool.requested', {
         toolName: 'secret_tool',
       }),
@@ -156,13 +158,12 @@ describeIfDb('llame_notify_change triggers', () => {
     );
     expect(payload).toEqual({
       k: 'run_event',
-      op: 'insert',
       owner: a,
       chat: chatId,
       run: runId,
-      seq: event.sequence,
       type: 'tool.requested',
     });
+    expect(JSON.stringify(payload)).not.toContain('secret_tool');
 
     await tenantDb.runAs(a, (tx) =>
       new RunsRepository(tx).markFinished(runId, a, 'completed'),

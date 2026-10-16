@@ -26,12 +26,10 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import postgres, { type Sql } from 'postgres';
 
+import { LIVE_CHANGE_LISTENER, type ChangeListener } from './change-listener';
 import { liveMessageSchema } from './generated/live-protocol';
 import {
-  LIVE_CHANGES_CHANNEL,
   parseChangeNotification,
   recordJobFor,
   RunProgressTracker,
@@ -44,7 +42,8 @@ import {
   type LiveRecordLoader,
 } from './live-record-loader';
 
-export type LiveSubscriber = (message: LiveMessage) => void;
+/** Receives one serialized, schema-valid message frame. */
+type LiveSubscriber = (frame: string) => void;
 
 /** What the gateway needs from the hub. */
 export type ChangeHubSubscriptions = Pick<ChangeHubService, 'subscribe'>;
@@ -66,24 +65,17 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   private readonly subscribers = new Map<string, Set<LiveSubscriber>>();
   private readonly tracker = new RunProgressTracker();
   private readonly queues = new Map<string, OwnerQueue>();
-  private client: Sql | undefined;
   private listenCount = 0;
 
   constructor(
-    @Inject(ConfigService)
-    private readonly config: Pick<ConfigService, 'get' | 'getOrThrow'>,
+    @Inject(LIVE_CHANGE_LISTENER)
+    private readonly listener: ChangeListener,
     @Inject(LIVE_RECORD_LOADER)
     private readonly loader: LiveRecordLoader,
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Offline OpenAPI generation boots AppModule against no database.
-    if (this.config.get<string>('LLAME_OPENAPI_GENERATION') === '1') return;
-    this.client = postgres(this.config.getOrThrow<string>('POSTGRES_URL'), {
-      max: 1,
-    });
-    await this.client.listen(
-      LIVE_CHANGES_CHANNEL,
+    await this.listener.listen(
       (raw) => this.dispatch(raw),
       () => this.onListen(),
     );
@@ -92,7 +84,7 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     this.subscribers.clear();
     this.queues.clear();
-    await this.client?.end({ timeout: 5 });
+    await this.listener.close();
   }
 
   /** Register one owner's subscriber; returns the unsubscribe function. */
@@ -171,9 +163,11 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
+    // Serialized once per owner, not once per socket.
+    const frame = JSON.stringify(wire);
     for (const subscriber of subscribers) {
       try {
-        subscriber(wire);
+        subscriber(frame);
       } catch (error) {
         this.logger.warn(
           `Live subscriber failed: ${error instanceof Error ? error.message : 'unknown'}`,
