@@ -1,7 +1,7 @@
 ---
 type: Research
 title: "Server-to-client push for record changes: signal, transport and AsyncAPI contracts"
-description: "Separates the missing change signal from the transport choice, fans Postgres NOTIFY pointers out over one owner-scoped WebSocket of invalidation messages, and makes a hand-authored AsyncAPI 3.0 document the protocol source from which server and client validators are generated."
+description: "Separates the missing change signal from the transport choice, turns Postgres NOTIFY pointers into owner-scoped WebSocket messages carrying the HTTP API's own records, and makes a hand-authored AsyncAPI 3.1 document the protocol source from which server and client validators are generated."
 tags: [realtime, websocket, sse, listen-notify, asyncapi, openapi, dto, codegen]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T00:00:00Z }
@@ -127,21 +127,38 @@ routing is needed and replicas stay stateless as `scaling.md` requires.
 Workers listen too once #207[^issue-207] ships; the same channel carries
 cancel requests.
 
-### D3 Feed content: invalidation messages, not record deltas
+### D3 Feed content: records in the HTTP API's shape
 
-Send `chat.changed`, `run.changed`, `pin.changed`, `project.changed`, `resync`.
-The client maps each to `queryClient.invalidateQueries` on the existing
-`chatQueryKeys`, `pinQueryKeys` and `activeRunsQueryKeys`. React Query
-refetches through the authenticated, RLS-scoped endpoints that already exist.
+Each message carries the changed record exactly as the matching HTTP endpoint
+returns it: `chat.upserted` with the chat as `GET /api/v1/chats` lists it,
+`project.upserted`, `run.updated`, and `pins.replaced` with the whole pin list,
+plus `chat.deleted`, `project.deleted` and `resync`. Clients write the record
+into their caches instead of refetching, so one change costs one database read
+per API process rather than one refetch per open tab.
 
-This needs no durable change log, no per-client cursor and no merge logic. A
-missed message costs one stale view until the next `resync` or focus refetch.
-Record deltas would require an outbox with sequence numbers, replay, and a
-client-side patch path for every entity. That cost is justified only once a
-view must update without a refetch round trip, such as collaborative editing.
+The NOTIFY payload stays a pointer. The hub reads the record as its owner
+through the same repositories and response mappers as the HTTP controllers,
+so row-level security applies to the read. Reads run in notification order
+per owner; a notification for a record whose read has not started is merged
+into that read, which then sees the latest committed state. The hub reads
+nothing for an owner without open connections, and a failed read sends
+`resync`.
+
+Run progress is the exception: `run.progress` carries only a phase and a step,
+folded from run event types with no read, because run events arrive several
+times a second while a model streams.
+
+Client-side, a record replaces its cached copy in every list whose filters it
+matches, is inserted where it newly matches, and is removed where it no
+longer does. A list whose membership depends on pin state the client does not
+hold is refetched instead, as is every pin-filtered list after the pin set
+changes. That is one refetch where client-side filtering could be wrong.
+
+There is no durable change log or replay. A reconnect, or `resync` after the
+hub's listener reconnects, refetches what the client shows.
 
 Token streaming stays on the per-Run AI SDK stream. `DefaultChatTransport`
-consumes its own SSE protocol, and multiplexing tokens into the feed would
+consumes its own SSE protocol, and multiplexing tokens into this feed would
 mean writing a custom transport.
 
 ### D4 Run-event streams: wake on notify, keep the cursor
@@ -177,27 +194,37 @@ origins; bind the socket to the owner id at upgrade and accept no subscription
 that names an owner. Cookie authentication assumes the web and API origins are
 same-site; a cross-site deployment needs a short-lived upgrade ticket.
 
-### D6 Contracts: AsyncAPI document first, validators generated
+### D6 Contracts: AsyncAPI document first, records from OpenAPI
 
-`apps/api/asyncapi.yaml` is the protocol's source of truth: one `ws` server,
-one channel, one `send` operation, one message per type, JSON Schema payloads
-discriminated by a `type` constant, and the security schemes and reconnect
-semantics in prose. A repository script walks the document's channel and
-operation and converts each payload with `json-schema-to-zod`[^json-schema-to-zod],
-emitting a zod discriminated union plus inferred types. The API and the web
-client each commit their generated copy. The script supports only the subset
-the protocol uses and fails on anything else.
+`apps/api/asyncapi.yaml` (AsyncAPI 3.1) is the protocol's source of truth: one
+`ws` server, one channel, one `send` operation, one message per type, the
+security schemes, and the reconnect semantics in prose. Message payloads are
+OpenAPI 3.0 multi-format schemas whose record fields `$ref` the component
+schemas in `openapi.json`, so a socket record and an HTTP record share one
+definition. The document therefore depends on the generated `openapi.json`,
+and the API build generates the live protocol after it.
+
+A repository script validates the document with the official AsyncAPI
+parser and its OpenAPI schema parser, then emits one named zod schema per
+referenced component through `json-schema-to-zod`[^json-schema-to-zod],
+turning `oneOf` with a `discriminator` into a discriminated union. It rejects
+constructs it cannot translate faithfully rather than degrading them to
+`z.any()`. The API and the web client each commit a generated copy.
+
+Redocly validates AsyncAPI structure but ignores a payload's `schemaFormat`
+and rejects OpenAPI's `nullable`, so the official parser is the AsyncAPI
+gate; Redocly keeps linting `openapi.json`.
 
 Code-first generation was rejected for this protocol:
 
 - `nestjs-asyncapi` 2.0.1 emits AsyncAPI `3.0.0` from `@nestjs/swagger`
-  DTOs[^nestjs-asyncapi], but types bindings only for Kafka and AMQP, bundles
-  `@asyncapi/generator` into anything that imports its decorators, and
-  inherits the OpenAPI 3.0 schema dialect.
-- No controller emits these messages; the hub builds plain objects. Code-first
-  would add DTO classes only to feed a generator.
-- Design-first gives the server compile-time types as well: a tracker output
-  outside the document fails the API typecheck.
+  DTOs[^nestjs-asyncapi], but types bindings only for Kafka and AMQP and
+  bundles `@asyncapi/generator` into anything that imports its decorators.
+- No controller emits these messages; the hub assembles them from records.
+  Code-first would add DTO classes only to feed a generator.
+- Design-first gives the server compile-time types and runtime validation as
+  well: the hub validates every outgoing message against the generated schema
+  and drops one the document does not describe.
 
 No SSE binding exists in the AsyncAPI bindings repository[^asyncapi-bindings];
 with WebSocket the official `ws` binding applies. Modelina generates types in
@@ -206,14 +233,15 @@ the same document rather than these two clients.
 
 Drift gates match the OpenAPI ones:
 
-- Redocly lints the document with `openapi.json` in `pnpm lint:openapi`.
+- `pnpm lint:asyncapi` validates the document with the official parser, in
+  `pnpm lint` and lefthook.
 - `generate:api-schema` and `generate:web-client` regenerate both copies, and
   CI fails on any diff.
 - A script test renders the document per target and compares it with each
   committed copy.
-- An API contract test validates every tracker output against the generated
-  union and asserts the generated `RunStatus` equals the database enum, the
-  one field whose truth lives in code.
+- An API contract test sends every message type, built from the real response
+  DTOs, through the hub's serialization and validation, and checks that the
+  serialized DTO types are assignable to the generated record types.
 
 ## Security
 
@@ -243,13 +271,16 @@ Threats the design must state in its proposal:
    unblocks every later item, including #207[^issue-207].
 2. **A2 Wake the two run-event pollers.** Closes #118[^issue-118]; token
    latency drops by up to the poll interval and idle query load disappears.
-3. **A3 Owner feed over WebSocket with invalidation messages.** Retires the 4 s
+3. **A3 Owner feed over WebSocket with records.** Retires the 4 s
    `refetchInterval` loop in `active-runs-context.tsx` (kept only while the
    socket is disconnected) and makes titles, pins and cross-device changes
    live. Needs an issue and an OpenSpec proposal; it adds an owner-visible
    contract.
 4. **A4 AsyncAPI document and generated validators.** Lands with A3; every
    message type exists in the document before either side uses it.
+5. **A5 Channel subscriptions.** When chats become shared across owners,
+   replace owner routing with per-channel authorization, the role private
+   channels play in Laravel Echo.
 
 [^issue-118]: <https://github.com/leon0399/llame/issues/118>
 
