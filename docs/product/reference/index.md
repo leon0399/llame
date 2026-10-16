@@ -14,6 +14,8 @@ read_when:
   claims and the document it renders.
 - [Selectors](selectors.md): line ranges, `:raw`, `:outline`, Markdown
   ancestors, and the result bound every read shares.
+- [Context documents](context-documents.md): which documents reach the model,
+  whether a marker inside them is expanded, and which surface carries the result.
 - [Instruction files](instruction-files.md): which project instruction files a
   touch loads into context, and when.
 - [Prompt imports](prompt-imports.md): which markers in a prompt import a

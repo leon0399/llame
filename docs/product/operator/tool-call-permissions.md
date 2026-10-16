@@ -10,6 +10,7 @@ behavior:
   - ../reference/tools/write.md
   - ../reference/tools/enter-workspace.md
   - ../reference/locators/web.md
+  - ../reference/context-documents.md
 ---
 
 # Tool-call permissions

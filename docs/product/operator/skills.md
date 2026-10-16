@@ -5,6 +5,7 @@ read_when:
   - you are inspecting, paging, or advertising the catalog
 behavior:
   - ../reference/locators/skill.md
+  - ../reference/context-documents.md
 ---
 
 # Operator skill catalog
