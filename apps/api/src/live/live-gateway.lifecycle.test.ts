@@ -187,7 +187,8 @@ describe('LiveGatewayService lifecycle', () => {
     gateway.onModuleDestroy();
 
     expect(await a.closed).toBe(1001);
-    expect(hub.unsubscribed).toBe(1);
+    // The server's own close event can follow the client's.
+    await vi.waitFor(() => expect(hub.unsubscribed).toBe(1));
     expect(server.listenerCount('upgrade')).toBe(0);
   });
 
