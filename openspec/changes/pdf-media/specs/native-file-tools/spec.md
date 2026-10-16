@@ -48,7 +48,7 @@ A PDF detected on any source other than `media://` SHALL be parsed by the worker
 - **THEN** the Run owner holds no media object for those bytes
 - **AND** the result names the PDF only by its `path`
 
-#### Scenario: A prompt-import read is not stored either
+#### Scenario: A prompt-import PDF read is not stored either
 
 - **WHEN** a prompt import reads `/docs/paper.pdf` through `read` with system origin `prompt-import`
 - **THEN** the result is the same PDF result a model `read` returns
