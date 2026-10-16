@@ -568,7 +568,6 @@ const sidebarMenuButtonVariants = cva(
   },
 );
 
-/** The clickable row content within a `SidebarMenuItem`; shows a `Tooltip` when the sidebar is collapsed to icon-only and `tooltip` is set. Pass `render` to use a custom element (e.g. a link) instead of a `button`. */
 /** Narrows the `tooltip` prop union to its plain-string-label variant. */
 function isTooltipLabel(
   tooltip: string | React.ComponentProps<typeof TooltipContent>,
@@ -576,6 +575,7 @@ function isTooltipLabel(
   return typeof tooltip === "string";
 }
 
+/** The clickable row content within a `SidebarMenuItem`; shows a `Tooltip` when the sidebar is collapsed to icon-only and `tooltip` is set. Pass `render` to use a custom element (e.g. a link) instead of a `button`. */
 function SidebarMenuButton({
   render,
   isActive = false,

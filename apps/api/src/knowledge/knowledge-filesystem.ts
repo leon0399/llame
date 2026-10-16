@@ -310,14 +310,6 @@ export class KnowledgeFilesystemAdapter {
   }
 
   /**
-   * Resolve a Knowledge-relative path to its host path for a caller that
-   * opens the target itself. Every component is `lstat`ed and a symbolic link
-   * anywhere on the way is refused without being followed; `undefined`
-   * addresses the Space's own directory. The final component may be a file or
-   * a directory, so this is not a read: the caller decides what to do with
-   * what it finds, and closes the check-to-open window with `O_NOFOLLOW`.
-   */
-  /**
    * Resolve the deepest existing ancestor of `hostPath` through every symbolic
    * link and report whether it is still inside this Space. The walk refuses a
    * link at each component, but only at the moment it looks; this is the check
@@ -343,6 +335,14 @@ export class KnowledgeFilesystemAdapter {
     return candidate === directory;
   }
 
+  /**
+   * Resolve a Knowledge-relative path to its host path for a caller that
+   * opens the target itself. Every component is `lstat`ed and a symbolic link
+   * anywhere on the way is refused without being followed; `undefined`
+   * addresses the Space's own directory. The final component may be a file or
+   * a directory, so this is not a read: the caller decides what to do with
+   * what it finds, and closes the check-to-open window with `O_NOFOLLOW`.
+   */
   async resolveHostPath(
     relativePath: string | undefined,
     options: KnowledgeHostPathOptions = {},

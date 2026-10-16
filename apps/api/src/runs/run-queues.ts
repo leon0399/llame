@@ -1,3 +1,12 @@
+/**
+ * The runs-domain queue contract (#48/#50/durable-run-workers): the job
+ * payload type, its queue definition (name + payload + guard as ONE value —
+ * enqueueing the wrong shape is a compile error), and the run timing config
+ * that parameterizes the queue's native worker-liveness window (D7) and the
+ * in-process wall-clock abort budget. Everything queue-facing that dispatch
+ * and the worker share lives here.
+ */
+
 import { type LlameConfig } from '../instance-config/llame-config';
 import {
   defineQueue,
@@ -7,15 +16,6 @@ import {
 } from '../queue/queue';
 import { isNumber, isRecord } from '@workspace/runtime-safety';
 import { type RunUserMessage } from './run-execution.service';
-
-/**
- * The runs-domain queue contract (#48/#50/durable-run-workers): the job
- * payload type, its queue definition (name + payload + guard as ONE value —
- * enqueueing the wrong shape is a compile error), and the run timing config
- * that parameterizes the queue's native worker-liveness window (D7) and the
- * in-process wall-clock abort budget. Everything queue-facing that dispatch
- * and the worker share lives here.
- */
 
 /** Queue payload for one run execution (SPEC §9.5). */
 export type RunJob = {

@@ -590,16 +590,6 @@ export class ChatsRepository {
   }
 
   /**
-   * Apply a partial update to a chat, scoped to owner (defense-in-depth).
-   * Only provided fields are changed; updatedAt is bumped for CONTENT changes
-   * (title) but NOT for a pin toggle or filing move (metadata — must not
-   * reorder by recency). `projectId: null` unfiles the chat; `projectId`
-   * absent leaves the current filing unchanged. A foreign/nonexistent
-   * projectId is rejected by the `chats_owner` RLS WITH CHECK (projects-
-   * foundation) — the caller maps that denial to a clean 4xx, not here.
-   * Returns undefined if not found or not owned by this user.
-   */
-  /**
    * Archive guard (chat-project-archive): an archived resource rejects every
    * write except pure unarchive (archived: false, no other fields) or pure
    * re-archive (archived: true on already archived — idempotent no-op).
@@ -639,6 +629,16 @@ export class ChatsRepository {
     return fields;
   }
 
+  /**
+   * Apply a partial update to a chat, scoped to owner (defense-in-depth).
+   * Only provided fields are changed; updatedAt is bumped for CONTENT changes
+   * (title) but NOT for a pin toggle or filing move (metadata — must not
+   * reorder by recency). `projectId: null` unfiles the chat; `projectId`
+   * absent leaves the current filing unchanged. A foreign/nonexistent
+   * projectId is rejected by the `chats_owner` RLS WITH CHECK (projects-
+   * foundation) — the caller maps that denial to a clean 4xx, not here.
+   * Returns undefined if not found or not owned by this user.
+   */
   async update(
     chatId: string,
     ownerUserId: string,

@@ -1,3 +1,11 @@
+/**
+ * The lower-level `useChat` plumbing `useChatConversation` composes: model
+ * readiness, the send transport, cache refresh, the `useChat` call itself,
+ * and its adjacent effects (scroll-to-target, resume/history-adoption,
+ * run-presence). Split into its own module once `use-chat-conversation.ts`
+ * outgrew the project's 500-line cap.
+ */
+
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 
 import { useChat } from "@ai-sdk/react";
@@ -40,14 +48,6 @@ import {
   streamingRunId,
 } from "@/lib/services/chat/run-notifications";
 import { safeRandomUUID } from "@/lib/uuid";
-
-/**
- * The lower-level `useChat` plumbing `useChatConversation` composes: model
- * readiness, the send transport, cache refresh, the `useChat` call itself,
- * and its adjacent effects (scroll-to-target, resume/history-adoption,
- * run-presence). Split into its own module once `use-chat-conversation.ts`
- * outgrew the project's 500-line cap.
- */
 
 /** The available models and this chat's ability to send right now — derived
  *  from the models query and kept in sync with `selectedModel` by one

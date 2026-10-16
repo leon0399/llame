@@ -511,19 +511,6 @@ function trustedContextParts(message: {
   return placed;
 }
 
-/**
- * useChat freezes its initial history, while the authoritative message query
- * refreshes after a completed turn. Overlay only server-fetched control parts
- * by message id; client/stream-authored copies are removed unconditionally.
- *
- * Each trusted part goes back where the server stored it, measured in the
- * non-context parts that precede it: the model-switch marker and an
- * accepted-turn instructions item stay at the top of the user turn they
- * introduce, while an in-Run item lands right after the triggering step's
- * last tool part — the position the model actually received it in. Stored
- * indices ascend, and a live turn carrying fewer parts than the server copy
- * clamps the insert to its end.
- */
 /** True when `next` is the same part list as `prev` by reference at each
  *  index — enough to prove a merge was a no-op without walking part fields. */
 function samePartList(
@@ -537,6 +524,19 @@ function samePartList(
   return true;
 }
 
+/**
+ * useChat freezes its initial history, while the authoritative message query
+ * refreshes after a completed turn. Overlay only server-fetched control parts
+ * by message id; client/stream-authored copies are removed unconditionally.
+ *
+ * Each trusted part goes back where the server stored it, measured in the
+ * non-context parts that precede it: the model-switch marker and an
+ * accepted-turn instructions item stay at the top of the user turn they
+ * introduce, while an in-Run item lands right after the triggering step's
+ * last tool part — the position the model actually received it in. Stored
+ * indices ascend, and a live turn carrying fewer parts than the server copy
+ * clamps the insert to its end.
+ */
 export function mergeTrustedModelContextParts(
   liveMessages: ReadonlyArray<UIMessage>,
   serverMessages: ReadonlyArray<UIMessage>,

@@ -1,5 +1,3 @@
-import { defineQueue, expectRecord, expectString } from '../queue/queue';
-
 /**
  * Search-domain queue contracts (#195). The reindex queue rebuilds ONE chat's
  * lexical projection; the sweep queue is the cron trigger that discovers stale
@@ -12,6 +10,8 @@ import { defineQueue, expectRecord, expectString } from '../queue/queue';
  * changes the projection PLUS the sweep for chats the embedding-backlog predicate
  * reports as lagging. Everything queue-facing for search lives here.
  */
+
+import { defineQueue, expectRecord, expectString } from '../queue/queue';
 
 /** Rebuild the projection for one chat. */
 export type SearchReindexJob = {

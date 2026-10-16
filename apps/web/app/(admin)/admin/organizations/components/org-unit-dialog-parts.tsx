@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * Shared building blocks for org-unit-dialogs.tsx's Create/Rename/Move
+ * dialogs — split into their own file once that file's total line count
+ * outgrew the project's 500-line cap. Not exported beyond this pair of
+ * files; keep additions here scoped to genuinely shared dialog pieces.
+ */
+
 import type { CSSProperties } from "react";
 
 import { Building2Icon } from "lucide-react";
@@ -16,13 +23,6 @@ import {
   ORG_UNIT_TYPE_META,
   visibleAncestorChain,
 } from "./org-tree-utils";
-
-/**
- * Shared building blocks for org-unit-dialogs.tsx's Create/Rename/Move
- * dialogs — split into their own file once that file's total line count
- * outgrew the project's 500-line cap. Not exported beyond this pair of
- * files; keep additions here scoped to genuinely shared dialog pieces.
- */
 
 /** The child-unit type grid — only shown when creating under a parent
  *  (a root organization has no type). Split out from `CreateOrgUnitDialog`

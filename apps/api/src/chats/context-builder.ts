@@ -37,6 +37,12 @@ import {
 } from './tool-observation-part';
 
 export { projectToolObservations };
+/**
+ * `ModelMessage` is now the SDK's own type, re-exported above. Content can
+ * carry text, tool-call parts (assistant), and tool-result parts (tool role),
+ * so tool observations survive into later turns in the conventional
+ * representation.
+ */
 export type { ModelMessage };
 
 /** AI SDK v5 UIMessage part shape (text part — the common case). */
@@ -133,13 +139,6 @@ export interface StoredMessage {
   usage?: unknown;
   createdAt: Date;
 }
-
-/**
- * `ModelMessage` is now the SDK's own type, re-exported above. Content can
- * carry text, tool-call parts (assistant), and tool-result parts (tool role),
- * so tool observations survive into later turns in the conventional
- * representation.
- */
 
 /**
  * A persisted checkpoint selected for replay. The text is read from the

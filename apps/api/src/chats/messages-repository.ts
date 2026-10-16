@@ -445,10 +445,6 @@ export class MessagesRepository {
     return this.windowedByPredicates(predicates, options);
   }
 
-  /**
-   * Find a user turn and its assistant reply, scoped to one owned chat.
-   * Used for client-message-id idempotency before any new write or model call.
-   */
   /** The single message matching `predicates`, earliest first when more than one could match. */
   private async findOneMessage(
     predicates: Array<SQL>,
@@ -465,6 +461,10 @@ export class MessagesRepository {
     return rows.map((r) => r.messages)[0];
   }
 
+  /**
+   * Find a user turn and its assistant reply, scoped to one owned chat.
+   * Used for client-message-id idempotency before any new write or model call.
+   */
   async findTurnState(
     chatId: string,
     ownerUserId: string,

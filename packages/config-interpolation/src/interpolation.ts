@@ -1,7 +1,3 @@
-import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
 /**
  * Value interpolation (D4 / spec "Environment-variable interpolation" +
  * "File-path (secret) interpolation" + "Token placement, typing, and
@@ -15,6 +11,10 @@ import path from "node:path";
  * also knows the config path for error messages — this module never sees it,
  * so it cannot accidentally leak one.
  */
+
+import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 /** Where an unresolved-but-required token came from — named in errors, never the value. */
 export type InterpolationSource =
