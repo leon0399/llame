@@ -99,6 +99,7 @@ const EXPECTED_OPERATION_IDS = [
   'listActiveRuns',
   'listChats',
   'listKnowledgeSpaces',
+  'listMedia',
   'listModels',
   'listOrgUnitMemberships',
   'listOrgUnits',
