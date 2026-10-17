@@ -1,0 +1,971 @@
+.claude/rules/asyncapi-queues.md
+  ff74f0f64f6ad271 1-47
+apps/api/asyncapi.queues.yaml
+  ff74f0f64f6ad271 1-268
+docs/research/realtime/2026-10-17-queue-wire-asyncapi.md
+  ff74f0f64f6ad271 1-2,5-38,50-52,55-56,58-74,77-83,85,87-89,91-93,102-110,113-117,123-126,128-129,145-146,155-159,179-196
+CHANGELOG.md
+  ff74f0f64f6ad271 5-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "b6be9dca7f842e332f4bea2f0e33425d1349b82b",
+  "prompts": {
+    "ff74f0f64f6ad271": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a35d8be-1a34-4187-96c3-63bcd3fd31ee",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonid Meleshin <leonid.meleshin@webpros.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "Assess applicability of the AsyncAPI for the our queue wire - I would like to have our messages documented, verified and code-generated same way as we do for WebSockets now",
+          "timestamp": "2026-10-17T01:35:46.111Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; echo == asyncapi/ws refs ==; rg -il \"asyncapi|websocket\" --glob '!**/node_modules/**' --glob '!pnpm-lock.yaml' | head -40; echo == pkg scripts ==; rg -n \"asyncapi|openapi|ws:|codegen|generate\" package.json apps/api/package.json apps/web/package.json | head -40; echo == pgboss ==; rg -l \"pg-boss|PgBoss|boss\\.(send|work|insert)\" apps/api/src | head -40"
+          },
+          "timestamp": "2026-10-17T01:35:51.092Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; echo '== asyncapi/ws refs =='; rg -il \"asyncapi|websocket\" --glob '!**/node_modules/**' --glob '!pnpm-lock.yaml' | head -40; echo '== pkg scripts =='; rg -n \"asyncapi|openapi|codegen|generate\" package.json apps/api/package.json apps/web/package.json | head -40; echo '== pgboss =='; rg -l \"pg-boss|PgBoss|boss\\.(send|work|insert)\" apps/api/src | head -40"
+          },
+          "timestamp": "2026-10-17T01:35:54.821Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; echo '== asyncapi.yaml =='; wc -l apps/api/asyncapi.yaml; sed -n '1,80p' apps/api/asyncapi.yaml; echo '== generator =='; wc -l scripts/generate-live-protocol.mjs; sed -n '1,60p' scripts/generate-live-protocol.mjs; echo '== queue.ts =='; cat apps/api/src/queue/queue.ts | head -80; echo '== run-queues =='; head -80 apps/api/src/runs/run-queues.ts"
+          },
+          "timestamp": "2026-10-17T01:35:57.811Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; echo '== defineQueue =='; rg -n \"defineQueue[<(]\" apps/api/src --glob '!*.test.ts' ; echo '== payload types =='; rg -n -A8 \"^export type \\w+Job\\b|^type \\w+Job\\b|^export interface \\w+Job\" apps/api/src --glob '!*.test.ts' | head -90; echo '== pg_notify/LISTEN =='; rg -n \"pg_notify|LISTEN |NOTIFY\" apps/api/src --glob '!**/migrations/meta/**' | head -20; echo '== research doc queue mentions =='; rg -n -i \"queue|pg-boss|notify\" docs/research/realtime/2026-10-16-push-transport-and-asyncapi.md | head -30"
+          },
+          "timestamp": "2026-10-17T01:36:02.808Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; echo '== zod =='; rg -n '\"zod\"|json-schema-to-zod' package.json apps/api/package.json apps/web/package.json; echo '== live-messages 40-120 =='; sed -n 40,120p apps/api/src/live/live-messages.ts; echo '== contract test head =='; sed -n 1,40p apps/api/src/live/live-protocol.contract.test.ts; echo '== RunUserMessage =='; rg -n -B2 -A8 \"export type RunUserMessage\" apps/api/src/runs/run-execution.service.ts; echo '== other queue guards =='; sed -n 26,90p apps/api/src/search/reindex-queues.ts; echo '== supported asyncapi protocols in parser? =='; ls node_modules/@asyncapi 2>/dev/null; rg -l '\"protocol\"' node_modules/@asyncapi/specs/definitions/3.0.0/server.json 2>/dev/null; rg -n -A12 '\"protocol\"' node_modules/.pnpm/@asyncapi+specs@*/node_modules/@asyncapi/specs/definitions/3.0.0/server.json 2>/dev/null | head -20"
+          },
+          "timestamp": "2026-10-17T01:36:21.638Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Inventory done; checking how AsyncAPI's schema treats a non-standard `postgres` protocol, then I'll write up.",
+          "timestamp": "2026-10-17T01:36:24.142Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; f=$(fd -HI -t f 'server.json' node_modules/.pnpm | rg '@asyncapi\\+specs.*3\\.0\\.0/server.json' | head -1); echo $f; rg -n -A6 '\"protocol\"' \"$f\" | head -12; b=$(dirname $f)/serverBindingsObject.json; rg -n '\"additionalProperties\"|\"patternProperties\"|\"\\^x-' \"$b\" | head; echo '== MessagePart =='; rg -n \"export type MessagePart\\b\" apps/api/src | head -3; echo '== zod catalog =='; rg -n \"zod\" pnpm-workspace.yaml"
+          },
+          "timestamp": "2026-10-17T01:36:26.582Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; git worktree list | head -3; ls -d ~/Projects/llame/node_modules/@asyncapi 2>&1; echo '== openapi parts =='; rg -n '\"MessagePart|\"parts\"' apps/api/openapi.json | head; rg -c '\"(oneOf|anyOf|allOf)\"' apps/api/openapi.json; sed -n 83,110p apps/api/src/chats/context-builder.ts"
+          },
+          "timestamp": "2026-10-17T01:37:46.232Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 3545,3560p apps/api/openapi.json; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; mkdir -p $S; cat > $S/probe.yaml <<'EOF'\nasyncapi: 3.1.0\ninfo: { title: probe, version: '0.1' }\ndefaultContentType: application/json\nservers:\n  db:\n    host: localhost:5432\n    protocol: postgres\n    description: pg-boss on Postgres\nchannels:\n  search-embed:\n    address: search-embed\n    x-llame-queue: { policy: stately, retryLimit: 5, retryBackoff: true }\n    messages:\n      job:\n        payload:\n          type: object\n          required: [chatId, ownerUserId]\n          additionalProperties: false\n          properties:\n            chatId: { type: string }\n            ownerUserId: { type: string }\noperations:\n  enqueueSearchEmbed:\n    action: send\n    channel: { $ref: '#/channels/search-embed' }\n  consumeSearchEmbed:\n    action: receive\n    channel: { $ref: '#/channels/search-embed' }\nEOF\ncp scripts/generate-live-protocol.mjs $S/gen.mjs\ncd ~/Projects/llame && node --input-type=module -e \"\nimport { Parser, fromFile } from '@asyncapi/parser';\nconst p = new Parser(); const { document, diagnostics } = await fromFile(p, '$S/probe.yaml').parse();\nconsole.log('doc', !!document); for (const d of diagnostics) console.log(d.severity, d.code, d.path.join('.'), d.message);\n\" > $S/probe.log 2>&1; cat $S/probe.log"
+          },
+          "timestamp": "2026-10-17T01:37:53.206Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 60,263p scripts/generate-live-protocol.mjs | rg -n \"function |liveMessage|channels|operations|messages|discriminator\" | head -40; ls docs/research/realtime/; sed -n 1,30p docs/research/realtime/index.md; sed -n 1,30p docs/research/realtime/2026-10-16-push-transport-and-asyncapi.md"
+          },
+          "timestamp": "2026-10-17T01:38:00.167Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 1,200p docs/AGENTS.md | rg -n -i \"research|frontmatter|index|okf|dated|filename\" | head -30; echo ==; rg -n \"^- \\[|^## \" docs/research/index.md | head -40; echo ==; rg -n \"enqueue\\(\" apps/api/src --glob '!*.test.ts' | head"
+          },
+          "timestamp": "2026-10-17T01:38:05.837Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; cat docs/research/AGENTS.md | head -80; echo '----'; rg -n \"^- \\[|^## \" docs/research/index.md | head -40; echo '----'; rg -n \"\\.enqueue\\(|\\.send\\(\" apps/api/src --glob '!*.test.ts' | head"
+          },
+          "timestamp": "2026-10-17T01:38:08.940Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Writing the assessment note now (parser probe passed, MessagePart is an open-object array in `openapi.json`).",
+          "timestamp": "2026-10-17T01:38:13.289Z"
+        },
+        {
+          "type": "user",
+          "text": "[Request interrupted by user]",
+          "timestamp": "2026-10-17T01:38:50.698Z"
+        },
+        {
+          "type": "user",
+          "text": "You must read docs, best-practices, examples and other articles for the AsyncAPI, do no hand-roll",
+          "timestamp": "2026-10-17T01:39:17.872Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "ToolSearch",
+          "input": {
+            "query": "select:WebSearch,WebFetch"
+          },
+          "timestamp": "2026-10-17T01:39:22.605Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "mode": "standard",
+            "query": "AsyncAPI 3.0 job queue worker send receive operation point-to-point example"
+          },
+          "timestamp": "2026-10-17T01:39:24.981Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "mode": "standard",
+            "query": "AsyncAPI bindings postgres OR postgresql protocol"
+          },
+          "timestamp": "2026-10-17T01:39:25.426Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "mode": "standard",
+            "query": "AsyncAPI Modelina TypeScript zod generator 2026"
+          },
+          "timestamp": "2026-10-17T01:39:26.203Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "mode": "standard",
+            "query": "AsyncAPI message versioning best practices schema evolution"
+          },
+          "timestamp": "2026-10-17T01:39:26.604Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n -i \"modelina|generator|codegen|nestjs-asyncapi|bindings|json-schema-to-zod|D[0-9] \" docs/research/realtime/2026-10-16-push-transport-and-asyncapi.md | head -40"
+          },
+          "timestamp": "2026-10-17T01:39:47.503Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Quote exactly: (1) the definition of Server Object `protocol` field and the list of supported protocols; (2) the Operation Object `action` field semantics for send/receive and the statement about which application's perspective the document describes; (3) Bindings objects: which keys are allowed for server/channel/operation/message bindings, and whether specification extensions (x-) are allowed there; (4) the Specification Extensions section; (5) Message Object fields `correlationId`, `headers`, `schemaFormat`/Multi Format Schema; (6) Operation Traits / Message Traits.",
+            "url": "https://www.asyncapi.com/docs/reference/specification/v3.1.0"
+          },
+          "timestamp": "2026-10-17T01:39:49.906Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "List every protocol binding folder in this repository (all of them), and say whether there is any postgres/postgresql/pg-boss or generic \"database queue\" binding, and the process for proposing a new binding.",
+            "url": "https://github.com/asyncapi/bindings"
+          },
+          "timestamp": "2026-10-17T01:39:52.822Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Summarize the AsyncAPI Generator: what it does, official templates list (especially TypeScript/Node.js/zod), template authoring, current status/maintenance, and how it relates to Modelina and the CLI `generate fromTemplate` / `generate models` commands.",
+            "url": "https://www.asyncapi.com/docs/tools/generator"
+          },
+          "timestamp": "2026-10-17T01:39:52.878Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "List all TypeScript generator presets/options (model types, enums, marshalling, JSON Schema preset, rawPropertyNames, etc.). Is there any zod, io-ts, or runtime-validation preset? Quote relevant lines.",
+            "url": "https://github.com/asyncapi/modelina/blob/master/docs/languages/TypeScript.md"
+          },
+          "timestamp": "2026-10-17T01:40:11.521Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Summarize the official AsyncAPI guidance on runtime message validation: recommended tools (Parser, Glee, Schema Registry, etc.), patterns, and any code examples. Quote key recommendations.",
+            "url": "https://www.asyncapi.com/docs/guides/message-validation"
+          },
+          "timestamp": "2026-10-17T01:40:12.875Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "What does @asyncapi/diff do, how does it classify breaking/non-breaking/unclassified changes, which AsyncAPI versions does it support (3.x?), how is it used from CLI (`asyncapi diff`), and is it maintained? Quote key lines.",
+            "url": "https://github.com/asyncapi/diff"
+          },
+          "timestamp": "2026-10-17T01:40:14.182Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Quote the guidance about whose perspective an AsyncAPI document is written from (application, producer/consumer), and whether to describe one application per document or a whole system. Also anything on reusing components across documents.",
+            "url": "https://www.asyncapi.com/docs/concepts/asyncapi-document/structure"
+          },
+          "timestamp": "2026-10-17T01:40:15.569Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Quote the guidance about AsyncAPI document scope: does a document describe one application, and from which perspective; what does it say about producers vs consumers, and about describing a system of several applications?",
+            "url": "https://www.asyncapi.com/docs/concepts/asyncapi-document"
+          },
+          "timestamp": "2026-10-17T01:40:26.169Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Report version, dependencies (which @asyncapi/parser version), and anything indicating AsyncAPI 3 support.",
+            "url": "https://raw.githubusercontent.com/asyncapi/diff/master/package.json"
+          },
+          "timestamp": "2026-10-17T01:40:27.163Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "mode": "standard",
+            "query": "asyncapi cli \"diff\" command AsyncAPI 3.0 support breaking changes"
+          },
+          "timestamp": "2026-10-17T01:40:27.820Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "mode": "standard",
+            "query": "AsyncAPI document internal background jobs worker queue \"x-\" extension pg-boss OR BullMQ OR Sidekiq OR Celery"
+          },
+          "timestamp": "2026-10-17T01:40:28.598Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Still collecting primary sources (SQS binding vocabulary, runtime-validator status, spec \"application\" definition).",
+          "timestamp": "2026-10-17T01:40:44.497Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "List the SQS channel and operation binding fields, especially dead letter queue, redrivePolicy/maxReceiveCount, visibilityTimeout, deliveryDelay, fifoQueue, deduplicationScope, messageRetentionPeriod. Quote how a queue and its DLQ are modelled, and whether the binding expects the queue name in channel address.",
+            "url": "https://github.com/asyncapi/bindings/blob/master/sqs/README.md"
+          },
+          "timestamp": "2026-10-17T01:40:46.215Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Latest version, publish date, AsyncAPI 3.x support, API (fromSource, validate by message key / operation), and validation engine (ajv?).",
+            "url": "https://www.npmjs.com/package/asyncapi-validator"
+          },
+          "timestamp": "2026-10-17T01:40:47.281Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebFetch",
+          "input": {
+            "prompt": "Quote exactly the Definitions of \"Application\", \"Sender\", \"Receiver\", \"Message\", \"Channel\", \"Protocol\" and the paragraph in Introduction about a document describing an application's API and that it's not recommended to derive a receiver document from a sender one. Also quote the Specification Extensions section and the Server Object `protocol` field description including its list of supported values.",
+            "url": "https://github.com/asyncapi/spec/blob/v3.1.0/spec/asyncapi.md"
+          },
+          "timestamp": "2026-10-17T01:40:48.915Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; curl -sL https://raw.githubusercontent.com/asyncapi/spec/v3.1.0/spec/asyncapi.md -o $S/spec310.md; wc -l $S/spec310.md; rg -n -A3 '^<a name=\"serverObjectProtocol\"|^\\s*\\| <a name=\"serverObjectProtocol\"' $S/spec310.md | head; rg -n 'protocol</a>' $S/spec310.md | head -3; rg -n -A14 '^### Specification Extensions' $S/spec310.md; rg -n -i \"SHOULD describe the operations|from the point of view|perspective\" $S/spec310.md | head"
+          },
+          "timestamp": "2026-10-17T01:41:05.772Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; sed -n 15,40p $S/spec310.md; rg -n -i -A10 'Specification Extensions$|name=\"specificationExtensions\"' $S/spec310.md | head -30"
+          },
+          "timestamp": "2026-10-17T01:41:09.766Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "WebSearch",
+          "input": {
+            "mode": "standard",
+            "query": "zod v4 fromJSONSchema json-schema-to-zod deprecated"
+          },
+          "timestamp": "2026-10-17T01:41:14.148Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Research is sufficient; writing the note.",
+          "timestamp": "2026-10-17T01:41:43.550Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "---\ntype: Research\ntitle: \"AsyncAPI for the internal queue and NOTIFY wires\"\ndescription: \"Assesses describing llame's pg-boss job payloads and the llame_changes NOTIFY payload in an AsyncAPI 3.1 document, generating their runtime guards with the existing live-protocol generator, and which AsyncAPI tooling applies.\"\ntags: [asyncapi, pg-boss, queue, listen-notify, codegen, zod]\nstatus: draft\ngenerated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T00:00:00Z }\nobserved: { date: 2026-10-17, revision: be881ba74 }\nsources:\n  - id: spec-310\n    resource: \"https://github.com/asyncapi/spec/blob/v3.1.0/spec/asyncapi.md\"\n    title: \"AsyncAPI Specification 3.1.0\"\n  - id: bindings\n    resource: \"https://github.com/asyncapi/bindings\"\n    title: \"AsyncAPI protocol bindings\"\n  - id: sqs-binding\n    resource: \"https://github.com/asyncapi/bindings/blob/master/sqs/README.md\"\n    title: \"AsyncAPI SQS bindings 0.3.0\"\n  - id: generator\n    resource: \"https://www.asyncapi.com/docs/tools/generator\"\n    title: \"AsyncAPI Generator\"\n  - id: modelina-ts\n    resource: \"https://github.com/asyncapi/modelina/blob/master/docs/languages/TypeScript.md\"\n    title: \"Modelina TypeScript generator\"\n  - id: message-validation\n    resource: \"https://www.asyncapi.com/docs/guides/message-validation\"\n    title: \"AsyncAPI guide: message validation\"\n  - id: asyncapi-validator\n    resource: \"https://www.npmjs.com/package/asyncapi-validator/v/5.1.1\"\n    title: \"asyncapi-validator 5.1.1\"\n  - id: diff\n    resource: \"https://github.com/asyncapi/diff\"\n    title: \"@asyncapi/diff 0.5.0\"\n  - id: diff-v3-pr\n    resource: \"https://github.com/asyncapi/diff/pull/160\"\n    title: \"asyncapi/diff: add spec v3 support\"\n  - id: cli-usage\n    resource: \"https://www.asyncapi.com/docs/tools/cli/usage\"\n    title: \"AsyncAPI CLI usage\"\n  - id: zod-json-schema\n    resource: \"https://zod.dev/json-schema\"\n    title: \"Zod JSON Schema conversion\"\n---\n\n# AsyncAPI for the internal queue and NOTIFY wires\n\nRecommendation, moderate confidence: adopt it, scoped to a second document,\n`apps/api/asyncapi.internal.yaml`, generated through a generalized\n`scripts/generate-live-protocol.mjs`. No official AsyncAPI tool emits zod or\nruntime guards, so the existing parser-plus-`json-schema-to-zod` pipeline from\nthe [live-protocol study](./2026-10-16-push-transport-and-asyncapi.md#d6-contracts-asyncapi-document-first-records-from-openapi)\nremains the correct generator; it needs a per-channel output mode, not a\nreplacement.\n\n## Wires in scope\n\n| Wire | Producer | Consumer | Payload | Guard today |\n| ---- | -------- | -------- | ------- | ----------- |\n| `runs` | `RunDispatchService` | `RunsWorkerService` | `RunJob`; `userMessage.parts` is the stored message-part array | hand `parse` in `src/runs/run-queues.ts` |\n| `search-reindex`, `search-embed` | search dispatch | search workers | `{ chatId, ownerUserId }` | hand `parse` in `src/search/reindex-queues.ts` |\n| `search-sweep`, `sessions-cleanup` | pg-boss cron | workers | empty object | none needed |\n| `<name>.dead` | pg-boss on retry exhaustion | none in code | same as source queue | inherits source `parse` |\n| `llame_changes` NOTIFY | SQL trigger `llame_notify_change` | `ChangeHub` | `ChangeNotification` union keyed by `k` | hand `parseChangeNotification` in `src/live/live-messages.ts` |\n\nThe pg-boss envelope (`id`, `singletonKey`, retry state) is engine metadata and\nstays out of the payload schema.\n\n## Findings\n\n### F1 The spec fits one application that both sends and receives\n\nAsyncAPI \"does not assume any kind of software topology\", an application\n\"MUST be a sender, a receiver, or both\", and a document \"SHOULD describe the\noperations an application performs\"[^spec-310]. The API process and its\nco-located or dedicated workers are one application built from one codebase,\nso one document carrying a `send` operation (enqueue) and a `receive`\noperation (consume) per channel is the spec's own model. The spec's warning\nagainst deriving a receiver document from a sender document[^spec-310]\nconcerns two applications and does not apply.\n\n### F2 No binding exists; `protocol` and `x-` extensions carry the rest\n\nThe bindings repository has 18 bindings, none for Postgres, pg-boss, or a\ndatabase-backed queue[^bindings]. `server.protocol` is a free string\n(\"The protocol this server supports for connection\"), and every object accepts\n`^x-` specification extensions, which \"may or may not be supported by the\navailable tooling\"[^spec-310]. A probe document with `protocol: postgres` and a\nchannel-level `x-llame-queue: { policy: stately, retryLimit: 5, retryBackoff: true }`\nparsed with `@asyncapi/parser` 3.6.3, the version the repository pins, with\nzero diagnostics.\n\nDeclaring `protocol: sqs` to borrow its binding would misdescribe the\ntransport. The SQS binding is still the right vocabulary to copy into the\nextension: it models the dead-letter queue as its own queue, links it through\n`redrivePolicy.deadLetterQueue` plus `maxReceiveCount`, and names the lock\nwindow `visibilityTimeout`[^sqs-binding], which correspond to pg-boss\n`deadLetter`, `retryLimit`, and the heartbeat window.\n\n### F3 No official tool generates runtime validators\n\n- The Generator renders templates and directs model generation to\n  Modelina[^generator].\n- Modelina's TypeScript output is classes or interfaces with optional JSON\n  marshalling; it has no zod or runtime-validation preset[^modelina-ts].\n  Types alone duplicate what `defineQueue<T>` already gives at compile time.\n- The official validation guide names `asyncapi-validator`[^message-validation],\n  which validates through AJV at runtime[^asyncapi-validator]. Its last\n  release is about two years old, it validates by message key rather than\n  producing typed values, and it would add a second validation engine beside\n  zod.\n- Zod 4's `z.fromJSONSchema()` converts at runtime and is documented as\n  experimental[^zod-json-schema]; it yields no static types.\n\nThe in-repo generator already uses the official parser for validation and\n`json-schema-to-zod` for emission, so extending it is reuse of established\ntooling rather than a hand-rolled parser. Its current limits are\nWebSocket-specific: it requires exactly one `send` operation and emits a single\n`liveMessageSchema` discriminated union. The queue document needs one exported\nschema per channel. Estimate: 80 to 150 changed lines in the script plus its\ntest, high uncertainty until written.\n\n### F4 Payloads persist across deploys, so compatibility matters more than on the socket\n\nA queued, retrying, or dead-lettered job may be read by a different deploy than\nthe one that wrote it; `src/queue/queue.ts` already states this as the reason\nfor `parse`. Two consequences:\n\n- Breaking-change detection is the most valuable gate here. `@asyncapi/diff`\n  classifies changes as breaking, non-breaking, or unclassified, and the CLI\n  exposes it as `asyncapi diff`[^diff][^cli-usage]. Its 3.x support is\n  unverified: the v3 pull request went stale[^diff-v3-pr], and only its\n  dev dependency on parser `^3.6.0` points at 3.x. Low confidence it works on\n  3.1 documents; probe before relying on it.\n- Generated guards must not tighten acceptance by accident. Today's guards\n  ignore unknown fields and check `parts` only as an array of objects. The\n  HTTP API already publishes `parts` as an array of open objects in\n  `openapi.json`, so a `$ref` to that schema keeps `runs` equivalent. Emitting\n  `additionalProperties: false` on job payloads would dead-letter jobs that a\n  newer deploy wrote before a rollback.\n\n### F5 The NOTIFY payload has the strongest case\n\n`llame_notify_change` builds JSON in PL/pgSQL and TypeScript parses it with a\nhand guard. No shared type crosses that boundary, so today a field rename in\nthe trigger compiles cleanly and silently drops every notification at\n`parseChangeNotification`. Describing `llame_changes` as a channel with a\n`oneOf` discriminated on `k` (a construct the generator already supports)\ngives a generated guard, and an integration test that fires each trigger and\nvalidates the observed payload against the generated schema closes the\nSQL-to-TypeScript gap.\n\n### F6 The counterargument\n\nThe WebSocket document paid for itself because a second workspace (`apps/web`)\nconsumes the wire and records needed provable agreement with `openapi.json`.\nThe queue has one producer and one consumer in one TypeScript workspace that\nalready share `RunJob` by import, and the five hand guards total roughly 70\nlines. What AsyncAPI adds here is narrower: generated guards that cannot drift\nfrom the documented shape, an operator-readable catalog of queue names,\npayloads, and policies for the dedicated-worker topology in\n[scaling](../../product/operator/scaling.md), a diff gate for persisted-payload\ncompatibility (pending F4's probe), and coverage of the SQL producer in F5.\nWithout F4 and F5, moderate confidence this would be documentation overhead\nwith little defect prevention.\n\n## Decisions for Leo\n\n- **D1 Policy authority.** Option A: `QueueDefinition.options` stays\n  authoritative; the document records policy under `x-llame-queue`, and a\n  contract test asserts both agree. Option B: generate `options` from the\n  extension. Recommend A, since `heartbeatSeconds` comes from runtime\n  `LlameConfig` and cannot be generated, so B still leaves two sources.\n- **D2 Document split.** A separate `asyncapi.internal.yaml` or channels added\n  to `asyncapi.yaml`. Recommend separate: the live document's audience is\n  client authors and its server is the HTTP origin; the queue's server is the\n  database, and a mixed document would publish internal wiring to clients.\n- **D3 Strictness.** Required fields strict, unknown fields admitted on job\n  payloads (F4). Recommend this; it preserves today's acceptance.\n- **D4 NOTIFY in scope.** Recommend yes; F5 is where the defect prevention is.\n\n## Proposed shape\n\n```yaml\nasyncapi: 3.1.0\nservers:\n  database:\n    host: '{host}'\n    protocol: postgres\n    description: pg-boss queues and NOTIFY channels in the llame database.\nchannels:\n  runs:\n    address: runs\n    x-llame-queue: { deadLetter: runs.dead }\n    messages:\n      runJob: { $ref: '#/components/messages/runJob' }\n  llameChanges:\n    address: llame_changes\n    x-llame-transport: notify\n    messages:\n      changeNotification: { $ref: '#/components/messages/changeNotification' }\noperations:\n  enqueueRun: { action: send, channel: { $ref: '#/channels/runs' } }\n  consumeRun: { action: receive, channel: { $ref: '#/channels/runs' } }\n  receiveChange: { action: receive, channel: { $ref: '#/channels/llameChanges' } }\n```\n\nGenerated output would live at `apps/api/src/queue/generated/`, excluded from\n`crap-typescript` like `src/live/generated/`, with `lint:asyncapi` validating\nboth documents. Each `defineQueue({ parse })` would call the generated\nschema's `parse`.\n\n## Open questions\n\n- **Q1** Does `asyncapi diff` classify changes in 3.1 documents? Probe with\n  two revisions of the proposed document before adding a CI gate.\n- **Q2** Does pg-boss's own cron enqueue for `search-sweep` and\n  `sessions-cleanup` need a `send` operation in the document, given that\n  llame code never sends to them? Moderate confidence it should be documented\n  as a `send` with a description naming pg-boss's scheduler as the sender.\n\n[^spec-310]: AsyncAPI 3.1.0: Introduction, Definitions, Server Object `protocol`, Specification Extensions. <https://github.com/asyncapi/spec/blob/v3.1.0/spec/asyncapi.md>\n\n[^bindings]: Binding folders listed in the repository root. <https://github.com/asyncapi/bindings>\n\n[^sqs-binding]: Channel binding `queue` and `deadLetterQueue`, Redrive Policy `deadLetterQueue` and `maxReceiveCount`, Queue `visibilityTimeout`. <https://github.com/asyncapi/bindings/blob/master/sqs/README.md>\n\n[^generator]: \"If your primary objective is to generate models/classes ... use AsyncAPI Modelina\". <https://www.asyncapi.com/docs/tools/generator>\n\n[^modelina-ts]: Presets cover model type, map and enum style, JSON marshalling, examples, and descriptions; no validation library. <https://github.com/asyncapi/modelina/blob/master/docs/languages/TypeScript.md>\n\n[^message-validation]: Runtime validation section names `asyncapi-validator`. <https://www.asyncapi.com/docs/guides/message-validation>\n\n[^asyncapi-validator]: Version 5.1.1; AJV errors; `validate(key, payload, channel, operation)`. <https://www.npmjs.com/package/asyncapi-validator/v/5.1.1>\n\n[^diff]: README: breaking, non-breaking, and unclassified classification with overridable standard. <https://github.com/asyncapi/diff>\n\n[^diff-v3-pr]: \"feat: add spec v3 support\", marked stale. <https://github.com/asyncapi/diff/pull/160>\n\n[^cli-usage]: `asyncapi diff OLD NEW [-f json|yaml|yml|md] [-t breaking|non-breaking|unclassified|all]`. <https://www.asyncapi.com/docs/tools/cli/usage>\n\n[^zod-json-schema]: `z.fromJSONSchema()` is experimental and gives no round-trip guarantee. <https://zod.dev/json-schema>\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5/docs/research/realtime/2026-10-17-queue-wire-asyncapi.md"
+          },
+          "timestamp": "2026-10-17T01:42:28.622Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5/docs/research/realtime/index.md",
+            "new_string": "from which server and client validators are generated.\n- [AsyncAPI for the internal queue and NOTIFY wires](./2026-10-17-queue-wire-asyncapi.md) - Assesses describing llame's pg-boss job payloads and the llame_changes NOTIFY payload in an AsyncAPI 3.1 document, generating their runtime guards with the existing live-protocol generator, and which AsyncAPI tooling applies.",
+            "old_string": "from which server and client validators are generated.",
+            "replace_all": false
+          },
+          "timestamp": "2026-10-17T01:42:30.714Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm install --offline --frozen-lockfile > $S/install.log 2>&1; echo install=$?; pnpm exec prettier --check docs/research/realtime/ > $S/prettier.log 2>&1; echo prettier=$?; pnpm lint:markdown > $S/md.log 2>&1; echo md=$?; git diff --check; echo diffcheck=$?; tail -15 $S/md.log; tail -5 $S/prettier.log"
+          },
+          "timestamp": "2026-10-17T01:42:39.049Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; pnpm exec prettier --write docs/research/realtime/2026-10-17-queue-wire-asyncapi.md >/dev/null && pnpm exec prettier --check docs/research/realtime/ && git diff --stat"
+          },
+          "timestamp": "2026-10-17T01:43:02.990Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; rg -n \"llame_changes|pg_notify|parseChangeNotification|UPDATE |INSERT INTO|k: '\" apps/api/src/live/*.test.ts | head -30; sed 's/required: \\[chatId, ownerUserId\\]/required: [chatId, ownerUserId, extra]/; s/ownerUserId: { type: string }/ownerUserId: { type: string }\\n            extra: { type: string }/' $S/probe.yaml > $S/probe2.yaml; timeout 300 pnpm dlx @asyncapi/cli diff $S/probe.yaml $S/probe2.yaml -t all > $S/diff.log 2>&1; echo diff=$?; tail -40 $S/diff.log; npm view asyncapi-validator time.modified version 2>/dev/null"
+          },
+          "timestamp": "2026-10-17T01:44:31.461Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Noted the goal is shipping a PR — I'll go with the recommended defaults (D1 A, D2 separate document, D3 open payloads) and leave NOTIFY out since the goal targets the queue. First, I'll finish the diff probe that the CLI couldn't run on Node 22.\n\n",
+          "timestamp": "2026-10-17T01:44:53.096Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; mkdir -p $S/diffprobe; cd $S/diffprobe; npm init -y >/dev/null; npm i @asyncapi/diff@0.5.0 @asyncapi/parser@3.6.3 > npm.log 2>&1; echo npm=$?; cat > run.mjs <<'EOF'\nimport { Parser, fromFile } from '@asyncapi/parser';\nimport { diff } from '@asyncapi/diff';\nconst p = new Parser();\nconst load = async f => (await fromFile(p, f).parse()).document.json();\nconst a = await load(process.argv[2]), b = await load(process.argv[3]);\ntry { const o = diff(a, b, { outputType: 'json' }); console.log(JSON.stringify({breaking:o.breaking(), nonBreaking:o.nonBreaking(), unclassified:o.unclassified()}, null, 1)); } catch (e) { console.log('ERR', e.message); }\nEOF\nnode run.mjs $S/probe.yaml $S/probe2.yaml > diff.log 2>&1; head -60 diff.log"
+          },
+          "timestamp": "2026-10-17T01:44:56.182Z"
+        },
+        {
+          "type": "assistant",
+          "text": "`@asyncapi/diff` only flags the new required payload field as \"unclassified\" rather than breaking on 3.1, so it doesn't help as a compatibility gate—I'll note that. Now checking the generator and its test before making any changes.\n\n",
+          "timestamp": "2026-10-17T01:45:27.727Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 60,263p scripts/generate-live-protocol.mjs"
+          },
+          "timestamp": "2026-10-17T01:45:27.741Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Read the generator. Next: how the live document declares schemas, the generator's test, the hand guards' helpers, and every reference to the script.",
+          "timestamp": "2026-10-17T01:45:44.522Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; echo '== refs to script =='; rg -n \"generate-live-protocol|live/generated|live-generated\" --glob '!**/node_modules/**' --glob '!docs/research/**' . | rg -v '^./apps/(api|web)/(src|lib)/.*generated' | head -30; echo '== live doc components =='; sed -n 80,140p apps/api/asyncapi.yaml; rg -n \"schemaFormat|payload:|\\\\\\$ref: '\\./openapi|openapi.json#\" apps/api/asyncapi.yaml | head -20; echo '== expect helpers =='; rg -n -A12 \"export function expect(Record|String)\" apps/api/src/queue/queue.ts"
+          },
+          "timestamp": "2026-10-17T01:45:47.405Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 140,200p apps/api/asyncapi.yaml; sed -n 270,300p apps/api/asyncapi.yaml; echo '== gen test =='; cat scripts/generate-live-protocol.test.mjs | head -120; wc -l scripts/generate-live-protocol.test.mjs; echo '== lefthook =='; sed -n 15,40p lefthook.yml; echo == ci ==; rg -n \"asyncapi|live-protocol|generate:\" .github/workflows/*.yml | head"
+          },
+          "timestamp": "2026-10-17T01:45:51.008Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n '\"test[^\"]*\"|scripts/\\*\\*|node --test' package.json; rg -n \"node --test|generate:|asyncapi\" .github/workflows/ | head; echo '== session cleanup =='; sed -n 1,40p apps/api/src/auth/session-cleanup.service.ts; echo '== tests of parse =='; rg -ln \"RUNS_QUEUE.parse|\\.parse\\?\\.\\(|SEARCH_(REINDEX|EMBED)_QUEUE.parse|parse\\(\" apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts; rg -n \"parse\" apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts | head -30"
+          },
+          "timestamp": "2026-10-17T01:45:56.212Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n \"parse|TypeError|Malformed\" apps/api/src/queue/pgboss-queue.service.ts | head; rg -n \"toThrow\\(\" apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts apps/api/src/queue/*.test.ts | head -20; rg -n \"expectRecord|expectString\" apps/api/src --glob '!*.test.ts' | rg -v \"queue/queue.ts\" ; echo == MessagePart members ==; rg -n \"^(export )?(type|interface) (TextPart|ReasoningPart|ContextItemPart)\\b\" apps/api/src; rg -n \"export type UnknownRecord\" packages -r '' ; rg -n \"UnknownRecord =\" packages/*/src | head -3"
+          },
+          "timestamp": "2026-10-17T01:46:20.051Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 85,200p apps/api/src/queue/queue.ts; sed -n 80,140p apps/api/src/runs/run-queues.ts; sed -n 205,235p apps/api/src/queue/pgboss-queue.service.ts; rg -n \"expectRecord|expectString\" apps/api/src --glob '*.test.ts' | head"
+          },
+          "timestamp": "2026-10-17T01:46:36.605Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n \"generate-live-protocol|asyncapi\\.yaml\" --glob '!**/node_modules/**' --glob '!apps/*/src/**' --glob '!apps/web/lib/**' -l .; rg -n -i \"pg-boss|queue\" SPEC.md | head -20; ls openspec/specs | rg -i \"queue|worker|run\" "
+          },
+          "timestamp": "2026-10-17T01:46:49.693Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Checking the `job-queue` spec for payload-guard requirements; that decides whether this PR needs an OpenSpec change or can go as a refactor.",
+          "timestamp": "2026-10-17T01:46:54.255Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n -i \"guard|parse|payload|malformed|schema|asyncapi\" openspec/specs/job-queue/spec.md | head -20; rg -n \"^### Requirement\" openspec/specs/job-queue/spec.md | head -30"
+          },
+          "timestamp": "2026-10-17T01:46:55.628Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Spec's requirement (malformed payload fails at the consume boundary) is unchanged, so this is a refactor without an OpenSpec change. Starting implementation on a new branch.",
+          "timestamp": "2026-10-17T01:47:03.802Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; git switch -c refactor/queue-asyncapi && git mv scripts/generate-live-protocol.mjs scripts/generate-asyncapi-module.mjs && git mv scripts/generate-live-protocol.test.mjs scripts/generate-asyncapi-module.test.mjs && git status --short"
+          },
+          "timestamp": "2026-10-17T01:47:04.947Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the generator: add a `--channels` mode that emits each channel's payload schema plus an address/options constant.",
+          "timestamp": "2026-10-17T01:47:07.731Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 1,20p scripts/generate-asyncapi-module.mjs"
+          },
+          "timestamp": "2026-10-17T01:47:08.486Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\nimport re\np='scripts/generate-asyncapi-module.mjs'\ns=open(p).read()\ns=s.replace('''/**\n * Generates the live-update protocol module (zod validators plus inferred\n * types) from the AsyncAPI document that defines it.\n *\n *   node scripts/generate-live-protocol.mjs <asyncapi.yaml> <output.ts>\n *   node scripts/generate-live-protocol.mjs --validate <asyncapi.yaml>\n *\n * `apps/api/asyncapi.yaml` is the protocol's source of truth. Its message\n * payloads are OpenAPI 3.0 schemas that reference the HTTP API's record\n * schemas in `openapi.json`, so a record sent over the socket has the same\n * shape the HTTP API returns. The document is validated with the official\n * AsyncAPI parser before anything is generated.\n''','''/**\n * Generates a TypeScript module (zod validators plus inferred types) from an\n * AsyncAPI document that defines a wire.\n *\n *   node scripts/generate-asyncapi-module.mjs <asyncapi.yaml> <output.ts>\n *   node scripts/generate-asyncapi-module.mjs --channels <asyncapi.yaml> <output.ts>\n *   node scripts/generate-asyncapi-module.mjs --validate <asyncapi.yaml>...\n *\n * The default mode renders the live-update protocol: `apps/api/asyncapi.yaml`\n * is its source of truth, and its message payloads are OpenAPI 3.0 schemas\n * that reference the HTTP API's record schemas in `openapi.json`, so a record\n * sent over the socket has the same shape the HTTP API returns. `--channels`\n * renders one constant per channel instead (address, `x-llame-queue`\n * options, payload schema), for documents such as `apps/api/asyncapi.queues.yaml`\n * whose channels each carry one message. Every document is validated with\n * the official AsyncAPI parser before anything is generated.\n''')\ns=s.replace('''  \"minimum\",\n  \"maxLength\",''','''  \"minimum\",\n  \"minLength\",\n  \"maxLength\",''')\n# replace render + main\nstart=s.index('/**\\n * Renders the generated TypeScript module, formatted')\nend=s.index('async function main(args)')\nnew_render='''/** Prepends the generated-file banner and formats with the Prettier\n * configuration that applies to `outputPath`. */\nasync function formatModule(body, sourceLabel, outputPath) {\n  const module = [\n    `// Generated by scripts/generate-asyncapi-module.mjs from ${sourceLabel}.`,\n    \"// Do not edit: change the AsyncAPI document and regenerate.\",\n    'import { z } from \"zod\";',\n    \"\",\n    ...body,\n    \"\",\n  ].join(\"\\\\n\");\n  const options = outputPath ? await prettier.resolveConfig(outputPath) : null;\n  return prettier.format(module, { ...options, parser: \"typescript\" });\n}\n\n/** Renders the live-update protocol module. */\nexport async function renderLiveProtocol(\n  file,\n  sourceLabel,\n  outputPath,\n  readDocument = documentReader(),\n) {\n  const source = path.resolve(file);\n  const { address, messages } = sendOperation(readDocument(source), source);\n  const emitter = new SchemaEmitter(readDocument);\n  const members = messages.map((message) => {\n    const type = emitter.lookup(message.payload).properties?.type?.enum;\n    if (type?.length !== 1 || type[0] !== message.name) {\n      throw new Error(\n        `${message.payload.name} must declare type enum [${message.name}]`,\n      );\n    }\n    return emitter.emit(message.payload);\n  });\n  return formatModule(\n    [\n      `export const LIVE_CHANNEL_ADDRESS = ${JSON.stringify(address)};`,\n      \"\",\n      ...emitter.lines,\n      \"/** Every message the server sends on the channel. */\",\n      `export const liveMessageSchema = z.discriminatedUnion(\"type\", [${members.join(\", \")}]);`,\n      \"export type LiveMessage = z.infer<typeof liveMessageSchema>;\",\n    ],\n    sourceLabel,\n    outputPath,\n  );\n}\n\n/**\n * Renders one `<channel>Channel` constant per channel: its address, its\n * `x-llame-queue` options when declared, and its single message's payload\n * schema.\n */\nexport async function renderChannelModule(\n  file,\n  sourceLabel,\n  outputPath,\n  readDocument = documentReader(),\n) {\n  const source = path.resolve(file);\n  const document = readDocument(source);\n  const emitter = new SchemaEmitter(readDocument);\n  const channels = Object.entries(document.channels ?? {}).map(\n    ([key, channel]) => {\n      const messages = Object.values(channel.messages ?? {});\n      if (messages.length !== 1) {\n        throw new Error(\n          `Channel ${key} must carry exactly one message, found ${messages.length}`,\n        );\n      }\n      const message = messages[0].$ref\n        ? resolveLocal(document, messages[0].$ref)\n        : messages[0];\n      if (!message?.payload?.$ref) {\n        throw new Error(`Channel ${key} needs a component payload`);\n      }\n      const payload = emitter.emit(parseRef(message.payload.$ref, source));\n      const options = channel[\"x-llame-queue\"];\n      return [\n        `export const ${key}Channel = {`,\n        `  address: ${JSON.stringify(channel.address)},`,\n        ...(options ? [`  options: ${JSON.stringify(options)},`] : []),\n        `  payload: ${payload},`,\n        \"} as const;\",\n        \"\",\n      ];\n    },\n  );\n  return formatModule(\n    [...emitter.lines, ...channels.flat()],\n    sourceLabel,\n    outputPath,\n  );\n}\n\n'''\ns=s[:start]+new_render+s[end:]\ns=s.replace('''  const [input, output] = args;\n  if (!input || !output) {\n    throw new Error(\n      \"usage: generate-live-protocol.mjs <asyncapi.yaml> <output.ts>\",\n    );\n  }''','''  const channels = args[0] === \"--channels\";\n  const [input, output] = channels ? args.slice(1) : args;\n  if (!input || !output) {\n    throw new Error(\n      \"usage: generate-asyncapi-module.mjs [--channels] <asyncapi.yaml> <output.ts>\",\n    );\n  }''')\ns=s.replace('''  const source = await renderLiveProtocol(input, label, path.resolve(output));''','''  const render = channels ? renderChannelModule : renderLiveProtocol;\n  const source = await render(input, label, path.resolve(output));''')\n# hoist resolveLocal\ns=s.replace('''  const [operation] = operations;\n  const resolveLocal = (ref) =>\n    ref\n      .slice(2)\n      .split(\"/\")\n      .reduce((node, segment) => node?.[segment], document);\n  const channel = resolveLocal(operation.channel.$ref);\n  const messages = operation.messages.map((reference) => {\n    const pointer = resolveLocal(reference.$ref);\n    const message = pointer?.$ref ? resolveLocal(pointer.$ref) : pointer;''','''  const [operation] = operations;\n  const channel = resolveLocal(document, operation.channel.$ref);\n  const messages = operation.messages.map((reference) => {\n    const pointer = resolveLocal(document, reference.$ref);\n    const message = pointer?.$ref ? resolveLocal(document, pointer.$ref) : pointer;''')\ns=s.replace('''/** The single `send` operation's channel address and message payloads. */''','''/** The node a local `#/...` reference points at. */\nfunction resolveLocal(document, ref) {\n  return ref\n    .slice(2)\n    .split(\"/\")\n    .reduce((node, segment) => node?.[segment], document);\n}\n\n/** The single `send` operation's channel address and message payloads. */''')\nopen(p,'w').write(s)\nEOF\nrg -n \"resolveLocal|renderChannelModule|formatModule\" scripts/generate-asyncapi-module.mjs"
+          },
+          "timestamp": "2026-10-17T01:47:30.998Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Generator extended. Writing `apps/api/asyncapi.queues.yaml`, which mirrors the live document's conventions.",
+          "timestamp": "2026-10-17T01:47:40.578Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "asyncapi: 3.1.0\ninfo:\n  title: llame job queues\n  version: '0.1'\n  license:\n    name: MIT\n    url: https://github.com/leon0399/llame/blob/master/LICENSE\n  description: |\n    The background job queues llame's processes share through pg-boss. The\n    application is the llame API in every worker profile: the same codebase\n    enqueues (`send`) and consumes (`receive`) each queue, and a profile\n    decides which consumers a process registers\n    (`docs/product/operator/scaling.md`).\n\n    A message is a job's `data`. The pg-boss envelope (job id, singleton\n    key, retry state) is engine metadata and is not described here.\n\n    ## Delivery\n\n    Delivery is at least once. A handler that throws fails its job, which\n    retries under the queue's policy; a job that exhausts its retries moves\n    to the dead-letter queue `<address>.dead`, which carries the same\n    payload and has no consumer. A payload that does not validate against\n    its schema fails its job at the consume boundary, before the handler\n    runs.\n\n    ## Compatibility\n\n    A queued, retrying or dead-lettered job may be read by a different deploy\n    than the one that wrote it. Consumers ignore unknown payload fields, so\n    adding an optional field is safe in both directions. Adding a required\n    field, removing a field or changing a field's type fails jobs written by\n    the other deploy; such a change moves the queue to a new address.\n\n    ## Queue options\n\n    `x-llame-queue` on a channel declares the queue's static options in\n    pg-boss terms: `policy` (admission and coalescing), `retryLimit`,\n    `retryBackoff`, `deadLetter`. Omitted options take llame's queue defaults\n    (dead-lettering on). Options that come from operator configuration are\n    described on the channel instead.\n\n    This document is the queue wire's source of truth. The API's queue\n    payload validators, addresses and static options are generated from it.\ndefaultContentType: application/json\nservers:\n  database:\n    host: '{host}'\n    protocol: postgres\n    description: |\n      The llame PostgreSQL database (`POSTGRES_URL`). pg-boss keeps its\n      queues in the `pgboss` schema; no AsyncAPI binding exists for it, so\n      queue options are carried by the `x-llame-queue` extension.\n    variables:\n      host:\n        default: localhost:5432\n        description: The database host and port.\nchannels:\n  runs:\n    address: runs\n    title: Chat Runs\n    description: |\n      One job per Run attempt. Dispatch enqueues it under the Run id, so a\n      repeated enqueue of the same Run is a no-op.\n\n      The worker-liveness window (`runs.heartbeatSeconds` in the operator\n      configuration) and the job expiry (86,399 seconds, pg-boss's maximum)\n      are applied when the queue is created, not declared here.\n    messages:\n      runJob:\n        $ref: '#/components/messages/runJob'\n  searchReindex:\n    address: search-reindex\n    title: Chat search reindex\n    description: |\n      Rebuilds one chat's search documents. Enqueued with the chat id as its\n      singleton key, so a burst of writes to one chat collapses into one\n      queued and one running rebuild.\n    x-llame-queue:\n      policy: stately\n    messages:\n      searchChatJob:\n        $ref: '#/components/messages/searchChatJob'\n  searchEmbed:\n    address: search-embed\n    title: Chat search embedding\n    description: |\n      Embeds one chat's outstanding search documents. Coalesced per chat like\n      `search-reindex`; a job re-enqueues itself while bounded work remains.\n      Five retries with exponential backoff absorb a provider outage before\n      the job dead-letters.\n    x-llame-queue:\n      policy: stately\n      retryLimit: 5\n      retryBackoff: true\n    messages:\n      searchChatJob:\n        $ref: '#/components/messages/searchChatJob'\n  searchSweep:\n    address: search-sweep\n    title: Chat search sweep\n    description: |\n      A pg-boss cron tick every five minutes that discovers chats whose\n      search documents are missing or stale and enqueues their rebuilds.\n    x-llame-queue:\n      policy: stately\n    messages:\n      cronTick:\n        $ref: '#/components/messages/cronTick'\n  sessionsCleanup:\n    address: sessions.cleanup\n    title: Expired session cleanup\n    description: A pg-boss cron tick that deletes expired sessions.\n    messages:\n      cronTick:\n        $ref: '#/components/messages/cronTick'\noperations:\n  enqueueRun:\n    action: send\n    channel:\n      $ref: '#/channels/runs'\n    summary: Dispatch enqueues a Run attempt.\n  consumeRun:\n    action: receive\n    channel:\n      $ref: '#/channels/runs'\n    summary: A runs worker executes the Run.\n  enqueueSearchReindex:\n    action: send\n    channel:\n      $ref: '#/channels/searchReindex'\n    summary: A chat write or the sweep requests a rebuild of the chat's search documents.\n  consumeSearchReindex:\n    action: receive\n    channel:\n      $ref: '#/channels/searchReindex'\n    summary: A search worker rebuilds the chat's search documents.\n  enqueueSearchEmbed:\n    action: send\n    channel:\n      $ref: '#/channels/searchEmbed'\n    summary: A rebuild, or an embed job with work remaining, requests embedding.\n  consumeSearchEmbed:\n    action: receive\n    channel:\n      $ref: '#/channels/searchEmbed'\n    summary: A search worker embeds the chat's outstanding documents.\n  scheduleSearchSweep:\n    action: send\n    channel:\n      $ref: '#/channels/searchSweep'\n    summary: pg-boss's scheduler sends the cron tick; llame code only registers the schedule.\n  consumeSearchSweep:\n    action: receive\n    channel:\n      $ref: '#/channels/searchSweep'\n    summary: A search worker runs the sweep.\n  scheduleSessionsCleanup:\n    action: send\n    channel:\n      $ref: '#/channels/sessionsCleanup'\n    summary: pg-boss's scheduler sends the cron tick; llame code only registers the schedule.\n  consumeSessionsCleanup:\n    action: receive\n    channel:\n      $ref: '#/channels/sessionsCleanup'\n    summary: A worker deletes expired sessions.\ncomponents:\n  messages:\n    runJob:\n      name: runJob\n      title: Run job\n      summary: Executes one Run against its already-persisted user message.\n      payload:\n        $ref: '#/components/schemas/RunJob'\n      examples:\n        - name: run\n          payload:\n            runId: 3c1f9a2e-8b4d-4e6a-9f10-2d7c5b8e1a43\n            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37\n            userId: usr_8Jq2mXv4Kp\n            modelId: gpt-5\n            userMessage:\n              id: 9e2d4c71-5a3b-4f8e-b1c6-7d0a2e9f4b58\n              seq: 3\n              parts:\n                - type: text\n                  text: How does postgres.js re-LISTEN after a dropped connection?\n    searchChatJob:\n      name: searchChatJob\n      title: Search chat job\n      summary: Names one chat and its owner for search work.\n      payload:\n        $ref: '#/components/schemas/SearchChatJob'\n      examples:\n        - name: chat\n          payload:\n            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37\n            ownerUserId: usr_8Jq2mXv4Kp\n    cronTick:\n      name: cronTick\n      title: Cron tick\n      summary: An empty marker; the consumer derives its work from the database.\n      payload:\n        $ref: '#/components/schemas/CronTick'\n      examples:\n        - name: tick\n          payload: {}\n  schemas:\n    RunJob:\n      schemaFormat: application/vnd.oai.openapi;version=3.0.0\n      schema:\n        type: object\n        required:\n          - runId\n          - chatId\n          - userId\n          - modelId\n          - userMessage\n        properties:\n          runId:\n            type: string\n            minLength: 1\n          chatId:\n            type: string\n            minLength: 1\n          userId:\n            type: string\n            minLength: 1\n            description: The chat owner; the worker acts under this identity.\n          modelId:\n            type: string\n            minLength: 1\n          userMessage:\n            $ref: '#/components/schemas/RunUserMessage'\n    RunUserMessage:\n      schemaFormat: application/vnd.oai.openapi;version=3.0.0\n      schema:\n        type: object\n        description: The already-persisted user message the Run executes against.\n        required:\n          - id\n          - seq\n          - parts\n        properties:\n          id:\n            type: string\n            minLength: 1\n          seq:\n            type: integer\n            minimum: 1\n          parts:\n            type: array\n            description: The message's stored parts, in stored order.\n            items:\n              type: object\n              additionalProperties: true\n    SearchChatJob:\n      schemaFormat: application/vnd.oai.openapi;version=3.0.0\n      schema:\n        type: object\n        required:\n          - chatId\n          - ownerUserId\n        properties:\n          chatId:\n            type: string\n            minLength: 1\n          ownerUserId:\n            type: string\n            minLength: 1\n    CronTick:\n      schemaFormat: application/vnd.oai.openapi;version=3.0.0\n      schema:\n        type: object\n        description: Carries no data.\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5/apps/api/asyncapi.queues.yaml"
+          },
+          "timestamp": "2026-10-17T01:48:07.279Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; node scripts/generate-asyncapi-module.mjs --validate apps/api/asyncapi.queues.yaml apps/api/asyncapi.yaml && echo valid; node scripts/generate-asyncapi-module.mjs --channels apps/api/asyncapi.queues.yaml apps/api/src/queue/generated/queue-protocol.ts && cat apps/api/src/queue/generated/queue-protocol.ts"
+          },
+          "timestamp": "2026-10-17T01:48:09.118Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n -B2 -A8 \"^    RunPhase:|RunPhase'\" apps/api/asyncapi.yaml | head -40"
+          },
+          "timestamp": "2026-10-17T01:48:14.924Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n \"\\\\\\$ref: '#/components/schemas|^    [A-Z]\\w+:$\" apps/api/asyncapi.yaml | head -30"
+          },
+          "timestamp": "2026-10-17T01:48:17.493Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I found that the parser rejects a `$ref` crossing from an OpenAPI-format schema to a multi-format component, and since this document doesn't reference anything in `openapi.json`, the default JSON Schema format applies. I'll remove the `schemaFormat` wrappers.\n\n",
+          "timestamp": "2026-10-17T01:48:23.522Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\np='apps/api/asyncapi.queues.yaml'\nlines=open(p).read().split('\\n')\ni=lines.index('  schemas:')\nhead, tail = lines[:i+1], lines[i+1:]\nout=[]\nfor l in tail:\n    if l.strip().startswith('schemaFormat:') or l.strip()=='schema:':\n        continue\n    # schema bodies were indented 8 spaces under 6-space 'schema:'; dedent by 2 if deeper than 4\n    if l.startswith('        '):\n        l=l[2:]\n    out.append(l)\nopen(p,'w').write('\\n'.join(head+out))\nEOF\nsed -n '/^  schemas:/,$p' apps/api/asyncapi.queues.yaml | head -30; node scripts/generate-asyncapi-module.mjs --validate apps/api/asyncapi.queues.yaml apps/api/asyncapi.yaml && echo valid && node scripts/generate-asyncapi-module.mjs --channels apps/api/asyncapi.queues.yaml apps/api/src/queue/generated/queue-protocol.ts && cat apps/api/src/queue/generated/queue-protocol.ts"
+          },
+          "timestamp": "2026-10-17T01:48:26.026Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Generated module looks right. Rewiring the three queue definitions to the generated channels.",
+          "timestamp": "2026-10-17T01:48:35.897Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 1,30p apps/api/src/search/reindex-queues.ts; rg -n \"RunJob\\b|RunUserMessage\\b\" apps/api/src --glob '!*.test.ts' --glob '!**/generated/**' | head -20"
+          },
+          "timestamp": "2026-10-17T01:48:37.302Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\np='apps/api/src/runs/run-queues.ts'\ns=open(p).read()\nstart=s.index(\"import { type LlameConfig }\")\nend=s.index(\"/**\\n * RUNS_QUEUE with its native worker-liveness window\")\ns=s[:start]+'''import { type LlameConfig } from '../instance-config/llame-config';\nimport { runsChannel, type RunJob } from '../queue/generated/queue-protocol';\nimport { defineQueue, type QueueDefinition } from '../queue/queue';\n\n/** Queue payload for one run execution (SPEC §9.5); `apps/api/asyncapi.queues.yaml` defines it. */\nexport type { RunJob };\n\nexport const RUNS_QUEUE = defineQueue<RunJob>({\n  name: runsChannel.address,\n  // TypeScript can't vouch for bytes that sat in Postgres across a deploy —\n  // the generated guard fails malformed payloads at the consume boundary\n  // (retry → dead letter) instead of deep inside the executor.\n  parse: (data) => runsChannel.payload.parse(data),\n});\n\n'''+s[end:]\nopen(p,'w').write(s)\n\np='apps/api/src/search/reindex-queues.ts'\ns=open(p).read()\ns=s.replace('''import { defineQueue, expectRecord, expectString } from '../queue/queue';\n\n/** Rebuild the projection for one chat. */\nexport type SearchReindexJob = {\n  chatId: string;\n  ownerUserId: string;\n};\n''','''import {\n  searchEmbedChannel,\n  searchReindexChannel,\n  searchSweepChannel,\n  type SearchChatJob,\n} from '../queue/generated/queue-protocol';\nimport { defineQueue } from '../queue/queue';\n\n/** Rebuild the projection for one chat. */\nexport type SearchReindexJob = SearchChatJob;\n''')\nopen(p,'w').write(s)\nEOF\nsed -n 1,30p apps/api/src/runs/run-queues.ts | head -5; sed -n 20,80p apps/api/src/search/reindex-queues.ts"
+          },
+          "timestamp": "2026-10-17T01:48:44.873Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\np='apps/api/src/search/reindex-queues.ts'\ns=open(p).read()\ns=s.replace('''export const SEARCH_REINDEX_QUEUE = defineQueue<SearchReindexJob>({\n  name: 'search-reindex',\n  // Policy''','''export const SEARCH_REINDEX_QUEUE = defineQueue<SearchReindexJob>({\n  name: searchReindexChannel.address,\n  // Policy''')\ns=s.replace('''  // keeps a redundant rebuild harmless (wasted work, never wrong data).\n  options: { policy: 'stately' },\n  parse: (data) => {\n    const record = expectRecord(data, 'search-reindex');\n    return {\n      chatId: expectString(record, 'chatId', 'search-reindex'),\n      ownerUserId: expectString(record, 'ownerUserId', 'search-reindex'),\n    };\n  },\n});''','''  // keeps a redundant rebuild harmless (wasted work, never wrong data).\n  options: searchReindexChannel.options,\n  parse: (data) => searchReindexChannel.payload.parse(data),\n});''')\ns=s.replace('''  name: 'search-sweep',\n  // `stately` so overlapping cron ticks (a slow sweep spanning the next tick)\n  // don't stack — one queued + one running is enough.\n  options: { policy: 'stately' },\n  parse: () => ({}),''','''  name: searchSweepChannel.address,\n  // `stately` so overlapping cron ticks (a slow sweep spanning the next tick)\n  // don't stack — one queued + one running is enough.\n  options: searchSweepChannel.options,\n  // pg-boss's scheduler may deliver the tick with no data at all, which the\n  // generated object schema would reject; the sweep reads nothing from it.\n  parse: () => ({}),''')\ns=s.replace('''export type SearchEmbedJob = {\n  chatId: string;\n  ownerUserId: string;\n};''','''export type SearchEmbedJob = SearchChatJob;''')\ns=s.replace('''  name: 'search-embed',''','''  name: searchEmbedChannel.address,''')\ni=s.index(\"  options: { policy: 'stately', retryLimit: 5, retryBackoff: true },\")\nj=s.index('});',i)\ns=s[:i]+'''  options: searchEmbedChannel.options,\n  parse: (data) => searchEmbedChannel.payload.parse(data),\n'''+s[j:]\nopen(p,'w').write(s)\n\np='apps/api/src/auth/session-cleanup.service.ts'\ns=open(p).read()\ns=s.replace(\"\"\"import { defineQueue, QUEUE, type Queue } from '../queue/queue';\"\"\",\"\"\"import { sessionsCleanupChannel } from '../queue/generated/queue-protocol';\nimport { defineQueue, QUEUE, type Queue } from '../queue/queue';\"\"\")\ns=s.replace(\"\"\"  name: 'sessions.cleanup',\"\"\",\"\"\"  name: sessionsCleanupChannel.address,\"\"\")\nopen(p,'w').write(s)\nEOF\ngit diff --stat"
+          },
+          "timestamp": "2026-10-17T01:48:54.953Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Now the wiring: orphaned helpers, scripts, lint/coverage exclusions, and regenerating the live modules for the new banner.",
+          "timestamp": "2026-10-17T01:48:57.783Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n \"expectRecord|expectString\" apps/api/src | rg -v \"src/queue/queue.ts\"; sed -n 270,310p apps/api/src/queue/queue.ts; rg -n \"isRecord|isString|UnknownRecord\" apps/api/src/queue/queue.ts"
+          },
+          "timestamp": "2026-10-17T01:48:59.265Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\np='apps/api/src/queue/queue.ts'\ns=open(p).read()\ni=s.index('/**\\n * Payload-guard helpers shared')\ns=s[:i].rstrip('\\n')+'\\n'\ns=s.replace('''import {\n  isRecord,\n  isString,\n  type UnknownRecord,\n} from '@workspace/runtime-safety';\n\n''','')\nopen(p,'w').write(s)\nEOF\nsed -n 15,25p apps/api/src/queue/queue.ts; rg -n \"runtime-safety\" apps/api/src/queue/queue.ts\n# scripts & config\nsed -i 's#scripts/generate-live-protocol.mjs --validate apps/api/asyncapi.yaml#scripts/generate-asyncapi-module.mjs --validate apps/api/asyncapi.yaml apps/api/asyncapi.queues.yaml#' package.json\nsed -i 's#\"generate:live-protocol\": \"node ../../scripts/generate-live-protocol.mjs asyncapi.yaml src/live/generated/live-protocol.ts\"#\"generate:live-protocol\": \"node ../../scripts/generate-asyncapi-module.mjs asyncapi.yaml src/live/generated/live-protocol.ts\",\\n    \"generate:queue-protocol\": \"node ../../scripts/generate-asyncapi-module.mjs --channels asyncapi.queues.yaml src/queue/generated/queue-protocol.ts\"#; s#pnpm generate:live-protocol\"#pnpm generate:live-protocol \\&\\& pnpm generate:queue-protocol\"#; s#--exclude '\"'\"'src/live/generated/\\*\\*'\"'\"' src#--exclude '\"'\"'src/live/generated/**'\"'\"' --exclude '\"'\"'src/queue/generated/**'\"'\"' src#' apps/api/package.json\nsed -i 's#../../scripts/generate-live-protocol.mjs#../../scripts/generate-asyncapi-module.mjs#' apps/web/package.json\nsed -i 's#apps/api/asyncapi.yaml,apps/api/openapi.json,scripts/generate-live-protocol.mjs#apps/api/asyncapi.yaml,apps/api/asyncapi.queues.yaml,apps/api/openapi.json,scripts/generate-asyncapi-module.mjs#' lefthook.yml\nsed -i 's#    \"apps/api/src/live/generated/\\*\\*\",#    \"apps/api/src/live/generated/**\",\\n    \"apps/api/src/queue/generated/**\",#' knip.json\ngit diff package.json apps/api/package.json apps/web/package.json lefthook.yml knip.json | rg '^[+-]' "
+          },
+          "timestamp": "2026-10-17T01:49:07.430Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n --hidden \"live/generated|live-generated|asyncapi-glob\" --glob '!**/node_modules/**' --glob '!apps/*/src/**' --glob '!apps/web/lib/**' --glob '!docs/**' --glob '!pnpm-lock.yaml' . "
+          },
+          "timestamp": "2026-10-17T01:49:11.898Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; cat .claude/rules/asyncapi.md; sed -n 100,112p lefthook.yml; sed -n 1,15p apps/api/.oxlintrc.json; sed -n 18,26p .gitattributes; ls -la .claude/rules/ | head"
+          },
+          "timestamp": "2026-10-17T01:49:15.056Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 170,195p .github/workflows/ci.yml; python3 - <<'EOF'\nimport re\np='apps/api/.oxlintrc.json'; s=open(p).read()\ns=s.replace('\"src/live/generated/**\"\\n','\"src/live/generated/**\",\\n    \"src/queue/generated/**\"\\n'); open(p,'w').write(s)\np='.gitattributes'; s=open(p).read()\ns=s.replace(\"# Code generated from openapi.json (orval) and asyncapi.yaml (live protocol).\",\"# Code generated from openapi.json (orval), asyncapi.yaml (live protocol) and\\n# asyncapi.queues.yaml (queue payloads).\")\ns=s.replace(\"apps/api/src/live/generated/** linguist-generated=true\\n\",\"apps/api/src/live/generated/** linguist-generated=true\\napps/api/src/queue/generated/** linguist-generated=true\\n\"); open(p,'w').write(s)\nEOF\ngit diff apps/api/.oxlintrc.json .gitattributes | rg '^[+-]'"
+          },
+          "timestamp": "2026-10-17T01:49:22.311Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Updating the generator test for the rename and adding `--channels` cases.",
+          "timestamp": "2026-10-17T01:49:25.555Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 120,126p scripts/generate-asyncapi-module.test.mjs; python3 - <<'EOF'\np='scripts/generate-asyncapi-module.test.mjs'\ns=open(p).read()\ns=s.replace('''import {\n  parseRef,\n  renderLiveProtocol,\n  validateAsyncApi,\n} from \"./generate-live-protocol.mjs\";''','''import {\n  parseRef,\n  renderChannelModule,\n  renderLiveProtocol,\n  validateAsyncApi,\n} from \"./generate-asyncapi-module.mjs\";''')\ns=s.replace('''const asyncapi = () => parseYaml(read(\"apps/api/asyncapi.yaml\"));''','''const queueSource = path.join(root, \"apps/api/asyncapi.queues.yaml\");\nconst queueGenerated = \"apps/api/src/queue/generated/queue-protocol.ts\";\n\nconst asyncapi = () => parseYaml(read(\"apps/api/asyncapi.yaml\"));\nconst queues = () => parseYaml(read(\"apps/api/asyncapi.queues.yaml\"));\nconst renderChannels = (document) =>\n  renderChannelModule(\n    queueSource,\n    \"test\",\n    undefined,\n    readerWith({ [queueSource]: document }),\n  );''')\ns=s.replace('''test(\"the AsyncAPI document passes the official parser\", async () => {\n  await validateAsyncApi(source);\n});''','''test(\"the AsyncAPI documents pass the official parser\", async () => {\n  await validateAsyncApi(source);\n  await validateAsyncApi(queueSource);\n});\n\ntest(\"the committed queue module matches the queue AsyncAPI document\", async () => {\n  const expected = await renderChannelModule(\n    queueSource,\n    \"apps/api/asyncapi.queues.yaml\",\n    path.join(root, queueGenerated),\n  );\n  assert.equal(\n    read(queueGenerated),\n    expected,\n    `${queueGenerated} is stale: run pnpm --filter api generate:queue-protocol`,\n  );\n});\n\ntest(\"generates one constant per channel with its address, options and payload\", async () => {\n  const module = await renderChannels(queues());\n  assert.match(\n    module,\n    /export const searchEmbedChannel = \\\\{\\\\s*address: \"search-embed\",\\\\s*options: \\\\{ policy: \"stately\", retryLimit: 5, retryBackoff: true \\\\},\\\\s*payload: searchChatJobSchema,\\\\s*\\\\} as const;/,\n  );\n  assert.match(\n    module,\n    /export const runsChannel = \\\\{\\\\s*address: \"runs\",\\\\s*payload: runJobSchema,\\\\s*\\\\} as const;/,\n  );\n  assert.match(module, /userMessage: runUserMessageSchema/);\n});\n\ntest(\"rejects a channel that does not carry exactly one message\", async () => {\n  const broken = queues();\n  broken.channels.runs.messages.other = {\n    $ref: \"#/components/messages/cronTick\",\n  };\n  await assert.rejects(\n    renderChannels(broken),\n    /Channel runs must carry exactly one message, found 2/,\n  );\n});\n\ntest(\"rejects a channel message without a component payload\", async () => {\n  const broken = queues();\n  broken.components.messages.runJob.payload = { type: \"object\" };\n  await assert.rejects(\n    renderChannels(broken),\n    /Channel runs needs a component payload/,\n  );\n});''')\nopen(p,'w').write(s)\nEOF\npnpm --filter api generate:live-protocol >/dev/null && pnpm --filter api generate:queue-protocol >/dev/null && pnpm --filter web generate:live-protocol >/dev/null; git status --short; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm test:scripts > $S/scripts.log 2>&1; echo scripts=$?; rg -n \"^# (pass|fail)|not ok\" $S/scripts.log | head"
+          },
+          "timestamp": "2026-10-17T01:49:36.449Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Taking that: renaming `asyncapi.yaml` to `asyncapi.websocket.yaml` and splitting the rules file. Finding every reference first.",
+          "timestamp": "2026-10-17T01:50:08.628Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n --hidden \"asyncapi\\.yaml\" --glob '!**/node_modules/**' --glob '!pnpm-lock.yaml' --glob '!.git/**' . | rg -v \"asyncapi\\.queues\\.yaml\" "
+          },
+          "timestamp": "2026-10-17T01:50:09.857Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; git mv apps/api/asyncapi.yaml apps/api/asyncapi.websocket.yaml && sed -i 's/<asyncapi\\.yaml>/<document.yaml>/g' scripts/generate-asyncapi-module.mjs && for f in .claude/rules/asyncapi.md scripts/generate-asyncapi-module.test.mjs scripts/generate-asyncapi-module.mjs .gitattributes apps/api/src/live/live-protocol.contract.test.ts apps/api/src/live/change-hub.service.ts apps/api/src/live/change-hub.service.test.ts apps/api/package.json apps/api/src/testing/live-records.ts apps/web/lib/services/live/live-messages.ts apps/web/contexts/live-updates-context.tsx apps/web/package.json package.json lefthook.yml; do sed -i 's/asyncapi\\.yaml/asyncapi.websocket.yaml/g' $f; done; rg -n --hidden \"asyncapi\\.yaml\" --glob '!**/node_modules/**' --glob '!.git/**' --glob '!docs/research/**' .; pnpm --filter api generate:live-protocol >/dev/null && pnpm --filter web generate:live-protocol >/dev/null; rg -n \"websocket\" package.json lefthook.yml .gitattributes"
+          },
+          "timestamp": "2026-10-17T01:50:18.055Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Rename done; regenerated. Now splitting the rules file.",
+          "timestamp": "2026-10-17T01:50:27.856Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; head -1 apps/api/src/live/generated/live-protocol.ts; git mv .claude/rules/asyncapi.md .claude/rules/asyncapi-websocket.md; python3 - <<'EOF'\np='.claude/rules/asyncapi-websocket.md'\ns=open(p).read()\ns=s.replace('\"{apps/api/asyncapi.websocket.yaml,apps/api/src/live/generated/**,apps/web/lib/api/live-generated/**,scripts/generate-live-protocol*.mjs}\"','\"{apps/api/asyncapi.websocket.yaml,apps/api/src/live/generated/**,apps/web/lib/api/live-generated/**,scripts/generate-asyncapi-module*.mjs}\"')\ns=s.replace('# AsyncAPI live protocol','# AsyncAPI live protocol (WebSocket)')\ns=s.replace('''truth, and the API's and web client's message validators and types are\ngenerated from it. OpenAPI stays code-first; the two meet at the record\nschemas.''','''truth, and the API's and web client's message validators and types are\ngenerated from it. OpenAPI stays code-first; the two meet at the record\nschemas. The job queues have their own document and rules\n(`asyncapi-queues.md`); both share `scripts/generate-asyncapi-module.mjs`.''')\ns=s.replace('''  (`type`, `enum`, `format`, `minimum`, `maxLength`, `nullable`,''','''  (`type`, `enum`, `format`, `minimum`, `minLength`, `maxLength`, `nullable`,''')\ns=s.replace('scripts/generate-live-protocol.mjs','scripts/generate-asyncapi-module.mjs').replace('scripts/generate-live-protocol.test.mjs','scripts/generate-asyncapi-module.test.mjs')\nopen(p,'w').write(s)\nEOF\nrg -n \"live-protocol\\.(mjs|test)\" .claude/rules/"
+          },
+          "timestamp": "2026-10-17T01:50:32.912Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "---\npaths:\n  # One brace-expanded entry: multi-entry lists did not match before Claude\n  # Code 2.1.84 (https://github.com/anthropics/claude-code/issues/16853).\n  - \"{apps/api/asyncapi.queues.yaml,apps/api/src/queue/**,apps/api/src/runs/run-queues.ts,apps/api/src/search/reindex-queues.ts,apps/api/src/auth/session-cleanup.service.ts,scripts/generate-asyncapi-module*.mjs}\"\n---\n\n# AsyncAPI job queues\n\n`apps/api/asyncapi.queues.yaml` (AsyncAPI 3.1) defines the pg-boss job\nqueues: one channel per queue, whose `address` is the pg-boss queue name, a\n`send` and a `receive` operation per channel, and one message whose payload is\nthe job's `data`. It is design-first: the document is the source of truth,\nand `apps/api/src/queue/generated/queue-protocol.ts` exports one\n`<channel>Channel` constant per channel (address, static options, payload\nschema) generated from it. The WebSocket protocol has its own document and\nrules (`asyncapi-websocket.md`).\n\n## Rules\n\n- Change the document first, then regenerate with\n  `pnpm --filter api generate:queue-protocol`. Never hand-edit the generated\n  module.\n- A queue definition takes its `name`, static `options` and `parse` from its\n  generated channel constant. Options that come from operator configuration\n  (the runs heartbeat window and job expiry) are applied in code and described\n  in the channel `description`, never in `x-llame-queue`.\n- `x-llame-queue` holds only `QueueOptions` keys pg-boss applies per queue:\n  `policy`, `retryLimit`, `retryDelay`, `retryBackoff`, `deadLetter`. No\n  AsyncAPI binding exists for pg-boss; do not borrow another protocol's.\n- Payloads use the AsyncAPI default schema format (JSON Schema), not the\n  OpenAPI `schemaFormat`: the parser rejects a `$ref` between two multi-format\n  components, and this document references nothing in `openapi.json`.\n- Payload objects never set `additionalProperties: false`. A queued, retrying\n  or dead-lettered job can be read by another deploy, and consumers must\n  ignore fields they do not know. Adding a required field, removing a field or\n  changing a type is a breaking change: move the queue to a new address.\n- Every message has a `summary` and an `examples` entry on the message object.\n- The pg-boss envelope (job id, singleton key, retry state) is not part of the\n  payload and is not described here; a channel `description` names the\n  singleton key a producer sets.\n\n## Gates\n\n- `pnpm lint:asyncapi` validates both documents with the official parser.\n- `scripts/generate-asyncapi-module.test.mjs` fails when the committed module\n  is stale, and CI regenerates it during the API build and fails on any diff.\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5/.claude/rules/asyncapi-queues.md"
+          },
+          "timestamp": "2026-10-17T01:50:43.585Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Rules split. Running API typecheck and the affected unit tests.",
+          "timestamp": "2026-10-17T01:50:46.705Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm --filter api typecheck > $S/tc.log 2>&1; echo tc=$?; rg -n \"error\" $S/tc.log | head -20; pnpm --filter api exec vitest run src/runs/run-queues.test.ts src/search/reindex-queues.test.ts src/queue src/live/change-hub.service.test.ts src/live/live-protocol.contract.test.ts > $S/unit.log 2>&1; echo unit=$?; rg -n \"FAIL|✗|×|Tests \" $S/unit.log | head -30"
+          },
+          "timestamp": "2026-10-17T01:50:49.787Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; sed -n 54,70p $S/unit.log; sed -n 146,160p $S/unit.log; sed -n 178,192p $S/unit.log; sed -n 15,45p apps/api/src/runs/run-queues.test.ts"
+          },
+          "timestamp": "2026-10-17T01:51:55.271Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The remaining failures are just outdated hand-guard error strings—the generated guard correctly rejects the same inputs, including the unsafe integer. I'll rewrite the assertions to match the zod issue path and add a test confirming unknown fields are ignored per the compatibility rule.\n\n",
+          "timestamp": "2026-10-17T01:52:01.779Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 1,14p apps/api/src/runs/run-queues.test.ts; cat apps/api/src/search/reindex-queues.test.ts | sed -n 1,75p"
+          },
+          "timestamp": "2026-10-17T01:52:01.788Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\nhelper='''\n/** The dotted path of every issue the generated guard reports for `data`. */\nfunction issuePaths(parse: (data: unknown) => unknown, data: unknown) {\n  const result = (() => {\n    try {\n      parse(data);\n    } catch (error) {\n      return error;\n    }\n    return undefined;\n  })();\n  if (!(result instanceof ZodError)) throw new Error('expected a ZodError');\n  return result.issues.map((issue) => issue.path.join('.'));\n}\n'''\np='apps/api/src/runs/run-queues.test.ts'\ns=open(p).read()\ns=s.replace(\"import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';\\n\",\"import { ZodError } from 'zod';\\nimport { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';\\n\",1)\ns=s.replace(\"describe('RUNS_QUEUE payload parsing', () => {\", helper.lstrip('\\n')+\"\\ndescribe('RUNS_QUEUE payload parsing', () => {\",1)\ns=s.replace('''      expect(() =>\n        RUNS_QUEUE.parse?.({\n          ...validJob,\n          userMessage: { ...validJob.userMessage, seq },\n        }),\n      ).toThrow(\n        \"Malformed 'runs' job: userMessage.seq not a positive safe integer\",\n      );\n    },\n  );''','''      expect(\n        issuePaths(RUNS_QUEUE.parse!, {\n          ...validJob,\n          userMessage: { ...validJob.userMessage, seq },\n        }),\n      ).toEqual(['userMessage.seq']);\n    },\n  );\n\n  it('ignores fields a newer deploy added', () => {\n    expect(\n      RUNS_QUEUE.parse?.({\n        ...validJob,\n        added: true,\n        userMessage: { ...validJob.userMessage, added: true },\n      }),\n    ).toEqual(validJob);\n  });''')\nopen(p,'w').write(s)\n\np='apps/api/src/search/reindex-queues.test.ts'\ns=open(p).read()\ns=s.replace(\"\"\"import {\n  SEARCH_EMBED_QUEUE,\"\"\",\"\"\"import { ZodError } from 'zod';\nimport {\n  SEARCH_EMBED_QUEUE,\"\"\",1)\ns=s.replace(\"} from './reindex-queues';\\n\",\"} from './reindex-queues';\\n\"+helper,1)\nfor q,bad in (('SEARCH_REINDEX_QUEUE',\"'nope'\"),('SEARCH_EMBED_QUEUE','42')):\n    name='search-reindex' if 'REINDEX' in q else 'search-embed'\n    s=s.replace(f\"\"\"    expect(() => {q}.parse?.({bad})).toThrow(\n      \"Malformed '{name}' job: payload is not an object\",\n    );\"\"\",f\"\"\"    expect(issuePaths({q}.parse!, {bad})).toEqual(['']);\"\"\")\n    s=s.replace(f\"\"\"    expect(() => {q}.parse?.({{ ownerUserId: 'u1' }})).toThrow(\n      \"Malformed '{name}' job: expected non-empty string 'chatId'\",\n    );\"\"\",f\"\"\"    expect(issuePaths({q}.parse!, {{ ownerUserId: 'u1' }})).toEqual([\n      'chatId',\n    ]);\"\"\")\n    s=s.replace(f\"\"\"    expect(() => {q}.parse?.({{ chatId: 'c1' }})).toThrow(\n      \"Malformed '{name}' job: expected non-empty string 'ownerUserId'\",\n    );\"\"\",f\"\"\"    expect(issuePaths({q}.parse!, {{ chatId: 'c1' }})).toEqual([\n      'ownerUserId',\n    ]);\"\"\")\ns=s.replace(\"(written by an older deploy) and a `TypeError` deep inside a handler;\",\"(written by an older deploy) and a failure deep inside a handler;\")\nopen(p,'w').write(s)\nEOF\nrg -n \"Malformed\" apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts"
+          },
+          "timestamp": "2026-10-17T01:52:17.311Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -i -E 's/issuePaths\\((RUNS_QUEUE|SEARCH_REINDEX_QUEUE|SEARCH_EMBED_QUEUE)\\.parse!, /issuePaths((data) => \\1.parse?.(data), /' apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts; rg -c \"parse!\" apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm --filter @workspace/runtime-safety build > $S/rs.log 2>&1; echo rs=$?; pnpm exec prettier --write apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts apps/api/src/runs/run-queues.ts apps/api/src/search/reindex-queues.ts apps/api/src/auth/session-cleanup.service.ts apps/api/src/queue/queue.ts scripts/generate-asyncapi-module.mjs scripts/generate-asyncapi-module.test.mjs .claude/rules/*.md apps/api/asyncapi.queues.yaml knip.json >/dev/null; pnpm --filter api typecheck > $S/tc.log 2>&1; echo tc=$?; rg -n \"error\" $S/tc.log | head; pnpm --filter api exec vitest run src/runs/run-queues.test.ts src/search/reindex-queues.test.ts src/queue src/live src/auth/session-cleanup > $S/unit.log 2>&1; echo unit=$?; rg -n \"Tests |FAIL\" $S/unit.log | head"
+          },
+          "timestamp": "2026-10-17T01:52:25.995Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Unit tests pass. Typecheck still needs the API's workspace dependencies built; building them with turbo (sequential).",
+          "timestamp": "2026-10-17T01:53:27.990Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm exec turbo run build --filter='api^...' --concurrency=1 > $S/deps.log 2>&1; echo deps=$?; pnpm --filter api typecheck > $S/tc.log 2>&1; echo tc=$?; rg -n \"error\" $S/tc.log | head; pnpm --filter web typecheck > $S/tcw.log 2>&1; echo tcw=$?",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T01:53:30.997Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm --filter api lint > $S/lint-api.log 2>&1; echo lintapi=$?; tail -5 $S/lint-api.log; pnpm lint:asyncapi > $S/la.log 2>&1; echo asyncapi=$?; pnpm lint:dead-code > $S/knip.log 2>&1; echo knip=$?; tail -15 $S/knip.log; pnpm lint:duplicates > $S/dup.log 2>&1; echo dup=$?; pnpm test:scripts > $S/scripts.log 2>&1; echo scripts=$?; rg -n \"^# (pass|fail)\" $S/scripts.log",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T01:53:57.426Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; rg -n -B2 -A12 \"×|⚠|error\" $S/lint-api.log | head -60"
+          },
+          "timestamp": "2026-10-17T01:55:00.229Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The lint rule bans `unknown` in helper signatures; switching the helper to take a thunk.",
+          "timestamp": "2026-10-17T01:55:03.829Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\nimport re\nfor p in ['apps/api/src/runs/run-queues.test.ts','apps/api/src/search/reindex-queues.test.ts']:\n    s=open(p).read()\n    s=s.replace('''/** The dotted path of every issue the generated guard reports for `data`. */\nfunction issuePaths(parse: (data: unknown) => unknown, data: unknown) {\n  const result = (() => {\n    try {\n      parse(data);\n    } catch (error) {''','''/** The dotted path of every issue the generated guard reports from `parse`. */\nfunction issuePaths(parse: () => void): string[] {\n  const result = (() => {\n    try {\n      parse();\n    } catch (error) {''')\n    s=re.sub(r'issuePaths\\(\\(data\\) => (\\w+)\\.parse\\?\\.\\(data\\),\\s*', r'issuePaths(() => \\1.parse?.(', s)\n    open(p,'w').write(s)\nEOF\nrg -n -A6 \"issuePaths\\(\\(\\)\" apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts | head -30"
+          },
+          "timestamp": "2026-10-17T01:55:07.030Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm exec prettier --write apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts >/dev/null && rg -n -A6 \"issuePaths\\(\\(\\)\" apps/api/src/runs/run-queues.test.ts; pnpm --filter api lint > $S/lint-api.log 2>&1; echo lintapi=$?; rg -n \"error\" $S/lint-api.log | head; pnpm --filter api exec vitest run src/runs/run-queues.test.ts src/search/reindex-queues.test.ts > $S/unit.log 2>&1; echo unit=$?; rg -n \"Tests \" $S/unit.log",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T01:55:16.010Z"
+        },
+        {
+          "type": "assistant",
+          "text": "My regex dropped one closing paren per call; fixing by inserting it after each `parse?.(...)` call.",
+          "timestamp": "2026-10-17T01:56:09.724Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\nimport re\nfor p in ['apps/api/src/runs/run-queues.test.ts','apps/api/src/search/reindex-queues.test.ts']:\n    s=open(p).read(); out=''; i=0\n    pat=re.compile(r'issuePaths\\(\\(\\) => \\w+\\.parse\\?\\.\\(')\n    for m in pat.finditer(s):\n        out+=s[i:m.end()]; j=m.end(); depth=1\n        while depth:\n            c=s[j]; depth+= (c=='(') - (c==')'); j+=1\n        out+=s[m.end():j]+')'; i=j\n    out+=s[i:]; open(p,'w').write(out)\nEOF\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm exec prettier --write apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts > $S/pw.log 2>&1; echo pw=$?; pnpm --filter api lint > $S/lint-api.log 2>&1; echo lintapi=$?; rg -n \"error\" $S/lint-api.log | head; pnpm --filter api exec vitest run src/runs/run-queues.test.ts src/search/reindex-queues.test.ts > $S/unit.log 2>&1; echo unit=$?; rg -n \"Tests \" $S/unit.log; rg -n -A4 \"issuePaths\\(\\(\\)\" apps/api/src/search/reindex-queues.test.ts | head -8",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T01:56:15.004Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; sed -i 's/function issuePaths(parse: () => void): string\\[\\] {/function issuePaths(parse: () => void): Array<string> {/' apps/api/src/runs/run-queues.test.ts apps/api/src/search/reindex-queues.test.ts; pnpm --filter api lint > $S/lint-api.log 2>&1; echo lintapi=$?; pnpm lint:code > $S/lintcode.log 2>&1; echo lintcode=$?; tail -5 $S/lintcode.log",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T01:57:10.229Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Code and lint green. Before updating the research note, verifying F5's claim that a trigger-side rename would go unnoticed.",
+          "timestamp": "2026-10-17T01:59:26.519Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n \"^\\s*(it|test|describe)\\(\" apps/api/src/live/live-gateway.integration.test.ts | head -30"
+          },
+          "timestamp": "2026-10-17T01:59:27.387Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -n 161,240p apps/api/src/live/live-gateway.integration.test.ts | rg -n \"type: '|insert|update|delete|expect\" | head -30"
+          },
+          "timestamp": "2026-10-17T01:59:30.210Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The gateway integration test covers chat and run notifications end to end, so F5 overstated. Correcting it and recording the diff-probe result in the note.",
+          "timestamp": "2026-10-17T01:59:36.035Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Read",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5/docs/research/realtime/2026-10-17-queue-wire-asyncapi.md",
+            "limit": 200,
+            "offset": 25
+          },
+          "timestamp": "2026-10-17T01:59:37.154Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; python3 - \"$S\" <<'EOF'\nimport sys,json,re\nS=sys.argv[1]\np='docs/research/realtime/2026-10-17-queue-wire-asyncapi.md'\ns=open(p).read()\na=s.index('Recommendation, moderate confidence:')\nb=s.index('[^spec-310]: AsyncAPI 3.1.0:')\nbody='''Recommendation, moderate confidence: adopt it for the job queues as a second\ndocument, `apps/api/asyncapi.queues.yaml`, beside the WebSocket document\n`apps/api/asyncapi.websocket.yaml`, both generated through\n`scripts/generate-asyncapi-module.mjs`. No official AsyncAPI tool emits zod or\nruntime guards, so the parser-plus-`json-schema-to-zod` pipeline from the\n[live-protocol study](./2026-10-16-push-transport-and-asyncapi.md#d6-contracts-asyncapi-document-first-records-from-openapi)\nremains the generator; it gains a per-channel output mode. The NOTIFY payload\nis a candidate for the same treatment with a weaker case than first assumed\n(F5).\n\n## Wires in scope\n\n| Wire | Producer | Consumer | Payload | Guard before the queue document |\n| ---- | -------- | -------- | ------- | ------------------------------- |\n| `runs` | `RunDispatchService` | `RunsWorkerService` | `RunJob`; `userMessage.parts` is the stored message-part array | hand `parse` in `src/runs/run-queues.ts` |\n| `search-reindex`, `search-embed` | search dispatch | search workers | `{ chatId, ownerUserId }` | hand `parse` in `src/search/reindex-queues.ts` |\n| `search-sweep`, `sessions.cleanup` | pg-boss cron | workers | empty marker | none needed |\n| `<name>.dead` | pg-boss on retry exhaustion | none in code | same as source queue | inherits source `parse` |\n| `llame_changes` NOTIFY | SQL trigger `llame_notify_change` | `ChangeHub` | `ChangeNotification` union keyed by `k` | hand `parseChangeNotification` in `src/live/live-messages.ts` |\n\nThe pg-boss envelope (`id`, `singletonKey`, retry state) is engine metadata and\nstays out of the payload schema.\n\n## Findings\n\n### F1 The spec fits one application that both sends and receives\n\nAsyncAPI \"does not assume any kind of software topology\", an application\n\"MUST be a sender, a receiver, or both\", and a document \"SHOULD describe the\noperations an application performs\"[^spec-310]. The API process and its\nco-located or dedicated workers are one application built from one codebase,\nso one document carrying a `send` operation (enqueue) and a `receive`\noperation (consume) per channel is the spec's own model. The spec's warning\nagainst deriving a receiver document from a sender document[^spec-310]\nconcerns two applications and does not apply. A cron queue's `send` is\nperformed by pg-boss's scheduler; the operation's summary says so.\n\n### F2 No binding exists; `protocol` and `x-` extensions carry the rest\n\nThe bindings repository has 18 bindings, none for Postgres, pg-boss, or a\ndatabase-backed queue[^bindings]. `server.protocol` is a free string\n(\"The protocol this server supports for connection\"), and every object accepts\n`^x-` specification extensions, which \"may or may not be supported by the\navailable tooling\"[^spec-310]. A document with `protocol: postgres` and a\nchannel-level `x-llame-queue: { policy: stately, retryLimit: 5, retryBackoff: true }`\nparses with `@asyncapi/parser` 3.6.3, the version the repository pins, with\nzero diagnostics.\n\nDeclaring `protocol: sqs` to borrow its binding would misdescribe the\ntransport. The SQS binding is the closest standard vocabulary: it models the\ndead-letter queue as its own queue, links it through\n`redrivePolicy.deadLetterQueue` plus `maxReceiveCount`, and names the lock\nwindow `visibilityTimeout`[^sqs-binding], which correspond to pg-boss\n`deadLetter`, `retryLimit`, and the heartbeat window. `x-llame-queue` keeps\npg-boss's own option names instead, because they are what `QueueOptions`\npasses to the engine.\n\nA `$ref` from one multi-format schema to another fails the parser\n(`Property \"schemaFormat\" is not expected to be here`). The WebSocket\ndocument needs the OpenAPI format only to reference `openapi.json`; the queue\ndocument references nothing there and uses the default schema format.\n\n### F3 No official tool generates runtime validators\n\n- The Generator renders templates and directs model generation to\n  Modelina[^generator].\n- Modelina's TypeScript output is classes or interfaces with optional JSON\n  marshalling; it has no zod or runtime-validation preset[^modelina-ts].\n  Types alone duplicate what `defineQueue<T>` already gives at compile time.\n- The official validation guide names `asyncapi-validator`[^message-validation],\n  which validates through AJV at runtime[^asyncapi-validator]. Its registry\n  metadata was last modified on 2025-03-10, it validates by message key rather\n  than producing typed values, and it would add a second validation engine\n  beside zod.\n- Zod 4's `z.fromJSONSchema()` converts at runtime and is documented as\n  experimental[^zod-json-schema]; it yields no static types.\n\nThe in-repo generator uses the official parser for validation and\n`json-schema-to-zod` for emission. Its live mode requires exactly one `send`\noperation and emits a single discriminated union; the `--channels` mode emits\none `<channel>Channel` constant per channel carrying the address, the\n`x-llame-queue` options, and the payload schema.\n\n### F4 Payloads persist across deploys, so compatibility matters more than on the socket\n\nA queued, retrying, or dead-lettered job may be read by a different deploy than\nthe one that wrote it; `src/queue/queue.ts` states this as the reason for\n`parse`. Two consequences:\n\n- `@asyncapi/diff` 0.5.0 does not detect payload breaks. It runs on 3.1\n  documents, but adding a required field to a payload is reported as\n  `unclassified` on every path, with nothing under `breaking`\n  ([probe output](./2026-10-17-queue-wire-asyncapi-diff-probe.json)). The\n  CLI wrapper `asyncapi diff`[^cli-usage] requires Node 24 in `@asyncapi/cli`\n  6.2.0, above the repository's Node 22 pin. A compatibility gate would have\n  to be llame's own rule over the payload schemas.\n- Generated guards must not tighten acceptance by accident. The hand guards\n  ignored unknown fields and checked `parts` only as an array of objects.\n  Leaving `additionalProperties` unset makes the generated zod objects strip\n  unknown keys, which keeps that acceptance, so a job written by a newer\n  deploy survives a rollback. `z.number().int()` in zod 4 enforces the safe\n  integer range the hand guard checked for `seq`.\n\n### F5 The NOTIFY payload is covered end to end only in part\n\n`llame_notify_change` builds JSON in PL/pgSQL and TypeScript parses it with a\nhand guard, so no shared type crosses that boundary. The gateway integration\ntest drives a chat rename and a Run through the database and asserts the\nsocket messages, so a trigger-side rename of the `chat` or `run` fields fails\nCI. The `project`, `pin` and `run_event` variants are exercised only by unit\ntests over hand-built payloads. Describing `llame_changes` as a channel with a\n`oneOf` discriminated on `k` would make the contract declarative and cover\nevery variant uniformly; the defect it prevents is narrower than for the\nqueues.\n\n### F6 The counterargument\n\nThe WebSocket document paid for itself because a second workspace (`apps/web`)\nconsumes the wire and records needed provable agreement with `openapi.json`.\nThe queues have one producer and one consumer in one TypeScript workspace that\nalready shared `RunJob` by import, behind roughly 70 lines of hand guards.\nWhat AsyncAPI adds is narrower: guards that cannot drift from the documented\nshape, queue names and static options taken from the same document, and an\noperator-readable catalog of queue payloads and policies for the\ndedicated-worker topology in [scaling](../../product/operator/scaling.md).\n\n## Decisions\n\n- **D1 Policy authority.** The document is authoritative for static options:\n  each queue definition takes `options` from its generated channel constant.\n  Options from operator configuration (the runs heartbeat window) and the runs\n  job expiry stay in code and are described in the channel's `description`.\n- **D2 Document split.** Two documents with explicit names. The WebSocket\n  document's audience is client authors and its server is the HTTP origin;\n  the queue document's server is the database.\n- **D3 Strictness.** Required fields strict, unknown fields ignored (F4).\n- **D4 NOTIFY.** Deferred: the case rests on the three variants without\n  end-to-end coverage (F5).\n\n'''\ns=s[:a]+body+s[b:]\n# drop diff-v3-pr source + footnote\ns=re.sub(r'  - id: diff-v3-pr\\n.*\\n.*\\n','',s)\ns=re.sub(r'\\n\\[\\^diff-v3-pr\\]:.*\\n','\\n',s)\ns=re.sub(r'\\n\\[\\^diff\\]:.*\\n','\\n',s)\ns=re.sub(r'  - id: diff\\n.*\\n.*\\n','',s)\ns=s.replace('title: \"AsyncAPI for the internal queue and NOTIFY wires\"','title: \"AsyncAPI for the job queue and NOTIFY wires\"')\ns=s.replace('# AsyncAPI for the internal queue and NOTIFY wires','# AsyncAPI for the job queue and NOTIFY wires')\ns=s.replace('description: \"Assesses describing llame\\'s pg-boss job payloads and the llame_changes NOTIFY payload in an AsyncAPI 3.1 document, generating their runtime guards with the existing live-protocol generator, and which AsyncAPI tooling applies.\"','description: \"Assesses describing llame\\'s pg-boss job payloads and the llame_changes NOTIFY payload in AsyncAPI 3.1, which AsyncAPI tooling applies, and why the queue guards are generated by the repository\\'s own parser-plus-zod generator.\"')\nopen(p,'w').write(s)\nd=json.load(open(f'{S}/diffprobe/diff.log'))\njson.dump({\"tool\":\"@asyncapi/diff 0.5.0 with @asyncapi/parser 3.6.3\",\"change\":\"search-embed payload gains a required string field `extra`\",\"result\":d},open('docs/research/realtime/2026-10-17-queue-wire-asyncapi-diff-probe.json','w'),indent=2)\np='docs/research/realtime/index.md'; s=open(p).read()\ns=s.replace(\"- [AsyncAPI for the internal queue and NOTIFY wires](./2026-10-17-queue-wire-asyncapi.md) - Assesses describing llame's pg-boss job payloads and the llame_changes NOTIFY payload in an AsyncAPI 3.1 document, generating their runtime guards with the existing live-protocol generator, and which AsyncAPI tooling applies.\",\"- [AsyncAPI for the job queue and NOTIFY wires](./2026-10-17-queue-wire-asyncapi.md) - Assesses describing llame's pg-boss job payloads and the llame_changes NOTIFY payload in AsyncAPI 3.1, which AsyncAPI tooling applies, and why the queue guards are generated by the repository's own parser-plus-zod generator. Data: [diff probe](./2026-10-17-queue-wire-asyncapi-diff-probe.json).\")\nopen(p,'w').write(s)\nEOF\nhead -3 docs/research/realtime/index.md; rg -n \"diff\\]|diff-v3|\\^diff\" docs/research/realtime/2026-10-17-queue-wire-asyncapi.md"
+          },
+          "timestamp": "2026-10-17T02:00:13.391Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; sed -i 's/^Research on pushing record changes from the API to connected clients\\.$/Research on pushing record changes from the API to connected clients, and on AsyncAPI contracts for the wires behind it./' docs/research/realtime/index.md; sed -i 's#- \\[Realtime updates\\](./realtime/index.md) - Server-to-client push for record changes: change signal, transport and AsyncAPI contracts.#- [Realtime updates](./realtime/index.md) - Server-to-client push for record changes: change signal, transport, and AsyncAPI contracts for the WebSocket, job queue and NOTIFY wires.#' docs/research/index.md; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm exec prettier --write docs/research/ .claude/rules/ apps/api/asyncapi.queues.yaml >/dev/null; pnpm lint:markdown > $S/md.log 2>&1; echo md=$?; tail -4 $S/md.log; pnpm format:check > $S/fmt.log 2>&1; echo fmt=$?; tail -5 $S/fmt.log; git diff --check; echo dc=$?; pnpm lint:duplicates > $S/dup.log 2>&1; echo dup=$?",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T02:00:20.757Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm exec prettier --write $(git diff --name-only; git ls-files --others --exclude-standard) >/dev/null 2>&1; pnpm format:check > $S/fmt.log 2>&1; echo fmt=$?; pnpm --filter api exec vitest run src/live src/runs/run-queues.test.ts src/search/reindex-queues.test.ts src/queue src/auth > $S/unit.log 2>&1; echo unit=$?; rg -n \"Tests \" $S/unit.log; sed -n 1,30p CHANGELOG.md",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T02:02:00.613Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5/CHANGELOG.md",
+            "new_string": "# 2026-10-17\n\n- The background job queues are now described by an AsyncAPI document,\n  `apps/api/asyncapi.queues.yaml`: each queue's name, payload, and static\n  pg-boss options. The API's queue payload guards, names, and options are\n  generated from it, replacing the hand-written guards, and CI fails when the\n  generated module drifts. A payload that does not match still fails its job\n  before the handler runs; unknown fields are still ignored. The WebSocket\n  document is renamed `apps/api/asyncapi.websocket.yaml`, and\n  `scripts/generate-live-protocol.mjs` is now\n  `scripts/generate-asyncapi-module.mjs`.\n\n",
+            "old_string": "# 2026-10-17\n\n",
+            "replace_all": false
+          },
+          "timestamp": "2026-10-17T02:04:09.580Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Self-reviewing the authored diff before committing.",
+          "timestamp": "2026-10-17T02:04:12.764Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; git add -A; git diff --cached --stat -M | tail -30; git diff --cached -M -- apps/api/src/runs/run-queues.ts apps/api/src/search/reindex-queues.ts apps/api/src/auth/session-cleanup.service.ts | head -150"
+          },
+          "timestamp": "2026-10-17T02:04:13.663Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; rg -n \"schedule\\(\" apps/api/src --glob '!*.test.ts' | head"
+          },
+          "timestamp": "2026-10-17T02:04:19.437Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; python3 - <<'EOF'\np='apps/api/src/search/reindex-queues.ts'\ns=open(p).read()\ns=s.replace('''  // pg-boss's scheduler may deliver the tick with no data at all, which the\n  // generated object schema would reject; the sweep reads nothing from it.\n''','''  // The sweep reads nothing from the tick, so any payload is accepted.\n''')\nopen(p,'w').write(s)\nEOF\ngit add -A; git diff --cached -M -- scripts/generate-asyncapi-module.mjs | head -80"
+          },
+          "timestamp": "2026-10-17T02:04:24.441Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; pnpm format:check > $S/f.log 2>&1; echo fmt=$?; pnpm lint:markdown > $S/m.log 2>&1; echo md=$?; pnpm lint:asyncapi > $S/a.log 2>&1; echo asyncapi=$?; pnpm test:scripts > $S/t.log 2>&1; echo scripts=$?; pnpm lint:dead-code > $S/k.log 2>&1; echo knip=$?; pnpm --filter api lint > $S/l.log 2>&1; echo lint=$?; pnpm --filter api exec vitest run src/search/reindex-queues.test.ts > $S/u.log 2>&1; echo unit=$?; git diff --check; echo dc=$?",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T02:04:32.942Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Running the API build to confirm the CI drift gate (regenerate, then `git diff --exit-code`).",
+          "timestamp": "2026-10-17T02:05:09.335Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-quiet-stone-b5b5/6a35d8be-1a34-4187-96c3-63bcd3fd31ee/scratchpad; git add -A; pnpm --filter api build > $S/build.log 2>&1; echo build=$?; tail -4 $S/build.log; pnpm --filter web generate:live-protocol > /dev/null 2>&1; git diff --exit-code --stat; echo drift=$?",
+            "timeout": 600000
+          },
+          "timestamp": "2026-10-17T02:05:12.164Z"
+        },
+        {
+          "type": "assistant",
+          "text": "No drift. Committing and opening the PR as a draft.",
+          "timestamp": "2026-10-17T02:05:32.572Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/worktree-quiet-stone-b5b5; git commit -q -F - <<'EOF'\nrefactor(api): generate queue payload guards from an AsyncAPI document\n\nDescribe the pg-boss job queues in apps/api/asyncapi.queues.yaml (one\nchannel per queue, send and receive operations, static options under\nx-llame-queue) and generate each queue's name, options and zod payload\nguard from it, replacing the hand-written guards. Unknown payload fields\nare still ignored, and a malformed payload still fails its job before\nthe handler runs.\n\nRename the WebSocket document to asyncapi.websocket.yaml and the\ngenerator to scripts/generate-asyncapi-module.mjs, which gains a\n--channels mode. Split the AsyncAPI agent rules per document, and record\nthe tooling assessment under docs/research/realtime.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nEOF\ngit log --oneline -1; git remote -v | head -1"
+          },
+          "timestamp": "2026-10-17T02:05:35.588Z"
+        }
+      ],
+      "total_additions": 575,
+      "total_deletions": 0,
+      "accepted_lines": 442,
+      "overriden_lines": 46
+    }
+  }
+}
