@@ -173,14 +173,21 @@ function ProjectPageBody({
   return (
     <div className="space-y-6">
       <ProjectDetailsHeader project={data.project} isPinned={data.isPinned} />
-      <ProjectChatsCard
-        view={data.view}
-        rows={{
-          projects: data.allProjects,
-          pinnedAtByChatId: data.pinnedAtByChatId,
-          onRequestNewProject,
-        }}
-      />
+      {/* Three columns from `lg`: the chats take two, and the third is
+          reserved for the project's other panels as they arrive. Below `lg`
+          the chats take the full width. */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="min-w-0 lg:col-span-2">
+          <ProjectChatsCard
+            view={data.view}
+            rows={{
+              projects: data.allProjects,
+              pinnedAtByChatId: data.pinnedAtByChatId,
+              onRequestNewProject,
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -204,7 +211,7 @@ export default function ProjectPage() {
       />
 
       <div className="flex-1 overflow-y-auto px-8 py-7">
-        <div className="mx-auto max-w-205">
+        <div className="mx-auto max-w-6xl">
           <ProjectPageBody
             data={data}
             onRequestNewProject={setNewProjectChatId}
