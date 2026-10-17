@@ -77,7 +77,9 @@ describe('createFakeModelClient', () => {
 
     expect(onTextDelta).toHaveBeenCalledWith('done');
     expect(onRequestUsage).toHaveBeenCalledOnce();
-    expect(onRequestUsage).toHaveBeenCalledWith(ZERO_USAGE);
+    // The window is the request's own real elapsed time, which this fake
+    // stream cannot pin, so only its presence is asserted.
+    expect(onRequestUsage).toHaveBeenCalledWith(ZERO_USAGE, expect.any(Number));
     expect(onFinish).toHaveBeenCalledWith(
       expect.objectContaining({
         text: 'done',

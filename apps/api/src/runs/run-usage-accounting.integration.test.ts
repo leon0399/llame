@@ -261,9 +261,9 @@ class UsageScriptedModelClient implements ModelClient {
         ? input
         : {
             ...input,
-            onRequestUsage: (usage) => {
+            onRequestUsage: (usage, generationMs) => {
               this.script.onRequestUsage?.(usage);
-              input.onRequestUsage?.(usage);
+              input.onRequestUsage?.(usage, generationMs);
             },
           };
     applyRequestUsageCallback(streamOptions, receiptInput);
@@ -981,11 +981,19 @@ describe('Run usage accounting through the worker and Postgres', () => {
     expect(
       numericUsageField(reply.usage, 'firstTokenMs'),
     ).toBeGreaterThanOrEqual(1000);
-    // 300 output tokens over the ~1s window after that delta, with wall-clock
-    // tolerance for the test's own scheduling.
+    // The generation window starts at that same delta, so the lead-in is
+    // outside it, and the ~1s the provider held its tail open is inside it.
+    const generationMs = numericUsageField(reply.usage, 'generationMs');
+    expect(generationMs).toBeGreaterThanOrEqual(1000);
+    expect(generationMs).toBeLessThan(
+      numericUsageField(reply.usage, 'latencyMs'),
+    );
+    // 300 output tokens over that window, with wall-clock tolerance for the
+    // test's own scheduling.
     const tokensPerSecond = numericUsageField(reply.usage, 'tokensPerSecond');
     expect(tokensPerSecond).toBeGreaterThan(150);
     expect(tokensPerSecond).toBeLessThan(600);
+    expect(tokensPerSecond).toBeCloseTo(300 / (generationMs / 1000), 1);
 
     const liveUsages = metadataUsages(await liveStream);
     expect(liveUsages).toHaveLength(1);

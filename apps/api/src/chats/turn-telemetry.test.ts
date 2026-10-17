@@ -465,37 +465,69 @@ describe('TurnTelemetry', () => {
           latencyMs: 4820,
           firstTokenMs: 640,
           chunkCount: 312,
+          generationMs: 4180,
         });
 
         expect(telemetry).toMatchObject({
           firstTokenMs: 640,
           chunkCount: 312,
-          // 300 output tokens over the 4,180ms window after the first delta.
+          generationMs: 4180,
+          // 300 output tokens over the 4,180ms the provider spent generating.
           tokensPerSecond: 71.8,
         });
       });
 
-      it('rounds the first-token offset to nearest whole millisecond', () => {
+      it("derives the rate from the generation window, not the turn's wall clock", () => {
+        const telemetry = aggregateTurnTelemetry({
+          ...streamed,
+          // A turn that spent most of its life in tools: the window is the
+          // provider's own, so the rate ignores the 4,180ms it did not.
+          latencyMs: 4820,
+          firstTokenMs: 640,
+          chunkCount: 312,
+          generationMs: 750,
+        });
+
+        expect(telemetry).toMatchObject({
+          generationMs: 750,
+          tokensPerSecond: 400,
+        });
+      });
+
+      it('rounds the first-token offset and the window to whole milliseconds', () => {
         const firstTokenMsAt = (firstTokenMs: number) =>
           aggregateTurnTelemetry({
             ...streamed,
             latencyMs: 4820,
             firstTokenMs,
             chunkCount: 1,
+            generationMs: 400,
           }).firstTokenMs;
+        const generationMsAt = (generationMs: number) =>
+          aggregateTurnTelemetry({
+            ...streamed,
+            latencyMs: 4820,
+            firstTokenMs: 640,
+            chunkCount: 1,
+            generationMs,
+          }).generationMs;
 
         expect(firstTokenMsAt(639.6)).toBe(640);
         expect(firstTokenMsAt(640.4)).toBe(640);
+        expect(generationMsAt(399.6)).toBe(400);
+        expect(generationMsAt(-5)).toBeUndefined();
       });
 
       it('omits every metric for an attempt that streamed no output', () => {
         const telemetry = aggregateTurnTelemetry({
           ...streamed,
           latencyMs: 4820,
+          generationMs: 4180,
         });
 
         expect(telemetry).not.toHaveProperty('firstTokenMs');
         expect(telemetry).not.toHaveProperty('chunkCount');
+        expect(telemetry).not.toHaveProperty('generationMs');
         expect(telemetry).not.toHaveProperty('tokensPerSecond');
       });
 
@@ -505,10 +537,12 @@ describe('TurnTelemetry', () => {
           latencyMs: 4820,
           firstTokenMs: 640,
           chunkCount: 0,
+          generationMs: 4180,
         });
 
         expect(telemetry).not.toHaveProperty('firstTokenMs');
         expect(telemetry).not.toHaveProperty('chunkCount');
+        expect(telemetry).not.toHaveProperty('generationMs');
       });
 
       it('records no first-token stamp without a delta count', () => {
@@ -525,16 +559,18 @@ describe('TurnTelemetry', () => {
       it('records no throughput without a generation window', () => {
         const telemetry = aggregateTurnTelemetry({
           ...streamed,
-          latencyMs: 640,
+          latencyMs: 4820,
           firstTokenMs: 640,
           chunkCount: 312,
+          generationMs: 0,
         });
 
         expect(telemetry).toMatchObject({ firstTokenMs: 640, chunkCount: 312 });
+        expect(telemetry).not.toHaveProperty('generationMs');
         expect(telemetry).not.toHaveProperty('tokensPerSecond');
       });
 
-      it('records no throughput from a partial output total', () => {
+      it('records the window but no throughput from a partial output total', () => {
         const telemetry = aggregateTurnTelemetry({
           receipts: [
             usageReceipt({ inputTokens: 1200, outputTokens: 300 }),
@@ -545,10 +581,15 @@ describe('TurnTelemetry', () => {
           latencyMs: 4820,
           firstTokenMs: 640,
           chunkCount: 312,
+          generationMs: 4180,
           stepCount: 2,
         });
 
-        expect(telemetry).toMatchObject({ firstTokenMs: 640, chunkCount: 312 });
+        expect(telemetry).toMatchObject({
+          firstTokenMs: 640,
+          chunkCount: 312,
+          generationMs: 4180,
+        });
         expect(telemetry).not.toHaveProperty('tokensPerSecond');
       });
     });
