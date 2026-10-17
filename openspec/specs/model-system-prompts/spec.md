@@ -616,22 +616,24 @@ threshold and only the window variant can summarize it. Otherwise a measured
 context size at or above the Run model's threshold SHALL select the threshold
 variant. No request SHALL be compacted by both variants.
 
-A prepared request on a model that declares `image` input SHALL also count as
-reaching the Run model's threshold when it carries an image reference that
-`media-attachments` does not attach because its epoch's image bounds are reached
-and a stored image reference in a row before the triggering user message; an
-unstored image in an earlier row is never attached and never counts. Image
-overflow SHALL therefore select the threshold variant on the attempt's own
-model, because that request fits; a request that also does not fit SHALL select
-the window variant as above.
+A prepared request SHALL also count as reaching the Run model's threshold when
+it carries an image or PDF reference that `media-attachments` does not attach
+because its epoch's bounds are reached, and a stored reference attachable on the
+Run model, of a kind that
+model declares as input (a stored image when it declares `image`, a stored PDF
+when it declares `pdf`), in a row before the triggering user message; an
+unstored image or PDF in an earlier row is never attached and never counts.
+Image or PDF overflow SHALL therefore select the threshold variant on the
+attempt's own model, because that request fits; a request that also does not
+fit SHALL select the window variant as above.
 
-When image overflow is the only trigger condition and its compaction fails or
-yields no usable summary, the attempt SHALL proceed without a checkpoint and the
-overflowing references SHALL keep the limit placeholder that `media-attachments`
-defines; image overflow alone SHALL NOT fail an attempt. The trigger SHALL be
-evaluated again before every Run's first model step, so those references stay
-unattached only until the next Run whose compaction succeeds and starts a new
-epoch.
+When image or PDF overflow is the only trigger condition and its compaction
+fails or yields no usable summary, the attempt SHALL proceed without a checkpoint
+and the overflowing references SHALL keep the limit placeholder that
+`media-attachments` defines; image or PDF overflow alone SHALL NOT fail an
+attempt. The trigger SHALL be evaluated again before every Run's first model
+step, so those references stay unattached only until the next Run whose
+compaction succeeds and starts a new epoch.
 
 Measured context size SHALL be the previous completed assistant message's
 persisted final-request context size plus the estimate of the rows and rail
@@ -929,7 +931,7 @@ work.
 
 - **WHEN** a prepared request on a model that declares `image` input fits that
   model's window and its measured context size is below the threshold, but it
-  carries an image reference beyond its epoch's image bounds and a stored image
+  carries an image reference beyond its epoch's bounds and a stored image
   reference in a row before the triggering user message
 - **THEN** the threshold variant runs before the Run's first model step, with
   that attempt's own model client, system prompt, schema-only tool declarations,
@@ -939,8 +941,17 @@ work.
 
 #### Scenario: Image overflow in the triggering message alone does not compact
 
-- **WHEN** only the triggering user message's own images exceed the epoch's image
-  bounds and no row before it carries a stored image reference
+- **WHEN** only the triggering user message's own images exceed the epoch's
+  bounds and no row before it carries a stored image or PDF reference
+- **THEN** no checkpoint is published
+- **AND** the overflowing images keep the limit placeholder and the attempt
+  proceeds
+
+#### Scenario: A stored PDF does not enable image overflow without PDF input
+
+- **WHEN** a prepared request on a model that declares `image` but not `pdf`
+  input carries only a stored PDF in the rows before the triggering user
+  message, and that message's own images exceed the epoch's bounds
 - **THEN** no checkpoint is published
 - **AND** the overflowing images keep the limit placeholder and the attempt
   proceeds
@@ -954,6 +965,18 @@ work.
 - **AND** the overflowing images keep the limit placeholder
 - **AND** the next Run evaluates the trigger again before its first model step
   and, when its compaction succeeds, admits images oldest first under the new
+  epoch
+
+#### Scenario: PDF overflow selects the threshold variant
+
+- **WHEN** a prepared request on a model that declares `pdf` input fits that
+  model's window and its measured context size is below the threshold, but it
+  carries a PDF reference beyond its epoch's bounds and a stored PDF reference in
+  a row before the triggering user message
+- **THEN** the threshold variant runs before the Run's first model step, with
+  that attempt's own model client, system prompt, schema-only tool declarations,
+  and effort
+- **AND** the request after the checkpoint admits PDFs oldest first under the new
   epoch
 
 ### Requirement: Summarization instructions and the title prompts are packaged templates
