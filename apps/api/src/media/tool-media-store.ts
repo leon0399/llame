@@ -49,7 +49,8 @@ export type ToolMediaStore = {
    * It prepares the file without storing it;
    * the attempt's memory keeps an entry under `key`, the read's tool call id.
    * A file over the byte bound is refused before it is read; every
-   * preparation refusal is the read's structured failure.
+   * preparation refusal is the read's structured failure. A read the caller
+   * cancels rejects with the signal's reason instead, keeping nothing.
    */
   readonly readMedia: (
     locator: string,
@@ -94,8 +95,9 @@ async function preparePdfRead(
   bytes: Buffer,
   locator: string,
   retain: boolean,
+  signal?: AbortSignal,
 ): Promise<PreparedRead> {
-  const pages = await preparePdf(bytes);
+  const pages = await preparePdf(bytes, undefined, signal);
   return {
     result: {
       status: 'success',
@@ -151,7 +153,7 @@ function unstoredRead(
       }
       const bytes = await readBytes();
       const prepared = await (kind === 'pdf'
-        ? preparePdfRead(bytes, locator, input.includes(kind))
+        ? preparePdfRead(bytes, locator, input.includes(kind), signal)
         : prepareImageRead(bytes, locator, input.includes(kind)));
       signal?.throwIfAborted();
       if (key !== undefined) held.set(key, prepared.entry);

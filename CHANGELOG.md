@@ -52,14 +52,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-15
 
-- Added PDF reads from host files, `file:`, Knowledge, skills, and `media://`
-  locators (#1275). PDF-capable models receive the original under the shared
-  media window; unstored reads keep bytes only in the reading Run attempt and
-  replay as not retained later. Stored PDFs replay from the owner-scoped store.
-  Every selector on an image or PDF is refused with
-  `An image or PDF is read without a selector.`; encrypted, unopenable, or
-  oversized PDFs are refused without text fallback. PDF prompt imports remain
-  unsupported until their own delivery layer.
+- Added unstored web PDF reads (#916): a page declaring `application/pdf`
+  and starting with `%PDF-` returns PDF metadata and gives PDF-capable models
+  the original for the reading attempt, under a 20 MiB body and 100-page
+  bound. Selectors, encrypted or unopenable PDFs, and invalid signatures are
+  refused; probes and adapters remain text-only. The whole-call deadline
+  also covers media preparation.
 
 - Fixed the composer textarea jumping back to the top on every keystroke once
   the prompt grew past its `maxHeight` (#1287). The auto-resize collapses the
@@ -108,6 +106,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   story with its title, link, tags, and score, then every comment in the
   site's thread order with its score, from the site's keyless JSON API in one
   request.
+
+- Added PDF reads from host files, `file:`, Knowledge, skills, and `media://`
+  locators (#1275). PDF-capable models receive the original under the shared
+  media window; unstored reads keep bytes only in the reading Run attempt and
+  replay as not retained later. Stored PDFs replay from the owner-scoped store.
+  Every selector on an image or PDF is refused with
+  `An image or PDF is read without a selector.`; encrypted, unopenable, or
+  oversized PDFs are refused without text fallback. PDF prompt imports remain
+  unsupported until their own delivery layer.
 
 # 2026-10-14
 

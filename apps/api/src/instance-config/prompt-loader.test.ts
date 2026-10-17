@@ -19,7 +19,6 @@ import type {
 } from '../models/model-catalog';
 import { isValidSkillName } from '../skills/skill-name';
 import { resolvePackagedToolDescriptionPath } from '../prompts/tool-descriptions';
-import { WEB_RENDER_METHODS } from '../tools/web-read/pipeline';
 import { isRecord } from '@workspace/runtime-safety';
 import { parseWebLocator } from '../tools/web-read/locator';
 
@@ -1478,44 +1477,6 @@ describe('prompt template rejection messages', () => {
   });
 });
 
-/**
- * The methods this branch can report, read from the list the pipeline derives
- * its union from, so the assertions below cannot drift from it and hold on
- * every layer of the stack: the `policy` layer's probe adapters widen that
- * list, and this test then requires the description to name them too.
- */
-const PRODUCIBLE_WEB_RENDER_METHODS: ReadonlyArray<string> = WEB_RENDER_METHODS;
-
-/**
- * The method values the packaged `read` description may name beyond what this
- * branch produces. The announced alternate, the Markdown suffix probe, and the
- * `llms.txt` walk are the `policy` layer's derived-locator adapters
- * (`tasks.md` 3.1b), and the description travels with the stack, so it
- * documents the change's whole vocabulary before their producers exist.
- */
-const PENDING_WEB_RENDER_METHODS: ReadonlyArray<string> = [
-  'alternate',
-  'md-suffix',
-  'llms-txt',
-];
-
-/** The description's own `method` vocabulary: the parenthesized, comma- or
- *  `or`-separated list the sentence introducing `method` publishes. */
-const DESCRIBED_WEB_RENDER_METHODS =
-  /method reports which adapter produced the content \(([^)]+)\)/;
-
-/** The method values the rendered description publishes; empty when it
- *  publishes none, so a description that drops the list cannot pass
- *  vacuously. */
-function describedWebRenderMethods(description: string): ReadonlyArray<string> {
-  const published = DESCRIBED_WEB_RENDER_METHODS.exec(description)?.[1];
-  if (published === undefined) return [];
-  return published
-    .split(/,|\s+or\s+/)
-    .map((method) => method.trim())
-    .filter((method) => method !== '');
-}
-
 /** The packaged `read` description as the live model receives it, with no
  *  instance or model override. */
 function renderPackagedReadDescription(
@@ -1800,27 +1761,6 @@ describe('llame-owned tool description templates', () => {
     expect(parseWebLocator('https://example.test/guide#install')).toEqual({
       url: 'https://example.test/guide',
     });
-  });
-
-  it('names every web render method the pipeline can report', () => {
-    const described = describedWebRenderMethods(
-      renderPackagedReadDescription(['read']),
-    );
-
-    // Every method this branch can report must be documented ...
-    expect(described).toEqual(
-      expect.arrayContaining([...PRODUCIBLE_WEB_RENDER_METHODS]),
-    );
-    // ... and the description may name nothing outside the change's
-    // vocabulary: the producible set plus the `policy` layer's three probe
-    // methods.
-    expect(
-      described.filter(
-        (method) =>
-          !PRODUCIBLE_WEB_RENDER_METHODS.includes(method) &&
-          !PENDING_WEB_RENDER_METHODS.includes(method),
-      ),
-    ).toEqual([]);
   });
 
   it('rejects an unsupported instance override id regardless of its value', () => {

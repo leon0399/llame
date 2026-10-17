@@ -111,11 +111,11 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 4. `pdf-media/pdf-read-web` — web PDF bodies (design D7)
 
-- [ ] 4.1 Accept `application/pdf` responses whose body starts with `%PDF-` under a 20 MiB bound for that response only, parsed without storing like a local PDF read, with `method: "pdf"`; keep HTML and images at 5 MiB, every other binary type `unsupported_content_type`, and every probe or alternate candidate serving a PDF disqualified; verify by web-read tests against the local fixture server for each PDF scenario of "Web fetch bounds fail fast and are never retried", "Web reads accept text and image bodies", and "Web read results carry the final URL and retrieval method", including a 12 MiB PDF, a 21 MiB PDF, `application/pdf` over HTML bytes, and an `application/zip` body
-- [ ] 4.2 Update `apps/api/src/prompts/tools/read.md` (a web PDF body is read like a local PDF; other binary bodies stay refused), the web-read operator runbook, `docs/product/reference/locators/web.md`, and `docs/product/reference/tools/read.md`; add the dated `CHANGELOG.md` entry; this layer completes web PDF reads, so its PR carries `Closes #916`; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 4.3 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the web-read integration suite
-- [ ] 4.4 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 4.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 4.1 Accept `application/pdf` responses whose body starts with `%PDF-` under a 20 MiB bound for that response only, parsed without storing like a local PDF read, with `method: "pdf"`; keep HTML and images at 5 MiB, every other binary type `unsupported_content_type`, and every probe or alternate candidate serving a PDF disqualified; verify by web-read tests against the local fixture server for each PDF scenario of "Web fetch bounds fail fast and are never retried", "Web reads accept text and image bodies", and "Web read results carry the final URL and retrieval method", including a 12 MiB PDF, a 21 MiB PDF, `application/pdf` over HTML bytes, and an `application/zip` body
+- [x] 4.2 Update `apps/api/src/prompts/tools/read.md` (a web PDF body is read like a local PDF; other binary bodies stay refused), the web-read operator runbook, `docs/product/reference/locators/web.md`, and `docs/product/reference/tools/read.md`; add the dated `CHANGELOG.md` entry; this layer completes web PDF reads, so its PR carries `Closes #916`; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 4.3 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the web-read integration suite
+- [x] 4.4 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
+- [x] 4.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 5. `pdf-media/prompt-import-pdfs` — PDF entries (design D9)
 

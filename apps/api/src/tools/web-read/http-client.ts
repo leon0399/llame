@@ -19,10 +19,9 @@ import {
 import { type AdmitAddress, type AdmitDerivedLocator } from './admission';
 import { canonicalHref } from './locator';
 import {
-  BODY_TOO_LARGE,
+  DEFAULT_MAX_BODY_BYTES,
   cancelBody,
   contentTypeOf,
-  declaresBodyOverBound,
   decodeBody,
   readCappedBody,
   type ContentType,
@@ -39,8 +38,9 @@ export type WebResponse = {
 
 /** A page response with an accepted image type: its bytes, never decoded.
  *  Only `WebFetchSession.fetchPage` returns one. */
-export type WebImageResponse = {
+export type WebMediaResponse = {
   readonly finalUrl: string;
+  readonly kind: 'image' | 'pdf';
   readonly bytes: Uint8Array;
 };
 
@@ -115,7 +115,8 @@ export type WebFetchSession = {
    *  so an image there stays refused. */
   readonly fetchPage: (
     url: string,
-  ) => Promise<WebResponse | WebImageResponse | WebFetchFailure>;
+  ) => Promise<WebResponse | WebMediaResponse | WebFetchFailure>;
+  readonly untilDeadline: CallDeadline['untilDeadline'];
   /** Releases the deadline, caller listener, and per-request agents. */
   readonly dispose: () => void;
 };
@@ -131,9 +132,10 @@ const MAX_REDIRECTS = 20;
  *  `application/xml`, and any `+json`/`+xml` subtype. */
 const TEXT_MEDIA_TYPE = /^text\/|^application\/(?:json|xml)$|\+(?:json|xml)$/u;
 
-/** The image types a page response may carry (vision-media D7). The bytes,
- *  not this declaration, decide the image's format. */
-const IMAGE_MEDIA_TYPE = /^image\/(?:png|jpeg|gif|webp)$/u;
+/** Binary types accepted only for the page response, never a probe or adapter. */
+const PAGE_MEDIA_TYPE = /^(?:image\/(?:png|jpeg|gif|webp)|application\/pdf)$/u;
+// Keep fetch admission independent of the image codec loaded by media ingestion.
+const MAX_PDF_BODY_BYTES = 20 * 1024 * 1024;
 
 /** Neither message names the target: a `Location` is server-chosen text. */
 const INVALID_REDIRECT: WebFetchFailure = {
@@ -185,7 +187,7 @@ async function readDocumentResponse(
   const contentType = contentTypeOf(response.headers.get('content-type'));
   const refusal = await refusalFor(response, contentType, init);
   if (refusal !== undefined) return redactAuthorization(refusal, init);
-  const body = await readCappedBody(response, deadline);
+  const body = await readCappedBody(response, deadline, DEFAULT_MAX_BODY_BYTES);
   if (body.kind === 'failure') return redactAuthorization(body.failure, init);
   const fetched: WebResponse = {
     finalUrl: locator,
@@ -196,26 +198,30 @@ async function readDocumentResponse(
   return link === null ? fetched : { ...fetched, link };
 }
 
-/** A page response under the same status and 5 MiB bounds as a document, its
- *  image body returned as bytes; any other type is read as a document. */
+/** Page media stays binary; PDFs alone get the 20 MiB body allowance. */
 async function readPageResponse(
   reached: ReachedLocator,
   deadline: FetchDeadline,
-): Promise<WebResponse | WebImageResponse | WebFetchFailure> {
+): Promise<WebResponse | WebMediaResponse | WebFetchFailure> {
   const { response, locator } = reached;
   const contentType = contentTypeOf(response.headers.get('content-type'));
-  if (!IMAGE_MEDIA_TYPE.test(contentType.mediaType))
+  if (!PAGE_MEDIA_TYPE.test(contentType.mediaType))
     return readDocumentResponse(reached, deadline);
   const refusal = await refusalFor(
     response,
     contentType,
     undefined,
-    IMAGE_MEDIA_TYPE,
+    PAGE_MEDIA_TYPE,
   );
   if (refusal !== undefined) return refusal;
-  const body = await readCappedBody(response, deadline);
+  const kind = contentType.mediaType === 'application/pdf' ? 'pdf' : 'image';
+  const body = await readCappedBody(
+    response,
+    deadline,
+    kind === 'pdf' ? MAX_PDF_BODY_BYTES : DEFAULT_MAX_BODY_BYTES,
+  );
   if (body.kind === 'failure') return body.failure;
-  return { finalUrl: locator, bytes: body.bytes };
+  return { finalUrl: locator, kind, bytes: body.bytes };
 }
 
 /**
@@ -356,10 +362,6 @@ async function refusalFor(
     await cancelBody(response);
     return unsupportedContentType(contentType);
   }
-  if (declaresBodyOverBound(response.headers)) {
-    await cancelBody(response);
-    return BODY_TOO_LARGE;
-  }
   return undefined;
 }
 
@@ -381,6 +383,7 @@ export function createWebFetchSession(
   const connections = createConnectionPlanner(deps);
   const context: FetchLocatorContext = { options, deps, budget, connections };
   return {
+    untilDeadline: budget.deadline.untilDeadline,
     fetch: (url, init) =>
       withFetchDeadline(context, async (deadline) => {
         const reached = await reachLocator(url, context, deadline, init);

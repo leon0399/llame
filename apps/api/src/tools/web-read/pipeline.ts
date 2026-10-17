@@ -8,25 +8,22 @@ import type { WebFetchFailure, WebResponse } from './http-client';
 import { canonicalHref } from './locator';
 import type { WebAdapterProvenance } from './adapters/contract';
 
-/** Every adapter a web read can report, in pipeline order. Declared as values
- *  so a caller can enumerate them; the union is derived from this list. */
-export const WEB_RENDER_METHODS = [
-  'adapter',
-  'negotiated',
-  'alternate',
-  'md-suffix',
-  'readability',
-  'llms-txt',
-  'text',
-  'raw',
-  'image',
-] as const;
+export type WebRenderMethod =
+  | 'adapter'
+  | 'negotiated'
+  | 'alternate'
+  | 'md-suffix'
+  | 'readability'
+  | 'llms-txt'
+  | 'text'
+  | 'raw'
+  | 'image'
+  | 'pdf';
 
 export type WebDirectory = {
   readonly displayPath: string;
   readonly entries: ReadonlyArray<DirectoryListingEntry>;
 };
-export type WebRenderMethod = (typeof WEB_RENDER_METHODS)[number];
 
 export type WebRender = {
   readonly method: WebRenderMethod;

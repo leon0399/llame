@@ -6,6 +6,8 @@ import {
 } from '@workspace/native-file-tools';
 import { fetch as undiciFetch } from 'undici';
 
+import { MEDIA_REFUSAL } from '../../media/media-ingest';
+import { isPdfSignature } from '../../media/pdf-preparation';
 import { type ToolContext, type ToolResult } from '../types';
 import {
   createAddressAdmission,
@@ -16,7 +18,7 @@ import {
   type ResolveHost,
   type WebFetchFailure,
   type WebFetchSession,
-  type WebImageResponse,
+  type WebMediaResponse,
   type WebResponse,
   createWebFetchSession,
 } from './http-client';
@@ -28,7 +30,7 @@ import {
   type WebAdapterIo,
 } from './adapters/contract';
 import { renderWebContent } from './pipeline';
-import { buildWebImageResult, buildWebReadResult } from './result';
+import { buildWebMediaResult, buildWebReadResult } from './result';
 
 /** The locator-bearing call the native file tools dispatch by scheme. */
 type WebReadCall = {
@@ -113,82 +115,77 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
           'A web read needs the instance identity this process sends as its User-Agent, which instance configuration did not resolve.',
       };
     }
-    return fetchAndRender(
-      context,
-      {
+    const admit = createDerivedAdmission(context);
+    const session = createSession(context, userAgent, deps, admit);
+    try {
+      const pageRead = {
         locator,
-        userAgent,
         media: context.media?.readMedia(call.input.path, context.toolCallId),
-      },
-      deps,
-    );
+        session,
+        admit,
+      };
+      return await fetchAndRender(context, pageRead, deps);
+    } finally {
+      session.dispose();
+    }
   };
 }
 
 export const executeWebRead: WebReadExecutor =
   createWebReadExecutor(realWebReadDeps);
 
-/** One web read: its parsed locator, the User-Agent it sends, and the image
- *  hook bound to the locator as submitted and the read's tool call id. */
+/** One web read, with media preparation bound to its submitted locator and call id. */
 type WebPageRead = {
   readonly locator: WebLocator;
-  readonly userAgent: string;
+  readonly session: WebFetchSession;
+  readonly admit: AdmitDerivedLocator;
   readonly media: MediaReadHook | undefined;
 };
 
 async function fetchAndRender(
   context: ToolContext,
-  { locator, userAgent, media }: WebPageRead,
+  pageRead: WebPageRead,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
-  const admit = createDerivedAdmission(context);
-  const session = createSession(context, userAgent, deps, admit);
-  try {
-    const raw = isRawSelector(locator.selector);
-    let notes: ReadonlyArray<string> = [];
-    if (!raw) {
-      const adapters = await dispatchFor(context, locator.url, session, admit);
-      if (adapters.kind === 'fatal')
-        return { status: 'error', ...adapters.failure };
-      if (adapters.kind === 'rendered')
-        return await deps.buildWebReadResult(
-          locator,
-          locator.url,
-          adapters.render,
-        );
-      notes = adapters.notes;
-    }
-    const response = await fetchPage(context, session, locator.url, media);
-    if ('type' in response) return { status: 'error', ...response };
-    // Only a read with an image hook fetches a page that may return bytes.
-    if ('bytes' in response)
-      return await readImage(locator, response, media!, notes);
-    const render = await deps.renderWebContent(
-      response,
-      { raw },
-      { fetch: session.fetch, admit },
-    );
-    if ('type' in render) return { status: 'error', ...render };
-    // The envelope drops an empty notes list, so an unclaimed read is unchanged.
-    return await deps.buildWebReadResult(locator, response.finalUrl, {
-      ...render,
-      notes: [...notes, ...(render.notes ?? [])],
-    });
-  } finally {
-    session.dispose();
+  const { locator, media, session, admit } = pageRead;
+  const raw = isRawSelector(locator.selector);
+  let notes: ReadonlyArray<string> = [];
+  if (!raw) {
+    const adapters = await dispatchFor(context, locator.url, session, admit);
+    if (adapters.kind === 'fatal')
+      return { status: 'error', ...adapters.failure };
+    if (adapters.kind === 'rendered')
+      return await deps.buildWebReadResult(
+        locator,
+        locator.url,
+        adapters.render,
+      );
+    notes = adapters.notes;
   }
+  const response = await fetchPage(context, session, locator.url, media);
+  if ('type' in response) return { status: 'error', ...response };
+  if ('bytes' in response)
+    return await readMedia(pageRead, response, notes, session);
+  const render = await deps.renderWebContent(
+    response,
+    { raw },
+    { fetch: session.fetch, admit },
+  );
+  if ('type' in render) return { status: 'error', ...render };
+  return await deps.buildWebReadResult(locator, response.finalUrl, {
+    ...render,
+    notes: [...notes, ...(render.notes ?? [])],
+  });
 }
 
-/** The page response, or the abort that landed while it arrived: neither a
- *  synchronous render nor a decode starts after a caller abort. Only a read
- *  with an image hook accepts an image; without one an image body stays
- *  `unsupported_content_type`. */
+/** No rendering or preparation starts after a caller abort. Without the
+ *  media hook, a binary page remains an unsupported content type. */
 async function fetchPage(
   context: ToolContext,
   session: WebFetchSession,
   url: string,
   media: MediaReadHook | undefined,
-): Promise<WebResponse | WebImageResponse | WebFetchFailure> {
+): Promise<WebResponse | WebMediaResponse | WebFetchFailure> {
   const response =
     media === undefined
       ? await session.fetch(url)
@@ -197,35 +194,45 @@ async function fetchPage(
   return context.abortSignal?.aborted === true ? ABORTED_FAILURE : response;
 }
 
-/** An image page is decoded like a local image and never rendered or stored
- *  (vision-media D7). A selector is refused before anything is decoded,
- *  `:raw` included, and the decode refuses bytes that match no image format,
- *  whatever the declared type. */
-async function readImage(
-  locator: WebLocator,
-  page: WebImageResponse,
-  decode: MediaReadHook,
+/** Page media uses local preparation without rendering or storage. */
+async function readMedia(
+  { locator, media }: WebPageRead,
+  page: WebMediaResponse,
   notes: ReadonlyArray<string>,
+  session: WebFetchSession,
 ): Promise<ToolResult> {
-  if (locator.selector !== undefined) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message: MEDIA_SELECTOR_MESSAGE,
-    };
-  }
-  const { bytes } = page;
-  const decoded = await decode({
-    kind: 'image',
-    byteSize: bytes.byteLength,
-    readBytes: () =>
-      Promise.resolve(
-        Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-      ),
+  const result = await session.untilDeadline<ToolResult>(async (signal) => {
+    if (locator.selector !== undefined) {
+      return {
+        status: 'error',
+        type: 'invalid_selector',
+        message: MEDIA_SELECTOR_MESSAGE,
+      };
+    }
+    const { bytes } = page;
+    if (page.kind === 'pdf' && !isPdfSignature(bytes)) {
+      return {
+        status: 'error',
+        type: MEDIA_REFUSAL.unopenablePdf.code,
+        message: MEDIA_REFUSAL.unopenablePdf.message,
+      };
+    }
+    // Only a page fetched with this hook can return media bytes.
+    const decoded = await media!({
+      kind: page.kind,
+      signal,
+      byteSize: bytes.byteLength,
+      readBytes: () =>
+        Promise.resolve(
+          Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+        ),
+    });
+    if (decoded.status === 'error') return decoded;
+    if (decoded.kind !== page.kind)
+      throw new Error('Expected matching media preparation.');
+    return buildWebMediaResult(locator, page.finalUrl, decoded, notes);
   });
-  if (decoded.status === 'error') return decoded;
-  if (decoded.kind !== 'image') throw new Error('Expected image preparation.');
-  return buildWebImageResult(locator, page.finalUrl, decoded, notes);
+  return 'status' in result ? result : { status: 'error', ...result };
 }
 
 function createSession(

@@ -9,6 +9,15 @@
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "target": "ES2023",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "WebWorker.ImportScripts",
+      "ScriptHost",
+      "DOM.Iterable",
+      "DOM.AsyncIterable",
+      "ES2024.Promise"
+    ],
     "sourceMap": true,
     "outDir": "./dist",
     "types": ["node", "vitest/globals"],

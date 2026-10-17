@@ -32,7 +32,7 @@ before its request. Every resolved address is also judged against the `read`
 group's rejects, and each request is pinned to an admitted address. Those
 decisions are recorded beside the call decision and never through the
 model-visible result. Requests carry `User-Agent: llame/<version>`, are never
-retried, and stay inside the 10 s header, 30 s call, 5 MiB body, and
+retried, and stay inside the 10 s header, 30 s call, 5 MiB body (20 MiB for a PDF page), and
 20-redirect bounds. Do not restore removed policy or env toggles.
 
 ## Commands

@@ -122,6 +122,11 @@ starting with `%PDF-` returns `kind: "pdf"`, `mediaType: "application/pdf"`,
 There is no `content`, line metadata, thumbnail, or embedded PDF data. The
 extension never decides: an HTML file named `.pdf` stays text.
 
+An [`http(s)://`](../locators/web.md#behavior) page declaring
+`application/pdf` and starting with `%PDF-` returns the same PDF result with
+`finalUrl`, `method: "pdf"`, and `notes` only when non-empty. Its body bound is
+20 MiB; it is also unstored and takes no selector.
+
 The worker validates the original without storing it. Only a model with PDF
 input receives its bytes in the reading attempt's later steps, under the
 shared [media window](../../operator/media.md#media-window). On a later
