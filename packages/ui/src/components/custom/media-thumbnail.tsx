@@ -6,6 +6,7 @@ import {
   RotateCwIcon,
   XIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Button } from "@workspace/ui/components/button";
 import { Spinner } from "@workspace/ui/components/spinner";
@@ -13,6 +14,12 @@ import { cn } from "@workspace/ui/lib/utils";
 
 /** Upload lifecycle of one thumbnail; sent media is always `ready`. */
 export type MediaThumbnailStatus = "ready" | "uploading" | "failed";
+
+/**
+ * `compact` is a 64px square (composer, tool cards); `card` is a wider tile
+ * with a preview above a file-name caption (a sent message's attachments).
+ */
+export type MediaThumbnailVariant = "compact" | "card";
 
 /** Images load a preview; PDFs show a document icon and their name. */
 type ThumbnailContent =
@@ -44,6 +51,8 @@ export type MediaThumbnailItem = ThumbnailContent & {
 export type MediaThumbnailProps = ThumbnailContent & {
   /** Upload state; unfinished uploads cannot open. */
   status?: MediaThumbnailStatus;
+  /** Defaults to `compact`. */
+  variant?: MediaThumbnailVariant;
   /** Activates a ready image; PDFs open their `href` instead. */
   onOpen?: () => void;
   /** Shows a remove action, revealed on hover and on keyboard focus. */
@@ -117,16 +126,62 @@ function RemoveButton({
   );
 }
 
-/** A PDF's original opens in the browser's own viewer; unstored PDFs stay static. */
-function PdfSurface({ name, href }: { name: string; href?: string }) {
-  const content = (
-    <div className="flex size-full flex-col items-center justify-center gap-1 p-1 text-foreground">
-      <FileTextIcon aria-hidden="true" className="size-6" />
-      <span className="w-full truncate text-center text-xs" title={name}>
+/** A card's preview area above its file-name caption. The caption is hidden
+ *  from assistive technology when the image's `alt` or the PDF link's label
+ *  already names the attachment (`named`); otherwise it is the name. */
+function CardContent({
+  preview,
+  name,
+  named,
+}: {
+  preview: ReactNode;
+  name: string;
+  named: boolean;
+}) {
+  return (
+    <>
+      <span className="flex h-21 items-center justify-center overflow-hidden bg-muted text-muted-foreground">
+        {preview}
+      </span>
+      <span
+        aria-hidden={named || undefined}
+        title={name}
+        className="block truncate border-t px-2 py-1.5 text-left text-xs text-foreground"
+      >
         {name}
       </span>
-    </div>
+    </>
   );
+}
+
+const surfaceFocusClassName =
+  "block size-full rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset";
+
+/** A PDF's original opens in the browser's own viewer; unstored PDFs stay static. */
+function PdfSurface({
+  name,
+  href,
+  variant,
+}: {
+  name: string;
+  href?: string;
+  variant: MediaThumbnailVariant;
+}) {
+  const content =
+    variant === "card" ? (
+      <CardContent
+        preview={<FileTextIcon aria-hidden="true" className="size-6" />}
+        name={name}
+        named={href !== undefined}
+      />
+    ) : (
+      <div className="flex size-full flex-col items-center justify-center gap-1 p-1 text-foreground">
+        <FileTextIcon aria-hidden="true" className="size-6" />
+        <span className="w-full truncate text-center text-xs" title={name}>
+          {name}
+        </span>
+      </div>
+    );
   if (!href) return content;
   return (
     <a
@@ -134,7 +189,7 @@ function PdfSurface({ name, href }: { name: string; href?: string }) {
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`Open ${name} in a new tab`}
-      className="block size-full rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
+      className={surfaceFocusClassName}
     >
       {content}
     </a>
@@ -144,6 +199,7 @@ function PdfSurface({ name, href }: { name: string; href?: string }) {
 function ThumbnailSurface(
   props: ThumbnailContent & {
     status: MediaThumbnailStatus;
+    variant: MediaThumbnailVariant;
     onOpen?: () => void;
   },
 ) {
@@ -152,25 +208,30 @@ function ThumbnailSurface(
       <PdfSurface
         name={props.name}
         href={props.status === "ready" ? props.href : undefined}
+        variant={props.variant}
       />
     );
   }
-  const { src, alt, onOpen, status } = props;
-  if (!onOpen || status !== "ready")
-    return <ThumbnailImage src={src} alt={alt} />;
+  const { src, alt, onOpen, status, variant } = props;
+  const image = <ThumbnailImage src={src} alt={alt} />;
+  // The image's `alt` always names an image card, wrapped or not.
+  const content =
+    variant === "card" ? (
+      <CardContent preview={image} name={alt} named />
+    ) : (
+      image
+    );
+  if (!onOpen || status !== "ready") return content;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="size-full rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
-    >
-      <ThumbnailImage src={src} alt={alt} />
+    <button type="button" onClick={onOpen} className={surfaceFocusClassName}>
+      {content}
     </button>
   );
 }
 
 /**
- * A square image or PDF tile with upload state and an optional remove action.
+ * An image or PDF tile with upload state and an optional remove action: a
+ * 64px square (`compact`), or a preview above a file-name caption (`card`).
  * Images activate the caller's viewer; stored PDFs open their original in a
  * new tab. Unstored PDFs and unfinished uploads cannot open.
  *
@@ -178,6 +239,7 @@ function ThumbnailSurface(
  */
 export function MediaThumbnail({
   status = "ready",
+  variant = "compact",
   onRemove,
   onRetry,
   ...surface
@@ -186,9 +248,13 @@ export function MediaThumbnail({
     <div
       data-slot="media-thumbnail"
       data-status={status}
-      className="group/thumbnail relative size-16 shrink-0 overflow-hidden rounded-xl border bg-muted"
+      data-variant={variant}
+      className={cn(
+        "group/thumbnail relative shrink-0 overflow-hidden rounded-xl border",
+        variant === "card" ? "w-33 bg-card shadow-xs" : "size-16 bg-muted",
+      )}
     >
-      <ThumbnailSurface {...surface} status={status} />
+      <ThumbnailSurface {...surface} status={status} variant={variant} />
       {status === "uploading" && <UploadingOverlay />}
       {status === "failed" && <FailedOverlay onRetry={onRetry} />}
       {onRemove && (
@@ -204,6 +270,8 @@ export function MediaThumbnail({
 export interface MediaThumbnailRowProps {
   /** The images and PDFs, in attachment order. */
   items: ReadonlyArray<MediaThumbnailItem>;
+  /** Tile shape for every item; defaults to `compact`. */
+  variant?: MediaThumbnailVariant;
   /** Activates an image by key; tiles still uploading or failed do not open. */
   onOpen?: (key: string) => void;
   /** Removes an attachment by key; enables its remove action. */
@@ -223,6 +291,7 @@ export interface MediaThumbnailRowProps {
  */
 export function MediaThumbnailRow({
   items,
+  variant,
   onOpen,
   onRemove,
   onRetry,
@@ -240,6 +309,7 @@ export function MediaThumbnailRow({
         <li key={key}>
           <MediaThumbnail
             {...item}
+            variant={variant}
             onOpen={onOpen && (() => onOpen(key))}
             onRemove={onRemove && (() => onRemove(key))}
             onRetry={onRetry && (() => onRetry(key))}

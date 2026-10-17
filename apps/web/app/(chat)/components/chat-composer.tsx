@@ -15,7 +15,7 @@ import {
   PromptInputToolbar,
 } from "./prompt-input";
 import {
-  AttachFilesButton,
+  ComposerAddMenu,
   ComposerAttachmentRow,
   dropFilesInto,
   pasteFilesInto,
@@ -187,10 +187,10 @@ function ChatComposerToolbar({
   return (
     <PromptInputToolbar>
       <div className="flex items-center gap-1">
-        <AttachFilesButton
+        <ComposerAddMenu
           onFiles={attachments.add}
           accept={attachments.accept}
-          disabled={attachments.attachDisabled}
+          attachDisabled={attachments.attachDisabled}
         />
         <PermissionModeSelector chatId={chatId} />
       </div>

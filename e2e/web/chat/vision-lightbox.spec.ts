@@ -160,7 +160,8 @@ test("an image-only message sends and opens the same image in an owner fork", as
     });
   });
   const fileChooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Attach files" }).click();
+  await page.getByRole("button", { name: "Add files and more" }).click();
+  await page.getByRole("menuitem", { name: "Upload photos & files" }).click();
   await (
     await fileChooser
   ).setFiles({

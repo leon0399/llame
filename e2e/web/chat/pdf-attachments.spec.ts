@@ -33,7 +33,8 @@ test("a PDF reaches a PDF-only model and opens its original after reload", async
   await page.keyboard.press("Escape");
 
   const fileChooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Attach files" }).click();
+  await page.getByRole("button", { name: "Add files and more" }).click();
+  await page.getByRole("menuitem", { name: "Upload photos & files" }).click();
   await (
     await fileChooser
   ).setFiles({
