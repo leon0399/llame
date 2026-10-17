@@ -78,14 +78,19 @@ export function useProjects() {
 
 /**
  * One project in full, for an edit surface that only holds a lean card (the
- * rail's pinned rows carry no description). Read fresh on every mount and
- * dropped on unmount, so an edit dialog never seeds from a stale copy.
+ * rail's pinned rows carry no description): read once each time it is
+ * enabled (each time the dialog opens), even while an observer keeps the
+ * last copy cached; `isFetching` tells the caller that copy may be stale.
+ * Focus and reconnect do not refetch it, so an open form is never withdrawn.
  */
 export function useProjectQuery(id: string, enabled = true) {
   return useQuery({
     queryKey: projectQueryKeys.detail(id),
     queryFn: ({ signal }) => getProject(id, { signal }, authenticatedFetch()),
     enabled,
+    staleTime: 0,
     gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }

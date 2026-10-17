@@ -54,12 +54,15 @@ const archivedProjectPin: PinnedItem = {
 let fetchMock: Mock<typeof fetch>;
 let serverPins: Array<PinnedItem>;
 let releasePins: () => void;
+/** The project's description as the server holds it now. */
+let serverDescription: string;
 
 type PinsParameters = { pins?: Array<PinnedItem>; holdPins?: boolean };
 
 function routeFetch() {
   return ({ parameters }: { parameters: PinsParameters }) => {
     serverPins = parameters.pins ?? [];
+    serverDescription = "Everything about the relaunch";
     const holdPins = parameters.holdPins === true;
     unpinMutate.mockClear();
     useUnpinItem.mockReturnValue({ mutate: unpinMutate, isPending: false });
@@ -89,7 +92,7 @@ function routeFetch() {
             id: "p1",
             ownerUserId: "u1",
             name: "Acme relaunch",
-            description: "Everything about the relaunch",
+            description: serverDescription,
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
             archivedAt: null,
@@ -454,6 +457,39 @@ export const ProjectEditDetails: Story = {
     );
     await expect(sentRoutes()).toEqual([
       "GET /api/v1/pins",
+      "GET /api/v1/projects/p1",
+    ]);
+  },
+};
+
+/**
+ * Closing the dialog keeps the row mounted, and the project read with it, so
+ * a reopen must read the project again rather than seed from the copy of the
+ * first open: here the description changed elsewhere in between.
+ *
+ * @summary pinned project menu: reopening Edit details reads the project again
+ */
+export const ProjectEditDetailsReopen: Story = {
+  tags: ["ai-generated"],
+  parameters: { pins: [projectPin] },
+  play: async ({ canvasElement }) => {
+    await chooseFromRowMenu(canvasElement, "Edit details");
+    const first = await openedDialog("dialog", "Edit details");
+    await expect(first.getByLabelText("Description")).toHaveValue(
+      "Everything about the relaunch",
+    );
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    serverDescription = "Changed in another tab";
+    await chooseFromRowMenu(canvasElement, "Edit details");
+    const second = await openedDialog("dialog", "Edit details");
+    await expect(second.getByLabelText("Description")).toHaveValue(
+      "Changed in another tab",
+    );
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/projects/p1",
       "GET /api/v1/projects/p1",
     ]);
   },

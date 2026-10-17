@@ -184,7 +184,9 @@ function PinnedProjectMenu({
 }
 
 /** The rail holds only the pin's lean card, so Edit details reads the full
- *  project (its description) when it opens, and shows once that lands. */
+ *  project (its description) each time it opens, and shows once that read
+ *  lands. The copy cached from an earlier open is withheld while it runs:
+ *  the form seeds once, so seeding it from that copy could save it back. */
 function PinnedProjectDialogs({
   pin,
   dialogs,
@@ -192,7 +194,8 @@ function PinnedProjectDialogs({
   pin: PinnedProject;
   dialogs: ReturnType<typeof useProjectDialogs>;
 }) {
-  const { data: full } = useProjectQuery(pin.itemId, dialogs.editOpen);
+  const { data, isFetching } = useProjectQuery(pin.itemId, dialogs.editOpen);
+  const full = isFetching ? undefined : data;
   return (
     <ProjectDialogs
       project={full ?? { id: pin.itemId, name: pin.item.name }}
