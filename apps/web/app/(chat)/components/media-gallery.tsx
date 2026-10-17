@@ -99,11 +99,13 @@ function useLoadMoreSentinel(query: NextPageState, pageCount: number) {
 
 function GallerySkeleton() {
   return (
-    <div className={GRID_CLASS_NAME} aria-label="Loading media">
+    // A polite status whose text is the announcement; the tiles are visual.
+    <output className={GRID_CLASS_NAME}>
+      <span className="sr-only">Loading media</span>
       {Array.from({ length: SKELETON_TILE_COUNT }, (_, index) => (
         <Skeleton key={index} className="aspect-square w-full" />
       ))}
-    </div>
+    </output>
   );
 }
 
