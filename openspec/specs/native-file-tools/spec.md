@@ -3719,7 +3719,7 @@ SHALL remain unchanged.
 
 #### Scenario: A headingless table body row keeps the plural shape
 
-- **WHEN** an ordinary Markdown range whose first requested line is a body row of a root GFM table starts before any root heading
+- **WHEN** an ordinary Markdown range whose first requested line is a body row of a root GFM table, other than that table's first, starts before any root heading
 - **THEN** the read emits that table's header row and delimiter row before the window
 - **AND** it reports plural `requestedRanges` and `shownRanges` and emits no ancestor line
 
