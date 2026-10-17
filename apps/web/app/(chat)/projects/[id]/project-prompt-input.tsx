@@ -1,50 +1,37 @@
 "use client";
 
-import { SendIcon } from "lucide-react";
+import { useState } from "react";
 
-import { ComposerTooltip } from "../../components/composer-tooltip";
-import {
-  PromptInput,
-  PromptInputButton,
-  PromptInputTextarea,
-  PromptInputToolbar,
-} from "../../components/prompt-input";
+import { ChatComposerBody } from "../../components/chat-composer";
+import { useComposerAttachments } from "../../components/use-composer-attachments";
 
 /**
- * The project page's prompt input, shown but not yet usable: a new chat
- * started here should be created already filed into the project.
+ * The project page's prompt input: the new-chat page's own composer — input,
+ * attachments, permission mode, model and effort — shown but locked, since a
+ * chat started here must be created already filed into the project.
  *
- * TODO(#1328): send from here — create the chat with its `projectId` in one
- * step (never unfiled first), then open it like the new-chat page does.
+ * TODO(#1328): unlock it and send from here — create the chat with its
+ * `projectId` in one step (never unfiled first), then open it like the
+ * new-chat page does.
  */
-export function ProjectPromptInput({ projectName }: { projectName: string }) {
+export function ProjectPromptInput({ projectId }: { projectId: string }) {
+  const [input, setInput] = useState("");
+  const attachments = useComposerAttachments();
+
   return (
-    <PromptInput onSubmit={(event) => event.preventDefault()}>
-      <PromptInputTextarea
-        placeholder={`New chat in ${projectName}`}
-        aria-label={`New chat in ${projectName} — coming soon`}
-        disabled
-      />
-      <PromptInputToolbar>
-        <div className="ml-auto">
-          {/* Focusable while disabled, so its tooltip still says why. */}
-          <ComposerTooltip
-            label="Send — coming soon"
-            render={
-              <PromptInputButton
-                variant="ghost"
-                size="icon"
-                type="button"
-                aria-label="Send — coming soon"
-                disabled
-                focusableWhenDisabled
-              />
-            }
-          >
-            <SendIcon size={16} />
-          </ComposerTooltip>
-        </div>
-      </PromptInputToolbar>
-    </PromptInput>
+    <ChatComposerBody
+      // A key for this page's composer settings (permission mode), not a
+      // chat: no chat exists until the first send.
+      chatId={`project:${projectId}`}
+      input={input}
+      onInputChange={setInput}
+      onSubmit={(event) => event.preventDefault()}
+      status="ready"
+      onStop={() => {}}
+      modelReadyForSend={false}
+      modelSendUnavailableReason={null}
+      disabled
+      attachments={attachments}
+    />
   );
 }

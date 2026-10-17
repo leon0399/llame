@@ -178,14 +178,14 @@ export const NoChats: Story = {
     ).toBeVisible();
     await expect(canvas.getByRole("button", { name: "Pin" })).toBeVisible();
     await expect(canvas.getByRole("button", { name: "More" })).toBeVisible();
-    // Starting a chat in the project is not built yet (#1328): the input is
-    // there, but neither it nor Send can be used.
+    // Starting a chat in the project is not built yet (#1328): the new-chat
+    // composer is there, but neither its input nor Send can be used.
     await expect(
-      canvas.getByRole("textbox", { name: /New chat in Trip planning/ }),
+      canvas.getByPlaceholderText("Describe a task or ask a question"),
     ).toBeDisabled();
     await expect(
-      canvas.getByRole("button", { name: "Send — coming soon" }),
-    ).toHaveAttribute("aria-disabled", "true");
+      canvas.getByRole("button", { name: "Send message" }),
+    ).toBeDisabled();
     await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
     await expect(canvas.getByText("Chats in this project")).toBeVisible();
     await expect(

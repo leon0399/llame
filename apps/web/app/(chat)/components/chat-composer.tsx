@@ -245,10 +245,11 @@ type ChatComposerProps = {
   attachments: ComposerAttachments;
 };
 
-/** The bottom composer bar: the message textarea, model/effort selectors,
- *  and the send/stop affordance. Split out of `ChatSessionContent` as its
- *  own self-contained region. */
-export function ChatComposer({
+/** The composer itself — the message textarea, attachments, permission mode,
+ *  model/effort selectors and the send/stop affordance — with no placement
+ *  of its own, so a page can set it into its own layout (the project page
+ *  sets it into a column). */
+export function ChatComposerBody({
   chatId,
   input,
   onInputChange,
@@ -264,25 +265,35 @@ export function ChatComposer({
   const unavailableReason =
     modelSendUnavailableReason ?? attachments.blockReason;
   return (
+    <>
+      {unavailableReason && (
+        <p className="mb-2 text-xs text-destructive">{unavailableReason}</p>
+      )}
+      <ChatComposerForm
+        chatId={chatId}
+        input={input}
+        onInputChange={onInputChange}
+        onSubmit={onSubmit}
+        status={status}
+        onStop={onStop}
+        modelReadyForSend={modelReadyForSend}
+        pendingStop={pendingStop}
+        disabled={disabled}
+        attachments={attachments}
+      />
+    </>
+  );
+}
+
+/** The chat page's bottom composer bar: `ChatComposerBody` docked at the
+ *  foot of the transcript, centred to the reading width. */
+export function ChatComposer(props: ChatComposerProps) {
+  return (
     // `pb-1.5` matches the settings row's `mt-1.5`, so the row sits evenly
     // between the input card and the page edge.
     <div className="bg-background z-10 shrink-0 px-3 pb-1.5 md:px-5">
       <div className="mx-auto max-w-3xl">
-        {unavailableReason && (
-          <p className="mb-2 text-xs text-destructive">{unavailableReason}</p>
-        )}
-        <ChatComposerForm
-          chatId={chatId}
-          input={input}
-          onInputChange={onInputChange}
-          onSubmit={onSubmit}
-          status={status}
-          onStop={onStop}
-          modelReadyForSend={modelReadyForSend}
-          pendingStop={pendingStop}
-          disabled={disabled}
-          attachments={attachments}
-        />
+        <ChatComposerBody {...props} />
       </div>
     </div>
   );

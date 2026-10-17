@@ -179,7 +179,7 @@ function ProjectPageBody({
           the chats take the full width. */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
-          <ProjectPromptInput projectName={data.project.name} />
+          <ProjectPromptInput projectId={data.project.id} />
           <ProjectChatsCard
             view={data.view}
             rows={{
