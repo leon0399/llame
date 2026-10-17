@@ -612,7 +612,8 @@ export const ImageOnlyMessage: Story = {
 /**
  * The reply's action row keeps its layout space but stays transparent until
  * the message is hovered or holds focus. Actions that have not shipped are
- * disabled yet focusable, and say they are coming soon.
+ * disabled and out of the tab order, like the sidebar's placeholders, and
+ * say they are coming soon on hover.
  *
  * @summary the action row reveals on focus; unshipped actions say coming soon
  */
@@ -642,14 +643,15 @@ export const ActionRowReveal: Story = {
     await expect(canvas.getByRole("button", { name: "Copy" })).toHaveFocus();
     await waitFor(() => expect(getComputedStyle(row).opacity).toBe("1"));
 
+    // The disabled Regenerate is skipped: Tab lands on Fork next.
     await userEvent.tab();
+    await expect(fork).toHaveFocus();
     const regenerate = canvas.getByRole("button", { name: "Regenerate" });
-    await expect(regenerate).toHaveFocus();
-    await expect(regenerate).toHaveAttribute("aria-disabled", "true");
+    await expect(regenerate).toBeDisabled();
+    await userEvent.hover(regenerate.parentElement ?? regenerate);
     await expect(
       await screen.findByText("Regenerate — coming soon"),
     ).toBeInTheDocument();
-    await expect(fork).toBeEnabled();
   },
 };
 

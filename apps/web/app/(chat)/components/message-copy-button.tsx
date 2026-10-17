@@ -28,19 +28,23 @@ export function MessageCopyButton({ parts }: { parts: UIMessage["parts"] }) {
   };
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="xs"
-      disabled={markdown === ""}
-      onClick={() => void copy()}
-    >
-      {copied ? (
-        <CheckIcon data-icon="inline-start" aria-hidden="true" />
-      ) : (
-        <CopyIcon data-icon="inline-start" aria-hidden="true" />
-      )}
-      <span className="text-trim-cap">Copy</span>
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        disabled={markdown === ""}
+        onClick={() => void copy()}
+      >
+        {copied ? (
+          <CheckIcon data-icon="inline-start" aria-hidden="true" />
+        ) : (
+          <CopyIcon data-icon="inline-start" aria-hidden="true" />
+        )}
+        <span className="text-trim-cap">Copy</span>
+      </Button>
+      {/* Outside the button, so its name stays "Copy"; announces success. */}
+      <output className="sr-only">{copied ? "Copied" : ""}</output>
+    </>
   );
 }

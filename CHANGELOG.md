@@ -8,8 +8,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   prompt, then its usage badge; an owner message's reads Copy, Edit and Fork,
   right-aligned. Copy is new: it copies the message's Markdown — its text parts
   joined by a blank line, without reasoning or tool calls. Regenerate and Edit
-  have not shipped: they are disabled but focusable and say "coming soon", like
-  the sidebar's placeholders. Fork is disabled rather than removed while a turn
+  have not shipped: like the sidebar's placeholders, they are disabled, out of
+  the tab order, and say "coming soon" on hover. Fork is disabled rather than removed while a turn
   streams. On a device that cannot hover, the row stays visible.
 
 - A ranged Markdown `read` that starts inside a table now also emits that

@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 import {
   Message,
-  MessageActions,
   MessageContent,
 } from "@workspace/ui/components/ai-elements/message";
 import {
@@ -30,6 +29,8 @@ import {
   type UIMessage,
 } from "ai";
 import { PencilIcon, RefreshCwIcon } from "lucide-react";
+
+import { cn } from "@workspace/ui/lib/utils";
 
 import { ComingSoonMessageAction } from "./coming-soon-message-action";
 import { CompactionBoundary } from "./compaction-boundary";
@@ -292,6 +293,35 @@ type ChatMessageActionProps = {
   onInspectContext: (runId: string) => void;
 };
 
+/**
+ * The row the actions sit in, owned here rather than by the vendored
+ * `MessageActions`: transparent until its message is hovered or holds focus,
+ * yet always in layout, so revealing it never shifts the transcript. It
+ * stays revealed while one of its popups (the usage card) is open, since
+ * that card is portaled outside the hovered message. Where the primary input
+ * cannot hover (touch), `group-hover` never matches, so the row stays
+ * visible. It sits under the user bubble's right edge, and on replies pulls
+ * left so the first icon lines up with the text.
+ */
+function MessageActionRow({
+  from,
+  children,
+}: {
+  from: UIMessage["role"];
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-1 text-muted-foreground opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 group-has-[[data-popup-open]]/message:opacity-100 [@media(hover:none)]:opacity-100",
+        from === "user" ? "justify-end" : "-ml-1.5",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function ChatMessageFooter({
   message,
   availableModels,
@@ -311,16 +341,16 @@ function ChatMessageFooter({
 
   if (message.role === "user") {
     return (
-      <MessageActions>
+      <MessageActionRow from="user">
         <MessageCopyButton parts={message.parts} />
         <ComingSoonMessageAction label="Edit" icon={PencilIcon} />
         {fork}
-      </MessageActions>
+      </MessageActionRow>
     );
   }
   const contextRunId = runIdFromMessageMetadata(message.metadata);
   return (
-    <MessageActions>
+    <MessageActionRow from="assistant">
       <MessageCopyButton parts={message.parts} />
       <ComingSoonMessageAction label="Regenerate" icon={RefreshCwIcon} />
       {fork}
@@ -330,7 +360,7 @@ function ChatMessageFooter({
         />
       )}
       <MessageUsage metadata={message.metadata} models={availableModels} />
-    </MessageActions>
+    </MessageActionRow>
   );
 }
 
@@ -436,6 +466,9 @@ export function ChatMessageRow({
         <Message
           id={messageSeq === null ? undefined : `msg-${messageSeq}`}
           from={message.role}
+          // Names the group the action row reveals on, so no outer `group`
+          // can trigger it.
+          className="group/message"
           data-message-key={renderKey}
         >
           <MessageAttachments message={message} />
