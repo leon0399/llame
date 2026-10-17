@@ -1,6 +1,8 @@
 "use client";
 
 import { buttonVariants } from "@workspace/ui/components/button";
+import { Kbd } from "@workspace/ui/components/kbd";
+import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 import {
   Sidebar,
   SidebarContent,
@@ -16,8 +18,42 @@ import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { topBarClasses } from "@/app/shell/top-bar";
+import { SHORTCUT_KEY_NEW_CHAT } from "../app-sidebar/app-sidebar-actions";
 import { ChatListViewMenu, useChatListShow } from "../chat-list-view";
 import { ChatList } from "./chat-list";
+
+/** The rail's new-chat button. Its tooltip names the same Ctrl/⌘+Shift+O
+ *  chord as the main rail's New Chat, which the main rail binds. */
+function NewChatButton() {
+  const modifierKey = usePrimaryModifierKey();
+  const key = SHORTCUT_KEY_NEW_CHAT.toUpperCase();
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link
+            href="/"
+            prefetch={false}
+            aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+Shift+${key}`}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "icon" }),
+              "size-8",
+            )}
+          />
+        }
+      >
+        <SquarePenIcon />
+        <span className="sr-only">New chat</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="end">
+        <span className="flex items-center gap-1.5">
+          New chat
+          <Kbd>{`${modifierKey}+Shift+${key}`}</Kbd>
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 // Secondary (nested) sidebar listing chats. Desktop-only: on mobile the chat
 // list renders inside the main sidebar's sheet instead (see AppSidebar).
@@ -40,26 +76,7 @@ export function ChatListSidebar() {
       <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
         <span className="flex-1 text-sm font-semibold">Chats</span>
         <ChatListViewMenu {...view} />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Link
-                href="/"
-                prefetch={false}
-                className={cn(
-                  buttonVariants({ variant: "ghost", size: "icon" }),
-                  "size-8",
-                )}
-              />
-            }
-          >
-            <SquarePenIcon />
-            <span className="sr-only">New chat</span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="end">
-            New chat
-          </TooltipContent>
-        </Tooltip>
+        <NewChatButton />
       </div>
 
       <SidebarContent>
