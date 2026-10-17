@@ -243,6 +243,28 @@ export const Cards: Story = {
 };
 
 /**
+ * A PDF card with no original link (unstored, or an upload still in flight)
+ * has no link label to name it, so its caption stays exposed as its name.
+ *
+ * @summary an unlinked PDF card is named by its caption
+ */
+export const UnlinkedPdfCard: Story = {
+  tags: ["ai-generated"],
+  args: {
+    variant: "card",
+    items: [{ key: "local", kind: "pdf", name: "local.pdf" }],
+    onRemove: undefined,
+    onRetry: undefined,
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByRole("link")).toBeNull();
+    await expect(canvas.getByText("local.pdf")).not.toHaveAttribute(
+      "aria-hidden",
+    );
+  },
+};
+
+/**
  * A PDF held only by a Run has no original route and remains a static tile.
  * @summary an unstored PDF attachment
  */
