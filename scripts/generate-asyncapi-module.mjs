@@ -50,6 +50,15 @@ const SUPPORTED_SCHEMA_KEYWORDS = new Set([
 ]);
 
 const SCHEMA_POINTER_PREFIX = "/components/schemas/";
+
+/** The `QueueOptions` keys pg-boss applies per queue, the only keys `x-llame-queue` may set. */
+const QUEUE_OPTION_KEYS = new Set([
+  "policy",
+  "retryLimit",
+  "retryDelay",
+  "retryBackoff",
+  "deadLetter",
+]);
 const ERROR_SEVERITY = 0;
 
 /** Validates an AsyncAPI document with the official parser; throws on any error. */
@@ -282,6 +291,13 @@ export async function renderChannelModule(
       }
       const payload = emitter.emit(parseRef(message.payload.$ref, source));
       const options = channel["x-llame-queue"];
+      for (const option of Object.keys(options ?? {})) {
+        if (!QUEUE_OPTION_KEYS.has(option)) {
+          throw new Error(
+            `Channel ${key} declares unknown queue option ${option}`,
+          );
+        }
+      }
       return [
         `export const ${key}Channel = {`,
         `  address: ${JSON.stringify(channel.address)},`,

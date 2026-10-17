@@ -36,9 +36,15 @@ info:
 
     `x-llame-queue` on a channel declares the queue's static options in
     pg-boss terms: `policy` (admission and coalescing), `retryLimit`,
-    `retryBackoff`, `deadLetter`. Omitted options take llame's queue defaults
-    (dead-lettering on). Options that come from operator configuration are
-    described on the channel instead.
+    `retryDelay`, `retryBackoff`, `deadLetter`. Generation rejects any other
+    key. Omitted options take llame's queue defaults (dead-lettering on).
+    Options that come from operator configuration are described on the
+    channel instead.
+
+    The retry and dead-letter options are re-applied to existing queues on
+    every boot. `policy` is applied only when pg-boss creates the queue and
+    cannot be changed afterwards, so changing a deployed queue's policy
+    means moving it to a new address.
 
     This document is the queue wire's source of truth. The API's queue
     payload validators, addresses and static options are generated from it.
@@ -201,6 +207,10 @@ components:
       name: cronTick
       title: Cron tick
       summary: An empty marker; the consumer derives its work from the database.
+      description: |
+        The schedule's own data, re-sent on every tick: `{}` when the schedule
+        registers an empty object, `null` when it registers none. Cron
+        consumers do not read it and do not validate it.
       payload:
         $ref: '#/components/schemas/CronTick'
       examples:
@@ -264,5 +274,7 @@ components:
           type: string
           minLength: 1
     CronTick:
-      type: object
+      type:
+        - object
+        - 'null'
       description: Carries no data.

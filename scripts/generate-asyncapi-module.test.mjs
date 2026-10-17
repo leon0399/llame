@@ -104,6 +104,17 @@ test("rejects a channel that does not carry exactly one message", async () => {
   );
 });
 
+test("rejects a queue option pg-boss does not apply per queue", async () => {
+  for (const option of ["retryLimitz", "heartbeatSeconds"]) {
+    const broken = queues();
+    broken.channels.searchEmbed["x-llame-queue"][option] = 5;
+    await assert.rejects(
+      renderChannels(broken),
+      new RegExp(`Channel searchEmbed declares unknown queue option ${option}`),
+    );
+  }
+});
+
 test("rejects a channel message without a component payload", async () => {
   const broken = queues();
   broken.components.messages.runJob.payload = { type: "object" };

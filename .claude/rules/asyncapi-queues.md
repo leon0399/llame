@@ -21,13 +21,24 @@ rules (`asyncapi-websocket.md`).
 - Change the document first, then regenerate with
   `pnpm --filter api generate:queue-protocol`. Never hand-edit the generated
   module.
-- A queue definition takes its `name`, static `options` and `parse` from its
-  generated channel constant. Options that come from operator configuration
-  (the runs heartbeat window and job expiry) are applied in code and described
-  in the channel `description`, never in `x-llame-queue`.
+- A queue definition takes its `name` and static `options` from its generated
+  channel constant, and its `parse` from the constant's `payload`. The cron
+  channels (`search-sweep`, `sessions.cleanup`) are the exception: pg-boss
+  re-sends the schedule's own data on every tick, which is `null` when the
+  schedule registers none, and their consumers read nothing, so their
+  definitions do not validate the tick. `CronTick` admits `null` for the same
+  reason.
+- Options that come from operator configuration (the runs heartbeat window
+  and job expiry) are applied in code and described in the channel
+  `description`, never in `x-llame-queue`.
 - `x-llame-queue` holds only `QueueOptions` keys pg-boss applies per queue:
-  `policy`, `retryLimit`, `retryDelay`, `retryBackoff`, `deadLetter`. No
-  AsyncAPI binding exists for pg-boss; do not borrow another protocol's.
+  `policy`, `retryLimit`, `retryDelay`, `retryBackoff`, `deadLetter`.
+  Generation rejects any other key. No AsyncAPI binding exists for pg-boss;
+  do not borrow another protocol's.
+- `policy` is applied only when pg-boss creates a queue and cannot change
+  afterwards; `ensureQueue` re-applies only the retry and dead-letter
+  options. Changing a deployed queue's `policy` means moving it to a new
+  address, like a breaking payload change.
 - Payloads use the AsyncAPI default schema format (JSON Schema), not the
   OpenAPI `schemaFormat`: the parser rejects a `$ref` between two multi-format
   components, and this document references nothing in `openapi.json`.

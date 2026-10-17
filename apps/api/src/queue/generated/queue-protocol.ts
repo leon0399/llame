@@ -34,7 +34,10 @@ export type SearchChatJob = z.infer<typeof searchChatJobSchema>;
 
 /** Carries no data. */
 export const cronTickSchema = z
-  .record(z.string(), z.any())
+  .union([
+    z.record(z.string(), z.any()).describe('Carries no data.'),
+    z.null().describe('Carries no data.'),
+  ])
   .describe('Carries no data.');
 export type CronTick = z.infer<typeof cronTickSchema>;
 
