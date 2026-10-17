@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1
  */
 import type {
+  ListMediaParams,
   MediaDescriptorResponse,
+  MediaPageResponse,
   MediaPdfDescriptorResponse,
   MediaTooLargeErrorResponse,
   MediaUnsupportedErrorResponse,
@@ -57,6 +59,55 @@ export const uploadMedia = async (
   const data: MediaDescriptorResponse | MediaPdfDescriptorResponse = body
     ? JSON.parse(body)
     : {};
+  return data;
+};
+
+export type listMediaError = void | void;
+
+export const getListMediaUrl = (params?: ListMediaParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/media?${stringifiedParams}`
+    : `/api/v1/media`;
+};
+
+export const listMedia = async (
+  params: ListMediaParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<MediaPageResponse> => {
+  const res = await fetchFn(getListMediaUrl(params), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & { info?: listMediaError; status?: number } =
+      new globalThis.Error(
+        `GET ${getListMediaUrl(params)} failed (${res.status})`,
+      );
+    const data: listMediaError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: MediaPageResponse = body ? JSON.parse(body) : {};
   return data;
 };
 

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, lt } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 
 import {
@@ -182,6 +182,37 @@ export class MediaService {
         );
       return row;
     });
+  }
+
+  /**
+   * One newest-first page of the owner's media. Ids are UUIDv7, so id order
+   * is creation order and the last id of a page is the cursor of the next;
+   * `nextCursor` is null when nothing older remains.
+   */
+  async listOwned(
+    ownerUserId: string,
+    { before, limit }: { before?: string; limit: number },
+  ): Promise<{ items: Array<MediaObject>; nextCursor: string | null }> {
+    const rows = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      tx
+        .select()
+        .from(mediaObjects)
+        .where(
+          and(
+            eq(mediaObjects.ownerUserId, ownerUserId),
+            before === undefined ? undefined : lt(mediaObjects.id, before),
+          ),
+        )
+        .orderBy(desc(mediaObjects.id))
+        // One extra row says whether another page exists.
+        .limit(limit + 1),
+    );
+    const items = rows.slice(0, limit);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: rows.length > limit && last ? last.id : null,
+    };
   }
 
   /** One variant's bytes of an owned object, or undefined. */

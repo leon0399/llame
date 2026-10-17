@@ -44,7 +44,7 @@ const NAV_ITEMS: Array<NavItem> = [
   // desktopOnly: the /projects list/create UI lives in the desktop-only
   // second rail; the mobile surface is deferred to the redesign.
   { label: "Projects", icon: FolderIcon, href: "/projects", desktopOnly: true },
-  { label: "Gallery", icon: ImageIcon, comingSoon: true },
+  { label: "Gallery", icon: ImageIcon, href: "/gallery" },
   { label: "Calendar", icon: CalendarIcon, comingSoon: true },
   { label: "Email", icon: MailIcon, comingSoon: true },
   { label: "Brain", icon: BrainIcon, comingSoon: true },

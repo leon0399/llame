@@ -362,4 +362,38 @@ describe('RLS integration — media store tenancy', () => {
     );
     expect(count.n).toBe(0);
   });
+
+  it("lists only the caller's media, newest first, across cursor pages", async () => {
+    // A fresh owner, so earlier tests' ingests do not shape the pages.
+    const userCId = randomUUID();
+    await sql`INSERT INTO users (id, name, email) VALUES (${userCId}, 'Media C', ${`media-c-${userCId}@test.com`})`;
+    try {
+      const ownIds: Array<string> = [];
+      for (const _ of [1, 2, 3]) {
+        ownIds.push((await ingestAs(userCId, await randomPng())).media.id);
+      }
+      const foreignId = (await ingestAs(userBId, await randomPng())).media.id;
+
+      const first = await media.listOwned(userCId, { limit: 2 });
+      expect(first.items.map(({ id }) => id)).toEqual([ownIds[2], ownIds[1]]);
+      expect(first.nextCursor).toBe(ownIds[1]);
+
+      const second = await media.listOwned(userCId, {
+        before: first.nextCursor ?? undefined,
+        limit: 2,
+      });
+      expect(second.items.map(({ id }) => id)).toEqual([ownIds[0]]);
+      expect(second.nextCursor).toBeNull();
+
+      // Another owner's newer object never enters the pages, and C's own
+      // objects never enter that owner's list.
+      const listedByB = await media.listOwned(userBId, { limit: 100 });
+      expect(listedByB.items.map(({ id }) => id)).toContain(foreignId);
+      expect(listedByB.items.filter(({ id }) => ownIds.includes(id))).toEqual(
+        [],
+      );
+    } finally {
+      await sql`DELETE FROM users WHERE id = ${userCId}`;
+    }
+  });
 });

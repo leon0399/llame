@@ -1,11 +1,45 @@
-import { ApiProperty, getSchemaPath } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  getSchemaPath,
+} from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
 
 import { ErrorResponse } from '../../common/dto/error-response.dto';
 import { type MediaObject } from '../../db/schema';
 import { imageColumns } from '../media-descriptors';
 import { MODEL_MEDIA_TYPES, ORIGINAL_MEDIA_TYPES } from '../media-ingest';
-import { mediaLocator } from '../media-locator';
+import { CANONICAL_MEDIA_ID, mediaLocator } from '../media-locator';
 import { PDF_MAX_PAGES, PDF_MEDIA_TYPE } from '../pdf-preparation';
+
+/** Newest-first page size bounds of `GET /api/v1/media`. */
+export const MEDIA_PAGE_DEFAULT_LIMIT = 48;
+export const MEDIA_PAGE_MAX_LIMIT = 100;
+
+export class ListMediaQueryDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      "Cursor: return only media older than this id, i.e. the previous page's `nextCursor`.",
+  })
+  @IsOptional()
+  @Matches(CANONICAL_MEDIA_ID)
+  before?: string;
+
+  @ApiPropertyOptional({
+    type: 'integer',
+    minimum: 1,
+    maximum: MEDIA_PAGE_MAX_LIMIT,
+    default: MEDIA_PAGE_DEFAULT_LIMIT,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MEDIA_PAGE_MAX_LIMIT)
+  limit: number = MEDIA_PAGE_DEFAULT_LIMIT;
+}
 
 /** The model variant's own format, size, and dimensions. */
 export class MediaModelVariantResponse {
@@ -87,6 +121,20 @@ export const MEDIA_RESPONSE_SCHEMA = {
     { $ref: getSchemaPath(MediaPdfDescriptorResponse) },
   ],
 };
+
+/** One newest-first page of the caller's media. */
+export class MediaPageResponse {
+  @ApiProperty({ type: 'array', items: MEDIA_RESPONSE_SCHEMA })
+  items!: Array<MediaResponse>;
+
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description: 'The `before` of the next page; null on the last page.',
+  })
+  nextCursor!: string | null;
+}
 
 export function toMediaDescriptor(media: MediaObject): MediaResponse {
   const { id, name, byteSize } = media;
