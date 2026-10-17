@@ -8,31 +8,52 @@ import { useProjects } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { useParams } from "next/navigation";
 
+import {
+  archivedFilter,
+  type ChatListShow,
+  ChatListShowChip,
+  ChatListViewMenu,
+} from "../../components/chat-list-view";
 import { ChatTimeGroups } from "../../components/chat-time-groups";
 import { CreateProjectForChatDialog } from "../../components/chat-list-sidebar/project-dialogs";
 import { PageHeader } from "../../components/page-header";
 import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
 
-/** The "Chats in this project" card: empty state or the grouped chat list. */
+const EMPTY_TEXT = new Map<ChatListShow, string>([
+  ["active", "No chats in this project yet."],
+  ["archived", "No archived chats in this project."],
+  ["all", "No chats in this project yet."],
+]);
+
+/** The "Chats in this project" card: the same view menu and grouped list as
+ *  the chats rail, scoped to this project. */
 function ProjectChatsCard({
   chats,
   projects,
   pinnedAtByChatId,
   onRequestNewProject,
+  show,
+  onShowChange,
 }: {
   chats: Array<ChatResponse>;
   projects: Array<ProjectResponse>;
   pinnedAtByChatId: ReadonlyMap<string, string>;
   onRequestNewProject: (chatId: string) => void;
+  show: ChatListShow;
+  onShowChange: (show: ChatListShow) => void;
 }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border p-3">
-      <span className="px-2 pb-0.5 text-sm font-semibold">
-        Chats in this project
-      </span>
+      <div className="flex items-center gap-2 pl-2">
+        <span className="flex-1 text-sm font-semibold">
+          Chats in this project
+        </span>
+        <ChatListViewMenu show={show} onShowChange={onShowChange} />
+      </div>
+      <ChatListShowChip show={show} onShowChange={onShowChange} />
       {chats.length === 0 ? (
         <p className="px-2 py-1 text-sm text-muted-foreground">
-          No chats in this project yet.
+          {EMPTY_TEXT.get(show)}
         </p>
       ) : (
         <ChatTimeGroups
@@ -49,9 +70,12 @@ function ProjectChatsCard({
 }
 
 /** The project header + its chats, fetched server-filtered by `projectId`. */
-function useProjectPageData(id: string) {
+function useProjectPageData(id: string, show: ChatListShow) {
   const { data: projects, isLoading: projectsLoading } = useProjects();
-  const { data, isLoading: chatsLoading } = useChatsQuery({ projectId: id });
+  const { data, isLoading: chatsLoading } = useChatsQuery({
+    projectId: id,
+    archived: archivedFilter(show),
+  });
   const { data: pins } = usePins();
 
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
@@ -78,8 +102,9 @@ function useProjectPageData(id: string) {
 // Description/stats/todos/knowledge come with later slices of the design.
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
+  const [show, setShow] = React.useState<ChatListShow>("active");
   const { loading, project, allProjects, projectChats, pinnedAtByChatId } =
-    useProjectPageData(id);
+    useProjectPageData(id, show);
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );
@@ -104,6 +129,8 @@ export default function ProjectPage() {
               projects={allProjects}
               onRequestNewProject={setNewProjectChatId}
               pinnedAtByChatId={pinnedAtByChatId}
+              show={show}
+              onShowChange={setShow}
             />
           )}
         </div>

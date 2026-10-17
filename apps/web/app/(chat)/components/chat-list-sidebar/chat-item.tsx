@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MessagesSquareIcon } from "lucide-react";
 import Link from "next/link";
 
@@ -151,6 +151,14 @@ function ChatItemRow({
   isActive: boolean;
   children: ReactNode;
 }) {
+  // The open chat's row comes into view when it becomes active (navigation,
+  // search, a deep link). `nearest` leaves an already-visible row alone;
+  // the scroll margin keeps it clear of the sticky group heading.
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (isActive) rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isActive]);
+
   return (
     // A flex line, not the primitive's overlay: the actions below are real
     // layout, so the text shrinks by exactly their width and the row reserves
@@ -167,8 +175,9 @@ function ChatItemRow({
     // lookup resolve exactly as before.
     <SidebarMenuItem>
       <div
+        ref={rowRef}
         className={cn(
-          "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
+          "flex scroll-mt-8 items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
           isActive && "bg-sidebar-accent",
         )}
       >

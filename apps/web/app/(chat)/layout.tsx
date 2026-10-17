@@ -14,6 +14,7 @@ import { ChatListSidebar } from "./components/chat-list-sidebar";
 import { ProjectListSidebar } from "./components/project-list-sidebar";
 import { ChatSidebar } from "./components/chat-sidebar";
 import { ChatHeader } from "./components/chat-header";
+import { ChatListShowProvider } from "./components/chat-list-view";
 
 export default async function Layout({
   children,
@@ -32,24 +33,26 @@ export default async function Layout({
           <ActiveRunsProvider>
             <ChatProvider>
               <CommandPaletteProvider>
-                {/* Chat-specific header actions + the mobile chat-list fallback are
+                <ChatListShowProvider>
+                  {/* Chat-specific header actions + the mobile chat-list fallback are
                   injected into the shared shell here — AppSidebar itself has no
                   dependency on ChatProvider/CommandPaletteProvider (D1). */}
-                <AppSidebar topActions={<AppSidebarActions />}>
-                  <ChatList />
-                </AppSidebar>
+                  <AppSidebar topActions={<AppSidebarActions />}>
+                    <ChatList />
+                  </AppSidebar>
 
-                {/* Route-scoped second rails: each renders null off its route. */}
-                <ChatListSidebar />
-                <ProjectListSidebar />
+                  {/* Route-scoped second rails: each renders null off its route. */}
+                  <ChatListSidebar />
+                  <ProjectListSidebar />
 
-                <SidebarInset className="flex h-full flex-col overflow-hidden">
-                  <ChatHeader className="sticky top-0" />
+                  <SidebarInset className="flex h-full flex-col overflow-hidden">
+                    <ChatHeader className="sticky top-0" />
 
-                  {children}
-                </SidebarInset>
+                    {children}
+                  </SidebarInset>
 
-                <ChatSidebar className="hidden!" />
+                  <ChatSidebar className="hidden!" />
+                </ChatListShowProvider>
               </CommandPaletteProvider>
             </ChatProvider>
           </ActiveRunsProvider>

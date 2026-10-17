@@ -16,6 +16,7 @@ import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { topBarClasses } from "@/app/shell/top-bar";
+import { ChatListViewMenu, useChatListShow } from "../chat-list-view";
 import { ChatList } from "./chat-list";
 
 // Secondary (nested) sidebar listing chats. Desktop-only: on mobile the chat
@@ -23,6 +24,7 @@ import { ChatList } from "./chat-list";
 export function ChatListSidebar() {
   const { isMobile } = useSidebar();
   const pathname = usePathname();
+  const view = useChatListShow();
 
   // Unmount on mobile — the sheet owns the chat list there; keeping this
   // subtree mounted would double the list render and query subscriptions.
@@ -37,6 +39,7 @@ export function ChatListSidebar() {
     <Sidebar collapsible="none" className="hidden w-64 shrink-0 md:flex">
       <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
         <span className="flex-1 text-sm font-semibold">Chats</span>
+        <ChatListViewMenu {...view} />
         <Tooltip>
           <TooltipTrigger
             render={
