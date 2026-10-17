@@ -96,7 +96,7 @@ function writeNote(
 }
 
 async function sendPrompt(page: Page, prompt: string): Promise<void> {
-  const composer = page.getByPlaceholder("What would you like to know?");
+  const composer = page.getByPlaceholder("Describe a task or ask a question");
   await expect(composer).toBeEditable();
   await composer.fill(prompt);
   await page.getByRole("button", { name: "Send message" }).click();

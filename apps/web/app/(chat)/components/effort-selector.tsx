@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDownIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -15,6 +14,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { useChatContext } from "@/contexts/chat-context";
 import { useModelsQuery } from "@/lib/services/models/queries";
 import type { EffortLevelResponse } from "@/lib/api/generated/models";
+import { ComposerTooltip } from "./composer-tooltip";
 
 /**
  * Bold treatment of the shared Slider, composed rather than forked.
@@ -109,6 +109,12 @@ function useActiveEffortSelection(): EffortSelection | null {
   };
 }
 
+// Muted so the model name beside it stays the primary label; back to
+// foreground on the hover and open fills, where muted ink falls below the
+// 4.5:1 contrast floor.
+const EFFORT_LABEL_CLASS =
+  "font-normal text-muted-foreground group-hover/button:text-foreground group-aria-expanded/button:text-foreground";
+
 function EffortSelectorTrigger({
   open,
   activeDisplay,
@@ -121,30 +127,33 @@ function EffortSelectorTrigger({
   className?: string;
 }) {
   return (
-    <PopoverTrigger
+    <ComposerTooltip
+      label="Reasoning effort"
       render={
-        <Button
-          type="button"
-          variant="outline"
-          // Same box as the other two cells: "default" is h-8, matching the
-          // send cell's size="icon" (size-8).
-          size="default"
-          aria-label={`Reasoning effort, ${activeDisplay}`}
-          aria-expanded={open}
-          // No corner, border, or focus-lift classes: ButtonGroup owns all
-          // three for every cell, so restating them here is how cells drift.
-          // Its gap and weight are the Button's own defaults.
-          className={className}
-        >
-          <span
-            className={cn("text-xs", activeHasLabel ? undefined : "font-mono")}
-          >
-            {activeDisplay}
-          </span>
-          <ChevronDownIcon size={14} aria-hidden className="opacity-60" />
-        </Button>
+        <PopoverTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              // `xs` (h-6, text-xs), like the model trigger it sits beside.
+              size="xs"
+              aria-label={`Reasoning effort, ${activeDisplay}`}
+              aria-expanded={open}
+              className={className}
+            />
+          }
+        />
       }
-    />
+    >
+      <span
+        className={cn(
+          EFFORT_LABEL_CLASS,
+          activeHasLabel ? undefined : "font-mono",
+        )}
+      >
+        {activeDisplay}
+      </span>
+    </ComposerTooltip>
   );
 }
 

@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDownIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -17,6 +16,8 @@ import {
   usePermissionModesQuery,
   type PermissionModesResponse,
 } from "@/lib/services/permission-modes/queries";
+
+import { ComposerTooltip } from "./composer-tooltip";
 
 type PermissionModeDetails = {
   title: string;
@@ -67,20 +68,28 @@ function PermissionModeTrigger({
   title: string;
 }) {
   return (
-    <DropdownMenuTrigger
+    <ComposerTooltip
+      label="Permissions"
       render={
-        <Button
-          type="button"
-          variant={selectedMode === "bypass" ? "destructive" : "outline"}
-          size="default"
-          aria-label={`Permission mode, ${title}`}
-          aria-expanded={open}
+        <DropdownMenuTrigger
+          render={
+            <Button
+              type="button"
+              // Bypass keeps the destructive tint: it is the one mode that
+              // skips tool-permission checks, so it must not read as a quiet
+              // label.
+              variant={selectedMode === "bypass" ? "destructive" : "ghost"}
+              size="xs"
+              aria-label={`Permission mode, ${title}`}
+              aria-expanded={open}
+            />
+          }
         />
       }
     >
-      <span className="text-xs">{title}</span>
-      <ChevronDownIcon size={14} aria-hidden className="opacity-60" />
-    </DropdownMenuTrigger>
+      {/* Regular weight: a quiet setting under the input, not an action. */}
+      <span className="font-normal">{title}</span>
+    </ComposerTooltip>
   );
 }
 

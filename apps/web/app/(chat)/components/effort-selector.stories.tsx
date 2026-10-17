@@ -3,7 +3,6 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
 import { ButtonGroup } from "@workspace/ui/components/button-group";
-import { SendIcon } from "lucide-react";
 
 import { ChatProvider } from "@/contexts/chat-context";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
@@ -12,7 +11,6 @@ import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
-import { PromptInputButton } from "./prompt-input";
 
 const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
   partial: true,
@@ -99,8 +97,7 @@ const meta = {
   decorators: [
     (Story) => (
       <ChatProvider>
-        {/* The real composer wrapper, so the cell is previewed with the border
-            collapsing and corner rounding it actually ships with. */}
+        {/* The shipped group the trigger sits in, beside the model. */}
         <ButtonGroup>
           <Story />
         </ButtonGroup>
@@ -377,45 +374,30 @@ export const SwitchingModelResetsEffort: Story = {
 };
 
 /**
- * The composer's real shape: the selectors attached to each other, and send
- * standing apart. Every control is still one height — they drifted apart once
- * (triggers at `sm` = h-7 beside a `size-8` send) — so this pins the
- * invariant rather than a pixel value, and survives a deliberate resize.
+ * The model and effort triggers sit side by side in the row under the input
+ * card and share one height, so neither label sits higher than the other.
+ * This pins the invariant rather than a pixel value, and survives a
+ * deliberate resize.
  *
- * Send sits outside the group so it keeps symmetric corners; as the group's
- * last cell it was forced `rounded-r-lg` with a squared left edge, which made
- * the paper-plane glyph read off-centre.
- *
- * @summary composer controls share one height across both units
+ * @summary the model and effort triggers share one height
  */
 export const CellsShareOneHeight: Story = {
   tags: ["ai-generated"],
   decorators: [
     (Story) => (
       <ChatProvider>
-        <div className="flex items-center gap-2">
-          <ButtonGroup>
-            <Story />
-          </ButtonGroup>
-          {/* The REAL send cell, with the props chat-page passes it. A
-              hand-built stand-in would keep passing if the shipped button
-              drifted, which is the regression this story exists to catch. */}
-          <PromptInputButton
-            variant="outline"
-            size="icon"
-            type="submit"
-            aria-label="Send message"
-          >
-            <SendIcon size={16} />
-          </PromptInputButton>
-        </div>
+        <ButtonGroup>
+          <ModelSelector />
+          <Story />
+        </ButtonGroup>
       </ChatProvider>
     ),
   ],
   play: async ({ canvas }) => {
-    const heights = canvas
-      .getAllByRole("button")
-      .map((cell) => cell.getBoundingClientRect().height);
+    const heights = [
+      canvas.getByRole("combobox"),
+      canvas.getByRole("button", { name: /Reasoning effort/ }),
+    ].map((cell) => cell.getBoundingClientRect().height);
 
     await expect(heights.length).toBeGreaterThan(1);
     await expect(new Set(heights).size).toBe(1);

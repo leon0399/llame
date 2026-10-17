@@ -250,7 +250,7 @@ export const ControlStates: Story = {
   },
 };
 
-const PLACEHOLDER = "What would you like to know?";
+const PLACEHOLDER = "Describe a task or ask a question";
 
 /** Uploads that resolve immediately with a descriptor for the file: an image
  *  descriptor for an image, a PDF descriptor for a PDF. */
@@ -739,15 +739,18 @@ async function expectUploadEnabled(
       ? expect(upload).not.toHaveAttribute("aria-disabled", "true")
       : expect(upload).toHaveAttribute("aria-disabled", "true"),
   );
+  // The shortcut is announced only while it works.
+  if (!enabled) await expect(upload).not.toHaveAttribute("aria-keyshortcuts");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 }
 
 /**
- * The `+` menu: "Upload photos & files" opens the file picker, and "Add to
+ * The `+` menu: "Upload photos & files" opens the file picker and shows its
+ * Ctrl+U shortcut, which opens the picker from the page too; "Add to
  * project" is a disabled placeholder.
  *
- * @summary the add menu opens the picker; Add to project is disabled
+ * @summary the add menu and Ctrl+U open the picker; Add to project is disabled
  */
 export const AddMenu: Story = {
   tags: ["ai-generated"],
@@ -774,10 +777,60 @@ export const AddMenu: Story = {
     await expect(
       await screen.findByRole("menuitem", { name: "Add to project" }),
     ).toHaveAttribute("aria-disabled", "true");
-    await userEvent.click(
-      screen.getByRole("menuitem", { name: "Upload photos & files" }),
+    const upload = screen.getByRole("menuitem", {
+      name: "Upload photos & files",
+    });
+    // The chord this browser's platform uses, as command-palette.stories does.
+    const isMac = /Mac|iPod|iPhone|iPad/.test(
+      navigator.platform || navigator.userAgent || "",
     );
+    await expect(upload).toHaveAttribute(
+      "aria-keyshortcuts",
+      isMac ? "Meta+U" : "Control+U",
+    );
+    // The menu fades in, so the shortcut is only visible once it settles.
+    await waitFor(() =>
+      expect(within(upload).getByText(isMac ? "⌘+U" : "Ctrl+U")).toBeVisible(),
+    );
+    await userEvent.click(upload);
     await expect(openPicker).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    await userEvent.keyboard(
+      isMac ? "{Meta>}u{/Meta}" : "{Control>}u{/Control}",
+    );
+    await expect(openPicker).toHaveBeenCalledTimes(2);
+  },
+};
+
+/**
+ * A locked composer (renderers still loading) leaves Ctrl+U to the browser:
+ * the shortcut's listener is not registered, so it neither claims the chord
+ * (`preventDefault`) nor opens the picker.
+ *
+ * @summary a locked composer does not claim Ctrl+U
+ */
+export const LockedComposerIgnoresUploadShortcut: Story = {
+  tags: ["ai-generated"],
+  args: { disabled: true },
+  beforeEach: resolveUploads,
+  render: attachingStory(VISION_MODEL_ID),
+  play: async ({ canvas }) => {
+    await canvas.findByRole("button", { name: "Add files and more" });
+    const isMac = /Mac|iPod|iPhone|iPad/.test(
+      navigator.platform || navigator.userAgent || "",
+    );
+    // The picker click is a no-op inside the disabled fieldset either way,
+    // so the observable is whether the listener claimed the chord.
+    const chord = new KeyboardEvent("keydown", {
+      key: "u",
+      ctrlKey: !isMac,
+      metaKey: isMac,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.body.dispatchEvent(chord);
+    await expect(chord.defaultPrevented).toBe(false);
   },
 };
 

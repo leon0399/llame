@@ -20,6 +20,7 @@ import {
   dropFilesInto,
   pasteFilesInto,
 } from "./composer-attachments";
+import { ComposerTooltip } from "./composer-tooltip";
 import type { ComposerAttachments } from "./use-composer-attachments";
 
 type ChatComposerSendButtonProps = {
@@ -34,7 +35,7 @@ function StoppingButton() {
   return (
     <PromptInputButton
       type="button"
-      variant="outline"
+      variant="ghost"
       size="icon"
       disabled
       aria-label="Stopping generation"
@@ -46,29 +47,40 @@ function StoppingButton() {
 
 function StopButton({ onStop }: { onStop: () => void }) {
   return (
-    <PromptInputButton
-      type="button"
-      variant="outline"
-      size="icon"
-      onClick={onStop}
-      aria-label="Stop generation"
+    <ComposerTooltip
+      label="Stop generation"
+      render={
+        <PromptInputButton
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={onStop}
+          aria-label="Stop generation"
+        />
+      }
     >
       <StopCircleIcon size={16} />
-    </PromptInputButton>
+    </ComposerTooltip>
   );
 }
 
 function SendButton({ modelReadyForSend }: { modelReadyForSend: boolean }) {
   return (
-    <PromptInputButton
-      variant="outline"
-      size="icon"
-      type="submit"
-      aria-label="Send message"
-      disabled={!modelReadyForSend}
+    <ComposerTooltip
+      label="Send message"
+      shortcut="Enter"
+      render={
+        <PromptInputButton
+          variant="ghost"
+          size="icon"
+          type="submit"
+          aria-label="Send message"
+          disabled={!modelReadyForSend}
+        />
+      }
     >
       <SendIcon size={16} />
-    </PromptInputButton>
+    </ComposerTooltip>
   );
 }
 
@@ -90,50 +102,22 @@ function ChatComposerSendButton({
   return <SendButton modelReadyForSend={modelReadyForSend} />;
 }
 
-type ChatComposerControlsProps = {
-  status: ChatStatus;
-  onStop: () => void;
-  modelReadyForSend: boolean;
-  pendingStop: boolean;
-};
-
-/** The toolbar's right-side cluster: the model/effort selectors and the
- *  send/stop affordance. Split out of `ChatComposer` as its own
- *  self-contained control. */
-function ChatComposerControls({
-  status,
-  onStop,
-  modelReadyForSend,
-  pendingStop,
-}: ChatComposerControlsProps) {
+/** The row under the input card: the permission mode on the left, the model
+ *  and its effort on the right, as small ghost buttons. Outside the form, so
+ *  their popups are not part of the message being composed. */
+function ChatComposerSettingsRow({ chatId }: { chatId: string }) {
   return (
-    // Two units, not one pill: the SELECTORS are attached to each other,
-    // and send stands alone.
-    //
-    // Send left the group because being its last cell forced
-    // `rounded-r-lg` with squared left corners, and a paper-plane glyph
-    // reads off-centre inside an asymmetric box. Standalone, it keeps
-    // Button's own all-round `rounded-lg` and the icon centres itself — a
-    // shape fix rather than nudging the glyph.
-    //
-    // `gap-2` is the same 8px ButtonGroup applies between nested groups
-    // (`has-[>[data-slot=button-group]]:gap-2`), so the separation is the
-    // design system's answer, not a hand-picked number. Both units are
-    // h-8, which that gap is scaled for.
-    <div className="ml-auto flex items-center gap-2">
-      <ButtonGroup>
+    <div className="mt-1.5 flex items-center gap-2 px-1.5">
+      <PermissionModeSelector chatId={chatId} />
+      {/* One group, so the pair reads as a single setting: the two ghost
+          fills join with squared inner corners, as one hover block. */}
+      <ButtonGroup className="ml-auto">
         <ModelSelector />
         {/* Only present when the selected model declares an effort
-            vocabulary; the group re-collapses to a single cell when
-            it renders nothing. */}
+            vocabulary; the group collapses to one cell when it renders
+            nothing. */}
         <EffortSelector />
       </ButtonGroup>
-      <ChatComposerSendButton
-        status={status}
-        onStop={onStop}
-        modelReadyForSend={modelReadyForSend}
-        pendingStop={pendingStop}
-      />
     </div>
   );
 }
@@ -166,40 +150,39 @@ function preventWhenDisabled(
 
 type ChatComposerToolbarProps = Pick<
   ChatComposerFormProps,
-  | "status"
-  | "onStop"
-  | "modelReadyForSend"
-  | "pendingStop"
-  | "chatId"
-  | "attachments"
->;
+  "status" | "onStop" | "modelReadyForSend" | "pendingStop" | "attachments"
+> & {
+  /** The whole composer is locked: no upload, by menu or by shortcut. */
+  locked: boolean;
+};
 
-/** The toolbar under the textarea: the file picker and permission mode on
- *  the left, the model/effort selectors and send/stop on the right. */
+/** The toolbar under the textarea: the `+` menu on the left, send/stop on
+ *  the right. */
 function ChatComposerToolbar({
   status,
   onStop,
   modelReadyForSend,
   pendingStop,
-  chatId,
   attachments,
+  locked,
 }: ChatComposerToolbarProps) {
   return (
     <PromptInputToolbar>
-      <div className="flex items-center gap-1">
-        <ComposerAddMenu
-          onFiles={attachments.add}
-          accept={attachments.accept}
-          attachDisabled={attachments.attachDisabled}
-        />
-        <PermissionModeSelector chatId={chatId} />
-      </div>
-      <ChatComposerControls
-        status={status}
-        onStop={onStop}
-        modelReadyForSend={modelReadyForSend}
-        pendingStop={pendingStop}
+      <ComposerAddMenu
+        onFiles={attachments.add}
+        accept={attachments.accept}
+        attachDisabled={attachments.attachDisabled || locked}
       />
+      <div className="ml-auto">
+        <ChatComposerSendButton
+          status={status}
+          onStop={onStop}
+          modelReadyForSend={
+            modelReadyForSend && !locked && !attachments.sendBlocked
+          }
+          pendingStop={pendingStop}
+        />
+      </div>
     </PromptInputToolbar>
   );
 }
@@ -209,9 +192,9 @@ function ChatComposerForm({
   input,
   onInputChange,
   onSubmit,
-  modelReadyForSend,
   disabled,
   attachments,
+  chatId,
   ...toolbar
 }: ChatComposerFormProps) {
   return (
@@ -228,7 +211,7 @@ function ChatComposerForm({
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           onPaste={pasteFilesInto(attachments.add)}
-          placeholder="What would you like to know?"
+          placeholder="Describe a task or ask a question"
           disabled={disabled}
           // Deliberate: chat page sole purpose is this composer.
           // oxlint-disable-next-line jsx-a11y/no-autofocus
@@ -236,12 +219,11 @@ function ChatComposerForm({
         />
         <ChatComposerToolbar
           {...toolbar}
-          modelReadyForSend={
-            modelReadyForSend && !disabled && !attachments.sendBlocked
-          }
           attachments={attachments}
+          locked={disabled}
         />
       </PromptInput>
+      <ChatComposerSettingsRow chatId={chatId} />
     </fieldset>
   );
 }
@@ -282,7 +264,9 @@ export function ChatComposer({
   const unavailableReason =
     modelSendUnavailableReason ?? attachments.blockReason;
   return (
-    <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
+    // `pb-1.5` matches the settings row's `mt-1.5`, so the row sits evenly
+    // between the input card and the page edge.
+    <div className="bg-background z-10 shrink-0 px-3 pb-1.5 md:px-5">
       <div className="mx-auto max-w-3xl">
         {unavailableReason && (
           <p className="mb-2 text-xs text-destructive">{unavailableReason}</p>

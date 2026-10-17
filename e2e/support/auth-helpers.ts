@@ -69,7 +69,7 @@ export async function loginViaUi(
 
 export async function expectProtectedShell(page: Page, account: TestAccount) {
   await expect(
-    page.getByPlaceholder(/what would you like to know/i),
+    page.getByPlaceholder(/describe a task or ask a question/i),
   ).toBeVisible({ timeout: 15_000 });
   // The main rail starts icon-collapsed, so the email text is clipped from
   // view; the user-menu trigger still exposes it as its accessible name.
