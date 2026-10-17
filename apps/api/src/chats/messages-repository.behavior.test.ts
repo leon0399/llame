@@ -360,7 +360,8 @@ describe('MessagesRepository writes', () => {
   });
 });
 
-type ChainCall = { method: string; argument: unknown };
+/** `condition` is a join's second argument (its ON clause). */
+type ChainCall = { method: string; argument: unknown; condition?: unknown };
 
 /** The driver error a scripted insert attempt rejects with. */
 type AttemptFailure = Error;
@@ -378,7 +379,7 @@ function recordingQuery<T>(
   const chain =
     (method: string) =>
     (...args: Array<unknown>) => {
-      calls.push({ method, argument: args[0] });
+      calls.push({ method, argument: args[0], condition: args[1] });
       return terminal;
     };
   return Object.assign(terminal, {
@@ -861,6 +862,12 @@ describe('MessagesRepository read shapes', () => {
     const countSql = new PgDialect().sqlToQuery(countPredicate);
     expect(countSql.sql).toContain('"messages"."role" <> $3');
     expect(countSql.params).toEqual([chat.ownerUserId, chat.id, 'checkpoint']);
+    // Every chat row joins its own top-1 pick, so the join itself is ON true.
+    const lateral = calls.find((call) => call.method === 'innerJoinLateral');
+    if (!is(lateral?.condition, SQL)) {
+      throw new Error('Expected the lateral join condition');
+    }
+    expect(new PgDialect().sqlToQuery(lateral.condition).sql).toBe('true');
   });
 
   it('writes nothing for an empty bulk copy', async () => {
