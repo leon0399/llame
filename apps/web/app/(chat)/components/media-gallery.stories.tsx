@@ -219,3 +219,51 @@ export const LoadFailedRetries: Story = {
     await expect(within(grid).getAllByRole("listitem")).toHaveLength(1);
   },
 };
+
+/**
+ * A failed next page stops the scroll loading instead of re-requesting it
+ * while the end of the grid stays in view, and offers a retry that loads it.
+ *
+ * @summary a failed next page waits for a retry, then loads
+ */
+export const NextPageFailedRetries: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    let failed = false;
+    pages = new Map([
+      [
+        FIRST_PAGE_ROUTE,
+        page({ items: [image(3, "lisbon-map.png")], nextCursor: mediaId(2) }),
+      ],
+      [
+        SECOND_PAGE_ROUTE,
+        () => {
+          if (!failed) {
+            failed = true;
+            return new Response(null, { status: 500 });
+          }
+          return jsonResponse({
+            items: [image(1, "sintra.jpg")],
+            nextCursor: null,
+          });
+        },
+      ],
+    ]);
+  },
+  play: async ({ canvas }) => {
+    const retry = await canvas.findByRole("button", { name: "Try again" });
+    await expect(canvas.getByText("Could not load more media.")).toBeVisible();
+    // Settled on the failure: the sentinel is still in view, yet no second
+    // request for the failed page goes out on its own.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await expect(
+      sentRoutes().filter((route) => route === SECOND_PAGE_ROUTE),
+    ).toHaveLength(1);
+
+    await userEvent.click(retry);
+    const grid = canvas.getByRole("list", { name: "Media" });
+    await waitFor(() =>
+      expect(within(grid).getAllByRole("listitem")).toHaveLength(2),
+    );
+  },
+};

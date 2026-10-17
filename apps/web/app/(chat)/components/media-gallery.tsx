@@ -18,6 +18,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 import type { MediaPageResponse } from "@/lib/api/generated/models";
 import { useMediaGalleryQuery } from "@/lib/services/media/queries";
 import { storedImageSources } from "@/lib/services/media/urls";
+import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 
 const GRID_CLASS_NAME =
   "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
@@ -57,28 +58,42 @@ function galleryViews(pages: ReadonlyArray<MediaPageResponse>) {
   return { items, slides };
 }
 
-/** Fetches the next page whenever the sentinel scrolls into view, one page at
- *  a time. */
-function useLoadMoreSentinel(query: {
+type NextPageState = {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
   fetchNextPage: () => void;
-}) {
+};
+
+/**
+ * Fetches the next page whenever the sentinel scrolls into view, one page at
+ * a time. The fetch state is read through a ref, not the effect's deps, so a
+ * settled request does not recreate the observer and re-fire on a sentinel
+ * that never left the view; the observer is recreated per loaded page, so a
+ * short grid chain-loads. A failed next page stops the auto-loading until the
+ * reader retries it (as `useLoadOlderOnScroll` does for chat history).
+ */
+function useLoadMoreSentinel(query: NextPageState, pageCount: number) {
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  const latest = useLatestRef(query);
+  const { hasNextPage } = query;
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (sentinel === null || !hasNextPage || isFetchingNextPage) return;
+    if (sentinel === null || !hasNextPage) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) fetchNextPage();
+        const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } =
+          latest.current;
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (isFetchingNextPage || isFetchNextPageError) return;
+        fetchNextPage();
       },
       // Start loading a screen ahead, so scrolling rarely meets the end.
       { rootMargin: "100% 0px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, pageCount, latest]);
   return sentinelRef;
 }
 
@@ -150,7 +165,7 @@ function GalleryGrid({
  */
 export function MediaGallery() {
   const query = useMediaGalleryQuery();
-  const sentinelRef = useLoadMoreSentinel(query);
+  const sentinelRef = useLoadMoreSentinel(query, query.data?.pages.length ?? 0);
 
   if (query.isPending) return <GallerySkeleton />;
   if (query.isError && query.data === undefined) {
@@ -171,6 +186,11 @@ export function MediaGallery() {
       <GalleryGrid items={items} slides={slides} />
       <div ref={sentinelRef} aria-hidden="true" />
       {query.isFetchingNextPage && <GallerySkeleton />}
+      {query.isFetchNextPageError && !query.isFetchingNextPage && (
+        <GalleryMessage onRetry={() => void query.fetchNextPage()}>
+          Could not load more media.
+        </GalleryMessage>
+      )}
     </div>
   );
 }
