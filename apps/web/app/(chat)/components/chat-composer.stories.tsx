@@ -567,9 +567,7 @@ export const PdfOnlyModelRefusesImage: Story = {
     const picker =
       canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
     await expect(picker).toHaveAttribute("accept", "application/pdf");
-    await expect(
-      canvas.getByRole("button", { name: "Attach files" }),
-    ).toBeEnabled();
+    await expectUploadEnabled(canvas, userEvent, true);
 
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
     await userEvent.paste(filesTransfer([pngFile("shot.png")]));
@@ -619,9 +617,7 @@ export const SwitchingAwayFromPdfBlocksSend: Story = {
       await canvas.findByText("Vision One has no pdf input"),
     ).toBeVisible();
     await expect(send).toBeDisabled();
-    await expect(
-      canvas.getByRole("button", { name: "Attach files" }),
-    ).toBeEnabled();
+    await expectUploadEnabled(canvas, userEvent, true);
     await expect(
       within(canvas.getByRole("list", { name: "Attachments" })).getAllByRole(
         "listitem",
@@ -664,7 +660,7 @@ export const MixedAttachmentsShareTheCap: Story = {
       .map(
         (item) =>
           item.querySelector("img")?.getAttribute("alt") ??
-          item.querySelector("span")?.textContent,
+          item.querySelector("[title]")?.textContent,
       );
     await expect(order).toEqual([
       "image-1.png",
@@ -698,11 +694,7 @@ export const TextOnlyModelRefusesAttach: Story = {
   beforeEach: resolveUploads,
   render: attachingStory(TEXT_MODEL_ID),
   play: async ({ canvas, userEvent }) => {
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: "Attach files" }),
-      ).toBeDisabled(),
-    );
+    await expectUploadEnabled(canvas, userEvent, false);
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
     await userEvent.paste(filesTransfer([pngFile("shot.png")]));
 
@@ -725,6 +717,69 @@ async function chooseModel(
   // The picker is portalled, so query the document, not the canvas.
   await userEvent.click(await screen.findByRole("option", { name }));
 }
+
+type StoryUserEvent = Parameters<NonNullable<Story["play"]>>[0]["userEvent"];
+
+/** Opens the `+` menu, waits for its upload item to reach the expected
+ *  state, then closes the menu again. */
+async function expectUploadEnabled(
+  canvas: ReturnType<typeof within>,
+  userEvent: StoryUserEvent,
+  enabled: boolean,
+) {
+  await userEvent.click(
+    canvas.getByRole("button", { name: "Add files and more" }),
+  );
+  // The menu is portalled, so query the document, not the canvas.
+  const upload = await screen.findByRole("menuitem", {
+    name: "Upload photos & files",
+  });
+  await waitFor(() =>
+    enabled
+      ? expect(upload).not.toHaveAttribute("aria-disabled", "true")
+      : expect(upload).toHaveAttribute("aria-disabled", "true"),
+  );
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+}
+
+/**
+ * The `+` menu: "Upload photos & files" opens the file picker, and "Add to
+ * project" is a disabled placeholder.
+ *
+ * @summary the add menu opens the picker; Add to project is disabled
+ */
+export const AddMenu: Story = {
+  tags: ["ai-generated"],
+  // Base UI's portalled menu leaves aria-hidden focus guards that axe's
+  // aria-hidden-focus rule misreads (as in the model-picker stories above).
+  parameters: {
+    a11y: {
+      config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
+    },
+  },
+  beforeEach: resolveUploads,
+  render: attachingStory(VISION_MODEL_ID),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const picker =
+      canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+    const openPicker = fn();
+    picker!.addEventListener("click", (event) => {
+      event.preventDefault();
+      openPicker();
+    });
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Add files and more" }),
+    );
+    await expect(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: "Upload photos & files" }),
+    );
+    await expect(openPicker).toHaveBeenCalledTimes(1);
+  },
+};
 
 /**
  * Switching to a text-only model keeps the attached thumbnails in order but
@@ -755,9 +810,7 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
       await canvas.findByText("Model One has no image input"),
     ).toBeVisible();
     await expect(send).toBeDisabled();
-    await expect(
-      canvas.getByRole("button", { name: "Attach files" }),
-    ).toBeDisabled();
+    await expectUploadEnabled(canvas, userEvent, false);
     const list = canvas.getByRole("list", { name: "Attachments" });
     await expect(
       within(list)
@@ -767,9 +820,7 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
 
     await chooseModel(canvas, userEvent, /Vision One/);
     await waitFor(() => expect(send).toBeEnabled());
-    await expect(
-      canvas.getByRole("button", { name: "Attach files" }),
-    ).toBeEnabled();
+    await expectUploadEnabled(canvas, userEvent, true);
     await expect(canvas.queryByText("Model One has no image input")).toBeNull();
   },
 };

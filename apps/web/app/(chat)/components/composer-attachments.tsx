@@ -1,8 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ImagePlusIcon } from "lucide-react";
+import { FolderIcon, PaperclipIcon, PlusIcon } from "lucide-react";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
 import {
   MediaThumbnailRow,
   type MediaThumbnailItem,
@@ -57,11 +65,11 @@ function uploadedSlides(
   });
 }
 
-/** The attached images and PDFs as thumbnails inside the input card, above
- *  the textarea; renders nothing while none are attached. An uploaded image
- *  thumbnail opens a lightbox over the composer's uploaded images; an
- *  uploaded PDF opens its `/original` in a new tab; one still uploading or
- *  failed opens nothing. */
+/** The attached images and PDFs as cards inside the input card, above the
+ *  textarea, matching a sent message's; renders nothing while none are
+ *  attached. An uploaded image card opens a lightbox over the composer's
+ *  uploaded images; an uploaded PDF opens its `/original` in a new tab; one
+ *  still uploading or failed opens nothing. */
 export function ComposerAttachmentRow({
   attachments,
 }: {
@@ -75,6 +83,7 @@ export function ComposerAttachmentRow({
       <MediaThumbnailRow
         aria-label="Attachments"
         className="mx-3 mt-3"
+        variant="card"
         items={attachments.items.map(thumbnailItem)}
         // The row opens only ready images, and a ready image has its upload
         // descriptor, so every opened key has a slide.
@@ -91,36 +100,69 @@ export function ComposerAttachmentRow({
   );
 }
 
-/** The toolbar's file picker: a button opening a hidden multi-file input
- *  limited to the kinds the selected model declares (`accept`); `disabled`
- *  while the selected model declares none. */
-export function AttachFilesButton({
+/** The `+` button and its menu: the file upload, then the placeholder for
+ *  filing the chat into a project, disabled until the composer can do that. */
+function ComposerAddDropdown({
+  attachDisabled,
+  onUpload,
+}: {
+  attachDisabled: boolean;
+  onUpload: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <PromptInputButton
+            variant="ghost"
+            size="icon"
+            aria-label="Add files and more"
+          />
+        }
+      >
+        <PlusIcon size={16} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem disabled={attachDisabled} onClick={onUpload}>
+          <PaperclipIcon />
+          <span>Upload photos & files</span>
+        </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger disabled>
+            <FolderIcon />
+            <span>Add to project</span>
+          </DropdownMenuSubTrigger>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The toolbar's `+` menu. "Upload photos & files" opens a hidden multi-file
+ *  input limited to the kinds the selected model declares (`accept`), and is
+ *  disabled while the selected model declares none. */
+export function ComposerAddMenu({
   onFiles,
   accept,
-  disabled,
+  attachDisabled,
 }: {
   onFiles: (files: Iterable<File>) => void;
   accept: string;
-  disabled: boolean;
+  attachDisabled: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <>
-      <PromptInputButton
-        variant="ghost"
-        size="icon"
-        aria-label="Attach files"
-        disabled={disabled}
-        onClick={() => inputRef.current?.click()}
-      >
-        <ImagePlusIcon size={16} />
-      </PromptInputButton>
+      <ComposerAddDropdown
+        attachDisabled={attachDisabled}
+        onUpload={() => inputRef.current?.click()}
+      />
       <input
         ref={inputRef}
         type="file"
         multiple
         hidden
-        aria-label="Attach files"
+        aria-label="Upload photos & files"
         accept={accept}
         onChange={(event) => {
           onFiles(Array.from(event.currentTarget.files ?? []));

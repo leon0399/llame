@@ -2,10 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
-- A sent message's attachments are now cards: a preview above the file name.
-  An image card shows its thumbnail and opens the viewer as before; a PDF card
-  shows a document icon and still opens its original in a new tab. The
-  composer's attachment tiles are unchanged.
+- Attachments are now cards: a preview above the file name, both on a sent
+  message and in the composer. An image card shows its thumbnail and opens the
+  viewer as before; a PDF card shows a document icon and still opens its
+  original in a new tab. The composer's attach button is now a `+` menu:
+  "Upload photos & files" opens the file picker, and "Add to project" is shown
+  disabled until the composer can file a chat.
 
 - A message's actions now sit in one labeled row beneath it, transparent until
   the message is hovered or focused but always holding their space, so the
