@@ -68,11 +68,12 @@ contracts from in-repo ADRs; moderate on runtime durability without execution.
 
 **Study**
 
-1. **Peer CLIs in isolated worktrees.** Each task runs in its own Git worktree
-   and branch; the desktop coordinates providers, ACP chat, terminals, issue/PR
-   flows, and remote SSH hosts.[^emdash-readme-l21-l40][^emdash-agents-l1-l6]
-   llame maps this to Workspace/checkout isolation around a peer executor, not
-   a second Chat authority.
+1. **Peer CLIs in isolated worktrees; plural SSH hosts.** Each task runs in its
+   own Git worktree and branch; the desktop coordinates providers, ACP chat,
+   terminals, issue/PR flows, and **local plus remote SSH project
+   hosts**.[^emdash-readme-l21-l40][^emdash-agents-l1-l6] Multi-host placement is
+   first-class beside worktrees. llame maps this to Workspace/checkout isolation
+   around a peer executor, not a second Chat authority.
 2. **ACP versus PTY execution paths.** Structured chat uses ACP: plugins expose
    provider ACP behavior, `packages/core` owns protocol/session state, and the
    desktop bridges status into `@emdash/chat-ui`. Legacy/TUI conversations stay

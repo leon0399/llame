@@ -153,9 +153,11 @@ Primary alpha reference for product behavior outside the agent loop, with concre
 For agentic capabilities and tool shape, including coding, [OMP (oh-my-pi)](./oh-my-pi.md)
 has primary reference priority.
 
-Execution placement (tool sandboxes, Crabbox cloud workers, and paired-device
-session hosting) is studied separately in the
-[OpenClaw execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md).
+**Multi-host / multi-runtime placement** (tool sandboxes, Crabbox cloud workers,
+and paired-device session hosting) is documented for this product; the detailed
+mechanics live in the
+[OpenClaw execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md)
+rather than in the Study items below.
 
 **Study**
 

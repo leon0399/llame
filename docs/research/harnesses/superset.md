@@ -39,6 +39,9 @@ sources:
   - id: host-service-l1-l14
     resource: "https://github.com/superset-sh/superset/blob/575bd21377f2716ca5db67dc3f1b9244a63c20d9/packages/host-service/AGENTS.md#L1-L14"
     title: "host-service tRPC version skew rules"
+  - id: readme-l112-l139
+    resource: "https://github.com/superset-sh/superset/blob/575bd21377f2716ca5db67dc3f1b9244a63c20d9/README.md#L112-L139"
+    title: "Connect another machine; cloud workspaces; Remote Access hosts"
 ---
 
 # Superset
@@ -93,11 +96,16 @@ mobile surfaces, which are product docs more than inspected runtime code.
    via settings; per-agent launch commands and prompt
    templates.[^readme-l167-l209] Supports llame's peer-as-adapter model when the
    peer is a local binary, not an HTTP identity.
+7. **Remote Access hosts and cloud workspaces.** Connect another machine and
+   reach its workspaces from desktop, CLI or phone; cloud workspaces run without
+   keeping the laptop online.[^readme-l112-l139] Multi-host placement beside
+   local worktrees; Remote Access still needs the host awake and online.
 
 **llame fit**
 
 - High: items 2 and 3 for executor capability and launch correlation.
-- Moderate: items 4 and 5 for credential and API compatibility discipline.
+- Moderate: items 4, 5 and 7 for credential discipline, API skew and multi-host
+  / cloud workspace placement.
 - Low: workspace IDE chrome (diff viewer, browser Design mode) as product UX.
 - Avoid: adopting ELv2-encumbered code or treating worktrees as security
   isolation.[^readme-l67-l69][^license-l1-l17]
@@ -112,6 +120,8 @@ paths still assume a trusted host machine for agent processes.
 [^readme-l67-l69]: [Worktrees separate files; not a process sandbox](https://github.com/superset-sh/superset/blob/575bd21377f2716ca5db67dc3f1b9244a63c20d9/README.md#L67-L69)
 
 [^readme-l167-l209]: [Supported agents and terminal-plus-settings surface](https://github.com/superset-sh/superset/blob/575bd21377f2716ca5db67dc3f1b9244a63c20d9/README.md#L167-L209)
+
+[^readme-l112-l139]: [Connect another machine; cloud workspaces; Remote Access hosts](https://github.com/superset-sh/superset/blob/575bd21377f2716ca5db67dc3f1b9244a63c20d9/README.md#L112-L139)
 
 [^license-l1-l17]: [Elastic License 2.0 limitations](https://github.com/superset-sh/superset/blob/575bd21377f2716ca5db67dc3f1b9244a63c20d9/LICENSE.md#L1-L17)
 

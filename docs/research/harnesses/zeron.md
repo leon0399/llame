@@ -99,15 +99,19 @@ come from design documents and test names rather than executed tests.
    re-resolved when credentials change, so a login or token refresh cannot swap
    the open store; profile roots separate local from org and user data.[^architecture-l44-l78]
    llame's equivalent is RLS identity bound at transaction start.
-8. **Headless engine plus viewport.** One binary runs the engine in process or as
-   a daemon; the UI speaks the same typed RPC over an in-memory duplex or a
-   socket, and a VPS engine can be driven from a laptop.[^architecture-l16-l42] This
-   matches llame's API-plus-thin-web split.
+8. **Multi-machine engine placement.** One binary runs the engine in process or
+   as a daemon; the UI speaks the same typed RPC over an in-memory duplex or a
+   socket, and a VPS engine can be driven from a laptop.[^architecture-l16-l42]
+   Optional CRDT sync treats devices on one account as peers. That is
+   multi-host / multi-device placement (laptop viewport + remote engine), not
+   just a process split. Matches llame's API-plus-thin-web shape; peer-device
+   file trust does not.
 
 **llame fit**
 
 - High: items 1 to 3 as the checklist for an ACP executor adapter.
-- Moderate: items 4 and 5 for steer, interrupt and queued prompts.
+- Moderate: items 4, 5 and 8 for steer/queue and multi-machine engine
+  placement.
 - Low: item 6 on its own; llame already persists run events in Postgres.
 - Avoid: the CRDT document as chat authority. Transcripts and commands live in
   Loro with host-only outcome writes, a second conversation authority next to

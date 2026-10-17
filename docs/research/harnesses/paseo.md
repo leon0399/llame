@@ -39,6 +39,12 @@ sources:
   - id: data-model-l33-l55
     resource: "https://github.com/getpaseo/paseo/blob/a4eb0adcf62b643a7b817743f7a6fa752f4068af/docs/data-model.md#L33-L55"
     title: "File-backed JSON under $PASEO_HOME"
+  - id: readme-l147-l148
+    resource: "https://github.com/getpaseo/paseo/blob/a4eb0adcf62b643a7b817743f7a6fa752f4068af/README.md#L147-L148"
+    title: "paseo run --host targets a remote daemon; --cwd is on that host"
+  - id: development-l576-l586
+    resource: "https://github.com/getpaseo/paseo/blob/a4eb0adcf62b643a7b817743f7a6fa752f4068af/docs/development.md#L576-L586"
+    title: "CLI --host and ssh:// to another daemon; does not install remote daemon"
 ---
 
 # Paseo
@@ -94,12 +100,18 @@ and Hub surfaces beyond architecture notes.
 7. **Optional E2E relay.** Curve25519 + NaCl box; the relay routes ciphertext
    only.[^architecture-l171-l185] Useful remote-access pattern; still assumes
    a trusted daemon host for agent execution.
+8. **CLI selects among daemons.** `paseo run --host workstation.local:6767`
+   runs on a remote daemon with `--cwd` on that host; global `--host` and
+   `ssh://user@host` (optional `?daemonPort=`) point the CLI at another
+   daemon without installing or starting it.[^readme-l147-l148][^development-l576-l586]
+   Multi-host placement: many daemons, one client selector. Each daemon still
+   owns execution on its machine.
 
 **llame fit**
 
 - High: items 1 to 5 for daemon ownership, cancel/resume, child correlation and
   ACP adapters.
-- Moderate: item 7 for remote attach without opening the agent port.
+- Moderate: items 7 and 8 for encrypted relay and multi-daemon host selection.
 - Low: item 6 as storage; llame already persists in Postgres.
 - Avoid: treating Paseo agent IDs or `$PASEO_HOME` as llame Chat/Run authority.
 
@@ -125,3 +137,7 @@ tenancy.
 [^providers-l39-l68]: [ACP base client vs direct AgentClient; Paseo tools catalog](https://github.com/getpaseo/paseo/blob/a4eb0adcf62b643a7b817743f7a6fa752f4068af/docs/providers.md#L39-L68)
 
 [^data-model-l33-l55]: [File-backed JSON under $PASEO_HOME](https://github.com/getpaseo/paseo/blob/a4eb0adcf62b643a7b817743f7a6fa752f4068af/docs/data-model.md#L33-L55)
+
+[^readme-l147-l148]: [paseo run --host targets a remote daemon; --cwd is on that host](https://github.com/getpaseo/paseo/blob/a4eb0adcf62b643a7b817743f7a6fa752f4068af/README.md#L147-L148)
+
+[^development-l576-l586]: [CLI --host and ssh:// to another daemon; does not install remote daemon](https://github.com/getpaseo/paseo/blob/a4eb0adcf62b643a7b817743f7a6fa752f4068af/docs/development.md#L576-L586)

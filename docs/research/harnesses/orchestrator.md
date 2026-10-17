@@ -43,7 +43,7 @@ sources:
 **Status:** Source and architecture-doc inspection only; nothing was run. Open
 desktop ADE that supervises coding-agent workers with per-session worktrees and
 a Kanban derived from session, PR, CI and review facts.[^ao-readme-l29-l35] Closest
-open peer in this wave for **PR/CI-attached worker lifecycle** with derived board
+open peer for **PR/CI-attached worker lifecycle** with derived board
 status. High confidence on the observe/update/derive contract from
 `docs/architecture.md`; moderate on runtime numbers (hibernation leases) without
 executed tests.

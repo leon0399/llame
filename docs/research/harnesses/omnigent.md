@@ -39,6 +39,9 @@ sources:
   - id: data-dir-l1-l41
     resource: "https://github.com/omnigent-ai/omnigent/blob/90a9bed9a5e25b1cab8d06a7e361c86cd5460918/docs/DATA_DIR_LAYOUT.md#L1-L41"
     title: "~/.omnigent chat.db and OMNIGENT_DATA_DIR isolation"
+  - id: readme-l44-l53
+    resource: "https://github.com/omnigent-ai/omnigent/blob/90a9bed9a5e25b1cab8d06a7e361c86cd5460918/README.md#L44-L53"
+    title: "Cloud sandbox providers: Modal, Daytona, E2B, K8s and peers"
 ---
 
 # Omnigent
@@ -88,11 +91,16 @@ providers, which are listed in the README but not exercised here.
    across worktrees unless `OMNIGENT_DATA_DIR` isolates
    them.[^data-dir-l1-l41] Opposite of llame's owner-scoped Postgres RLS;
    adopt the env isolation idea, not the default shared DB.
+7. **Cloud sandbox placement matrix.** Sessions can run in disposable Modal,
+   Daytona, Blaxel, Boxlite, Islo, E2B, OpenShell, CoreWeave, Kubernetes,
+   microsandbox or Databricks sandboxes without a laptop host.[^readme-l44-l53]
+   Multi-container / managed-host placement; still not llame RLS tenancy.
 
 **llame fit**
 
 - High: items 1, 2 and 4 as the executor capability and approval checklist.
-- Moderate: item 3 for packaging peer adapters.
+- Moderate: items 3 and 7 for packaging peer adapters and cloud sandbox
+  placement vocabulary.
 - Low: item 5 as product agent packaging; llame already owns Chat/Run.
 - Avoid: importing Omnigent's session DB or sharing mode as tenancy. llame keeps
   authenticated RLS isolation.
@@ -102,6 +110,8 @@ wrappers). Sharing settings and public sessions are server-configurable and are
 not a fail-closed tenant model.[^data-dir-l1-l41][^readme-l1-l59]
 
 [^readme-l1-l59]: [Meta-harness claim: multi-agent, policies, cloud sandboxes](https://github.com/omnigent-ai/omnigent/blob/90a9bed9a5e25b1cab8d06a7e361c86cd5460918/README.md#L1-L59)
+
+[^readme-l44-l53]: [Cloud sandbox providers: Modal, Daytona, E2B, K8s and peers](https://github.com/omnigent-ai/omnigent/blob/90a9bed9a5e25b1cab8d06a7e361c86cd5460918/README.md#L44-L53)
 
 [^license-l1-l10]: [Apache License 2.0 header](https://github.com/omnigent-ai/omnigent/blob/90a9bed9a5e25b1cab8d06a7e361c86cd5460918/LICENSE#L1-L10)
 

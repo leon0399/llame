@@ -1,9 +1,19 @@
 ---
 type: Reference
 title: "OpenHands (Agent Canvas)"
-description: "MIT Agent Canvas control center over OpenHands Agent Server: multi-backend placement, built-in OpenHands agent plus ACP peer CLIs, and a separate automation backend."
+description: "MIT Agent Canvas control center over OpenHands Agent Server: multi-backend and per-conversation Docker placement, built-in OpenHands agent plus ACP peer CLIs, and a separate automation backend."
 tags:
-  [harness, meta-harness, peer-executor, acp, self-host, backends, automations]
+  [
+    harness,
+    meta-harness,
+    peer-executor,
+    acp,
+    self-host,
+    backends,
+    multi-host,
+    containers,
+    automations,
+  ]
 status: draft
 resource: "https://github.com/OpenHands/OpenHands/tree/61a3bd93e642a0ff4def73b29496a73245628209"
 generated:
@@ -92,7 +102,7 @@ internals; low on Agent Server durability without inspecting that repo.
    container with mounted workspace and state, but conversations that share a
    host workspace directory still share those files — docs tell operators to use
    separate directories or worktrees.[^oh-readme-l117-l120] Same worktree ≠
-   sandbox honesty as the rest of this wave.
+   sandbox honesty as other worktree hosts.
 5. **Host install is full filesystem trust.** Non-sandbox quickstart warns that
    the agent-server has full access to the host filesystem.[^oh-readme-l66]
    Architecture recommends Docker sandbox for laptop use and ordinary server

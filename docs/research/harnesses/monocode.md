@@ -29,7 +29,7 @@ sources:
     title: "/operator thread-scoped app CLI and session actions"
   - id: remote-l1-l24
     resource: "https://github.com/hardbeat920/monocode/blob/b653a397d180d98097a5f214e9bbdae68d837239/docs/remote-access.md#L1-L24"
-    title: "Host-owned sessions over SSH; desktop exit does not stop them"
+    title: "Connections Add machine registry; host-owned SSH sessions outlive desktop"
   - id: harness-events-l13-l32
     resource: "https://github.com/hardbeat920/monocode/blob/b653a397d180d98097a5f214e9bbdae68d837239/src/integrations/harness/core/types.ts#L13-L32"
     title: "HarnessEvent session and turn wire discriminators"
@@ -90,11 +90,13 @@ remote lifetime claims, which come from docs rather than executed hosts.
    notes; orchestration workers keep a separate scoped
    `control` path.[^agent-access-l1-l18] Relevant to child-Run tools that must
    not mint parent Chat identity.
-6. **Remote host survives the UI.** Experimental SSH remote access installs a
-   host package; the host owns provider processes and the session database, so
-   closing the desktop or losing the tunnel does not stop host
-   sessions.[^remote-l1-l24] Matches llame's transport-neutral Run worker
-   direction more than an in-process PTY UI.
+6. **Multi-machine Connections registry.** Experimental SSH remote access uses
+   Settings → Connections → Add machine (SSH address or config alias); each
+   connected host installs a host package that owns provider processes and the
+   session database, so closing the desktop or losing the tunnel does not stop
+   host sessions.[^remote-l1-l24] Multi-host placement, not a single fixed remote.
+   Matches llame's transport-neutral Run worker direction more than an
+   in-process PTY UI.
 7. **Stream coalesce.** Rust harness stdout is batched on a ~16 ms window with a
    500 ms post-exit drain so grandchild pipes cannot strand the last
    lines.[^harness-coalesce-l63-l70] Applicable to any llame executor that
@@ -123,7 +125,7 @@ may change.
 
 [^agent-access-l1-l18]: [/operator thread-scoped app CLI and session actions](https://github.com/hardbeat920/monocode/blob/b653a397d180d98097a5f214e9bbdae68d837239/docs/agent-access.md#L1-L18)
 
-[^remote-l1-l24]: [Host-owned sessions over SSH; desktop exit does not stop them](https://github.com/hardbeat920/monocode/blob/b653a397d180d98097a5f214e9bbdae68d837239/docs/remote-access.md#L1-L24)
+[^remote-l1-l24]: [Connections Add machine registry; host-owned SSH sessions outlive desktop](https://github.com/hardbeat920/monocode/blob/b653a397d180d98097a5f214e9bbdae68d837239/docs/remote-access.md#L1-L24)
 
 [^harness-events-l13-l32]: [HarnessEvent session and turn wire discriminators](https://github.com/hardbeat920/monocode/blob/b653a397d180d98097a5f214e9bbdae68d837239/src/integrations/harness/core/types.ts#L13-L32)
 

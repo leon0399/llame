@@ -28,7 +28,7 @@ sources:
 
 **Status:** Site and docs inspection only; no public desktop revision to pin.
 Closest marketing alignment to llame's "meta-harness" language among the closed
-desktop products in this wave: owns the room (shared processes, todos,
+desktop products here: owns the room (shared processes, todos,
 scratchpads, spawn/wait) and treats coding CLIs as executors. Mutable site/docs
 URLs are navigation only.
 
