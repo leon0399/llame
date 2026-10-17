@@ -150,7 +150,7 @@ export class MarkdownRootTableTracker {
       this.suppression = next;
       if (next !== undefined) return undefined;
     }
-    return this.open(line, rootText);
+    return this.open(line, measured, rootText);
   }
 
   /** The block a table-ending line starts, when GFM keeps later lines in it.
@@ -204,20 +204,28 @@ export class MarkdownRootTableTracker {
       const lazy = measured.body.slice(item.offset).trim() !== "";
       return { kind: "list", required: item.required, lazy, afterBlank: false };
     }
-    if (startsBlock(measured))
-      return htmlStartKind(measured.content, true) === 7 && !paragraphOpen
-        ? { kind: "html" }
-        : undefined;
+    if (startsBlock(measured)) {
+      if (htmlStartKind(measured.content, true) !== 7) return undefined;
+      // A lone type-7 line cannot interrupt an open item paragraph, so it stays
+      // in the item; with no paragraph open it starts a root HTML block, which
+      // then runs to the next blank line.
+      return paragraphOpen
+        ? { ...suppression, lazy: false, afterBlank: false }
+        : { kind: "html" };
+    }
     if (suppression.afterBlank || !suppression.lazy) return undefined;
     return suppression;
   }
 
-  /** Opens a table when this row and the following delimiter row agree. */
+  /** Opens a table when this row and the following delimiter row agree. A row
+   *  is never a line that starts a block GFM resolves as its own: a list item,
+   *  a lone type-7 HTML line, or an interrupting heading, fence, or break. */
   private open(
     line: MarkdownLine,
+    measured: MeasuredLine,
     rootText: boolean,
   ): RootTableHeaderPair | undefined {
-    if (!rootText) {
+    if (!rootText || startsBlock(measured)) {
       this.candidate = undefined;
       return undefined;
     }

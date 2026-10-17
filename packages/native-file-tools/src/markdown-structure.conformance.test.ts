@@ -391,6 +391,42 @@ const TABLE_FIXTURES: ReadonlyArray<Fixture> = [
     name: "an indented fence inside an item is code, not a fence",
     source: "x | y\n-|-\n1|2\n2. x\n       ~~~\na | b\n-|-\n1|2\n",
   },
+  {
+    name: "a bare dash is not a delimiter row for a definition",
+    source: "[a]: /1\n-\nfoo\nbar\n",
+  },
+  {
+    name: "a definition with a title is not a table header row",
+    source: '[ref]: https://example.com "Title"\n-\nfoo\nbar\n',
+  },
+  {
+    name: "a link reference definition is a table header row",
+    source: "[a]: /1\n| - |\nfoo\n",
+  },
+  {
+    name: "a definition continuation line is a table header row",
+    source: "[a]:\n/url\n| - |\nfoo\n",
+  },
+  {
+    name: "a lone HTML line is not a table header row",
+    source: "| a | b |\ntext\n<span>\n| -\n1|2\n",
+  },
+  {
+    name: "a digit-headed row is a table header row",
+    source: "1 | b\n-|-\n1|2\n",
+  },
+  {
+    name: "an empty ordered item is not a table header row",
+    source: "a|b\n   x | y\n1|2\n| a |\n| - |\n| a | b |\n1)\n:-\nfoo\n",
+  },
+  {
+    name: "indented rows after a lone HTML line inside a list stay in it",
+    source: "a|b\n| - | - |\n3) y\n<br>\n   | a | b |\n:-|:-:|\nfoo\nbar\n",
+  },
+  {
+    name: "unindented rows after a lone HTML line inside a list are a table",
+    source: "a|b\n| - | - |\n3) y\n<br>\n| a | b |\n:-|:-:|\nfoo\nbar\n",
+  },
 ];
 
 /** Fixtures where this overlay deliberately keeps the CommonMark heading
@@ -562,9 +598,11 @@ function parseGfm(source: string) {
   });
 }
 
+/** Root tables a read can start inside: the tracker answers only for body
+ *  rows, so a table the oracle holds without one is out of scope. */
 function oracleTables(source: string): Array<TableSpan> {
   return parseGfm(source).children.flatMap((child) => {
-    if (child.type !== "table") return [];
+    if (child.type !== "table" || child.children.length < 2) return [];
     const start = child.children[0]?.position?.start.line;
     const end = child.position?.end.line;
     if (start === undefined || end === undefined) return [];

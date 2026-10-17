@@ -36,7 +36,7 @@ master
 - [x] 1.4 Verify one host-path and one web-render read through `apps/api/src/tools` tests show the header pair, and a `:raw`, `:outline`, and `.txt` read of the same content do not.
 - [x] 1.5 Update `docs/product/reference/selectors.md` ("Ranged Markdown ancestors") with the header pair, its budget priority, and the T1 and T4 limits, and add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
 - [x] 1.6 Verify the layer: `pnpm --filter @workspace/native-file-tools test`, `pnpm --filter @workspace/native-file-tools typecheck`, `pnpm --filter @workspace/native-file-tools lint`, the focused `apps/api` tests from 1.4, `pnpm format:check`, and `git diff --check`.
-- [ ] 1.7 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
+- [x] 1.7 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
 - [ ] 1.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1024` in the PR body.
 
 ## 2. finalize

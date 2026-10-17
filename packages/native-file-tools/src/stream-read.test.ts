@@ -1,50 +1,3 @@
-it("resolves a setext underline only inside the window", () => {
-  const source = "# Root\n\na | b\n-|-\n1|2\n3|4\n===\n";
-  // The window ends before the underline, so the table's lines stay rows and
-  // the pair's header row is emitted.
-  const short = selectSourceLines(
-    source,
-    applySelectorSuffix("/doc.md", "5-5"),
-    "text/markdown",
-  );
-  expect(short.content).toBe("1: # Root\n3: a | b\n4: -|-\n5: 1|2\n6: 3|4\n");
-  // The longer window reaches the underline, which turns those lines into
-  // heading text, and line 5 is inside that heading: no pair, no ancestor.
-  const long = selectSourceLines(
-    source,
-    applySelectorSuffix("/doc.md", "5-6"),
-    "text/markdown",
-  );
-  expect(long).toMatchObject({
-    content: "4: -|-\n5: 1|2\n6: 3|4\n7: ===\n",
-    requestedRange: { startLine: 5, endLine: 6 },
-    shownRange: { startLine: 4, endLine: 7 },
-  });
-});
-
-it("keeps a link reference definition title out of the header pair", () => {
-  // The definition's multi-line title is root text to CommonMark, and the
-  // lines after it are a setext heading, so a range below them gets the
-  // heading's own text line and no header pair, in source order.
-  const source = "# R\n[a]: /u '\n| h |\n| - |\n'\n| b |\n===\nx\ny\nz\n";
-  const result = selectSourceLines(
-    source,
-    applySelectorSuffix("/doc.md", "8-8"),
-    "text/markdown",
-  );
-  expect(result).toEqual({
-    status: "success",
-    kind: "file",
-    path: "/doc.md",
-    representation: "text",
-    content: "6: | b |\n7: ===\n8: x\n9: y\n",
-    requestedRanges: [{ startLine: 8, endLine: 8 }],
-    shownRanges: [{ startLine: 6, endLine: 9 }],
-    nextOffset: 8,
-    truncated: false,
-  });
-});
-
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1249,25 +1202,49 @@ describe("markdown ancestor range selection", () => {
   });
 
   it("resolves a setext underline only inside the window", () => {
-    const source = "# Root\n\na | b\n-|-\n1|2\n===\n";
-    const full = selectSourceLines(
+    const source = "# Root\n\na | b\n-|-\n1|2\n3|4\n===\n";
+    // The window ends before the underline, so the table's lines stay rows and
+    // the pair's header row is emitted.
+    const short = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "5-5"),
       "text/markdown",
     );
-    // The underline turns the table's lines into heading text, and line 5 is
-    // inside that heading, so it is neither an ancestor nor a body row.
-    expect(full).toMatchObject({
-      content: "4: -|-\n5: 1|2\n6: ===\n",
-      requestedRange: { startLine: 5, endLine: 5 },
-      shownRange: { startLine: 4, endLine: 6 },
-    });
-    const truncated = selectSourceLines(
-      "# Root\n\na | b\n-|-\n1|2\n",
-      applySelectorSuffix("/doc.md", "5-5"),
+    expect(short.content).toBe("1: # Root\n3: a | b\n4: -|-\n5: 1|2\n6: 3|4\n");
+    // The longer window reaches the underline, which turns those lines into
+    // heading text, and line 5 is inside that heading: no pair, no ancestor.
+    const long = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "5-6"),
       "text/markdown",
     );
-    // Past the window end there is no underline, so the lines stay a table.
-    expect(truncated.content).toBe("1: # Root\n3: a | b\n4: -|-\n5: 1|2\n");
+    expect(long).toMatchObject({
+      content: "4: -|-\n5: 1|2\n6: 3|4\n7: ===\n",
+      requestedRange: { startLine: 5, endLine: 6 },
+      shownRange: { startLine: 4, endLine: 7 },
+    });
+  });
+
+  it("keeps a link reference definition title out of the header pair", () => {
+    // The definition's multi-line title is root text to CommonMark, and the
+    // lines after it are a setext heading, so a range below them gets the
+    // heading's own text line and no header pair, in source order.
+    const source = "# R\n[a]: /u '\n| h |\n| - |\n'\n| b |\n===\nx\ny\nz\n";
+    const result = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "8-8"),
+      "text/markdown",
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content: "6: | b |\n7: ===\n8: x\n9: y\n",
+      requestedRanges: [{ startLine: 8, endLine: 8 }],
+      shownRanges: [{ startLine: 6, endLine: 9 }],
+      nextOffset: 8,
+      truncated: false,
+    });
   });
 });
