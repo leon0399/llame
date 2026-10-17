@@ -328,6 +328,13 @@ describe("markdown outline reader", () => {
     });
   });
 
+  it("emits a table's header row once when the document opens with it", async () => {
+    const source = "| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n";
+    await expect(read(source)).resolves.toMatchObject({
+      content: "1: | a | b |\n3: | 1 | 2 |\n4: | 3 | 4 |\n",
+    });
+  });
+
   it("replaces a section's excerpt line when the table opens the section", async () => {
     const source = "# H\n| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n";
     await expect(read(source)).resolves.toMatchObject({

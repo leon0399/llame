@@ -307,6 +307,9 @@ class MarkdownOutlineReader {
     if (current === undefined) {
       if (this.rootExcerptSeen) return true;
       this.rootExcerptSeen = true;
+      // A document can open with a table, which then takes this line as its
+      // own header row: emit it once.
+      if (this.isInScope(entry.line)) this.emittedExcerpts.add(entry.line);
       return this.emitSource(entry);
     }
     if (this.excerpts.has(current.heading)) return true;
