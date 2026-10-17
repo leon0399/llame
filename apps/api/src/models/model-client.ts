@@ -183,9 +183,13 @@ export interface ModelStreamInput {
   ) => void;
   /**
    * Called once for each provider model request when its `finish` part arrives,
-   * before any tool calls from that request execute.
+   * before any tool calls from that request execute. `generationMs` is that
+   * request's own generation window, measured between the two provider-side
+   * boundaries the turn's throughput divides by: from its first streamed output
+   * delta, or from the request itself when it streamed none, to that `finish`.
+   * A request that never finished reports no usage and therefore no window.
    */
-  onRequestUsage?: (usage: LanguageModelUsage) => void;
+  onRequestUsage?: (usage: LanguageModelUsage, generationMs: number) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: ModelStreamFinishEvent) => void | Promise<void>;
   /**
