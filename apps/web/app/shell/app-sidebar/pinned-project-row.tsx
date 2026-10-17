@@ -12,6 +12,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 import type { DragControls } from "framer-motion";
@@ -43,7 +44,9 @@ const PROJECT_RECENT_CHAT_LIMIT = 5;
  *  while the icon itself is hovered or focused, and stays a chevron, turned
  *  down, while the project is expanded (the trigger's `data-panel-open`). It
  *  sits outside the row's link, so toggling never navigates; the expanded
- *  state reaches assistive tech through the trigger's `aria-expanded`. */
+ *  state reaches assistive tech through the trigger's `aria-expanded`. An
+ *  icon-only rail has no room for the chats, so there the toggle is gone and
+ *  the link shows a plain folder instead. */
 function PinnedProjectToggle({
   name,
   isArchived,
@@ -59,7 +62,7 @@ function PinnedProjectToggle({
           size="icon-xs"
           // Centres the icon where the row's own icon sits; the negative
           // margin gives the label back the space the button adds.
-          className="group/toggle ml-1 -mr-1 shrink-0"
+          className="group/toggle ml-1 -mr-1 shrink-0 group-data-[collapsible=icon]:hidden"
         />
       }
     >
@@ -92,6 +95,13 @@ function PinnedProjectLabel({
       isActive={isActive}
       tooltip={pin.item.name}
     >
+      {/* The icon-only rail's folder; the expand toggle carries it otherwise. */}
+      <FolderIcon
+        className={cn(
+          "hidden group-data-[collapsible=icon]:block",
+          isArchived && "opacity-50",
+        )}
+      />
       {/* Wrapper takes the primitive's truncate rule, not the title. */}
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         <SidebarRowTitle
@@ -188,6 +198,20 @@ function PinnedProjectDialogs({
   );
 }
 
+/** Expanded state that never outlives an icon-only rail: collapsing the rail
+ *  collapses the project, and expanding the rail does not reopen it. */
+function useProjectExpansion() {
+  const { state, isMobile } = useSidebar();
+  const iconOnly = state === "collapsed" && !isMobile;
+  const [open, setOpen] = useState(false);
+  const [wasIconOnly, setWasIconOnly] = useState(iconOnly);
+  if (wasIconOnly !== iconOnly) {
+    setWasIconOnly(iconOnly);
+    if (iconOnly) setOpen(false);
+  }
+  return { open: open && !iconOnly, onOpenChange: setOpen };
+}
+
 /** A pinned project: its row, and below it — once expanded from the folder
  *  icon — its recent chats. */
 export function PinnedProjectRow({
@@ -200,9 +224,10 @@ export function PinnedProjectRow({
   const isActive = usePathname() === `/projects/${pin.itemId}`;
   const isArchived = pin.item.archivedAt !== null;
   const actions = usePinnedProjectActions(pin);
+  const expansion = useProjectExpansion();
 
   return (
-    <Collapsible>
+    <Collapsible {...expansion}>
       <PinRowSurface>
         <PinnedProjectToggle name={pin.item.name} isArchived={isArchived} />
         <PinnedProjectLabel
