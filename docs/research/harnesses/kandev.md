@@ -36,6 +36,9 @@ sources:
   - id: kandev-license-l1-l10
     resource: "https://github.com/kdlbs/kandev/blob/b35ac5170fb57d8a27864ca5d09c04271bf0fb94/LICENSE#L1-L10"
     title: "GNU Affero General Public License v3"
+  - id: kandev-license-l540-l553
+    resource: "https://github.com/kdlbs/kandev/blob/b35ac5170fb57d8a27864ca5d09c04271bf0fb94/LICENSE#L540-L553"
+    title: "AGPLv3 Section 13 remote network interaction source offer"
 ---
 
 # Kandev
@@ -43,8 +46,10 @@ sources:
 - **Stack:** Single native Go binary with embedded web SPA; Tauri desktop shell;
   `agentctl` sidecar in local/worktree/Docker/K8s/SSH/Sprites
   environments.[^kandev-arch-l6-l58][^kandev-readme-l16-l22] **License:** GNU
-  Affero GPL v3 (AGPL-3.0). Network use triggers source-offer
-  obligations.[^kandev-license-l1-l10] Site: [kandev.ai](https://kandev.ai).
+  Affero GPL v3 (AGPL-3.0). Modified versions that support remote network
+  interaction must offer Corresponding Source (AGPLv3 Section
+  13).[^kandev-license-l1-l10][^kandev-license-l540-l553] Site:
+  [kandev.ai](https://kandev.ai).
 
 **Status:** Source and documentation inspection only; nothing was run. A
 self-hosted control plane for parallel coding-agent tasks: kanban/workflows,
@@ -98,10 +103,11 @@ lifecycle and executor trust language.
 - Avoid: adopting Kandev's task/kanban identity as Chat/Run, or AGPL code into a
   non-AGPL product without a license decision.
 
-**Caution:** AGPL-3.0 applies to network service distribution.[^kandev-license-l1-l10]
-External MCP routes remain open while authentication is disabled (called out in
-public architecture). Office-mode autonomy under `internal/office/` is
-feature-flagged and not a supported extension API.
+**Caution:** AGPL-3.0 Section 13 source-offer applies when a modified version
+supports remote network interaction.[^kandev-license-l540-l553] External MCP
+routes remain open while authentication is disabled (called out in public
+architecture). Office-mode autonomy under `internal/office/` is feature-flagged
+and not a supported extension API.
 
 [^kandev-readme-l16-l22]: [review-first parallel tasks; self-host; no telemetry](https://github.com/kdlbs/kandev/blob/b35ac5170fb57d8a27864ca5d09c04271bf0fb94/README.md#L16-L22)
 
@@ -120,3 +126,5 @@ feature-flagged and not a supported extension API.
 [^kandev-executors-l111-l141]: [private executor ownership is application access, not OS isolation](https://github.com/kdlbs/kandev/blob/b35ac5170fb57d8a27864ca5d09c04271bf0fb94/docs/public/executors.md#L111-L141)
 
 [^kandev-license-l1-l10]: [GNU Affero General Public License v3](https://github.com/kdlbs/kandev/blob/b35ac5170fb57d8a27864ca5d09c04271bf0fb94/LICENSE#L1-L10)
+
+[^kandev-license-l540-l553]: [AGPLv3 Section 13 remote network interaction source offer](https://github.com/kdlbs/kandev/blob/b35ac5170fb57d8a27864ca5d09c04271bf0fb94/LICENSE#L540-L553)

@@ -45,9 +45,6 @@ sources:
   - id: jean-agents-feature-l1-l20
     resource: "https://github.com/coollabsio/jean/blob/b766f894c9f66405681161cfda4c4f85473b4204/docs/developer/agents.md#L1-L20"
     title: "Experimental agents; delegations table and status vocabulary"
-  - id: jean-site
-    resource: "https://jean.build"
-    title: "Jean product site"
 ---
 
 # Jean
@@ -108,7 +105,7 @@ background-agent durability (feature default off).
 **Caution:** Full access is the default for new sessions; old sessions without
 `selected_execution_mode` load as Plan so defaults do not silently
 escalate.[^jean-permissions-l1-l37] Headless/Web Access token auth is operator
-procedure, not datastore isolation. Product site: [jean.build](https://jean.build).[^jean-site]
+procedure, not datastore isolation. Product site: [jean.build](https://jean.build).
 
 [^jean-readme-l5-l17]: [Parallel peer CLIs in worktrees; desktop and jean-server](https://github.com/coollabsio/jean/blob/b766f894c9f66405681161cfda4c4f85473b4204/README.md#L5-L17)
 
@@ -131,5 +128,3 @@ procedure, not datastore isolation. Product site: [jean.build](https://jean.buil
 [^jean-permissions-l41-l49]: [ACP approval bridge fail-closed timeout and Allow-once](https://github.com/coollabsio/jean/blob/b766f894c9f66405681161cfda4c4f85473b4204/docs/developer/permissions.md#L41-L49)
 
 [^jean-agents-feature-l1-l20]: [Experimental agents; delegations table and status vocabulary](https://github.com/coollabsio/jean/blob/b766f894c9f66405681161cfda4c4f85473b4204/docs/developer/agents.md#L1-L20)
-
-[^jean-site]: [Jean product site](https://jean.build)

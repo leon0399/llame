@@ -48,9 +48,6 @@ sources:
   - id: emdash-adr0004-l1-l16
     resource: "https://github.com/generalaction/emdash/blob/761520624f1cafa740f5c88ddaf083b4fde2cc59/docs/adr/0004-cancellation-is-best-effort-across-planes.md#L1-L16"
     title: "Desktop cancel is best-effort; orphaned host effects may complete"
-  - id: emdash-site
-    resource: "https://emdash.com"
-    title: "Emdash product site"
 ---
 
 # Emdash
@@ -112,7 +109,7 @@ contracts from in-repo ADRs; moderate on runtime durability without execution.
 CLIs still send code to their providers.[^emdash-readme-l72-l80] Global hook
 installs mutate the owner's user-level agent config on every machine that runs
 Emdash.[^emdash-providers-l44-l56] Product marketing also lives at
-[emdash.com](https://emdash.com); the inspected README links `emdash.sh`.[^emdash-site]
+[emdash.com](https://emdash.com); the inspected README links `emdash.sh`.
 
 [^emdash-readme-l21-l40]: [Parallel agents in Git worktrees; local and SSH projects](https://github.com/generalaction/emdash/blob/761520624f1cafa740f5c88ddaf083b4fde2cc59/README.md#L21-L40)
 
@@ -137,5 +134,3 @@ Emdash.[^emdash-providers-l44-l56] Product marketing also lives at
 [^emdash-adr0001-l1-l25]: [Host-authoritative workspaces; guest not owner; positive-assertion scans](https://github.com/generalaction/emdash/blob/761520624f1cafa740f5c88ddaf083b4fde2cc59/docs/adr/0001-host-authoritative-workspaces.md#L1-L25)
 
 [^emdash-adr0004-l1-l16]: [Desktop cancel is best-effort; orphaned host effects may complete](https://github.com/generalaction/emdash/blob/761520624f1cafa740f5c88ddaf083b4fde2cc59/docs/adr/0004-cancellation-is-best-effort-across-planes.md#L1-L16)
-
-[^emdash-site]: [Emdash product site](https://emdash.com)

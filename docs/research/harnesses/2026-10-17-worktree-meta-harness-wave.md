@@ -19,7 +19,8 @@ sources:
 
 Source and marketing inspection of twenty-one products listed for this sweep.
 Nothing was run. Closed products have no public app revision; open checkouts are
-pinned in their Reference entries. SPEC and OpenSpec win any disagreement.
+pinned in their Reference entries. Ranking relative to the harnesses
+index.[^wave-index] SPEC and OpenSpec win any disagreement.
 
 ## Why this wave matters
 
@@ -88,4 +89,4 @@ Zeron, Orca, bb) stay above this wave for alpha decisions.
   public app source and recorded when absent or colliding.
 - No independent benchmarks. Adoption requires a separate llame decision.
 
-[^wave-index]
+[^wave-index]: [Harnesses index ordering and authority notes](./index.md)
