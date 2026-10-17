@@ -25,22 +25,53 @@ const EMPTY_TEXT = new Map<ChatListShow, string>([
   ["all", "No chats in this project yet."],
 ]);
 
-/** The "Chats in this project" card: the same view menu and grouped list as
- *  the chats rail, scoped to this project. */
-function ProjectChatsCard({
-  chats,
-  projects,
-  pinnedAtByChatId,
-  onRequestNewProject,
-  show,
-  onShowChange,
-}: {
-  chats: Array<ChatResponse>;
+type ProjectChatRows = {
   projects: Array<ProjectResponse>;
   pinnedAtByChatId: ReadonlyMap<string, string>;
   onRequestNewProject: (chatId: string) => void;
+};
+
+type ProjectChatsView = {
   show: ChatListShow;
   onShowChange: (show: ChatListShow) => void;
+  chats: Array<ChatResponse>;
+  /** The current view's chats are loading (first load or a view switch). */
+  loading: boolean;
+};
+
+/** The card's list region: only this part reloads when the view changes. */
+function ProjectChatsList({
+  view,
+  rows,
+}: {
+  view: ProjectChatsView;
+  rows: ProjectChatRows;
+}) {
+  if (view.loading) return <SidebarRowSkeletons count={4} />;
+  if (view.chats.length === 0)
+    return (
+      <p className="px-2 py-1 text-sm text-muted-foreground">
+        {EMPTY_TEXT.get(view.show)}
+      </p>
+    );
+  return (
+    <ChatTimeGroups
+      chats={view.chats}
+      {...rows}
+      // This card sits on the page canvas, not the sidebar.
+      surfaceClassName="bg-background"
+    />
+  );
+}
+
+/** The "Chats in this project" card: the same view menu and grouped list as
+ *  the chats rail, scoped to this project. */
+function ProjectChatsCard({
+  view,
+  rows,
+}: {
+  view: ProjectChatsView;
+  rows: ProjectChatRows;
 }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border p-3">
@@ -48,30 +79,19 @@ function ProjectChatsCard({
         <span className="flex-1 text-sm font-semibold">
           Chats in this project
         </span>
-        <ChatListViewMenu show={show} onShowChange={onShowChange} />
+        <ChatListViewMenu show={view.show} onShowChange={view.onShowChange} />
       </div>
-      <ChatListShowChip show={show} onShowChange={onShowChange} />
-      {chats.length === 0 ? (
-        <p className="px-2 py-1 text-sm text-muted-foreground">
-          {EMPTY_TEXT.get(show)}
-        </p>
-      ) : (
-        <ChatTimeGroups
-          chats={chats}
-          projects={projects}
-          onRequestNewProject={onRequestNewProject}
-          pinnedAtByChatId={pinnedAtByChatId}
-          // This card sits on the page canvas, not the sidebar.
-          surfaceClassName="bg-background"
-        />
-      )}
+      <ChatListShowChip show={view.show} onShowChange={view.onShowChange} />
+      <ProjectChatsList view={view} rows={rows} />
     </div>
   );
 }
 
-/** The project header + its chats, fetched server-filtered by `projectId`. */
-function useProjectPageData(id: string, show: ChatListShow) {
-  const { data: projects, isLoading: projectsLoading } = useProjects();
+/** The project header, plus its chats for the card's current view. Only the
+ *  project gates the page; the card owns its list's loading state. */
+function useProjectPageData(id: string) {
+  const [show, setShow] = React.useState<ChatListShow>("active");
+  const { data: projects, isLoading } = useProjects();
   const { data, isLoading: chatsLoading } = useChatsQuery({
     projectId: id,
     archived: archivedFilter(show),
@@ -79,19 +99,18 @@ function useProjectPageData(id: string, show: ChatListShow) {
   const { data: pins } = usePins();
 
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
-  const project = allProjects.find((candidate) => candidate.id === id);
-  const projectChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
+  const chats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
   const pinnedAtByChatId = React.useMemo(
     () => selectPinnedChatMap(pins),
     [pins],
   );
 
   return {
-    loading: projectsLoading || chatsLoading,
-    project,
+    loading: isLoading,
+    project: allProjects.find((candidate) => candidate.id === id),
     allProjects,
-    projectChats,
     pinnedAtByChatId,
+    view: { show, onShowChange: setShow, chats, loading: chatsLoading },
   };
 }
 
@@ -102,9 +121,8 @@ function useProjectPageData(id: string, show: ChatListShow) {
 // Description/stats/todos/knowledge come with later slices of the design.
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
-  const [show, setShow] = React.useState<ChatListShow>("active");
-  const { loading, project, allProjects, projectChats, pinnedAtByChatId } =
-    useProjectPageData(id, show);
+  const { loading, project, allProjects, pinnedAtByChatId, view } =
+    useProjectPageData(id);
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );
@@ -125,12 +143,12 @@ export default function ProjectPage() {
             </p>
           ) : (
             <ProjectChatsCard
-              chats={projectChats}
-              projects={allProjects}
-              onRequestNewProject={setNewProjectChatId}
-              pinnedAtByChatId={pinnedAtByChatId}
-              show={show}
-              onShowChange={setShow}
+              view={view}
+              rows={{
+                projects: allProjects,
+                pinnedAtByChatId,
+                onRequestNewProject: setNewProjectChatId,
+              }}
             />
           )}
         </div>

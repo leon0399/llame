@@ -90,7 +90,9 @@ function useChatListData() {
     allChats,
     allProjects,
     pinnedAtByChatId,
-    isLoading: chatsLoading || pinnedLoading,
+    // Pinned gates the first paint; a view switch reloads only the list.
+    isLoading: pinnedLoading,
+    listLoading: chatsLoading,
   };
 }
 
@@ -172,7 +174,11 @@ function ChatListBody() {
   );
 
   if (list.isLoading) return <ChatListLoadingState />;
-  if (list.allChats.length === 0 && list.pinnedChats.length === 0)
+  if (
+    !list.listLoading &&
+    list.allChats.length === 0 &&
+    list.pinnedChats.length === 0
+  )
     return <ChatListEmptyState show={list.show} />;
 
   return (
@@ -183,15 +189,19 @@ function ChatListBody() {
         projects={list.allProjects}
         onNewProject={setNewProjectChatId}
       />
-      <ChatTimeGroups
-        chats={list.allChats}
-        selectedChatId={list.routeChatId}
-        projects={list.allProjects}
-        onRequestNewProject={setNewProjectChatId}
-        pinnedAtByChatId={list.pinnedAtByChatId}
-        // Rail and sheet both render on the sidebar surface.
-        surfaceClassName="bg-sidebar"
-      />
+      {list.listLoading ? (
+        <ChatListLoadingState />
+      ) : (
+        <ChatTimeGroups
+          chats={list.allChats}
+          selectedChatId={list.routeChatId}
+          projects={list.allProjects}
+          onRequestNewProject={setNewProjectChatId}
+          pinnedAtByChatId={list.pinnedAtByChatId}
+          // Rail and sheet both render on the sidebar surface.
+          surfaceClassName="bg-sidebar"
+        />
+      )}
       <CreateProjectForChatDialog
         chatId={newProjectChatId}
         onClose={() => setNewProjectChatId(null)}

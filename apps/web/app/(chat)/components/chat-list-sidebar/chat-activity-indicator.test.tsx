@@ -11,29 +11,20 @@ import {
 } from "./chat-activity-indicator";
 
 describe("resolveChatActivityStatus", () => {
-  it("is null when neither signal is set (idle chat)", () => {
-    expect(
-      resolveChatActivityStatus({ processing: false, unread: false }),
-    ).toBeNull();
-  });
-
-  it("is 'unread' when only the unread signal is set", () => {
-    expect(resolveChatActivityStatus({ processing: false, unread: true })).toBe(
-      "unread",
-    );
-  });
-
-  it("is 'processing' when only the processing signal is set", () => {
-    expect(resolveChatActivityStatus({ processing: true, unread: false })).toBe(
-      "processing",
-    );
-  });
-
-  it("prefers 'processing' when both signals are set — a generating reply isn't unread yet", () => {
-    expect(resolveChatActivityStatus({ processing: true, unread: true })).toBe(
-      "processing",
-    );
-  });
+  it.each([
+    [false, undefined, null],
+    [false, "completed", "unread"],
+    [false, "failed", "failed"],
+    [true, undefined, "processing"],
+    // A generating reply has no outcome yet, whatever the last run did.
+    [true, "completed", "processing"],
+    [true, "failed", "processing"],
+  ] as const)(
+    "processing=%s, outcome=%s → %s",
+    (processing, outcome, status) => {
+      expect(resolveChatActivityStatus({ processing, outcome })).toBe(status);
+    },
+  );
 });
 
 describe("processingLabel", () => {

@@ -193,6 +193,8 @@ function PinnedChatLabel({
   // Optional: the admin shell mounts this rail without the runs provider, and
   // there "nothing is running here" is the honest answer rather than a crash.
   const activeRuns = useOptionalActiveRuns();
+  const naming = activeRuns?.activeChatIds.has(pin.itemId) ?? false;
+  const muted = isArchived || (pin.item.title === null && !naming);
   return (
     <SidebarMenuButton
       className="min-w-0 flex-1"
@@ -210,13 +212,9 @@ function PinnedChatLabel({
         <SidebarRowTitle
           text={label}
           animateChanges
-          // Same condition as the list row: a placeholder standing in for a
-          // name a run is still producing.
-          shimmer={
-            pin.item.title === null &&
-            (activeRuns?.activeChatIds.has(pin.itemId) ?? false)
-          }
-          className={cn(isArchived && "text-muted-foreground")}
+          // Same rules as the list row: shimmer while named, muted once idle.
+          shimmer={pin.item.title === null && naming}
+          className={cn(muted && "text-muted-foreground")}
         />
         {isArchived && <ArchivedBadge />}
       </span>

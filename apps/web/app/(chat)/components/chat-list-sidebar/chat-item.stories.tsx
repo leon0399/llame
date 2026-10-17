@@ -162,8 +162,8 @@ const meta = {
     isPinned: false,
     projects: [],
   },
-  // The mocked activity is ID-KEYED, not per-story state: only "chat-processing"
-  // and "chat-unread" carry a dot. This is stable across every story, so on the
+  // The mocked activity is ID-KEYED, not per-story state: only
+  // "chat-processing", "chat-unread" and "chat-failed" carry a dot. This is stable across every story, so on the
   // autodocs page (where all stories co-render and share the one module-level
   // useActiveRuns spy) each row shows the status matching ITS OWN chat.id —
   // Basic ("chat-1") stays clean instead of inheriting a status story's state.
@@ -171,7 +171,10 @@ const meta = {
     useActiveRuns.mockReturnValue({
       ...emptyActiveRuns(),
       activeChatIds: new Set(["chat-processing"]),
-      completedChats: new Set(["chat-unread"]),
+      completedChats: new Map([
+        ["chat-unread", "completed"],
+        ["chat-failed", "failed"],
+      ]),
     });
     usePinItem.mockReturnValue({ mutate: pinMutate, isPending: false });
     pinMutate.mockClear();
@@ -283,6 +286,23 @@ export const Unread: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByLabelText("Unread reply")).toBeInTheDocument();
+  },
+};
+
+/**
+ * A background run failed while the user was elsewhere: a red dot marks the
+ * chat until it's opened.
+ *
+ * @summary chat with an unseen failed run (failed dot)
+ */
+export const Failed: Story = {
+  // "chat-failed" is the id the meta beforeEach marks failed-but-unseen.
+  args: { chat: { ...baseChat, id: "chat-failed" } },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByLabelText("Run failed")).toBeInTheDocument();
+    await expect(canvas.queryByLabelText("Unread reply")).toBeNull();
   },
 };
 

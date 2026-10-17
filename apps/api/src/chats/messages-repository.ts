@@ -53,6 +53,9 @@ function isCheckpointMessage(row: Message): row is CheckpointMessage {
  */
 const notRunningReply = sql`(${messages.usage} ->> 'status') is distinct from 'running'`;
 
+/** At least one text part with a non-whitespace character. */
+const hasVisibleText = sql`exists (select 1 from jsonb_array_elements(${messages.parts}) as part where part ->> 'type' = 'text' and part ->> 'text' ~ '\\S')`;
+
 /**
  * An assistant reply a writer may still replace. Atomic guard against a retry
  * race: two overlapping retries of the same aborted/error turn can both pass
@@ -307,8 +310,11 @@ export class MessagesRepository {
   }
 
   /**
-   * Latest message per owned chat (highest seq) — chat-list previews. A reply
-   * still running is skipped, so the preview stays on the newest visible row.
+   * Latest message per owned chat that carries visible text (highest seq) —
+   * chat-list previews. A failed or cut-off reply with no text falls back to
+   * the message before it (usually the user's prompt), and one with partial
+   * text previews that text. A reply still running is skipped, so the preview
+   * stays on the newest visible row.
    *
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
    * RLS is the primary guarantee, the ownerUserId predicate is the seatbelt.
@@ -327,6 +333,7 @@ export class MessagesRepository {
           eq(chats.ownerUserId, ownerUserId),
           chatId === undefined ? undefined : eq(messages.chatId, chatId),
           inArray(messages.role, ['user', 'assistant']),
+          hasVisibleText,
           notRunningReply,
         ),
       )

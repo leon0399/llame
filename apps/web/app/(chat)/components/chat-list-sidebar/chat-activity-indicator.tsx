@@ -3,34 +3,28 @@ import type { RunPhase } from "@/lib/services/live/live-messages";
 /**
  * Per-chat activity indicator: a small badge on the bottom-right of the chat
  * icon in the sidebar row, per the authoritative design
- * (`chatStatusEl`/`ll-status-dot` in the double-sidebar mock). Three states
- * are designed — `unread`, `processing`, `needs-input` — but only the first
- * two have a backend signal today:
+ * (`chatStatusEl`/`ll-status-dot` in the double-sidebar mock). The design
+ * also has `needs-input`, which has no backend signal yet (#45) and is not
+ * faked here.
  *
  * - `processing`: a run is currently tracked (non-terminal) for this chat —
  *   `ActiveRunsProvider`'s `activeChatIds`.
+ * - `failed`: a run for this chat failed or expired while the user was
+ *   elsewhere — a `failed` entry in `completedChats`.
  * - `unread`: a run for this chat completed while the user was elsewhere —
- *   `ActiveRunsProvider`'s `completedChats`.
- * - `needs-input` (an approval/confirmation the agent is waiting on) has NO
- *   backend state yet — that's future policy/approval-flow territory (#45).
- *   Deliberately not faked: `resolveChatActivityStatus` never produces it, so
- *   this component simply never renders that variant until a real signal
- *   exists to drive it.
- *
- * Supersedes the plain unseen-reply dot this feature originally shipped
- * (rendered inline next to the title) — this is a design upgrade, not an
- * addition alongside it.
+ *   a `completed` entry in `completedChats`.
  */
-export type ChatActivityStatus = "unread" | "processing";
+export type ChatActivityStatus = "unread" | "failed" | "processing";
 
 export function resolveChatActivityStatus(input: {
   processing: boolean;
-  unread: boolean;
+  outcome: "completed" | "failed" | undefined;
 }): ChatActivityStatus | null {
-  // A chat that's actively generating a reply isn't "unread" yet — there's
-  // nothing to read. processing takes precedence over unread.
+  // A chat that's actively generating a reply has no outcome to show yet —
+  // processing takes precedence over an earlier run's unseen result.
   if (input.processing) return "processing";
-  if (input.unread) return "unread";
+  if (input.outcome === "failed") return "failed";
+  if (input.outcome === "completed") return "unread";
   return null;
 }
 
@@ -82,20 +76,22 @@ export function ChatActivityIndicator({
       />
     );
   }
+  if (status === "failed") {
+    return (
+      <output
+        aria-label="Run failed"
+        title="Run failed"
+        className={`${BADGE_BASE} bg-destructive`}
+      />
+    );
+  }
   if (status === "unread") {
-    // Judgment call: the design's mock renders this dot in a hardcoded blue
-    // (#3b82f6), but DESIGN.md §2 makes `--destructive` (red, danger-only)
-    // the system's ONLY standing chromatic color outside the chart ramp, and
-    // its Don'ts explicitly forbid borrowing chart colors or introducing an
-    // ad-hoc hue for UI accents. Red would be semantically wrong here (an
-    // unread reply isn't an error), and chart colors are reserved for data
-    // viz. Mapped to `--primary` (Ink) instead — solid, achromatic, and the
-    // same token this feature's original unseen-dot already used — matching
-    // the design's shape/position but not its one-off color.
+    // The design's blue (#3b82f6), as the semantic `info` token.
     return (
       <output
         aria-label="Unread reply"
-        className={`${BADGE_BASE} bg-primary`}
+        title="Unread reply"
+        className={`${BADGE_BASE} bg-info`}
       />
     );
   }

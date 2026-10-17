@@ -88,8 +88,13 @@ function ChatItemTitleBlock({
           // so it reads as in progress rather than as the chat's actual
           // title.
           shimmer={chat.title === null && activityStatus === "processing"}
-          // Archived title de-emphasis (mock's `.sec-title` rule).
-          className={cn(isArchived && "text-muted-foreground")}
+          // Muted: an archived title (mock's `.sec-title` rule), or the
+          // placeholder of an untitled chat no run is naming any more.
+          className={cn(
+            (isArchived ||
+              (chat.title === null && activityStatus !== "processing")) &&
+              "text-muted-foreground",
+          )}
         />
         {isArchived && <ArchivedBadge />}
       </span>
@@ -248,7 +253,7 @@ function useChatItemRow(
   const { completedChats, activeChatIds, runPhaseByChatId } = useActiveRuns();
   const activityStatus = resolveChatActivityStatus({
     processing: activeChatIds.has(chat.id),
-    unread: completedChats.has(chat.id),
+    outcome: completedChats.get(chat.id),
   });
   const dialogs = useChatItemDialogs();
   const pinMutation = usePinItem();

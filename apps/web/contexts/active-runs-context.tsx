@@ -42,6 +42,9 @@ import { useOptionalLiveUpdates } from "@/contexts/live-updates-context";
 const POLL_MS = 4000;
 
 type TrackedRun = { chatId: string; title: string };
+/** How a run the owner did not watch ended: a reply to read, or a failure. */
+export type UnseenRunOutcome = "completed" | "failed";
+type UnseenRuns = Map<string, UnseenRunOutcome>;
 type ActiveEntry = readonly [string, TrackedRun];
 type ToastOptions = NonNullable<Parameters<typeof toast>[1]>;
 
@@ -54,8 +57,9 @@ type ActiveRunsContextValue = {
   /** Register the chat currently rendered in the foreground. The mounted
    *  ChatPage is authoritative even while a new chat still has the `/` URL. */
   registerViewedChat: (chatId: string) => () => void;
-  /** Chats with an unseen background completion (drives the sidebar badge). */
-  completedChats: ReadonlySet<string>;
+  /** Chats with an unseen background run outcome, and which one (drives the
+   *  sidebar's unread and failed badges). */
+  completedChats: ReadonlyMap<string, UnseenRunOutcome>;
   markChatSeen: (chatId: string) => void;
   /** Chats with a currently-tracked, not-yet-terminal run (drives the sidebar's
    *  "processing" activity indicator). */
@@ -177,9 +181,9 @@ function removeChatRuns(
   return changed ? next : prev;
 }
 
-function clearSeenChat(prev: Set<string>, chatId: string): Set<string> {
+function clearSeenChat(prev: UnseenRuns, chatId: string): UnseenRuns {
   if (!prev.has(chatId)) return prev;
-  const next = new Set(prev);
+  const next = new Map(prev);
   next.delete(chatId);
   return next;
 }
@@ -188,7 +192,7 @@ function clearSeenChat(prev: Set<string>, chatId: string): Set<string> {
  *  `active`/`completedChats` and needs no knowledge of polling or rehydration. */
 function useTrackedRuns() {
   const [active, setActive] = useState<Map<string, TrackedRun>>(new Map());
-  const [completedChats, setCompletedChats] = useState<Set<string>>(new Set());
+  const [completedChats, setCompletedChats] = useState<UnseenRuns>(new Map());
   const viewedChatIdRef = useRef<string | null>(null);
 
   const registerViewedChat = useCallback((chatId: string) => {
@@ -297,7 +301,7 @@ type TerminalRunHandlerDeps = {
   handledRunIds: MutableRefObject<Set<string>>;
   drop: (runId: string) => void;
   queryClient: QueryClient;
-  setCompletedChats: Dispatch<SetStateAction<Set<string>>>;
+  setCompletedChats: Dispatch<SetStateAction<UnseenRuns>>;
   viewedChatIdRef: MutableRefObject<string | null>;
   routerRef: MutableRefObject<ReturnType<typeof useRouter>>;
 };
@@ -348,12 +352,15 @@ function handleTerminalRun(
 function notifyTerminalRun(
   res: ReturnType<typeof resolveTerminalRun>,
   meta: TrackedRun,
-  setCompletedChats: Dispatch<SetStateAction<Set<string>>>,
+  setCompletedChats: Dispatch<SetStateAction<UnseenRuns>>,
   routerRef: MutableRefObject<ReturnType<typeof useRouter>>,
 ): void {
-  if (res.badge) {
+  if (res.badge && res.toast) {
+    const outcome = res.toast;
     setCompletedChats((prev) =>
-      prev.has(meta.chatId) ? prev : new Set(prev).add(meta.chatId),
+      prev.get(meta.chatId) === outcome
+        ? prev
+        : new Map(prev).set(meta.chatId, outcome),
     );
   }
   if (res.toast) {
@@ -371,7 +378,7 @@ function useRunCompletionEffects(params: {
   queryClient: QueryClient;
   viewedChatIdRef: MutableRefObject<string | null>;
   routerRef: MutableRefObject<ReturnType<typeof useRouter>>;
-  setCompletedChats: Dispatch<SetStateAction<Set<string>>>;
+  setCompletedChats: Dispatch<SetStateAction<UnseenRuns>>;
 }): void {
   const {
     activeEntries,
@@ -439,7 +446,7 @@ function useContextValue(params: {
   trackRun: ActiveRunsContextValue["trackRun"];
   untrackChat: ActiveRunsContextValue["untrackChat"];
   registerViewedChat: ActiveRunsContextValue["registerViewedChat"];
-  completedChats: ReadonlySet<string>;
+  completedChats: ReadonlyMap<string, UnseenRunOutcome>;
   markChatSeen: ActiveRunsContextValue["markChatSeen"];
   activeChatIds: ReadonlySet<string>;
   runPhaseByChatId: ReadonlyMap<string, RunPhase>;
