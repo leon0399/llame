@@ -221,11 +221,17 @@ SHALL remain unchanged.
 - **THEN** the direct ancestor chain selected by that requested line is emitted before the window
 - **AND** that heading source line appears only once
 
-#### Scenario: No enclosing heading keeps the singular shape
+#### Scenario: No enclosing heading and no table keeps the singular shape
 
-- **WHEN** an ordinary Markdown range starts in content before any root heading, or starts at line 1
+- **WHEN** an ordinary Markdown range starts in content that is before any root heading and outside any root GFM table, or starts at line 1
 - **THEN** the read returns its existing context-expanded content
-- **AND** it retains singular `requestedRange` and `shownRange` fields and emits no ancestor line
+- **AND** it retains singular `requestedRange` and `shownRange` fields and emits no ancestor or header line
+
+#### Scenario: A headingless table body row keeps the plural shape
+
+- **WHEN** an ordinary Markdown range whose first requested line is a body row of a root GFM table starts before any root heading
+- **THEN** the read emits that table's header row and delimiter row before the window
+- **AND** it reports plural `requestedRanges` and `shownRanges` and emits no ancestor line
 
 #### Scenario: An edit preview of a Markdown file has no ancestors
 
