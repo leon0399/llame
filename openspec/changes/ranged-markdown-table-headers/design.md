@@ -92,11 +92,14 @@ definition with the oracle on 229 adversarial inputs left only the 15 setext
 cases as disagreements; round 4 found that ending the list rule at the next
 blank line misread lists that end at a heading or continue past a blank line,
 and round 5 found that a list of another type starting where the followed list
-ends lazily continues too; both are now fixed. One conservative disagreement
-remains: a lone `<span>` line after a list item's paragraph continues that
-paragraph lazily here, as in the `commonmark.js` reference parser, while
-micromark makes it an HTML block in the item, so a table the oracle opens
-after it gets no header.
+ends lazily continues too; both are now fixed. Where the two still differ, the
+implementation layer's fixture set asserts this overlay's own result: the setext
+cases above, a table folded into frontmatter, heading decisions that differ
+while the tables agree, a root paragraph a multi-line link reference definition
+title carries, and a lone type-7 HTML line inside a list item, which micromark
+reads as an HTML block that ends the item and opens a table after it while the
+scanner's block runs to the next blank line, so that table gets no header pair
+here.
 
 - Alternative: let tables win over setext headings as GFM does. Rejected: it
   changes shipped heading sections, `:outline` entries, and ancestor chains
