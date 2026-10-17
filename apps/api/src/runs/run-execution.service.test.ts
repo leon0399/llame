@@ -4973,7 +4973,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const { client } = createToolLoopClient([
         // The model speaks, then waits half a second on its tool, then answers:
         // the wait sits between the first delta and the turn's end, which is
-        // where the wall clock used to leak into the rate.
+        // where the wall clock used to leak into the rate. Both requests space
+        // their chunks, so the window they leave behind is their sum.
         providerResponse(
           [
             { type: 'text-start', id: 'answer' },
@@ -4987,7 +4988,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             },
           ],
           'tool-calls',
-          { usage: providerCounts(10, 20) },
+          { usage: providerCounts(10, 20), chunkDelayInMs: 30 },
         ),
         providerResponse(
           [
@@ -5014,8 +5015,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const generationMs = numericUsageField(usage, 'generationMs');
       // The tool slept inside the turn, so the wall clock carries it and the
       // generation window does not: the provider was only generating for the
-      // spaced chunks of its two requests.
+      // spaced chunks of its two requests, and the window they leave behind is
+      // their sum — the first request alone spaced more than 60ms of them.
       expect(latencyMs).toBeGreaterThanOrEqual(SLOW_TOOL_SLEEP_MS);
+      expect(generationMs).toBeGreaterThanOrEqual(60);
       expect(generationMs).toBeLessThan(latencyMs / 2);
       expect(numericUsageField(usage, 'chunkCount')).toBe(2);
       expect(numericUsageField(usage, 'tokensPerSecond')).toBeCloseTo(

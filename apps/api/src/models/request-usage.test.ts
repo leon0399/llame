@@ -153,6 +153,17 @@ describe('provider request generation windows', () => {
     expect(receipts[0]?.generationMs).toBe(CHUNK_DELAY_MS);
   });
 
+  it('opens the window on a reasoning delta, which is streamed output too', async () => {
+    const receipts = await receiptsFrom(
+      finishedChunks([
+        { type: 'reasoning-delta', id: 'thinking', delta: 'weighing' },
+      ]),
+    );
+
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]?.generationMs).toBe(CHUNK_DELAY_MS);
+  });
+
   it('reports nothing for a request that never finished', async () => {
     const receipts = await receiptsFrom([
       { type: 'stream-start', warnings: [] },
