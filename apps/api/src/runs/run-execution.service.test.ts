@@ -3552,6 +3552,50 @@ describe('RunExecutionService executeRun — stream completion', () => {
     });
   });
 
+  it('sums the generation windows of every request that reported usage (#155)', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+
+    now.mockReturnValue(10_150);
+    options.onTextDelta?.('alpha');
+    // A tool step's window and the answering step's, banked as each request
+    // finishes: 100ms then 50ms. The expected total is the pair the test
+    // handed in, so a rate built from anything but their sum fails here.
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 10 }),
+      100,
+    );
+    now.mockReturnValue(10_300);
+    options.onTextDelta?.('beta');
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      50,
+    );
+    await options.onFinish?.({
+      text: 'alphabeta',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 2,
+    });
+
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+    ).toMatchObject({
+      status: 'completed',
+      complete: true,
+      firstTokenMs: 150,
+      chunkCount: 2,
+      generationMs: 150,
+      // 30 output tokens over 150ms, not over the turn's 300ms wall clock.
+      tokensPerSecond: 200,
+    });
+  });
+
   it('marks the completed aggregate incomplete when step count exceeds receipts', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -4974,7 +5018,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         // The model speaks, then waits half a second on its tool, then answers:
         // the wait sits between the first delta and the turn's end, which is
         // where the wall clock used to leak into the rate. Both requests space
-        // their chunks, so the window they leave behind is their sum.
+        // their chunks, so each leaves a window of its own.
         providerResponse(
           [
             { type: 'text-start', id: 'answer' },
@@ -5015,15 +5059,16 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const generationMs = numericUsageField(usage, 'generationMs');
       // The tool slept inside the turn, so the wall clock carries it and the
       // generation window does not: the provider was only generating for the
-      // spaced chunks of its two requests, and the window they leave behind is
-      // their sum — the first request alone spaced more than 60ms of them.
+      // spaced chunks of its two requests.
       expect(latencyMs).toBeGreaterThanOrEqual(SLOW_TOOL_SLEEP_MS);
-      expect(generationMs).toBeGreaterThanOrEqual(60);
       expect(generationMs).toBeLessThan(latencyMs / 2);
       expect(numericUsageField(usage, 'chunkCount')).toBe(2);
-      expect(numericUsageField(usage, 'tokensPerSecond')).toBeCloseTo(
-        60 / (generationMs / 1000),
-        1,
+      // Read against the wall clock rather than against the recorded window, so
+      // the rate has an oracle the code under test did not produce: a rate that
+      // still divided the turn's wall clock could not clear double it.
+      const wallClockRate = 60 / (latencyMs / 1000);
+      expect(numericUsageField(usage, 'tokensPerSecond')).toBeGreaterThan(
+        wallClockRate * 2,
       );
     } finally {
       unregisterTestOnlyTool(SLOW_TOOL_ID);
