@@ -28,6 +28,7 @@ import { PageHeader } from "../../components/page-header";
 import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
 import { ProjectDetailsHeader } from "./project-details-header";
 import { ProjectPromptInput } from "./project-prompt-input";
+import { ProjectSidePanel } from "./project-side-panel";
 
 const EMPTY_TEXT = new Map<ChatListShow, string>([
   ["active", "No chats in this project yet."],
@@ -189,6 +190,7 @@ function ProjectPageBody({
             }}
           />
         </div>
+        <ProjectSidePanel />
       </div>
     </div>
   );

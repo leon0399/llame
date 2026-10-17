@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
 
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
@@ -191,6 +191,53 @@ export const NoChats: Story = {
     await expect(
       canvas.getByText("No chats in this project yet."),
     ).toBeVisible();
+    await expect(sentRoutes()).toEqual([
+      PROJECTS_ROUTE,
+      PINNED_CHATS_ROUTE,
+      CHATS_ROUTE,
+      PINS_ROUTE,
+    ]);
+  },
+};
+
+/**
+ * The side panel previews project settings that do not exist yet (#1329,
+ * #1330): Instructions' action flips between its empty state and sample
+ * text, and Context's + adds sample cards that their own remove button takes
+ * away. Nothing is sent.
+ *
+ * @summary demo side panel: instructions toggle, context cards add and remove
+ */
+export const SidePanelDemo: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const panel = within(
+      await canvas.findByRole("complementary", { name: "Project settings" }),
+    );
+
+    await expect(
+      panel.getByText("Add instructions to tailor llame's responses"),
+    ).toBeVisible();
+    await userEvent.click(
+      panel.getByRole("button", { name: "Add instructions" }),
+    );
+    await expect(
+      panel.getByRole("button", { name: "Edit instructions" }),
+    ).toBeVisible();
+    await expect(
+      panel.queryByText("Add instructions to tailor llame's responses"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(panel.getByRole("button", { name: "Add context" }));
+    await userEvent.click(panel.getByRole("button", { name: "Add context" }));
+    const cards = within(panel.getByRole("list", { name: "Project context" }));
+    await expect(cards.getAllByRole("listitem")).toHaveLength(2);
+
+    await userEvent.click(
+      cards.getByRole("button", { name: "Remove Design notes.pdf" }),
+    );
+    await expect(cards.getAllByRole("listitem")).toHaveLength(1);
     await expect(sentRoutes()).toEqual([
       PROJECTS_ROUTE,
       PINNED_CHATS_ROUTE,
