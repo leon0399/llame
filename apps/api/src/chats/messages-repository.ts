@@ -324,22 +324,37 @@ export class MessagesRepository {
     ownerUserId: string,
     chatId?: string,
   ): Promise<Array<Message>> {
-    const rows = await this.db
-      .selectDistinctOn([messages.chatId])
+    // Per-chat top-1 LATERAL: `messages_chat_seq_unique_idx` walks each chat
+    // from its newest row and stops at the first qualifying one, so the
+    // visible-text scan never touches the older messages of a chat.
+    const latest = this.db
+      .select()
       .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
       .where(
         and(
-          eq(chats.ownerUserId, ownerUserId),
-          chatId === undefined ? undefined : eq(messages.chatId, chatId),
+          eq(messages.chatId, chats.id),
           inArray(messages.role, ['user', 'assistant']),
           hasVisibleText,
           notRunningReply,
         ),
       )
-      .orderBy(messages.chatId, desc(messages.seq));
+      .orderBy(desc(messages.seq))
+      .limit(1)
+      .as('latest');
 
-    return rows.map((r) => r.messages);
+    const rows = await this.db
+      .select()
+      .from(chats)
+      .innerJoinLateral(latest, sql`true`)
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          chatId === undefined ? undefined : eq(chats.id, chatId),
+        ),
+      )
+      .orderBy(chats.id);
+
+    return rows.map((r) => r.latest);
   }
 
   /**

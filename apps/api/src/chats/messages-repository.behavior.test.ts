@@ -40,6 +40,8 @@ function queryResult<T>(
     limit: chain,
     groupBy: chain,
     innerJoin: chain,
+    innerJoinLateral: chain,
+    as: chain,
     values,
     set: chain,
     onConflictDoNothing: chain,
@@ -134,9 +136,13 @@ describe('MessagesRepository query windows and conversation reads', () => {
       select: [
         [{ messages: message(1) }, { messages: message(2) }],
         [{ messages: message(3) }],
+        // findLatestPerOwnedChat builds its lateral subquery through
+        // `db.select()` first, then runs the outer chats query.
+        [],
+        [{ chats: chat, latest: message(4) }],
         [{ messages: message(5) }],
       ],
-      distinct: [[{ messages: message(4) }], [{ messages: message(5) }]],
+      distinct: [[{ messages: message(5) }]],
     });
     const repository = new MessagesRepository(db);
 
@@ -382,6 +388,8 @@ function recordingQuery<T>(
     limit: chain('limit'),
     groupBy: chain('groupBy'),
     innerJoin: chain('innerJoin'),
+    innerJoinLateral: chain('innerJoinLateral'),
+    as: chain('as'),
     values: chain('values'),
     set: chain('set'),
     onConflictDoNothing: chain('onConflictDoNothing'),
@@ -816,7 +824,7 @@ describe('MessagesRepository read shapes', () => {
     expect(select).not.toHaveBeenCalled();
   });
 
-  it('filters checkpoint rows before preview DISTINCT ON and recency counts', async () => {
+  it('filters checkpoint rows before the preview lateral pick and recency counts', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
     const distinct = vi
@@ -834,20 +842,22 @@ describe('MessagesRepository read shapes', () => {
     );
     await repository.countPerChat([chat.id], chat.ownerUserId);
 
-    expect(distinct).toHaveBeenNthCalledWith(1, [schema.messages.chatId]);
-    expect(distinct).toHaveBeenNthCalledWith(2, [schema.messages.chatId]);
+    expect(distinct).toHaveBeenCalledTimes(1);
+    expect(distinct).toHaveBeenCalledWith([schema.messages.chatId]);
+    // [0] is the lateral subquery's predicate, [1] the outer owner scope.
     const predicates = calls.flatMap((call) =>
       call.method === 'where' ? [call.argument] : [],
     );
-    expect(predicates).toHaveLength(3);
+    expect(predicates).toHaveLength(4);
     const previewPredicate = predicates[0];
-    const countPredicate = predicates[2];
+    const countPredicate = predicates[3];
     if (!is(previewPredicate, SQL) || !is(countPredicate, SQL)) {
       throw new Error('Expected preview/count predicates');
     }
     const previewSql = new PgDialect().sqlToQuery(previewPredicate);
-    expect(previewSql.sql).toContain('"messages"."role" in ($2, $3)');
-    expect(previewSql.params).toEqual([chat.ownerUserId, 'user', 'assistant']);
+    expect(previewSql.sql).toContain('"messages"."role" in ($1, $2)');
+    expect(previewSql.sql).toContain(NOT_RUNNING_SQL);
+    expect(previewSql.params).toEqual(['user', 'assistant']);
     const countSql = new PgDialect().sqlToQuery(countPredicate);
     expect(countSql.sql).toContain('"messages"."role" <> $3');
     expect(countSql.params).toEqual([chat.ownerUserId, chat.id, 'checkpoint']);
