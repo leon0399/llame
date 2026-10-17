@@ -197,6 +197,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
+- Fixed the admin organization tree's "New organization" dialog keeping a
+  cancelled name: reopening it after Cancel now starts from an empty field, as
+  it already did after Escape.
+
 - The search embed worker now copies an existing vector instead of calling
   the embedding provider when the same owner already has a valid one for
   byte-identical chunk content under the current model key and input version

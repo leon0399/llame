@@ -1,6 +1,10 @@
+import { useState } from "react";
+
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
+
+import { Button } from "@workspace/ui/components/button";
 
 import type { OrgUnitResponse } from "@/lib/services/org-units/types";
 import {
@@ -46,10 +50,10 @@ const teamA = unit({
 // globalThis.fetch. The root-organization POST and the unit PATCH (rename and
 // move) are held until a story releases them, so a story can observe the
 // dialog while the request is still in flight and prove it closes only once
-// the server answers. The child-unit POST succeeds at once. An unrouted
-// request fails the story.
+// the server answers; a story may release the POST with a failure instead.
+// The child-unit POST succeeds at once. An unrouted request fails the story.
 let fetchMock: Mock<typeof fetch>;
-let releaseCreate: () => void;
+let releaseCreate: (response?: Response) => void;
 let releaseUpdate: () => void;
 
 function routeFetch() {
@@ -60,8 +64,9 @@ function routeFetch() {
       const key = `${request.method} ${new URL(request.url).pathname}`;
       if (key === "POST /api/v1/org-units") {
         return new Promise<Response>((resolve) => {
-          releaseCreate = () =>
-            resolve(jsonResponse(unit({ id: "org9", name: "New Co" })));
+          releaseCreate = (
+            response = jsonResponse(unit({ id: "org9", name: "New Co" })),
+          ) => resolve(response);
         });
       }
       if (key === "POST /api/v1/org-units/org1/children") {
@@ -204,6 +209,83 @@ export const CreateCancel: Story = {
 
     await expect(args.onOpenChange).toHaveBeenCalledWith(false);
     await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * Stands in for the organization tree's "New organization" button: like the
+ * tree, it keeps the dialog mounted between opens and opens it through its own
+ * state.
+ */
+function NewOrganizationFromTree() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>New organization</Button>
+      <CreateOrgUnitDialog open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+/** Open the tree's "New organization" dialog and wait for it to show. */
+async function openFromTree(canvasElement: HTMLElement) {
+  await userEvent.click(
+    within(canvasElement).getByRole("button", { name: "New organization" }),
+  );
+  return openedDialog("New organization");
+}
+
+/** Cancel the open dialog and wait for it to close. */
+async function cancelOpenDialog() {
+  const dialog = within(screen.getByRole("dialog"));
+  await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+}
+
+/**
+ * Reopening the dialog after Cancel starts from an empty name: a cancelled
+ * draft is gone, as it is after Escape.
+ *
+ * @summary new organization: reopening after Cancel starts from a blank name
+ */
+export const CreateReopenAfterCancel: Story = {
+  tags: ["ai-generated"],
+  render: () => <NewOrganizationFromTree />,
+  play: async ({ canvasElement }) => {
+    let dialog = await openFromTree(canvasElement);
+    await userEvent.type(dialog.getByLabelText("Name"), "Draft Co");
+    await cancelOpenDialog();
+
+    dialog = await openFromTree(canvasElement);
+
+    await expect(dialog.getByLabelText("Name")).toHaveValue("");
+    await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * A failed create shows its error in the dialog; once the dialog is cancelled,
+ * reopening it shows no stale error from that attempt.
+ *
+ * @summary new organization: reopening after a failed create shows no error
+ */
+export const CreateReopenAfterFailure: Story = {
+  tags: ["ai-generated"],
+  render: () => <NewOrganizationFromTree />,
+  play: async ({ canvasElement }) => {
+    let dialog = await openFromTree(canvasElement);
+    await userEvent.type(dialog.getByLabelText("Name"), "New Co");
+    await userEvent.click(dialog.getByRole("button", { name: "Create" }));
+    await sentRequest();
+    releaseCreate(jsonResponse({ message: "Something went wrong" }, 500));
+    const error = await dialog.findByText(/went wrong/i);
+    const errorText = error.textContent ?? "";
+    await cancelOpenDialog();
+
+    dialog = await openFromTree(canvasElement);
+
+    await expect(dialog.queryByText(errorText)).toBeNull();
+    await expect(sentRoutes()).toEqual(["POST /api/v1/org-units"]);
   },
 };
 
