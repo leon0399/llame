@@ -127,16 +127,24 @@ function RemoveButton({
 }
 
 /** A card's preview area above its file-name caption. The caption is hidden
- *  from assistive technology: the image's `alt` or the PDF link's label
- *  already names the attachment. */
-function CardContent({ preview, name }: { preview: ReactNode; name: string }) {
+ *  from assistive technology when the image's `alt` or the PDF link's label
+ *  already names the attachment (`named`); otherwise it is the name. */
+function CardContent({
+  preview,
+  name,
+  named,
+}: {
+  preview: ReactNode;
+  name: string;
+  named: boolean;
+}) {
   return (
     <>
       <span className="flex h-21 items-center justify-center overflow-hidden bg-muted text-muted-foreground">
         {preview}
       </span>
       <span
-        aria-hidden="true"
+        aria-hidden={named || undefined}
         title={name}
         className="block truncate border-t px-2 py-1.5 text-left text-xs text-foreground"
       >
@@ -164,6 +172,7 @@ function PdfSurface({
       <CardContent
         preview={<FileTextIcon aria-hidden="true" className="size-6" />}
         name={name}
+        named={href !== undefined}
       />
     ) : (
       <div className="flex size-full flex-col items-center justify-center gap-1 p-1 text-foreground">
@@ -205,8 +214,13 @@ function ThumbnailSurface(
   }
   const { src, alt, onOpen, status, variant } = props;
   const image = <ThumbnailImage src={src} alt={alt} />;
+  // The image's `alt` always names an image card, wrapped or not.
   const content =
-    variant === "card" ? <CardContent preview={image} name={alt} /> : image;
+    variant === "card" ? (
+      <CardContent preview={image} name={alt} named />
+    ) : (
+      image
+    );
   if (!onOpen || status !== "ready") return content;
   return (
     <button type="button" onClick={onOpen} className={surfaceFocusClassName}>
