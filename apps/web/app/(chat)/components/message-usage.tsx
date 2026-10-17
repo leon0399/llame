@@ -512,13 +512,12 @@ export function buildUsageLine(
   };
 }
 
-// Shared typography/spacing (matches the design's `.tel-badge`) — the
-// negative left margin is an optical alignment trick so the badge's own
-// padding doesn't visually indent past the message content's left edge.
-// Every value is on the Tailwind scale (the design file's rem values snapped
-// to the nearest quarter step).
+// Shared typography/spacing (matches the design's `.tel-badge`). Every value
+// is on the Tailwind scale (the design file's rem values snapped to the
+// nearest quarter step). `h-6` is the `xs` Button's height, so the badge
+// lines up with the message actions it shares a row with.
 const badgeTypographyClassName =
-  "text-muted-foreground -ml-1.75 mt-1 inline-flex w-fit items-center gap-1.25 rounded-md px-1.75 py-0.75 font-mono text-xs";
+  "text-muted-foreground inline-flex h-6 w-fit items-center gap-1.25 rounded-md px-1.75 font-mono text-xs";
 
 /** One Performance/Tokens/Cost & model column of the hover card's breakdown. */
 function UsageSectionColumn({ section }: { section: UsageSection }) {
@@ -593,7 +592,7 @@ function UsageTrigger({ text }: { text: string }) {
         />
       }
     >
-      {text}
+      <span className="text-trim-cap">{text}</span>
       <InfoIcon size={12} className="opacity-70" />
     </HoverCardTrigger>
   );

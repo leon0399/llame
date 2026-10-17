@@ -15,9 +15,8 @@ import { useForkChat } from "../../../lib/services/chat/fork";
 
 /**
  * Fork-from-here action: copies the conversation up to this message into a
- * new chat the caller owns. Lives in a message's action row (alongside future
- * actions like copy) — a persistent, always-visible affordance, not a
- * hover-reveal — so the feature stays discoverable.
+ * new chat the caller owns. One labeled action in a message's action row; the
+ * row, not this button, owns the hover reveal.
  */
 export function MessageForkButton({
   chatId,
@@ -34,11 +33,10 @@ export function MessageForkButton({
 
   return (
     <Button
+      type="button"
       variant="ghost"
-      size="icon"
-      className="h-7 w-7"
+      size="xs"
       aria-label="Fork from here"
-      title="Fork the conversation from here into a new chat"
       disabled={disabled || forkMutation.isPending}
       onClick={() =>
         forkMutation.mutate(
@@ -47,7 +45,8 @@ export function MessageForkButton({
         )
       }
     >
-      <GitForkIcon className="h-3.5 w-3.5" />
+      <GitForkIcon data-icon="inline-start" aria-hidden="true" />
+      <span className="text-trim-cap">Fork</span>
     </Button>
   );
 }

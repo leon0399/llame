@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 import {
   Message,
-  MessageActions,
   MessageContent,
 } from "@workspace/ui/components/ai-elements/message";
 import {
@@ -29,7 +28,11 @@ import {
   type ToolUIPart,
   type UIMessage,
 } from "ai";
+import { PencilIcon, RefreshCwIcon } from "lucide-react";
 
+import { cn } from "@workspace/ui/lib/utils";
+
+import { ComingSoonMessageAction } from "./coming-soon-message-action";
 import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
 import {
@@ -39,6 +42,7 @@ import {
 } from "./group-assistant-parts";
 import { InstructionsPart } from "./instructions-part";
 import { MessageAttachments } from "./message-attachments";
+import { MessageCopyButton } from "./message-copy-button";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { PromptImportsPart } from "./prompt-imports-part";
@@ -275,8 +279,11 @@ export function messageRowMode({
     : "content";
 }
 
-/** The usage/context affordances (assistant turns only) plus the persistent
- *  fork action row beneath a message's content. */
+/** The single action row beneath a message's content: the per-message
+ *  actions, then (assistant turns only) the context and usage affordances.
+ *  Fork shows on BOTH roles, since the API forks from any message id, and is
+ *  disabled rather than removed while a turn streams so the row keeps its
+ *  shape. */
 type ChatMessageActionProps = {
   message: UIMessage;
   availableModels: ReadonlyArray<AvailableModel>;
@@ -286,6 +293,35 @@ type ChatMessageActionProps = {
   onInspectContext: (runId: string) => void;
 };
 
+/**
+ * The row the actions sit in, owned here rather than by the vendored
+ * `MessageActions`: transparent until its message is hovered or holds focus,
+ * yet always in layout, so revealing it never shifts the transcript. It
+ * stays revealed while one of its popups (the usage card) is open, since
+ * that card is portaled outside the hovered message. Where the primary input
+ * cannot hover (touch), `group-hover` never matches, so the row stays
+ * visible. It sits under the user bubble's right edge, and on replies pulls
+ * left so the first icon lines up with the text.
+ */
+function MessageActionRow({
+  from,
+  children,
+}: {
+  from: UIMessage["role"];
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-1 text-muted-foreground opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 group-has-[[data-popup-open]]/message:opacity-100 [@media(hover:none)]:opacity-100",
+        from === "user" ? "justify-end" : "-ml-1.5",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function ChatMessageFooter({
   message,
   availableModels,
@@ -294,40 +330,37 @@ function ChatMessageFooter({
   onForked,
   onInspectContext,
 }: ChatMessageActionProps) {
-  const isUserMessage = message.role === "user";
-  const contextRunId = isUserMessage
-    ? null
-    : runIdFromMessageMetadata(message.metadata);
+  const fork = (
+    <MessageForkButton
+      chatId={chatId}
+      fromMessageId={message.id}
+      disabled={status !== "ready" && status !== "error"}
+      onForked={onForked}
+    />
+  );
 
+  if (message.role === "user") {
+    return (
+      <MessageActionRow from="user">
+        <MessageCopyButton parts={message.parts} />
+        <ComingSoonMessageAction label="Edit" icon={PencilIcon} />
+        {fork}
+      </MessageActionRow>
+    );
+  }
+  const contextRunId = runIdFromMessageMetadata(message.metadata);
   return (
-    <>
-      {!isUserMessage && (
-        <div className="flex flex-wrap items-center gap-1">
-          <MessageUsage metadata={message.metadata} models={availableModels} />
-          {contextRunId && (
-            <EffectiveContextAction
-              onClick={() => onInspectContext(contextRunId)}
-            />
-          )}
-        </div>
+    <MessageActionRow from="assistant">
+      <MessageCopyButton parts={message.parts} />
+      <ComingSoonMessageAction label="Regenerate" icon={RefreshCwIcon} />
+      {fork}
+      {contextRunId && (
+        <EffectiveContextAction
+          onClick={() => onInspectContext(contextRunId)}
+        />
       )}
-      {(status === "ready" || status === "error") && (
-        // Persistent action row (not hover-only) so the fork affordance
-        // stays discoverable — reuses the shared MessageActions primitive
-        // (the row future per-message actions, e.g. copy, will join). On
-        // BOTH roles: the API forks from any message id regardless of role,
-        // and this feature is pitched as "fork from any point" —
-        // restricting the UI to assistant replies only would silently
-        // narrow that to less than what ships.
-        <MessageActions className="mt-1">
-          <MessageForkButton
-            chatId={chatId}
-            fromMessageId={message.id}
-            onForked={onForked}
-          />
-        </MessageActions>
-      )}
-    </>
+      <MessageUsage metadata={message.metadata} models={availableModels} />
+    </MessageActionRow>
   );
 }
 
@@ -433,6 +466,9 @@ export function ChatMessageRow({
         <Message
           id={messageSeq === null ? undefined : `msg-${messageSeq}`}
           from={message.role}
+          // Names the group the action row reveals on, so no outer `group`
+          // can trigger it.
+          className="group/message"
           data-message-key={renderKey}
         >
           <MessageAttachments message={message} />
