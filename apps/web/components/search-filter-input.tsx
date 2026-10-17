@@ -37,6 +37,18 @@ function ClearButton({ onClear }: { onClear: () => void }) {
   );
 }
 
+/** Closes an emptied field once focus leaves the whole control, since it has
+ *  nothing left to show; moving between the field and its clear button is
+ *  not leaving it. */
+function closeIfLeft(
+  event: React.FocusEvent<HTMLElement>,
+  value: string,
+  onClose: (() => void) | undefined,
+) {
+  if (value !== "" || event.currentTarget.contains(event.relatedTarget)) return;
+  onClose?.();
+}
+
 /**
  * SearchFilterInput is the ONE embedded filter row (the chat menu's project
  * submenu, the projects rail, …) — a shared `InputGroup` with a leading
@@ -60,7 +72,10 @@ export function SearchFilterInput({
     onClose?.();
   };
   return (
-    <div className={className}>
+    <div
+      className={className}
+      onBlur={(event) => closeIfLeft(event, value, onClose)}
+    >
       <InputGroup>
         <InputGroupAddon>
           <SearchIcon />
@@ -71,10 +86,6 @@ export function SearchFilterInput({
           onKeyDown={(event) => {
             if (onClose && event.key === "Escape") clear();
             onKeyDown?.(event);
-          }}
-          // An emptied field that loses focus has nothing left to show.
-          onBlur={() => {
-            if (onClose && value === "") onClose();
           }}
           placeholder={placeholder}
           aria-label={ariaLabel ?? placeholder}

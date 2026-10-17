@@ -346,6 +346,8 @@ function archivedChat(id: string, title: string): ChatListItemResponse {
  */
 export const ArchivedView: Story = {
   tags: ["ai-generated"],
+  // The view menu is a Base UI portalled menu, whose aria-hidden focus guards
+  // axe's aria-hidden-focus rule misreads (as in chat-composer.stories.tsx).
   parameters: {
     a11y: { config: { rules: [{ id: "aria-hidden-focus", enabled: false }] } },
   },

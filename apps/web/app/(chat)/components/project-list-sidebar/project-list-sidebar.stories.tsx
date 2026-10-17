@@ -270,6 +270,8 @@ function archived(id: string, name: string): ProjectResponse {
  */
 export const ArchivedView: Story = {
   tags: ["ai-generated"],
+  // The view menu is a Base UI portalled menu, whose aria-hidden focus guards
+  // axe's aria-hidden-focus rule misreads (as in chat-composer.stories.tsx).
   parameters: {
     a11y: { config: { rules: [{ id: "aria-hidden-focus", enabled: false }] } },
   },
@@ -363,11 +365,23 @@ export const SearchOnRequest: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Clear search" }));
     await expect(canvas.queryByRole("textbox")).not.toBeInTheDocument();
     await expect(canvas.getByRole("link", { name: /Acme/ })).toBeVisible();
-
-    await userEvent.click(
+    // The × that held focus is gone, so focus returns to the button.
+    await expect(
       canvas.getByRole("button", { name: "Search projects" }),
-    );
+    ).toHaveFocus();
+
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Escape}");
+    await expect(
+      canvas.getByRole("button", { name: "Search projects" }),
+    ).toHaveFocus();
+
+    await userEvent.keyboard("{Enter}");
+    // Tabbing onto the field's own × keeps it open; focus leaving closes it.
     await userEvent.tab();
+    const clearButton = canvas.getByRole("button", { name: "Clear search" });
+    await expect(clearButton).toHaveFocus();
+    clearButton.blur();
     await waitFor(() =>
       expect(canvas.queryByRole("textbox")).not.toBeInTheDocument(),
     );

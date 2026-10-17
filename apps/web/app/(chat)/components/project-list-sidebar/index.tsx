@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, type ComponentProps, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 import {
   DropdownMenu,
@@ -159,13 +165,16 @@ function HeaderAction({
   label,
   onClick,
   children,
+  ref,
 }: {
   label: string;
   onClick: () => void;
   children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
 }) {
   return (
     <IconButtonTooltip
+      ref={ref}
       label={label}
       className="size-8"
       onClick={onClick}
@@ -177,7 +186,10 @@ function HeaderAction({
   );
 }
 
-/** Where the search button sits; while searching, the field in its place. */
+/** Where the search button sits; while searching, the field in its place.
+ *  Closing the field removes whatever in it held focus (Escape, or the ×),
+ *  so the button that replaces it takes focus back — unless focus already
+ *  went elsewhere, as when an emptied field is tabbed away from. */
 function SearchSlot({
   searching,
   search,
@@ -187,9 +199,15 @@ function SearchSlot({
   search: ProjectSearch;
   onSearchingChange: (searching: boolean) => void;
 }) {
+  const closed = useRef(false);
   if (!searching)
     return (
       <HeaderAction
+        ref={(button) => {
+          if (button === null || !closed.current) return;
+          closed.current = false;
+          if (document.activeElement === document.body) button.focus();
+        }}
         label="Search projects"
         onClick={() => onSearchingChange(true)}
       >
@@ -202,7 +220,10 @@ function SearchSlot({
       onChange={search.onQueryChange}
       placeholder="Search projects…"
       focusOnMount
-      onClose={() => onSearchingChange(false)}
+      onClose={() => {
+        closed.current = true;
+        onSearchingChange(false);
+      }}
     />
   );
 }
