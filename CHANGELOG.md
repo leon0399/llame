@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- The background job queues are now described by an AsyncAPI document,
+  `apps/api/asyncapi.queues.yaml`: each queue's name, payload, and static
+  pg-boss options. The API's queue payload guards, names, and options are
+  generated from it, replacing the hand-written guards, and CI fails when the
+  generated module drifts. A payload that does not match still fails its job
+  before the handler runs; unknown fields are still ignored. The WebSocket
+  document is renamed `apps/api/asyncapi.websocket.yaml`, and
+  `scripts/generate-live-protocol.mjs` is now
+  `scripts/generate-asyncapi-module.mjs`.
+
 - A project now carries a **description** — the owner's own prose about what the
   project is for — beside its name. It is empty until you set one, so nothing
   changes for an existing project, and it is edited from a new **Settings**

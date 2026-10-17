@@ -1,0 +1,268 @@
+asyncapi: 3.1.0
+info:
+  title: llame job queues
+  version: '0.1'
+  license:
+    name: MIT
+    url: https://github.com/leon0399/llame/blob/master/LICENSE
+  description: |
+    The background job queues llame's processes share through pg-boss. The
+    application is the llame API in every worker profile: the same codebase
+    enqueues (`send`) and consumes (`receive`) each queue, and a profile
+    decides which consumers a process registers
+    (`docs/product/operator/scaling.md`).
+
+    A message is a job's `data`. The pg-boss envelope (job id, singleton
+    key, retry state) is engine metadata and is not described here.
+
+    ## Delivery
+
+    Delivery is at least once. A handler that throws fails its job, which
+    retries under the queue's policy; a job that exhausts its retries moves
+    to the dead-letter queue `<address>.dead`, which carries the same
+    payload and has no consumer. A payload that does not validate against
+    its schema fails its job at the consume boundary, before the handler
+    runs.
+
+    ## Compatibility
+
+    A queued, retrying or dead-lettered job may be read by a different deploy
+    than the one that wrote it. Consumers ignore unknown payload fields, so
+    adding an optional field is safe in both directions. Adding a required
+    field, removing a field or changing a field's type fails jobs written by
+    the other deploy; such a change moves the queue to a new address.
+
+    ## Queue options
+
+    `x-llame-queue` on a channel declares the queue's static options in
+    pg-boss terms: `policy` (admission and coalescing), `retryLimit`,
+    `retryBackoff`, `deadLetter`. Omitted options take llame's queue defaults
+    (dead-lettering on). Options that come from operator configuration are
+    described on the channel instead.
+
+    This document is the queue wire's source of truth. The API's queue
+    payload validators, addresses and static options are generated from it.
+defaultContentType: application/json
+servers:
+  database:
+    host: '{host}'
+    protocol: postgres
+    description: |
+      The llame PostgreSQL database (`POSTGRES_URL`). pg-boss keeps its
+      queues in the `pgboss` schema; no AsyncAPI binding exists for it, so
+      queue options are carried by the `x-llame-queue` extension.
+    variables:
+      host:
+        default: localhost:5432
+        description: The database host and port.
+channels:
+  runs:
+    address: runs
+    title: Chat Runs
+    description: |
+      One job per Run attempt. Dispatch enqueues it under the Run id, so a
+      repeated enqueue of the same Run is a no-op.
+
+      The worker-liveness window (`runs.heartbeatSeconds` in the operator
+      configuration) and the job expiry (86,399 seconds, pg-boss's maximum)
+      are applied when the queue is created, not declared here.
+    messages:
+      runJob:
+        $ref: '#/components/messages/runJob'
+  searchReindex:
+    address: search-reindex
+    title: Chat search reindex
+    description: |
+      Rebuilds one chat's search documents. Enqueued with the chat id as its
+      singleton key, so a burst of writes to one chat collapses into one
+      queued and one running rebuild.
+    x-llame-queue:
+      policy: stately
+    messages:
+      searchChatJob:
+        $ref: '#/components/messages/searchChatJob'
+  searchEmbed:
+    address: search-embed
+    title: Chat search embedding
+    description: |
+      Embeds one chat's outstanding search documents. Coalesced per chat like
+      `search-reindex`; a job re-enqueues itself while bounded work remains.
+      Five retries with exponential backoff absorb a provider outage before
+      the job dead-letters.
+    x-llame-queue:
+      policy: stately
+      retryLimit: 5
+      retryBackoff: true
+    messages:
+      searchChatJob:
+        $ref: '#/components/messages/searchChatJob'
+  searchSweep:
+    address: search-sweep
+    title: Chat search sweep
+    description: |
+      A pg-boss cron tick every five minutes that discovers chats whose
+      search documents are missing or stale and enqueues their rebuilds.
+    x-llame-queue:
+      policy: stately
+    messages:
+      cronTick:
+        $ref: '#/components/messages/cronTick'
+  sessionsCleanup:
+    address: sessions.cleanup
+    title: Expired session cleanup
+    description: A pg-boss cron tick that deletes expired sessions.
+    messages:
+      cronTick:
+        $ref: '#/components/messages/cronTick'
+operations:
+  enqueueRun:
+    action: send
+    channel:
+      $ref: '#/channels/runs'
+    summary: Dispatch enqueues a Run attempt.
+  consumeRun:
+    action: receive
+    channel:
+      $ref: '#/channels/runs'
+    summary: A runs worker executes the Run.
+  enqueueSearchReindex:
+    action: send
+    channel:
+      $ref: '#/channels/searchReindex'
+    summary: A chat write or the sweep requests a rebuild of the chat's search documents.
+  consumeSearchReindex:
+    action: receive
+    channel:
+      $ref: '#/channels/searchReindex'
+    summary: A search worker rebuilds the chat's search documents.
+  enqueueSearchEmbed:
+    action: send
+    channel:
+      $ref: '#/channels/searchEmbed'
+    summary: A rebuild, or an embed job with work remaining, requests embedding.
+  consumeSearchEmbed:
+    action: receive
+    channel:
+      $ref: '#/channels/searchEmbed'
+    summary: A search worker embeds the chat's outstanding documents.
+  scheduleSearchSweep:
+    action: send
+    channel:
+      $ref: '#/channels/searchSweep'
+    summary: pg-boss's scheduler sends the cron tick; llame code only registers the schedule.
+  consumeSearchSweep:
+    action: receive
+    channel:
+      $ref: '#/channels/searchSweep'
+    summary: A search worker runs the sweep.
+  scheduleSessionsCleanup:
+    action: send
+    channel:
+      $ref: '#/channels/sessionsCleanup'
+    summary: pg-boss's scheduler sends the cron tick; llame code only registers the schedule.
+  consumeSessionsCleanup:
+    action: receive
+    channel:
+      $ref: '#/channels/sessionsCleanup'
+    summary: A worker deletes expired sessions.
+components:
+  messages:
+    runJob:
+      name: runJob
+      title: Run job
+      summary: Executes one Run against its already-persisted user message.
+      payload:
+        $ref: '#/components/schemas/RunJob'
+      examples:
+        - name: run
+          payload:
+            runId: 3c1f9a2e-8b4d-4e6a-9f10-2d7c5b8e1a43
+            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+            userId: usr_8Jq2mXv4Kp
+            modelId: gpt-5
+            userMessage:
+              id: 9e2d4c71-5a3b-4f8e-b1c6-7d0a2e9f4b58
+              seq: 3
+              parts:
+                - type: text
+                  text: How does postgres.js re-LISTEN after a dropped connection?
+    searchChatJob:
+      name: searchChatJob
+      title: Search chat job
+      summary: Names one chat and its owner for search work.
+      payload:
+        $ref: '#/components/schemas/SearchChatJob'
+      examples:
+        - name: chat
+          payload:
+            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+            ownerUserId: usr_8Jq2mXv4Kp
+    cronTick:
+      name: cronTick
+      title: Cron tick
+      summary: An empty marker; the consumer derives its work from the database.
+      payload:
+        $ref: '#/components/schemas/CronTick'
+      examples:
+        - name: tick
+          payload: {}
+  schemas:
+    RunJob:
+      type: object
+      required:
+        - runId
+        - chatId
+        - userId
+        - modelId
+        - userMessage
+      properties:
+        runId:
+          type: string
+          minLength: 1
+        chatId:
+          type: string
+          minLength: 1
+        userId:
+          type: string
+          minLength: 1
+          description: The chat owner; the worker acts under this identity.
+        modelId:
+          type: string
+          minLength: 1
+        userMessage:
+          $ref: '#/components/schemas/RunUserMessage'
+    RunUserMessage:
+      type: object
+      description: The already-persisted user message the Run executes against.
+      required:
+        - id
+        - seq
+        - parts
+      properties:
+        id:
+          type: string
+          minLength: 1
+        seq:
+          type: integer
+          minimum: 1
+        parts:
+          type: array
+          description: The message's stored parts, in stored order.
+          items:
+            type: object
+            additionalProperties: true
+    SearchChatJob:
+      type: object
+      required:
+        - chatId
+        - ownerUserId
+      properties:
+        chatId:
+          type: string
+          minLength: 1
+        ownerUserId:
+          type: string
+          minLength: 1
+    CronTick:
+      type: object
+      description: Carries no data.

@@ -1,5 +1,5 @@
 /**
- * The hub against the published live protocol (`apps/api/asyncapi.yaml`):
+ * The hub against the published live protocol (`apps/api/asyncapi.websocket.yaml`):
  * every message type, built from the API's own response DTOs, must survive
  * the hub's serialization and validate against the generated wire schema,
  * and the generated record types must stay assignable from those DTOs once
@@ -106,7 +106,10 @@ describe('live protocol contract', () => {
   it('documents every message with a summary and examples that validate', () => {
     const document = asyncApiMessagesSchema.parse(
       parseYaml(
-        readFileSync(path.resolve(__dirname, '../../asyncapi.yaml'), 'utf8'),
+        readFileSync(
+          path.resolve(__dirname, '../../asyncapi.websocket.yaml'),
+          'utf8',
+        ),
       ),
     );
     const invalid = Object.values(document.components.messages).flatMap(

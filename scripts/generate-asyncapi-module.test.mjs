@@ -6,12 +6,13 @@ import { parse as parseYaml } from "yaml";
 
 import {
   parseRef,
+  renderChannelModule,
   renderLiveProtocol,
   validateAsyncApi,
-} from "./generate-live-protocol.mjs";
+} from "./generate-asyncapi-module.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
-const source = path.join(root, "apps/api/asyncapi.yaml");
+const source = path.join(root, "apps/api/asyncapi.websocket.yaml");
 const read = (relative) => readFileSync(path.join(root, relative), "utf8");
 
 /** A document reader over the real files, with selected documents replaced. */
@@ -23,7 +24,18 @@ function readerWith(overrides = {}) {
   };
 }
 
-const asyncapi = () => parseYaml(read("apps/api/asyncapi.yaml"));
+const queueSource = path.join(root, "apps/api/asyncapi.queues.yaml");
+const queueGenerated = "apps/api/src/queue/generated/queue-protocol.ts";
+
+const asyncapi = () => parseYaml(read("apps/api/asyncapi.websocket.yaml"));
+const queues = () => parseYaml(read("apps/api/asyncapi.queues.yaml"));
+const renderChannels = (document) =>
+  renderChannelModule(
+    queueSource,
+    "test",
+    undefined,
+    readerWith({ [queueSource]: document }),
+  );
 const render = (document) =>
   renderLiveProtocol(
     source,
@@ -39,7 +51,7 @@ test("both committed protocol modules match the AsyncAPI document", async () => 
   ]) {
     const expected = await renderLiveProtocol(
       source,
-      "apps/api/asyncapi.yaml",
+      "apps/api/asyncapi.websocket.yaml",
       path.join(root, generated),
     );
     assert.equal(
@@ -50,8 +62,55 @@ test("both committed protocol modules match the AsyncAPI document", async () => 
   }
 });
 
-test("the AsyncAPI document passes the official parser", async () => {
+test("the AsyncAPI documents pass the official parser", async () => {
   await validateAsyncApi(source);
+  await validateAsyncApi(queueSource);
+});
+
+test("the committed queue module matches the queue AsyncAPI document", async () => {
+  const expected = await renderChannelModule(
+    queueSource,
+    "apps/api/asyncapi.queues.yaml",
+    path.join(root, queueGenerated),
+  );
+  assert.equal(
+    read(queueGenerated),
+    expected,
+    `${queueGenerated} is stale: run pnpm --filter api generate:queue-protocol`,
+  );
+});
+
+test("generates one constant per channel with its address, options and payload", async () => {
+  const module = await renderChannels(queues());
+  assert.match(
+    module,
+    /export const searchEmbedChannel = \{\s*address: "search-embed",\s*options: \{ policy: "stately", retryLimit: 5, retryBackoff: true \},\s*payload: searchChatJobSchema,\s*\} as const;/,
+  );
+  assert.match(
+    module,
+    /export const runsChannel = \{\s*address: "runs",\s*payload: runJobSchema,\s*\} as const;/,
+  );
+  assert.match(module, /userMessage: runUserMessageSchema/);
+});
+
+test("rejects a channel that does not carry exactly one message", async () => {
+  const broken = queues();
+  broken.channels.runs.messages.other = {
+    $ref: "#/components/messages/cronTick",
+  };
+  await assert.rejects(
+    renderChannels(broken),
+    /Channel runs must carry exactly one message, found 2/,
+  );
+});
+
+test("rejects a channel message without a component payload", async () => {
+  const broken = queues();
+  broken.components.messages.runJob.payload = { type: "object" };
+  await assert.rejects(
+    renderChannels(broken),
+    /Channel runs needs a component payload/,
+  );
 });
 
 test("generates OpenAPI records as named schemas and pins as a discriminated union", async () => {

@@ -8,64 +8,18 @@
  */
 
 import { type LlameConfig } from '../instance-config/llame-config';
-import {
-  defineQueue,
-  expectRecord,
-  expectString,
-  type QueueDefinition,
-} from '../queue/queue';
-import { isNumber, isRecord } from '@workspace/runtime-safety';
-import { type RunUserMessage } from './run-execution.service';
+import { runsChannel, type RunJob } from '../queue/generated/queue-protocol';
+import { defineQueue, type QueueDefinition } from '../queue/queue';
 
-/** Queue payload for one run execution (SPEC §9.5). */
-export type RunJob = {
-  runId: string;
-  chatId: string;
-  userId: string;
-  modelId: string;
-  userMessage: RunUserMessage;
-};
+/** Queue payload for one run execution (SPEC §9.5); `apps/api/asyncapi.queues.yaml` defines it. */
+export type { RunJob };
 
 export const RUNS_QUEUE = defineQueue<RunJob>({
-  name: 'runs',
+  name: runsChannel.address,
   // TypeScript can't vouch for bytes that sat in Postgres across a deploy —
-  // the guard fails malformed payloads at the consume boundary (retry →
-  // dead letter) instead of deep inside the executor.
-  parse: (data) => {
-    const record = expectRecord(data, 'runs');
-    const message = expectRecord(record.userMessage, 'runs');
-    if (
-      !isNumber(message.seq) ||
-      !Number.isSafeInteger(message.seq) ||
-      message.seq <= 0
-    ) {
-      throw new TypeError(
-        "Malformed 'runs' job: userMessage.seq not a positive safe integer",
-      );
-    }
-    if (!Array.isArray(message.parts)) {
-      throw new TypeError(
-        "Malformed 'runs' job: userMessage.parts not an array",
-      );
-    }
-    if (!message.parts.every(isRecord)) {
-      throw new TypeError(
-        "Malformed 'runs' job: userMessage.parts contains a non-object part",
-      );
-    }
-    const userMessage: RunUserMessage = {
-      id: expectString(message, 'id', 'runs'),
-      seq: message.seq,
-      parts: message.parts,
-    };
-    return {
-      runId: expectString(record, 'runId', 'runs'),
-      chatId: expectString(record, 'chatId', 'runs'),
-      userId: expectString(record, 'userId', 'runs'),
-      modelId: expectString(record, 'modelId', 'runs'),
-      userMessage,
-    };
-  },
+  // the generated guard fails malformed payloads at the consume boundary
+  // (retry → dead letter) instead of deep inside the executor.
+  parse: (data) => runsChannel.payload.parse(data),
 });
 
 /**

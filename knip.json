@@ -86,6 +86,7 @@
     "apps/web/lib/api/generated/**",
     "apps/web/lib/api/live-generated/**",
     "apps/api/src/live/generated/**",
+    "apps/api/src/queue/generated/**",
     "packages/oxlint-plugin-anti-slop/vendor/**"
   ],
   "ignoreDependencies": ["next", "shadcn", "typescript-language-server"],
