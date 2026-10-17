@@ -59,6 +59,11 @@ export type MarkdownLine = {
   role: MarkdownLineRole;
   /** The root heading this line belongs to when `role` is `heading`. */
   heading?: MarkdownHeading;
+  /** Pushed as root paragraph text or as a root link reference definition
+   *  line, rather than as container content, a fence, HTML, or code. A setext
+   *  underline later turns those lines into `heading` text, so a consumer
+   *  reads this with the role. */
+  rootParagraph?: boolean;
 };
 
 export type MarkdownSpan = MarkdownHeading & {
@@ -243,6 +248,7 @@ class Scanner implements MarkdownScanner {
         role: head.role,
       };
       if (head.heading) event.heading = head.heading;
+      if (head.rootParagraph) event.rootParagraph = true;
       this.stop(this.handlers.onLine?.(event));
     }
     if (this.queueHead === this.queue.length) {
@@ -292,6 +298,7 @@ class Scanner implements MarkdownScanner {
       this.mark(entry, "content");
       return;
     }
+    entry.rootParagraph = true;
     paragraph.lines.push(entry);
     entry.pending += 1;
   }
@@ -318,7 +325,10 @@ class Scanner implements MarkdownScanner {
     };
     paragraph.lines.forEach((line, index) => {
       if (index < consumed) this.mark(line, "content");
-      else this.mark(line, "heading", heading);
+      else {
+        this.mark(line, "heading", heading);
+        line.rootParagraph = undefined;
+      }
       line.pending -= 1;
     });
     this.mark(entry, "heading", heading);

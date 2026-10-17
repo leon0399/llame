@@ -21,6 +21,8 @@
     "@workspace/config-typescript": "workspace:*",
     "commonmark-spec": "0.31.2",
     "mdast-util-from-markdown": "2.0.2",
+    "mdast-util-gfm-table": "2.0.0",
+    "micromark-extension-gfm-table": "2.1.2",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",

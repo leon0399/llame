@@ -907,4 +907,317 @@ describe("markdown ancestor range selection", () => {
       { startLine: 5, endLine: 7 },
     ]);
   });
+
+  /** The issue's file shape: one root heading, one section heading, and a
+   *  two-column table whose body rows run from line 128 to line 140. */
+  function tableDocument(): string {
+    const lines = Array.from(
+      { length: 140 },
+      (_, index) => `body ${index + 1}`,
+    );
+    lines[5] = "# Iterative Review Refinement";
+    lines[123] = "## Common Rationalizations";
+    lines[125] = "| Rationalization | Correction |";
+    lines[126] = "| --- | --- |";
+    for (let index = 127; index < lines.length; index += 1)
+      lines[index] = `| row ${index + 1} | cell ${index + 1} |`;
+    return `${lines.join("\n")}\n`;
+  }
+
+  it("prepends the header pair of a table the range starts inside", () => {
+    const result = selectSourceLines(
+      tableDocument(),
+      applySelectorSuffix("/doc.md", "129-130"),
+      "text/markdown",
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content:
+        "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n" +
+        "128: | row 128 | cell 128 |\n" +
+        "129: | row 129 | cell 129 |\n" +
+        "130: | row 130 | cell 130 |\n" +
+        "131: | row 131 | cell 131 |\n",
+      requestedRanges: [{ startLine: 129, endLine: 130 }],
+      shownRanges: [
+        { startLine: 6, endLine: 6 },
+        { startLine: 124, endLine: 124 },
+        { startLine: 126, endLine: 131 },
+      ],
+      nextOffset: 130,
+      truncated: false,
+    });
+  });
+
+  it("prepends only the header row when the delimiter row is the context line", () => {
+    const result = selectSourceLines(
+      tableDocument(),
+      applySelectorSuffix("/doc.md", "128-128"),
+      "text/markdown",
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content:
+        "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n" +
+        "128: | row 128 | cell 128 |\n" +
+        "129: | row 129 | cell 129 |\n",
+      requestedRanges: [{ startLine: 128, endLine: 128 }],
+      shownRanges: [
+        { startLine: 6, endLine: 6 },
+        { startLine: 124, endLine: 124 },
+        { startLine: 126, endLine: 129 },
+      ],
+      nextOffset: 128,
+      truncated: false,
+    });
+  });
+
+  it("emits no header pair when the range starts on the header or delimiter row", () => {
+    const expected = {
+      // Outside the table: the section context line, no header pair.
+      "123-123":
+        "6: # Iterative Review Refinement\n" +
+        "122: body 122\n" +
+        "123: body 123\n" +
+        "124: ## Common Rationalizations\n",
+      "125-125":
+        "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "125: body 125\n" +
+        "126: | Rationalization | Correction |\n",
+      // The header row is the requested line, so it is window content only.
+      "126-126":
+        "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "125: body 125\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n",
+      // The delimiter row is the requested line, so it selects no pair.
+      "127-127":
+        "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n" +
+        "128: | row 128 | cell 128 |\n",
+    };
+    for (const [requested, content] of Object.entries(expected)) {
+      const result = selectSourceLines(
+        tableDocument(),
+        applySelectorSuffix("/doc.md", requested),
+        "text/markdown",
+      );
+      expect({ requested, content: result.content }).toEqual({
+        requested,
+        content,
+      });
+    }
+  });
+
+  it("keeps the header pair when the outer headings do not fit", () => {
+    const rows = Array.from(
+      { length: 40 },
+      (_, index) => `| row ${index + 1} ${"r".repeat(2985)} | b |`,
+    );
+    rows[0] = `# ${"t".repeat(4000)}`;
+    rows[1] = `## ${"s".repeat(4000)}`;
+    rows[2] = `| ${"h".repeat(3390)} | b |`;
+    rows[3] = `| --- | ${"-".repeat(3390)} |`;
+    const result = selectSourceLines(
+      `${rows.join("\n")}\n`,
+      applySelectorSuffix("/doc.md", "8-9"),
+      "text/markdown",
+    );
+    // Both ancestors drop; the pair is the last unit standing.
+    expect(result.content).toBe(
+      `3: ${rows[2]}\n4: ${rows[3]}\n7: ${rows[6]}\n8: ${rows[7]}\n`,
+    );
+    expect(result.truncated).toBe(true);
+    if (!("shownRanges" in result)) throw new Error("Expected plural result");
+    expect(result.shownRanges).toEqual([
+      { startLine: 3, endLine: 4 },
+      { startLine: 7, endLine: 8 },
+    ]);
+  });
+
+  it("emits a shared header pair once for two passages in one table", () => {
+    const result = selectMultiRangeLines(
+      tableDocument(),
+      applySelectorSuffix("/doc.md", "129-129,131-131"),
+      "text/markdown",
+    );
+    expect(result.content).toBe(
+      "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n" +
+        "128: | row 128 | cell 128 |\n" +
+        "129: | row 129 | cell 129 |\n" +
+        "130: | row 130 | cell 130 |\n" +
+        "131: | row 131 | cell 131 |\n" +
+        "132: | row 132 | cell 132 |\n",
+    );
+    expect(result.requestedRanges).toEqual([
+      { startLine: 129, endLine: 129 },
+      { startLine: 131, endLine: 131 },
+    ]);
+    expect(result.shownRanges).toEqual([
+      { startLine: 6, endLine: 6 },
+      { startLine: 124, endLine: 124 },
+      { startLine: 126, endLine: 132 },
+    ]);
+  });
+
+  it("emits only an unshown header line a later passage still needs", () => {
+    const result = selectMultiRangeLines(
+      tableDocument(),
+      applySelectorSuffix("/doc.md", "125-126,129-129"),
+      "text/markdown",
+    );
+    expect(result.content).toBe(
+      "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "125: body 125\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n" +
+        "128: | row 128 | cell 128 |\n" +
+        "129: | row 129 | cell 129 |\n" +
+        "130: | row 130 | cell 130 |\n",
+    );
+    expect(result.shownRanges).toEqual([
+      { startLine: 6, endLine: 6 },
+      { startLine: 124, endLine: 130 },
+    ]);
+  });
+
+  it("emits each table's own header pair for passages in two tables", () => {
+    const source =
+      [
+        "# Root",
+        "| a | b |",
+        "| --- | --- |",
+        "| 1 | 2 |",
+        "| 3 | 4 |",
+        "",
+        "## Second",
+        "| c | d |",
+        "| --- | --- |",
+        "| 5 | 6 |",
+        "| 7 | 8 |",
+      ].join("\n") + "\n";
+    const result = selectMultiRangeLines(
+      source,
+      applySelectorSuffix("/doc.md", "4-4,10-10"),
+      "text/markdown",
+    );
+    expect(result.content).toBe(
+      "1: # Root\n" +
+        "2: | a | b |\n" +
+        "3: | --- | --- |\n" +
+        "4: | 1 | 2 |\n" +
+        "5: | 3 | 4 |\n" +
+        "7: ## Second\n" +
+        "8: | c | d |\n" +
+        "9: | --- | --- |\n" +
+        "10: | 5 | 6 |\n" +
+        "11: | 7 | 8 |\n",
+    );
+    expect(result.shownRanges).toEqual([
+      { startLine: 1, endLine: 5 },
+      { startLine: 7, endLine: 11 },
+    ]);
+  });
+
+  it("recalculates the header pair at a continuation inside a table", () => {
+    const source =
+      [
+        "# Root",
+        "| a | b |",
+        "| --- | --- |",
+        ...Array.from(
+          { length: 30 },
+          (_, index) => `| row ${index + 1} ${"x".repeat(700)} | b |`,
+        ),
+      ].join("\n") + "\n";
+    const first = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "4-30"),
+      "text/markdown",
+    );
+    expect(first.truncated).toBe(true);
+    if (first.nextOffset === undefined)
+      throw new Error("Expected a continuation offset");
+    const retry = selectSourceLines(
+      source,
+      applySelectorSuffix(
+        "/doc.md",
+        `${first.nextOffset + 1}-${first.nextOffset + 2}`,
+      ),
+      "text/markdown",
+    );
+    expect(retry.content).toContain("2: | a | b |\n3: | --- | --- |\n");
+  });
+
+  it("does not repeat a header row the window already ends on", () => {
+    const source =
+      [
+        "# Root",
+        "| a | b |",
+        "| --- | --- |",
+        "| 1 | 2 |",
+        "| 3 | 4 |",
+        "| c | d |",
+        "| --- | --- |",
+        "| 5 | 6 |",
+        "| 7 | 8 |",
+      ].join("\n") + "\n";
+    const result = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "4-6"),
+      "text/markdown",
+    );
+    expect(result.content).toBe(
+      "1: # Root\n" +
+        "2: | a | b |\n" +
+        "3: | --- | --- |\n" +
+        "4: | 1 | 2 |\n" +
+        "5: | 3 | 4 |\n" +
+        "6: | c | d |\n" +
+        "7: | --- | --- |\n",
+    );
+  });
+
+  it("resolves a setext underline only inside the window", () => {
+    const source = "# Root\n\na | b\n-|-\n1|2\n===\n";
+    const full = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "5-5"),
+      "text/markdown",
+    );
+    // The underline turns the table's lines into heading text, and line 5 is
+    // inside that heading, so it is neither an ancestor nor a body row.
+    expect(full).toMatchObject({
+      content: "4: -|-\n5: 1|2\n6: ===\n",
+      requestedRange: { startLine: 5, endLine: 5 },
+      shownRange: { startLine: 4, endLine: 6 },
+    });
+    const truncated = selectSourceLines(
+      "# Root\n\na | b\n-|-\n1|2\n",
+      applySelectorSuffix("/doc.md", "5-5"),
+      "text/markdown",
+    );
+    // Past the window end there is no underline, so the lines stay a table.
+    expect(truncated.content).toBe("1: # Root\n3: a | b\n4: -|-\n5: 1|2\n");
+  });
 });
