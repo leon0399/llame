@@ -3,8 +3,12 @@
 import * as React from "react";
 
 import { type ChatResponse, useChatsQuery } from "@/lib/services/chat/queries";
-import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
-import { useProjects } from "@/lib/services/project/queries";
+import {
+  selectPinnedChatMap,
+  selectPinnedProjectMap,
+  usePins,
+} from "@/lib/services/pins/queries";
+import { useProjectsQuery } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { useParams } from "next/navigation";
 
@@ -22,6 +26,7 @@ import {
 import { CreateProjectForChatDialog } from "../../components/chat-list-sidebar/project-dialogs";
 import { PageHeader } from "../../components/page-header";
 import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
+import { ProjectDetailsHeader } from "./project-details-header";
 
 const EMPTY_TEXT = new Map<ChatListShow, string>([
   ["active", "No chats in this project yet."],
@@ -107,17 +112,23 @@ function ProjectChatsCard({
 }
 
 /** The project header, plus its chats for the card's current view. Only the
- *  project gates the page; the card owns its list's loading state. */
+ *  project gates the page; the card owns its list's loading state. The
+ *  project is looked up among archived ones too, so archiving it from its
+ *  own header keeps the page; only unarchived projects are offered as
+ *  filing targets, since an archived one refuses new chats. */
 function useProjectPageData(id: string) {
   const [show, setShow] = React.useState<ChatListShow>("active");
-  const { data: projects, isLoading } = useProjects();
+  const { data: projects, isLoading } = useProjectsQuery({ archived: "with" });
   const { data: pinnedData } = useChatsQuery(pinnedChatsFilters(id));
   const { data, isLoading: chatsLoading } = useChatsQuery(
     chatListFilters(show, id),
   );
   const { data: pins } = usePins();
 
-  const allProjects = React.useMemo(() => projects ?? [], [projects]);
+  const allProjects = React.useMemo(
+    () => (projects ?? []).filter((project) => project.archivedAt === null),
+    [projects],
+  );
   const pinnedChats = React.useMemo(
     () => (show === "archived" ? [] : (pinnedData?.pages.flat() ?? [])),
     [pinnedData, show],
@@ -130,7 +141,8 @@ function useProjectPageData(id: string) {
 
   return {
     loading: isLoading,
-    project: allProjects.find((candidate) => candidate.id === id),
+    project: projects?.find((candidate) => candidate.id === id),
+    isPinned: selectPinnedProjectMap(pins).has(id),
     allProjects,
     pinnedAtByChatId,
     view: {
@@ -143,15 +155,44 @@ function useProjectPageData(id: string) {
   };
 }
 
-// Project page, first slice: header (project name) + the project's chats,
-// grouped by pin/time exactly like the sidebar (shared ChatTimeGroups) and
-// fetched server-filtered (GET /api/v1/chats?projectId=…) under its own
-// query key — never a client-side pass over the full chat list.
-// Description/stats/todos/knowledge come with later slices of the design.
+/** The page body once the project lookup has settled. */
+function ProjectPageBody({
+  data,
+  onRequestNewProject,
+}: {
+  data: ReturnType<typeof useProjectPageData>;
+  onRequestNewProject: (chatId: string) => void;
+}) {
+  if (data.loading) return <SidebarRowSkeletons count={4} />;
+  if (!data.project)
+    return (
+      <p className="text-sm text-muted-foreground">
+        This project doesn&apos;t exist or was deleted.
+      </p>
+    );
+  return (
+    <div className="space-y-6">
+      <ProjectDetailsHeader project={data.project} isPinned={data.isPinned} />
+      <ProjectChatsCard
+        view={data.view}
+        rows={{
+          projects: data.allProjects,
+          pinnedAtByChatId: data.pinnedAtByChatId,
+          onRequestNewProject,
+        }}
+      />
+    </div>
+  );
+}
+
+// Project page: the shell's top bar names the project, and the content opens
+// with the project's own header (name, description, pin and menu) above its
+// chats, grouped like the sidebar (shared ChatTimeGroups) and fetched
+// server-filtered (GET /api/v1/chats?projectId=…) under their own query key —
+// never a client-side pass over the full chat list.
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
-  const { loading, project, allProjects, pinnedAtByChatId, view } =
-    useProjectPageData(id);
+  const data = useProjectPageData(id);
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );
@@ -159,27 +200,15 @@ export default function ProjectPage() {
   return (
     <>
       <PageHeader
-        title={loading ? "…" : (project?.name ?? "Project not found")}
+        title={data.loading ? "…" : (data.project?.name ?? "Project not found")}
       />
 
       <div className="flex-1 overflow-y-auto px-8 py-7">
         <div className="mx-auto max-w-205">
-          {loading ? (
-            <SidebarRowSkeletons count={4} />
-          ) : !project ? (
-            <p className="text-sm text-muted-foreground">
-              This project doesn&apos;t exist or was deleted.
-            </p>
-          ) : (
-            <ProjectChatsCard
-              view={view}
-              rows={{
-                projects: allProjects,
-                pinnedAtByChatId,
-                onRequestNewProject: setNewProjectChatId,
-              }}
-            />
-          )}
+          <ProjectPageBody
+            data={data}
+            onRequestNewProject={setNewProjectChatId}
+          />
         </div>
       </div>
 

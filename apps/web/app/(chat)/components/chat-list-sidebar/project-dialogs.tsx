@@ -327,15 +327,23 @@ export function DeleteProjectDialog({
   project,
   open,
   onOpenChange,
+  onDeleted,
 }: {
   project: ProjectRef;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Follow-up once the project is gone (e.g. leave its page). */
+  onDeleted?: () => void;
 }) {
   const del = useDeleteProject();
 
   const confirm = () => {
-    del.mutate(project.id, { onSuccess: () => onOpenChange(false) });
+    del.mutate(project.id, {
+      onSuccess: () => {
+        onOpenChange(false);
+        onDeleted?.();
+      },
+    });
   };
 
   return (

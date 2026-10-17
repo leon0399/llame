@@ -12,7 +12,7 @@ import ProjectPage from "./page";
 // The project list and the project's chats can be held until a story releases
 // them, so a story can observe the page while they are still in flight. An
 // unrouted request fails the story.
-const PROJECTS_ROUTE = "GET /api/v1/projects";
+const PROJECTS_ROUTE = "GET /api/v1/projects?archived=with";
 const PINNED_CHATS_ROUTE =
   "GET /api/v1/chats?projectId=p1&pinned=only&archived=with";
 const CHATS_ROUTE = "GET /api/v1/chats?projectId=p1&pinned=exclude";
@@ -22,6 +22,7 @@ const tripPlanning = {
   id: "p1",
   ownerUserId: "u1",
   name: "Trip planning",
+  description: "Flights, stays and the day-by-day plan.",
   archivedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -124,7 +125,9 @@ export const Loading: Story = {
     releaseProjects();
     releaseChats();
 
-    await expect(await canvas.findByText("Trip planning")).toBeVisible();
+    await expect(
+      await canvas.findByRole("heading", { level: 1, name: "Trip planning" }),
+    ).toBeVisible();
     await expect(canvas.queryByText("…")).not.toBeInTheDocument();
     await expect(canvas.queryAllByRole("listitem")).toHaveLength(0);
   },
@@ -156,17 +159,25 @@ export const NotFound: Story = {
 };
 
 /**
- * The route's project heads the page, and its chats card says it has none
- * yet. The page asks the server for this project's chats only.
+ * The route's project heads the content with its name, its description, a
+ * pin toggle and its menu, and its chats card says it has none yet. The page
+ * asks the server for this project's chats only.
  *
- * @summary a project with no chats: its name and the empty chats card
+ * @summary a project with no chats: its header and the empty chats card
  */
 export const NoChats: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(await canvas.findByText("Trip planning")).toBeVisible();
+    await expect(
+      await canvas.findByRole("heading", { level: 1, name: "Trip planning" }),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText("Flights, stays and the day-by-day plan."),
+    ).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Pin" })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "More" })).toBeVisible();
     await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
     await expect(canvas.getByText("Chats in this project")).toBeVisible();
     await expect(

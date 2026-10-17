@@ -1,13 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 
 import {
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import { Button } from "@workspace/ui/components/button";
@@ -28,16 +24,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
-import {
-  ArchiveIcon,
-  FolderIcon,
-  FolderPlusIcon,
-  MoreHorizontalIcon,
-  PencilIcon,
-  PinIcon,
-  PinOffIcon,
-  TrashIcon,
-} from "lucide-react";
+import { FolderIcon, FolderPlusIcon, MoreHorizontalIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -46,109 +33,23 @@ import { PinButton } from "@/components/pin-button";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
-import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
-import { useSetProjectArchive } from "@/lib/services/project/mutations";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useProjectsQuery } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { topBarClasses } from "@/app/shell/top-bar";
+import { NewProjectDialog } from "../chat-list-sidebar/project-dialogs";
 import {
-  DeleteProjectDialog,
-  EditProjectDialog,
-  NewProjectDialog,
-} from "../chat-list-sidebar/project-dialogs";
-
-function useProjectItemPin(project: ProjectResponse, isPinned: boolean) {
-  const pinMutation = usePinItem();
-  const unpinMutation = useUnpinItem();
-  return () =>
-    isPinned
-      ? unpinMutation.mutate({ itemType: "project", itemId: project.id })
-      : pinMutation.mutate({
-          itemType: "project",
-          itemId: project.id,
-          card: {
-            id: project.id,
-            name: project.name,
-            archivedAt: project.archivedAt,
-          },
-        });
-}
-
-type ProjectRowMenuItemsProps = {
-  project: ProjectResponse;
-  isPinned: boolean;
-  onTogglePin: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-};
-
-/** The row's own "danger zone" (archive toggle, then delete). It owns the
- *  archive mutation because both the label and the payload are read from the
- *  project's archive state. */
-function ProjectRowLifecycleItems({
-  project,
-  onDelete,
-}: {
-  project: ProjectResponse;
-  onDelete: () => void;
-}) {
-  const archiveMutation = useSetProjectArchive();
-  const isArchived = project.archivedAt !== null;
-
-  return (
-    <DropdownMenuGroup>
-      <DropdownMenuItem
-        onSelect={() =>
-          archiveMutation.mutate({ id: project.id, archived: !isArchived })
-        }
-      >
-        <ArchiveIcon />
-        <span>{isArchived ? "Unarchive" : "Archive"}</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-        <TrashIcon />
-        <span>Delete</span>
-      </DropdownMenuItem>
-    </DropdownMenuGroup>
-  );
-}
-
-// Grouped by action semantics with dividers, mirroring ChatItem's row menu:
-// pin toggle → edit details → lifecycle (archive, then delete).
-function ProjectRowMenuItems({
-  project,
-  isPinned,
-  onTogglePin,
-  onEdit,
-  onDelete,
-}: ProjectRowMenuItemsProps) {
-  return (
-    <DropdownMenuContent side="bottom" align="start">
-      <DropdownMenuGroup>
-        <DropdownMenuItem onSelect={onTogglePin}>
-          {isPinned ? <PinOffIcon /> : <PinIcon />}
-          <span>{isPinned ? "Unpin" : "Pin"}</span>
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
-      <DropdownMenuSeparator />
-      <DropdownMenuGroup>
-        <DropdownMenuItem onSelect={onEdit}>
-          <PencilIcon />
-          <span>Edit details</span>
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
-      <DropdownMenuSeparator />
-      <ProjectRowLifecycleItems project={project} onDelete={onDelete} />
-    </DropdownMenuContent>
-  );
-}
+  ProjectDialogs,
+  ProjectMenuItems,
+  useProjectDialogs,
+  useProjectItemPin,
+} from "./project-actions";
 
 function ProjectRowMenu({
   isActive,
   ...items
-}: ProjectRowMenuItemsProps & { isActive: boolean }) {
+}: ComponentProps<typeof ProjectMenuItems> & { isActive: boolean }) {
   return (
     <DropdownMenu modal={true}>
       <HoverReveal atRest={isActive}>
@@ -157,7 +58,7 @@ function ProjectRowMenu({
           <span className="sr-only">More</span>
         </DropdownMenuTrigger>
       </HoverReveal>
-      <ProjectRowMenuItems {...items} />
+      <ProjectMenuItems {...items} />
     </DropdownMenu>
   );
 }
@@ -208,52 +109,14 @@ type ProjectItemProps = {
   isPinned: boolean;
 };
 
-function useProjectItemDialogs() {
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  return {
-    editOpen,
-    deleteOpen,
-    setEditOpen,
-    setDeleteOpen,
-    openEdit: () => setTimeout(() => setEditOpen(true), 0),
-    openDelete: () => setTimeout(() => setDeleteOpen(true), 0),
-  };
-}
-
 const projectRowClassName = cn(
   "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
 );
 
-/** The row's two dialogs, mounted with the row so each one's field state
- *  re-seeds from the project on open (see project-dialogs.tsx). */
-function ProjectItemDialogs({
-  project,
-  dialogs,
-}: {
-  project: ProjectResponse;
-  dialogs: ReturnType<typeof useProjectItemDialogs>;
-}) {
-  return (
-    <>
-      <EditProjectDialog
-        project={project}
-        open={dialogs.editOpen}
-        onOpenChange={dialogs.setEditOpen}
-      />
-      <DeleteProjectDialog
-        project={project}
-        open={dialogs.deleteOpen}
-        onOpenChange={dialogs.setDeleteOpen}
-      />
-    </>
-  );
-}
-
 export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
   const isArchived = project.archivedAt !== null;
   const togglePin = useProjectItemPin(project, isPinned);
-  const dialogs = useProjectItemDialogs();
+  const dialogs = useProjectDialogs();
 
   return (
     // In-flow actions and a row-level fill, exactly as ChatItem — see
@@ -277,7 +140,7 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
           onEdit={dialogs.openEdit}
           onDelete={dialogs.openDelete}
         />
-        <ProjectItemDialogs project={project} dialogs={dialogs} />
+        <ProjectDialogs project={project} dialogs={dialogs} />
       </div>
     </SidebarMenuItem>
   );
