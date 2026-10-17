@@ -4,6 +4,7 @@ import {
   type MarkdownHeading,
   type MarkdownLine,
 } from "./markdown-structure";
+import { MarkdownRootTableTracker } from "./markdown-tables";
 import { measureNativeModelOutput } from "./serialization";
 import {
   appendReadLine,
@@ -29,6 +30,10 @@ export type MarkdownHeadingUnit = {
   heading: MarkdownHeading;
   lines: Array<MarkdownLine>;
 };
+
+/** One admitted unit of a passage's chain: an ancestor heading, or the header
+ *  row and delimiter row of the root table the passage starts in. */
+export type MarkdownChainUnit = { lines: Array<MarkdownLine> };
 
 export type NativeEntry = { line: number; text: string };
 
@@ -105,28 +110,34 @@ export function markdownScannedLine(
 export class MarkdownAncestorTracker {
   private readonly requestedLines: ReadonlySet<number>;
   private readonly stack: Array<MarkdownHeadingUnit> = [];
-  private readonly chains = new Map<number, Array<MarkdownHeadingUnit>>();
+  private readonly chains = new Map<number, Array<MarkdownChainUnit>>();
+  private readonly tables = new MarkdownRootTableTracker();
 
   constructor(requestedLines: Iterable<number> = []) {
     this.requestedLines = new Set(requestedLines);
   }
 
   accept(line: MarkdownLine): void {
+    const headerPair =
+      this.requestedLines.size === 0 ? undefined : this.tables.accept(line);
     const heading = line.heading;
     if (line.role === "heading" && heading !== undefined) {
       if (heading.line === line.line) this.open(heading);
       const current = this.stack.at(-1);
       if (current?.heading === heading) current.lines.push(line);
     }
-    if (this.requestedLines.has(line.line))
-      this.chains.set(line.line, [...this.stack]);
+    if (!this.requestedLines.has(line.line)) return;
+    const chain: Array<MarkdownChainUnit> = [...this.stack];
+    if (headerPair !== undefined)
+      chain.push({ lines: [headerPair.header, headerPair.delimiter] });
+    this.chains.set(line.line, chain);
   }
 
   current(): ReadonlyArray<MarkdownHeadingUnit> {
     return this.stack;
   }
 
-  ancestorsFor(line: number): ReadonlyArray<MarkdownHeadingUnit> {
+  ancestorsFor(line: number): ReadonlyArray<MarkdownChainUnit> {
     return this.chains.get(line) ?? [];
   }
 
@@ -167,7 +178,7 @@ type SingleSelection = {
 };
 
 export type AncestorChainContext = {
-  units: ReadonlyArray<MarkdownHeadingUnit>;
+  units: ReadonlyArray<MarkdownChainUnit>;
   selected: Map<number, MarkdownLineRecord>;
   shown: ReadonlySet<number>;
   mandatory: Array<NativeEntry>;

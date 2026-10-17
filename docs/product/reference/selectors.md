@@ -218,11 +218,13 @@ line, and a setext heading contributes all of its text lines and its underline
 verbatim. No excerpt line or outline 120-code-unit cut is added, and lines
 already emitted by the passage window or an earlier chain are not repeated.
 
-For a single range, emitting at least one ancestor promotes the result to the
-existing plural `requestedRanges` and `shownRanges` shape. `requestedRanges`
-contains only the requested interval; `shownRanges` includes the ancestor and
-context intervals, merging adjacent intervals. If no ancestor line is emitted,
-singular `requestedRange` and `shownRange` remain unchanged. A comma-separated
+For a single range, emitting at least one ancestor or header line promotes
+the result to the existing plural `requestedRanges` and `shownRanges` shape, so
+a headingless file read at a table body row is plural on the header pair alone.
+`requestedRanges` contains only the requested interval; `shownRanges` includes
+the ancestor, header, and context intervals, merging adjacent intervals. If no
+ancestor or header line is emitted, singular `requestedRange` and `shownRange`
+remain unchanged. A comma-separated
 request is plural as usual; each merged passage gets the chain for its first
 requested line. A chain emits only heading lines before its passage's first shown
 line, and a chain line that would precede content already emitted is skipped, so
@@ -245,6 +247,17 @@ ordinary context lines at 59 and 73:
 The result reports `requestedRanges: [{startLine: 60, endLine: 72}]` and
 `shownRanges` covering `{13,13}`, `{32,32}`, `{54,54}`, and `{59,73}`.
 
+When the first requested line is a body row of a root-level GFM table, the read
+also emits that table's header row and delimiter row, verbatim and with the
+ordinary prefix, after the ancestor chain and before the window, so a range that
+starts inside a table still shows which column each cell belongs to. A line of
+the pair that the window or an earlier passage already shows is not repeated, and
+a range whose first requested line is the header or delimiter row, or that starts
+outside a table, emits no pair. Two limits follow: a table inside a blockquote or
+a list item is not a root table and gets none, and a line that CommonMark decides
+is a setext heading's text, including table-shaped lines followed by `===` or
+`---`, stays heading text and gets none.
+
 The scanner sees only the lines through the selected window's end and is ended
 there; it never reads past that window. A role still undecided at the boundary
 counts as a non-heading, including an open paragraph that might become a setext
@@ -252,16 +265,18 @@ heading and an unclosed line-one `---` block, which is replayed as Markdown. CPU
 for a large-offset Markdown read scales with the offset because every skipped line
 is parsed.
 
-Ancestor lines count against the shared 2,000-line ceiling and serialized result
-bound. If the chain plus the N-1 context line (when shown) and line N do not fit,
-whole heading units are dropped from the outermost end first until the deepest
-remaining heading fits. An oversized outer heading is an unrenderable unit and is
-skipped during trimming. A setext heading's text lines and underline are one unit.
-If even the deepest heading is unrenderable or does not fit, the chain is
-silently absent and the passage window is still returned when it can fit.
+Ancestor and header lines count against the shared 2,000-line ceiling and
+serialized result bound. If the chain plus the N-1 context line (when shown) and
+line N do not fit, whole units are dropped from the outermost end first until the
+innermost remaining unit fits; a header pair is the innermost unit of its
+passage's chain, so an outer heading is dropped before it, and the pair is
+admitted or dropped as one unit. An oversized outer heading is an unrenderable
+unit and is skipped during trimming. A setext heading's text lines and underline
+are one unit. If even the innermost unit is unrenderable or does not fit, the
+chain is silently absent and the passage window is still returned when it can fit.
 `nextOffset` continues to identify the next requested source line, never an
-ancestor line; a continuation at `nextOffset + 1` computes a fresh chain, so a
-heading may reappear.
+ancestor or header line; a continuation at `nextOffset + 1` computes a fresh
+chain, so a heading or header pair may reappear.
 
 `:raw`, `:outline`, directory reads, unselected reads, empty files, and
 non-Markdown sources remain unchanged. Ancestors are chosen only after the

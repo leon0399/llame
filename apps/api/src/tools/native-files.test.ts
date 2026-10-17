@@ -49,6 +49,20 @@ import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 
+/** The same shape with a two-column table whose rows are told apart, so a
+ *  range inside it can only report its columns through the header pair. */
+const RANGED_TABLE_MARKDOWN =
+  [
+    '# Root',
+    'Root body',
+    '## Details',
+    'Details intro',
+    '| Name | Value |',
+    '| --- | --- |',
+    '| alpha | 1 |',
+    '| beta | 2 |',
+  ].join('\n') + '\n';
+
 const RANGED_MARKDOWN =
   [
     '# Root',
@@ -263,6 +277,104 @@ describe('Workspace-relative native paths', () => {
         nextOffset: 6,
         truncated: false,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('prepends the table header pair for a host ranged read inside a table', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'host-table-range-'));
+    const file = join(root, 'guide.md');
+    await writeFile(file, RANGED_TABLE_MARKDOWN);
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: `${file}:8-8` },
+        trustedContext(),
+        5,
+      );
+      expect(result).toEqual({
+        status: 'success',
+        kind: 'file',
+        path: file,
+        representation: 'text',
+        content:
+          '1: # Root\n' +
+          '3: ## Details\n' +
+          '5: | Name | Value |\n' +
+          '6: | --- | --- |\n' +
+          '7: | alpha | 1 |\n' +
+          '8: | beta | 2 |\n',
+        requestedRanges: [{ startLine: 8, endLine: 8 }],
+        shownRanges: [
+          { startLine: 1, endLine: 1 },
+          { startLine: 3, endLine: 3 },
+          { startLine: 5, endLine: 8 },
+        ],
+        truncated: false,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps raw, outline, and non-Markdown reads free of the header pair', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'table-range-negatives-'));
+    const markdown = join(root, 'guide.md');
+    const text = join(root, 'guide.txt');
+    await writeFile(markdown, RANGED_TABLE_MARKDOWN);
+    await writeFile(text, RANGED_TABLE_MARKDOWN);
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const raw = await runTool(
+        nativeReadTool,
+        { path: `${markdown}:raw:8-8` },
+        trustedContext(),
+        5,
+      );
+      expect(raw).toMatchObject({
+        representation: 'raw',
+        content: '| beta | 2 |\n',
+      });
+      expect(raw).not.toHaveProperty('shownRanges');
+
+      const outline = await runTool(
+        nativeReadTool,
+        { path: `${markdown}:outline` },
+        trustedContext(),
+        5,
+      );
+      expect(outline).toEqual({
+        status: 'success',
+        kind: 'file',
+        path: markdown,
+        representation: 'outline',
+        content: '1: # Root\n2: Root body\n3: ## Details\n4: Details intro\n',
+        requestedRange: { startLine: 1, endLine: 8 },
+        shownRange: { startLine: 1, endLine: 4 },
+        truncated: false,
+      });
+
+      const plain = await runTool(
+        nativeReadTool,
+        { path: `${text}:8-8` },
+        trustedContext(),
+        5,
+      );
+      expect(plain).toMatchObject({
+        status: 'success',
+        representation: 'text',
+        content: '7: | alpha | 1 |\n8: | beta | 2 |\n',
+        requestedRange: { startLine: 8, endLine: 8 },
+      });
+      expect(plain).not.toHaveProperty('shownRanges');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

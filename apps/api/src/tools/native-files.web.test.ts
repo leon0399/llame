@@ -72,6 +72,20 @@ function webReadExecutor(
 let fetchDouble: Mock<TestFetch>;
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
+/** The same shape with a two-column table, so a range inside it can only
+ *  report its columns through the header pair. */
+const RANGED_TABLE_MARKDOWN =
+  [
+    '# Root',
+    'Root body',
+    '## Details',
+    'Details intro',
+    '| Name | Value |',
+    '| --- | --- |',
+    '| alpha | 1 |',
+    '| beta | 2 |',
+  ].join('\n') + '\n';
+
 const RANGED_MARKDOWN =
   [
     '# Root',
@@ -477,6 +491,38 @@ describe('web locator dispatch', () => {
         { startLine: 5, endLine: 7 },
       ],
       nextOffset: 6,
+      truncated: false,
+      finalUrl: url,
+      method: 'negotiated',
+    });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
+  });
+
+  it('prepends the table header pair for a negotiated Markdown ranged read', async () => {
+    respondWith(RANGED_TABLE_MARKDOWN, 'text/markdown; charset=utf-8');
+    const url = fixtureUrl('/guide');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: `${url}:8-8`,
+    });
+
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: url,
+      representation: 'text',
+      content:
+        '1: # Root\n' +
+        '3: ## Details\n' +
+        '5: | Name | Value |\n' +
+        '6: | --- | --- |\n' +
+        '7: | alpha | 1 |\n' +
+        '8: | beta | 2 |\n',
+      requestedRanges: [{ startLine: 8, endLine: 8 }],
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 3, endLine: 3 },
+        { startLine: 5, endLine: 8 },
+      ],
       truncated: false,
       finalUrl: url,
       method: 'negotiated',

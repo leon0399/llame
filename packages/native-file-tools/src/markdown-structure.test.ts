@@ -81,8 +81,13 @@ describe("markdown structure scanner", () => {
       line(4, "#### four\n", "heading", heading(4, 4, 4, "#### four")),
       line(5, "##### five\n", "heading", heading(5, 5, 5, "##### five")),
       line(6, "###### six\n", "heading", heading(6, 6, 6, "###### six")),
-      line(7, "#NoSpace\n", "content"),
-      line(8, "    # indented code\n", "content"),
+      { line: 7, text: "#NoSpace\n", role: "content", rootParagraph: true },
+      {
+        line: 8,
+        text: "    # indented code\n",
+        role: "content",
+        rootParagraph: true,
+      },
       line(9, "## title ##\n", "heading", heading(2, 9, 9, "## title ##")),
       line(10, "#\n", "heading", heading(1, 10, 10, "#")),
     ]);
@@ -139,7 +144,7 @@ describe("markdown structure scanner", () => {
 
     expect(result.lines).toEqual([
       line(1, "# Same\n", "heading", heading(1, 1, 1, "# Same")),
-      line(2, "body\n", "content"),
+      { line: 2, text: "body\n", role: "content", rootParagraph: true },
       line(3, "# Same\n", "heading", heading(1, 3, 3, "# Same")),
     ]);
     expect(result.spans).toEqual([
@@ -253,7 +258,7 @@ describe("markdown structure scanner", () => {
     const bar = heading(1, 2, 3, "bar");
 
     expect(result.lines).toEqual([
-      line(1, "[foo]: /url\n", "content"),
+      { line: 1, text: "[foo]: /url\n", role: "content", rootParagraph: true },
       line(2, "bar\n", "heading", bar),
       line(3, "===\n", "heading", bar),
     ]);
@@ -397,9 +402,9 @@ describe("markdown structure scanner", () => {
     expect(scan("")).toEqual({ lines: [], spans: [] });
     expect(scan("plain\n\nmore")).toEqual({
       lines: [
-        line(1, "plain\n", "content"),
+        { line: 1, text: "plain\n", role: "content", rootParagraph: true },
         line(2, "\n", "blank"),
-        line(3, "more", "content"),
+        { line: 3, text: "more", role: "content", rootParagraph: true },
       ],
       spans: [],
     });
