@@ -6,7 +6,8 @@
   "ignorePatterns": [
     "dist/**",
     "src/db/migrations/**",
-    "src/live/generated/**"
+    "src/live/generated/**",
+    "src/queue/generated/**"
   ],
   "overrides": [
     {

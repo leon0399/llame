@@ -16,12 +16,6 @@
  * with a mismatched handler, is a compile error, not a runtime surprise.
  */
 
-import {
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
-
 /** DI token for the Queue implementation (NestJS has no interface tokens). */
 export const QUEUE = Symbol('QUEUE');
 
@@ -274,31 +268,4 @@ export type QueueConsumer = Pick<Queue, 'ensureQueue' | 'consume'>;
 /** Conventional dead-letter queue name (engine-level naming detail). */
 export function deadLetterQueueName(queue: string): string {
   return `${queue}.dead`;
-}
-
-/**
- * Payload-guard helpers shared by queue definitions' `parse` functions: TypeScript
- * can't vouch for bytes that crossed a process boundary (a redelivered job may have
- * been written by an older deploy), so these validate at the consume boundary and
- * fail malformed payloads there (→ retry → dead letter) instead of deep in a handler.
- */
-export function expectRecord(data: unknown, queue: string): UnknownRecord {
-  if (!isRecord(data)) {
-    throw new TypeError(`Malformed '${queue}' job: payload is not an object`);
-  }
-  return data;
-}
-
-export function expectString(
-  value: UnknownRecord,
-  field: string,
-  queue: string,
-): string {
-  const raw = value[field];
-  if (!isString(raw) || raw.length === 0) {
-    throw new TypeError(
-      `Malformed '${queue}' job: expected non-empty string '${field}'`,
-    );
-  }
-  return raw;
 }

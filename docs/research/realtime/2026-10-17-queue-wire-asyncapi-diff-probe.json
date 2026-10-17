@@ -1,0 +1,58 @@
+{
+  "tool": "@asyncapi/diff 0.5.0 with @asyncapi/parser 3.6.3",
+  "change": "search-embed payload gains a required string field `extra`",
+  "result": {
+    "breaking": [],
+    "nonBreaking": [],
+    "unclassified": [
+      {
+        "action": "add",
+        "path": "/operations/consumeSearchEmbed/channel/messages/job/payload/properties/extra",
+        "after": {
+          "type": "string",
+          "x-parser-schema-id": "<anonymous-schema-4>"
+        },
+        "type": "unclassified"
+      },
+      {
+        "action": "add",
+        "path": "/operations/consumeSearchEmbed/channel/messages/job/payload/required/2",
+        "isArrayIndex": true,
+        "after": "extra",
+        "type": "unclassified"
+      },
+      {
+        "action": "add",
+        "path": "/operations/enqueueSearchEmbed/channel/messages/job/payload/properties/extra",
+        "after": {
+          "type": "string",
+          "x-parser-schema-id": "<anonymous-schema-4>"
+        },
+        "type": "unclassified"
+      },
+      {
+        "action": "add",
+        "path": "/operations/enqueueSearchEmbed/channel/messages/job/payload/required/2",
+        "isArrayIndex": true,
+        "after": "extra",
+        "type": "unclassified"
+      },
+      {
+        "action": "add",
+        "path": "/channels/search-embed/messages/job/payload/properties/extra",
+        "after": {
+          "type": "string",
+          "x-parser-schema-id": "<anonymous-schema-4>"
+        },
+        "type": "unclassified"
+      },
+      {
+        "action": "add",
+        "path": "/channels/search-embed/messages/job/payload/required/2",
+        "isArrayIndex": true,
+        "after": "extra",
+        "type": "unclassified"
+      }
+    ]
+  }
+}

@@ -7,7 +7,7 @@
     "build": "next build",
     "dev": "next dev",
     "generate:client": "orval --config orval.config.ts && pnpm generate:live-protocol",
-    "generate:live-protocol": "node ../../scripts/generate-live-protocol.mjs ../api/asyncapi.yaml lib/api/live-generated/live-protocol.ts",
+    "generate:live-protocol": "node ../../scripts/generate-asyncapi-module.mjs ../api/asyncapi.websocket.yaml lib/api/live-generated/live-protocol.ts",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
     "start": "next start",

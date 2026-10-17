@@ -6,6 +6,7 @@ import {
   RUNS_JOB_EXPIRE_SECONDS,
   RUNS_QUEUE,
 } from './run-queues';
+import { ZodError } from 'zod';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 
 const validJob = {
@@ -16,6 +17,20 @@ const validJob = {
   userMessage: { id: 'message-1', seq: 1, parts: [] },
 };
 
+/** The dotted path of every issue the generated guard reports from `parse`. */
+function issuePaths(parse: () => void): Array<string> {
+  const result = (() => {
+    try {
+      parse();
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  })();
+  if (!(result instanceof ZodError)) throw new Error('expected a ZodError');
+  return result.issues.map((issue) => issue.path.join('.'));
+}
+
 describe('RUNS_QUEUE payload parsing', () => {
   it('accepts a positive safe Chat-local message sequence', () => {
     expect(RUNS_QUEUE.parse?.(validJob)).toEqual(validJob);
@@ -24,16 +39,26 @@ describe('RUNS_QUEUE payload parsing', () => {
   it.each([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
     'rejects an invalid message sequence before execution: %s',
     (seq) => {
-      expect(() =>
-        RUNS_QUEUE.parse?.({
-          ...validJob,
-          userMessage: { ...validJob.userMessage, seq },
-        }),
-      ).toThrow(
-        "Malformed 'runs' job: userMessage.seq not a positive safe integer",
-      );
+      expect(
+        issuePaths(() =>
+          RUNS_QUEUE.parse?.({
+            ...validJob,
+            userMessage: { ...validJob.userMessage, seq },
+          }),
+        ),
+      ).toEqual(['userMessage.seq']);
     },
   );
+
+  it('ignores fields a newer deploy added', () => {
+    expect(
+      RUNS_QUEUE.parse?.({
+        ...validJob,
+        added: true,
+        userMessage: { ...validJob.userMessage, added: true },
+      }),
+    ).toEqual(validJob);
+  });
 });
 
 describe('runs queue timing definition', () => {

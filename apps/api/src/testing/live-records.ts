@@ -1,7 +1,7 @@
 /**
  * Typed record fixtures for live-update tests: the API's response DTOs as
  * the record loader returns them (`Date` fields), so tests exercise the same
- * serialization the hub applies before validating against asyncapi.yaml.
+ * serialization the hub applies before validating against asyncapi.websocket.yaml.
  */
 
 import type { ChatListItemResponse } from '../chats/dto/chats.dto';

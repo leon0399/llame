@@ -27,7 +27,7 @@
     "lint:fix": "oxlint --deny-warnings --fix --threads=1 e2e playwright.config.ts && turbo run lint:fix",
     "lint:markdown": "markdownlint-cli2 && node scripts/check-markdown-links.mjs",
     "lint:openapi": "redocly lint --config apps/api/redocly.yaml",
-    "lint:asyncapi": "node scripts/generate-live-protocol.mjs --validate apps/api/asyncapi.yaml",
+    "lint:asyncapi": "node scripts/generate-asyncapi-module.mjs --validate apps/api/asyncapi.websocket.yaml apps/api/asyncapi.queues.yaml",
     "prepare": "lefthook install && git config merge.changelog.driver 'node scripts/merge-changelog.mjs %O %A %B %L'",
     "test": "pnpm test:scripts && turbo run test --concurrency=1",
     "test:coverage": "turbo run test:coverage --concurrency=1",

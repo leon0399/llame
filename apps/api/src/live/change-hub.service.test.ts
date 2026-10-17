@@ -350,7 +350,7 @@ describe('ChangeHubService diagnostics', () => {
     hub.dispatch(chatUpdate);
     await vi.waitFor(() => expect(error).toHaveBeenCalled());
     expect(error).toHaveBeenCalledWith(
-      'Dropped a chat.upserted message that violates asyncapi.yaml',
+      'Dropped a chat.upserted message that violates asyncapi.websocket.yaml',
     );
     expect(received).toEqual([{ type: 'resync' }]);
   });

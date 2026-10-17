@@ -11,7 +11,7 @@
  * the latest committed state. A failed read sends `resync`.
  *
  * Every outgoing message is serialized and validated against the generated
- * wire schema, so the server cannot send a shape `asyncapi.yaml` does not
+ * wire schema, so the server cannot send a shape `asyncapi.websocket.yaml` does not
  * describe.
  *
  * Notifications sent while the listener was disconnected are lost. postgres.js
@@ -159,7 +159,7 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     const wire = toWireMessage(message);
     if (!wire) {
       this.logger.error(
-        `Dropped a ${message.type} message that violates asyncapi.yaml`,
+        `Dropped a ${message.type} message that violates asyncapi.websocket.yaml`,
       );
       // The client stopped polling while connected; have it refetch instead.
       if (message.type !== 'resync') this.send(ownerId, { type: 'resync' });

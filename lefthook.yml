@@ -20,7 +20,7 @@ pre-commit:
       run: pnpm lint:openapi
 
     - name: AsyncAPI lint
-      glob: &asyncapi-glob "{apps/api/asyncapi.yaml,apps/api/openapi.json,scripts/generate-live-protocol.mjs}"
+      glob: &asyncapi-glob "{apps/api/asyncapi.websocket.yaml,apps/api/asyncapi.queues.yaml,apps/api/openapi.json,scripts/generate-asyncapi-module.mjs}"
       run: pnpm lint:asyncapi
 
     - name: dead-code lint

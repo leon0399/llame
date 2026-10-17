@@ -11,7 +11,7 @@ import {
 
 /**
  * Owner-scoped live update messages from the API's WebSocket. The schemas and
- * types are generated from `apps/api/asyncapi.yaml`; this module adds only
+ * types are generated from `apps/api/asyncapi.websocket.yaml`; this module adds only
  * frame parsing and connection helpers.
  */
 
