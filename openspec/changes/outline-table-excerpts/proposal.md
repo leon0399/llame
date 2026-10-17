@@ -16,8 +16,9 @@ in").
 
 Today, on `.agents/skills/iterative-review-refinement/SKILL.md`, `:outline`
 shows `126: | Excuse | Reality |` only because line 126 is the first non-blank
-line of section 124, and shows nothing about the table's content. A table that
-follows prose is invisible to the outline entirely.
+line of section 124, and shows nothing about the table's content, which runs
+from line 128 to line 135. A table that follows prose is invisible to the
+outline entirely.
 
 ## What Changes
 
@@ -29,10 +30,12 @@ follows prose is invisible to the outline entirely.
   line is a root table's header row emits the three lines in place of its single
   excerpt line, and a table that follows other content in its section still
   contributes its excerpt at its own position. No line is emitted twice.
-- `:outline:N-M` whose `N` is a body row of a root table prepends that table's
-  excerpt as the innermost unit of its ancestor chain, before the in-scope
-  entries, under the chain's existing whole-unit admission ("the chain is
-  omitted whole" when it does not fit) and its "already shown" dedup.
+- `:outline:N-M` whose `N` is a root table's delimiter row or one of its body
+  rows prepends that table's excerpt restricted to the lines before `N` — its
+  header row, and its first content row when that row precedes `N` — as the
+  innermost unit of its ancestor chain, under the chain's existing whole-unit
+  admission and its "already shown" dedup. A chain never names the table's last
+  content row: that row is at or after `N`.
 - Every table-excerpt line is still one entry: it counts against the shared
   serialized result cap and the 2,000-line ceiling, the outline is still cut
   between lines, and `nextOffset` still names the first omitted line's source
@@ -55,9 +58,11 @@ None.
 
 - `native-file-tools`: "Markdown outlines are verbatim structural lines"
   additionally enumerates the table excerpt; "Outline scope prepends the direct
-  ancestors" prepends the table excerpt as the innermost chain unit; "Outline
-  output obeys explicit bounds" names the excerpt's three lines as chain units
-  for the whole-unit admission.
+  ancestors" prepends the excerpt lines before the scope as the innermost chain
+  unit; "Root GFM tables are an overlay on CommonMark lines" is widened to
+  recognize a root table for these outline requirements too, and to say that an
+  excerpt changes which lines the outline emits, not which lines are headings or
+  sections.
 
 ## Impact
 
@@ -74,8 +79,14 @@ None.
   the table's header row, first content row, and last content row at the table's
   position, in source order.
 - `.agents/skills/iterative-review-refinement/SKILL.md:outline:129-130` emits
-  lines 6, 124, 126, 128, and 131, with `shownRange` covering them and no line
-  repeated.
+  lines 6, 124, 126, and 128, in that order, with `shownRange` covering 6 through
+  128 and no line repeated; line 128 is the table's first content row, and its
+  last content row, 135, is not in that scope.
+- `:outline:125-135` of the same file emits lines 6, 124, 126, 128, and 135: the
+  scope holds the table's header row, so all three excerpt lines are emitted,
+  the last one as an in-scope entry.
+- `:outline:127-130` emits lines 6, 124, and 126: the scope starts at the
+  delimiter row, so the chain carries the header row alone.
 - A table inside a blockquote or list item changes nothing.
 - A one-content-row table emits the header row and that row; a header-only table
   emits the header row.
@@ -97,9 +108,9 @@ None.
   pair already serves.
 - **T4 The 120-unit cut applies to each of the three lines**, with the same
   surrogate-pair backup the excerpt cut uses.
-- **T5 The three lines are one chain unit** for the scope's ancestor admission,
-  admitted or dropped whole; they are three entries for the cap and ceiling, so
-  an unscoped outline can still be cut between them.
+- **T5 The chain carries the excerpt lines that precede the scope**, admitted or
+  dropped with the chain as a whole; every excerpt line is one entry for the cap
+  and ceiling, so an outline can still be cut between them.
 - **T6 One content row or none.** With a single content row the first and last
   rows are the same line, emitted once; with no content rows only the header row
   is emitted.
@@ -115,14 +126,12 @@ None.
 
 ## Assumptions and unresolved questions
 
-- The scan still stops at the scope end or when the budget is spent, so a table
-  that continues past either contributes the rows the scan decided and no
-  lookahead is added. In a scope's chain the excerpt is written before the
-  in-scope entries, so its third line is the last content row decided at that
-  moment rather than the table's final row; the design records this as a
-  deliberate limit and the reviewers should falsify it with a case where the
-  table ends inside the scope.
-- Whether the section excerpt rule, for a section that opens with a table, takes
-  the next non-blank line after the table as well, or stops at the table (T2
-  says the three lines replace the one line) — the delta fixes the second, and
-  the design should say why the first is worse.
+- The scanner decides a table's rows as one root paragraph, so the reader sees a
+  table's last row without lookahead of its own; it may also hold lines past the
+  scope end while that run is decided, which is why every emitted line, excerpt
+  lines included, is filtered by the scope rather than by where the scan
+  stopped. Where the scan stops is unchanged.
+- A table inside a container can still be a section's or the document's
+  ordinary excerpt line, because that rule takes the first non-blank line
+  "whatever that line is". The delta leaves that rule alone and claims only that
+  such a table contributes no excerpt of its own.
