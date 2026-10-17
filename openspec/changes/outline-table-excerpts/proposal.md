@@ -68,8 +68,13 @@ None.
 
 - `packages/native-file-tools`: `markdown-outline.ts` (emission, chain, and
   budget), `markdown-tables.ts` (expose the open table's excerpt lines
-  alongside the header pair), their tests, and
-  `docs/product/reference/selectors.md`.
+  alongside the header pair), and their tests.
+- `apps/api/src/tools/native-files.test.ts`: the outline assertion of
+  "keeps raw, outline, and non-Markdown reads free of the header pair" changes,
+  because that fixture's outline gains the table's three lines and its
+  `shownRange` grows; the test's point becomes that the outline carries the
+  excerpt and not the ranged read's delimiter row.
+- `docs/product/reference/selectors.md`, `CHANGELOG.md`.
 - `CHANGELOG.md`.
 - No API, schema, migration, or configuration change.
 
