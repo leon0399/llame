@@ -23,10 +23,10 @@ master
 
 ## 0. proposal
 
-- [ ] 0.1 Run adversarial review with two independent reviewers per round; verify findings against the shipped spec, the scanner, and the oracle; commit each round separately.
-- [ ] 0.2 Prove the final revision: `pnpm exec openspec validate ranged-markdown-table-headers --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized script diff of the MODIFIED block against canonical keeping every canonical scenario in order; record Leo's approval of that revision, including proposal decisions T1-T4.
-- [ ] 0.3 Self-review the proposal diff before marking the PR ready; record the review rounds in the PR body.
-- [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 0.1 Run adversarial review with two independent reviewers per round; verify findings against the shipped spec, the scanner, and the oracle; commit each round separately.
+- [x] 0.2 Prove the final revision: `pnpm exec openspec validate ranged-markdown-table-headers --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized script diff of the MODIFIED block against canonical keeping every canonical scenario in order; record Leo's approval of that revision, including proposal decisions T1-T4.
+- [x] 0.3 Self-review the proposal diff before marking the PR ready; record the review rounds in the PR body.
+- [x] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 1. headers
 
