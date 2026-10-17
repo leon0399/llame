@@ -237,4 +237,15 @@ describe('ModelsController', () => {
     expect(response.pricingUsdPer1M).toEqual({ input: 1, output: 4 });
     expect(response.pricingUsdPer1M).not.toHaveProperty('cacheWrite');
   });
+
+  it('publishes a declared pdf input in declared order', () => {
+    const response = toAvailableModelResponse({
+      id: 'system:openai:pdf-reader',
+      source: 'system',
+      contextWindowTokens: 128_000,
+      input: ['text', 'image', 'pdf'],
+    });
+
+    expect(response.input).toEqual(['text', 'image', 'pdf']);
+  });
 });

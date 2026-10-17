@@ -9,6 +9,7 @@ import {
   toolItemRef,
   userImageRef,
   type MediaAdmission,
+  type MediaAdmissionContext,
   type MediaRef,
   type MediaSizing,
   type ToolContentPart,
@@ -16,24 +17,27 @@ import {
   type UnstoredRef,
 } from '../media/epoch-admission';
 import {
+  fileKind,
   limitPlaceholder,
   notRetainedPlaceholder,
   omittedPlaceholder,
   storedSubject,
   unavailablePlaceholder,
   unstoredSubject,
-  type ImageSubject,
   type MediaDescriptor,
+  type MediaKind,
+  type MediaSubject,
   type RunMediaResolver,
 } from '../media/media-descriptors';
 import { mediaLocator } from '../media/media-locator';
+import { PDF_MEDIA_TYPE } from '../media/pdf-preparation';
 import type { ModelInput } from './model-catalog';
 import type { ModelStreamInput } from './model-client';
 
 export type ComposeStepOptions = {
   resolver: RunMediaResolver;
-  /** Whether the request's model declares `image` input. */
-  imageInput: boolean;
+  /** The request's model: its declared input, window, and output reserve. */
+  context: MediaAdmissionContext;
   /**
    * Whether tool-result images move into a following user message: on the
    * Chat Completions wires, whose adapter serializes tool content as text
@@ -47,33 +51,40 @@ export type UserContentPart = Exclude<UserContent, string>[number];
 /** What one media reference projects to, in either message role. */
 export type ProjectedMedia =
   | { type: 'text'; text: string }
-  | { type: 'image'; image: Uint8Array; mediaType: string };
+  | { type: 'image'; image: Uint8Array; mediaType: string }
+  | { type: 'file'; data: Uint8Array; mediaType: string; filename: string };
 
 /**
- * An image the epoch window attaches: its model variant's dimensions and
- * format, and where its bytes come from, the store for a stored object or the
- * attempt's memory for an unstored image.
+ * A reference the epoch window attaches, and where its bytes come from: the
+ * store for a stored object, or the attempt's memory for an unstored image.
+ * An image carries its model variant's dimensions and format; a PDF its page
+ * count and stored name (pdf-media D4).
  */
-export type AttachedImage = {
-  modelWidth: number;
-  modelHeight: number;
-  modelMediaType: string;
-  source: { id: string } | { bytes: Uint8Array };
-};
+export type AttachedMedia =
+  | {
+      kind: 'image';
+      modelWidth: number;
+      modelHeight: number;
+      modelMediaType: string;
+      source: { id: string } | { bytes: Uint8Array };
+    }
+  | { kind: 'pdf'; pages: number; filename: string; source: { id: string } };
 
 /** A resolvable reference: its subject, and its attachment when attachable. */
-type ResolvedImage = { subject: ImageSubject; attached?: AttachedImage };
+type ResolvedMedia = { subject: MediaSubject; attached?: AttachedMedia };
 
 /**
- * The one place media references become what a model sees (vision-media D6).
- * Within each user message, its `media://` file parts are numbered from 1 and
- * each becomes the label `Image n (media://<id>):` followed by its projection;
- * a tool result's image reference becomes its projection after the result's
+ * The one place media references become what a model sees (vision-media D6,
+ * pdf-media D4). Within each user message, its `media://` file parts are
+ * numbered per kind from 1 and each becomes the label `Image n
+ * (media://<id>):` or `PDF n (media://<id>):` followed by its projection; a
+ * tool result's image reference becomes its projection after the result's
  * text. The forms are those of `projectMediaRefs`; an attached image is the
  * model variant, loaded from the store for a `media://` reference and taken
- * from the attempt's memory for an unstored image. With `moveToolImages`,
- * tool-result images move out of the tool messages (see `mapMediaRefs`).
- * Only the stored bytes of images sent as images are loaded.
+ * from the attempt's memory for an unstored image, and an attached PDF is the
+ * stored original as a `file` part named by its stored name. With
+ * `moveToolImages`, tool-result images move out of the tool messages (see
+ * `mapMediaRefs`). Only the stored bytes of attached references are loaded.
  *
  * An unstored image enters the attempt's window when it is first composed, in
  * request order: a `read` in tool-call order, a prompt import with the
@@ -86,9 +97,9 @@ type ResolvedImage = { subject: ImageSubject; attached?: AttachedImage };
  */
 export async function composeStepMessages(
   messages: Array<ModelMessage>,
-  { resolver, imageInput, moveToolImages = false }: ComposeStepOptions,
+  { resolver, context, moveToolImages = false }: ComposeStepOptions,
 ): Promise<Array<ModelMessage>> {
-  const sizing = await loadMediaSizing(messages, resolver, imageInput);
+  const sizing = await loadMediaSizing(messages, resolver, context);
   if (sizing.refs.length === 0) return messages;
   sizing.refs.forEach((ref, index) => {
     if (!isString(ref) && sizing.statuses[index] !== 'attached') {
@@ -96,13 +107,11 @@ export async function composeStepMessages(
     }
   });
 
-  // One owner-scoped read for the step's sent stored images; the resolver
-  // caches loaded bytes, so later steps read only images not loaded yet.
-  const sent = imageInput
-    ? sizing.refs.flatMap((ref, index) =>
-        isString(ref) && sizing.statuses[index] === 'attached' ? [ref] : [],
-      )
-    : [];
+  // One owner-scoped read for the step's attached stored references; the
+  // resolver caches loaded bytes, so later steps read only ones not loaded yet.
+  const sent = sizing.refs.flatMap((ref, index) =>
+    isString(ref) && sizing.statuses[index] === 'attached' ? [ref] : [],
+  );
   const bytes =
     sent.length === 0
       ? new Map<string, Uint8Array>()
@@ -111,35 +120,53 @@ export async function composeStepMessages(
   return projectMediaRefs(
     messages,
     sizing,
-    (image) => attachedVariant(image, bytes),
+    (media) => attachedBytes(media, bytes),
     moveToolImages,
   );
 }
 
 /**
- * An attached image's model variant as an image: an unstored image's from the
- * attempt's memory, a stored one's from `loaded`. A stored image whose blob
- * could not be read is as unresolvable as a missing one.
+ * An attached reference with its bytes: an unstored image's model variant
+ * from the attempt's memory, a stored image's model variant or a stored PDF's
+ * original from `loaded`. A stored blob that could not be read is as
+ * unresolvable as a missing one.
  */
-function attachedVariant(
-  { source, modelMediaType: mediaType }: AttachedImage,
+function attachedBytes(
+  media: AttachedMedia,
   loaded: ReadonlyMap<string, Uint8Array>,
 ): Array<ProjectedMedia> {
-  if ('bytes' in source) {
-    return [{ type: 'image', image: source.bytes, mediaType }];
-  }
-  const image = loaded.get(source.id);
-  return image === undefined
-    ? [{ type: 'text', text: unavailablePlaceholder(source.id) }]
-    : [{ type: 'image', image, mediaType }];
+  const { source } = media;
+  if ('bytes' in source) return withBytes(media, source.bytes);
+  const data = loaded.get(source.id);
+  return data === undefined
+    ? textOf(unavailablePlaceholder(source.id, media.kind))
+    : withBytes(media, data);
+}
+
+/** An attached reference as the part its kind is sent as. */
+function withBytes(
+  media: AttachedMedia,
+  data: Uint8Array,
+): Array<ProjectedMedia> {
+  return media.kind === 'pdf'
+    ? [
+        {
+          type: 'file',
+          data,
+          mediaType: PDF_MEDIA_TYPE,
+          filename: media.filename,
+        },
+      ]
+    : [{ type: 'image', image: data, mediaType: media.modelMediaType }];
 }
 
 /**
  * `messages` as the composer projects them under `sizing` (see `mapMediaRefs`
  * for the placement and `moveToolImages`). Each reference takes one form, in
  * this order: the unavailable placeholder for an unresolvable `media://`
- * reference; the omitted one on a text-only model; the not-retained one for an
- * unstored image the attempt holds no entry for; `attach(image)` when the
+ * reference, naming the kind its part declares; the omitted one when the
+ * request's model does not declare its kind; the not-retained one for an
+ * unstored image the attempt holds no entry for; `attach(media)` when the
  * window attaches it; and the limit one otherwise. `sizing.statuses` is
  * aligned to the end of `messages`' references, so a continuation's trailing
  * rows project with the whole request's admission.
@@ -147,15 +174,17 @@ function attachedVariant(
 function projectMediaRefs(
   messages: Array<ModelMessage>,
   sizing: MediaSizing,
-  attach: (image: AttachedImage) => Array<ProjectedMedia>,
+  attach: (media: AttachedMedia) => Array<ProjectedMedia>,
   moveToolImages: boolean,
 ): Array<ModelMessage> {
   const offset = sizing.statuses.length - collectMediaRefs(messages).length;
   const project = (
-    { subject, attached }: ResolvedImage,
+    { subject, attached }: ResolvedMedia,
     status: MediaAdmission | undefined,
   ): Array<ProjectedMedia> => {
-    if (!sizing.imageInput) return textOf(omittedPlaceholder(subject));
+    if (!sizing.context.input.includes(subject.kind)) {
+      return textOf(omittedPlaceholder(subject));
+    }
     if (status === 'attached' && attached !== undefined) {
       return attach(attached);
     }
@@ -166,28 +195,29 @@ function projectMediaRefs(
     }
     return textOf(limitPlaceholder(subject));
   };
-  const projectRef = (ref: MediaRef, index: number) => {
+  const projectRef: ProjectRef = (ref, index, kind) => {
     const status = sizing.statuses[offset + index];
     if (!isString(ref)) {
       return project(unstoredImage(ref, sizing.held), status);
     }
     const descriptor = sizing.descriptors.get(ref);
     return descriptor === undefined
-      ? textOf(unavailablePlaceholder(ref))
-      : project(storedImage(ref, descriptor), status);
+      ? textOf(unavailablePlaceholder(ref, kind))
+      : project(storedMedia(ref, descriptor), status);
   };
   return mapMediaRefs(messages, projectRef, moveToolImages);
 }
 
-/** The bytes a sized projection gives each attached image (see `projectSizedText`). */
+/** The bytes a sized projection gives each attached reference (see `projectSizedText`). */
 const UNSIZED = new Uint8Array(0);
 
 /**
  * `messages` as the composer projects them under `sizing` (see
  * `projectMediaRefs`), with tool-result images moved out of the tool messages
- * (see `mapMediaRefs`) and every attached image passed to `charge` and then
- * left out: the text an estimate counts, header and labels included, while
- * the image itself is charged by its dimensions (vision-media D6).
+ * (see `mapMediaRefs`) and every attached reference passed to `charge` and
+ * then left out: the text an estimate counts, header and labels included,
+ * while an image itself is charged by its dimensions (vision-media D6) and a
+ * PDF by its pages (pdf-media D6).
  *
  * The move is applied on every wire, though only the Chat Completions wires
  * send it: the estimate is then exact there and, elsewhere, an upper bound at
@@ -198,16 +228,14 @@ const UNSIZED = new Uint8Array(0);
 export function projectSizedText(
   messages: Array<ModelMessage>,
   sizing: MediaSizing,
-  charge: (image: AttachedImage) => void,
+  charge: (media: AttachedMedia) => void,
 ): Array<ModelMessage> {
   const projected = projectMediaRefs(
     messages,
     sizing,
-    (image) => {
-      charge(image);
-      return [
-        { type: 'image', image: UNSIZED, mediaType: image.modelMediaType },
-      ];
+    (media) => {
+      charge(media);
+      return withBytes(media, UNSIZED);
     },
     true,
   );
@@ -218,7 +246,9 @@ export function projectSizedText(
     return {
       ...message,
       content: message.content.filter(
-        (part) => part.type !== 'image' || part.image !== UNSIZED,
+        (part) =>
+          !(part.type === 'image' && part.image === UNSIZED) &&
+          !(part.type === 'file' && part.data === UNSIZED),
       ),
     };
   });
@@ -229,23 +259,31 @@ function textOf(text: string): Array<ProjectedMedia> {
   return [{ type: 'text', text }];
 }
 
-function storedImage(id: string, d: MediaDescriptor): ResolvedImage {
-  return {
-    subject: storedSubject(d),
-    attached: {
-      modelWidth: d.modelWidth,
-      modelHeight: d.modelHeight,
-      modelMediaType: d.modelMediaType,
-      source: { id },
-    },
-  };
+function storedMedia(id: string, d: MediaDescriptor): ResolvedMedia {
+  const subject = storedSubject(d);
+  const source = { id };
+  return d.kind === 'pdf'
+    ? {
+        subject,
+        attached: { kind: 'pdf', pages: d.pages, filename: d.name, source },
+      }
+    : {
+        subject,
+        attached: {
+          kind: 'image',
+          modelWidth: d.modelWidth,
+          modelHeight: d.modelHeight,
+          modelMediaType: d.modelMediaType,
+          source,
+        },
+      };
 }
 
 /** An unstored image, attachable only while the attempt retains its variant. */
 function unstoredImage(
   ref: UnstoredRef,
   held: ReadonlyMap<string, HeldImage>,
-): ResolvedImage {
+): ResolvedMedia {
   const subject = unstoredSubject(ref);
   const model = held.get(ref.key)?.model;
   return model === undefined
@@ -253,6 +291,7 @@ function unstoredImage(
     : {
         subject,
         attached: {
+          kind: 'image',
           modelWidth: model.width,
           modelHeight: model.height,
           modelMediaType: model.mediaType,
@@ -269,14 +308,16 @@ const IMAGE_FOLLOWS = 'The image follows in the next message.';
 
 /**
  * Replace each media reference of `messages`, in request order, with
- * `project(ref, index)`, where `index` is the reference's position among all
- * of `messages`' references. A user message's `media://` file part is
- * preceded by its label `Image n (media://<id>):` (n counting that message's
- * file references from 1); its image reference part (a prompt-import image,
- * stored or unstored) is projected in place, unlabelled, right after the
- * item's text. A tool result's image reference is projected in place after
- * the result's text, an image becoming `image-data`; a result left with text
- * alone becomes a text output of those texts joined by newlines.
+ * `project(ref, index, kind)`, where `index` is the reference's position among
+ * all of `messages`' references and `kind` the kind its part declares (a file
+ * part's stored `mediaType`; every other reference is an image). A user
+ * message's `media://` file part is preceded by its label `Image n
+ * (media://<id>):` or `PDF n (media://<id>):` (n counting that message's file
+ * references of the same kind from 1); its image reference part (a
+ * prompt-import image, stored or unstored) is projected in place, unlabelled,
+ * right after the item's text. A tool result's image reference is projected in
+ * place after the result's text, an image becoming `image-data`; a result left
+ * with text alone becomes a text output of those texts joined by newlines.
  *
  * With `moveToolImages`, for the Chat Completions wires (vision-media D6,
  * after OMP's `openai-completions`), a tool result's projected images leave
@@ -292,13 +333,13 @@ const IMAGE_FOLLOWS = 'The image follows in the next message.';
  */
 export function mapMediaRefs(
   messages: Array<ModelMessage>,
-  project: (ref: MediaRef, index: number) => Array<ProjectedMedia>,
+  project: ProjectRef,
   moveToolImages = false,
 ): Array<ModelMessage> {
   let index = 0;
-  const next: NextRef = (ref) => {
+  const next: NextRef = (ref, kind) => {
     index += 1;
-    return project(ref, index - 1);
+    return project(ref, index - 1, kind);
   };
   const mapped: Array<ModelMessage> = [];
   const moved: Array<UserContentPart> = [];
@@ -324,7 +365,12 @@ export function mapMediaRefs(
   return mapped;
 }
 
-type NextRef = (ref: MediaRef) => Array<ProjectedMedia>;
+type ProjectRef = (
+  ref: MediaRef,
+  index: number,
+  kind: MediaKind,
+) => Array<ProjectedMedia>;
+type NextRef = (ref: MediaRef, kind: MediaKind) => Array<ProjectedMedia>;
 type ToolMessage = Extract<ModelMessage, { role: 'tool' }>;
 type ToolMessagePart = ToolMessage['content'][number];
 
@@ -337,6 +383,9 @@ function mapUserRefs(message: ModelMessage, next: NextRef): ModelMessage {
   return content === undefined ? message : { ...message, content };
 }
 
+/** How a user message's file label names each kind. */
+const LABEL: Record<MediaKind, string> = { image: 'Image', pdf: 'PDF' };
+
 /**
  * A user message's content with each reference projected by `next` (see
  * `mapMediaRefs`), or undefined when it holds none.
@@ -345,22 +394,22 @@ function mapUserContentRefs(
   parts: Array<UserContentPart>,
   next: NextRef,
 ): Array<UserContentPart> | undefined {
-  let label = 0;
+  const labels: Record<MediaKind, number> = { image: 0, pdf: 0 };
   let mapped = false;
   const content = parts.flatMap((part): Array<UserContentPart> => {
     const image = part.type === 'image' ? userImageRef(part) : undefined;
     if (image !== undefined) {
       mapped = true;
-      return next(image);
+      return next(image, 'image');
     }
-    const id = part.type === 'file' ? fileMediaRef(part) : undefined;
+    if (part.type !== 'file') return [part];
+    const id = fileMediaRef(part);
     if (id === undefined) return [part];
     mapped = true;
-    label += 1;
-    return [
-      { type: 'text', text: `Image ${label} (${mediaLocator(id)}):` },
-      ...next(id),
-    ];
+    const kind = fileKind(part.mediaType);
+    labels[kind] += 1;
+    const label = `${LABEL[kind]} ${labels[kind]} (${mediaLocator(id)}):`;
+    return [{ type: 'text', text: label }, ...next(id, kind)];
   });
   return mapped ? content : undefined;
 }
@@ -402,14 +451,11 @@ function mapToolResultRefs(
   const value = items.flatMap((item, at): Array<ToolContentPart> => {
     const image = refs[at];
     if (image === undefined) return [item];
-    return next(image).flatMap((projected): Array<ToolContentPart> => {
+    return next(image, 'image').flatMap((projected): Array<ToolContentPart> => {
       if (projected.type === 'text') return [projected];
-      if (moved === null) {
-        const data = Buffer.from(projected.image).toString('base64');
-        return [{ type: 'image-data', data, mediaType: projected.mediaType }];
-      }
+      if (moved === null) return [toolContentOf(projected)];
       const locator = isString(image) ? mediaLocator(image) : image.locator;
-      const label = `Image from ${part.toolName} ${JSON.stringify(locator)}:`;
+      const label = `${projected.type === 'file' ? 'PDF' : 'Image'} from ${part.toolName} ${JSON.stringify(locator)}:`;
       moved.push({ type: 'text', text: label }, projected);
       return [];
     });
@@ -423,6 +469,19 @@ function mapToolResultRefs(
     ...part,
     output: emptied ? { type: 'text', value: IMAGE_FOLLOWS } : output,
   };
+}
+
+/** An attached projection as a tool output part, its bytes base64-encoded. */
+function toolContentOf(
+  projected: Exclude<ProjectedMedia, { type: 'text' }>,
+): ToolContentPart {
+  if (projected.type === 'image') {
+    const data = Buffer.from(projected.image).toString('base64');
+    return { type: 'image-data', data, mediaType: projected.mediaType };
+  }
+  const { mediaType, filename } = projected;
+  const data = Buffer.from(projected.data).toString('base64');
+  return { type: 'file-data', data, mediaType, filename };
 }
 
 /**
@@ -447,20 +506,25 @@ function toolOutput(value: Array<ToolContentPart>): ToolResultOutput {
  * Only `onStepStart` and the step cap are tool-loop concerns and stay gated on
  * `input.tools`. The composer runs last, on the final messages, so the in-Run
  * splice records its prefix index on untransformed messages. Without
- * `input.media` the composer is the identity. `moveToolImages` is set by the
- * Chat Completions wires (see `ComposeStepOptions`).
+ * `input.media` the composer is the identity. The request's model is the
+ * client's declared input (`['text']` when absent) and `contextWindowTokens`,
+ * with the stream input's `reservedOutputTokens`. `moveToolImages` is set by
+ * the Chat Completions wires (see `ComposeStepOptions`).
  */
 export function installStepPreparation(
   streamOptions: Parameters<typeof streamText>[0],
   input: ModelStreamInput,
-  modelInput: ReadonlyArray<ModelInput> | undefined,
+  model: { input?: ReadonlyArray<ModelInput>; contextWindowTokens: number },
   { moveToolImages = false }: { moveToolImages?: boolean } = {},
 ): void {
   const tools = input.tools !== undefined;
   // `null` and absent both mean "no cap" (design D1).
   const cap = input.maxSteps ?? undefined;
-  const media = input.media;
-  const imageInput = modelInput?.includes('image') ?? false;
+  const context: MediaAdmissionContext = {
+    input: model.input ?? ['text'],
+    contextWindowTokens: model.contextWindowTokens,
+    reservedOutputTokens: input.reservedOutputTokens ?? null,
+  };
   // Step-cap enforcement (SPEC tool-calling): once `maxSteps` PRIOR steps have
   // requested a tool, stop declaring tools for the next step — the model is
   // forced to answer from accumulated context in the SAME streamText() call.
@@ -476,11 +540,11 @@ export function installStepPreparation(
       input.onCapReached?.();
     }
     const composed =
-      media === undefined
+      input.media === undefined
         ? override
         : await composeStepMessages(override ?? messages, {
-            resolver: media,
-            imageInput,
+            resolver: input.media,
+            context,
             moveToolImages,
           });
     return {

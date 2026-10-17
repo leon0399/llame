@@ -1,11 +1,11 @@
 ---
-summary: "Media store: owner images and PDFs in Postgres, ingest bounds, PDF parsing bounds, upload and fetch routes, message file parts, models[].input, sharp, growth, and the no-deletion gap"
+summary: "Media store: owner images and PDFs in Postgres, ingest bounds, PDF parsing bounds, upload and fetch routes, message file parts, models[].input, the media window, sharp, growth, and the no-deletion gap"
 read_when:
   - you are deploying a release that ships the media store or building its production image
   - you are sizing the database or backups for stored images
-  - you are declaring which models accept images
+  - you are declaring which models accept images or PDFs
   - you are troubleshooting an image or PDF upload or fetch
-  - you are sending images in a chat message through the API
+  - you are sending images or PDFs in a chat message through the API
 ---
 
 # Media store
@@ -13,17 +13,17 @@ read_when:
 The media store keeps images and PDFs that chat owners upload. Each upload is
 one media object owned by exactly one owner, addressed as `media://<id>`, and
 kept in the same Postgres database as the rest of the application state. This
-release ships the store, its upload and fetch routes, image attachments on
-owner messages, the per-model image input declaration, and image reads through
-`read`: a local, `kb://`, or `skill://` image file is decoded and stores
-nothing, kept only in the reading Run attempt's memory, and `media://<id>`
-reads an uploaded image (see [media://](../reference/locators/media.md)).
-PDFs can be uploaded and fetched but not yet attached or read; see
-[PDFs](#pdfs).
+release ships the store, its upload and fetch routes, image and PDF
+attachments on owner messages, the per-model input declaration, and image
+reads through `read`: a local, `kb://`, or `skill://` image file is decoded
+and stores nothing, kept only in the reading Run attempt's memory, and
+`media://<id>` reads an uploaded image (see
+[media://](../reference/locators/media.md)). PDFs can be uploaded, fetched,
+and attached but not yet read; see [PDFs](#pdfs).
 
 There is nothing to enable: the store has no configuration keys, and its bounds
-are fixed by the application. Models opt into receiving images with
-[`models[].input`](#model-image-input).
+are fixed by the application. Models opt into receiving images and PDFs with
+[`models[].input`](#model-input).
 
 ## Storage
 
@@ -109,10 +109,10 @@ the text `/Encrypt` uncompressed, such as a document about PDF encryption, is
 refused as well. So is a PDF whose parse exceeds a bound in
 [PDF parsing](#pdf-parsing).
 
-Ingest stores only a PDF's original and builds no model variant. Until a later
-release, PDFs cannot reach a model: a message whose `file` part references a
-stored PDF is refused with `400`, and `read` of a PDF's `media://` locator
-fails `unsupported_media_type`.
+Ingest stores only a PDF's original and builds no model variant: an attached
+PDF reaches a model as its original (see [PDF attachments](#pdf-attachments)).
+Until a later release, `read` of a PDF's `media://` locator fails
+`unsupported_media_type`.
 
 ### Model variant
 
@@ -147,8 +147,8 @@ that is not a canonical UUID all return the same `404`.
 | `GET /api/v1/media/:id/model`    | the model variant bytes; `404` for a PDF |
 
 The web client loads every chat thumbnail from `/model` and a lightbox image
-from `/original`. What the owner sees is described under
-[`media://` behavior](../reference/locators/media.md#behavior).
+from `/original`; it does not show PDF attachments yet. What the owner sees is
+described under [`media://` behavior](../reference/locators/media.md#behavior).
 
 ### Upload
 
@@ -221,7 +221,8 @@ that does not exist.
 ## Message attachments
 
 An owner message sent to `POST /api/v1/chats/:id/messages` may carry, beside
-its text parts, up to 10 `file` parts that each reference an uploaded image:
+its text parts, up to 10 `file` parts that each reference an uploaded image or
+PDF:
 
 ```json
 {
@@ -242,8 +243,8 @@ its text parts, up to 10 `file` parts that each reference an uploaded image:
 ```
 
 - A message needs at least one text part or one file part, so a message
-  carrying only images is accepted. Text parts keep their bounds: at most 50,
-  each nonblank and at most 20,000 characters.
+  carrying only attachments is accepted. Text parts keep their bounds: at most
+  50, each nonblank and at most 20,000 characters.
 - `url` must be a [`media://` locator](#media-locators). A `data:` URL, an
   `http(s)` URL, bare `media://`, or 11 or more file parts reject the whole
   message with `400`.
@@ -251,14 +252,15 @@ its text parts, up to 10 `file` parts that each reference an uploaded image:
   identity before anything is written; an id owned by another owner and an id
   that does not exist both get the same `400`, and nothing is stored.
 - The stored part's `mediaType` is the original's detected format and its
-  `filename` is the object's stored name, whatever the client sent. File parts
-  are stored in the order they were sent.
+  `filename` is the object's stored name, whatever the client sent, so a PDF
+  part is always stored as `application/pdf`. File parts are stored in the
+  order they were sent.
 
-Each message's images reach the model after its context items and before its
-text, as described under [model image input](#model-image-input). Owner forks
-copy file parts unchanged and reference the same objects.
+Each message's attachments reach the model after its context items and before
+its text, as described under [model input](#model-input). Owner forks copy
+file parts unchanged and reference the same objects.
 
-## Model image input
+## Model input
 
 `models[].input` declares the input modalities a model accepts:
 
@@ -266,18 +268,18 @@ copy file parts unchanged and reference the same objects.
 {
   "id": "vision-model",
   // ...
-  "input": ["text", "image"],
+  "input": ["text", "image", "pdf"],
 }
 ```
 
-Items come from the closed set `text` and `image`. The list must contain
-`text` and must not repeat an item; an absent `input` means `["text"]`. An
-item outside the set, a list without `text`, or a repeated item fails startup
-naming the model id and the field. llame does not check the declaration
-against the provider: a model declared with `image` that rejects images fails
-the Run that sends it one with the provider's error. `GET /api/v1/models`
-publishes the resolved `input` on every entry, so clients can tell which
-models accept images.
+Items come from the closed set `text`, `image`, and `pdf`. The list must
+contain `text` and must not repeat an item; an absent `input` means
+`["text"]`. An item outside the set, a list without `text`, or a repeated item
+fails startup naming the model id and the field. llame does not check the
+declaration against the provider: a model declared with `image` that rejects
+images, or with `pdf` that rejects PDFs, fails the Run that sends it one with
+the provider's error. `GET /api/v1/models` publishes the resolved `input` on
+every entry, so clients can tell which models accept images and PDFs.
 
 Every model request is composed from the stored `media://` references:
 
@@ -289,40 +291,87 @@ Every model request is composed from the stored `media://` references:
   `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
   in the image's place, with the original's dimensions.
 - A reference the chat owner's store cannot resolve, because the id is unknown
-  or belongs to another owner, becomes `[image media://<id> unavailable]` and
-  never fails the request.
+  or belongs to another owner, becomes `[image media://<id> unavailable]`, or
+  `[pdf media://<id> unavailable]` for a PDF file part, and never fails the
+  request.
 
-### Image window
+### PDF attachments
+
+A model that declares `pdf` receives each attached PDF as its original, read
+from storage when the request is composed. In a user message the PDF takes its
+file part's place among the attachments, labelled `PDF n (media://<id>):`,
+where `n` counts the message's PDFs from 1 separately from its images: one
+message reads `Image 1`, `PDF 1`, `Image 2`. The PDF is a file part with media
+type `application/pdf` and the stored name as its filename.
+
+Any other model receives
+`[pdf media://<id> <name> <P> pages, omitted: this model has no PDF input]` in
+the PDF's place, after its label, where `<P>` is the original's page count. A
+PDF never reaches a model as text or as an image.
+
+Each wire sends the original as base64 in its native document content:
+
+| Provider `type`                     | PDF content                                 |
+| ----------------------------------- | ------------------------------------------- |
+| `openai-responses`                  | an `input_file` item with filename and data |
+| `openai-completions`, `opencode-go` | a `file` part with filename and data        |
+| `anthropic-messages`                | a `document` block                          |
+| `openai-codex`                      | an `input_file` item with filename and data |
+
+Declare `pdf` only on models whose provider accepts PDFs; a provider that
+does not refuses the request with its own error. The ChatGPT Codex backend
+behind `openai-codex` accepts `input_file`: a 15-page PDF sent to
+`gpt-6.1-sol` was answered with its page count (checked 2026-10-14).
+
+### Media window
 
 Within one compaction epoch, the rows after the active checkpoint plus the
-current attempt, images are attached oldest first while two bounds hold: at
-most 100 images and at most 24 MiB of base64 model variants. Both are code
-constants. The first image past either bound, and every newer one in that
-epoch, reaches the model as
-`[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`.
-Attachment never changes for an earlier image, so the request prefix stays
-stable for provider prompt caching.
+current attempt, images and PDFs are attached oldest first, in one order,
+while three bounds hold together:
 
-Before a Run's first step, unattached images on a vision model count as
-reaching the compaction threshold when an earlier message carries a stored
-image. The summary keeps the locator of every image it mentions, `media://` or
-the path or URL it was read from, and the new epoch attaches images again from
-the start. A failed compaction never fails the Run; the placeholders stay until
-a later compaction succeeds.
+- at most 100 images;
+- at most 28 MiB (29,360,128 bytes) of base64, summing image model variants
+  and PDF originals; a 20 MiB PDF is 27,962,028 bytes of base64;
+- at most the smaller of 100 PDF pages and
+  `floor(max(0, contextWindowTokens × 0.8 − reserve) / 3,000)` pages, where
+  `contextWindowTokens` is the request's model's and `reserve` is the output
+  reserve `runs.maxOutputTokens` (0 when unset). With no reserve that is 53
+  pages on a 200,000-token model, 34 on 128,000, and 100 from 375,000 up.
 
-Admission and compaction estimates leave image bytes out and charge each image
-`ceil(width × height / 750)` tokens on its model variant's dimensions, so a
-2000×1125 variant counts as 3,000 tokens.
+The page bound alone depends on configuration. Only a reference whose
+kind the request's model declares counts: an image on a model without `image`
+input and a PDF on a model without `pdf` input take the omitted placeholder
+and consume no budget. The first reference past any bound, and every newer one
+in that epoch, reaches the model as
+`[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`
+or `[pdf media://<id> <name> <P> pages, not attached: this context's PDF limit is reached]`.
+Attachment never changes for an earlier reference, so the request prefix
+stays stable for provider prompt caching.
+
+Before a Run's first step, unattached images or PDFs count as reaching the
+compaction threshold when an earlier message carries a stored reference of a
+kind the model declares. The summary keeps the locator of every image or PDF
+it mentions, `media://` or the path or URL it was read from, and the new epoch
+attaches media again from the start. A failed compaction never fails the Run;
+the placeholders stay until a later compaction succeeds.
+
+Admission and compaction estimates leave image and PDF bytes out. Each image
+is charged `ceil(width × height / 750)` tokens on its model variant's
+dimensions, so a 2000×1125 variant counts as 3,000 tokens, and each attached
+PDF 3,000 tokens per page, so a 15-page PDF counts as 45,000 tokens. Because
+the page bound leaves 20% of the window and the output reserve free, attached
+PDFs alone never make a request too large for its model.
 
 ### Text-only views
 
-`conversation_read` follows a message's text with one
-`[image media://<id> <name>]` line per attached image, and title generation
-receives the same lines after the turn's text. Both read the stored filename
-from the message alone, without a media lookup. Search
-indexes no image data. Public shares and shared forks carry only text parts:
-a shared fork drops a message whose only content was images, and its new owner
-gains no access to the source owner's media.
+`conversation_read` follows a message's text with one line per attachment,
+`[image media://<id> <name>]` for an image and `[pdf media://<id> <name>]`
+for a PDF, and title generation receives the same lines after the turn's
+text. Both read the stored filename and media type from the message alone,
+without a media lookup. Search indexes no image or PDF data. Public shares
+and shared forks carry only text parts: a shared fork drops a message whose
+only content was attachments, and its new owner gains no access to the source
+owner's media.
 
 ## `sharp` native dependency
 

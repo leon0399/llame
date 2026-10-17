@@ -65,8 +65,8 @@ export type ModelReasoning = {
   readonly cacheInvalidatedByEffortChange: boolean;
 };
 
-/** One input modality a model accepts (vision-media D9). */
-export type ModelInput = 'text' | 'image';
+/** One input modality a model accepts (vision-media D9, pdf-media D4). */
+export type ModelInput = 'text' | 'image' | 'pdf';
 
 export interface PublicModelCatalogEntry {
   id: string;

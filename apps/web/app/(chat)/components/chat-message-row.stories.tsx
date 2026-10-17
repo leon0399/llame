@@ -609,6 +609,53 @@ export const ImageOnlyMessage: Story = {
   },
 };
 
+/** A stored owner PDF: no `/model` variant exists for it. */
+const PDF_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8d";
+
+/**
+ * An owner message with an image and a PDF: only the image gets a
+ * thumbnail, and the PDF part paints nothing and requests no media route
+ * (its tile ships with the PDF web UI).
+ *
+ * @summary an attached PDF renders no thumbnail and requests nothing
+ */
+export const AttachedPdfIsSkipped: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: {
+      id: "user-pdf",
+      role: "user",
+      parts: [
+        IMAGE_PART,
+        {
+          type: "file",
+          mediaType: "application/pdf",
+          url: `media://${PDF_ID}`,
+          filename: "report.pdf",
+        },
+        { type: "text", text: "Summarize the report." },
+      ],
+    },
+  },
+  play: async ({ canvas, canvasElement }) => {
+    const list = await waitFor(
+      () => canvas.getByRole("list", { name: "Attached images" }),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
+    const images = within(list).getAllByRole("img");
+    await expect(images.map((image) => image.getAttribute("alt"))).toEqual([
+      "diagram.png",
+    ]);
+    await expect(canvasElement.innerHTML).not.toContain(PDF_ID);
+    await expect(
+      performance
+        .getEntriesByType("resource")
+        .filter((entry) => entry.name.includes(PDF_ID)),
+    ).toEqual([]);
+  },
+};
+
 /** The paths one in-Run bundle touched: two loaded files (one cut at the
  *  per-file cap) and the one the `read` permission group denied. */
 const LOADED_INSTRUCTION_PATH = "/home/operator/repo/AGENTS.md";

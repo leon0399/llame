@@ -10,13 +10,16 @@ import { storedImageSources } from "@/lib/services/media/urls";
 /** A user message's attached images as thumbnails above its bubble, in
  *  stored order, each loading the `/model` variant lazily and opening a
  *  lightbox over this message's attachments, which shows the `/original`
- *  captioned with the `media://` locator. File parts without a `media://`
- *  locator have nothing to load and are skipped. */
+ *  captioned with the `media://` locator. File parts that are not images
+ *  (a PDF has no `/model` variant) or carry no `media://` locator have
+ *  nothing to load and are skipped. */
 export function MessageAttachments({ message }: { message: UIMessage }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   if (message.role !== "user") return null;
   const images = message.parts.flatMap((part, index) => {
-    if (part.type !== "file") return [];
+    if (part.type !== "file" || !part.mediaType.startsWith("image/")) {
+      return [];
+    }
     const sources = storedImageSources(part.url);
     if (sources === null) return [];
     const key = String(index);

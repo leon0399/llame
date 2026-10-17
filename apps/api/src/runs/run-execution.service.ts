@@ -55,7 +55,7 @@ import {
   countedContextTokens,
   estimateContinuationTokens,
   estimateModelRequestTokens,
-  imageOverflowCompacts,
+  mediaOverflowCompacts,
   planCompactionCheckpoint,
   requestFitsContextWindow,
   resolveCompactionThreshold,
@@ -66,6 +66,7 @@ import {
   loadMediaSizing,
   submittedLocator,
   toolResultOutput,
+  type MediaAdmissionContext,
   type MediaSizing,
 } from '../media/epoch-admission';
 import { mediaLocator, parseMediaLocator } from '../media/media-locator';
@@ -74,7 +75,7 @@ import { type HeldImage, releaseImage } from '../media/attempt-images';
 import { createToolMediaStore } from '../media/tool-media-store';
 import {
   createRunMediaResolver,
-  fileImageLines,
+  fileAttachmentLines,
   fileMediaIds,
   type RunMediaResolver,
 } from '../media/media-descriptors';
@@ -1766,6 +1767,7 @@ export class RunExecutionService {
         chat: { id: input.chatId, lane: 'main' },
         abortSignal: input.abortSignal,
         media,
+        reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
         // Absent → no provider option at all, leaving the provider default.
         ...(effort !== undefined && { effort }),
         // Tool loop: pass the pre-filtered set + the operator step cap.
@@ -2960,10 +2962,24 @@ export class RunExecutionService {
   }
 
   /**
+   * The attempt model as the epoch media window sees it (pdf-media D5): its
+   * declared input, its window, and the configured output reserve the fit
+   * check subtracts.
+   */
+  private mediaAdmissionContext(client: ModelClient): MediaAdmissionContext {
+    return {
+      input: client.input ?? ['text'],
+      contextWindowTokens: client.contextWindowTokens,
+      reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+    };
+  }
+
+  /**
    * Window precedence is fixed; empty ranges are no-ops unless the request
-   * does not fit. A fitting request whose epoch image window overflowed with
-   * an image in an earlier row counts as reaching the threshold (vision-media
-   * D6): compaction can absorb those rows and start a new epoch.
+   * does not fit. A fitting request whose epoch media window overflowed with a
+   * stored image or PDF in an earlier row counts as reaching the threshold
+   * (vision-media D6, pdf-media D5): compaction can absorb those rows and start
+   * a new epoch.
    */
   private async evaluateCompactionTrigger(
     input: CompactionTriggerInput,
@@ -3003,7 +3019,7 @@ export class RunExecutionService {
     if (
       plan !== null &&
       input.media !== undefined &&
-      imageOverflowCompacts(
+      mediaOverflowCompacts(
         input.media,
         fileMediaIds(triggerParts).length +
           triggerParts.flatMap((part) =>
@@ -3852,7 +3868,7 @@ export class RunExecutionService {
         (await loadMediaSizing(
           estimated.messages,
           input.media,
-          input.run.client.input?.includes('image') ?? false,
+          this.mediaAdmissionContext(input.run.client),
         )),
     });
     const summary =
@@ -3883,6 +3899,8 @@ export class RunExecutionService {
                   system: estimated.system,
                   toolDeclarations: estimated.toolDeclarations,
                   ...(input.effort !== undefined && { effort: input.effort }),
+                  reservedOutputTokens:
+                    this.instanceConfig.config.runs.maxOutputTokens,
                   abortSignal: input.run.abortSignal,
                   media: input.media,
                 },
@@ -3946,7 +3964,7 @@ export class RunExecutionService {
           (await loadMediaSizing(
             request.messages,
             input.media,
-            input.run.client.input?.includes('image') ?? false,
+            this.mediaAdmissionContext(input.run.client),
           )),
       })
     ) {
@@ -4903,14 +4921,14 @@ function deriveRecencyDigestItems(input: {
 }
 
 /**
- * The titled turn's text followed by one image line per file part
- * (vision-media D9), so an image-only message can still be titled. Titling
- * bounds the result like any other title input.
+ * The titled turn's text followed by one line per file part (vision-media D9,
+ * pdf-media D8), so an image- or PDF-only message can still be titled.
+ * Titling bounds the result like any other title input.
  */
 function titleInputText(userMessage: RunUserMessage): string {
   return [
     partsToText(userMessage.parts).trim(),
-    ...fileImageLines(userMessage.parts),
+    ...fileAttachmentLines(userMessage.parts),
   ]
     .join('\n')
     .trim();

@@ -14,13 +14,17 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { MessagesRepository } from '../chats/chats-repository';
 import { mediaBlobs, mediaObjects } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ModelsService } from '../models/models.service';
 import { ScriptedModelsService } from '../runs/scripted-model-client';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
-import { cookieOf, expectRegisteredUserId } from '../testing/support';
+import {
+  cookieOf,
+  expectMessageParts,
+  expectRegisteredUserId,
+} from '../testing/support';
 import { executeMediaRead } from '../tools/media-read';
 import { randomPng } from './media-fixtures';
 import { MEDIA_REFUSAL } from './media-ingest';
@@ -624,10 +628,9 @@ describe('/api/v1/media (HTTP)', () => {
       expect(await countOwned(userAId, bytes)).toBe(0);
     });
 
-    // Interim guard (pdf-store until pdf-attachments).
-    it('refuses a message naming a stored PDF 400 and stores no message', async () => {
+    it('accepts a message naming a stored PDF and stores it relabelled', async () => {
       const chatId = randomUUID();
-      const res = await request(http)
+      await request(http)
         .post(`/api/v1/chats/${chatId}/messages`)
         .set('Cookie', cookieA)
         .send({
@@ -636,23 +639,29 @@ describe('/api/v1/media (HTTP)', () => {
             id: randomUUID(),
             parts: [
               { type: 'text', text: 'summarize' },
-              { type: 'file', mediaType: 'application/pdf', url: pdf.locator },
+              {
+                type: 'file',
+                mediaType: 'image/png',
+                url: pdf.locator,
+                filename: 'forged.png',
+              },
             ],
           },
         })
-        .expect(400);
+        .expect(200);
 
-      expect(res.body).toMatchObject({
-        message: 'PDF attachments are not supported yet',
-      });
-      await tenantDb.runAs(userAId, async (tx) => {
-        expect(
-          await new ChatsRepository(tx).findById(chatId, userAId),
-        ).toBeUndefined();
-        expect(
-          await new MessagesRepository(tx).findByChatId(chatId, userAId),
-        ).toEqual([]);
-      });
+      const messages = await tenantDb.runAs(userAId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userAId),
+      );
+      expectMessageParts(messages.find((m) => m.role === 'user')?.parts ?? [], [
+        { type: 'text', text: 'summarize' },
+        {
+          type: 'file',
+          mediaType: 'application/pdf',
+          url: pdf.locator,
+          filename: 'scan.pdf',
+        },
+      ]);
     });
 
     // Interim guard (pdf-store until pdf-read).

@@ -3801,7 +3801,7 @@
             "description": "Input modalities this model accepts, in the operator-declared order. Always present and always contains `text`; `[\"text\"]` when the operator declared none. Never inferred from the model id or provider.",
             "items": {
               "type": "string",
-              "enum": ["text", "image"]
+              "enum": ["text", "image", "pdf"]
             }
           },
           "pricingUsdPer1M": {

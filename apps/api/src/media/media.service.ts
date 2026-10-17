@@ -223,8 +223,5 @@ export class MediaService {
   }
 }
 
-/**
- * The MediaService capabilities a send needs: the sender's ownership read, and
- * `findOwned` for the interim stored-PDF guard until pdf-attachments.
- */
-export type MediaDescriber = Pick<MediaService, 'describeOwned' | 'findOwned'>;
+/** The MediaService capability a send needs: the sender's ownership read. */
+export type MediaDescriber = Pick<MediaService, 'describeOwned'>;

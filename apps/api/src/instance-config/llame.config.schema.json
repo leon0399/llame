@@ -526,10 +526,10 @@
         "knowledgeCutoff": { "type": "string" },
         "input": {
           "type": "array",
-          "items": { "type": "string", "enum": ["text", "image"] },
+          "items": { "type": "string", "enum": ["text", "image", "pdf"] },
           "uniqueItems": true,
           "contains": { "const": "text" },
-          "description": "Optional input modalities this model accepts, from the closed set text and image. Must contain text and must not repeat an item; declared order is kept. Absent: [\"text\"]. Not verified against the provider: a model declared with image that rejects images surfaces the provider's error when a Run sends it one. Returned on every GET /api/v1/models entry."
+          "description": "Optional input modalities this model accepts, from the closed set text, image and pdf. Must contain text and must not repeat an item; declared order is kept. Absent: [\"text\"]. pdf sends PDFs natively to providers that accept them (Responses input_file, Chat Completions file, Anthropic document); declare it only for a model whose provider accepts PDFs. Not verified against the provider: a model declared with image or pdf that rejects that input surfaces the provider's error when a Run sends it one. Returned on every GET /api/v1/models entry."
         },
         "reasoning": { "$ref": "#/$defs/modelReasoning" },
         "website": { "type": "string" },

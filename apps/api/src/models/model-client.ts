@@ -190,11 +190,17 @@ export interface ModelStreamInput {
   onFinish?: (event: ModelStreamFinishEvent) => void | Promise<void>;
   /**
    * The Run owner's media, which the step composer (`installStepPreparation`)
-   * uses to turn every `media://` reference in the request into an image part
-   * or a placeholder on each step. Absent leaves messages as they are: only
-   * requests without media references (titles, search) omit it.
+   * uses to turn every `media://` reference in the request into an image,
+   * PDF, or placeholder on each step. Absent leaves messages as they are:
+   * only requests without media references (titles, search) omit it.
    */
   media?: RunMediaResolver;
+  /**
+   * The output reserve the request's fit check subtracts
+   * (`runs.maxOutputTokens`), which the epoch media window's PDF page bound
+   * also subtracts (pdf-media D5). Absent or null means none is configured.
+   */
+  reservedOutputTokens?: number | null;
 }
 
 export type ModelStreamFinishEvent = {

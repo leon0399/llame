@@ -157,7 +157,7 @@ such as one over 40 megapixels, is reported as not imported.
 An image read from a file, Knowledge, a skill, or a URL is not stored. The
 worker decodes it and keeps the model variant only in the memory of the Run
 attempt that imported it. Right after the notice's text, a
-[vision model](../operator/media.md#model-image-input) receives it as an image
+[vision model](../operator/media.md#model-input) receives it as an image
 part in that attempt's requests, if the epoch image window admits it when the
 attempt's first request is composed (after any compaction); otherwise it gets
 the `not attached` placeholder. Every later request, whether a later turn, a

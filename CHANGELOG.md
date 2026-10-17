@@ -102,16 +102,34 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-14
 
+- Added owner PDF attachments and the `pdf` model input (#1275). A message
+  may now carry `file` parts referencing stored PDFs, stored as
+  `application/pdf` under the PDF's stored name. `models[].input` accepts
+  `pdf`, published by `GET /api/v1/models`; a model that declares it receives
+  each attached PDF's original, labelled `PDF n (media://<id>):`, as an
+  `input_file` on the Responses wire, a `file` part on Chat Completions, and a
+  `document` block on Anthropic Messages, while any other model gets
+  `[pdf media://<id> <name> <P> pages, omitted: this model has no PDF input]`.
+  Images and PDFs now share one epoch window: 100 images, 28 MiB of base64
+  (up from 24 MiB), and at most 100 PDF pages or fewer on a smaller context
+  window, with `[pdf …, not attached: this context's PDF limit is reached]`
+  beyond it. Context estimates charge 3,000 tokens per page, `conversation_read`
+  and title generation list `[pdf media://<id> <name>]`, and compaction
+  summaries keep PDF locators. Declare `pdf` only where the provider accepts
+  PDFs; the ChatGPT Codex backend accepted a 15-page PDF on `gpt-6.1-sol`
+  (checked 2026-10-14). See
+  [model input](docs/product/operator/media.md#model-input).
+
 - Added PDF uploads to the media store (#1275): `POST /api/v1/media` stores
   a PDF of up to 20 MiB and 100 pages and `GET /api/v1/media/:id/original`
   serves it, while a larger PDF is `413` `media_too_large` and an unopenable
-  or encrypted one `415` `unsupported_media_type`. Until PDFs can be attached
-  or read, a message referencing a stored PDF is `400` and `read` of its
-  `media://` locator fails `unsupported_media_type`. **Breaking:**
-  `image_too_large` is now `media_too_large` on upload, `read`, web `read`,
-  and prompt imports, with the message `Image exceeds 20 MiB or 40 megapixels`,
-  `PDF exceeds 20 MiB or 100 pages`, or `File exceeds 20 MiB`; there is no
-  alias. See [media store](docs/product/operator/media.md#pdfs) for the rest.
+  or encrypted one `415` `unsupported_media_type`. Until PDFs can be read,
+  `read` of a stored PDF's `media://` locator fails `unsupported_media_type`.
+  **Breaking:** `image_too_large` is now `media_too_large` on upload, `read`,
+  web `read`, and prompt imports, with the message
+  `Image exceeds 20 MiB or 40 megapixels`, `PDF exceeds 20 MiB or 100 pages`,
+  or `File exceeds 20 MiB`; there is no alias. See
+  [media store](docs/product/operator/media.md#pdfs) for the rest.
 
 # 2026-10-11
 
@@ -492,7 +510,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   lists a message's images after its text, compaction summaries keep the
   locators of the images they mention, and public shares and shared forks omit
   them. Messages cannot carry images until a later release. See
-  [media store](docs/product/operator/media.md#model-image-input).
+  [media store](docs/product/operator/media.md#model-input).
 
 - Added the media store for owner images (#935). `POST /api/v1/media` uploads
   one PNG, JPEG, GIF, or WebP image, detected by magic bytes, of at most

@@ -25,7 +25,7 @@ import {
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import type { Message, ModelToolDeclaration } from '../db/schema';
-import type { MediaSizing } from '../media/epoch-admission';
+import { PDF_PAGE_TOKENS, type MediaSizing } from '../media/epoch-admission';
 import { projectSizedText } from '../models/step-composer';
 
 /**
@@ -102,21 +102,22 @@ export function normalizeCompactionSummary(value: unknown): string | null {
 }
 
 /**
- * Whether a prepared request's image overflow counts as reaching the
- * compaction threshold (vision-media D6): its model declares `image` input,
- * some reference is not attached because the epoch window is full, and a
- * resolvable stored image sits in a row before the triggering user message.
- * Before a Run's first step, an unstored image in an earlier row is
- * not-retained, so it never counts. Overflow inside that message alone does
- * not count: compaction cannot absorb it. `triggerRefCount` is how many
- * references the triggering message carries, which are the request's last
- * ones.
+ * Whether a prepared request's media overflow counts as reaching the
+ * compaction threshold (vision-media D6, pdf-media D5): some reference is not
+ * attached because the epoch window is full, and a stored reference of a kind
+ * the request's model declares sits in a row before the triggering user
+ * message, attached or refused by the window. Before a Run's first step, an
+ * unstored image in an earlier row is not-retained, and a reference of an
+ * undeclared kind is omitted, so neither counts. Overflow inside that message
+ * alone does not count: compaction cannot absorb it. `triggerRefCount` is how
+ * many references the triggering message carries, which are the request's
+ * last ones.
  */
-export function imageOverflowCompacts(
+export function mediaOverflowCompacts(
   media: MediaSizing,
   triggerRefCount: number,
 ): boolean {
-  if (!media.imageInput || !media.statuses.includes('limit')) return false;
+  if (!media.statuses.includes('limit')) return false;
   return media.statuses
     .slice(0, Math.max(0, media.statuses.length - triggerRefCount))
     .some((status) => status === 'attached' || status === 'limit');
@@ -129,11 +130,11 @@ export function imageOverflowCompacts(
  * provider's own reasoning — potentially far larger than the prompt — so it
  * must not size the continuation estimate (D16). Reasoning TEXT still counts:
  * the model re-reads it on that continuation. Media references are sized by
- * `media` (vision-media D6), never by image bytes: each image an image-input
- * model receives is charged `ceil(w × h / 750)` tokens on its model variant,
- * every other reference counts as its placeholder text, every reference as
- * its label, and tool-result images are sized in their moved form (see
- * `projectSizedText`).
+ * `media` (vision-media D6, pdf-media D6), never by their bytes: each attached
+ * image is charged `ceil(w × h / 750)` tokens on its model variant and each
+ * attached PDF 3,000 tokens a page, every other reference counts as its
+ * placeholder text, every reference as its label, and tool-result images are
+ * sized in their moved form (see `projectSizedText`).
  */
 function estimateProjectionTokens(
   projection: {
@@ -143,14 +144,15 @@ function estimateProjectionTokens(
   },
   media: MediaSizing | undefined,
 ): number {
-  let imageTokens = 0;
+  let mediaTokens = 0;
   const messages =
     media === undefined
       ? projection.messages
-      : projectSizedText(projection.messages, media, (image) => {
-          imageTokens += Math.ceil(
-            (image.modelWidth * image.modelHeight) / 750,
-          );
+      : projectSizedText(projection.messages, media, (attached) => {
+          mediaTokens +=
+            attached.kind === 'pdf'
+              ? PDF_PAGE_TOKENS * attached.pages
+              : Math.ceil((attached.modelWidth * attached.modelHeight) / 750);
         });
   const sized = messages.map((message) => {
     if (message.role !== 'assistant' || !Array.isArray(message.content)) {
@@ -170,7 +172,7 @@ function estimateProjectionTokens(
         messages: sized,
         tools: projection.tools,
       }).length / 4,
-    ) + imageTokens
+    ) + mediaTokens
   );
 }
 
