@@ -9,7 +9,7 @@ import { expect, screen, userEvent, within } from "storybook/test";
 import { useDragControls } from "framer-motion";
 
 import type { PinnedItem } from "@/lib/services/pins/types";
-import { PinnedProjectRow } from "./app-sidebar-pinned";
+import { PinnedProjectRow } from "./pinned-project-row";
 
 type PinnedProject = Extract<PinnedItem, { itemType: "project" }>;
 

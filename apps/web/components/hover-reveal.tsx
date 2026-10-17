@@ -55,8 +55,13 @@ export function HoverReveal({
           : [
               "grid-cols-collapsed",
               "group-hover/menu-item:grid-cols-revealed",
-              "group-focus-within/menu-item:grid-cols-revealed",
-              "group-has-[[aria-expanded=true]]/menu-item:grid-cols-revealed",
+              // Keyboard focus, not any focus: a clicked control inside the
+              // row (a pinned project's expand toggle) keeps focus after the
+              // pointer leaves, and must not pin the actions open.
+              "group-has-[:focus-visible]/menu-item:grid-cols-revealed",
+              // An open row menu keeps its own trigger visible. Scoped to the
+              // menu trigger: a disclosure's aria-expanded is not a menu.
+              "group-has-[[data-slot=dropdown-menu-trigger][aria-expanded=true]]/menu-item:grid-cols-revealed",
               // Below `md` there is no hover to reveal anything with, so the
               // content simply stays in layout — the same reason the old
               // padding needed a mobile special case, minus the special case.
@@ -75,12 +80,12 @@ export function HoverReveal({
           focused button in a clipping box loses the outline on every side.
           Content that never collapses does not need clipping at all, and
           content revealed by focus has already been expanded by the same
-          `:focus-within` that draws the ring. */}
+          keyboard focus that draws the ring. */}
       <span
         className={cn(
           atRest
             ? "overflow-visible"
-            : "overflow-hidden group-focus-within/menu-item:overflow-visible",
+            : "overflow-hidden group-has-[:focus-visible]/menu-item:overflow-visible",
         )}
       >
         {children}

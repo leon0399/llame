@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MessagesSquareIcon } from "lucide-react";
 import Link from "next/link";
 
-import { useActiveRuns } from "@/contexts/active-runs-context";
+import { useOptionalActiveRuns } from "@/contexts/active-runs-context";
 import type { ChatResponse } from "@/lib/services/chat/queries";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
@@ -242,6 +242,20 @@ function ChatItemDialogs({
   );
 }
 
+/** The chat's run activity. Optional provider: pinned projects nest these
+ *  rows in the main rail, which the admin shell mounts without the runs
+ *  provider — there nothing runs. */
+function useChatActivity(chatId: string) {
+  const runs = useOptionalActiveRuns();
+  return {
+    activityStatus: resolveChatActivityStatus({
+      processing: runs?.activeChatIds.has(chatId) ?? false,
+      outcome: runs?.completedChats.get(chatId),
+    }),
+    runPhase: runs?.runPhaseByChatId.get(chatId),
+  };
+}
+
 /** Everything `ChatItem` derives before it can render: activity status, the
  * three action dialogs, and the pin toggle. Split out so the component below
  * is composition only. */
@@ -250,11 +264,7 @@ function useChatItemRow(
   isPinned: boolean,
   isActive: boolean,
 ) {
-  const { completedChats, activeChatIds, runPhaseByChatId } = useActiveRuns();
-  const activityStatus = resolveChatActivityStatus({
-    processing: activeChatIds.has(chat.id),
-    outcome: completedChats.get(chat.id),
-  });
+  const { activityStatus, runPhase } = useChatActivity(chat.id);
   const dialogs = useChatItemDialogs();
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
@@ -284,7 +294,7 @@ function useChatItemRow(
     isArchived: chat.archivedAt !== null,
     excerpt: chat.lastMessage,
     activityStatus,
-    runPhase: runPhaseByChatId.get(chat.id),
+    runPhase,
     onRename: dialogs.openRename,
     onShare: dialogs.openShare,
     onDelete: dialogs.openDelete,
