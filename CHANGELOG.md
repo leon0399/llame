@@ -1,5 +1,36 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-18
+
+- Archived chats and projects are reachable again. The chats rail, the
+  projects rail, and a project's page each have a view menu for **Active**,
+  **Archived**, or **All**, with a chip to clear a non-default view; the
+  chat or project that is open stays listed whatever the view, so archiving
+  it, or opening an archived one from a link or search, never makes its row
+  vanish. An archived chat shows a banner with **Unarchive** above a locked
+  composer. The Pinned sections fold from a chevron on their heading, and
+  the chats rail scrolls the open chat into view.
+
+- Chat previews skip messages with no visible text, so a failed or cut-off
+  reply previews the prompt or its partial text. A run that fails while you
+  are elsewhere marks its chat with a red dot; an unread reply's dot is now
+  blue; and an untitled chat that is no longer being named reads muted.
+
+- A pinned project in the main rail expands from its folder icon to its five
+  newest unpinned chats and **View all**. The rail's Collapse item shows its
+  Ctrl+B (⌘B) shortcut, and Ctrl+Shift+O (⌘⇧O), which the New Chat item
+  already advertised, now opens a new chat.
+
+- Projects are created and edited in one dialog with a name and a
+  description, and every project menu has a single **Edit details**;
+  `POST /api/v1/projects` accepts an optional `description`. A project's
+  page opens with its name, description, pin, and menu, the composer (shown
+  but not yet usable, #1328), its chats, and previews of project
+  instructions and context (#1329, #1330). The projects rail's search opens
+  from a header button.
+
+- The unused right-hand conversation-tree sidebar is gone.
+
 # 2026-10-17
 
 - A Markdown outline now names each root table's shape: the table's header row,
