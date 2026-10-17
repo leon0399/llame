@@ -1225,6 +1225,26 @@ describe("markdown ancestor range selection", () => {
     });
   });
 
+  it("keeps the plural shape for a headingless table body row", () => {
+    const source = "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
+    const result = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "4-4"),
+      "text/markdown",
+    );
+    // The pair alone promotes the result: there is no heading to promote it.
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content: "1: | a | b |\n2: | --- | --- |\n3: | 1 | 2 |\n4: | 3 | 4 |\n",
+      requestedRanges: [{ startLine: 4, endLine: 4 }],
+      shownRanges: [{ startLine: 1, endLine: 4 }],
+      truncated: false,
+    });
+  });
+
   it("keeps a link reference definition title out of the header pair", () => {
     // The definition's multi-line title is root text to CommonMark, and the
     // lines after it are a setext heading, so a range below them gets the
