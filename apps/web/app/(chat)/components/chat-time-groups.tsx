@@ -16,6 +16,8 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { CollapsibleSidebarGroup } from "@/components/collapsible-sidebar-group";
+
 import { ChatItem } from "./chat-list-sidebar/chat-item";
 
 export const chatGroupTitles = {
@@ -45,54 +47,68 @@ type ChatRowProps = {
   pinnedAtByChatId?: ReadonlyMap<string, string>;
 };
 
-/** One titled section ("Pinned", "Today", "Last 7 Days", …) of the list.
- *  Its heading is a sticky scroll anchor that paints the surface it scrolls
- *  over: this list renders on the sidebar rail and sheet and on the project
- *  page, so the surface comes from the caller, and a wrapper paints it
- *  because the label primitive owns its own color. */
+/** A group's chat rows. */
+function ChatGroupRows({
+  chats,
+  rowProps,
+  pinned,
+}: {
+  chats: Array<ChatResponse>;
+  rowProps: ChatRowProps;
+  /** Every row is pinned, whether or not the pins map has loaded yet. */
+  pinned: boolean;
+}) {
+  const { onRequestNewProject, pinnedAtByChatId } = rowProps;
+  return (
+    <SidebarGroupContent>
+      <SidebarMenu>
+        {chats.map((chat) => (
+          <ChatItem
+            key={chat.id}
+            chat={chat}
+            isActive={chat.id === rowProps.selectedChatId}
+            projects={rowProps.projects}
+            onNewProject={
+              onRequestNewProject && (() => onRequestNewProject(chat.id))
+            }
+            isPinned={pinned || (pinnedAtByChatId?.has(chat.id) ?? false)}
+          />
+        ))}
+      </SidebarMenu>
+    </SidebarGroupContent>
+  );
+}
+
+/** One titled section ("Today", "Last 7 Days", …) of the list. Its heading
+ *  is a sticky scroll anchor that paints the surface it scrolls over: this
+ *  list renders on the sidebar rail and sheet and on the project page, so
+ *  the surface comes from the caller, and a wrapper paints it because the
+ *  label primitive owns its own color. */
 function ChatGroup({
   title,
   chats,
   rowProps,
   surfaceClassName,
-  pinned = false,
 }: {
   title: string;
   chats: Array<ChatResponse>;
   rowProps: ChatRowProps;
   surfaceClassName: string;
-  /** Every row is pinned, whether or not the pins map has loaded yet. */
-  pinned?: boolean;
 }) {
-  const { onRequestNewProject, pinnedAtByChatId } = rowProps;
   return (
     <SidebarGroup>
       <div className={cn("sticky top-0 z-10", surfaceClassName)}>
         <SidebarGroupLabel>{title}</SidebarGroupLabel>
       </div>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {chats.map((chat) => (
-            <ChatItem
-              key={chat.id}
-              chat={chat}
-              isActive={chat.id === rowProps.selectedChatId}
-              projects={rowProps.projects}
-              onNewProject={
-                onRequestNewProject && (() => onRequestNewProject(chat.id))
-              }
-              isPinned={pinned || (pinnedAtByChatId?.has(chat.id) ?? false)}
-            />
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
+      <ChatGroupRows chats={chats} rowProps={rowProps} pinned={false} />
     </SidebarGroup>
   );
 }
 
 /** The Pinned section every chat list shows above its time groups — a
- *  discrete server query, never interleaved with them (#204). Renders
- *  nothing without pinned chats. */
+ *  discrete server query, never interleaved with them (#204) — and the one
+ *  group that folds away from its heading. Renders nothing without pinned
+ *  chats. */
 export function PinnedChatGroup({
   chats,
   surfaceClassName,
@@ -103,13 +119,16 @@ export function PinnedChatGroup({
 } & ChatRowProps) {
   if (chats.length === 0) return null;
   return (
-    <ChatGroup
+    <CollapsibleSidebarGroup
       title="Pinned"
-      chats={chats}
-      rowProps={rowProps}
-      surfaceClassName={surfaceClassName}
-      pinned
-    />
+      headingWrapper={(heading) => (
+        <div className={cn("sticky top-0 z-10", surfaceClassName)}>
+          {heading}
+        </div>
+      )}
+    >
+      <ChatGroupRows chats={chats} rowProps={rowProps} pinned />
+    </CollapsibleSidebarGroup>
   );
 }
 

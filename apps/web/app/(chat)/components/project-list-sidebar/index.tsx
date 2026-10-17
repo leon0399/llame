@@ -29,6 +29,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { ArchivedBadge } from "@/components/archived-badge";
+import { CollapsibleSidebarGroup } from "@/components/collapsible-sidebar-group";
 import { PinButton } from "@/components/pin-button";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
@@ -203,6 +204,53 @@ function ProjectListSkeleton() {
   );
 }
 
+/** A group's project rows. */
+function ProjectRows({
+  projects,
+  pathname,
+  isPinned,
+}: {
+  projects: Array<ProjectResponse>;
+  pathname: string;
+  isPinned: (projectId: string) => boolean;
+}) {
+  return (
+    <SidebarGroupContent>
+      <SidebarMenu>
+        {projects.map((project) => (
+          <ProjectItem
+            key={project.id}
+            project={project}
+            isActive={pathname === `/projects/${project.id}`}
+            isPinned={isPinned(project.id)}
+          />
+        ))}
+      </SidebarMenu>
+    </SidebarGroupContent>
+  );
+}
+
+/** The Pinned section, folding away from its heading as the chats rail's
+ *  does. Every row in it is pinned, whether or not the pins map has loaded. */
+function PinnedProjectGroup({
+  projects,
+  pathname,
+}: {
+  projects: Array<ProjectResponse>;
+  pathname: string;
+}) {
+  if (projects.length === 0) return null;
+  return (
+    <CollapsibleSidebarGroup title="Pinned">
+      <ProjectRows
+        projects={projects}
+        pathname={pathname}
+        isPinned={() => true}
+      />
+    </CollapsibleSidebarGroup>
+  );
+}
+
 function ProjectGroup({
   label,
   projects,
@@ -218,18 +266,11 @@ function ProjectGroup({
   return (
     <SidebarGroup>
       {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {projects.map((project) => (
-            <ProjectItem
-              key={project.id}
-              project={project}
-              isActive={pathname === `/projects/${project.id}`}
-              isPinned={label === "Pinned" || pinnedIds.has(project.id)}
-            />
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
+      <ProjectRows
+        projects={projects}
+        pathname={pathname}
+        isPinned={(projectId) => pinnedIds.has(projectId)}
+      />
     </SidebarGroup>
   );
 }
@@ -260,12 +301,7 @@ function ProjectListSidebarContent(props: ProjectListSidebarContentProps) {
     return <EmptyProjectsMessage text="No projects found" />;
   return (
     <>
-      <ProjectGroup
-        label="Pinned"
-        projects={pinnedProjects}
-        pathname={pathname}
-        pinnedIds={pinnedIds}
-      />
+      <PinnedProjectGroup projects={pinnedProjects} pathname={pathname} />
       {props.listLoading ? (
         <ProjectListSkeleton />
       ) : (

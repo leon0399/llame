@@ -408,3 +408,42 @@ export const OpenArchivedChatStaysListed: Story = {
     await expect(canvas.getByRole("link", { name: "Live chat" })).toBeVisible();
   },
 };
+
+/**
+ * The Pinned section folds away from the chevron on its heading — the only
+ * control there; the heading text is not a button — and unfolds again.
+ *
+ * @summary Pinned folds and unfolds from its heading's chevron
+ */
+export const PinnedCollapses: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    responses.set(PINNED_ROUTE, () =>
+      jsonResponse([chat("c1", "Pinned chat")]),
+    );
+    responses.set(ALL_ROUTE, () => jsonResponse([chat("c2", "Unpinned chat")]));
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole("link", { name: "Pinned chat" });
+    const toggle = canvas.getByRole("button", { name: "Toggle Pinned" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("link", { name: "Pinned chat" }),
+      ).not.toBeInTheDocument(),
+    );
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(canvas.getByText("Pinned")).toBeVisible();
+    await expect(
+      canvas.getByRole("link", { name: "Unpinned chat" }),
+    ).toBeVisible();
+
+    await userEvent.click(toggle);
+    await expect(
+      await canvas.findByRole("link", { name: "Pinned chat" }),
+    ).toBeVisible();
+  },
+};
