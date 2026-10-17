@@ -739,6 +739,8 @@ async function expectUploadEnabled(
       ? expect(upload).not.toHaveAttribute("aria-disabled", "true")
       : expect(upload).toHaveAttribute("aria-disabled", "true"),
   );
+  // The shortcut is announced only while it works.
+  if (!enabled) await expect(upload).not.toHaveAttribute("aria-keyshortcuts");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 }
@@ -798,6 +800,35 @@ export const AddMenu: Story = {
       isMac ? "{Meta>}u{/Meta}" : "{Control>}u{/Control}",
     );
     await expect(openPicker).toHaveBeenCalledTimes(2);
+  },
+};
+
+/**
+ * A locked composer (renderers still loading) ignores the upload shortcut, so
+ * no file can land where its remove and retry are disabled.
+ *
+ * @summary a locked composer ignores Ctrl+U
+ */
+export const LockedComposerIgnoresUploadShortcut: Story = {
+  tags: ["ai-generated"],
+  args: { disabled: true },
+  beforeEach: resolveUploads,
+  render: attachingStory(VISION_MODEL_ID),
+  play: async ({ canvasElement, userEvent }) => {
+    const picker =
+      canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+    const openPicker = fn();
+    picker!.addEventListener("click", (event) => {
+      event.preventDefault();
+      openPicker();
+    });
+    const isMac = /Mac|iPod|iPhone|iPad/.test(
+      navigator.platform || navigator.userAgent || "",
+    );
+    await userEvent.keyboard(
+      isMac ? "{Meta>}u{/Meta}" : "{Control>}u{/Control}",
+    );
+    await expect(openPicker).not.toHaveBeenCalled();
   },
 };
 
