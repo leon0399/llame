@@ -29,7 +29,9 @@ import {
   type ToolUIPart,
   type UIMessage,
 } from "ai";
+import { PencilIcon, RefreshCwIcon } from "lucide-react";
 
+import { ComingSoonMessageAction } from "./coming-soon-message-action";
 import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
 import {
@@ -39,6 +41,7 @@ import {
 } from "./group-assistant-parts";
 import { InstructionsPart } from "./instructions-part";
 import { MessageAttachments } from "./message-attachments";
+import { MessageCopyButton } from "./message-copy-button";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { PromptImportsPart } from "./prompt-imports-part";
@@ -275,8 +278,11 @@ export function messageRowMode({
     : "content";
 }
 
-/** The usage/context affordances (assistant turns only) plus the persistent
- *  fork action row beneath a message's content. */
+/** The single action row beneath a message's content: the per-message
+ *  actions, then (assistant turns only) the context and usage affordances.
+ *  Fork shows on BOTH roles, since the API forks from any message id, and is
+ *  disabled rather than removed while a turn streams so the row keeps its
+ *  shape. */
 type ChatMessageActionProps = {
   message: UIMessage;
   availableModels: ReadonlyArray<AvailableModel>;
@@ -294,40 +300,37 @@ function ChatMessageFooter({
   onForked,
   onInspectContext,
 }: ChatMessageActionProps) {
-  const isUserMessage = message.role === "user";
-  const contextRunId = isUserMessage
-    ? null
-    : runIdFromMessageMetadata(message.metadata);
+  const fork = (
+    <MessageForkButton
+      chatId={chatId}
+      fromMessageId={message.id}
+      disabled={status !== "ready" && status !== "error"}
+      onForked={onForked}
+    />
+  );
 
+  if (message.role === "user") {
+    return (
+      <MessageActions>
+        <MessageCopyButton parts={message.parts} />
+        <ComingSoonMessageAction label="Edit" icon={PencilIcon} />
+        {fork}
+      </MessageActions>
+    );
+  }
+  const contextRunId = runIdFromMessageMetadata(message.metadata);
   return (
-    <>
-      {!isUserMessage && (
-        <div className="flex flex-wrap items-center gap-1">
-          <MessageUsage metadata={message.metadata} models={availableModels} />
-          {contextRunId && (
-            <EffectiveContextAction
-              onClick={() => onInspectContext(contextRunId)}
-            />
-          )}
-        </div>
+    <MessageActions>
+      <MessageCopyButton parts={message.parts} />
+      <ComingSoonMessageAction label="Regenerate" icon={RefreshCwIcon} />
+      {fork}
+      {contextRunId && (
+        <EffectiveContextAction
+          onClick={() => onInspectContext(contextRunId)}
+        />
       )}
-      {(status === "ready" || status === "error") && (
-        // Persistent action row (not hover-only) so the fork affordance
-        // stays discoverable — reuses the shared MessageActions primitive
-        // (the row future per-message actions, e.g. copy, will join). On
-        // BOTH roles: the API forks from any message id regardless of role,
-        // and this feature is pitched as "fork from any point" —
-        // restricting the UI to assistant replies only would silently
-        // narrow that to less than what ships.
-        <MessageActions className="mt-1">
-          <MessageForkButton
-            chatId={chatId}
-            fromMessageId={message.id}
-            onForked={onForked}
-          />
-        </MessageActions>
-      )}
-    </>
+      <MessageUsage metadata={message.metadata} models={availableModels} />
+    </MessageActions>
   );
 }
 

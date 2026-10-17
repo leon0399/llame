@@ -609,6 +609,107 @@ export const ImageOnlyMessage: Story = {
   },
 };
 
+/**
+ * The reply's action row keeps its layout space but stays transparent until
+ * the message is hovered or holds focus. Actions that have not shipped are
+ * disabled yet focusable, and say they are coming soon.
+ *
+ * @summary the action row reveals on focus; unshipped actions say coming soon
+ */
+export const ActionRowReveal: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-actions",
+    message: {
+      id: "assistant-actions",
+      role: "assistant",
+      parts: [{ type: "text", text: ANSWER_TEXT }],
+    },
+  },
+  play: async ({ canvas }) => {
+    const fork = await waitFor(
+      () => canvas.getByRole("button", { name: "Fork from here" }),
+      { timeout: 15_000 },
+    );
+    const row = fork.parentElement;
+    if (!row) throw new Error("fork has no action row");
+    await expect(getComputedStyle(row).opacity).toBe("0");
+    await expect(row.getBoundingClientRect().height).toBeGreaterThan(0);
+
+    // Synthetic pointer events never set CSS :hover, so the reveal is driven
+    // through the focus path that shares its rule.
+    await userEvent.tab();
+    await expect(canvas.getByRole("button", { name: "Copy" })).toHaveFocus();
+    await waitFor(() => expect(getComputedStyle(row).opacity).toBe("1"));
+
+    await userEvent.tab();
+    const regenerate = canvas.getByRole("button", { name: "Regenerate" });
+    await expect(regenerate).toHaveFocus();
+    await expect(regenerate).toHaveAttribute("aria-disabled", "true");
+    await expect(
+      await screen.findByText("Regenerate — coming soon"),
+    ).toBeInTheDocument();
+    await expect(fork).toBeEnabled();
+  },
+};
+
+// Reading the real clipboard back needs a permission grant the headless runner
+// does not give, so the copy story swaps in a writeText spy for its duration.
+const writeText = fn<(text: string) => Promise<void>>();
+
+/**
+ * Copy writes the reply's Markdown — its text parts joined by a blank line —
+ * and leaves out its reasoning and tool calls.
+ *
+ * @summary Copy copies only the reply's text parts
+ */
+export const CopyReplyMarkdown: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-copy",
+    message: {
+      ...PERSISTED_MESSAGE,
+      parts: [
+        { type: "text", text: "**Before** the tool.\n" },
+        ...PERSISTED_MESSAGE.parts,
+      ],
+    },
+  },
+  beforeEach: () => {
+    writeText.mockReset().mockResolvedValue(undefined);
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    return () => {
+      if (original) {
+        Object.defineProperty(navigator, "clipboard", original);
+      } else {
+        Reflect.deleteProperty(navigator, "clipboard");
+      }
+    };
+  },
+  play: async ({ canvas }) => {
+    const copy = await waitFor(
+      () => canvas.getByRole("button", { name: "Copy" }),
+      { timeout: 15_000 },
+    );
+    const width = copy.getBoundingClientRect().width;
+    await userEvent.click(copy);
+    await expect(writeText).toHaveBeenCalledTimes(1);
+    await expect(writeText).toHaveBeenCalledWith(
+      `**Before** the tool.\n\n${ANSWER_TEXT}`,
+    );
+    // The confirmation swaps only the icon, so the row does not reflow.
+    await waitFor(() =>
+      expect(copy.querySelector(".lucide-check")).not.toBeNull(),
+    );
+    await expect(copy).toHaveAccessibleName("Copy");
+    await expect(copy.getBoundingClientRect().width).toBe(width);
+  },
+};
+
 /** A stored owner PDF: its tile links the `/original`, and no `/model`
  *  variant exists for it. */
 const PDF_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8d";

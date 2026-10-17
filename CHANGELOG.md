@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- A message's actions now sit in one labeled row beneath it, transparent until
+  the message is hovered or focused but always holding their space, so the
+  transcript never shifts. A reply's row reads Copy, Regenerate, Fork, System
+  prompt, then its usage badge; an owner message's reads Copy, Edit and Fork,
+  right-aligned. Copy is new: it copies the message's Markdown — its text parts
+  joined by a blank line, without reasoning or tool calls. Regenerate and Edit
+  have not shipped: they are disabled but focusable and say "coming soon", like
+  the sidebar's placeholders. Fork is disabled rather than removed while a turn
+  streams. On a device that cannot hover, the row stays visible.
+
 - A ranged Markdown `read` that starts inside a table now also emits that
   table's header row and delimiter row, after the ancestor headings and before
   the requested window, so a window of body rows still shows which column each

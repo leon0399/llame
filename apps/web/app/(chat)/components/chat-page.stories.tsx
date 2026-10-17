@@ -1996,9 +1996,10 @@ export const RunReceiptWithoutSwitch: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Same model answer");
-    await expect(
-      canvas.getByRole("button", { name: "System prompt" }),
-    ).toBeVisible();
+    // The action row is transparent until its message is hovered or focused.
+    const receipt = canvas.getByRole("button", { name: "System prompt" });
+    receipt.focus();
+    await waitFor(() => expect(receipt).toBeVisible());
     await expect(
       canvas.queryByRole("button", { name: /model changed from/i }),
     ).toBeNull();

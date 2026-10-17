@@ -204,6 +204,16 @@
   transition: grid-template-columns 150ms var(--ease-out);
 }
 
+/* Trims a label's line box to its cap height and baseline, so centering it
+   centers the glyphs themselves. Labels in different faces (the message
+   actions' sans and the usage badge's mono) then share a baseline in one
+   row: each face otherwise places its baseline by its own ascent and descent
+   inside the same line height. A browser without `text-box` keeps the
+   untrimmed line box. */
+@utility text-trim-cap {
+  text-box: trim-both cap alphabetic;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

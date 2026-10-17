@@ -40,7 +40,7 @@ export type MessageProps = HTMLAttributes<HTMLDivElement> & {
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
-      "group flex w-full max-w-[95%] flex-col gap-2",
+      "group/message group flex w-full max-w-[95%] flex-col gap-2",
       from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
       className,
     )}
@@ -82,9 +82,17 @@ export const MessageContent = ({
 export type MessageActionsProps = ComponentProps<"div">;
 
 /**
- * Row container for a message's actions (e.g. fork, copy, retry), typically
- * rendered below its `MessageContent`. Compose it with `MessageAction`
- * buttons as children.
+ * Row container for a message's actions (e.g. fork, copy, retry), rendered
+ * below its `MessageContent` inside a `Message`. Compose it with
+ * `MessageAction` buttons as children.
+ *
+ * fork: the row is transparent until its `Message` is hovered or holds focus,
+ * yet always in layout, so revealing it never shifts the transcript. It stays
+ * revealed while one of its popups (a hover card) is open, since that popup is
+ * portaled outside the hovered message. Where the primary input cannot hover
+ * (touch), `group-hover` never matches, so the row stays visible. It sits
+ * under the user bubble's right edge, and on assistant replies pulls left so
+ * the first action's icon lines up with the text.
  *
  * Vendored from [AI Elements' Message](https://elements.ai-sdk.dev/components/message).
  */
@@ -93,7 +101,15 @@ export const MessageActions = ({
   children,
   ...props
 }: MessageActionsProps) => (
-  <div className={cn("flex items-center gap-1", className)} {...props}>
+  <div
+    className={cn(
+      "flex flex-wrap items-center gap-1 text-muted-foreground",
+      "opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 group-has-[[data-popup-open]]/message:opacity-100 [@media(hover:none)]:opacity-100",
+      "group-[.is-user]/message:justify-end group-[.is-assistant]/message:-ml-1.5",
+      className,
+    )}
+    {...props}
+  >
     {children}
   </div>
 );

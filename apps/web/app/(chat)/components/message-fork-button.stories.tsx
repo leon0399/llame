@@ -34,12 +34,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * The always-visible fork-from-here affordance on a message (#141: a
- * persistent MessageActions row, not a hover-only floating icon) — clicking
- * it requests the fork with the chat + message id and navigates via onForked
- * when the mutation succeeds.
+ * The fork-from-here action on a message — clicking it requests the fork
+ * with the chat + message id and navigates via onForked when the mutation
+ * succeeds.
  *
- * @summary reachable fork affordance wired to the fork mutation
+ * @summary fork action wired to the fork mutation
  */
 export const Basic: Story = {
   tags: ["ai-generated"],
