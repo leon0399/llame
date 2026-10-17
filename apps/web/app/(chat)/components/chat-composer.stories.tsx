@@ -804,31 +804,33 @@ export const AddMenu: Story = {
 };
 
 /**
- * A locked composer (renderers still loading) ignores the upload shortcut, so
- * no file can land where its remove and retry are disabled.
+ * A locked composer (renderers still loading) leaves Ctrl+U to the browser:
+ * the shortcut's listener is not registered, so it neither claims the chord
+ * (`preventDefault`) nor opens the picker.
  *
- * @summary a locked composer ignores Ctrl+U
+ * @summary a locked composer does not claim Ctrl+U
  */
 export const LockedComposerIgnoresUploadShortcut: Story = {
   tags: ["ai-generated"],
   args: { disabled: true },
   beforeEach: resolveUploads,
   render: attachingStory(VISION_MODEL_ID),
-  play: async ({ canvasElement, userEvent }) => {
-    const picker =
-      canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
-    const openPicker = fn();
-    picker!.addEventListener("click", (event) => {
-      event.preventDefault();
-      openPicker();
-    });
+  play: async ({ canvas }) => {
+    await canvas.findByRole("button", { name: "Add files and more" });
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
     );
-    await userEvent.keyboard(
-      isMac ? "{Meta>}u{/Meta}" : "{Control>}u{/Control}",
-    );
-    await expect(openPicker).not.toHaveBeenCalled();
+    // The picker click is a no-op inside the disabled fieldset either way,
+    // so the observable is whether the listener claimed the chord.
+    const chord = new KeyboardEvent("keydown", {
+      key: "u",
+      ctrlKey: !isMac,
+      metaKey: isMac,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.body.dispatchEvent(chord);
+    await expect(chord.defaultPrevented).toBe(false);
   },
 };
 
