@@ -3182,6 +3182,63 @@ SHALL have no representation, and an image or PDF result SHALL carry no
 - **THEN** the result is the PDF result and carries no `representation` field
 - **AND** `/docs/paper.pdf:outline` returns `invalid_selector` rather than an outline or a PDF result
 
+### Requirement: Root GFM table outline excerpts
+
+For the Markdown outline, every root GFM table SHALL contribute a table excerpt
+of, in source order: its header row; its first content row; and its last content
+row, which is the last body row of that table the scan decided. When the first
+and last content rows are that same line it SHALL be emitted once, and a table
+with no content row SHALL contribute its header row alone.
+
+#### Scenario: A table after prose contributes its excerpt
+
+- **WHEN** a file holds `# Guide` on line 1, `Intro sentence.` on line 3, a root table whose header row is line 5, delimiter row is line 6, and content rows are lines 7 through 11, and `After.` on line 13
+- **THEN** the outline content is `1: # Guide`, `3: Intro sentence.`, `5: <header row>`, `7: <first content row>`, `11: <last content row>`, and `13: After.`, in that order
+- **AND** line 6 is not emitted, and the content rows 8, 9, and 10 are not emitted
+
+#### Scenario: A table with one content row emits two lines
+
+- **WHEN** a root table's header row is followed by a delimiter row and exactly one content row
+- **THEN** the outline emits the header row and that content row, once each
+
+#### Scenario: A table with no content row emits its header row alone
+
+- **WHEN** a root table's header row is followed by a delimiter row and no content row
+- **THEN** the outline emits the header row and not the delimiter row
+
+### Requirement: Outline table excerpts are verbatim, cut source lines
+
+Each table excerpt line SHALL be emitted verbatim with the ordinary line-number
+prefix and cut at 120 UTF-16 code units with a trailing `…`, backing up one unit
+rather than splitting a surrogate pair, exactly as an excerpt line is. The
+excerpt SHALL NOT contain the table's delimiter row, and SHALL be emitted at the
+table's position, before any later entry.
+
+#### Scenario: A long first content row is cut
+
+- **WHEN** a root table's first content row is longer than 120 code units
+- **THEN** the outline emits its first 120 code units followed by `…`, or its first 119 when the 120th would split a surrogate pair
+
+### Requirement: Outline table excerpts obey recognition and the scope
+
+The excerpt's lines SHALL be source lines the root GFM table requirements
+recognize as that table's header row or one of its body rows; a table whose
+header row and delimiter row are not both decided SHALL contribute nothing. A
+table inside a blockquote or a list item SHALL contribute nothing beyond the
+excerpt line its section or the document takes from it. No excerpt line SHALL be
+emitted outside the scope, and the requirements that bound where the scan stops
+are unchanged.
+
+#### Scenario: A table inside a container contributes nothing of its own
+
+- **WHEN** a section holds a prose line and then a table whose rows all sit inside a blockquote or a list item
+- **THEN** the outline emits the prose line as that section's excerpt and no line of that table
+
+#### Scenario: A table whose delimiter row is not decided contributes nothing
+
+- **WHEN** a header-looking row is the last decided line of the table-shaped run and a delimiter row never follows it
+- **THEN** the outline emits no line of a table excerpt
+
 ### Requirement: Markdown outlines are verbatim structural lines
 
 For Markdown content, `:outline` SHALL return, in source order and each with
@@ -3191,15 +3248,19 @@ document that precedes the first root heading and is not itself a heading line
 (the root excerpt); and, for every root heading, its heading lines (one line
 for an ATX heading; every text line plus the underline for a setext heading)
 followed by the first non-blank line of its section that is not a heading
-line, whatever that line is. A heading immediately followed by another heading
+line, whatever that line is; and, for every root table, the table excerpt the
+root GFM table outline excerpt requirements define, each of its lines emitted
+only where the scope admits it. A heading immediately followed by another
+heading
 or by the end of the document has no excerpt line. Each native line SHALL be
 emitted at most once, even when a lone CR lets it hold more than one root
 heading. Every emitted line SHALL be
 the source line verbatim, cut at 120 UTF-16 code units with a trailing `…` when
 longer, backing up one unit rather than splitting a surrogate pair; the only text the outline generates is that marker and the
 frontmatter elision line. The output SHALL contain no synthesized heading
-text, no section end coordinates, no summary, no body excerpt beyond the one
-line, and no heading-name selector. A Markdown document with no root headings
+text, no section end coordinates, no summary, no body excerpt beyond the excerpt
+lines named here and in the root GFM table outline excerpt requirements, and no
+heading-name selector. A Markdown document with no root headings
 SHALL return its frontmatter lines, if any, and its root excerpt, if any; an
 empty document SHALL return the ordinary empty-file result with null ranges.
 
@@ -3232,6 +3293,17 @@ empty document SHALL return the ordinary empty-file result with null ranges.
 - **WHEN** a file contains `## Notes` at lines 10 and 40
 - **THEN** the outline contains `10: ## Notes` and `40: ## Notes`, each with its own excerpt line
 - **AND** no selector addresses either occurrence by name
+
+#### Scenario: An outline names a section opening and a table's shape
+
+- **WHEN** a file holds `# Guide` on line 1, `Intro sentence.` on line 3, and a root table whose header row is line 5, delimiter row is line 6, first content row is line 7, and last content row is line 11
+- **THEN** the outline content is `1: # Guide`, `3: Intro sentence.`, `5: <header row>`, `7: <first content row>`, and `11: <last content row>`, in that order, and nothing else
+
+#### Scenario: A table that opens a section replaces that section's excerpt line
+
+- **WHEN** a root heading on line 1 is followed by a root table whose header row is line 2, delimiter row is line 3, first content row is line 5, and last content row is line 6
+- **THEN** the outline emits line 1, then lines 2, 5, and 6
+- **AND** line 2 is emitted once, not once as the section's excerpt line and again as the table excerpt's header row
 
 ### Requirement: Markdown heading sections use deterministic CommonMark boundaries
 
@@ -3350,7 +3422,10 @@ scope, and SHALL prepend the direct ancestor chain of source line `N`: the
 root headings whose sections contain `N`, from the shallowest to the deepest,
 each rendered as an in-scope heading is (its heading lines and its excerpt
 line) restricted to lines before `N`, because lines from `N` on follow the
-in-scope rule, and each omitted when its own lines already lie in scope.
+in-scope rule, and each omitted when its own lines already lie in scope; and, when `N` is a root
+table's delimiter row or one of its body rows, that table's excerpt restricted
+to the lines before `N` — its header row always, and its first content row when
+that row precedes `N` — as the innermost unit of the chain.
 The ancestor chain is context: when the chain together with the first
 in-scope entry does not fit the shared serialized result cap or the
 2,000-line ceiling, the chain SHALL be omitted whole, so a continuation read
@@ -3398,6 +3473,23 @@ end does. No comma-separated scope SHALL be accepted.
 - **WHEN** the model reads `:outline:60-` of the file whose `## Use` sits at line 100 and whose last line is 120
 - **THEN** the outline carries the ancestor chain of line 60 and every entry whose source line lies in 60 through 120
 - **AND** `:outline:-20` of that file is the same scope as `:outline:101-120`, with the chain of its first line prepended
+
+#### Scenario: A scope inside a table prepends its header row and first content row
+
+- **WHEN** a file holds `# Root` on line 1, a root table whose header row is line 3, delimiter row is line 4, first content row is line 5, and last content row is line 9, and the model reads `:outline:6-6`
+- **THEN** the outline content is `1: # Root`, `3: <header row>`, and `5: <first content row>`, in that order, and nothing else
+- **AND** `shownRange` covers 1 through 5
+
+#### Scenario: A scope that starts at the delimiter row prepends the header row alone
+
+- **WHEN** the first line in scope is a root table's delimiter row
+- **THEN** the chain's table unit is that table's header row, since its first content row does not precede `N`
+
+#### Scenario: A table the scope contains contributes its whole excerpt
+
+- **WHEN** a scope contains a root table's header row, its first content row, and its last content row
+- **THEN** those three lines are emitted as entries at the table's position, in source order
+- **AND** a line of the excerpt that lies in scope is emitted once, whether the chain or the table's own position would have carried it
 
 ### Requirement: Outline output obeys explicit bounds
 
@@ -3494,9 +3586,10 @@ line number SHALL grant no access not already granted to the original locator.
 
 ### Requirement: Root GFM tables are an overlay on CommonMark lines
 
-For the ranged Markdown ancestor requirement, a root GFM table SHALL be
-recognized over the lines the CommonMark heading rules decide, without
-changing any heading, section, or outline decision. Its header row and
+For the ranged Markdown ancestor requirement and the root GFM table outline
+excerpt requirements, a root GFM table SHALL be recognized over the lines the CommonMark heading rules decide, without
+changing any heading or section decision; a table excerpt changes which source
+lines the outline emits, not which lines are headings or sections. Its header row and
 delimiter row SHALL each be a line CommonMark decides is a root paragraph or
 root link reference definition line, not part of a heading and not a lazy
 continuation of a container paragraph.
@@ -3511,6 +3604,11 @@ continuation of a container paragraph.
 
 - **WHEN** a range starts at a body row of a table inside a blockquote, or of rows that lazily continue the paragraph of a list item or blockquote, such as one started by `- sub` or `> q` on the line that ends a list
 - **THEN** no header pair is emitted and the range keeps its existing behavior
+
+#### Scenario: Outline excerpts restate no heading decision
+
+- **WHEN** table-shaped lines are followed by a `===` underline and the model reads either the outline or a ranged read of them
+- **THEN** those lines stay a setext heading's text, and the outline emits no table excerpt for them
 
 ### Requirement: Root GFM table delimiter rows
 
