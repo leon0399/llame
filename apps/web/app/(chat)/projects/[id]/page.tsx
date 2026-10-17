@@ -27,6 +27,7 @@ import { CreateProjectForChatDialog } from "../../components/chat-list-sidebar/p
 import { PageHeader } from "../../components/page-header";
 import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
 import { ProjectDetailsHeader } from "./project-details-header";
+import { ProjectPromptInput } from "./project-prompt-input";
 
 const EMPTY_TEXT = new Map<ChatListShow, string>([
   ["active", "No chats in this project yet."],
@@ -177,7 +178,8 @@ function ProjectPageBody({
           reserved for the project's other panels as they arrive. Below `lg`
           the chats take the full width. */}
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
+        <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
+          <ProjectPromptInput projectName={data.project.name} />
           <ProjectChatsCard
             view={data.view}
             rows={{
