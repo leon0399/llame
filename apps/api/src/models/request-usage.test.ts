@@ -132,13 +132,28 @@ describe('provider request generation windows', () => {
       ]),
     );
 
-    // The request generated a tool call and no text, so its whole span counts —
-    // otherwise its argument tokens would sit in the rate with no time under
-    // them.
+    // The adapter delivered the arguments as one part, so nothing opened the
+    // window: the request contributes its whole span rather than dropping its
+    // argument tokens out from under the rate.
     expect(receipts).toHaveLength(1);
     expect(receipts[0]?.generationMs).toBe(
       INITIAL_DELAY_MS + 2 * CHUNK_DELAY_MS,
     );
+  });
+
+  it('opens the window on a streamed tool call, which is output too', async () => {
+    const receipts = await receiptsFrom(
+      finishedChunks([
+        { type: 'tool-input-start', id: 'call-1', toolName: 'bash' },
+        { type: 'tool-input-delta', id: 'call-1', delta: '{"cmd":' },
+        { type: 'tool-input-delta', id: 'call-1', delta: '"ls"}' },
+      ]),
+    );
+
+    expect(receipts).toHaveLength(1);
+    // The first argument fragment opens the window — the call's start part
+    // carries no output — so the request's prefill stays out of it.
+    expect(receipts[0]?.generationMs).toBe(2 * CHUNK_DELAY_MS);
   });
 
   it('does not open a window on an empty metadata-only delivery', async () => {

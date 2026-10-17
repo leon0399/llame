@@ -36,25 +36,35 @@ function toLanguageModelUsage(usage: LanguageModelV3Usage): LanguageModelUsage {
 }
 
 /**
- * A provider part that carries streamed output: answer or reasoning text. The
- * run's own delta rule (#155) counts the same deliveries one layer up, so an
- * empty metadata-only delivery — a part boundary whose text the provider
- * withheld — opens no window here either.
+ * A provider part that opens a request's generation window: the first part
+ * carrying generated text, whichever channel it is on. Wider than the run's own
+ * delta rule (`ModelStreamInput.onTextDelta`, which keeps counting answer and
+ * reasoning text for `chunkCount`/`firstTokenMs`): a streamed tool-call argument
+ * is output too, so a request whose only output is a tool call measures from the
+ * moment the provider produced its first argument instead of billing its own
+ * prefill. A part that carries none — a part boundary, a metadata-only delivery,
+ * an adapter that hands over its arguments as one `tool-call` — opens nothing,
+ * and such a request falls back to its whole span rather than dropping its
+ * argument tokens out from under the rate.
  */
-function isOutputDelta(part: LanguageModelV3StreamPart): boolean {
-  return (
-    (part.type === 'text-delta' || part.type === 'reasoning-delta') &&
-    part.delta.length > 0
-  );
+function opensGenerationWindow(part: LanguageModelV3StreamPart): boolean {
+  if (
+    part.type === 'tool-input-delta' ||
+    part.type === 'text-delta' ||
+    part.type === 'reasoning-delta'
+  ) {
+    return part.delta.length > 0;
+  }
+  return false;
 }
 
 /**
  * Re-emits a provider stream unchanged, reporting that one request's
- * generation window as its `finish` part passes: from its first streamed output
- * delta to that finish, or from the request itself when it streamed none. The
- * clock is monotonic, because the sum of these windows is persisted as the
- * turn's generation time and a wall-clock correction mid-run would otherwise
- * inject a negative or absurd gap.
+ * generation window as its `finish` part passes: from the first part that opens
+ * it (`opensGenerationWindow`) to that finish, or from the request itself when
+ * nothing opened one. The clock is monotonic, because the sum of these windows
+ * is persisted as the turn's generation time and a wall-clock correction
+ * mid-run would otherwise inject a negative or absurd gap.
  */
 function measureGenerationWindow(
   stream: ReadableStream<LanguageModelV3StreamPart>,
@@ -65,7 +75,7 @@ function measureGenerationWindow(
   return stream.pipeThrough(
     new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
       transform(part, controller) {
-        if (isOutputDelta(part)) {
+        if (opensGenerationWindow(part)) {
           firstOutputDeltaAt ??= performance.now();
         }
         if (part.type === 'finish') {

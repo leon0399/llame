@@ -189,7 +189,7 @@ The `running` usage SHALL carry no stream metrics. A terminal assistant message 
 - `generationMs`, the sum of the attempt's generation windows; and
 - `tokensPerSecond`, the attempt's output tokens over `generationMs`, rounded to one decimal.
 
-A request's generation window SHALL cover that request alone, measured on the provider's own stream: from its first streamed output delta to its `finish`, or from the request to its `finish` when it delivered no output delta, so a request that only called a tool still contributes the time it generated in. A request that reported no usage SHALL contribute no window, so the windows and the token counts cover the same requests. The tool-execution time between an attempt's steps is therefore excluded, and the rate describes the model's generation speed rather than the turn's throughput.
+A request's generation window SHALL cover that request alone, measured on the provider's own stream: from its first streamed part that carries generated output — answer or reasoning text, or a streamed tool-call argument — to its `finish`, or from the request to its `finish` when it streamed no such part, so a request that only called a tool still contributes the time it generated in. Where a wire batches its arguments into a single tool-call part, the whole-span fallback deliberately bills that request's connect time and prefill to the window rather than dropping tokens out from under the rate; the streamed-output metrics themselves keep the narrower text-or-reasoning rule. A request that reported no usage SHALL contribute no window, so the windows and the token counts cover the same requests. The tool-execution time between an attempt's steps is therefore excluded, and the rate describes the model's generation speed rather than the turn's throughput.
 
 When the attempt streamed no output, all four SHALL be absent rather than zero, and `generationMs` SHALL additionally be absent when the attempt's windows sum to nothing. `tokensPerSecond` SHALL additionally be absent when any model request of the attempt reported no input or output count, so the rate is never derived from a partial token total, or when `generationMs` is absent. A missing metric SHALL NOT by itself mark usage incomplete, and a persisted value SHALL NOT be recomputed later. Usage recorded before this capability carries none of the keys and is otherwise unchanged.
 
@@ -206,8 +206,13 @@ When the attempt streamed no output, all four SHALL be absent rather than zero, 
 
 #### Scenario: A request that streamed no output still contributes its window
 
-- **WHEN** one of the attempt's requests streams no output delta and finishes 1,100 ms after it was dispatched
+- **WHEN** one of the attempt's requests streams no answer, reasoning, or tool-call argument part and finishes 1,100 ms after it was dispatched
 - **THEN** that request's 1,100 ms is part of `generationMs`
+
+#### Scenario: A streamed tool call opens its request's window
+
+- **WHEN** a request's only output is a tool call whose arguments the provider streams, the first argument part arriving 900 ms after dispatch and its `finish` 300 ms later
+- **THEN** that request contributes 300 ms to `generationMs`, not the 1,200 ms that would bill its prefill
 
 #### Scenario: A turn that streamed nothing records none
 
