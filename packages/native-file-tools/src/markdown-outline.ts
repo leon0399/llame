@@ -9,6 +9,10 @@ import {
   type NativeEntry,
 } from "./markdown-ancestors";
 import { isDelimiter } from "./markdown-syntax";
+import {
+  MarkdownRootTableTracker,
+  type RootTableExcerpt,
+} from "./markdown-tables";
 import { measureNativeModelOutput } from "./serialization";
 import {
   MAX_READ_LINES,
@@ -48,7 +52,20 @@ class MarkdownOutlineReader {
   private readonly endLine: number | undefined;
   private readonly scoped: boolean;
   private readonly tracker = new MarkdownAncestorTracker();
-  private readonly excerpts = new WeakMap<MarkdownHeading, NativeEntry>();
+  private readonly tables = new MarkdownRootTableTracker();
+  private readonly excerpts = new WeakMap<
+    MarkdownHeading,
+    Array<NativeEntry>
+  >();
+  /** The open table whose excerpt is awaiting its position in the entry
+   *  stream. */
+  private table: RootTableExcerpt | undefined;
+  /** Excerpt lines already emitted, so a section excerpt that turns out to be a
+   *  table's header row is not written twice. */
+  private readonly emittedExcerpts = new Set<number>();
+  /** The section excerpt that mirrors that table, when the section opens with
+   *  it. */
+  private tableOwner: Array<NativeEntry> | undefined;
   private frontmatter: FrontmatterState | undefined;
   private sourceLineCount = 0;
   private emittedLines = 0;
@@ -83,6 +100,14 @@ class MarkdownOutlineReader {
   ): Promise<SingleReadSuccess> {
     const scanner = createMarkdownScanner({
       onLine: (line) => {
+        this.tables.accept(line);
+        const excerpt = this.tables.tableExcerpt();
+        if (excerpt !== this.table) {
+          if (!this.writeTableExcerpt()) return false;
+          this.table = excerpt;
+          if (excerpt !== undefined) this.adoptSectionExcerpt(excerpt);
+        }
+        this.syncSectionExcerpt();
         this.tracker.accept(line);
         return this.handleLine(line);
       },
@@ -165,16 +190,79 @@ class MarkdownOutlineReader {
 
   private ancestorEntries(): Array<NativeEntry> {
     const entries: Array<NativeEntry> = [];
+    const taken = new Set<number>();
+    const add = (entry: NativeEntry) => {
+      if (entry.line >= this.startLine || taken.has(entry.line)) return;
+      taken.add(entry.line);
+      entries.push(entry);
+    };
     for (const unit of this.tracker.current()) {
       for (const line of unit.lines) {
         if (line.line >= this.startLine) break;
-        entries.push({ line: line.line, text: line.text });
+        add({ line: line.line, text: line.text });
       }
-      const excerpt = this.excerpts.get(unit.heading);
-      if (excerpt !== undefined && excerpt.line < this.startLine)
-        entries.push(excerpt);
+      for (const excerpt of this.excerpts.get(unit.heading) ?? []) add(excerpt);
     }
+    for (const entry of this.tableChainEntries()) add(entry);
     return entries;
+  }
+
+  /** The excerpt lines of the table a scope starts inside: its header row
+   *  always, and its first content row when that row precedes the scope. */
+  private tableChainEntries(): Array<NativeEntry> {
+    const table = this.tables.tableExcerpt();
+    if (table === undefined || table.header.line >= this.startLine) return [];
+    if ((table.last?.line ?? table.delimiter.line) < this.startLine) return [];
+    const entries: Array<NativeEntry> = [];
+    for (const line of [table.header, table.first])
+      if (line !== undefined)
+        entries.push({ line: line.line, text: line.text });
+    return entries;
+  }
+
+  /** When a section's excerpt line turns out to be a table's header row, that
+   *  section's excerpt becomes the table's, and the header row it already
+   *  emitted is not written again. */
+  private adoptSectionExcerpt(table: RootTableExcerpt): void {
+    const current = this.tracker.current().at(-1);
+    if (current === undefined) return;
+    const excerpt = this.excerpts.get(current.heading);
+    if (
+      excerpt === undefined ||
+      excerpt.length !== 1 ||
+      excerpt[0]?.line !== table.header.line
+    )
+      return;
+    const owner: Array<NativeEntry> = [];
+    this.excerpts.set(current.heading, owner);
+    this.tableOwner = owner;
+  }
+
+  /** Rewrites the section excerpt that mirrors the open table, so a chain that
+   *  renders that section carries the table's lines as they arrive. */
+  private syncSectionExcerpt(): void {
+    const owner = this.tableOwner;
+    const table = this.table;
+    if (owner === undefined || table === undefined) return;
+    owner.length = 0;
+    for (const line of [table.header, table.first, table.last])
+      if (line !== undefined) owner.push({ line: line.line, text: line.text });
+  }
+
+  /** Writes the pending table excerpt, emitting only the lines in scope. */
+  private writeTableExcerpt(): boolean {
+    const table = this.table;
+    this.table = undefined;
+    this.tableOwner = undefined;
+    if (table === undefined) return true;
+    for (const line of [table.header, table.first, table.last]) {
+      if (line === undefined || this.emittedExcerpts.has(line.line)) continue;
+      const entry = { line: line.line, text: line.text };
+      if (!this.isInScope(entry.line)) continue;
+      this.emittedExcerpts.add(entry.line);
+      if (!this.appendSource(entry)) return false;
+    }
+    return true;
   }
 
   private fitsAncestorChain(
@@ -222,9 +310,20 @@ class MarkdownOutlineReader {
       return this.emitSource(entry);
     }
     if (this.excerpts.has(current.heading)) return true;
-    this.excerpts.set(current.heading, entry);
+    const table = this.table;
+    if (table !== undefined && table.header.line === line.line) {
+      // The section opens with this table, so the table's own position writes
+      // the excerpt and the section records it for its ancestor rendering.
+      const owner: Array<NativeEntry> = [];
+      this.excerpts.set(current.heading, owner);
+      this.tableOwner = owner;
+      this.syncSectionExcerpt();
+      return this.startScope(entry.line, entry);
+    }
+    this.excerpts.set(current.heading, [entry]);
     if (!this.isInScope(entry.line)) return true;
     if (!this.startScope(entry.line, entry)) return false;
+    this.emittedExcerpts.add(entry.line);
     return this.appendSource(entry);
   }
 
@@ -295,6 +394,7 @@ class MarkdownOutlineReader {
   }
 
   private finish(): SingleReadSuccess {
+    this.writeTableExcerpt();
     if (
       this.scoped &&
       this.sourceLineCount < this.startLine &&

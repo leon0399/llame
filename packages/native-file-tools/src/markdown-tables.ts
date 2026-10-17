@@ -29,6 +29,16 @@ export type RootTableHeaderPair = {
   delimiter: MarkdownLine;
 };
 
+/** The excerpt lines of a root table: its header row, its first content row,
+ *  and its latest content row, which is its last one once the table closes.
+ *  The delimiter row is carried for the scope tests and is never emitted. */
+export type RootTableExcerpt = {
+  header: MarkdownLine;
+  delimiter: MarkdownLine;
+  first?: MarkdownLine;
+  last?: MarkdownLine;
+};
+
 /** A block GFM continues past the line that ended a table, so no table may
  *  start inside it: a list whose items lazily swallow later lines, or a type-7
  *  HTML block, which runs to the next blank line. */
@@ -126,7 +136,15 @@ function startsBlock(measured: MeasuredLine): boolean {
 export class MarkdownRootTableTracker {
   private candidate: { line: MarkdownLine; cells: number } | undefined;
   private table: RootTableHeaderPair | undefined;
+  private excerpt: RootTableExcerpt | undefined;
   private suppression: Suppression | undefined;
+
+  /** The open root table's excerpt lines, updated as its body rows arrive, or
+   *  `undefined` once the table has closed. The object is mutated in place, so
+   *  a caller that holds it keeps the table's final row after the close. */
+  tableExcerpt(): RootTableExcerpt | undefined {
+    return this.excerpt;
+  }
 
   /** Consumes one decided line; returns the enclosing table's header pair when
    *  the line is one of that table's body rows. */
@@ -137,9 +155,19 @@ export class MarkdownRootTableTracker {
       line.rootParagraph === true &&
       measured.indent <= MAX_ROW_INDENT;
     if (this.table !== undefined) {
-      if (line.role !== "heading" && !measured.blank && !startsBlock(measured))
+      if (
+        line.role !== "heading" &&
+        !measured.blank &&
+        !startsBlock(measured)
+      ) {
+        if (this.excerpt !== undefined) {
+          this.excerpt.first ??= line;
+          this.excerpt.last = line;
+        }
         return this.table;
+      }
       this.table = undefined;
+      this.excerpt = undefined;
       this.candidate = undefined;
       this.suppression = this.followingBlock(measured, rootText);
       return undefined;
@@ -238,6 +266,7 @@ export class MarkdownRootTableTracker {
       cells.every((cell) => DELIMITER_CELL.test(cell))
     ) {
       this.table = { header: candidate.line, delimiter: line };
+      this.excerpt = { header: candidate.line, delimiter: line };
       this.candidate = undefined;
       return undefined;
     }
