@@ -207,6 +207,42 @@ export const StoredPdf: Story = {
 };
 
 /**
+ * A sent message's cards: each previews its image, or a document icon for a
+ * PDF, above the file name. The image card opens the viewer and the PDF card
+ * links its original; the visible name does not repeat in either's
+ * accessible name.
+ *
+ * @summary sent-message attachments as cards with their file names
+ */
+export const Cards: Story = {
+  tags: ["ai-generated"],
+  args: {
+    variant: "card",
+    onOpen: fn(),
+    items: [
+      A,
+      {
+        key: "paper",
+        kind: "pdf",
+        name: "paper.pdf",
+        href: "/api/v1/media/0192f3a4-5b6c-7d8e-9f01-00000000000a/original",
+      },
+    ],
+    onRemove: undefined,
+    onRetry: undefined,
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.getByText("a.png")).toBeVisible();
+    await expect(canvas.getByText("paper.pdf")).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "a.png" }));
+    await expect(args.onOpen).toHaveBeenCalledWith("a");
+    await expect(
+      canvas.getByRole("link", { name: "Open paper.pdf in a new tab" }),
+    ).toHaveAttribute("target", "_blank");
+  },
+};
+
+/**
  * A PDF held only by a Run has no original route and remains a static tile.
  * @summary an unstored PDF attachment
  */

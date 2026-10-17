@@ -38,14 +38,14 @@ function attachmentViews(parts: UIMessage["parts"]) {
   return { items, slides };
 }
 
-/** A user message's attached images and PDFs as thumbnails above its bubble,
- *  in stored order. An image loads the `/model` variant lazily and opens a
- *  lightbox over this message's images, which shows the `/original`
- *  captioned with the `media://` locator; a PDF shows a document tile named
- *  by its stored file name, whose tile links the `/original` in a new tab,
- *  and never enters the lightbox or loads a `/model` variant. File parts
- *  that are neither an image nor a PDF, or that carry no `media://` locator,
- *  have nothing to load and are skipped. */
+/** A user message's attached images and PDFs as cards above its bubble, in
+ *  stored order: a preview over the file name. An image previews the
+ *  `/model` variant lazily and opens a lightbox over this message's images,
+ *  which shows the `/original` captioned with the `media://` locator; a PDF
+ *  previews a document icon, links the `/original` in a new tab, and never
+ *  enters the lightbox or loads a `/model` variant. File parts that are
+ *  neither an image nor a PDF, or that carry no `media://` locator, have
+ *  nothing to load and are skipped. */
 export function MessageAttachments({ message }: { message: UIMessage }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   if (message.role !== "user") return null;
@@ -56,6 +56,7 @@ export function MessageAttachments({ message }: { message: UIMessage }) {
       <MediaThumbnailRow
         aria-label="Attachments"
         className="ml-auto w-fit justify-end"
+        variant="card"
         items={items}
         onOpen={setOpenKey}
       />
