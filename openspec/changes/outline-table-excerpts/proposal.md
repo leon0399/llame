@@ -75,7 +75,6 @@ None.
   `shownRange` grows; the test's point becomes that the outline carries the
   excerpt and not the ranged read's delimiter row.
 - `docs/product/reference/selectors.md`, `CHANGELOG.md`.
-- `CHANGELOG.md`.
 - No API, schema, migration, or configuration change.
 
 ## Acceptance
