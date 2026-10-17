@@ -7,6 +7,12 @@ observed:
   date: "2026-09-21"
   revision: "ea0c2b820bd30bace020a3791d8aef0b44002e0d"
 sources:
+  - id: tools-environments-init-l1-l3
+    resource: "https://github.com/NousResearch/hermes-agent/blob/ea0c2b820bd30bace020a3791d8aef0b44002e0d/tools/environments/__init__.py#L1-L3"
+    title: "Terminal backends: local, Docker, SSH, Singularity, Modal, Daytona, Vercel Sandbox"
+  - id: website-arch-l216
+    resource: "https://github.com/NousResearch/hermes-agent/blob/ea0c2b820bd30bace020a3791d8aef0b44002e0d/website/docs/developer-guide/architecture.md#L216"
+    title: "Terminal tools support seven backends"
   - id: agent-memory-manager-py-l167-l285
     resource: "https://github.com/NousResearch/hermes-agent/blob/6271d772d2dab79ec613c08038ecf3039ad27a0c/agent/memory_manager.py#L167-L285"
     title: "sanitize_context() and StreamingContextScrubber"
@@ -502,13 +508,17 @@ Self-improving agent with agent-curated memory, isolated subagents, and a plugga
    stamped from the WebSocket upgrade and stays unset for stdio and for a
    legacy-token peer; RPC params cannot set
    it[^tui-gateway-ws-py-l125-l128]. `compute_host` and `hosted_room` remote
-   execution were not traced, so this note does not place tools when the
-   gateway host is remote. High confidence for a llame CLI: a bidirectional
-   channel where the run blocks on a client answer, with replay of still-open
-   requests on reconnect and a truncated flag when that replay is incomplete,
-   is the shape a local tool executor needs. The current Ink client restores
-   still-open questions from the canonical resume `prompts` list, through the
-   adapter above[^ui-tui-src-gatewayClient-ts-l542-l549].
+   gateway hosting were not traced. Separately, terminal tools already select
+   among seven execution backends (local, Docker, SSH, Daytona, Modal,
+   Singularity, Vercel Sandbox) via
+   `TERMINAL_ENV`.[^tools-environments-init-l1-l3][^website-arch-l216]
+   That is multi-container / multi-host **tool** placement on one Hermes
+   process, not a multi-box control-plane registry. High confidence for a
+   llame CLI: a bidirectional channel where the run blocks on a client answer,
+   with replay of still-open requests on reconnect and a truncated flag when
+   that replay is incomplete, is the shape a local tool executor needs. The
+   current Ink client restores still-open questions from the canonical resume
+   `prompts` list, through the adapter above[^ui-tui-src-gatewayClient-ts-l542-l549].
 10. **`hermes --tui` sends the launch directory as the session cwd.**
     The launcher records the directory it was invoked from with `os.getcwd()`.
     When that call raises `FileNotFoundError` it uses the `PWD` environment
@@ -588,6 +598,10 @@ bypasses the single merge helper fails closed at the gateway rather than at the
 harness. And the keyless `opencode-free` provider was removed after the relay
 began answering it with a 403, so a free tier is not a stable design
 assumption[^hermes-cli-auth-py-l1149-l1154].
+
+[^tools-environments-init-l1-l3]: [Terminal backends: local, Docker, SSH, Singularity, Modal, Daytona, Vercel Sandbox](https://github.com/NousResearch/hermes-agent/blob/ea0c2b820bd30bace020a3791d8aef0b44002e0d/tools/environments/__init__.py#L1-L3)
+
+[^website-arch-l216]: [Terminal tools support seven backends](https://github.com/NousResearch/hermes-agent/blob/ea0c2b820bd30bace020a3791d8aef0b44002e0d/website/docs/developer-guide/architecture.md#L216)
 
 [^agent-memory-manager-py-l167-l285]: [`sanitize_context()` and `StreamingContextScrubber`](https://github.com/NousResearch/hermes-agent/blob/6271d772d2dab79ec613c08038ecf3039ad27a0c/agent/memory_manager.py#L167-L285)
 

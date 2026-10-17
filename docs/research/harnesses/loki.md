@@ -49,6 +49,12 @@ sources:
   - id: plugins-model-providers-opencode-zen-init-py-l114-l124
     resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/plugins/model-providers/opencode-zen/__init__.py#L114-L124"
     title: "Go profile registration with attribution defaults and the vision-tool-message gate"
+  - id: readme-l27
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/README.md#L27"
+    title: "Seven terminal backends: local, Docker, SSH, Singularity, Modal, Daytona, Vercel Sandbox"
+  - id: loki-environments-init-l1-l3
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/tools/environments/__init__.py#L1-L3"
+    title: "Environment backends including AgentVM, Docker, SSH, Modal, Daytona"
   - id: scripts-verify-rebrand-mjs-l5
     resource: "https://github.com/wundercorp/loki/blob/a54a41ae9ef9b0174fe1889bcc72e9c4cad6e979/scripts/verify-rebrand.mjs#L5"
     title: "rebrand guard"
@@ -114,7 +120,14 @@ batch, studied below.
 
 **Study**
 
-1. **Total entry points with silent degradation.** Every bridge function catches
+1. **Inherited terminal placement matrix.** Like Hermes, Loki keeps pluggable
+   terminal backends so shell/tool execution can leave the laptop: local,
+   Docker, SSH, Singularity, Modal, Daytona, Vercel Sandbox (plus AgentVM in
+   the environment package).[^readme-l27][^loki-environments-init-l1-l3]
+   Multi-container / remote **tool** placement on one agent process; study
+   Hermes for cwd/backend interaction details. Not a multi-box control-plane
+   registry.
+2. **Total entry points with silent degradation.** Every bridge function catches
    its own exceptions and returns a structured empty value, so a signed-out
    principal, disabled config, or dark gateway leaves local tool search
    unchanged (total bridge entry points[^tools-tool-gateway-bridge-py-l1-l66]).
@@ -122,7 +135,7 @@ batch, studied below.
    approval, and middleware policy to the composed tool name. Moderate
    confidence applicability to llame's remote MCP failure policy: an optional
    remote source can never break the local catalog.
-2. **Bounded retry with a call-frame idempotency key.** At most one retry, on
+3. **Bounded retry with a call-frame idempotency key.** At most one retry, on
    transport failure or 5xx only, reusing the same `x-idempotency-key` held in
    the execute call frame so no store needs cleanup; a 409 is a client bug and
    never retried; the state-changing connection-start route is never retried
@@ -130,7 +143,7 @@ batch, studied below.
    policy[^tools-tool-gateway-client-py-l1-l27]). Auth headers are re-read per
    call because portal tokens expire within the hour. High confidence as a shape
    for any llame remote tool transport that must not duplicate side effects.
-3. **One budget gate, two attributes, checked per iteration.** Hermes stopped a
+4. **One budget gate, two attributes, checked per iteration.** Hermes stopped a
    background-review fork when its cumulative `session_input_tokens` crossed a
    ceiling; Loki generalizes that into `_aggregate_input_budget_exhausted`,
    which reads an `_aggregate_input_token_budget` attribute any auxiliary agent
@@ -146,7 +159,7 @@ batch, studied below.
    children and no input ceiling. High confidence for #765 and #91 on the shape
    (a boolean gate between iterations, not per tool call; exit via the ordinary
    reason channel). It bounds one axis only: no output, time, or cost ceiling.
-4. **Defer compaction while the cache is earning.** A due micro-compaction pass
+5. **Defer compaction while the cache is earning.** A due micro-compaction pass
    is skipped when provider-reported cache read plus write tokens cover at least
    60% of the prompt and occupancy is under 80% of the compression threshold;
    absent cache telemetry never defers[^agent-micro-compaction-py-l199-l216].
@@ -154,7 +167,7 @@ batch, studied below.
    prompt cache. Low applicability today, because llame's explicit-prefix
    compaction does not rewrite unprotected history; moderate for #153 if a
    progressive trigger ever needs softening against cache economics.
-5. **Relay affinity is a bespoke module here, with no operator-facing header
+6. **Relay affinity is a bespoke module here, with no operator-facing header
    channel.** `agent/opencode_affinity.py` owns an `x-opencode-session`
    constant, matches relay targets by provider family or by an opencode.ai base
    URL (custom `opencode-<family>-*` entries included), derives the key from the
@@ -171,7 +184,7 @@ batch, studied below.
    operator-named generic channel exists only upstream. Moderate confidence for
    #809 and #881: copy the single merge point and the lineage-root key, but keep
    Hermes' fallback and generic-name support as the newer behavior.
-6. **A third family and a cache-tier carve-out.** The fork splits the relay into
+7. **A third family and a cache-tier carve-out.** The fork splits the relay into
    three provider ids (`opencode-zen`, `opencode-go`, `opencode-free`), where
    the free tier is keyless and reaches `https://opencode.ai/zen/v1` through a
    placeholder credential whose empty `Authorization` header overrides the SDK's
@@ -189,7 +202,7 @@ batch, studied below.
    family split and TTL carve-out are llame-shaped decisions, but the keyless
    tier is a vendor-specific concession that upstream Hermes has already
    removed.
-7. **Attribution headers and model-specific limits on the provider profile.**
+8. **Attribution headers and model-specific limits on the provider profile.**
    Both relay profiles install fixed `HTTP-Referer`, `X-Title`, and `User-Agent: LokiAgent/<version>` headers as provider
    default headers, in the same style as the fork's OpenRouter-style
    providers[^plugins-model-providers-opencode-zen-init-py-l16-l20][^plugins-model-providers-opencode-zen-init-py-l114-l124].
@@ -232,6 +245,10 @@ batch, studied below.
   is opaque to Loki's own approval surface once dispatched, and the connector
   catalog depends on a vendor account. It is prior art for the transport
   contract, not for llame's ownership model.
+
+[^readme-l27]: [Seven terminal backends: local, Docker, SSH, Singularity, Modal, Daytona, Vercel Sandbox](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/README.md#L27)
+
+[^loki-environments-init-l1-l3]: [Environment backends including AgentVM, Docker, SSH, Modal, Daytona](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/tools/environments/__init__.py#L1-L3)
 
 [^scripts-verify-rebrand-mjs-l5]: [rebrand guard](https://github.com/wundercorp/loki/blob/a54a41ae9ef9b0174fe1889bcc72e9c4cad6e979/scripts/verify-rebrand.mjs#L5)
 
