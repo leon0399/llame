@@ -54,8 +54,9 @@ const archivedProjectPin: PinnedItem = {
 let fetchMock: Mock<typeof fetch>;
 let serverPins: Array<PinnedItem>;
 let releasePins: () => void;
-/** The project's description as the server holds it now. */
-let serverDescription: string;
+/** The project's description as the server holds it now; undefined makes
+ *  the project's read fail. */
+let serverDescription: string | undefined;
 
 type PinsParameters = { pins?: Array<PinnedItem>; holdPins?: boolean };
 
@@ -87,6 +88,9 @@ function routeFetch() {
         return Promise.resolve(emptyResponse());
       }
       if (key === "GET /api/v1/projects/p1") {
+        if (serverDescription === undefined) {
+          return Promise.resolve(new Response(null, { status: 500 }));
+        }
         return Promise.resolve(
           jsonResponse({
             id: "p1",
@@ -492,5 +496,25 @@ export const ProjectEditDetailsReopen: Story = {
       "GET /api/v1/projects/p1",
       "GET /api/v1/projects/p1",
     ]);
+  },
+};
+
+/**
+ * Edit details opens at once on the pin's lean card; when the project's read
+ * fails, the dialog says so instead of a form that could not be seeded.
+ *
+ * @summary pinned project menu: Edit details reports a failed read
+ */
+export const ProjectEditDetailsReadFails: Story = {
+  tags: ["ai-generated"],
+  parameters: { pins: [projectPin] },
+  play: async ({ canvasElement }) => {
+    serverDescription = undefined;
+    await chooseFromRowMenu(canvasElement, "Edit details");
+    const dialog = await openedDialog("dialog", "Edit details");
+    await expect(await dialog.findByRole("alert")).toHaveTextContent(
+      "Couldn't load this project's details",
+    );
+    await expect(dialog.queryByLabelText("Description")).toBeNull();
   },
 };

@@ -276,24 +276,48 @@ function projectDetailsPatch(
   return Object.keys(patch).length === 0 ? null : patch;
 }
 
+/** What Edit details shows before the form: the read of a lean card's
+ *  description is still running, or it failed. */
+function ProjectDetailsPending({ failed }: { failed: boolean }) {
+  return failed ? (
+    <p role="alert" className="text-sm text-destructive">
+      Couldn&apos;t load this project&apos;s details. Close and try again.
+    </p>
+  ) : (
+    <output className="text-sm text-muted-foreground">Loading details…</output>
+  );
+}
+
 /** The project's details — name and description — edited together; the one
- *  edit surface every project menu opens. */
+ *  edit surface every project menu opens. A lean card (no `description`)
+ *  opens it at once, and the form appears once the full project is read. */
 export function EditProjectDialog({
   project,
+  readFailed = false,
   open,
   onOpenChange,
 }: {
-  project: ProjectDetailsRef;
+  project: ProjectRef & { description?: string | null };
+  /** The read of a lean card's full project failed. */
+  readFailed?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { description } = project;
   return (
     <ProjectDetailsFrame
       open={open}
       onOpenChange={onOpenChange}
       title="Edit details"
     >
-      <EditProjectForm project={project} onClose={() => onOpenChange(false)} />
+      {description === undefined ? (
+        <ProjectDetailsPending failed={readFailed} />
+      ) : (
+        <EditProjectForm
+          project={{ ...project, description }}
+          onClose={() => onOpenChange(false)}
+        />
+      )}
     </ProjectDetailsFrame>
   );
 }

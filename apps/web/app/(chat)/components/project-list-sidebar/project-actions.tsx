@@ -132,27 +132,28 @@ export function useProjectDialogs() {
 /** The menu's two dialogs, mounted with their owner so each one's field
  *  state re-seeds from the project on open (see project-dialogs.tsx). A lean
  *  card (no `description`, as the rail's pinned rows hold) can still be
- *  deleted; Edit details waits for the full project. */
+ *  deleted; Edit details opens on it and waits for the full project. */
 export function ProjectDialogs({
   project,
+  readFailed,
   dialogs,
   onDeleted,
 }: {
   project: { id: string; name: string; description?: string | null };
+  /** The read of a lean card's full project failed. */
+  readFailed?: boolean;
   dialogs: ReturnType<typeof useProjectDialogs>;
   /** Follow-up once the project is gone (e.g. leave its page). */
   onDeleted?: () => void;
 }) {
-  const { description } = project;
   return (
     <>
-      {description !== undefined && (
-        <EditProjectDialog
-          project={{ ...project, description }}
-          open={dialogs.editOpen}
-          onOpenChange={dialogs.setEditOpen}
-        />
-      )}
+      <EditProjectDialog
+        project={project}
+        readFailed={readFailed}
+        open={dialogs.editOpen}
+        onOpenChange={dialogs.setEditOpen}
+      />
       <DeleteProjectDialog
         project={project}
         open={dialogs.deleteOpen}
