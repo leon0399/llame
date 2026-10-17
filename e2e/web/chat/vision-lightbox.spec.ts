@@ -67,7 +67,7 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
   }, IMAGE_NAME);
   await expect(
     page
-      .getByRole("list", { name: "Attached images" })
+      .getByRole("list", { name: "Attachments" })
       .getByRole("img", { name: IMAGE_NAME }),
   ).toBeVisible();
 
@@ -160,7 +160,7 @@ test("an image-only message sends and opens the same image in an owner fork", as
     });
   });
   const fileChooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Attach images" }).click();
+  await page.getByRole("button", { name: "Attach files" }).click();
   await (
     await fileChooser
   ).setFiles({
@@ -170,7 +170,7 @@ test("an image-only message sends and opens the same image in an owner fork", as
   });
   await expect(
     page
-      .getByRole("list", { name: "Attached images" })
+      .getByRole("list", { name: "Attachments" })
       .getByRole("img", { name: IMAGE_ONLY_NAME }),
   ).toBeVisible();
 

@@ -116,6 +116,8 @@ const TOOL_ANSWER_TOKENS = [
 // (the Chat Completions wire's `image_url` content) gets an answer naming how
 // many images arrived, so a test proves the attachment reached the model.
 const IMAGE_CONTENT_PART_RE = /"type":"image_url"/gu;
+// Only a native PDF file part carries this field, not a textual metadata notice.
+const PDF_CONTENT_PART_RE = /"file_data":"data:application\/pdf;base64,/gu;
 
 const CONVERSATION_PROMPT_MARKER = "episodic provenance e2e";
 const CONVERSATION_SEARCH_QUERY = "E2E_EPISODIC_SOURCE_MARKER";
@@ -585,6 +587,7 @@ function classify(raw: string) {
         findConversationReadResult(currentTurnMessages),
       lastUserContent: content,
       lastUserImageCount: content.match(IMAGE_CONTENT_PART_RE)?.length ?? 0,
+      lastUserPdfCount: content.match(PDF_CONTENT_PART_RE)?.length ?? 0,
       // Real Chat Completions servers always report a non-streaming
       // request's usage, and a streaming request's only when it asks.
       reportsUsage:
@@ -625,6 +628,7 @@ function classify(raw: string) {
       hasKnowledgeLocatorReadResult: false,
       lastUserContent: "",
       lastUserImageCount: 0,
+      lastUserPdfCount: 0,
       reportsUsage: false,
     };
   }
@@ -1038,6 +1042,18 @@ function tryVisionTurn(ctx: ChunkContext): boolean {
   return true;
 }
 
+// PDF turn: prove original file data reached the model, rather than metadata.
+function tryPdfTurn(ctx: ChunkContext): boolean {
+  if (ctx.lastUserPdfCount === 0 || ctx.hasCurrentTurnToolResult) return false;
+  const count = ctx.lastUserPdfCount;
+  writeAnswer(ctx, [
+    "PDF fixture saw ",
+    `${count} attached `,
+    count === 1 ? "PDF." : "PDFs.",
+  ]);
+  return true;
+}
+
 async function writeDefaultAnswer(ctx: ChunkContext): Promise<void> {
   const slow = ctx.raw.includes("SLOW");
   const tokens = ctx.hasToolResult ? TOOL_ANSWER_TOKENS : ANSWER_TOKENS;
@@ -1196,6 +1212,7 @@ async function respondToChatCompletion(
 
   if (tryNativeToolLoopFirstTurn(ctx)) return;
   if (tryVisionTurn(ctx)) return;
+  if (tryPdfTurn(ctx)) return;
 
   await writeDefaultAnswer(ctx);
 }

@@ -54,6 +54,15 @@
       "name": "E2E Vision",
       "input": ["text", "image"],
       "contextWindowTokens": 400000
+    },
+    // PDF-only input exercises the composer without relying on image support.
+    {
+      "id": "e2e:pdf-input",
+      "provider": "mock",
+      "providerModelId": "pdf-input",
+      "name": "E2E PDF",
+      "input": ["text", "pdf"],
+      "contextWindowTokens": 400000
     }
   ],
   // Deterministic local Streamable HTTP source for the browser MCP acceptance

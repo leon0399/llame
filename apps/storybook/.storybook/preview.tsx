@@ -33,7 +33,7 @@ sb.mock(import("../../web/lib/services/permission-modes/queries.ts"));
 sb.mock(import("../../web/lib/services/memory/queries.ts"));
 sb.mock(import("../../web/lib/services/memory/mutations.ts"));
 // - media/uploads: keeps composer attachment uploads off the network; stories
-//   resolve, reject, or hold `uploadImage` to show each upload state.
+//   resolve, reject, or hold `uploadAttachment` to show each upload state.
 sb.mock(import("../../web/lib/services/media/uploads.ts"));
 
 // One QueryClient shared across stories (retry off so any mutation/query hook

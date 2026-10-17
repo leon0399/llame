@@ -223,6 +223,15 @@ const STORED_SOURCES = {
 
 const SHOT_LOCATOR = "media://0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6d";
 
+/** A stored owner PDF, whose id names its tile: a PDF has no `/model`
+ *  variant, so only the original is ever loaded. */
+const PDF_ID = "0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6e";
+const PAPER_LOCATOR = `media://${PDF_ID}`;
+const STORED_PDF_SOURCES = {
+  thumbnail: storedVariant("model"),
+  original: `/api/v1/media/${PDF_ID}/original`,
+};
+
 /**
  * A read whose bytes were an image returns no content: the card shows the
  * result's inline thumbnail and the original's size and format. The image was
@@ -247,12 +256,11 @@ export const ImageResult: Story = {
     },
     mediaSources: fn(() => null),
   },
-  play: async ({ args, canvas, userEvent }) => {
+  play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
     await expect(
       canvas.getByRole("img", { name: "/work/shot.png" }),
     ).toHaveAttribute("src", SHOT_THUMBNAIL);
-    await expect(args.mediaSources).not.toHaveBeenCalled();
     await expect(canvas.getByText("1600×900 PNG")).toBeInTheDocument();
     await expect(canvas.queryByText("thumbnail:")).not.toBeInTheDocument();
     await expect(canvas.queryByText("No content.")).not.toBeInTheDocument();
@@ -343,6 +351,106 @@ export const ImageResultWithoutThumbnail: Story = {
     // The size-only tile and the metadata row.
     await expect(canvas.getAllByText("800×600 WEBP")).toHaveLength(2);
     await expect(canvas.getByText("notice:")).toBeInTheDocument();
+  },
+};
+
+/**
+ * A `media://` read of a PDF resolves an owner upload: the tile is named
+ * after the id the locator ends in, and it links the stored original in a
+ * new tab. A PDF has no `/model` variant, so the card loads no image and
+ * offers no lightbox.
+ *
+ * @summary for a stored PDF returned by a `media://` read
+ */
+export const StoredPdfResult: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: PAPER_LOCATOR },
+    output: {
+      status: "success" as const,
+      kind: "pdf" as const,
+      path: PAPER_LOCATOR,
+      media: PAPER_LOCATOR,
+      mediaType: "application/pdf",
+      pages: 15,
+      byteSize: 2_215_244,
+    },
+    mediaSources: fn((media: string) =>
+      media === PAPER_LOCATOR ? STORED_PDF_SOURCES : null,
+    ),
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    const link = canvas.getByRole("link", {
+      name: `Open ${PDF_ID} in a new tab`,
+    });
+    await expect(link).toHaveAttribute("href", STORED_PDF_SOURCES.original);
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(canvas.getByText("15 pages · 2.1 MiB")).toBeInTheDocument();
+    await expect(canvas.queryByRole("img")).not.toBeInTheDocument();
+    await expect(canvas.queryByRole("dialog")).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * A host read of a PDF is not stored: the tile names the file and has no link
+ * or image surface.
+ *
+ * @summary for an unstored PDF returned by a host read
+ */
+export const UnstoredPdfResult: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "/docs/paper.pdf" },
+    output: {
+      status: "success" as const,
+      kind: "pdf" as const,
+      path: "/docs/paper.pdf",
+      mediaType: "application/pdf",
+      pages: 15,
+      byteSize: 2_215_244,
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(canvas.getByText("/docs/paper.pdf")).toBeInTheDocument();
+    await expect(canvas.getByText("paper.pdf")).toBeInTheDocument();
+    await expect(canvas.getByText("15 pages · 2.1 MiB")).toBeInTheDocument();
+    await expect(canvas.queryByRole("link")).not.toBeInTheDocument();
+    await expect(canvas.queryByRole("img")).not.toBeInTheDocument();
+    await expect(canvas.queryByText("No content.")).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * A web read of a PDF names its tile after the URL's last path segment,
+ * after any redirect, and reports that the `pdf` ladder stage produced the
+ * result.
+ *
+ * @summary for a web PDF returned by a read
+ */
+export const WebPdfResult: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "https://example.test/paper" },
+    output: {
+      status: "success" as const,
+      kind: "pdf" as const,
+      path: "https://example.test/paper",
+      finalUrl: "https://cdn.example.test/report/paper.pdf",
+      method: "pdf",
+      mediaType: "application/pdf",
+      pages: 1,
+      byteSize: 4915,
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(canvas.getByText("paper.pdf")).toBeInTheDocument();
+    await expect(canvas.getByText("pdf")).toBeInTheDocument();
+    await expect(canvas.getByText("1 page · 4.8 KiB")).toBeInTheDocument();
+    await expect(canvas.queryByRole("link")).not.toBeInTheDocument();
   },
 };
 

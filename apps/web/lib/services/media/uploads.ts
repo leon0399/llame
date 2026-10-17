@@ -1,8 +1,15 @@
 import { uploadMedia } from "../../api/generated/media/media";
-import type { MediaDescriptorResponse } from "../../api/generated/models";
+import type {
+  MediaDescriptorResponse,
+  MediaPdfDescriptorResponse,
+} from "../../api/generated/models";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
-export type MediaDescriptor = MediaDescriptorResponse;
+/** A stored upload's descriptor: an image's, carrying `width`/`height`, or a
+ *  PDF's, carrying `pages`. */
+export type MediaDescriptor =
+  | MediaDescriptorResponse
+  | MediaPdfDescriptorResponse;
 
 /** Image types the composer attaches; the API accepts exactly these. */
 export const ATTACHABLE_IMAGE_TYPES: ReadonlyArray<string> = [
@@ -12,18 +19,16 @@ export const ATTACHABLE_IMAGE_TYPES: ReadonlyArray<string> = [
   "image/webp",
 ];
 
-/** Stores one image through `POST /api/v1/media` with the session cookie;
- *  rejects on any non-2xx answer (413 too large, 415 unsupported), and on a
- *  PDF descriptor, which the API returns when the picked file's bytes are a
- *  PDF whatever its name: the composer attaches images only. */
-export async function uploadImage(file: File): Promise<MediaDescriptor> {
-  const descriptor = await uploadMedia(
+/** The PDF type, attachable once the selected model declares `pdf` input. */
+export const ATTACHABLE_PDF_TYPE = "application/pdf";
+
+/** Stores one attachment through `POST /api/v1/media` with the session
+ *  cookie and returns its descriptor, an image's or a PDF's; rejects on any
+ *  non-2xx answer (413 too large, 415 unsupported). */
+export async function uploadAttachment(file: File): Promise<MediaDescriptor> {
+  return uploadMedia(
     { file },
     undefined,
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );
-  if (!("width" in descriptor)) {
-    throw new Error("Only images can be attached");
-  }
-  return descriptor;
 }
