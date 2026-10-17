@@ -984,6 +984,103 @@ describe("markdown ancestor range selection", () => {
     });
   });
 
+  it("prepends the header pair for a range at the table's tail", () => {
+    const result = selectSourceLines(
+      tableDocument(),
+      applySelectorSuffix("/doc.md", "139-140"),
+      "text/markdown",
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content:
+        "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n" +
+        "138: | row 138 | cell 138 |\n" +
+        "139: | row 139 | cell 139 |\n" +
+        "140: | row 140 | cell 140 |\n",
+      requestedRanges: [{ startLine: 139, endLine: 140 }],
+      shownRanges: [
+        { startLine: 6, endLine: 6 },
+        { startLine: 124, endLine: 124 },
+        { startLine: 126, endLine: 127 },
+        { startLine: 138, endLine: 140 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("prepends the header pair for the table's last line", () => {
+    const result = selectSourceLines(
+      tableDocument(),
+      applySelectorSuffix("/doc.md", "140-140"),
+      "text/markdown",
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content:
+        "6: # Iterative Review Refinement\n" +
+        "124: ## Common Rationalizations\n" +
+        "126: | Rationalization | Correction |\n" +
+        "127: | --- | --- |\n" +
+        "139: | row 139 | cell 139 |\n" +
+        "140: | row 140 | cell 140 |\n",
+      requestedRanges: [{ startLine: 140, endLine: 140 }],
+      shownRanges: [
+        { startLine: 6, endLine: 6 },
+        { startLine: 124, endLine: 124 },
+        { startLine: 126, endLine: 127 },
+        { startLine: 139, endLine: 140 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("finds the header pair at the tail of a table larger than the read chunk", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "native-table-tail-"));
+    const source =
+      [
+        "# Root",
+        "| a | b |",
+        "| --- | --- |",
+        ...Array.from(
+          { length: 20_000 },
+          (_, index) => `| row ${index + 1} ${"x".repeat(60)} | b |`,
+        ),
+      ].join("\n") + "\n";
+    const path = join(directory, "guide.md");
+    await writeFile(path, source);
+
+    try {
+      const result = await readFile({ path: `${path}:-2` });
+      const lines = splitSourceLines(source);
+      expect(result).toMatchObject({
+        representation: "text",
+        content:
+          `1: ${lines[0] ?? ""}` +
+          `2: ${lines[1] ?? ""}` +
+          `3: ${lines[2] ?? ""}` +
+          `20001: ${lines[20_000] ?? ""}` +
+          `20002: ${lines[20_001] ?? ""}` +
+          `20003: ${lines[20_002] ?? ""}`,
+        requestedRanges: [{ startLine: 20_002, endLine: 20_003 }],
+        shownRanges: [
+          { startLine: 1, endLine: 3 },
+          { startLine: 20_001, endLine: 20_003 },
+        ],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("emits no header pair when the range starts on the header or delimiter row", () => {
     const expected = {
       // Outside the table: the section context line, no header pair.
