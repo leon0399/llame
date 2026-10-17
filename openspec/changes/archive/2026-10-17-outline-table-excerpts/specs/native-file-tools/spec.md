@@ -135,7 +135,8 @@ restrict the emitted lines to those whose source line lies in the
 scope, and SHALL prepend the direct ancestor chain of source line `N`: the
 root headings whose sections contain `N`, from the shallowest to the deepest,
 each rendered as an in-scope heading is (its heading lines and its excerpt
-line) restricted to lines before `N`, because lines from `N` on follow the
+lines, which for a section a root table opens are that table's excerpt lines)
+restricted to lines before `N`, because lines from `N` on follow the
 in-scope rule, and each omitted when its own lines already lie in scope; and, when `N` is a root
 table's delimiter row or one of its body rows, that table's excerpt restricted
 to the lines before `N` — its header row always, and its first content row when
@@ -193,6 +194,11 @@ end does. No comma-separated scope SHALL be accepted.
 - **WHEN** a file holds `# Root` on line 1, a root table whose header row is line 3, delimiter row is line 4, first content row is line 5, and last content row is line 9, and the model reads `:outline:6-6`
 - **THEN** the outline content is `1: # Root`, `3: <header row>`, and `5: <first content row>`, in that order, and nothing else
 - **AND** `shownRange` covers 1 through 5
+
+#### Scenario: A scope after a table an ancestor opens carries its excerpt lines
+
+- **WHEN** a root heading on line 1 is followed by a root table whose header row is line 2, first content row is line 4, and last content row is line 5, and the model reads `:outline:7-7` where line 7 is prose in that heading's section
+- **THEN** the outline content is `1: <heading line>`, `2: <header row>`, `4: <first content row>`, and `5: <last content row>`, in that order
 
 #### Scenario: A scope that starts at the delimiter row prepends the header row alone
 
