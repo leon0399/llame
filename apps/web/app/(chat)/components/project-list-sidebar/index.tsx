@@ -251,10 +251,12 @@ function HeaderActions({
   return (
     <div
       inert={searching}
+      // Clipped only while collapsed: a focus ring draws outside its
+      // button, so a clipping box would crop it.
       className={cn(
-        "flex shrink-0 gap-2 overflow-hidden",
+        "flex shrink-0 gap-2",
         HEADER_MOTION,
-        searching ? "ml-0 w-0 opacity-0" : "ml-2 w-18",
+        searching ? "ml-0 w-0 overflow-hidden opacity-0" : "ml-2 w-18",
       )}
     >
       <ListViewMenu {...view} />
