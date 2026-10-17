@@ -1,6 +1,6 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
 
-import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
+import { MEDIA_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { Response } from 'undici';
 import { type Mock, vi } from 'vitest';
 
@@ -189,6 +189,7 @@ function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 const DECODED_IMAGE = {
   status: 'success',
+  kind: 'image',
   mediaType: 'image/png',
   width: 4,
   height: 3,
@@ -199,14 +200,14 @@ const DECODED_IMAGE = {
 function imageStore() {
   const decoded: Array<{ byteSize: number; bytes: Buffer }> = [];
   const media = {
-    readImage: vi.fn<ToolMediaStore['readImage']>(
+    readMedia: vi.fn<ToolMediaStore['readMedia']>(
       () =>
         async ({ byteSize, readBytes }) => {
           decoded.push({ byteSize, bytes: await readBytes() });
           return DECODED_IMAGE;
         },
     ),
-    findImage: () => Promise.resolve(undefined),
+    findMedia: () => Promise.resolve(undefined),
   } satisfies ToolMediaStore;
   return { media, decoded };
 }
@@ -818,7 +819,7 @@ describe('web locator dispatch', () => {
         finalUrl: IMAGE_URL,
         method: 'image',
       });
-      expect(media.readImage).toHaveBeenCalledWith(IMAGE_URL, 'call-1');
+      expect(media.readMedia).toHaveBeenCalledWith(IMAGE_URL, 'call-1');
       expect(decoded).toStrictEqual([
         { byteSize: IMAGE_BYTES.byteLength, bytes: Buffer.from(IMAGE_BYTES) },
       ]);
@@ -835,7 +836,7 @@ describe('web locator dispatch', () => {
       expect(result).toStrictEqual({
         status: 'error',
         type: 'invalid_selector',
-        message: IMAGE_SELECTOR_MESSAGE,
+        message: MEDIA_SELECTOR_MESSAGE,
       });
       expect(decoded).toStrictEqual([]);
     });

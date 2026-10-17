@@ -960,6 +960,7 @@ describe('buildWebImageResult', () => {
   const FINAL_URL = 'https://cdn.example.test/shot.png';
   const decoded = {
     status: 'success',
+    kind: 'image',
     mediaType: 'image/png',
     width: 4,
     height: 3,

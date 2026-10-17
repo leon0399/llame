@@ -7296,7 +7296,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // What the composer the clients install makes of the sent request.
       const composed = await composeStepMessages(sent.messages, {
         resolver: {
-          images: media.images,
+          heldMedia: media.heldMedia,
           describe: (ids) => media.describe(ids),
           loadModelBytes: (ids) =>
             Promise.resolve(
@@ -12867,6 +12867,53 @@ describe('RunExecutionService prompt imports', () => {
     }
   });
 
+  it('refuses a PDF prompt import and releases its attempt bytes', async () => {
+    const root = repoRoot();
+    try {
+      const pdfPath = path.join(root, 'paper.pdf');
+      const pdfBytes = readFileSync(
+        path.join(__dirname, '../media/testing/pdf/fifteen-pages.pdf'),
+      );
+      writeFileSync(pdfPath, pdfBytes);
+      const { append, events } = serveRepositories();
+      bindChat(root);
+      const execution = serviceFor(['enter_workspace', 'read']);
+      Object.assign(execution.client, { input: ['text', 'pdf'] });
+      const stream = vi.spyOn(execution.client, 'streamText');
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @paper.pdf'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      const completion = importEvents(events).find(
+        ({ type }) => type === 'tool.completed',
+      );
+      expect(completion?.payload).toMatchObject({
+        toolName: 'read',
+        status: 'error',
+        output: { status: 'error', type: 'unsupported_media_type' },
+      });
+      expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+        imports: [
+          {
+            locator: 'paper.pdf',
+            resolved: pdfPath,
+            outcome: 'failed',
+          },
+        ],
+      });
+      const sent = stream.mock.calls[0]?.[0];
+      const held = sent?.media?.heldMedia.get(
+        promptImportImageKey(runId, 'paper.pdf'),
+      );
+      expect(held).toMatchObject({ pages: 15, byteSize: pdfBytes.byteLength });
+      expect(held).not.toHaveProperty('bytes');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   describe('image targets (vision-media D8)', () => {
     const IMAGE_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
     const MEDIA = `media://${IMAGE_ID}`;
@@ -13036,7 +13083,7 @@ describe('RunExecutionService prompt imports', () => {
 
         const sent = stream.mock.calls[0]?.[0];
         expect(
-          sent?.media?.images.get(promptImportImageKey(runId, 'shot.png')),
+          sent?.media?.heldMedia.get(promptImportImageKey(runId, 'shot.png')),
         ).toEqual({
           locator: `${root}/shot.png`,
           width: 160,

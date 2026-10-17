@@ -1,5 +1,5 @@
 ---
-summary: "The media:// locator: a read-only handle on one image the Run owner holds"
+summary: "The media:// locator: a read-only handle on an image or PDF the Run owner holds"
 read_when:
   - you see a media://<id> locator in a result or an attachment label
   - you need to know what a media:// read returns or why it failed
@@ -16,9 +16,9 @@ configured_by:
 `media://<id>`, where `<id>` is a lower-case canonical UUID. The scheme is
 case-sensitive in the executor: `MEDIA://<id>` and an upper-case id are
 malformed. Bare `media://` is reserved and invalid until a library listing
-exists. The locator names one image the Run owner uploaded; attachment labels
-(`Image n (media://<id>):`) and `media://` read results carry it. An image read
-from any other source has no `media://` locator.
+exists. The locator names an image or PDF the Run owner uploaded; attachment
+labels (`Image n (media://<id>):` or `PDF n (media://<id>):`) and `media://`
+read results carry it. Media read from any other source has no `media://` locator.
 
 ## Read
 
@@ -29,6 +29,13 @@ nothing, changes nothing, and triggers no instruction chain. It is the only
 image read kept across turns: a later turn replays the image from the store
 under the epoch image window, where an image read from a path is not retained;
 see [read](../tools/read.md#image-result).
+
+A stored PDF instead returns `kind: "pdf"`, `mediaType: "application/pdf"`,
+`pages`, and `byteSize`, with `media` and `path` both equal to its locator.
+It has no thumbnail, content, or embedded PDF data. A PDF-capable model
+receives its original under the shared media window; another model gets an
+omitted placeholder. Like a stored image, it replays from the store across
+turns. See [PDF reads](../tools/read.md#pdf-result).
 
 ## Authority
 

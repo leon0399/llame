@@ -14,12 +14,11 @@ The media store keeps images and PDFs that chat owners upload. Each upload is
 one media object owned by exactly one owner, addressed as `media://<id>`, and
 kept in the same Postgres database as the rest of the application state. This
 release ships the store, its upload and fetch routes, image and PDF
-attachments on owner messages, the per-model input declaration, and image
-reads through `read`: a local, `kb://`, or `skill://` image file is decoded
-and stores nothing, kept only in the reading Run attempt's memory, and
-`media://<id>` reads an uploaded image (see
-[media://](../reference/locators/media.md)). PDFs can be uploaded, fetched,
-and attached but not yet read; see [PDFs](#pdfs).
+attachments on owner messages, the per-model input declaration, and image and
+PDF reads through `read`: local, `kb://`, and `skill://` files are prepared
+without storing them, with model bytes kept only in the reading Run attempt's
+memory. `media://<id>` reads an uploaded image or PDF across turns; see
+[media://](../reference/locators/media.md).
 
 There is nothing to enable: the store has no configuration keys, and its bounds
 are fixed by the application. Models opt into receiving images and PDFs with
@@ -111,8 +110,9 @@ refused as well. So is a PDF whose parse exceeds a bound in
 
 Ingest stores only a PDF's original and builds no model variant: an attached
 PDF reaches a model as its original (see [PDF attachments](#pdf-attachments)).
-Until a later release, `read` of a PDF's `media://` locator fails
-`unsupported_media_type`.
+`read` also returns a stored PDF from its `media://` locator; unstored PDF
+reads retain bytes only in the reading attempt. See
+[PDF reads](../reference/tools/read.md#pdf-result).
 
 ### Model variant
 

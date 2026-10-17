@@ -20,10 +20,10 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import type { MessagePart } from './context-builder';
 import {
-  imageResultRef,
+  mediaResultRef,
   submittedLocator,
   toolResultOutput,
-  type ToolImageRef,
+  type ToolMediaRef,
 } from '../media/epoch-admission';
 
 export const TOOL_PART_PREFIX = 'tool-';
@@ -120,7 +120,7 @@ interface ObservationPayload {
    * budgets measure the text without the `thumbnail` and never the image
    * (vision-media D6).
    */
-  image: ToolImageRef | undefined;
+  media: ToolMediaRef | undefined;
 }
 
 interface PairCandidate {
@@ -268,7 +268,7 @@ function makePair(
           cleared ? observation.clearedOutcome : observation.outcome,
           cleared ? null : observation.resultBody,
         ),
-        cleared ? undefined : observation.image,
+        cleared ? undefined : observation.media,
       ),
     },
   };
@@ -476,9 +476,9 @@ function storedObservations(
         isNativeToolName(toolName),
         isHopRejection(toolName, outcome),
       ),
-      image:
+      media:
         toolName === READ_TOOL_NAME && part.state === 'output-available'
-          ? imageResultRef(part.output, submittedLocator(part.input))
+          ? mediaResultRef(part.output, submittedLocator(part.input))
           : undefined,
     });
   });

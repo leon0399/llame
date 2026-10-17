@@ -315,7 +315,8 @@ async function attemptRead(
     attempt.target,
   );
   const base = outcomeBase(attempt);
-  if (read.result.status !== 'success') {
+  // Interim PDF guard until prompt-import-pdfs supplies PDF entries.
+  if (read.result.status !== 'success' || read.result['kind'] === 'pdf') {
     recordUnsuccessfulRead(run, attempt, read.admission);
     return;
   }

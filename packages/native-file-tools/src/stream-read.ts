@@ -31,7 +31,7 @@ import {
   type MultiReadSuccess,
   type ReadSuccess,
 } from "./source-lines";
-import { readImage, type ImageReadHook, type ImageReadSuccess } from "./image";
+import { readMedia, type MediaReadHook, type MediaReadSuccess } from "./media";
 
 type SourceLineState = {
   partial: string;
@@ -535,9 +535,9 @@ export function selectMultiRangeLines(
 }
 
 /**
- * With an `image` hook, a regular file whose leading bytes are an image takes
- * the image path before any decode or line count; every other file, and every
- * file when no hook is given, stays on the text path.
+ * With a `media` hook, a regular file whose leading bytes are an image or PDF
+ * takes the media path before any text decode or line count; every other file,
+ * and every file when no hook is given, stays on the text path.
  */
 export async function streamFileWindow(
   target: ReadTarget,
@@ -545,15 +545,15 @@ export async function streamFileWindow(
     hostPath: string;
     followSymlinks: boolean;
     signal?: AbortSignal | undefined;
-    image?: ImageReadHook | undefined;
+    media?: MediaReadHook | undefined;
   },
-): Promise<ReadSuccess | ImageReadSuccess | FileFailure> {
+): Promise<ReadSuccess | MediaReadSuccess | FileFailure> {
   const file = await open(source.hostPath, openFlags(source.followSymlinks));
   try {
     const stats = await file.stat();
     if (!stats.isFile()) throw new NativeFileError("not_regular_file");
-    const image = await readImage(file, stats.size, target, source);
-    if (image) return image;
+    const media = await readMedia(file, stats.size, target, source);
+    if (media) return media;
     const resolved =
       target.pending === undefined
         ? target

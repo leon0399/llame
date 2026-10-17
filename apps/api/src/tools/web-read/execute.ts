@@ -1,8 +1,8 @@
 import { promises as dns } from 'node:dns';
 
 import {
-  IMAGE_SELECTOR_MESSAGE,
-  type ImageReadHook,
+  MEDIA_SELECTOR_MESSAGE,
+  type MediaReadHook,
 } from '@workspace/native-file-tools';
 import { fetch as undiciFetch } from 'undici';
 
@@ -118,7 +118,7 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
       {
         locator,
         userAgent,
-        image: context.media?.readImage(call.input.path, context.toolCallId),
+        media: context.media?.readMedia(call.input.path, context.toolCallId),
       },
       deps,
     );
@@ -133,12 +133,12 @@ export const executeWebRead: WebReadExecutor =
 type WebPageRead = {
   readonly locator: WebLocator;
   readonly userAgent: string;
-  readonly image: ImageReadHook | undefined;
+  readonly media: MediaReadHook | undefined;
 };
 
 async function fetchAndRender(
   context: ToolContext,
-  { locator, userAgent, image }: WebPageRead,
+  { locator, userAgent, media }: WebPageRead,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
   const admit = createDerivedAdmission(context);
@@ -158,11 +158,11 @@ async function fetchAndRender(
         );
       notes = adapters.notes;
     }
-    const response = await fetchPage(context, session, locator.url, image);
+    const response = await fetchPage(context, session, locator.url, media);
     if ('type' in response) return { status: 'error', ...response };
     // Only a read with an image hook fetches a page that may return bytes.
     if ('bytes' in response)
-      return await readImage(locator, response, image!, notes);
+      return await readImage(locator, response, media!, notes);
     const render = await deps.renderWebContent(
       response,
       { raw },
@@ -187,10 +187,10 @@ async function fetchPage(
   context: ToolContext,
   session: WebFetchSession,
   url: string,
-  image: ImageReadHook | undefined,
+  media: MediaReadHook | undefined,
 ): Promise<WebResponse | WebImageResponse | WebFetchFailure> {
   const response =
-    image === undefined
+    media === undefined
       ? await session.fetch(url)
       : await session.fetchPage(url);
   if ('type' in response) return response;
@@ -204,18 +204,19 @@ async function fetchPage(
 async function readImage(
   locator: WebLocator,
   page: WebImageResponse,
-  decode: ImageReadHook,
+  decode: MediaReadHook,
   notes: ReadonlyArray<string>,
 ): Promise<ToolResult> {
   if (locator.selector !== undefined) {
     return {
       status: 'error',
       type: 'invalid_selector',
-      message: IMAGE_SELECTOR_MESSAGE,
+      message: MEDIA_SELECTOR_MESSAGE,
     };
   }
   const { bytes } = page;
   const decoded = await decode({
+    kind: 'image',
     byteSize: bytes.byteLength,
     readBytes: () =>
       Promise.resolve(
@@ -223,6 +224,7 @@ async function readImage(
       ),
   });
   if (decoded.status === 'error') return decoded;
+  if (decoded.kind !== 'image') throw new Error('Expected image preparation.');
   return buildWebImageResult(locator, page.finalUrl, decoded, notes);
 }
 

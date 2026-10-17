@@ -441,6 +441,43 @@ describe('resolvePromptImports admission', () => {
     ]);
   });
 
+  it.each([
+    ['paper.pdf', '/repo/paper.pdf', { existing: ['/repo/paper.pdf'] }],
+    [
+      'media://01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e',
+      'media://01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e',
+      { media: ['media://01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e'] },
+    ],
+  ])(
+    'records a PDF import of %s as failed without a body',
+    async (locator, resolved, options) => {
+      const { run } = createHarness({
+        ...options,
+        result: () => ({
+          status: 'success',
+          kind: 'pdf',
+          mediaType: 'application/pdf',
+          pages: 1,
+          byteSize: 863,
+        }),
+        // Refused PDF envelopes must not consume the text budget either.
+        body: () => 'x'.repeat(MAX_PROMPT_IMPORT_BYTES + 1),
+      });
+
+      expect(await run(`@${locator} @https://x.test/readme`)).toEqual({
+        outcomes: [
+          {
+            locator,
+            ...(resolved !== undefined && { resolved }),
+            outcome: 'failed',
+          },
+          { locator: 'https://x.test/readme', outcome: 'failed' },
+        ],
+        omitted: [],
+      });
+    },
+  );
+
   it('carries read truncation to the outcome', async () => {
     const { run } = createHarness({
       result: () => ({ status: 'success', truncated: true }),

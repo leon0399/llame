@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { mediaBlobs, mediaObjects } from '../db/schema';
 import type { MediaObject } from '../db/schema/media';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
-import type { HeldImage, UnstoredImage } from './attempt-images';
+import type { HeldMedia, UnstoredMedia } from './attempt-media';
 import {
   isCanonicalMediaId,
   mediaLocator,
@@ -166,7 +166,7 @@ function descriptorOf(row: DescriptorRow): MediaDescriptor | undefined {
  */
 export type RunMediaResolver = {
   /** The attempt's unstored images, keyed by tool call id or import entry. */
-  readonly images: Map<string, HeldImage>;
+  readonly heldMedia: Map<string, HeldMedia>;
   /** Owned descriptors among `ids`; unknown and foreign ids are absent. */
   describe(
     ids: ReadonlyArray<string>,
@@ -196,7 +196,7 @@ export function createRunMediaResolver(
   const known = new Map<string, MediaDescriptor | undefined>();
   const bytes = new Map<string, Uint8Array>();
   return {
-    images: new Map(),
+    heldMedia: new Map(),
     async describe(ids) {
       const missing = ids.filter((id) => !known.has(id));
       if (missing.length > 0) {
@@ -328,13 +328,19 @@ export function storedSubject(d: MediaDescriptor): MediaSubject {
     : { kind: 'image', subject, width: d.width, height: d.height };
 }
 
-export function unstoredSubject(image: UnstoredImage): ImageSubject {
-  return {
-    kind: 'image',
-    subject: JSON.stringify(image.locator),
-    width: image.width,
-    height: image.height,
-  };
+export function unstoredSubject(media: UnstoredMedia): MediaSubject {
+  return 'pages' in media
+    ? {
+        kind: 'pdf',
+        subject: JSON.stringify(media.locator),
+        pages: media.pages,
+      }
+    : {
+        kind: 'image',
+        subject: JSON.stringify(media.locator),
+        width: media.width,
+        height: media.height,
+      };
 }
 
 function describe(s: MediaSubject): string {

@@ -5,8 +5,9 @@ import type { FileFailure } from "./source-lines";
 /** The leading bytes every signature below fits in. */
 const SIGNATURE_BYTES = 12;
 
-/** The one refusal for a selector on an image, on every source. */
-export const IMAGE_SELECTOR_MESSAGE = "An image is read without a selector.";
+/** The one refusal for a selector on an image or PDF, on every source. */
+export const MEDIA_SELECTOR_MESSAGE =
+  "An image or PDF is read without a selector.";
 
 /**
  * An image a read decoded without storing it (vision-media D7): the original's
@@ -14,17 +15,26 @@ export const IMAGE_SELECTOR_MESSAGE = "An image is read without a selector.";
  * output carries and no model ever receives. An image whose thumbnail would
  * exceed the cap has none.
  */
-export type ImageDecodeSuccess = {
-  status: "success";
-  mediaType: string;
-  width: number;
-  height: number;
-  thumbnail?: string;
-};
+export type MediaDecodeSuccess =
+  | {
+      status: "success";
+      kind: "image";
+      mediaType: string;
+      width: number;
+      height: number;
+      thumbnail?: string;
+    }
+  | {
+      status: "success";
+      kind: "pdf";
+      mediaType: "application/pdf";
+      pages: number;
+      byteSize: number;
+    };
 
 /**
- * What a reader does with a regular file whose leading bytes are an image
- * (vision-media D7). It is given the file's size before any byte is read, so
+ * What a reader does with a regular file whose leading bytes are an image or
+ * PDF. It is given the file's size before it is read whole, so
  * a file over the byte bound is refused without being read whole; it reads
  * the bytes only through `readBytes`, and stores nothing. `signal` is the
  * read's abort signal: a hook that keeps anything checks it last, so a read
@@ -33,15 +43,15 @@ export type ImageDecodeSuccess = {
  * never a fallback to text. A reader without a hook keeps every file on the
  * text path.
  */
-export type ImageReadHook = (file: {
+export type MediaReadHook = (file: {
+  kind: "image" | "pdf";
   byteSize: number;
   readBytes: () => Promise<Buffer>;
   signal?: AbortSignal | undefined;
-}) => Promise<ImageDecodeSuccess | FileFailure>;
+}) => Promise<MediaDecodeSuccess | FileFailure>;
 
-/** A read whose bytes were an image: the decoded image, no content. */
-export type ImageReadSuccess = ImageDecodeSuccess & {
-  kind: "image";
+/** A read whose bytes were an image or PDF: metadata, no content. */
+export type MediaReadSuccess = MediaDecodeSuccess & {
   path: string;
   /** Host paths only, as on a text read. */
   realPath?: string;
@@ -64,27 +74,29 @@ function isImageSignature(head: Buffer): boolean {
 }
 
 /**
- * The image read of an opened regular file, or undefined when the source has
- * no image hook or the file's leading bytes match no image signature, and the
+ * The media read of an opened regular file, or undefined when the source has
+ * no media hook or the file's leading bytes match no media signature, and the
  * text path applies. The probe is a positional read, so it leaves the handle
  * where the text readers start. A selector is refused before anything is
  * counted or decoded.
  */
-export async function readImage(
+export async function readMedia(
   file: FileHandle,
   byteSize: number,
   target: ReadTarget,
   source: {
-    image?: ImageReadHook | undefined;
+    media?: MediaReadHook | undefined;
     signal?: AbortSignal | undefined;
   },
-): Promise<ImageReadSuccess | FileFailure | undefined> {
-  const { image, signal } = source;
-  if (image === undefined) return undefined;
+): Promise<MediaReadSuccess | FileFailure | undefined> {
+  const { media, signal } = source;
+  if (media === undefined) return undefined;
   const head = Buffer.alloc(SIGNATURE_BYTES);
   const { bytesRead } = await file.read(head, 0, SIGNATURE_BYTES, 0);
-  if (!isImageSignature(head.subarray(0, bytesRead))) return undefined;
-  // Any selector, including an open-ended or tail member that is still
+  const signature = head.subarray(0, bytesRead);
+  const isPdf = signature.toString("latin1", 0, 5) === "%PDF-";
+  if (!isPdf && !isImageSignature(signature)) return undefined;
+  const kind = isPdf ? "pdf" : "image";
   // pending a line count, leaves the target off its no-selector defaults.
   if (
     target.raw ||
@@ -94,8 +106,9 @@ export async function readImage(
     target.ranges !== undefined ||
     target.pending !== undefined
   )
-    throw new NativeFileError("invalid_selector", IMAGE_SELECTOR_MESSAGE);
-  const decoded = await image({
+    throw new NativeFileError("invalid_selector", MEDIA_SELECTOR_MESSAGE);
+  const decoded = await media({
+    kind,
     byteSize,
     readBytes: () => file.readFile({ signal }),
     signal,
@@ -103,7 +116,6 @@ export async function readImage(
   if (decoded.status === "error") return decoded;
   return {
     ...decoded,
-    kind: "image",
     path: target.path,
     ...(target.realPath !== undefined && { realPath: target.realPath }),
   };

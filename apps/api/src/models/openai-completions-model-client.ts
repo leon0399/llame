@@ -399,7 +399,7 @@ function runOpenAICompatibleStream(
   // into a user message here and on opencode-go, which composes over this
   // client (vision-media D6).
   installStepPreparation(streamOptions, input, config, {
-    moveToolImages: true,
+    moveToolMedia: true,
   });
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);

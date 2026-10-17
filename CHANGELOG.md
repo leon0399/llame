@@ -2,10 +2,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-16
 
-- PDF parsing now fails closed when the compiled parse entry is missing.
-  Production no longer selects the unbounded TypeScript test parser; requests
-  report `PDF parsing is unavailable on this server` and log the start failure.
-
 - The native `hackernews` adapter now reads the front page (`/`, `/news`,
   `/front`) and `/newest` as bullet lists of the first 30 stories — title,
   points, comment count, the story link, and its HN discussion link — from
@@ -43,6 +39,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   module, because it is what makes an hours-long Run viewable and not a corner
   of the chat engine (#1284).
 
+- PDF parsing now fails closed when the compiled parse entry is missing.
+  Production no longer selects the unbounded TypeScript test parser; requests
+  report `PDF parsing is unavailable on this server` and log the start failure.
+
 - Documented how each context document is chosen, imported, and injected.
   [Context documents](docs/product/reference/context-documents.md) maps the
   system prompt, project instruction files, prompt markers, and skill files
@@ -51,6 +51,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   relative to a skill activation and the user's text.
 
 # 2026-10-15
+
+- Added PDF reads from host files, `file:`, Knowledge, skills, and `media://`
+  locators (#1275). PDF-capable models receive the original under the shared
+  media window; unstored reads keep bytes only in the reading Run attempt and
+  replay as not retained later. Stored PDFs replay from the owner-scoped store.
+  Every selector on an image or PDF is refused with
+  `An image or PDF is read without a selector.`; encrypted, unopenable, or
+  oversized PDFs are refused without text fallback. PDF prompt imports remain
+  unsupported until their own delivery layer.
 
 - Fixed the composer textarea jumping back to the top on every keystroke once
   the prompt grew past its `maxHeight` (#1287). The auto-resize collapses the
