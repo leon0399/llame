@@ -19,6 +19,8 @@ import {
 } from "@workspace/ui/components/tooltip";
 import { ListFilterIcon, XIcon } from "lucide-react";
 
+import type { ChatListFilters } from "@/lib/services/chat/queries";
+
 /** Which chats a list shows. Every chat list surface offers the same three. */
 export type ChatListShow = "active" | "archived" | "all";
 
@@ -33,12 +35,26 @@ function isChatListShow(value: unknown): value is ChatListShow {
 }
 
 /** The `?archived` filter a view sends; Active is the server default. */
-export function archivedFilter(
-  show: ChatListShow,
-): "only" | "with" | undefined {
+function archivedFilter(show: ChatListShow): "only" | "with" | undefined {
   if (show === "archived") return "only";
   if (show === "all") return "with";
   return undefined;
+}
+
+/** The view's list on any chat list surface (the rail, a project page).
+ *  Active and All sit below a Pinned section, so they exclude pins; Archived
+ *  has no Pinned section and lists archived pins too. */
+export function chatListFilters(
+  show: ChatListShow,
+  projectId?: string,
+): ChatListFilters {
+  if (show === "archived") return { projectId, archived: "only" };
+  return { projectId, pinned: "exclude", archived: archivedFilter(show) };
+}
+
+/** The Pinned section above Active and All, archived pins included. */
+export function pinnedChatsFilters(projectId?: string): ChatListFilters {
+  return { projectId, pinned: "only", archived: "with" };
 }
 
 type ShowControlProps = {

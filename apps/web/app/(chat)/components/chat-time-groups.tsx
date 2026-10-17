@@ -45,27 +45,30 @@ type ChatRowProps = {
   pinnedAtByChatId?: ReadonlyMap<string, string>;
 };
 
-/** One time-period section (e.g. "Today", "Last 7 Days") of the chat list. */
-function ChatTimeGroup({
-  period,
+/** One titled section ("Pinned", "Today", "Last 7 Days", …) of the list.
+ *  Its heading is a sticky scroll anchor that paints the surface it scrolls
+ *  over: this list renders on the sidebar rail and sheet and on the project
+ *  page, so the surface comes from the caller, and a wrapper paints it
+ *  because the label primitive owns its own color. */
+function ChatGroup({
+  title,
   chats,
   rowProps,
   surfaceClassName,
+  pinned = false,
 }: {
-  period: ChatGroupPeriod;
+  title: string;
   chats: Array<ChatResponse>;
   rowProps: ChatRowProps;
   surfaceClassName: string;
+  /** Every row is pinned, whether or not the pins map has loaded yet. */
+  pinned?: boolean;
 }) {
+  const { onRequestNewProject, pinnedAtByChatId } = rowProps;
   return (
     <SidebarGroup>
-      {/* Sticky scroll anchor. It has to paint the surface it scrolls over,
-          and this list renders on two of them — the sidebar rail and sheet,
-          and the project page — so the surface comes from the caller rather
-          than a breakpoint guess here. It is painted by this wrapper because
-          the label primitive owns its own color. */}
       <div className={cn("sticky top-0 z-10", surfaceClassName)}>
-        <SidebarGroupLabel>{chatGroupTitles[period]}</SidebarGroupLabel>
+        <SidebarGroupLabel>{title}</SidebarGroupLabel>
       </div>
       <SidebarGroupContent>
         <SidebarMenu>
@@ -76,16 +79,37 @@ function ChatTimeGroup({
               isActive={chat.id === rowProps.selectedChatId}
               projects={rowProps.projects}
               onNewProject={
-                rowProps.onRequestNewProject
-                  ? () => rowProps.onRequestNewProject?.(chat.id)
-                  : undefined
+                onRequestNewProject && (() => onRequestNewProject(chat.id))
               }
-              isPinned={rowProps.pinnedAtByChatId?.has(chat.id) ?? false}
+              isPinned={pinned || (pinnedAtByChatId?.has(chat.id) ?? false)}
             />
           ))}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
+  );
+}
+
+/** The Pinned section every chat list shows above its time groups — a
+ *  discrete server query, never interleaved with them (#204). Renders
+ *  nothing without pinned chats. */
+export function PinnedChatGroup({
+  chats,
+  surfaceClassName,
+  ...rowProps
+}: {
+  chats: Array<ChatResponse>;
+  surfaceClassName: string;
+} & ChatRowProps) {
+  if (chats.length === 0) return null;
+  return (
+    <ChatGroup
+      title="Pinned"
+      chats={chats}
+      rowProps={rowProps}
+      surfaceClassName={surfaceClassName}
+      pinned
+    />
   );
 }
 
@@ -127,12 +151,12 @@ export function ChatTimeGroups({
       {Object.entries(groupedChats)
         .filter(([, groupChats]) => groupChats.length > 0)
         .map(([period, groupChats]) => (
-          <ChatTimeGroup
+          <ChatGroup
             key={period}
             // SAFETY: `groupedChats` is built by `groupChatsByTimePeriod`,
             // which only ever populates `ChatGroupPeriod` enum keys —
             // `Object.entries` widens the key type to `string` regardless.
-            period={period as ChatGroupPeriod}
+            title={chatGroupTitles[period as ChatGroupPeriod]}
             chats={groupChats}
             rowProps={rowProps}
             surfaceClassName={surfaceClassName}

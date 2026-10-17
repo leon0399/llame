@@ -13,7 +13,9 @@ import ProjectPage from "./page";
 // them, so a story can observe the page while they are still in flight. An
 // unrouted request fails the story.
 const PROJECTS_ROUTE = "GET /api/v1/projects";
-const CHATS_ROUTE = "GET /api/v1/chats?projectId=p1";
+const PINNED_CHATS_ROUTE =
+  "GET /api/v1/chats?projectId=p1&pinned=only&archived=with";
+const CHATS_ROUTE = "GET /api/v1/chats?projectId=p1&pinned=exclude";
 const PINS_ROUTE = "GET /api/v1/pins";
 
 const tripPlanning = {
@@ -54,6 +56,7 @@ function routeFetch() {
     if (key === PROJECTS_ROUTE) {
       return answer(projects, (release) => (releaseProjects = release));
     }
+    if (key === PINNED_CHATS_ROUTE) return Promise.resolve(jsonResponse([]));
     if (key === CHATS_ROUTE) {
       return answer([], (release) => (releaseChats = release));
     }
@@ -110,7 +113,12 @@ export const Loading: Story = {
     await expect(canvas.getByText("…")).toBeVisible();
     await expect(canvas.getAllByRole("listitem")).toHaveLength(4);
     await waitFor(() =>
-      expect(sentRoutes()).toEqual([PROJECTS_ROUTE, CHATS_ROUTE, PINS_ROUTE]),
+      expect(sentRoutes()).toEqual([
+        PROJECTS_ROUTE,
+        PINNED_CHATS_ROUTE,
+        CHATS_ROUTE,
+        PINS_ROUTE,
+      ]),
     );
 
     releaseProjects();
@@ -166,6 +174,7 @@ export const NoChats: Story = {
     ).toBeVisible();
     await expect(sentRoutes()).toEqual([
       PROJECTS_ROUTE,
+      PINNED_CHATS_ROUTE,
       CHATS_ROUTE,
       PINS_ROUTE,
     ]);

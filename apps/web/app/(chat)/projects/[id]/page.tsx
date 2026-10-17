@@ -9,12 +9,16 @@ import type { ProjectResponse } from "@/lib/services/project/types";
 import { useParams } from "next/navigation";
 
 import {
-  archivedFilter,
+  chatListFilters,
   type ChatListShow,
   ChatListShowChip,
   ChatListViewMenu,
+  pinnedChatsFilters,
 } from "../../components/chat-list-view";
-import { ChatTimeGroups } from "../../components/chat-time-groups";
+import {
+  ChatTimeGroups,
+  PinnedChatGroup,
+} from "../../components/chat-time-groups";
 import { CreateProjectForChatDialog } from "../../components/chat-list-sidebar/project-dialogs";
 import { PageHeader } from "../../components/page-header";
 import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
@@ -34,12 +38,16 @@ type ProjectChatRows = {
 type ProjectChatsView = {
   show: ChatListShow;
   onShowChange: (show: ChatListShow) => void;
+  /** Above the view's list in Active and All; none in Archived. */
+  pinnedChats: Array<ChatResponse>;
   chats: Array<ChatResponse>;
   /** The current view's chats are loading (first load or a view switch). */
   loading: boolean;
 };
 
-/** The card's list region: only this part reloads when the view changes. */
+/** The card's list region, laid out like the chats rail: a Pinned section,
+ *  then the view's time groups. Only the time groups reload when the view
+ *  changes. */
 function ProjectChatsList({
   view,
   rows,
@@ -47,20 +55,31 @@ function ProjectChatsList({
   view: ProjectChatsView;
   rows: ProjectChatRows;
 }) {
-  if (view.loading) return <SidebarRowSkeletons count={4} />;
-  if (view.chats.length === 0)
+  if (!view.loading && view.chats.length === 0 && view.pinnedChats.length === 0)
     return (
       <p className="px-2 py-1 text-sm text-muted-foreground">
         {EMPTY_TEXT.get(view.show)}
       </p>
     );
+  // This card sits on the page canvas, not the sidebar.
+  const surfaceClassName = "bg-background";
   return (
-    <ChatTimeGroups
-      chats={view.chats}
-      {...rows}
-      // This card sits on the page canvas, not the sidebar.
-      surfaceClassName="bg-background"
-    />
+    <>
+      <PinnedChatGroup
+        chats={view.pinnedChats}
+        {...rows}
+        surfaceClassName={surfaceClassName}
+      />
+      {view.loading ? (
+        <SidebarRowSkeletons count={4} />
+      ) : (
+        <ChatTimeGroups
+          chats={view.chats}
+          {...rows}
+          surfaceClassName={surfaceClassName}
+        />
+      )}
+    </>
   );
 }
 
@@ -92,13 +111,17 @@ function ProjectChatsCard({
 function useProjectPageData(id: string) {
   const [show, setShow] = React.useState<ChatListShow>("active");
   const { data: projects, isLoading } = useProjects();
-  const { data, isLoading: chatsLoading } = useChatsQuery({
-    projectId: id,
-    archived: archivedFilter(show),
-  });
+  const { data: pinnedData } = useChatsQuery(pinnedChatsFilters(id));
+  const { data, isLoading: chatsLoading } = useChatsQuery(
+    chatListFilters(show, id),
+  );
   const { data: pins } = usePins();
 
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
+  const pinnedChats = React.useMemo(
+    () => (show === "archived" ? [] : (pinnedData?.pages.flat() ?? [])),
+    [pinnedData, show],
+  );
   const chats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
   const pinnedAtByChatId = React.useMemo(
     () => selectPinnedChatMap(pins),
@@ -110,7 +133,13 @@ function useProjectPageData(id: string) {
     project: allProjects.find((candidate) => candidate.id === id),
     allProjects,
     pinnedAtByChatId,
-    view: { show, onShowChange: setShow, chats, loading: chatsLoading },
+    view: {
+      show,
+      onShowChange: setShow,
+      pinnedChats,
+      chats,
+      loading: chatsLoading,
+    },
   };
 }
 

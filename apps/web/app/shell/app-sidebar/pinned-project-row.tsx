@@ -28,7 +28,7 @@ import { ArchivedBadge } from "@/components/archived-badge";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { useChatsQuery } from "@/lib/services/chat/queries";
 import { useUnpinItem } from "@/lib/services/pins/mutations";
-import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
+import { chatListFilters } from "@/app/(chat)/components/chat-list-view";
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { useProjects } from "@/lib/services/project/queries";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
@@ -110,17 +110,12 @@ function PinnedProjectLabel({
  *  "View all" to the project page. Pinned chats are left out: the rail
  *  already lists them above. Mounted only while expanded, so a collapsed
  *  project costs no request; it shares the project page's Active list
- *  cache, filtered here rather than with `?pinned=exclude` so the two keep
- *  one entry. */
+ *  cache. */
 function PinnedProjectChats({ projectId }: { projectId: string }) {
   const pathname = usePathname();
-  const { data } = useChatsQuery({ projectId });
-  const { data: pins } = usePins();
+  const { data } = useChatsQuery(chatListFilters("active", projectId));
   const { data: projects } = useProjects();
-  const pinned = selectPinnedChatMap(pins);
-  const chats = (data?.pages.flat() ?? [])
-    .filter((chat) => !pinned.has(chat.id))
-    .slice(0, PROJECT_RECENT_CHAT_LIMIT);
+  const chats = (data?.pages.flat() ?? []).slice(0, PROJECT_RECENT_CHAT_LIMIT);
 
   return (
     <div className="pl-4">
