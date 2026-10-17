@@ -96,7 +96,8 @@ export class ProjectsRepository {
     return rows[0];
   }
 
-  /** Create a new project owned by a user. */
+  /** Create a new project owned by a user; an omitted description is stored
+   *  as the column's null. */
   async create(input: {
     ownerUserId: string;
     name: string;
@@ -107,7 +108,7 @@ export class ProjectsRepository {
       .values({
         ownerUserId: input.ownerUserId,
         name: input.name,
-        description: input.description ?? null,
+        description: input.description,
       })
       .returning();
 

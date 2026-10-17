@@ -8,16 +8,15 @@ import {
 } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { ArchiveIcon } from "lucide-react";
-import { usePathname } from "next/navigation";
 
 import { useSetChatArchive } from "@/lib/services/chat/management";
 import { useOpenChat } from "@/lib/services/chat/queries";
 
-/** Whether the chat open at `/chat/:chatId` is archived. A draft that has
- *  no route yet is never archived, and resolving it would 404. */
+/** Whether the open chat is archived, read from what the chat header
+ *  already loads (its list caches, or GET /chats/:id) and never fetched
+ *  again here — so a draft, which no cache holds, is never archived. */
 export function useOpenChatArchived(chatId: string): boolean {
-  const routed = usePathname() === `/chat/${chatId}`;
-  const chat = useOpenChat(routed ? chatId : undefined);
+  const chat = useOpenChat(chatId, { fetch: false });
   return chat !== undefined && chat.archivedAt !== null;
 }
 
