@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- A turn's throughput no longer counts the time it spent waiting on its own
+  tools. The rate divides its output tokens by the time its provider requests
+  were actually generating: each request's window from its first streamed delta
+  — or from the request itself when it streamed no text, so a bare tool call
+  still pays for the argument tokens it produced — to that request's finish,
+  summed over the turn. A `bash` call that took a minute between two steps no
+  longer drags the number down, and the card's `Speed` row finally means what it
+  looks like it means. The window is persisted beside the rate as
+  `generationMs`, absent rather than zero when nothing was measured, and a turn
+  recorded before this keeps the value it was recorded with (#155).
+
 - A project now carries a **description** — the owner's own prose about what the
   project is for — beside its name. It is empty until you set one, so nothing
   changes for an existing project, and it is edited from a new **Settings**

@@ -1066,14 +1066,19 @@ export class RunExecutionService {
     const streamStartedAt = Date.now();
     const requestUsageReceipts: Array<LanguageModelUsage> = [];
     // Stream performance for the turn (#155): the first streamed output delta's
-    // offset and how many arrived. Both are stamped from the SAME baseline
-    // `streamStartedAt` that `latencyMs` is measured from, so the usage card's
-    // Total and First token rows are comparable, and the throughput derivation
-    // can subtract one from the other. A delta counts (and stamps the first)
-    // only when it carries text: an empty reasoning delivery is a part boundary
-    // whose text the provider withheld, not streamed output.
+    // offset, how many arrived, and the generation time the throughput divides
+    // by. The first two are stamped from the SAME baseline `streamStartedAt`
+    // that `latencyMs` is measured from, so the usage card's Total and First
+    // token rows are comparable. A delta counts (and stamps the first) only
+    // when it carries text: an empty reasoning delivery is a part boundary
+    // whose text the provider withheld, not streamed output. `generationMs` is
+    // the model client's own sum over the attempt's provider requests — each
+    // one's window from its first delta, or from the request itself when it
+    // streamed none, to that request's finish — so the rate measures
+    // generation, not the wall clock a step spent waiting on its tools.
     let firstOutputDeltaMs: number | undefined;
     let outputDeltaCount = 0;
+    let generationMs = 0;
     const noteOutputDelta = (text: string): void => {
       if (text.length === 0) return;
       firstOutputDeltaMs ??= Date.now() - streamStartedAt;
@@ -1094,6 +1099,7 @@ export class RunExecutionService {
         latencyMs: Date.now() - streamStartedAt,
         firstTokenMs: firstOutputDeltaMs,
         chunkCount: outputDeltaCount,
+        generationMs,
         price: client.pricing,
         billing: client.billing,
         stepCount,
@@ -1184,9 +1190,10 @@ export class RunExecutionService {
     //
     // Accumulated from EACH onReasoningDelta chunk (not the SDK's
     // onFinish.reasoningText, which is only the FINAL step's reasoning and would
-    // silently drop step-1 thinking on a multi-step tool turn — master has no
-    // tool loop today, so every turn is one step, but the accumulation is
-    // correct regardless of step count and matches the persistence branch).
+    // silently drop step-1 thinking on a multi-step tool turn — the tool loop
+    // caps steps rather than replacing them, so a turn is several steps, and
+    // the accumulation is correct regardless of step count and matches the
+    // persistence branch).
     //
     // Each buffered `reasoning.delta` event carries the adapter part id of the
     // text it holds, so the durable reconstructor can rebuild the same part
@@ -1759,8 +1766,9 @@ export class RunExecutionService {
     );
     try {
       return client.streamText({
-        onRequestUsage: (usage) => {
+        onRequestUsage: (usage, requestGenerationMs) => {
           requestUsageReceipts.push(usage);
+          generationMs += requestGenerationMs;
         },
         system,
         messages,

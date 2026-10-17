@@ -59,11 +59,23 @@ export type TurnTelemetry = {
    */
   chunkCount?: number;
   /**
+   * Milliseconds the attempt's provider requests were generating, summed: each
+   * request's own window from its first streamed output delta — or from the
+   * request itself when it streamed none, so a bare tool call's argument tokens
+   * stay in the denominator — to that request's `finish`. The tool-execution
+   * time between steps is therefore excluded, and a request that never finished
+   * (a retried failure, an abort) contributes no window because it reported no
+   * usage either. Absent — never zero — for an attempt that streamed no output,
+   * when no request of it completed with a positive window, and for turns
+   * recorded before the metric existed.
+   */
+  generationMs?: number;
+  /**
    * Output-token throughput over the attempt's generation window: the
-   * aggregate `outputTokens` over `latencyMs` minus `firstTokenMs`, rounded to
-   * one decimal. Recorded only with an exact output total — every model
-   * request reported input and output counts — and a positive window, so it is
-   * never a rate over a partial total or a zero-length window.
+   * aggregate `outputTokens` over `generationMs`, rounded to one decimal.
+   * Recorded only with an exact output total — every model request reported
+   * input and output counts — and a positive window, so it is never a rate over
+   * a partial total or a zero-length window.
    */
   tokensPerSecond?: number;
   finishReason: FinishReason | null;
@@ -109,6 +121,8 @@ export type AggregateTurnTelemetryInput = Omit<
   firstTokenMs?: number;
   /** Count of streamed output deltas the attempt received; the aggregate omits a zero, like an absent count. */
   chunkCount?: number;
+  /** Milliseconds the attempt's provider requests were generating, summed; the aggregate omits a zero, like an absent window. */
+  generationMs?: number;
 };
 
 type AggregateTurnTelemetryTotals = {
@@ -219,27 +233,31 @@ function finalRequestContextTokens(
  * attempt streamed, not what the provider reported, so they are taken
  * straight from the caller's stamps: the first streamed output delta's offset
  * from the same baseline `latencyMs` measures, how many such deltas arrived,
- * and their output-token throughput. All three are absent — never zero — when
- * the attempt streamed nothing; the rate additionally needs a window to divide
- * by and an exact output total, which only a turn whose every request reported
- * input and output counts has.
+ * and the generation time the model client summed over the attempt's own
+ * provider requests — the window the rate divides by, which excludes the
+ * tool-execution time between steps. All four are absent — never zero — when
+ * the attempt streamed nothing; the rate additionally needs an exact output
+ * total, which only a turn whose every request reported input and output counts
+ * has, and a positive window.
  */
 function streamedOutputTelemetry(
   input: AggregateTurnTelemetryInput,
   totals: AggregateTurnTelemetryTotals,
-): Pick<TurnTelemetry, 'firstTokenMs' | 'chunkCount' | 'tokensPerSecond'> {
+): Pick<
+  TurnTelemetry,
+  'firstTokenMs' | 'chunkCount' | 'generationMs' | 'tokensPerSecond'
+> {
   const chunkCount = input.chunkCount ?? 0;
   if (input.firstTokenMs === undefined || chunkCount <= 0) {
     return {};
   }
 
   const firstTokenMs = Math.round(input.firstTokenMs);
-  // Rounded and floored exactly as the recorded `latencyMs`, so the persisted
-  // rate divides the very window the card's Total and First token rows show.
-  const generationMs = Math.max(0, Math.round(input.latencyMs)) - firstTokenMs;
+  const generationMs = Math.max(0, Math.round(input.generationMs ?? 0));
   return {
     firstTokenMs,
     chunkCount,
+    ...(generationMs > 0 && { generationMs }),
     ...(totals.everyReceiptHasCounts &&
       generationMs > 0 && {
         tokensPerSecond:

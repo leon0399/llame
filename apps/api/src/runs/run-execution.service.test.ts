@@ -1,4 +1,7 @@
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import type {
+  LanguageModelV3StreamPart,
+  LanguageModelV3Usage,
+} from '@ai-sdk/provider';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText, type ModelMessage } from 'ai';
 import type { OpenAICompatibleProvider } from '@ai-sdk/openai-compatible';
@@ -71,6 +74,7 @@ import type {
 } from '../tools/types';
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import {
+  isNumber,
   isRecord,
   isString,
   type UnknownRecord,
@@ -3428,6 +3432,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         totalTokens: 1200,
         reasoningTokens: 150,
       }),
+      300,
     );
     options.onRequestUsage?.(
       requestUsageReceipt({
@@ -3437,6 +3442,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         totalTokens: 1500,
         reasoningTokens: 60,
       }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3521,6 +3527,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         totalTokens: 1090,
         reasoningTokens: 30,
       }),
+      400,
     );
     now.mockReturnValue(10_600);
     await options.onFinish?.({
@@ -3535,9 +3542,12 @@ describe('RunExecutionService executeRun — stream completion', () => {
       status: 'completed',
       complete: true,
       // First non-empty text delta at 200 ms; 3 streamed output deltas (2 text +
-      // 1 reasoning); 90 output tokens over the (600 − 200) ms generation window.
+      // 1 reasoning); 90 output tokens over the request's own 400 ms generation
+      // window — the window the provider was asked for and reported back, not
+      // the turn's 600 ms wall clock.
       firstTokenMs: 200,
       chunkCount: 3,
+      generationMs: 400,
       tokensPerSecond: 225,
     });
   });
@@ -3552,6 +3562,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 700, outputTokens: 100 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3586,12 +3597,15 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 102_000, outputTokens: 1000 }),
+      300,
     );
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 50 }),
+      300,
     );
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 500, outputTokens: 100 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3633,6 +3647,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3676,6 +3691,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3984,6 +4000,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         outputTokens: 30_000,
         totalTokens: 150_000,
       }),
+      300,
     );
     await options.onFinish?.({
       text: 'half',
@@ -4136,6 +4153,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         outputTokens: 200,
         totalTokens: 1200,
       }),
+      300,
     );
     options.onTextDelta?.('partial');
     await options.onError?.({ error: new Error('provider exploded') });
@@ -4275,6 +4293,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         outputTokens: 100,
         totalTokens: 600,
       }),
+      300,
     );
     controller.abort(RUN_TIMEOUT_ABORT_REASON);
     await options.onError?.({ error: new Error('aborted by signal') });
@@ -4432,6 +4451,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 80, outputTokens: 12 }),
+      300,
     );
     options.onTextDelta?.('partial');
     controller.abort();
@@ -4470,6 +4490,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 80, outputTokens: 12 }),
+      300,
     );
     options.onTextDelta?.('partial');
     controller.abort();
@@ -4733,6 +4754,7 @@ const TEST_PROVIDER_USAGE = {
 function providerResponse(
   parts: ReadonlyArray<LanguageModelV3StreamPart>,
   finishReason: 'tool-calls' | 'stop',
+  options: { usage?: LanguageModelV3Usage; chunkDelayInMs?: number } = {},
 ) {
   return {
     stream: simulateReadableStream<LanguageModelV3StreamPart>({
@@ -4742,9 +4764,12 @@ function providerResponse(
         {
           type: 'finish',
           finishReason: { unified: finishReason, raw: undefined },
-          usage: TEST_PROVIDER_USAGE,
+          usage: options.usage ?? TEST_PROVIDER_USAGE,
         },
       ],
+      ...(options.chunkDelayInMs !== undefined && {
+        chunkDelayInMs: options.chunkDelayInMs,
+      }),
     }),
   };
 }
@@ -4799,6 +4824,54 @@ function createToolLoopClient(
   );
   return { client, model };
 }
+
+const SLOW_TOOL_ID = 'tool_loop_slow_tool';
+/** Long enough that the turn's wall clock cannot hide it in scheduling noise. */
+const SLOW_TOOL_SLEEP_MS = 500;
+
+function createSlowTool() {
+  const execute = vi.fn(async () => {
+    await new Promise((resolve) => setTimeout(resolve, SLOW_TOOL_SLEEP_MS));
+    return { status: 'success' as const };
+  });
+  const tool: Tool = {
+    id: SLOW_TOOL_ID,
+    description: 'Sleep before answering.',
+    classification: 'read_only',
+    inputSchema: z.strictObject({}),
+    execute,
+  };
+  return { tool, execute };
+}
+
+/** A provider usage report carrying real counts, so a rate can be derived. */
+function providerCounts(
+  inputTokens: number,
+  outputTokens: number,
+): LanguageModelV3Usage {
+  return {
+    inputTokens: {
+      total: inputTokens,
+      noCache: inputTokens,
+      cacheRead: 0,
+      cacheWrite: 0,
+    },
+    outputTokens: { total: outputTokens, text: outputTokens, reasoning: 0 },
+  };
+}
+
+/** One numeric field of a persisted usage object, narrowed for assertions. */
+function numericUsageField(usage: unknown, field: string): number {
+  if (!isRecord(usage)) {
+    throw new Error('Expected the persisted usage to be a record.');
+  }
+  const value = usage[field];
+  if (!isNumber(value)) {
+    throw new Error(`Expected usage.${field} to be a number.`);
+  }
+  return value;
+}
+
 const MID_RUN_ADDER_ID = 'mid_run_add_workspace_tool';
 const MID_RUN_ADDED_ID = 'mcp__workspace__added';
 const MID_RUN_ADDED_SECOND_ID = 'mcp__workspace__second';
@@ -4889,6 +4962,68 @@ describe('RunExecutionService executeRun — tool loop', () => {
       ]);
     } finally {
       unregisterTestOnlyTool(MID_RUN_ADDER_ID);
+    }
+  });
+
+  it("keeps a step's tool wait out of the turn's generation window (#155)", async () => {
+    const spies = mockNormalExecutionRepositories();
+    const { tool, execute } = createSlowTool();
+    registerTestOnlyTool(tool);
+    try {
+      const { client } = createToolLoopClient([
+        // The model speaks, then waits half a second on its tool, then answers:
+        // the wait sits between the first delta and the turn's end, which is
+        // where the wall clock used to leak into the rate.
+        providerResponse(
+          [
+            { type: 'text-start', id: 'answer' },
+            { type: 'text-delta', id: 'answer', delta: 'checking. ' },
+            { type: 'text-end', id: 'answer' },
+            {
+              type: 'tool-call',
+              toolCallId: 'slow-call',
+              toolName: SLOW_TOOL_ID,
+              input: '{}',
+            },
+          ],
+          'tool-calls',
+          { usage: providerCounts(10, 20) },
+        ),
+        providerResponse(
+          [
+            { type: 'text-start', id: 'answer' },
+            { type: 'text-delta', id: 'answer', delta: 'done' },
+            { type: 'text-end', id: 'answer' },
+          ],
+          'stop',
+          { usage: providerCounts(12, 40), chunkDelayInMs: 5 },
+        ),
+      ]);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: [SLOW_TOOL_ID],
+        permissionPolicy: compileTestPermissionPolicy([SLOW_TOOL_ID]),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toContain('done');
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      const usage =
+        spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
+      const latencyMs = numericUsageField(usage, 'latencyMs');
+      const generationMs = numericUsageField(usage, 'generationMs');
+      // The tool slept inside the turn, so the wall clock carries it and the
+      // generation window does not: the provider was only generating for the
+      // spaced chunks of its two requests.
+      expect(latencyMs).toBeGreaterThanOrEqual(SLOW_TOOL_SLEEP_MS);
+      expect(generationMs).toBeLessThan(latencyMs / 2);
+      expect(numericUsageField(usage, 'chunkCount')).toBe(2);
+      expect(numericUsageField(usage, 'tokensPerSecond')).toBeCloseTo(
+        60 / (generationMs / 1000),
+        1,
+      );
+    } finally {
+      unregisterTestOnlyTool(SLOW_TOOL_ID);
     }
   });
 
@@ -5967,6 +6102,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         outputTokens: 200,
         totalTokens: 1200,
       }),
+      300,
     );
     const call = executeBoundTool(options, { q: 'slow' }, 'call-2');
     await Promise.resolve();
@@ -6126,6 +6262,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     const call = executeBoundTool(options, { q: 'slow' }, 'call-4');
     await Promise.resolve();
@@ -8667,6 +8804,7 @@ describe('RunExecutionService settleTerminalRun', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'salvaged answer',
@@ -8746,6 +8884,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'salvage me',
@@ -8818,6 +8957,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
       .streamOptions()
       .onRequestUsage?.(
         requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+        300,
       );
     await capturing.streamOptions().onFinish?.({
       text: 'answer',
@@ -8870,6 +9010,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
       .streamOptions()
       .onRequestUsage?.(
         requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+        300,
       );
     await capturing.streamOptions().onFinish?.({
       text: 'answer',
@@ -9010,6 +9151,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
