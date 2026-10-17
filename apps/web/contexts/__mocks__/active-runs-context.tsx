@@ -18,7 +18,7 @@ type ActiveRunsContextValue = {
   trackRun: (runId: string, chatId: string, title: string) => void;
   untrackChat: (chatId: string) => void;
   registerViewedChat: (chatId: string) => () => void;
-  completedChats: ReadonlyMap<string, UnseenRunOutcome>;
+  unseenRunOutcomes: ReadonlyMap<string, UnseenRunOutcome>;
   markChatSeen: (chatId: string) => void;
   activeChatIds: ReadonlySet<string>;
   runPhaseByChatId: ReadonlyMap<string, RunPhase>;
@@ -30,7 +30,7 @@ export function emptyActiveRuns(): ActiveRunsContextValue {
     trackRun: () => {},
     untrackChat: () => {},
     registerViewedChat: () => () => {},
-    completedChats: new Map(),
+    unseenRunOutcomes: new Map(),
     markChatSeen: () => {},
     activeChatIds: new Set(),
     runPhaseByChatId: new Map(),

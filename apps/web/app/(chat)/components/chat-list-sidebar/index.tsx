@@ -18,7 +18,7 @@ import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { topBarClasses } from "@/app/shell/top-bar";
-import { SHORTCUT_KEY_NEW_CHAT } from "../app-sidebar/app-sidebar-actions";
+import { SHORTCUT_KEY_NEW_CHAT } from "@/lib/command-palette";
 import { ListViewMenu, useChatListShow } from "../chat-list-view";
 import { ChatList } from "./chat-list";
 

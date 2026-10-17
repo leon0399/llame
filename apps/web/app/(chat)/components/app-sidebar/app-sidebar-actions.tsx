@@ -15,25 +15,13 @@ import { SearchIcon, SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import {
+  isNewChatShortcut,
+  SHORTCUT_KEY_NEW_CHAT,
+} from "@/lib/command-palette";
 import { useCommandPalette } from "../command-palette";
 
-export const SHORTCUT_KEY_NEW_CHAT = "o";
 const SHORTCUT_KEY_SEARCH = "k";
-
-/** True for the new-chat chord: the platform's primary modifier (⌘ on a
- *  Mac, Ctrl elsewhere) + Shift + O, with nothing else held. */
-export function isNewChatShortcut(
-  e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
-  isMac: boolean,
-): boolean {
-  const modifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  return (
-    modifier &&
-    e.shiftKey &&
-    !e.altKey &&
-    e.key.toLowerCase() === SHORTCUT_KEY_NEW_CHAT
-  );
-}
 
 /** Opens a new chat from anywhere in the chat shell. A held chord's
  *  auto-repeat is ignored, so holding the keys navigates once. */

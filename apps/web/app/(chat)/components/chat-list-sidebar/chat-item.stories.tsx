@@ -171,7 +171,7 @@ const meta = {
     useActiveRuns.mockReturnValue({
       ...emptyActiveRuns(),
       activeChatIds: new Set(["chat-processing"]),
-      completedChats: new Map([
+      unseenRunOutcomes: new Map([
         ["chat-unread", "completed"],
         ["chat-failed", "failed"],
       ]),

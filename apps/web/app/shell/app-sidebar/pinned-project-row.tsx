@@ -22,9 +22,9 @@ import { usePathname } from "next/navigation";
 
 import { ChatItem } from "@/app/(chat)/components/chat-list-sidebar/chat-item";
 import {
-  DeleteProjectDialog,
-  EditProjectDialog,
-} from "@/app/(chat)/components/chat-list-sidebar/project-dialogs";
+  useProjectDialogs,
+  ProjectDialogs,
+} from "@/app/(chat)/components/project-list-sidebar/project-actions";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { useChatsQuery } from "@/lib/services/chat/queries";
@@ -149,61 +149,55 @@ function PinnedProjectChats({ projectId }: { projectId: string }) {
   );
 }
 
-/** The row's mutations and dialog-open state — split out so
- *  `PinnedProjectRow` composes only markup. */
-function usePinnedProjectActions(pin: PinnedProject) {
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+/** The row's "…" menu. Unpin and archive-toggle need only the lean card;
+ *  Edit details and Delete open the shared dialogs. */
+function PinnedProjectMenu({
+  pin,
+  isActive,
+  dialogs,
+}: {
+  pin: PinnedProject;
+  isActive: boolean;
+  dialogs: ReturnType<typeof useProjectDialogs>;
+}) {
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetProjectArchive();
-
-  return {
-    editOpen,
-    setEditOpen,
-    deleteOpen,
-    setDeleteOpen,
-    unpin: () =>
-      unpinMutation.mutate({ itemType: "project", itemId: pin.itemId }),
-    edit: {
-      label: "Edit details",
-      icon: <PencilIcon />,
-      onSelect: () => setTimeout(() => setEditOpen(true), 0),
-    },
-    toggleArchive: () =>
-      archiveMutation.mutate({
-        id: pin.itemId,
-        archived: pin.item.archivedAt === null,
-      }),
-    startDelete: () => setTimeout(() => setDeleteOpen(true), 0),
-  };
+  const isArchived = pin.item.archivedAt !== null;
+  return (
+    <PinRowMenu
+      isActive={isActive}
+      onUnpin={() =>
+        unpinMutation.mutate({ itemType: "project", itemId: pin.itemId })
+      }
+      edit={{
+        label: "Edit details",
+        icon: <PencilIcon />,
+        onSelect: dialogs.openEdit,
+      }}
+      isArchived={isArchived}
+      onToggleArchive={() =>
+        archiveMutation.mutate({ id: pin.itemId, archived: !isArchived })
+      }
+      onDelete={dialogs.openDelete}
+    />
+  );
 }
 
 /** The rail holds only the pin's lean card, so Edit details reads the full
  *  project (its description) when it opens, and shows once that lands. */
 function PinnedProjectDialogs({
   pin,
-  actions,
+  dialogs,
 }: {
   pin: PinnedProject;
-  actions: ReturnType<typeof usePinnedProjectActions>;
+  dialogs: ReturnType<typeof useProjectDialogs>;
 }) {
-  const { data: full } = useProjectQuery(pin.itemId, actions.editOpen);
-  const project = { id: pin.itemId, name: pin.item.name };
+  const { data: full } = useProjectQuery(pin.itemId, dialogs.editOpen);
   return (
-    <>
-      {full && (
-        <EditProjectDialog
-          project={full}
-          open={actions.editOpen}
-          onOpenChange={actions.setEditOpen}
-        />
-      )}
-      <DeleteProjectDialog
-        project={project}
-        open={actions.deleteOpen}
-        onOpenChange={actions.setDeleteOpen}
-      />
-    </>
+    <ProjectDialogs
+      project={full ?? { id: pin.itemId, name: pin.item.name }}
+      dialogs={dialogs}
+    />
   );
 }
 
@@ -232,7 +226,7 @@ export function PinnedProjectRow({
 }) {
   const isActive = usePathname() === `/projects/${pin.itemId}`;
   const isArchived = pin.item.archivedAt !== null;
-  const actions = usePinnedProjectActions(pin);
+  const dialogs = useProjectDialogs();
   const expansion = useProjectExpansion();
 
   return (
@@ -245,19 +239,12 @@ export function PinnedProjectRow({
           isActive={isActive}
         />
         <PinDragHandle dragControls={dragControls} />
-        <PinRowMenu
-          isActive={isActive}
-          onUnpin={actions.unpin}
-          edit={actions.edit}
-          isArchived={isArchived}
-          onToggleArchive={actions.toggleArchive}
-          onDelete={actions.startDelete}
-        />
+        <PinnedProjectMenu pin={pin} isActive={isActive} dialogs={dialogs} />
       </PinRowSurface>
       <CollapsibleContent>
         <PinnedProjectChats projectId={pin.itemId} />
       </CollapsibleContent>
-      <PinnedProjectDialogs pin={pin} actions={actions} />
+      <PinnedProjectDialogs pin={pin} dialogs={dialogs} />
     </Collapsible>
   );
 }

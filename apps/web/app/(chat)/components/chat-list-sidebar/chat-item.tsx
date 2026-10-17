@@ -250,7 +250,7 @@ function useChatActivity(chatId: string) {
   return {
     activityStatus: resolveChatActivityStatus({
       processing: runs?.activeChatIds.has(chatId) ?? false,
-      outcome: runs?.completedChats.get(chatId),
+      outcome: runs?.unseenRunOutcomes.get(chatId),
     }),
     runPhase: runs?.runPhaseByChatId.get(chatId),
   };

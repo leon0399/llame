@@ -10,9 +10,9 @@ import type { RunPhase } from "@/lib/services/live/live-messages";
  * - `processing`: a run is currently tracked (non-terminal) for this chat —
  *   `ActiveRunsProvider`'s `activeChatIds`.
  * - `failed`: a run for this chat failed or expired while the user was
- *   elsewhere — a `failed` entry in `completedChats`.
+ *   elsewhere — a `failed` entry in `unseenRunOutcomes`.
  * - `unread`: a run for this chat completed while the user was elsewhere —
- *   a `completed` entry in `completedChats`.
+ *   a `completed` entry in `unseenRunOutcomes`.
  */
 export type ChatActivityStatus = "unread" | "failed" | "processing";
 

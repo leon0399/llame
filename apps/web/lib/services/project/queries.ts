@@ -57,6 +57,20 @@ export function useProjectsQuery(filters?: ProjectListFilters, enabled = true) {
   });
 }
 
+/** One project from the archive-inclusive list (so archiving it keeps it
+ *  found), plus the list itself for callers that offer the others. */
+export function useProjectById(id: string | undefined, enabled = true) {
+  const { data: projects, isLoading } = useProjectsQuery(
+    { archived: "with" },
+    enabled && id !== undefined,
+  );
+  return {
+    projects,
+    isLoading,
+    project: projects?.find((candidate) => candidate.id === id),
+  };
+}
+
 /** @deprecated Use useProjectsQuery with explicit filters instead. */
 export function useProjects() {
   return useProjectsQuery();

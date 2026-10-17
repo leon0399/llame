@@ -1,3 +1,5 @@
+export const SHORTCUT_KEY_NEW_CHAT = "o";
+
 /**
  * True for the command-palette toggle chord — PLATFORM-aware: Cmd+K on macOS,
  * Ctrl+K elsewhere. This is load-bearing: Ctrl+K inside a text field on macOS is
@@ -20,4 +22,19 @@ export function isPaletteToggle(
 ): boolean {
   const modifier = isMac ? e.metaKey : e.ctrlKey;
   return modifier && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k";
+}
+
+/** True for the new-chat chord: the platform's primary modifier (⌘ on a
+ *  Mac, Ctrl elsewhere) + Shift + O, with nothing else held. */
+export function isNewChatShortcut(
+  e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  isMac: boolean,
+): boolean {
+  const modifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  return (
+    modifier &&
+    e.shiftKey &&
+    !e.altKey &&
+    e.key.toLowerCase() === SHORTCUT_KEY_NEW_CHAT
+  );
 }

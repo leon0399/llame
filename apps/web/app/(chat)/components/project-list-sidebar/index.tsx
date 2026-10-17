@@ -6,7 +6,6 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
-import { Button } from "@workspace/ui/components/button";
 import {
   Sidebar,
   SidebarContent,
@@ -18,11 +17,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@workspace/ui/components/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 import {
   FolderIcon,
@@ -33,6 +27,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { CollapsibleSidebarGroup } from "@/components/collapsible-sidebar-group";
 import { PinButton } from "@/components/pin-button";
@@ -40,7 +35,12 @@ import { SearchFilterInput } from "@/components/search-filter-input";
 import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import type { ProjectResponse } from "@/lib/services/project/types";
-import { type ListShow, ListViewChip, ListViewMenu } from "../chat-list-view";
+import {
+  type ListShow,
+  ListViewChip,
+  ListViewMenu,
+  type ShowControlProps,
+} from "../chat-list-view";
 import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { topBarClasses } from "@/app/shell/top-bar";
 import { NewProjectDialog } from "../chat-list-sidebar/project-dialogs";
@@ -152,7 +152,6 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
   );
 }
 
-type ListView = { show: ListShow; onShowChange: (show: ListShow) => void };
 type ProjectSearch = { query: string; onQueryChange: (query: string) => void };
 
 /** A header icon button, labelled by its tooltip. */
@@ -166,24 +165,15 @@ function HeaderAction({
   children: ReactNode;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            onClick={onClick}
-          />
-        }
-      >
-        {children}
-        <span className="sr-only">{label}</span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" align="end">
-        {label}
-      </TooltipContent>
-    </Tooltip>
+    <IconButtonTooltip
+      label={label}
+      className="size-8"
+      onClick={onClick}
+      side="bottom"
+      align="end"
+    >
+      {children}
+    </IconButtonTooltip>
   );
 }
 
@@ -245,7 +235,7 @@ function HeaderActions({
   onNewProject,
 }: {
   searching: boolean;
-  view: ListView;
+  view: ShowControlProps;
   onNewProject: () => void;
 }) {
   return (
@@ -280,7 +270,7 @@ function ProjectListSidebarHeader({
   search,
   onNewProject,
 }: {
-  view: ListView;
+  view: ShowControlProps;
   search: ProjectSearch;
   onNewProject: () => void;
 }) {
@@ -389,12 +379,12 @@ function ProjectGroup({
   label,
   projects,
   pathname,
-  pinnedIds,
+  pinnedAtByProjectId,
 }: {
   label: string | null;
   projects: Array<ProjectResponse>;
   pathname: string;
-  pinnedIds: ReadonlyMap<string, string>;
+  pinnedAtByProjectId: ReadonlyMap<string, string>;
 }) {
   if (projects.length === 0) return null;
   return (
@@ -403,17 +393,17 @@ function ProjectGroup({
       <ProjectRows
         projects={projects}
         pathname={pathname}
-        isPinned={(projectId) => pinnedIds.has(projectId)}
+        isPinned={(projectId) => pinnedAtByProjectId.has(projectId)}
       />
     </SidebarGroup>
   );
 }
 
-const NO_PROJECTS_TEXT = new Map<ListShow, string>([
-  ["active", "No projects yet — create one to group your chats."],
-  ["archived", "No archived projects."],
-  ["all", "No projects yet — create one to group your chats."],
-]);
+const NO_PROJECTS_TEXT: Record<ListShow, string> = {
+  active: "No projects yet — create one to group your chats.",
+  archived: "No archived projects.",
+  all: "No projects yet — create one to group your chats.",
+};
 
 type ProjectListSidebarContentProps = ReturnType<typeof useProjectListData> & {
   show: ListShow;
@@ -421,12 +411,11 @@ type ProjectListSidebarContentProps = ReturnType<typeof useProjectListData> & {
 };
 
 function ProjectListSidebarContent(props: ProjectListSidebarContentProps) {
-  const { pinnedProjects, listedProjects, pinnedIds, pathname } = props;
+  const { pinnedProjects, listedProjects, pinnedAtByProjectId, pathname } =
+    props;
   if (props.isLoading && !props.hasData) return <ProjectListSkeleton />;
   if (!props.listLoading && !props.hasData)
-    return (
-      <EmptyProjectsMessage text={NO_PROJECTS_TEXT.get(props.show) ?? ""} />
-    );
+    return <EmptyProjectsMessage text={NO_PROJECTS_TEXT[props.show]} />;
   if (
     !props.listLoading &&
     pinnedProjects.length === 0 &&
@@ -443,7 +432,7 @@ function ProjectListSidebarContent(props: ProjectListSidebarContentProps) {
           label={pinnedProjects.length > 0 ? "All projects" : null}
           projects={listedProjects}
           pathname={pathname}
-          pinnedIds={pinnedIds}
+          pinnedAtByProjectId={pinnedAtByProjectId}
         />
       )}
     </>

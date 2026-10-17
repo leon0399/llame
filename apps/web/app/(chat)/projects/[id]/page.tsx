@@ -8,7 +8,7 @@ import {
   selectPinnedProjectMap,
   usePins,
 } from "@/lib/services/pins/queries";
-import { useProjectsQuery } from "@/lib/services/project/queries";
+import { useProjectById } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { useParams } from "next/navigation";
 
@@ -18,6 +18,7 @@ import {
   ListViewChip,
   ListViewMenu,
   pinnedChatsFilters,
+  type ShowControlProps,
 } from "../../components/chat-list-view";
 import {
   ChatTimeGroups,
@@ -30,11 +31,11 @@ import { ProjectDetailsHeader } from "./project-details-header";
 import { ProjectPromptInput } from "./project-prompt-input";
 import { ProjectSidePanel } from "./project-side-panel";
 
-const EMPTY_TEXT = new Map<ListShow, string>([
-  ["active", "No chats in this project yet."],
-  ["archived", "No archived chats in this project."],
-  ["all", "No chats in this project yet."],
-]);
+const EMPTY_TEXT: Record<ListShow, string> = {
+  active: "No chats in this project yet.",
+  archived: "No archived chats in this project.",
+  all: "No chats in this project yet.",
+};
 
 type ProjectChatRows = {
   projects: Array<ProjectResponse>;
@@ -42,9 +43,7 @@ type ProjectChatRows = {
   onRequestNewProject: (chatId: string) => void;
 };
 
-type ProjectChatsView = {
-  show: ListShow;
-  onShowChange: (show: ListShow) => void;
+type ProjectChatsView = ShowControlProps & {
   /** Above the view's list in Active and All; none in Archived. */
   pinnedChats: Array<ChatResponse>;
   chats: Array<ChatResponse>;
@@ -65,13 +64,16 @@ function ProjectChatsList({
   if (!view.loading && view.chats.length === 0 && view.pinnedChats.length === 0)
     return (
       <p className="px-2 py-1 text-sm text-muted-foreground">
-        {EMPTY_TEXT.get(view.show)}
+        {EMPTY_TEXT[view.show]}
       </p>
     );
   // This card sits on the page canvas, not the sidebar.
   const surfaceClassName = "bg-background";
   return (
-    <>
+    // The sidebar groups carry their own side padding for a rail; on the page
+    // it would inset the rows from the composer's edges, so it is cancelled
+    // here and the rows run the composer's full width.
+    <div className="-mx-2">
       <PinnedChatGroup
         chats={view.pinnedChats}
         {...rows}
@@ -86,7 +88,7 @@ function ProjectChatsList({
           surfaceClassName={surfaceClassName}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -122,7 +124,7 @@ function ProjectChats({
  *  filing targets, since an archived one refuses new chats. */
 function useProjectPageData(id: string) {
   const [show, setShow] = React.useState<ListShow>("active");
-  const { data: projects, isLoading } = useProjectsQuery({ archived: "with" });
+  const { projects, project, isLoading } = useProjectById(id);
   const { data: pinnedData } = useChatsQuery(pinnedChatsFilters(id));
   const { data, isLoading: chatsLoading } = useChatsQuery(
     chatListFilters(show, id),
@@ -145,7 +147,7 @@ function useProjectPageData(id: string) {
 
   return {
     loading: isLoading,
-    project: projects?.find((candidate) => candidate.id === id),
+    project,
     isPinned: selectPinnedProjectMap(pins).has(id),
     allProjects,
     pinnedAtByChatId,

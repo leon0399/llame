@@ -20,18 +20,21 @@ import {
 import { ListFilterIcon, XIcon } from "lucide-react";
 
 import type { ChatListFilters } from "@/lib/services/chat/queries";
+import type { ProjectListFilters } from "@/lib/services/project/queries";
+
+const LIST_SHOWS = ["active", "archived", "all"] as const;
 
 /** Which items a list shows — the same three on every chat and project list. */
-export type ListShow = "active" | "archived" | "all";
+export type ListShow = (typeof LIST_SHOWS)[number];
 
-const SHOW_LABELS = new Map<ListShow, string>([
-  ["active", "Active"],
-  ["archived", "Archived"],
-  ["all", "All"],
-]);
+const SHOW_LABELS: Record<ListShow, string> = {
+  active: "Active",
+  archived: "Archived",
+  all: "All",
+};
 
 function isChatListShow(value: unknown): value is ListShow {
-  return value === "active" || value === "archived" || value === "all";
+  return LIST_SHOWS.some((show) => show === value);
 }
 
 /** The `?archived` filter a view sends; Active is the server default. */
@@ -41,23 +44,50 @@ export function archivedFilter(show: ListShow): "only" | "with" | undefined {
   return undefined;
 }
 
-/** The view's list on any chat list surface (the rail, a project page).
- *  Active and All sit below a Pinned section, so they exclude pins; Archived
- *  has no Pinned section and lists archived pins too. */
+/** The view's list on any chat or project list surface (the rails, a project
+ *  page). Active and All sit below a Pinned section, so they exclude pins;
+ *  Archived has no Pinned section and lists archived pins too. */
+export function listViewFilters(show: ListShow): ProjectListFilters {
+  if (show === "archived") return { archived: "only" };
+  return { pinned: "exclude", archived: archivedFilter(show) };
+}
+
+/** The Pinned section above Active and All, archived pins included. */
+export const PINNED_LIST_FILTERS = {
+  pinned: "only",
+  archived: "with",
+} as const;
+
 export function chatListFilters(
   show: ListShow,
   projectId?: string,
 ): ChatListFilters {
-  if (show === "archived") return { projectId, archived: "only" };
-  return { projectId, pinned: "exclude", archived: archivedFilter(show) };
+  return { projectId, ...listViewFilters(show) };
 }
 
-/** The Pinned section above Active and All, archived pins included. */
 export function pinnedChatsFilters(projectId?: string): ChatListFilters {
-  return { projectId, pinned: "only", archived: "with" };
+  return { projectId, ...PINNED_LIST_FILTERS };
 }
 
-type ShowControlProps = {
+/**
+ * The open item is always listed, whatever the view: archiving it, or opening
+ * an archived one from search or a link, never makes the row vanish or the
+ * view switch. It slots into `updatedAt` order and leaves on navigation.
+ */
+export function withOpenItem<T extends { id: string; updatedAt: string }>(
+  items: Array<T>,
+  open: T | undefined,
+  shownElsewhere: ReadonlyArray<T>,
+): Array<T> {
+  if (!open) return items;
+  const listed = (item: T) => item.id === open.id;
+  if (items.some(listed) || shownElsewhere.some(listed)) return items;
+  return [...items, open].sort((a, b) =>
+    b.updatedAt.localeCompare(a.updatedAt),
+  );
+}
+
+export type ShowControlProps = {
   show: ListShow;
   onShowChange: (show: ListShow) => void;
 };
@@ -104,9 +134,9 @@ export function ListViewMenu({ show, onShowChange }: ShowControlProps) {
               if (isChatListShow(value)) onShowChange(value);
             }}
           >
-            {[...SHOW_LABELS].map(([value, label]) => (
+            {LIST_SHOWS.map((value) => (
               <DropdownMenuRadioItem key={value} value={value}>
-                {label}
+                {SHOW_LABELS[value]}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
@@ -119,7 +149,7 @@ export function ListViewMenu({ show, onShowChange }: ShowControlProps) {
 /** The applied non-default view, removable in one click. */
 export function ListViewChip({ show, onShowChange }: ShowControlProps) {
   if (show === "active") return null;
-  const label = SHOW_LABELS.get(show);
+  const label = SHOW_LABELS[show];
   return (
     <div className="px-2 pt-1">
       <Button

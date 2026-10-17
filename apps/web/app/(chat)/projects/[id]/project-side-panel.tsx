@@ -2,17 +2,13 @@
 
 import { useState, type ReactNode } from "react";
 
-import { Button } from "@workspace/ui/components/button";
 import {
   MediaThumbnailRow,
   type MediaThumbnailItem,
 } from "@workspace/ui/components/custom/media-thumbnail";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { PencilIcon, PlusIcon } from "lucide-react";
+
+import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 
 /** One titled section of the panel, with its single action on the right. */
 function PanelSection({
@@ -35,29 +31,6 @@ function PanelSection({
   );
 }
 
-/** A section's icon action, labelled by its tooltip. */
-function PanelAction({
-  label,
-  icon,
-  onClick,
-}: {
-  label: string;
-  icon: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<Button variant="ghost" size="icon-sm" onClick={onClick} />}
-      >
-        {icon}
-        <span className="sr-only">{label}</span>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 const SAMPLE_INSTRUCTIONS =
   "Be direct and critical. Lead with the answer, then the reasoning. Prefer small, reversible changes and say when an idea is weak.";
 
@@ -74,11 +47,13 @@ function InstructionsSection() {
     <PanelSection
       title="Instructions"
       action={
-        <PanelAction
+        <IconButtonTooltip
           label={hasInstructions ? "Edit instructions" : "Add instructions"}
-          icon={hasInstructions ? <PencilIcon /> : <PlusIcon />}
+          size="icon-sm"
           onClick={() => setHasInstructions((current) => !current)}
-        />
+        >
+          {hasInstructions ? <PencilIcon /> : <PlusIcon />}
+        </IconButtonTooltip>
       }
     >
       {hasInstructions ? (
@@ -122,14 +97,16 @@ function ContextSection() {
     <PanelSection
       title="Context"
       action={
-        <PanelAction
+        <IconButtonTooltip
           label="Add context"
-          icon={<PlusIcon />}
+          size="icon-sm"
           onClick={() => {
             setFiles((current) => [...current, sampleFile(added)]);
             setAdded((count) => count + 1);
           }}
-        />
+        >
+          <PlusIcon />
+        </IconButtonTooltip>
       }
     >
       {files.length === 0 ? (

@@ -5,15 +5,11 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 import { MoreVerticalIcon, PinIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { ArchivedBadge } from "@/components/archived-badge";
 import type { ProjectResponse } from "@/lib/services/project/types";
 
@@ -35,22 +31,9 @@ function ProjectPinToggle({
 }) {
   const label = isPinned ? "Unpin" : "Pin";
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggle}
-            aria-pressed={isPinned}
-          />
-        }
-      >
-        <PinIcon className={cn(isPinned && "fill-current")} />
-        <span className="sr-only">{label}</span>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+    <IconButtonTooltip label={label} onClick={onToggle} aria-pressed={isPinned}>
+      <PinIcon className={cn(isPinned && "fill-current")} />
+    </IconButtonTooltip>
   );
 }
 

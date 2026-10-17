@@ -43,14 +43,6 @@ export function useProjectItemPin(project: ProjectResponse, isPinned: boolean) {
         });
 }
 
-type ProjectMenuItemsProps = {
-  project: ProjectResponse;
-  isPinned: boolean;
-  onTogglePin: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-};
-
 /** The menu's own "danger zone" (archive toggle, then delete). It owns the
  *  archive mutation because both the label and the payload are read from the
  *  project's archive state. */
@@ -93,7 +85,14 @@ export function ProjectMenuItems({
   onEdit,
   onDelete,
   align = "start",
-}: ProjectMenuItemsProps & { align?: "start" | "end" }) {
+}: {
+  project: ProjectResponse;
+  isPinned: boolean;
+  onTogglePin: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  align?: "start" | "end";
+}) {
   return (
     <DropdownMenuContent side="bottom" align={align}>
       <DropdownMenuGroup>
@@ -131,24 +130,29 @@ export function useProjectDialogs() {
 }
 
 /** The menu's two dialogs, mounted with their owner so each one's field
- *  state re-seeds from the project on open (see project-dialogs.tsx). */
+ *  state re-seeds from the project on open (see project-dialogs.tsx). A lean
+ *  card (no `description`, as the rail's pinned rows hold) can still be
+ *  deleted; Edit details waits for the full project. */
 export function ProjectDialogs({
   project,
   dialogs,
   onDeleted,
 }: {
-  project: ProjectResponse;
+  project: { id: string; name: string; description?: string | null };
   dialogs: ReturnType<typeof useProjectDialogs>;
   /** Follow-up once the project is gone (e.g. leave its page). */
   onDeleted?: () => void;
 }) {
+  const { description } = project;
   return (
     <>
-      <EditProjectDialog
-        project={project}
-        open={dialogs.editOpen}
-        onOpenChange={dialogs.setEditOpen}
-      />
+      {description !== undefined && (
+        <EditProjectDialog
+          project={{ ...project, description }}
+          open={dialogs.editOpen}
+          onOpenChange={dialogs.setEditOpen}
+        />
+      )}
       <DeleteProjectDialog
         project={project}
         open={dialogs.deleteOpen}

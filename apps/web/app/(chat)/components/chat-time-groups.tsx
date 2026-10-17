@@ -20,7 +20,7 @@ import { CollapsibleSidebarGroup } from "@/components/collapsible-sidebar-group"
 
 import { ChatItem } from "./chat-list-sidebar/chat-item";
 
-export const chatGroupTitles = {
+const chatGroupTitles = {
   [ChatGroupPeriod.TODAY]: "Today",
   [ChatGroupPeriod.YESTERDAY]: "Yesterday",
   [ChatGroupPeriod.LAST_WEEK]: "Last 7 Days",
@@ -140,11 +140,8 @@ export function PinnedChatGroup({
  */
 export function ChatTimeGroups({
   chats,
-  selectedChatId,
-  projects,
-  onRequestNewProject,
-  pinnedAtByChatId,
   surfaceClassName,
+  ...rowProps
 }: {
   chats: Array<ChatResponse>;
   /**
@@ -158,12 +155,6 @@ export function ChatTimeGroups({
     () => groupChatsByTimePeriod(chats),
     [chats],
   );
-  const rowProps: ChatRowProps = {
-    selectedChatId,
-    projects,
-    onRequestNewProject,
-    pinnedAtByChatId,
-  };
 
   return (
     <>
