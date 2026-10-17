@@ -168,9 +168,9 @@ for (const viewport of VIEWPORTS) {
       // Hover pauses Sonner's dismiss timer while we measure boxes.
       await toast.hover();
       const toastBox = await toast.boundingBox();
-      const composer = page
-        .locator("form")
-        .filter({ has: page.getByPlaceholder("What would you like to know?") });
+      const composer = page.locator("form").filter({
+        has: page.getByPlaceholder("Describe a task or ask a question"),
+      });
       const composerBox = await composer.boundingBox();
       expect(toastBox).not.toBeNull();
       expect(composerBox).not.toBeNull();

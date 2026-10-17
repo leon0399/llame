@@ -250,7 +250,7 @@ export const ControlStates: Story = {
   },
 };
 
-const PLACEHOLDER = "What would you like to know?";
+const PLACEHOLDER = "Describe a task or ask a question";
 
 /** Uploads that resolve immediately with a descriptor for the file: an image
  *  descriptor for an image, a PDF descriptor for a PDF. */
@@ -744,10 +744,11 @@ async function expectUploadEnabled(
 }
 
 /**
- * The `+` menu: "Upload photos & files" opens the file picker, and "Add to
+ * The `+` menu: "Upload photos & files" opens the file picker and shows its
+ * Ctrl+U shortcut, which opens the picker from the page too; "Add to
  * project" is a disabled placeholder.
  *
- * @summary the add menu opens the picker; Add to project is disabled
+ * @summary the add menu and Ctrl+U open the picker; Add to project is disabled
  */
 export const AddMenu: Story = {
   tags: ["ai-generated"],
@@ -774,10 +775,20 @@ export const AddMenu: Story = {
     await expect(
       await screen.findByRole("menuitem", { name: "Add to project" }),
     ).toHaveAttribute("aria-disabled", "true");
-    await userEvent.click(
-      screen.getByRole("menuitem", { name: "Upload photos & files" }),
+    const upload = screen.getByRole("menuitem", {
+      name: "Upload photos & files",
+    });
+    await expect(upload).toHaveAttribute("aria-keyshortcuts", "Control+U");
+    // The menu fades in, so the shortcut is only visible once it settles.
+    await waitFor(() =>
+      expect(within(upload).getByText("Ctrl+U")).toBeVisible(),
     );
+    await userEvent.click(upload);
     await expect(openPicker).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    await userEvent.keyboard("{Control>}u{/Control}");
+    await expect(openPicker).toHaveBeenCalledTimes(2);
   },
 };
 

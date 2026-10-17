@@ -42,7 +42,7 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await selectVisionModel(page);
 
-  const composer = page.getByPlaceholder("What would you like to know?");
+  const composer = page.getByPlaceholder("Describe a task or ask a question");
   await expect(composer).toBeEditable();
   // A clipboard image paste: a 2400×600 PNG drawn in the page, so the model
   // variant (long edge bounded at 2000) differs from the original.
@@ -139,7 +139,7 @@ test("an image-only message sends and opens the same image in an owner fork", as
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await selectVisionModel(page);
 
-  const composer = page.getByPlaceholder("What would you like to know?");
+  const composer = page.getByPlaceholder("Describe a task or ask a question");
   await expect(composer).toBeEditable();
   // A 1200×800 PNG drawn in the page: bytes distinct from the pasted image
   // above, so the worker account's per-owner deduplication never reuses it.

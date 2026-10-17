@@ -122,7 +122,7 @@ test.describe("chat flow (worker execution mode)", () => {
     // full-answer locator would only match after completion, and waiting for
     // it would degenerate this into a persistence test).
     await page
-      .getByPlaceholder("What would you like to know?")
+      .getByPlaceholder("Describe a task or ask a question")
       .fill("SLOW again please");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(

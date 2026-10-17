@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- The composer's permission mode, model, and effort controls moved to a quiet
+  row under the input card as small ghost buttons: the permission mode on the
+  left, the model and its effort together on the right. Send and Stop are
+  ghost buttons too, every composer control has a tooltip naming it (Send
+  shows `Enter`), and the placeholder now reads "Describe a task or ask a
+  question". Ctrl+U (⌘U on a Mac) opens the file picker from anywhere on the
+  page while the selected model accepts uploads, and the `+` menu shows it.
+
 - Attachments are now cards: a preview above the file name, both on a sent
   message and in the composer. An image card shows its thumbnail and opens the
   viewer as before; a PDF card shows a document icon and still opens its

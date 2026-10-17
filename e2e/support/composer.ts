@@ -16,7 +16,7 @@ export async function readyComposer(page: Page): Promise<Locator> {
       name: /^Select model, (?!Select a model$|Models unavailable$)/,
     }),
   ).toBeVisible();
-  const composer = page.getByPlaceholder("What would you like to know?");
+  const composer = page.getByPlaceholder("Describe a task or ask a question");
   await expect(composer).toBeEditable();
   return composer;
 }

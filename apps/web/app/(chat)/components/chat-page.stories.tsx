@@ -234,7 +234,7 @@ function seedHistory(chatExists: boolean, history: Array<ChatMessageResponse>) {
 
 function composer(canvasElement: HTMLElement) {
   return within(canvasElement).getByPlaceholderText(
-    "What would you like to know?",
+    "Describe a task or ask a question",
   );
 }
 
@@ -1194,7 +1194,7 @@ export const OpensTargetMessage: Story = {
     await expect(sentHistoryQueries()).toEqual([TARGET_QUERY]);
     await expect(canvas.queryByText("newest")).toBeNull();
     await expect(
-      canvas.queryByPlaceholderText("What would you like to know?"),
+      canvas.queryByPlaceholderText("Describe a task or ask a question"),
     ).toBeNull();
 
     answerTarget(jsonResponse({ messages: TARGET_WINDOW }));
@@ -1219,7 +1219,7 @@ async function closedTarget(canvasElement: HTMLElement) {
     within(await canvas.findByRole("alert")).getByText("Message unavailable"),
   ).toBeVisible();
   await expect(
-    canvas.queryByPlaceholderText("What would you like to know?"),
+    canvas.queryByPlaceholderText("Describe a task or ask a question"),
   ).toBeNull();
   await expect(canvas.queryByText("newest")).toBeNull();
   await expect(sentRoutes()).toEqual([HISTORY_ROUTE]);

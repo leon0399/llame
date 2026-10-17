@@ -100,7 +100,7 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     // boundary — a placement keyed on the checkpoint row's own seq would put
     // the marker at the end of the transcript, not before this turn.
     await page
-      .getByPlaceholder("What would you like to know?")
+      .getByPlaceholder("Describe a task or ask a question")
       .fill("And what about next steps?");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("log").getByText(ANSWER).nth(1)).toBeVisible({

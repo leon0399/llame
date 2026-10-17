@@ -41,7 +41,7 @@ export type PromptInputTextareaProps = ComponentProps<
 export const PromptInputTextarea = ({
   onChange,
   className,
-  placeholder = "What would you like to know?",
+  placeholder = "Describe a task or ask a question",
   minHeight = 48,
   maxHeight = 164,
   submitBehavior = "enter",

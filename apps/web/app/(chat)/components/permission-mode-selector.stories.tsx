@@ -100,7 +100,7 @@ export const BothModes: Story = {
     const trigger = canvas.getByRole("button", {
       name: "Permission mode, Default",
     });
-    await expect(trigger).toHaveAttribute("data-variant", "outline");
+    await expect(trigger).toHaveAttribute("data-variant", "ghost");
 
     await userEvent.click(trigger);
     const menu = within(document.body);

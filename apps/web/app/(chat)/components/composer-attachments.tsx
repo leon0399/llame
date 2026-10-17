@@ -1,8 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { FolderIcon, PaperclipIcon, PlusIcon } from "lucide-react";
 
+import { Kbd } from "@workspace/ui/components/kbd";
+import {
+  detectPrimaryModifier,
+  usePrimaryModifierKey,
+} from "@workspace/ui/hooks/use-modifier-key";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +28,7 @@ import {
 
 import { ATTACHABLE_PDF_TYPE } from "@/lib/services/media/uploads";
 import { storedImageSources } from "@/lib/services/media/urls";
+import { ComposerTooltip } from "./composer-tooltip";
 import { PromptInputButton } from "./prompt-input";
 import type {
   ComposerAttachment,
@@ -100,6 +106,34 @@ export function ComposerAttachmentRow({
   );
 }
 
+const UPLOAD_SHORTCUT_KEY = "u";
+
+/** "Upload photos & files" with its shortcut shown the way the sidebar shows
+ *  New Chat's and Search's. */
+function UploadMenuItem({
+  disabled,
+  onUpload,
+}: {
+  disabled: boolean;
+  onUpload: () => void;
+}) {
+  const modifierKey = usePrimaryModifierKey();
+  return (
+    <DropdownMenuItem
+      disabled={disabled}
+      onClick={onUpload}
+      aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+U`}
+    >
+      <PaperclipIcon />
+      <span>Upload photos & files</span>
+      {/* Announced through `aria-keyshortcuts`, not the item's name. */}
+      <Kbd aria-hidden="true" className="ml-auto">
+        {`${modifierKey}+${UPLOAD_SHORTCUT_KEY.toUpperCase()}`}
+      </Kbd>
+    </DropdownMenuItem>
+  );
+}
+
 /** The `+` button and its menu: the file upload, then the placeholder for
  *  filing the chat into a project, disabled until the composer can do that. */
 function ComposerAddDropdown({
@@ -111,22 +145,26 @@ function ComposerAddDropdown({
 }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
+      <ComposerTooltip
+        label="Add files and more"
         render={
-          <PromptInputButton
-            variant="ghost"
-            size="icon"
-            aria-label="Add files and more"
+          <DropdownMenuTrigger
+            render={
+              <PromptInputButton
+                variant="ghost"
+                size="icon"
+                aria-label="Add files and more"
+              />
+            }
           />
         }
       >
         <PlusIcon size={16} />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuItem disabled={attachDisabled} onClick={onUpload}>
-          <PaperclipIcon />
-          <span>Upload photos & files</span>
-        </DropdownMenuItem>
+      </ComposerTooltip>
+      {/* Sized to its widest row, so a label never wraps beside its
+          shortcut. */}
+      <DropdownMenuContent align="start" className="w-max min-w-56">
+        <UploadMenuItem disabled={attachDisabled} onUpload={onUpload} />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger disabled>
             <FolderIcon />
@@ -138,9 +176,31 @@ function ComposerAddDropdown({
   );
 }
 
+/** ⌘U on Apple platforms, Ctrl+U elsewhere (no extra modifiers) opens the
+ *  file picker from anywhere on the page while the model accepts uploads.
+ *  It overrides the browser's view-source binding, as chat apps do. */
+function useUploadShortcut(
+  inputRef: RefObject<HTMLInputElement | null>,
+  enabled: boolean,
+) {
+  useEffect(() => {
+    if (!enabled) return;
+    const isMac = detectPrimaryModifier() === "⌘";
+    const onKey = (e: KeyboardEvent) => {
+      const modifier = isMac ? e.metaKey : e.ctrlKey;
+      if (e.repeat || !modifier || e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== UPLOAD_SHORTCUT_KEY) return;
+      e.preventDefault();
+      inputRef.current?.click();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [inputRef, enabled]);
+}
+
 /** The toolbar's `+` menu. "Upload photos & files" opens a hidden multi-file
  *  input limited to the kinds the selected model declares (`accept`), and is
- *  disabled while the selected model declares none. */
+ *  disabled, shortcut included, while the selected model declares none. */
 export function ComposerAddMenu({
   onFiles,
   accept,
@@ -151,6 +211,7 @@ export function ComposerAddMenu({
   attachDisabled: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  useUploadShortcut(inputRef, !attachDisabled);
   return (
     <>
       <ComposerAddDropdown

@@ -49,7 +49,7 @@ test("a PDF reaches a PDF-only model and opens its original after reload", async
   ).toBeVisible();
 
   await page
-    .getByPlaceholder("What would you like to know?")
+    .getByPlaceholder("Describe a task or ask a question")
     .fill("Summarize the attached PDF.");
   const send = page.getByRole("button", { name: "Send message" });
   await expect(send).toBeEnabled();

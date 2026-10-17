@@ -191,7 +191,9 @@ it("restores the target hash and input when a target send fails", async () => {
   );
   await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
   const targetSessionCount = mocks.chatInstanceIds.length;
-  const input = screen.getByPlaceholderText("What would you like to know?");
+  const input = screen.getByPlaceholderText(
+    "Describe a task or ask a question",
+  );
   await user.type(input, "follow-up");
   await user.click(screen.getByRole("button", { name: "Send message" }));
   await waitFor(() =>

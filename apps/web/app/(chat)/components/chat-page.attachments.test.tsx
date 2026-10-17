@@ -219,7 +219,9 @@ describe("ChatPage image attachments", () => {
     modelsHandler = () => Promise.resolve(jsonResponse(VISION_MODELS));
     answerUploads();
     renderChat(false, "fresh");
-    const input = screen.getByPlaceholderText("What would you like to know?");
+    const input = screen.getByPlaceholderText(
+      "Describe a task or ask a question",
+    );
     const send = screen.getByRole("button", { name: "Send message" });
     // SAFETY: `send` is the composer's send button, queried by its own role.
     await waitFor(() =>

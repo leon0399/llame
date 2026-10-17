@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BotIcon, Check, ChevronDownIcon } from "lucide-react";
+import { BotIcon, Check } from "lucide-react";
 
 import { cn } from "@workspace/ui/lib/utils";
 import { Button } from "@workspace/ui/components/button";
@@ -29,6 +29,7 @@ import {
 } from "@/lib/services/models/queries";
 import { useChatContext } from "@/contexts/chat-context";
 import { ModelPreviewCard } from "@/components/ai/model-preview-card";
+import { ComposerTooltip } from "./composer-tooltip";
 
 const EMPTY_MODELS: Array<AvailableModel> = [];
 
@@ -53,51 +54,49 @@ function ModelSelectorTrigger({
   className,
 }: ModelSelectorTriggerProps) {
   return (
-    <PopoverTrigger
+    <ComposerTooltip
+      label="Model"
       render={
-        <Button
-          variant="outline"
-          // "default" is h-8, the same box as the send cell's size="icon"
-          // (size-8). They must be stated in the same unit family or they
-          // drift: `sm` is h-7, and a stale comment here once claimed it was
-          // h-8, which is how the pill came to hold three different heights.
-          size="default"
-          // Deliberate: this trigger opens a Command/cmdk popup whose own
-          // searchable input (not this button) is the real combobox host,
-          // so `aria-controls` can't be wired to it meaningfully — and
-          // model-selector.test.tsx / e2e already query this button by
-          // role=combobox, so changing the role is a separate follow-up.
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/role-has-required-aria-props
-          role="combobox"
-          // role=combobox is NOT a name-from-content role, so the visible
-          // label (and the loading skeleton) leave the trigger nameless to
-          // screen readers without this — caught by the story a11y run.
-          aria-label={
-            isPending ? "Select model" : `Select model, ${selectedLabel}`
+        <PopoverTrigger
+          render={
+            <Button
+              variant="ghost"
+              // `xs` (h-6, text-xs), like the permission and effort triggers in
+              // the row under the input card.
+              size="xs"
+              // Deliberate: this trigger opens a Command/cmdk popup whose own
+              // searchable input (not this button) is the real combobox host,
+              // so `aria-controls` can't be wired to it meaningfully — and
+              // model-selector.test.tsx / e2e already query this button by
+              // role=combobox, so changing the role is a separate follow-up.
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/role-has-required-aria-props
+              role="combobox"
+              // role=combobox is NOT a name-from-content role, so the visible
+              // label (and the loading skeleton) leave the trigger nameless to
+              // screen readers without this — caught by the story a11y run.
+              aria-label={
+                isPending ? "Select model" : `Select model, ${selectedLabel}`
+              }
+              aria-expanded={open}
+              // Openable while loading so the skeleton list is reachable; only a
+              // hard failure (no reachable catalog) locks the trigger.
+              disabled={isError}
+              className={className}
+            />
           }
-          aria-expanded={open}
-          // Openable while loading so the skeleton list is reachable; only a
-          // hard failure (no reachable catalog) locks the trigger.
-          disabled={isError}
-          // ButtonGroup owns corner rounding, border collapsing, and the
-          // focus-ring lift — this cell states none of it, and its gap,
-          // size, weight, and ink are the Button's own defaults.
-          className={className}
         />
       }
     >
       {isPending ? (
         // A skeleton exactly one line-height tall (resolved against this
-        // button's text-sm/1.25rem leading) — swapping it for the real name
+        // button's text-xs/1rem leading), so swapping it for the real name
         // causes no vertical layout shift.
-        <Skeleton className="h-5 w-24" aria-label="Loading models" />
+        <Skeleton className="h-4 w-24" aria-label="Loading models" />
       ) : (
-        <>
-          {selectedLabel}
-          <ChevronDownIcon className="size-3.5 opacity-50" />
-        </>
+        // Regular weight: a quiet setting under the input, not an action.
+        <span className="font-normal">{selectedLabel}</span>
       )}
-    </PopoverTrigger>
+    </ComposerTooltip>
   );
 }
 
@@ -335,10 +334,9 @@ function ModelPickerPanel({
 }
 
 /**
- * Model picker that lives inside the composer, grouped with the send button.
- * The trigger renders inline (borderless — the group wrapper owns the border)
- * and swaps its chevron for a spinner while the catalog is loading; the picker
- * itself shows skeleton rows during that first load.
+ * Model picker in the row under the composer's input card, beside the effort
+ * selector. The trigger is a small ghost button showing the model's name;
+ * the picker shows skeleton rows during the catalog's first load.
  */
 export function ModelSelector({ className }: { className?: string }) {
   const [open, setOpen] = React.useState(false);
