@@ -179,8 +179,8 @@ import {
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import {
   createPromptImportsItem,
-  promptImportImageKey,
-  promptImportImageRefs,
+  promptImportMediaKey,
+  promptImportMediaParts,
 } from '../chats/prompt-imports-item';
 import {
   PROMPT_IMPORT_KNOWLEDGE_CANCELLED,
@@ -2466,10 +2466,10 @@ export class RunExecutionService {
     const { outcomes, omitted } = await resolvePromptImportTargets(
       this.promptImportRequest(step),
     );
-    // An image read and then omitted at the output bound has no entry to
-    // attach it, so it keeps no bytes (vision-media R1.4).
+    // Media omitted at the output bound has no entry to attach it, so release
+    // its attempt bytes (vision-media R1.4, pdf-media D9).
     for (const locator of omitted) {
-      releaseMedia(step.heldMedia, promptImportImageKey(input.runId, locator));
+      releaseMedia(step.heldMedia, promptImportMediaKey(input.runId, locator));
     }
     // An aborted attempt publishes nothing; the abort settles the Run.
     if (input.abortSignal?.aborted) return;
@@ -2489,8 +2489,8 @@ export class RunExecutionService {
    * read context: the same silent `read` pre-evaluation the instruction loader
    * uses, the same native-executor and Knowledge-root gates, an owner-scoped
    * Knowledge probe, and the owner's media, which answers the `media://` probe
-   * and decodes an image target without storing it, holding it in the
-   * attempt's memory under its entry's key (vision-media D8).
+   * and decodes an image or PDF without storing it, holding its bytes in the
+   * attempt's memory under its entry's key (vision-media D8, pdf-media D9).
    */
   private promptImportRequest(step: PromptImportStep): PromptImportRequest {
     const { input } = step;
@@ -2538,20 +2538,14 @@ export class RunExecutionService {
           : mediaLocator(id);
       },
       readImport: async (path, ordinal, locator) => {
-        const key = promptImportImageKey(input.runId, locator);
+        const key = promptImportMediaKey(input.runId, locator);
         const { result, admission } = await this.readTurnInstructionPage(
           input,
           {
             ...context,
             media: {
               ...media,
-              readMedia: (submitted) => async (file) => {
-                const result = await media.readMedia(submitted, key)(file);
-                if (result.status === 'success' && result.kind === 'pdf') {
-                  releaseMedia(step.heldMedia, key);
-                }
-                return result;
-              },
+              readMedia: (submitted) => media.readMedia(submitted, key),
             },
           },
           path,
@@ -2889,25 +2883,14 @@ export class RunExecutionService {
         );
       },
     );
-    // Interim guard until PDF prompt-import entries are supported.
-    const result: ToolResult =
-      origin === ORIGIN_PROMPT_IMPORT &&
-      observed.status === 'success' &&
-      observed.kind === 'pdf'
-        ? {
-            status: 'error',
-            type: 'unsupported_media_type',
-            message: 'PDF imports are not supported yet',
-          }
-        : observed;
     await this.recordSystemReadCompletion(
       input,
       toolCallId,
       origin,
-      result,
+      observed,
       derivedDecisions,
     );
-    return { result, admission };
+    return { result: observed, admission };
   }
 
   /**
@@ -3040,7 +3023,7 @@ export class RunExecutionService {
         input.media,
         fileMediaIds(triggerParts).length +
           triggerParts.flatMap((part) =>
-            isContextItemPart(part) ? promptImportImageRefs(part) : [],
+            isContextItemPart(part) ? promptImportMediaParts(part) : [],
           ).length,
       )
     ) {

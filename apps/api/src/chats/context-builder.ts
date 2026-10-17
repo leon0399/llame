@@ -23,11 +23,10 @@ import type {
   ProviderMetadata,
 } from 'ai';
 
-import { userImagePart } from '../media/epoch-admission';
 import { storedFilePartSchema } from '../media/media-descriptors';
 import { parseMediaLocator } from '../media/media-locator';
 import { isContextItemPart, type ContextItemPart } from './context-item';
-import { promptImportImageRefs } from './prompt-imports-item';
+import { promptImportMediaParts } from './prompt-imports-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
@@ -214,10 +213,7 @@ export function userPartsToModelContent(
     if (isContextItemPart(part)) {
       const text = part.data.text;
       if (text !== undefined && text.length > 0) {
-        content.push(
-          { type: 'text', text },
-          ...promptImportImageRefs(part).map(userImagePart),
-        );
+        content.push({ type: 'text', text }, ...promptImportMediaParts(part));
       }
       afterLastItem = content.length;
       continue;

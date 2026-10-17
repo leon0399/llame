@@ -50,14 +50,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `instructions` item shape, and prompt imports now show where that item sits
   relative to a skill activation and the user's text.
 
-# 2026-10-15
+- Added PDF prompt imports (#1275): admitted `@path`, Knowledge, skill, web,
+  and `@media://` targets now record PDF metadata and send the original to
+  models declaring PDF input. Unstored bytes remain in the importing attempt;
+  later turns and resumed attempts use a not-retained placeholder, while
+  stored PDF imports replay from the owner-scoped media store and retain their
+  PDF kind when the stored object is unavailable. PDFs share the eight-target
+  bound and contribute only their read envelope to the 128 KiB text bound.
+  Selectors and refused PDFs remain not imported.
 
-- Added unstored web PDF reads (#916): a page declaring `application/pdf`
-  and starting with `%PDF-` returns PDF metadata and gives PDF-capable models
-  the original for the reading attempt, under a 20 MiB body and 100-page
-  bound. Selectors, encrypted or unopenable PDFs, and invalid signatures are
-  refused; probes and adapters remain text-only. The whole-call deadline
-  also covers media preparation.
+# 2026-10-15
 
 - Fixed the composer textarea jumping back to the top on every keystroke once
   the prompt grew past its `maxHeight` (#1287). The auto-resize collapses the
@@ -106,6 +108,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   story with its title, link, tags, and score, then every comment in the
   site's thread order with its score, from the site's keyless JSON API in one
   request.
+
+- Added unstored web PDF reads (#916): a page declaring `application/pdf`
+  and starting with `%PDF-` returns PDF metadata and gives PDF-capable models
+  the original for the reading attempt, under a 20 MiB body and 100-page
+  bound. Selectors, encrypted or unopenable PDFs, and invalid signatures are
+  refused; probes and adapters remain text-only. The whole-call deadline
+  also covers media preparation.
 
 - Added PDF reads from host files, `file:`, Knowledge, skills, and `media://`
   locators (#1275). PDF-capable models receive the original under the shared

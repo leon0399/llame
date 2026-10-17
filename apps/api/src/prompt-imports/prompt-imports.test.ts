@@ -441,43 +441,6 @@ describe('resolvePromptImports admission', () => {
     ]);
   });
 
-  it.each([
-    ['paper.pdf', '/repo/paper.pdf', { existing: ['/repo/paper.pdf'] }],
-    [
-      'media://01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e',
-      'media://01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e',
-      { media: ['media://01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e'] },
-    ],
-  ])(
-    'records a PDF import of %s as failed without a body',
-    async (locator, resolved, options) => {
-      const { run } = createHarness({
-        ...options,
-        result: () => ({
-          status: 'success',
-          kind: 'pdf',
-          mediaType: 'application/pdf',
-          pages: 1,
-          byteSize: 863,
-        }),
-        // Refused PDF envelopes must not consume the text budget either.
-        body: () => 'x'.repeat(MAX_PROMPT_IMPORT_BYTES + 1),
-      });
-
-      expect(await run(`@${locator} @https://x.test/readme`)).toEqual({
-        outcomes: [
-          {
-            locator,
-            ...(resolved !== undefined && { resolved }),
-            outcome: 'failed',
-          },
-          { locator: 'https://x.test/readme', outcome: 'failed' },
-        ],
-        omitted: [],
-      });
-    },
-  );
-
   it('carries read truncation to the outcome', async () => {
     const { run } = createHarness({
       result: () => ({ status: 'success', truncated: true }),
@@ -817,7 +780,7 @@ describe('resolvePromptImports image entries', () => {
         resolved: '/repo/shot.png',
         outcome: 'imported',
         body: envelope('/repo/shot.png'),
-        image: UNSTORED,
+        attachment: UNSTORED,
       },
     ]);
   });
@@ -843,7 +806,7 @@ describe('resolvePromptImports image entries', () => {
         resolved: '/repo/noise.png',
         outcome: 'imported',
         body: envelope('/repo/noise.png'),
-        image: original,
+        attachment: original,
       },
     ]);
   });
@@ -862,7 +825,7 @@ describe('resolvePromptImports image entries', () => {
       '/repo/shot.png',
       ...Array.from({ length: 7 }, (_, index) => `https://x.test/${index}`),
     ]);
-    expect(result.outcomes[0]).toMatchObject({ image: UNSTORED });
+    expect(result.outcomes[0]).toMatchObject({ attachment: UNSTORED });
     expect(result.omitted).toEqual(['https://x.test/7']);
   });
 
@@ -936,7 +899,7 @@ describe('resolvePromptImports image entries', () => {
         resolved: MEDIA,
         outcome: 'imported',
         body: `body of ${MEDIA}`,
-        image: { media: MEDIA },
+        attachment: { media: MEDIA },
       },
     ]);
   });
@@ -978,5 +941,100 @@ describe('resolvePromptImports image entries', () => {
     );
     expect(result.omitted).toEqual([]);
     expect(calls.reads).toHaveLength(9);
+  });
+});
+
+describe('resolvePromptImports PDF entries', () => {
+  const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const pdf = {
+    kind: 'pdf',
+    mediaType: 'application/pdf',
+    pages: 15,
+    byteSize: 2 * 1024 * 1024,
+  } as const;
+  const result = (path: string): ToolResult => ({
+    status: 'success',
+    ...pdf,
+    path,
+    ...(path === MEDIA && { media: MEDIA }),
+  });
+  const envelope = (path: string) => JSON.stringify(result(path));
+
+  it.each([
+    ['paper.pdf', '/repo/paper.pdf', { existing: ['/repo/paper.pdf'] }],
+    [MEDIA, MEDIA, { media: [MEDIA] }],
+  ])(
+    'imports %s with its exact read envelope and private PDF metadata',
+    async (locator, resolved, options) => {
+      const { run } = createHarness({ ...options, result, body: envelope });
+
+      expect(await run(`@${locator}`)).toEqual({
+        outcomes: [
+          {
+            locator,
+            resolved,
+            outcome: 'imported',
+            body: envelope(resolved),
+            attachment: { ...pdf, ...(locator === MEDIA && { media: MEDIA }) },
+          },
+        ],
+        omitted: [],
+      });
+    },
+  );
+
+  it('counts a PDF toward the eight-target limit without reading the ninth target', async () => {
+    const { run, calls } = createHarness({
+      existing: ['/repo/paper.pdf'],
+      result,
+      body: envelope,
+    });
+    const targets = [
+      'paper.pdf',
+      ...Array.from({ length: 8 }, (_, i) => `https://x.test/${i}`),
+    ];
+
+    const imported = await run(targets.map((target) => `@${target}`).join(' '));
+
+    expect(imported.outcomes.map((entry) => entry.locator)).toEqual(
+      targets.slice(0, 8),
+    );
+    expect(imported.omitted).toEqual([targets[8]]);
+    expect(calls.readLocators).toEqual(targets.slice(0, 8));
+  });
+
+  it('charges only the PDF envelope so a following text target still fits', async () => {
+    const pdfPath = '/repo/paper.pdf';
+    const text = 'a'.repeat(
+      MAX_PROMPT_IMPORT_BYTES - Buffer.byteLength(envelope(pdfPath)),
+    );
+    const { run } = createHarness({
+      existing: [pdfPath],
+      result: (path) => (path === pdfPath ? result(path) : OK),
+      body: (path) => (path === pdfPath ? envelope(path) : text),
+    });
+
+    const imported = await run('@paper.pdf @https://x.test/readme');
+
+    expect(imported.outcomes.map((entry) => entry.outcome)).toEqual([
+      'imported',
+      'imported',
+    ]);
+    expect(imported.omitted).toEqual([]);
+    expect(imported.outcomes[1]).toMatchObject({ body: text });
+  });
+
+  it('omits an oversized PDF envelope and stops further reads', async () => {
+    const { run, calls } = createHarness({
+      existing: ['/repo/paper.pdf'],
+      result,
+      body: () => 'a'.repeat(MAX_PROMPT_IMPORT_BYTES + 1),
+    });
+
+    expect(await run('@paper.pdf @https://x.test/readme')).toEqual({
+      outcomes: [],
+      omitted: ['paper.pdf', 'https://x.test/readme'],
+    });
+    expect(calls.readLocators).toEqual(['paper.pdf']);
   });
 });

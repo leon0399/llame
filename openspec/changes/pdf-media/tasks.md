@@ -119,11 +119,11 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 5. `pdf-media/prompt-import-pdfs` — PDF entries (design D9)
 
-- [ ] 5.1 Delete the interim PDF-import guard; turn an admitted prompt-import PDF result into a PDF entry of the `prompt-imports` item, counted toward the 8-target bound and outside the 128 KiB text bound, attached from the importing attempt's memory or replayed from the store for `@media://`, and counted among the triggering message's own references by the overflow trigger; widen the API and web exact-key validators together; verify by unit tests for every `prompt-imports` PDF scenario, including a payload with an extra key refused on both sides and a triggering-message-only PDF import over the page bound that does not compact
-- [ ] 5.2 Update the prompt-imports reference page; add the dated `CHANGELOG.md` entry; this layer completes #1275's acceptance, so its PR carries `Closes #1275`; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 5.3 Verify `pnpm --filter api lint`, `typecheck`, `pnpm --filter web lint typecheck`, the focused unit tests, and the touched integration suites
-- [ ] 5.4 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 5.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 5.1 Delete the interim PDF-import guard; turn an admitted prompt-import PDF result into a PDF entry of the `prompt-imports` item, counted toward the 8-target bound and outside the 128 KiB text bound, attached from the importing attempt's memory or replayed from the store for `@media://`, and counted among the triggering message's own references by the overflow trigger; widen the API and web exact-key validators together; verify by unit tests for every `prompt-imports` PDF scenario, including a payload with an extra key refused on both sides and a triggering-message-only PDF import over the page bound that does not compact
+- [x] 5.2 Update the prompt-imports reference page; add the dated `CHANGELOG.md` entry; this layer completes #1275's acceptance, so its PR carries `Closes #1275`; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 5.3 Verify `pnpm --filter api lint`, `typecheck`, `pnpm --filter web lint typecheck`, the focused unit tests, and the touched integration suites
+- [x] 5.4 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
+- [x] 5.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `pdf-media/web-ui` — PDF tiles and composer (design D10)
 

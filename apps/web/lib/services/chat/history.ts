@@ -135,21 +135,19 @@ export type InstructionsPart = {
 /** The private payload of an instructions item: what the owner chip renders. */
 export type InstructionsPayload = InstructionsPart["data"]["payload"];
 
-/** How one `@` import marker in a user prompt resolved: read, refused by the
- *  `read` permission group, or failed to read. */
-export type PromptImportOutcome = "imported" | "denied" | "failed";
-
 /**
  * A server-authored context item on a USER message disclosing how the `@`
  * import markers in the prompt resolved. `imports` lists each marker's
  * locator as written with its outcome (`resolved` is the path it resolved
- * to, `truncated` marks a file cut at the cap, `media` names an imported
- * image's `media://` locator, and an image that was not stored carries the
- * original's `width`, `height`, and `mediaType` with its display-only inline
- * `thumbnail`, absent when it would exceed the cap); `omitted` lists the locators
- * past the per-prompt marker cap, present only when non-empty. The model-visible
- * text names denied/failed targets only as not imported and lists omitted
- * locators; outcome detail and resolved paths are owner-only metadata.
+ * to, `truncated` marks a file cut at the cap, `media` names the stored
+ * `media://` locator of an imported image or PDF, and an image that was not
+ * stored carries the original's `width`, `height`, and `mediaType` with its
+ * display-only inline `thumbnail`, absent when it would exceed the cap; an
+ * imported PDF carries `kind` `pdf` with its own `mediaType`, `pages`, and
+ * `byteSize` instead); `omitted` lists the locators past the per-prompt
+ * marker cap, present only when non-empty. The model-visible text names
+ * denied/failed targets only as not imported and lists omitted locators;
+ * outcome detail and resolved paths are owner-only metadata.
  */
 export type PromptImportsPart = {
   type: "data-context";
@@ -159,33 +157,7 @@ export type PromptImportsPart = {
     form: "notice";
     runId: string;
     payload: {
-      imports: ReadonlyArray<
-        {
-          locator: string;
-          resolved?: string;
-          outcome: PromptImportOutcome;
-          truncated?: boolean;
-          /** The `media://` locator of an imported image entry. */
-          media?: string;
-        } & (
-          | {
-              thumbnail?: undefined;
-              width?: undefined;
-              height?: undefined;
-              mediaType?: undefined;
-            }
-          | {
-              /** The inline WebP data URL of an image imported without
-               *  being stored, when it fits the cap; the rest describe the
-               *  original. */
-              thumbnail?: string;
-              width: number;
-              height: number;
-              mediaType: string;
-              media?: undefined;
-            }
-        )
-      >;
+      imports: ReadonlyArray<z.infer<typeof promptImportEntrySchema>>;
       omitted?: ReadonlyArray<string>;
     };
     text?: string;
@@ -405,7 +377,10 @@ const promptImportEntryFields = {
  *  outcome, and the optional `resolved` / `truncated` fields. An imported
  *  image entry carries either its `media://` locator as `media`, or, when it
  *  was not stored, the original's `width`, `height`, and `mediaType` with its
- *  inline `thumbnail` when that fit the cap; never both. */
+ *  inline `thumbnail` when that fit the cap; never both. An imported PDF
+ *  entry carries `kind` `pdf` with its own `mediaType`, `pages`, and
+ *  `byteSize`, and `media` only when its target was a `media://` locator —
+ *  never `truncated`, a `thumbnail`, or an image's size. */
 const promptImportEntrySchema = z.union([
   z.strictObject({
     ...promptImportEntryFields,
@@ -423,6 +398,20 @@ const promptImportEntrySchema = z.union([
     width: z.number().int().positive(),
     height: z.number().int().positive(),
     mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  }),
+  z.strictObject({
+    locator: nonEmptyStringSchema,
+    resolved: nonEmptyStringSchema.exactOptional(),
+    outcome: z.literal("imported"),
+    kind: z.literal("pdf"),
+    mediaType: z.literal("application/pdf"),
+    // Mirrors the API's per-PDF page cap.
+    pages: z.number().int().min(1).max(100),
+    byteSize: z.number().int().positive(),
+    media: z
+      .string()
+      .refine((media) => mediaIdFromLocator(media) !== null)
+      .exactOptional(),
   }),
 ]);
 

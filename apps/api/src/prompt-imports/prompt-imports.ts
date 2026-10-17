@@ -11,7 +11,7 @@ import {
 } from '@workspace/native-file-tools';
 
 import {
-  promptImportImage,
+  promptImportMedia,
   type PromptImportOutcome,
 } from '../chats/prompt-imports-item';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
@@ -291,10 +291,9 @@ function recordUnsuccessfulRead(
 }
 
 /**
- * One read of a probe survivor or no-probe target, unless a bound closed. An
- * image result counts as a read and records its image (vision-media D8); only
- * its serialized envelope counts toward the output bound, never the image
- * bytes or its thumbnail.
+ * One read of a probe survivor or no-probe target, unless a bound closed. A
+ * media result counts as a read; only its serialized envelope counts toward
+ * the output bound, never the binary bytes or an image thumbnail.
  */
 async function attemptRead(
   run: ImportRun,
@@ -315,8 +314,7 @@ async function attemptRead(
     attempt.target,
   );
   const base = outcomeBase(attempt);
-  // Interim PDF guard until prompt-import-pdfs supplies PDF entries.
-  if (read.result.status !== 'success' || read.result['kind'] === 'pdf') {
+  if (read.result.status !== 'success') {
     recordUnsuccessfulRead(run, attempt, read.admission);
     return;
   }
@@ -327,13 +325,13 @@ async function attemptRead(
     return;
   }
   run.bytes += size;
-  const image = promptImportImage(read.result);
+  const attachment = promptImportMedia(read.result);
   run.outcomes.push({
     ...base,
     outcome: 'imported',
     body: read.text,
     ...(read.result['truncated'] === true && { truncated: true }),
-    ...(image !== undefined && { image }),
+    ...(attachment !== undefined && { attachment }),
   });
 }
 

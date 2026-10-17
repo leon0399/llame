@@ -52,7 +52,10 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
-import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type {
+  ModelInput,
+  SystemModelCatalogEntry,
+} from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
@@ -86,7 +89,7 @@ import { PromptImportPartsRepository } from '../chats/prompt-import-parts.reposi
 import {
   createPromptImportsItem,
   isPromptImportsPayload,
-  promptImportImageKey,
+  promptImportMediaKey,
 } from '../chats/prompt-imports-item';
 import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
@@ -134,6 +137,7 @@ import {
   descriptorRow,
   pdfDescriptor,
   randomPng,
+  storedPdfRow,
 } from '../media/media-fixtures';
 import { composeStepMessages } from '../models/step-composer';
 
@@ -7364,7 +7368,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           locator: `shot${n}.png`,
           outcome: 'imported' as const,
           body: '{"status":"success","kind":"image"}',
-          image: { media: `media://${id}` },
+          attachment: { media: `media://${id}` },
         })),
         omitted: [],
       });
@@ -7377,6 +7381,51 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         ],
         triggerParts,
         mediaRows: ids.map((id) => image(id, 5)),
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    });
+
+    it("does not compact when only the triggering message's prompt-import PDFs exceed the page bound", async () => {
+      // The item's PDF references are the triggering message's own: an earlier
+      // row holds none, so no row exists for compaction to absorb.
+      const ids = triggerIds(2);
+      const item = createPromptImportsItem({
+        runId,
+        outcomes: ids.map((id) => ({
+          locator: `media://${id}`,
+          resolved: `media://${id}`,
+          outcome: 'imported' as const,
+          body: '{"status":"success","kind":"pdf"}',
+          attachment: {
+            kind: 'pdf' as const,
+            mediaType: 'application/pdf',
+            pages: 20,
+            byteSize: 1024,
+            media: `media://${id}`,
+          },
+        })),
+        omitted: [],
+      });
+      const triggerParts = [item, { type: 'text', text: 'read both' }];
+      const capturing = triggerClient();
+      Object.assign(capturing.client, {
+        input: ['text', 'pdf'],
+        // This case is about the overflow, not the size threshold.
+        compactionThresholdTokens: 100_000,
+      });
+
+      const { execution } = await executeTriggerCase({
+        client: capturing.client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 100 }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        // Each PDF fits; their combined 40 pages exceed this model's page bound.
+        mediaRows: ids.map((id) =>
+          pdfDescriptor(id, { pages: 20, byteSize: 1024 }),
+        ),
       });
 
       expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
@@ -12607,6 +12656,60 @@ describe('RunExecutionService prompt imports', () => {
     )?.payload;
   }
 
+  /**
+   * History whose triggering row carries `text` after the prompt-imports
+   * item: `stored`, or the one the attempt appended.
+   */
+  function serveTriggerRow(
+    append: MockInstance<PromptImportPartsRepository['appendForRun']>,
+    text: string,
+    stored?: Message['parts'][number],
+  ) {
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+      () => {
+        const item = stored ?? append.mock.calls[0]?.[0].item;
+        return Promise.resolve([
+          {
+            ...userMessage,
+            parts: [...(item ? [item] : []), { type: 'text', text }],
+          },
+        ]);
+      },
+    );
+  }
+
+  /**
+   * The content following the prompt-imports item's text in the first
+   * request, as the composer every client installs projects it under the
+   * request's model.
+   */
+  async function afterItemText(
+    stream: MockInstance<ModelClient['streamText']>,
+    input: ReadonlyArray<ModelInput>,
+  ) {
+    const sent = stream.mock.calls[0]?.[0];
+    if (sent?.media === undefined) throw new Error('no media resolver sent');
+    const composed = await composeStepMessages(sent.messages, {
+      resolver: sent.media,
+      context: {
+        input,
+        contextWindowTokens: 128_000,
+        reservedOutputTokens: null,
+      },
+    });
+    const trigger = composed.at(-1);
+    const content =
+      trigger?.role === 'user' && Array.isArray(trigger.content)
+        ? trigger.content
+        : [];
+    const at = content.findIndex(
+      (part) =>
+        part.type === 'text' && part.text.includes('producer="prompt-imports"'),
+    );
+    expect(at).toBeGreaterThanOrEqual(0);
+    return { next: content[at + 1], composed };
+  }
+
   it('persists one item with the native read output before the first model request', async () => {
     const root = repoRoot();
     try {
@@ -12867,51 +12970,286 @@ describe('RunExecutionService prompt imports', () => {
     }
   });
 
-  it('refuses a PDF prompt import and releases its attempt bytes', async () => {
-    const root = repoRoot();
-    try {
+  describe('PDF targets (pdf-media D9)', () => {
+    const PDF_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e30';
+    const PDF_MEDIA = `media://${PDF_ID}`;
+
+    /** The Run's own fifteen-page PDF, written into the bound workspace. */
+    function addPaperPdf(root: string) {
       const pdfPath = path.join(root, 'paper.pdf');
-      const pdfBytes = readFileSync(
+      const bytes = readFileSync(
         path.join(__dirname, '../media/testing/pdf/fifteen-pages.pdf'),
       );
-      writeFileSync(pdfPath, pdfBytes);
-      const { append, events } = serveRepositories();
-      bindChat(root);
-      const execution = serviceFor(['enter_workspace', 'read']);
-      Object.assign(execution.client, { input: ['text', 'pdf'] });
-      const stream = vi.spyOn(execution.client, 'streamText');
-
-      const result = await execution.service.executeRun(
-        promptInput(execution.client, 'check @paper.pdf'),
-      );
-      await expect(result.text).resolves.toBe('answer');
-
-      const completion = importEvents(events).find(
-        ({ type }) => type === 'tool.completed',
-      );
-      expect(completion?.payload).toMatchObject({
-        toolName: 'read',
-        status: 'error',
-        output: { status: 'error', type: 'unsupported_media_type' },
-      });
-      expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
-        imports: [
-          {
-            locator: 'paper.pdf',
-            resolved: pdfPath,
-            outcome: 'failed',
-          },
-        ],
-      });
-      const sent = stream.mock.calls[0]?.[0];
-      const held = sent?.media?.heldMedia.get(
-        promptImportImageKey(runId, 'paper.pdf'),
-      );
-      expect(held).toMatchObject({ pages: 15, byteSize: pdfBytes.byteLength });
-      expect(held).not.toHaveProperty('bytes');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+      writeFileSync(pdfPath, bytes);
+      return { pdfPath, bytes };
     }
+
+    it.each([
+      ['hundred-one-pages.pdf', 'paper.pdf'],
+      ['owner-password.pdf', 'paper.pdf'],
+      ['fifteen-pages.pdf', 'paper.pdf:1-20'],
+    ])('does not import refused %s as @%s', async (fixture, locator) => {
+      const root = repoRoot();
+      try {
+        writeFileSync(
+          path.join(root, 'paper.pdf'),
+          readFileSync(path.join(__dirname, '../media/testing/pdf', fixture)),
+        );
+        const { append } = serveRepositories();
+        serveTriggerRow(append, `check @${locator}`);
+        bindChat(root);
+        const execution = serviceFor(['enter_workspace', 'read']);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, `check @${locator}`),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        const resolved: unknown = expect.any(String);
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [{ locator, resolved, outcome: 'failed' }],
+        });
+        const { composed } = await afterItemText(stream, ['text', 'pdf']);
+        expect(composed.at(-1)?.content).not.toContainEqual(
+          expect.objectContaining({ type: 'file' }),
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("imports a PDF target into the attempt's memory, after the item text", async () => {
+      const root = repoRoot();
+      try {
+        const { pdfPath, bytes } = addPaperPdf(root);
+        const { append, events } = serveRepositories();
+        serveTriggerRow(append, 'check @paper.pdf');
+        bindChat(root);
+        const ingest = vi.spyOn(MediaService.prototype, 'ingest');
+        const execution = serviceFor(['enter_workspace', 'read']);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @paper.pdf'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        const output = importEvents(events).find(
+          ({ type }) => type === 'tool.completed',
+        )?.payload['output'];
+        expect(output).toEqual({
+          status: 'success',
+          kind: 'pdf',
+          mediaType: 'application/pdf',
+          pages: 15,
+          byteSize: bytes.byteLength,
+          path: pdfPath,
+        });
+        const item = append.mock.calls[0]?.[0].item;
+        expect(item?.data.payload).toEqual({
+          imports: [
+            {
+              locator: 'paper.pdf',
+              resolved: pdfPath,
+              outcome: 'imported',
+              kind: 'pdf',
+              mediaType: 'application/pdf',
+              pages: 15,
+              byteSize: bytes.byteLength,
+            },
+          ],
+        });
+        // The item records metadata alone: no PDF bytes, no encoded copy.
+        expect(item?.data.text).not.toContain('%PDF-');
+        expect(item?.data.text).not.toContain('JVBERi0');
+        // No media object: the importing attempt's memory alone holds it.
+        expect(ingest).not.toHaveBeenCalled();
+        expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
+          type: 'file',
+          data: bytes,
+          mediaType: 'application/pdf',
+          filename: 'paper.pdf',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('imports a PDF target for a model without PDF input, sending the omitted placeholder', async () => {
+      const root = repoRoot();
+      try {
+        const { pdfPath, bytes } = addPaperPdf(root);
+        const { append } = serveRepositories();
+        serveTriggerRow(append, 'check @paper.pdf');
+        bindChat(root);
+        const execution = serviceFor(['enter_workspace', 'read']);
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @paper.pdf'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [
+            {
+              locator: 'paper.pdf',
+              resolved: pdfPath,
+              outcome: 'imported',
+              kind: 'pdf',
+              mediaType: 'application/pdf',
+              pages: 15,
+              byteSize: bytes.byteLength,
+            },
+          ],
+        });
+        // A model that declares no PDF input retains no bytes: its entry
+        // carries the page count alone.
+        const sent = stream.mock.calls[0]?.[0];
+        expect(
+          sent?.media?.heldMedia.get(promptImportMediaKey(runId, 'paper.pdf')),
+        ).toEqual({ locator: pdfPath, pages: 15 });
+        expect((await afterItemText(stream, ['text'])).next).toEqual({
+          type: 'text',
+          text: '[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('imports an owned PDF locator, replaying the stored original', async () => {
+      const root = repoRoot();
+      try {
+        const bytes = readFileSync(
+          path.join(__dirname, '../media/testing/pdf/fifteen-pages.pdf'),
+        );
+        const { append } = serveRepositories();
+        bindChat(root);
+        serveTriggerRow(append, `check @${PDF_MEDIA}`);
+        const ingest = vi.spyOn(MediaService.prototype, 'ingest');
+        const findOwned = vi
+          .spyOn(MediaService.prototype, 'findOwned')
+          .mockResolvedValue(
+            storedPdfRow({
+              id: PDF_ID,
+              ownerUserId: userId,
+              name: 'paper.pdf',
+              pageCount: 15,
+              byteSize: bytes.byteLength,
+            }),
+          );
+        const execution = serviceFor(['enter_workspace', 'read']);
+        const owned = pdfDescriptor(PDF_ID, {
+          name: 'paper.pdf',
+          pages: 15,
+          byteSize: bytes.byteLength,
+        });
+        const where = () =>
+          Promise.resolve([{ ...descriptorRow(owned), data: bytes }]);
+        // SAFETY: the double supplies the descriptor and original-blob query chains.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        vi.spyOn(execution.db, 'select').mockReturnValue({
+          from: () => ({ where, innerJoin: () => ({ where }) }),
+        } as never);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+        const prompt = promptInput(execution.client, `check @${PDF_MEDIA}`);
+        const result = await execution.service.executeRun(prompt);
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(findOwned).toHaveBeenCalledWith(userId, PDF_ID);
+        expect(ingest).not.toHaveBeenCalled();
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [
+            {
+              locator: PDF_MEDIA,
+              resolved: PDF_MEDIA,
+              outcome: 'imported',
+              kind: 'pdf',
+              mediaType: 'application/pdf',
+              pages: 15,
+              byteSize: bytes.byteLength,
+              media: PDF_MEDIA,
+            },
+          ],
+        });
+        const { next } = await afterItemText(stream, ['text', 'pdf']);
+        expect(next).toEqual({
+          type: 'file',
+          data: bytes,
+          mediaType: 'application/pdf',
+          filename: 'paper.pdf',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('reuses the persisted PDF entry on recovery, sending the not-retained placeholder', async () => {
+      const root = repoRoot();
+      try {
+        const { pdfPath, bytes } = addPaperPdf(root);
+        const { find, append, events } = serveRepositories();
+        bindChat(root);
+        const stored = createPromptImportsItem({
+          runId,
+          outcomes: [
+            {
+              locator: 'paper.pdf',
+              resolved: pdfPath,
+              outcome: 'imported',
+              body: '{"status":"success","kind":"pdf"}',
+              attachment: {
+                kind: 'pdf',
+                mediaType: 'application/pdf',
+                pages: 15,
+                byteSize: bytes.byteLength,
+              },
+            },
+          ],
+          omitted: [],
+        });
+        const payload = stored.data.payload;
+        if (!isPromptImportsPayload(payload)) {
+          throw new Error('the stored item must carry a valid payload');
+        }
+        const item = { ...stored, data: { ...stored.data, payload } };
+        find.mockResolvedValue(item);
+        serveTriggerRow(append, 'check @paper.pdf', item);
+        // The PDF changed on disk after the import completed.
+        writeFileSync(
+          pdfPath,
+          readFileSync(
+            path.join(__dirname, '../media/testing/pdf/one-page.pdf'),
+          ),
+        );
+        const ingest = vi.spyOn(MediaService.prototype, 'ingest');
+        const read = vi.spyOn(nativeReadTool, 'execute');
+        const execution = serviceFor(['enter_workspace', 'read']);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @paper.pdf'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(read).not.toHaveBeenCalled();
+        expect(ingest).not.toHaveBeenCalled();
+        expect(append).not.toHaveBeenCalled();
+        expect(importEvents(events)).toEqual([]);
+        expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
+          type: 'text',
+          text: '[pdf "paper.pdf" 15 pages, not retained]',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('image targets (vision-media D8)', () => {
@@ -12950,59 +13288,6 @@ describe('RunExecutionService prompt imports', () => {
           ),
         );
       return { ingest, findOwned };
-    }
-
-    /**
-     * History whose triggering row carries `text` after the prompt-imports
-     * item: `stored`, or the one the attempt appended.
-     */
-    function serveTriggerRow(
-      append: MockInstance<PromptImportPartsRepository['appendForRun']>,
-      text: string,
-      stored?: Message['parts'][number],
-    ) {
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
-        () => {
-          const item = stored ?? append.mock.calls[0]?.[0].item;
-          return Promise.resolve([
-            {
-              ...userMessage,
-              parts: [...(item ? [item] : []), { type: 'text', text }],
-            },
-          ]);
-        },
-      );
-    }
-
-    /**
-     * The content following the prompt-imports item's text in the first
-     * request, as the composer every client installs projects it.
-     */
-    async function afterItemText(
-      stream: MockInstance<ModelClient['streamText']>,
-      imageInput: boolean,
-    ) {
-      const sent = stream.mock.calls[0]?.[0];
-      if (sent?.media === undefined) throw new Error('no media resolver sent');
-      const composed = await composeStepMessages(sent.messages, {
-        resolver: sent.media,
-        context: {
-          input: imageInput ? ['text', 'image'] : ['text'],
-          contextWindowTokens: 128_000,
-          reservedOutputTokens: null,
-        },
-      });
-      const trigger = composed.at(-1);
-      const content =
-        trigger?.role === 'user' && Array.isArray(trigger.content)
-          ? trigger.content
-          : [];
-      const at = content.findIndex(
-        (part) =>
-          part.type === 'text' &&
-          part.text.includes('producer="prompt-imports"'),
-      );
-      return { next: content[at + 1], composed };
     }
 
     async function importShot(imageInput: boolean, root: string) {
@@ -13059,11 +13344,11 @@ describe('RunExecutionService prompt imports', () => {
             },
           ],
         });
-        expect(item?.data.text).toContain(
-          `<file path="shot.png">\n${serializeNativeModelOutput(output)}\n</file>`,
-        );
         expect(item?.data.text).not.toContain('data:image/webp');
-        const { next, composed } = await afterItemText(stream, true);
+        const { next, composed } = await afterItemText(stream, [
+          'text',
+          'image',
+        ]);
         const anyBytes: unknown = expect.any(Uint8Array);
         expect(next).toEqual({
           type: 'image',
@@ -13083,13 +13368,13 @@ describe('RunExecutionService prompt imports', () => {
 
         const sent = stream.mock.calls[0]?.[0];
         expect(
-          sent?.media?.heldMedia.get(promptImportImageKey(runId, 'shot.png')),
+          sent?.media?.heldMedia.get(promptImportMediaKey(runId, 'shot.png')),
         ).toEqual({
           locator: `${root}/shot.png`,
           width: 160,
           height: 90,
         });
-        expect((await afterItemText(stream, false)).next).toEqual({
+        expect((await afterItemText(stream, ['text'])).next).toEqual({
           type: 'text',
           text: '[image "shot.png" 160×90, omitted: this model has no image input]',
         });
@@ -13165,7 +13450,7 @@ describe('RunExecutionService prompt imports', () => {
               resolved: `${root}/shot.png`,
               outcome: 'imported',
               body: '{"status":"success","kind":"image"}',
-              image: {
+              attachment: {
                 thumbnail: 'data:image/webp;base64,UklGRg==',
                 width: 160,
                 height: 90,
@@ -13200,7 +13485,7 @@ describe('RunExecutionService prompt imports', () => {
         expect(findOwned).not.toHaveBeenCalled();
         expect(append).not.toHaveBeenCalled();
         expect(importEvents(events)).toEqual([]);
-        expect((await afterItemText(stream, true)).next).toEqual({
+        expect((await afterItemText(stream, ['text', 'image'])).next).toEqual({
           type: 'text',
           text: '[image "shot.png" 160×90, not retained]',
         });

@@ -234,3 +234,43 @@ export const ImportedImageOpensLightbox: Story = {
     await waitFor(() => expect(opener).toHaveFocus());
   },
 };
+
+/**
+ * A prompt that imported a PDF beside a failed marker. Until a PDF gets its
+ * own tile, the entry is disclosed by its chip alone: a stored PDF requests
+ * no `/model` route, contributes no tile, and so never opens the lightbox.
+ *
+ * @summary a stored PDF import is disclosed without an image request
+ */
+export const WithPdfEntry: Story = {
+  tags: ["ai-generated"],
+  args: {
+    imports: [
+      { locator: "docs/GUIDE.md", outcome: "imported" },
+      {
+        locator: MEDIA_LOCATOR,
+        outcome: "imported",
+        kind: "pdf",
+        mediaType: "application/pdf",
+        pages: 15,
+        byteSize: 2_215_244,
+        media: MEDIA_LOCATOR,
+      },
+      { locator: "missing.pdf", outcome: "failed" },
+    ],
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByLabelText(`Imported prompt file: ${MEDIA_LOCATOR}`),
+    ).toBeVisible();
+    await expect(
+      canvas.getByLabelText("Failed prompt file: missing.pdf"),
+    ).toBeVisible();
+    // Nothing under the chips: no thumbnail loads the stored PDF's `/model`
+    // route, and with no tile there is no slide to open.
+    await expect(
+      canvas.queryByRole("list", { name: "Imported images" }),
+    ).toBeNull();
+    await expect(canvas.queryAllByRole("img")).toHaveLength(0);
+  },
+};

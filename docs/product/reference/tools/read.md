@@ -136,8 +136,6 @@ A model without PDF input receives an omitted placeholder. A
 [`media://`](../locators/media.md) PDF result also carries its stored `media`
 locator and can replay from the store across turns.
 
-PDF prompt imports are not yet supported: a PDF target is reported as failed.
-
 ## Behavior
 
 `read({ path: "/absolute/file.md:10-20" })` returns lines 10 through 20, plus one
