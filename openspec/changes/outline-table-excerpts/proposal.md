@@ -85,8 +85,9 @@ None.
 - `:outline:125-135` of the same file emits lines 6, 124, 126, 128, and 135: the
   scope holds the table's header row, so all three excerpt lines are emitted,
   the last one as an in-scope entry.
-- `:outline:127-130` emits lines 6, 124, and 126: the scope starts at the
-  delimiter row, so the chain carries the header row alone.
+- `:outline:127-130` emits lines 6, 124, 126, and 128: the scope starts at the
+  delimiter row, so the chain carries the header row alone, and the table's own
+  position emits its first content row because the scope holds it.
 - A table inside a blockquote or list item changes nothing.
 - A one-content-row table emits the header row and that row; a header-only table
   emits the header row.
