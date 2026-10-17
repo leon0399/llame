@@ -778,16 +778,25 @@ export const AddMenu: Story = {
     const upload = screen.getByRole("menuitem", {
       name: "Upload photos & files",
     });
-    await expect(upload).toHaveAttribute("aria-keyshortcuts", "Control+U");
+    // The chord this browser's platform uses, as command-palette.stories does.
+    const isMac = /Mac|iPod|iPhone|iPad/.test(
+      navigator.platform || navigator.userAgent || "",
+    );
+    await expect(upload).toHaveAttribute(
+      "aria-keyshortcuts",
+      isMac ? "Meta+U" : "Control+U",
+    );
     // The menu fades in, so the shortcut is only visible once it settles.
     await waitFor(() =>
-      expect(within(upload).getByText("Ctrl+U")).toBeVisible(),
+      expect(within(upload).getByText(isMac ? "⌘+U" : "Ctrl+U")).toBeVisible(),
     );
     await userEvent.click(upload);
     await expect(openPicker).toHaveBeenCalledTimes(1);
 
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-    await userEvent.keyboard("{Control>}u{/Control}");
+    await userEvent.keyboard(
+      isMac ? "{Meta>}u{/Meta}" : "{Control>}u{/Control}",
+    );
     await expect(openPicker).toHaveBeenCalledTimes(2);
   },
 };

@@ -122,7 +122,10 @@ function UploadMenuItem({
     <DropdownMenuItem
       disabled={disabled}
       onClick={onUpload}
-      aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+U`}
+      // Only announced while the shortcut is live.
+      aria-keyshortcuts={
+        disabled ? undefined : `${modifierKey === "⌘" ? "Meta" : "Control"}+U`
+      }
     >
       <PaperclipIcon />
       <span>Upload photos & files</span>

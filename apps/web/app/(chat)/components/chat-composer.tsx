@@ -151,7 +151,10 @@ function preventWhenDisabled(
 type ChatComposerToolbarProps = Pick<
   ChatComposerFormProps,
   "status" | "onStop" | "modelReadyForSend" | "pendingStop" | "attachments"
->;
+> & {
+  /** The whole composer is locked: no upload, by menu or by shortcut. */
+  locked: boolean;
+};
 
 /** The toolbar under the textarea: the `+` menu on the left, send/stop on
  *  the right. */
@@ -161,19 +164,22 @@ function ChatComposerToolbar({
   modelReadyForSend,
   pendingStop,
   attachments,
+  locked,
 }: ChatComposerToolbarProps) {
   return (
     <PromptInputToolbar>
       <ComposerAddMenu
         onFiles={attachments.add}
         accept={attachments.accept}
-        attachDisabled={attachments.attachDisabled}
+        attachDisabled={attachments.attachDisabled || locked}
       />
       <div className="ml-auto">
         <ChatComposerSendButton
           status={status}
           onStop={onStop}
-          modelReadyForSend={modelReadyForSend}
+          modelReadyForSend={
+            modelReadyForSend && !locked && !attachments.sendBlocked
+          }
           pendingStop={pendingStop}
         />
       </div>
@@ -186,7 +192,6 @@ function ChatComposerForm({
   input,
   onInputChange,
   onSubmit,
-  modelReadyForSend,
   disabled,
   attachments,
   chatId,
@@ -214,10 +219,8 @@ function ChatComposerForm({
         />
         <ChatComposerToolbar
           {...toolbar}
-          modelReadyForSend={
-            modelReadyForSend && !disabled && !attachments.sendBlocked
-          }
           attachments={attachments}
+          locked={disabled}
         />
       </PromptInput>
       <ChatComposerSettingsRow chatId={chatId} />
