@@ -12,12 +12,11 @@ import { ArchiveIcon } from "lucide-react";
 import { useSetChatArchive } from "@/lib/services/chat/management";
 import { useOpenChat } from "@/lib/services/chat/queries";
 
-/** Whether the open chat is archived. Uses the same query keys as the chat
- *  header's `useOpenChat`, so it adds no request only while that header is
- *  mounted; elsewhere it fetches the lists, then GET /chats/:id (a 404 for a
- *  draft, which is never archived). */
+/** Whether the open chat is archived, read from what the chat header
+ *  already loads (its list caches, or GET /chats/:id) and never fetched
+ *  again here — so a draft, which no cache holds, is never archived. */
 export function useOpenChatArchived(chatId: string): boolean {
-  const chat = useOpenChat(chatId);
+  const chat = useOpenChat(chatId, { fetch: false });
   return chat !== undefined && chat.archivedAt !== null;
 }
 
