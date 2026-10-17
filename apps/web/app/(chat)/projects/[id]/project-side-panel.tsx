@@ -134,7 +134,7 @@ function ContextSection() {
     >
       {files.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Add files the project&apos;s chats can draw on
+          Add PDFs, documents, or other text to reference in this project.
         </p>
       ) : (
         <MediaThumbnailRow
