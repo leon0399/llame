@@ -1,5 +1,5 @@
 Track [#1024](https://github.com/leon0399/llame/issues/1024) and its PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking). Carry
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking). Carry
 forward the recorded proposal approval and recheck native blockers before
 starting; keep live status in the Project.
 
@@ -37,12 +37,12 @@ master
 - [x] 1.5 Update `docs/product/reference/selectors.md` ("Ranged Markdown ancestors") with the header pair, its budget priority, and the T1 and T4 limits, and add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
 - [x] 1.6 Verify the layer: `pnpm --filter @workspace/native-file-tools test`, `pnpm --filter @workspace/native-file-tools typecheck`, `pnpm --filter @workspace/native-file-tools lint`, the focused `apps/api` tests from 1.4, `pnpm format:check`, and `git diff --check`.
 - [x] 1.7 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
-- [ ] 1.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1024` in the PR body.
+- [x] 1.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1024` in the PR body.
 
 ## 2. finalize
 
-- [ ] 2.1 Enter `ranged-table-headers/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the five added requirements appear word for word and both MODIFIED requirements match the delta, with every canonical scenario kept.
-- [ ] 2.2 Confirm archive readiness: `openspec status --change ranged-markdown-table-headers --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 2.1 Enter `ranged-table-headers/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the five added requirements appear word for word and both MODIFIED requirements match the delta, with every canonical scenario kept.
+- [x] 2.2 Confirm archive readiness: `openspec status --change ranged-markdown-table-headers --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
 
