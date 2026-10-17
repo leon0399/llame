@@ -1556,7 +1556,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       model: testModelEntry,
       anchor: formatTemporalAnchor(chat.createdAt, resolveInstanceTimezone()),
       admittedToolIds: ['search_conversations'],
-    });
+    }).text;
     expect(advertised?.description).toBe(expectedDescription);
     // Independent of the renderer round-trip above: the equality check compares
     // two calls to the same renderer, so a renderer-level regression that
@@ -5777,7 +5777,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         const itemThen = async (resolver: RunMediaResolver, image: boolean) => {
           const composed = await composeStepMessages(sent.messages, {
             resolver,
-            imageInput: image,
+            context: {
+              input: image ? ['text', 'image'] : ['text'],
+              contextWindowTokens: 128_000,
+              reservedOutputTokens: null,
+            },
           });
           const trigger = composed.at(-1);
           const content =

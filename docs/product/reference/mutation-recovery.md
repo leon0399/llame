@@ -41,13 +41,13 @@ under every permission mode; see [permission modes](permission-modes.md).
 After an unknown outcome, read the file's current state before authoring a new
 attempt. Do not assume a timeout means the file was unchanged.
 
-A `bash` attempt is fenced the same way, and it carries one extra limit. After an
-unproven stop, the process-group quarantine is local to the worker and is lost if
-that worker crashes. An in-flight shell process group can survive that crash, so
-a replacement worker can admit a new bash command while the old group remains
-alive, because the replacement has no quarantine for the lost worker. The durable
-attempt record still prevents Run recovery from replaying the command, and the Run
-becomes `outcome_unknown`.
+A `bash` attempt is fenced the same way before start. A live unproven stop
+records `outcome_unknown` as a tool observation, tells the model to inspect the
+workspace before retrying, and leaves the Run continuing with later bash calls
+admitted. An in-flight shell process group can still survive a worker crash; a
+replacement worker may admit a new bash command beside it. The durable attempt
+record still prevents Run recovery from replaying the unfinished command, and
+that recovery path terminates the Run with `outcome_unknown`.
 
 ## Configured by
 

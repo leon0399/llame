@@ -40,23 +40,30 @@ export function useCreateProject() {
   });
 }
 
+/** The mutable project fields (PATCH /api/v1/projects/:id). An omitted field is
+ *  left unchanged; `description: null` clears the description. */
+export type UpdateProjectPatch = {
+  name?: string;
+  description?: string | null;
+};
+
 export async function updateProject(
   id: string,
-  name: string,
+  patch: UpdateProjectPatch,
 ): Promise<ProjectResponse> {
-  return updateProjectEndpoint(id, { name }, undefined, authenticatedFetch());
+  return updateProjectEndpoint(id, patch, undefined, authenticatedFetch());
 }
 
 export function useUpdateProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      updateProject(id, name),
+    mutationFn: ({ id, ...patch }: { id: string } & UpdateProjectPatch) =>
+      updateProject(id, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
     },
-    onError: () => toast.error("Couldn't rename the project."),
+    onError: () => toast.error("Couldn't save the project."),
   });
 }
 

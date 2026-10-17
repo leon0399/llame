@@ -1,3 +1,4 @@
+import { is, SQL } from 'drizzle-orm';
 import { getTableConfig, PgDialect, type PgTable } from 'drizzle-orm/pg-core';
 
 import { externalIdentities, memberships, orgUnits } from './identity';
@@ -234,7 +235,21 @@ describe('search and pin schema metadata', () => {
       'search_chat_documents_owner_chat_idx',
       'search_chat_documents_owner_recency_idx',
       'search_chat_documents_embedding_backlog_idx',
+      'search_chat_documents_embed_reuse_idx',
     ]);
+    // #597: md5 is only a candidate filter over rows that carry a vector.
+    const dialect = new PgDialect();
+    const reuseIndex = getTableConfig(searchChatDocuments).indexes.find(
+      (index) => index.config.name === 'search_chat_documents_embed_reuse_idx',
+    );
+    expect(
+      reuseIndex?.config.columns.map(
+        (column) => is(column, SQL) && dialect.sqlToQuery(column).sql,
+      ),
+    ).toEqual(['md5("search_chat_documents"."content")']);
+    expect(
+      reuseIndex?.config.where && dialect.sqlToQuery(reuseIndex.config.where),
+    ).toEqual({ sql: 'embedding IS NOT NULL', params: [] });
     expect(policyNames(searchChatDocuments)).toEqual([
       'search_chat_documents_owner',
     ]);

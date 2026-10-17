@@ -15,6 +15,15 @@ pnpm-lock.yaml linguist-generated=true -diff
 # fully visible — those are the reviewable artifact.
 apps/api/src/db/migrations/meta/** linguist-generated=true
 
+# Code generated from openapi.json (orval), asyncapi.websocket.yaml (live protocol) and
+# asyncapi.queues.yaml (queue payloads).
+# CI regenerates and fails on drift, so review the source documents instead.
+# openapi.json stays visible: it is the reviewable API contract.
+apps/web/lib/api/generated/** linguist-generated=true
+apps/web/lib/api/live-generated/** linguist-generated=true
+apps/api/src/live/generated/** linguist-generated=true
+apps/api/src/queue/generated/** linguist-generated=true
+
 # Binary assets (never normalize / diff).
 *.png   binary
 *.jpg   binary

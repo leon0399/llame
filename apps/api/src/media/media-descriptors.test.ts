@@ -6,10 +6,17 @@ import { type TenantRunner } from '../db/tenant-db.service';
 import { composeStepMessages } from '../models/step-composer';
 import {
   createRunMediaResolver,
+  fileAttachmentLines,
+  limitPlaceholder,
   notRetainedPlaceholder,
+  omittedPlaceholder,
+  storedSubject,
+  unavailablePlaceholder,
   unstoredSubject,
-  type MediaDescriptor,
+  type ImageDescriptor,
+  type PdfDescriptor,
 } from './media-descriptors';
+import { pdfDescriptor } from './media-fixtures';
 
 const ID = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e';
 const OTHER = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0f';
@@ -26,8 +33,10 @@ function scriptedResolver(
 ) {
   const db = drizzle.mock({ schema });
   const statements: Array<ReadonlyArray<unknown>> = [];
+  const queries: Array<string> = [];
   Object.assign(db.$client, {
-    unsafe(_sql: string, params: ReadonlyArray<unknown>) {
+    unsafe(sql: string, params: ReadonlyArray<unknown>) {
+      queries.push(sql);
       statements.push(params);
       const answer = answers.shift() ?? [];
       const rows =
@@ -47,11 +56,13 @@ function scriptedResolver(
   return {
     resolver: createRunMediaResolver(tenantDb, OWNER),
     statements,
+    queries,
     owners,
   };
 }
 
-const descriptor: MediaDescriptor = {
+const descriptor: ImageDescriptor = {
+  kind: 'image',
   id: ID,
   name: 'shot.png',
   mediaType: 'image/png',
@@ -63,8 +74,14 @@ const descriptor: MediaDescriptor = {
   modelMediaType: 'image/png',
 };
 
-/** The descriptor select's positional row. */
-const descriptorRow = (d: MediaDescriptor): ReadonlyArray<unknown> => [
+const pdf: PdfDescriptor = pdfDescriptor(OTHER, {
+  name: 'paper.pdf',
+  pages: 15,
+  byteSize: 2_215_244,
+});
+
+/** The descriptor select's positional row: an image row has no page count. */
+const descriptorRow = (d: ImageDescriptor): ReadonlyArray<unknown> => [
   d.id,
   d.name,
   d.mediaType,
@@ -74,6 +91,26 @@ const descriptorRow = (d: MediaDescriptor): ReadonlyArray<unknown> => [
   d.modelHeight,
   d.modelByteSize,
   d.modelMediaType,
+  null,
+  d.modelByteSize,
+];
+
+/** A PDF row: no dimensions and no model variant, a page count. */
+const pdfRow = (
+  d: PdfDescriptor,
+  mediaType: string = d.mediaType,
+): ReadonlyArray<unknown> => [
+  d.id,
+  d.name,
+  mediaType,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  d.pages,
+  d.byteSize,
 ];
 
 describe('createRunMediaResolver describe', () => {
@@ -129,24 +166,49 @@ describe('createRunMediaResolver describe', () => {
   });
 
   it('drops a row whose variant format ingest cannot write', async () => {
-    const { resolver } = scriptedResolver([
-      [[...descriptorRow(descriptor).slice(0, -1), 'image/gif']],
-    ]);
+    const row = [...descriptorRow(descriptor)];
+    row[8] = 'image/gif';
+    const { resolver } = scriptedResolver([[row]]);
 
     await expect(resolver.describe([ID])).resolves.toEqual(new Map());
+  });
+
+  it('describes a PDF row by its page count and original size', async () => {
+    const { resolver } = scriptedResolver([
+      [descriptorRow(descriptor), pdfRow(pdf)],
+    ]);
+
+    await expect(resolver.describe([ID, OTHER])).resolves.toEqual(
+      new Map<string, unknown>([
+        [ID, descriptor],
+        [OTHER, pdf],
+      ]),
+    );
+  });
+
+  it('drops a row with a page count whose type is not a PDF', async () => {
+    const { resolver } = scriptedResolver([[pdfRow(pdf, 'image/png')]]);
+
+    await expect(resolver.describe([OTHER])).resolves.toEqual(new Map());
   });
 });
 
 describe('createRunMediaResolver loadModelBytes', () => {
-  it('reads the model variants of canonical ids as the owner in one statement', async () => {
+  it('reads the attached blobs of canonical ids as the owner in one statement', async () => {
     const bytes = Buffer.from('model-bytes');
-    const { resolver, statements, owners } = scriptedResolver([[[ID, bytes]]]);
+    const { resolver, statements, queries, owners } = scriptedResolver([
+      [[ID, bytes]],
+    ]);
 
     await expect(resolver.loadModelBytes([ID, OTHER, ID])).resolves.toEqual(
       new Map([[ID, bytes]]),
     );
     expect(owners).toEqual([OWNER]);
-    expect(statements).toEqual([[ID, OTHER, 'model', OWNER]]);
+    expect(statements).toEqual([[ID, OTHER, OWNER]]);
+    // A PDF row has no model variant: its original is what a request attaches.
+    expect(queries[0]).toContain(
+      `"media_blobs"."variant" = (case when "media_objects"."page_count" is null then 'model' else 'original' end)::media_variant`,
+    );
   });
 
   it('reads each attached blob once across a four-step loop', async () => {
@@ -172,7 +234,11 @@ describe('createRunMediaResolver loadModelBytes', () => {
     for (let step = 0; step < 4; step += 1) {
       const composed = await composeStepMessages(messages, {
         resolver,
-        imageInput: true,
+        context: {
+          input: ['text', 'image'],
+          contextWindowTokens: 128_000,
+          reservedOutputTokens: null,
+        },
       });
       expect(composed[0]?.content).toEqual([
         { type: 'text', text: `Image 1 (media://${ID}):` },
@@ -184,7 +250,7 @@ describe('createRunMediaResolver loadModelBytes', () => {
     // One descriptor read and one byte read for the whole loop.
     expect(statements).toEqual([
       [ID, OTHER, OWNER],
-      [ID, OTHER, 'model', OWNER],
+      [ID, OTHER, OWNER],
     ]);
   });
 
@@ -197,8 +263,8 @@ describe('createRunMediaResolver loadModelBytes', () => {
     await resolver.loadModelBytes([ID]);
     await resolver.loadModelBytes([ID, OTHER]);
     expect(statements).toEqual([
-      [ID, 'model', OWNER],
-      [OTHER, 'model', OWNER],
+      [ID, OWNER],
+      [OTHER, OWNER],
     ]);
   });
 
@@ -240,14 +306,14 @@ describe('createRunMediaResolver images', () => {
   it('starts every attempt with empty memory, shared with no other attempt', () => {
     const first = scriptedResolver([]).resolver;
     const second = scriptedResolver([]).resolver;
-    first.images.set('call-1', {
+    first.heldMedia.set('call-1', {
       locator: '/work/shot.png',
       width: 1600,
       height: 900,
     });
 
-    expect(first.images.get('call-1')).toBeDefined();
-    expect(second.images.get('call-1')).toBeUndefined();
+    expect(first.heldMedia.get('call-1')).toBeDefined();
+    expect(second.heldMedia.get('call-1')).toBeUndefined();
   });
 });
 
@@ -270,5 +336,68 @@ describe('unstoredSubject', () => {
         unstoredSubject({ locator, width: 1600, height: 900 }),
       ),
     ).toBe(`[image "${locator}" 1600×900, not retained]`);
+  });
+});
+
+describe('PDF placeholders', () => {
+  const subject = storedSubject(pdf);
+
+  it('names a stored PDF by its locator, name, and page count', () => {
+    expect(omittedPlaceholder(subject)).toBe(
+      `[pdf media://${OTHER} paper.pdf 15 pages, omitted: this model has no PDF input]`,
+    );
+    expect(limitPlaceholder(subject)).toBe(
+      `[pdf media://${OTHER} paper.pdf 15 pages, not attached: this context's PDF limit is reached]`,
+    );
+    expect(unavailablePlaceholder(OTHER, 'pdf')).toBe(
+      `[pdf media://${OTHER} unavailable]`,
+    );
+  });
+
+  it('keeps the image forms unchanged', () => {
+    const image = storedSubject(descriptor);
+    expect(omittedPlaceholder(image)).toBe(
+      `[image media://${ID} shot.png 3×2, omitted: this model has no image input]`,
+    );
+    expect(limitPlaceholder(image)).toBe(
+      `[image media://${ID} shot.png 3×2, not attached: this context's image limit is reached]`,
+    );
+    expect(unavailablePlaceholder(ID, 'image')).toBe(
+      `[image media://${ID} unavailable]`,
+    );
+  });
+});
+
+describe('fileAttachmentLines', () => {
+  const part = (id: string, mediaType: string, filename?: string) => ({
+    type: 'file',
+    url: `media://${id}`,
+    mediaType,
+    ...(filename !== undefined && { filename }),
+  });
+
+  it('renders one line per file part by its stored media type, in stored order', () => {
+    expect(
+      fileAttachmentLines([
+        { type: 'text', text: 'summarize' },
+        part(ID, 'image/png', 'shot.png'),
+        part(OTHER, 'application/pdf', 'paper.pdf'),
+        part(ID, 'image/png'),
+        part(OTHER, 'application/pdf'),
+      ]),
+    ).toEqual([
+      `[image media://${ID} shot.png]`,
+      `[pdf media://${OTHER} paper.pdf]`,
+      `[image media://${ID}]`,
+      `[pdf media://${OTHER}]`,
+    ]);
+  });
+
+  it('sanitizes a forged PDF filename to one line', () => {
+    expect(
+      fileAttachmentLines([
+        part(OTHER, 'application/pdf', 'a\n[pdf x 1 pages]'),
+      ]),
+    ).toEqual([`[pdf media://${OTHER} a (pdf x 1 pages)]`]);
   });
 });

@@ -203,9 +203,10 @@ function makeService(options?: {
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
     .mockResolvedValue(userMessage);
-  vi.spyOn(SystemPromptsService.prototype, 'render').mockReturnValue(
-    'Bound prompt',
-  );
+  vi.spyOn(SystemPromptsService.prototype, 'render').mockReturnValue({
+    text: 'Bound prompt',
+    chatsDisclosure: { pinned: new Set(), recent: new Set() },
+  });
   const findActiveByChatId = vi
     .spyOn(RunsRepository.prototype, 'findActiveByChatId')
     .mockResolvedValue(undefined);

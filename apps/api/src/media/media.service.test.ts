@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { getTableColumns } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import sharp from 'sharp';
@@ -5,6 +8,7 @@ import sharp from 'sharp';
 import * as schema from '../db/schema';
 import { type MediaObject } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
+import { storedPdfRow } from './media-fixtures';
 import { MediaIngestError, prepareMedia } from './media-ingest';
 import { MediaService } from './media.service';
 
@@ -64,6 +68,7 @@ function stored(sha256: string): MediaObject {
     modelWidth: 3,
     modelHeight: 2,
     modelByteSize: 90,
+    pageCount: null,
     sha256,
     createdAt: new Date('2026-10-10T00:00:00.000Z'),
   };
@@ -140,7 +145,7 @@ describe('MediaService ingest', () => {
   it('stores a new object with both variants in the owner transaction', async () => {
     const input = await upload();
     const prepared = await prepareMedia(input.bytes);
-    const row = stored(prepared.sha256);
+    const row = stored(createHash('sha256').update(input.bytes).digest('hex'));
     const { media, statements, owners } = scriptedTenantDb([
       [objectRow(row)],
       [],
@@ -164,7 +169,9 @@ describe('MediaService ingest', () => {
 
   it("reuses the owner's object with the same digest and stores no blob", async () => {
     const input = await upload();
-    const existing = stored((await prepareMedia(input.bytes)).sha256);
+    const existing = stored(
+      createHash('sha256').update(input.bytes).digest('hex'),
+    );
     const { media, statements } = scriptedTenantDb([[], [objectRow(existing)]]);
 
     await expect(media.ingest(OWNER, input)).resolves.toEqual({
@@ -186,5 +193,29 @@ describe('MediaService ingest', () => {
       'Media dedup conflict without a visible row',
     );
     expect(statements).toHaveLength(2);
+  });
+
+  it('stores a PDF with only its original in the owner transaction', async () => {
+    const bytes = await readFile(join(__dirname, 'testing/pdf/one-page.pdf'));
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const row = storedPdfRow({ sha256, byteSize: bytes.length });
+    const { media, statements, owners } = scriptedTenantDb([
+      [objectRow(row)],
+      [],
+    ]);
+
+    await expect(
+      media.ingest(OWNER, { bytes, source: 'scan.pdf' }),
+    ).resolves.toEqual({ media: row, created: true });
+
+    expect(owners).toEqual([OWNER]);
+    expect(statements).toHaveLength(2);
+    expect(statements[0]?.params).toEqual(
+      expect.arrayContaining(['application/pdf', 1, sha256, bytes.length]),
+    );
+    expect(statements[1]).toEqual({
+      sql: 'insert into "media_blobs" ("media_id", "variant", "data") values ($1, $2, $3)',
+      params: [ID, 'original', bytes],
+    });
   });
 });

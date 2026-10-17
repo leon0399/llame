@@ -2,13 +2,21 @@ import { z } from 'zod';
 
 import type { HackernewsWebAdapterConfig } from '../../../../instance-config/llame-config';
 import { convertToMarkdown } from '../../pipeline';
-import { parseJsonBody, primaryFailure, type WebAdapter } from '../contract';
+import {
+  parseJsonBody,
+  primaryFailure,
+  type WebAdapter,
+  type WebAdapterIo,
+  type WebAdapterOutcome,
+} from '../contract';
 
-/** Algolia's Hacker News API serves an item with its whole reply tree in one
- *  keyless request. */
+/** Algolia's Hacker News API serves an item with its whole reply tree, and a
+ *  list page's stories, in one keyless request. */
 export const HACKERNEWS_API_ORIGIN = 'https://hn.algolia.com';
 const ITEM_URL = 'https://news.ycombinator.com/item?id=';
 const ITEM_ID = /^[1-9]\d{0,11}$/u;
+/** Reads only a list page's first 30 stories. */
+const LIST_PAGE_SIZE = 30;
 
 type Item = {
   readonly id: number;
@@ -41,6 +49,48 @@ const ITEM: z.ZodType<Item> = z.lazy(() =>
     children: z.array(ITEM),
   }),
 );
+
+/** A story as the search endpoints report it. */
+const STORY = z.object({
+  objectID: z.string(),
+  title: z.string(),
+  url: z
+    .string()
+    .nullable()
+    .default(null)
+    .transform((url) => url || null),
+  points: z.number().nullable().default(null),
+  num_comments: z.number().nullable().default(null),
+});
+type Story = z.infer<typeof STORY>;
+const SEARCH = z.object({ hits: z.array(STORY), nbHits: z.number() });
+
+/** A story-list page and the Algolia query it maps to. */
+type StoryList = {
+  readonly heading: string;
+  readonly endpoint: 'search' | 'search_by_date';
+  readonly tags: string;
+};
+
+const FRONT_PAGE: StoryList = {
+  heading: 'front page',
+  endpoint: 'search',
+  tags: 'front_page',
+};
+
+/** The list pages this adapter reads; every other path is unclaimed. */
+const LISTS = {
+  '/': FRONT_PAGE,
+  '/news': FRONT_PAGE,
+  '/front': FRONT_PAGE,
+  '/newest': { heading: 'newest', endpoint: 'search_by_date', tags: 'story' },
+} as const satisfies Record<string, StoryList>;
+
+/** The item or list page a `news.ycombinator.com` locator names. */
+type HackernewsTarget =
+  | { readonly kind: 'item'; readonly id: string }
+  | { readonly kind: 'list'; readonly page: StoryList };
+
 type Entry = {
   readonly label: 'Post' | 'Reply';
   readonly item: Item;
@@ -48,18 +98,21 @@ type Entry = {
   readonly replyTo?: string;
 };
 
-/** Matches `news.ycombinator.com/item?id={id}`; other query parameters, such
- *  as a comment page number, are ignored. */
-export function parseHackernewsUrl(source: URL): string | undefined {
-  if (
-    source.protocol !== 'https:' ||
-    source.host !== 'news.ycombinator.com' ||
-    source.pathname !== '/item'
-  ) {
+/** Matches `news.ycombinator.com/item?id={id}` and the list pages `/`,
+ *  `/news`, `/front`, and `/newest`; other query parameters, such as a page
+ *  number, are ignored. */
+export function parseHackernewsUrl(source: URL): HackernewsTarget | undefined {
+  if (source.protocol !== 'https:' || source.host !== 'news.ycombinator.com') {
     return undefined;
   }
-  const id = source.searchParams.get('id');
-  return id !== null && ITEM_ID.test(id) ? id : undefined;
+  if (source.pathname === '/item') {
+    const id = source.searchParams.get('id');
+    return id !== null && ITEM_ID.test(id) ? { kind: 'item', id } : undefined;
+  }
+  for (const [path, page] of Object.entries(LISTS)) {
+    if (path === source.pathname) return { kind: 'list', page };
+  }
+  return undefined;
 }
 
 /** Creates the native Hacker News adapter. */
@@ -73,28 +126,58 @@ export function createHackernewsAdapter(
     route: 'native',
     match: (source) => parseHackernewsUrl(source) !== undefined,
     read: async (source, io) => {
-      const fetched = await io.fetch(
-        `${api}/api/v1/items/${parseHackernewsUrl(source)!}`,
-        { accept: 'application/json' },
-      );
-      if ('type' in fetched) return primaryFailure(fetched);
-      const item = parseJsonBody(fetched.body, ITEM);
-      // A poll's options arrive as bare ids and an option's text as null, so
-      // either would render less than the page does.
-      if (
-        item === undefined ||
-        item.type === 'poll' ||
-        item.type === 'pollopt'
-      ) {
-        return { kind: 'failed', failure: 'parse' };
-      }
-      return {
-        kind: 'rendered',
-        content: renderThread(item),
-        mediaType: 'text/markdown',
-        notes: [],
-      };
+      const target = parseHackernewsUrl(source)!;
+      return target.kind === 'item'
+        ? readItem(target.id, api, io)
+        : readList(target.page, api, io);
     },
+  };
+}
+
+/** One request reads the item, or the list's first page. */
+async function readItem(
+  id: string,
+  api: string,
+  io: WebAdapterIo,
+): Promise<WebAdapterOutcome> {
+  const fetched = await io.fetch(`${api}/api/v1/items/${id}`, {
+    accept: 'application/json',
+  });
+  if ('type' in fetched) return primaryFailure(fetched);
+  const item = parseJsonBody(fetched.body, ITEM);
+  // A poll's options arrive as bare ids and an option's text as null, so
+  // either would render less than the page does.
+  if (item === undefined || item.type === 'poll' || item.type === 'pollopt') {
+    return { kind: 'failed', failure: 'parse' };
+  }
+  return {
+    kind: 'rendered',
+    content: renderThread(item),
+    mediaType: 'text/markdown',
+    notes: [],
+  };
+}
+
+async function readList(
+  page: StoryList,
+  api: string,
+  io: WebAdapterIo,
+): Promise<WebAdapterOutcome> {
+  const fetched = await io.fetch(
+    `${api}/api/v1/${page.endpoint}?tags=${page.tags}&hitsPerPage=${LIST_PAGE_SIZE}`,
+    { accept: 'application/json' },
+  );
+  if ('type' in fetched) return primaryFailure(fetched);
+  const search = parseJsonBody(fetched.body, SEARCH);
+  if (search === undefined) return { kind: 'failed', failure: 'parse' };
+  return {
+    kind: 'rendered',
+    content: renderList(page, search.hits),
+    mediaType: 'text/markdown',
+    notes:
+      search.nbHits > search.hits.length
+        ? [`stories truncated: the first ${LIST_PAGE_SIZE} only`]
+        : [],
   };
 }
 
@@ -135,4 +218,21 @@ function entryLines(entry: Entry, position: string): string {
 
 function authorOf(item: Item): string {
   return item.author === null ? '[deleted]' : `@${item.author}`;
+}
+
+/** A story list: one bullet per story, carrying its signal and its links. */
+function renderList(page: StoryList, stories: ReadonlyArray<Story>): string {
+  const lines = [`# Hacker News: ${page.heading}`, ''];
+  if (stories.length === 0) lines.push('No stories.');
+  for (const story of stories) {
+    const fields = [
+      `**${story.title}**`,
+      story.points === null ? null : `${story.points} points`,
+      story.num_comments === null ? null : `${story.num_comments} comments`,
+      story.url,
+      `${ITEM_URL}${story.objectID}`,
+    ];
+    lines.push(`- ${fields.filter(Boolean).join(' — ')}`);
+  }
+  return lines.join('\n');
 }

@@ -190,7 +190,12 @@ describe('native tool admission', () => {
           trusted,
           5,
         ),
-      ).toMatchObject({ status: 'error', type: 'outcome_unknown' });
+      ).toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+        message:
+          'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
+      });
       expect(await readFile(path, 'utf8')).toBe('Foo');
     } finally {
       await rm(directory, { recursive: true, force: true });

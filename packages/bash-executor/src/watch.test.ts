@@ -117,13 +117,12 @@ describe("process-group settlement", () => {
     });
     expect(signals).toHaveBeenCalledWith(-12_345, "SIGKILL");
     const command = { command: "bash", args: ["-c", "printf next"] };
-    expect(await executeManagedBash(command, context)).toMatchObject({
-      type: "unavailable",
-    });
-    alive = false;
+    // Unknown does not quarantine: the next call is admitted even while the
+    // modelled survivor is still probeable.
     expect(
       await executeManagedBash(command, { ...context, durationMs: 1000 }),
     ).toMatchObject({ status: "success", stdout: "next" });
+    alive = false;
     child.emit("close", null, "SIGKILL");
   });
 

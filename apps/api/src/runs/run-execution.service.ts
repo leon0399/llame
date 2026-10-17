@@ -1,6 +1,6 @@
 import { realpath, stat } from 'node:fs/promises';
 
-import { isBashTool, isHostCapabilityTool } from '../tools/bash';
+import { isBashTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import {
@@ -55,26 +55,27 @@ import {
   countedContextTokens,
   estimateContinuationTokens,
   estimateModelRequestTokens,
-  imageOverflowCompacts,
+  mediaOverflowCompacts,
   planCompactionCheckpoint,
   requestFitsContextWindow,
   resolveCompactionThreshold,
   type CompactionPlan,
 } from '../compaction/compaction';
 import {
-  imageResultRef,
+  mediaResultRef,
   loadMediaSizing,
   submittedLocator,
   toolResultOutput,
+  type MediaAdmissionContext,
   type MediaSizing,
 } from '../media/epoch-admission';
-import { parseMediaLocator } from '../media/media-locator';
+import { mediaLocator, parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
-import { type HeldImage, releaseImage } from '../media/attempt-images';
+import { type HeldMedia, releaseMedia } from '../media/attempt-media';
 import { createToolMediaStore } from '../media/tool-media-store';
 import {
   createRunMediaResolver,
-  fileImageLines,
+  fileAttachmentLines,
   fileMediaIds,
   type RunMediaResolver,
 } from '../media/media-descriptors';
@@ -135,6 +136,8 @@ import { type ProductIdentityReader } from '../instance-config/product-identity'
 import { resolveConfigPath } from '../instance-config/config-loader';
 import {
   createToolPromptRenderer,
+  type PromptChatsDisclosure,
+  type RenderedPrompt,
   type ToolPromptRenderer,
 } from '../instance-config/prompt-loader';
 import {
@@ -176,8 +179,8 @@ import {
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import {
   createPromptImportsItem,
-  promptImportImageKey,
-  promptImportImageRefs,
+  promptImportMediaKey,
+  promptImportMediaParts,
 } from '../chats/prompt-imports-item';
 import {
   PROMPT_IMPORT_KNOWLEDGE_CANCELLED,
@@ -282,6 +285,7 @@ import {
 import {
   RecencyDigestService,
   deriveRecencyDigestDelta,
+  disclosedRecencyDigestEntries,
   type RecencyDigestDelta,
   type RecencyDigestResolution,
   type RecencyDigestResolver,
@@ -337,8 +341,8 @@ type PromptImportStep = {
   readonly effectivePermissionMode: PermissionMode;
   readonly skillSelection: ReadonlySet<string>;
   readonly detaching: boolean;
-  /** The attempt's memory of unstored images (vision-media R1.4). */
-  readonly images: Map<string, HeldImage>;
+  /** The attempt's memory of unstored media. */
+  readonly heldMedia: Map<string, HeldMedia>;
 };
 
 type WorkspaceStagedContext = {
@@ -435,14 +439,20 @@ type PreparedFirstStep = {
   readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
 };
-type AttemptDigestContext = {
+type AttemptDigestInputs = {
   shareRecentChats: ResolvedMemorySettings;
   promptDigestBaseline: Chat['recencyDigestBaseline'];
+  /** Present only under consent and an unchanged digest epoch. */
+  digestCandidate: RecencyDigestResolution | undefined;
+};
+
+/** Digest state derived from what this attempt's renders actually emitted. */
+type AttemptDigestDisclosure = {
   recencyDigestInitialization?: RecencyDigestInitialization;
   digestDelta: RecencyDigestDelta | null;
 };
 
-type AttemptPromptInputs = AttemptDigestContext & {
+type AttemptPromptInputs = AttemptDigestInputs & {
   chat: Chat;
   model: SystemModelCatalogEntry;
   user: PromptUserInput | undefined;
@@ -453,9 +463,10 @@ type AttemptPromptInputs = AttemptDigestContext & {
   skillState: SkillTurnState;
 };
 
-type AttemptPromptContext = AttemptPromptInputs & {
-  systemPrompt: string;
-};
+type AttemptPromptContext = AttemptPromptInputs &
+  AttemptDigestDisclosure & {
+    systemPrompt: string;
+  };
 
 type AttemptStagedContext = {
   stagedParts: Array<MessagePart>;
@@ -697,17 +708,6 @@ function appendDerivedDecision(
   decisions.push({ ...decision.decision, kind: decision.kind });
 }
 
-/**
- * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
- * assembly, the model call, and every durable side effect (assistant turn,
- * run lifecycle + model.delta events, pre-step checkpointing and titling).
- *
- * Extracted from the HTTP-coupled ChatLoopService so the exact same execution
- * drives both venues: the queue worker calls executeRun and the request thread
- * streams from persisted run events. Everything here is transport-agnostic — no
- * HTTP types, and the caller supplies the ModelClient after resolving the run's
- * stored model id.
- */
 /** The capabilities the runs worker needs to drive and terminalize a turn. */
 export type RunExecutor = Pick<
   RunExecutionService,
@@ -733,6 +733,17 @@ type InstanceConfigWithIdentity = InstanceConfigReader &
  */
 type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
+/**
+ * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
+ * assembly, the model call, and every durable side effect (assistant turn,
+ * run lifecycle + model.delta events, pre-step checkpointing and titling).
+ *
+ * Extracted from the HTTP-coupled ChatLoopService so the exact same execution
+ * drives both venues: the queue worker calls executeRun and the request thread
+ * streams from persisted run events. Everything here is transport-agnostic — no
+ * HTTP types, and the caller supplies the ModelClient after resolving the run's
+ * stored model id.
+ */
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
@@ -990,7 +1001,7 @@ export class RunExecutionService {
       effectivePermissionMode,
       skillSelection,
       detaching: workspacePreparation.detaching,
-      images: media.images,
+      heldMedia: media.heldMedia,
     });
     // Prompt/catalog resolution, the single pre-step compaction trigger, and the
     // request this Run actually sends (design D4/D5): both prompt surfaces come
@@ -1054,6 +1065,25 @@ export class RunExecutionService {
 
     const streamStartedAt = Date.now();
     const requestUsageReceipts: Array<LanguageModelUsage> = [];
+    // Stream performance for the turn (#155): the first streamed output delta's
+    // offset, how many arrived, and the generation time the throughput divides
+    // by. The first two are stamped from the SAME baseline `streamStartedAt`
+    // that `latencyMs` is measured from, so the usage card's Total and First
+    // token rows are comparable. A delta counts (and stamps the first) only
+    // when it carries text: an empty reasoning delivery is a part boundary
+    // whose text the provider withheld, not streamed output. `generationMs` is
+    // the model client's own sum over the attempt's provider requests — each
+    // one's window from its first delta, or from the request itself when it
+    // streamed none, to that request's finish — so the rate measures
+    // generation, not the wall clock a step spent waiting on its tools.
+    let firstOutputDeltaMs: number | undefined;
+    let outputDeltaCount = 0;
+    let generationMs = 0;
+    const noteOutputDelta = (text: string): void => {
+      if (text.length === 0) return;
+      firstOutputDeltaMs ??= Date.now() - streamStartedAt;
+      outputDeltaCount += 1;
+    };
     const buildAssistantTelemetry = (
       finishReason: TurnTelemetry['finishReason'],
       status: TurnTelemetry['status'],
@@ -1067,6 +1097,9 @@ export class RunExecutionService {
         effort,
         permissionMode: effectivePermissionMode,
         latencyMs: Date.now() - streamStartedAt,
+        firstTokenMs: firstOutputDeltaMs,
+        chunkCount: outputDeltaCount,
+        generationMs,
         price: client.pricing,
         billing: client.billing,
         stepCount,
@@ -1157,9 +1190,10 @@ export class RunExecutionService {
     //
     // Accumulated from EACH onReasoningDelta chunk (not the SDK's
     // onFinish.reasoningText, which is only the FINAL step's reasoning and would
-    // silently drop step-1 thinking on a multi-step tool turn — master has no
-    // tool loop today, so every turn is one step, but the accumulation is
-    // correct regardless of step count and matches the persistence branch).
+    // silently drop step-1 thinking on a multi-step tool turn — the tool loop
+    // caps steps rather than replacing them, so a turn is several steps, and
+    // the accumulation is correct regardless of step count and matches the
+    // persistence branch).
     //
     // Each buffered `reasoning.delta` event carries the adapter part id of the
     // text it holds, so the durable reconstructor can rebuild the same part
@@ -1220,8 +1254,8 @@ export class RunExecutionService {
       media: createToolMediaStore(
         new MediaService(this.tenantDb),
         input.userId,
-        media.images,
-        input.client.input?.includes('image') ?? false,
+        media.heldMedia,
+        input.client.input ?? [],
       ),
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
@@ -1559,16 +1593,17 @@ export class RunExecutionService {
       } else {
         recordToolCompleted(toolCallId, declaration.id, args, result);
       }
+      // Live bash and MCP unknowns stay observations; only uncertain native
+      // file mutations (edit/write) abort the model loop here.
       if (
-        (isHostCapabilityTool(executor) || executor.id.startsWith('mcp__')) &&
+        isNativeFileTool(executor) &&
+        executor.id !== 'read' &&
         result.status === 'error' &&
         result.type === 'outcome_unknown'
       ) {
         await deltaWrites;
         throw new Error(
-          isHostCapabilityTool(executor)
-            ? 'Host command or mutation outcome is unknown; the Run cannot continue.'
-            : 'MCP operation outcome is unknown; the Run cannot continue.',
+          'Host command or mutation outcome is unknown; the Run cannot continue.',
         );
       }
       return isNativeFileTool(executor) ? result : neutralizeToolResult(result);
@@ -1596,7 +1631,7 @@ export class RunExecutionService {
             }) =>
               toolResultOutput(
                 serializeNativeModelOutput(output),
-                imageResultRef(output, submittedLocator(call)),
+                mediaResultRef(output, submittedLocator(call)),
               ),
           }
         : {};
@@ -1731,14 +1766,16 @@ export class RunExecutionService {
     );
     try {
       return client.streamText({
-        onRequestUsage: (usage) => {
+        onRequestUsage: (usage, requestGenerationMs) => {
           requestUsageReceipts.push(usage);
+          generationMs += requestGenerationMs;
         },
         system,
         messages,
         chat: { id: input.chatId, lane: 'main' },
         abortSignal: input.abortSignal,
         media,
+        reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
         // Absent → no provider option at all, leaving the provider default.
         ...(effort !== undefined && { effort }),
         // Tool loop: pass the pre-filtered set + the operator step cap.
@@ -1816,6 +1853,7 @@ export class RunExecutionService {
           },
         }),
         onTextDelta: (text) => {
+          noteOutputDelta(text);
           streamedText += text;
           assistantPartCollector.text(text);
           // Time-injected push: age-based flushes (#50 live-channel
@@ -1833,6 +1871,10 @@ export class RunExecutionService {
           persistDelta(deltas.push(text, Date.now()));
         },
         onReasoningDelta: (text, partId, providerMetadata) => {
+          // Reasoning text is streamed output too: it stamps the first delta and
+          // counts, exactly as answer text does (#155). The metadata-only
+          // deliveries below carry no text and do not.
+          noteOutputDelta(text);
           // A metadata-only delivery: a reasoning part's start/end carries the
           // opaque provider metadata but no delta of its own (design D15/D18).
           // Drain the buffer first so the durable log keeps the part's text
@@ -2432,10 +2474,10 @@ export class RunExecutionService {
     const { outcomes, omitted } = await resolvePromptImportTargets(
       this.promptImportRequest(step),
     );
-    // An image read and then omitted at the output bound has no entry to
-    // attach it, so it keeps no bytes (vision-media R1.4).
+    // Media omitted at the output bound has no entry to attach it, so release
+    // its attempt bytes (vision-media R1.4, pdf-media D9).
     for (const locator of omitted) {
-      releaseImage(step.images, promptImportImageKey(input.runId, locator));
+      releaseMedia(step.heldMedia, promptImportMediaKey(input.runId, locator));
     }
     // An aborted attempt publishes nothing; the abort settles the Run.
     if (input.abortSignal?.aborted) return;
@@ -2455,8 +2497,8 @@ export class RunExecutionService {
    * read context: the same silent `read` pre-evaluation the instruction loader
    * uses, the same native-executor and Knowledge-root gates, an owner-scoped
    * Knowledge probe, and the owner's media, which answers the `media://` probe
-   * and decodes an image target without storing it, holding it in the
-   * attempt's memory under its entry's key (vision-media D8).
+   * and decodes an image or PDF without storing it, holding its bytes in the
+   * attempt's memory under its entry's key (vision-media D8, pdf-media D9).
    */
   private promptImportRequest(step: PromptImportStep): PromptImportRequest {
     const { input } = step;
@@ -2469,8 +2511,8 @@ export class RunExecutionService {
     const media = createToolMediaStore(
       new MediaService(this.tenantDb),
       input.userId,
-      step.images,
-      input.client.input?.includes('image') ?? false,
+      step.heldMedia,
+      input.client.input ?? [],
     );
     const context: ToolContext = {
       ...this.buildSystemReadContext(
@@ -2498,19 +2540,20 @@ export class RunExecutionService {
       probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
       probeMedia: async (locator) => {
         const id = parseMediaLocator(locator);
-        return id === undefined
+        if (id === undefined) return undefined;
+        return (await media.findMedia(id)) === undefined
           ? undefined
-          : (await media.findImage(id))?.media;
+          : mediaLocator(id);
       },
       readImport: async (path, ordinal, locator) => {
-        const key = promptImportImageKey(input.runId, locator);
+        const key = promptImportMediaKey(input.runId, locator);
         const { result, admission } = await this.readTurnInstructionPage(
           input,
           {
             ...context,
             media: {
               ...media,
-              readImage: (submitted) => media.readImage(submitted, key),
+              readMedia: (submitted) => media.readMedia(submitted, key),
             },
           },
           path,
@@ -2826,7 +2869,7 @@ export class RunExecutionService {
     const toolInput = { path: selectorPath };
     const derivedDecisions: Array<DerivedDecisionRecord> = [];
     let admission: PermissionDecision | undefined;
-    const result = await runTool(
+    const observed = await runTool(
       nativeReadTool,
       toolInput,
       {
@@ -2852,10 +2895,10 @@ export class RunExecutionService {
       input,
       toolCallId,
       origin,
-      result,
+      observed,
       derivedDecisions,
     );
-    return { result, admission };
+    return { result: observed, admission };
   }
 
   /**
@@ -2927,10 +2970,24 @@ export class RunExecutionService {
   }
 
   /**
+   * The attempt model as the epoch media window sees it (pdf-media D5): its
+   * declared input, its window, and the configured output reserve the fit
+   * check subtracts.
+   */
+  private mediaAdmissionContext(client: ModelClient): MediaAdmissionContext {
+    return {
+      input: client.input ?? ['text'],
+      contextWindowTokens: client.contextWindowTokens,
+      reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+    };
+  }
+
+  /**
    * Window precedence is fixed; empty ranges are no-ops unless the request
-   * does not fit. A fitting request whose epoch image window overflowed with
-   * an image in an earlier row counts as reaching the threshold (vision-media
-   * D6): compaction can absorb those rows and start a new epoch.
+   * does not fit. A fitting request whose epoch media window overflowed with a
+   * stored image or PDF in an earlier row counts as reaching the threshold
+   * (vision-media D6, pdf-media D5): compaction can absorb those rows and start
+   * a new epoch.
    */
   private async evaluateCompactionTrigger(
     input: CompactionTriggerInput,
@@ -2970,11 +3027,11 @@ export class RunExecutionService {
     if (
       plan !== null &&
       input.media !== undefined &&
-      imageOverflowCompacts(
+      mediaOverflowCompacts(
         input.media,
         fileMediaIds(triggerParts).length +
           triggerParts.flatMap((part) =>
-            isContextItemPart(part) ? promptImportImageRefs(part) : [],
+            isContextItemPart(part) ? promptImportMediaParts(part) : [],
           ).length,
       )
     ) {
@@ -3510,11 +3567,6 @@ export class RunExecutionService {
   }
 
   /**
-   * Work that must NOT share the terminal transaction: it is best-effort, and
-   * a failure here must not roll back the committed turn. No-op when nothing
-   * was persisted (dual-fire, or the chat vanished mid-stream).
-   */
-  /**
    * Bump the chat's activity time so an in-place assistant-reply update
    * (which leaves messages.created_at unchanged) still moves the search
    * staleness high-water mark — the reindex sweep's backstop for a lost
@@ -3570,6 +3622,11 @@ export class RunExecutionService {
     }
   }
 
+  /**
+   * Work that must NOT share the terminal transaction: it is best-effort, and
+   * a failure here must not roll back the committed turn. No-op when nothing
+   * was persisted (dual-fire, or the chat vanished mid-stream).
+   */
   private async afterAssistantTurn(
     assistantMessage: Message | undefined,
     userId: string,
@@ -3676,6 +3733,7 @@ export class RunExecutionService {
       workspaceChat,
       workspaceRoot,
     );
+    const disclosures: Array<PromptChatsDisclosure> = [];
     let catalog: AttemptToolCatalog;
     try {
       catalog = await this.composeAttemptCatalog(
@@ -3683,6 +3741,7 @@ export class RunExecutionService {
         input,
         promptInputs,
         workspaceMcpKey,
+        disclosures,
       );
     } catch (error) {
       if (error instanceof ToolDescriptionRenderError) {
@@ -3692,16 +3751,24 @@ export class RunExecutionService {
       }
       throw error;
     }
+    const system = this.renderAttemptSystemPrompt({
+      model: promptInputs.model,
+      anchor: promptInputs.anchor,
+      user: promptInputs.user,
+      chats: promptInputs.promptDigestBaseline,
+      skills: promptInputs.skillState.baseline,
+      admittedToolIds: catalog.admittedIds,
+    });
+    disclosures.push(system.chatsDisclosure);
     const prompt: AttemptPromptContext = {
       ...promptInputs,
-      systemPrompt: this.renderAttemptSystemPrompt({
-        model: promptInputs.model,
-        anchor: promptInputs.anchor,
-        user: promptInputs.user,
-        chats: promptInputs.promptDigestBaseline,
-        skills: promptInputs.skillState.baseline,
-        admittedToolIds: catalog.admittedIds,
-      }),
+      ...(await this.accountAttemptDigestDisclosure({
+        tx,
+        input,
+        prompt: promptInputs,
+        disclosures,
+      })),
+      systemPrompt: system.text,
     };
     const effectiveContext = this.resolveAttemptEffectiveContext(
       prompt,
@@ -3809,7 +3876,7 @@ export class RunExecutionService {
         (await loadMediaSizing(
           estimated.messages,
           input.media,
-          input.run.client.input?.includes('image') ?? false,
+          this.mediaAdmissionContext(input.run.client),
         )),
     });
     const summary =
@@ -3840,6 +3907,8 @@ export class RunExecutionService {
                   system: estimated.system,
                   toolDeclarations: estimated.toolDeclarations,
                   ...(input.effort !== undefined && { effort: input.effort }),
+                  reservedOutputTokens:
+                    this.instanceConfig.config.runs.maxOutputTokens,
                   abortSignal: input.run.abortSignal,
                   media: input.media,
                 },
@@ -3903,7 +3972,7 @@ export class RunExecutionService {
           (await loadMediaSizing(
             request.messages,
             input.media,
-            input.run.client.input?.includes('image') ?? false,
+            this.mediaAdmissionContext(input.run.client),
           )),
       })
     ) {
@@ -4065,11 +4134,14 @@ export class RunExecutionService {
       input.digestCandidate !== null &&
       input.shareRecentChats.shareRecentChats
     ) {
+      // The new epoch starts with nothing disclosed: the request this
+      // checkpoint precedes accounts for the entries its renders actually
+      // emit, and an unrendered entry stays eligible for an append.
       await chatsRepo.setRecencyDigest({
         chatId: input.run.chatId,
         ownerUserId: input.run.userId,
         baseline: input.digestCandidate.baseline,
-        told: input.digestCandidate.told,
+        told: [],
         rebakedFrom: input.checkpointId,
       });
     }
@@ -4198,7 +4270,7 @@ export class RunExecutionService {
     input: ExecuteRunInput;
     chatsRepo: ChatsRepository;
     chat: Chat;
-  }): Promise<AttemptDigestContext> {
+  }): Promise<AttemptDigestInputs> {
     let shareRecentChats = await this.memory.getForOwnerForBinding(
       input.tx,
       input.input.userId,
@@ -4241,42 +4313,68 @@ export class RunExecutionService {
       }
     }
 
-    const hadDigestBaseline = input.chat.recencyDigestBaseline !== null;
-    let promptDigestBaseline = input.chat.recencyDigestBaseline;
-    let recencyDigestInitialization: RecencyDigestInitialization | undefined;
-    if (
-      input.chat.recencyDigestBaseline === null &&
-      digestCandidate !== undefined &&
-      shareRecentChats.shareRecentChats
-    ) {
-      promptDigestBaseline = digestCandidate.baseline;
-      recencyDigestInitialization = {
-        baseline: digestCandidate.baseline,
-        told: digestCandidate.told,
-      };
-    }
-
-    let digestDelta: RecencyDigestDelta | null = null;
-    if (
-      hadDigestBaseline &&
-      digestCandidate !== undefined &&
-      input.chat.recencyDigestTold !== null &&
-      shareRecentChats.shareRecentChats
-    ) {
-      digestDelta = deriveRecencyDigestDelta({
-        candidate: digestCandidate,
-        told: input.chat.recencyDigestTold,
-        pinnedChatIds: await input.chatsRepo.findPinnedChatIds(
-          input.input.userId,
-          input.chat.recencyDigestTold.map(({ chatId }) => chatId),
-        ),
-      });
-    }
     return {
       shareRecentChats,
-      promptDigestBaseline,
-      recencyDigestInitialization,
-      digestDelta,
+      // An initializing attempt renders its own candidate; every later one
+      // renders the stored baseline.
+      promptDigestBaseline:
+        input.chat.recencyDigestBaseline ?? digestCandidate?.baseline ?? null,
+      digestCandidate,
+    };
+  }
+
+  /**
+   * The digest state this attempt's renders establish. The told-set records
+   * only chats the model actually received, so it is derived from the baseline
+   * entries either prompt surface emitted rather than from the baseline that
+   * was resolved: a template that omits the digest leaves every entry untold,
+   * to enter through an append.
+   */
+  private async accountAttemptDigestDisclosure(input: {
+    tx: Db;
+    input: ExecuteRunInput;
+    prompt: AttemptPromptInputs;
+    disclosures: ReadonlyArray<PromptChatsDisclosure>;
+  }): Promise<AttemptDigestDisclosure> {
+    const { chat, digestCandidate, promptDigestBaseline } = input.prompt;
+    if (digestCandidate === undefined || promptDigestBaseline === null) {
+      return { digestDelta: null };
+    }
+    const disclosed = disclosedRecencyDigestEntries({
+      baseline: promptDigestBaseline,
+      disclosures: input.disclosures,
+      candidates: digestCandidate.candidates,
+    });
+    if (chat.recencyDigestBaseline === null) {
+      return {
+        recencyDigestInitialization: {
+          baseline: digestCandidate.baseline,
+          told: disclosed,
+        },
+        digestDelta: null,
+      };
+    }
+    if (chat.recencyDigestTold === null) {
+      return { digestDelta: null };
+    }
+    // Prior told state wins over this render: a later append may have told
+    // the model a pin change the immutable baseline still contradicts.
+    const toldChatIds = new Set(
+      chat.recencyDigestTold.map(({ chatId }) => chatId),
+    );
+    const told = [
+      ...chat.recencyDigestTold,
+      ...disclosed.filter(({ chatId }) => !toldChatIds.has(chatId)),
+    ];
+    return {
+      digestDelta: deriveRecencyDigestDelta({
+        candidate: digestCandidate,
+        told,
+        pinnedChatIds: await new ChatsRepository(input.tx).findPinnedChatIds(
+          input.input.userId,
+          told.map(({ chatId }) => chatId),
+        ),
+      }),
     };
   }
 
@@ -4288,7 +4386,7 @@ export class RunExecutionService {
     /** The frozen catalog baseline; undefined renders no skill section. */
     skills: SkillCatalogBaseline | undefined;
     admittedToolIds: ReadonlyArray<string>;
-  }): string {
+  }): RenderedPrompt {
     const renderInput: SystemPromptRenderInput = {
       model: input.model,
       anchor: input.anchor,
@@ -4297,7 +4395,7 @@ export class RunExecutionService {
       ...(input.skills !== undefined && { skills: input.skills }),
       admittedToolIds: input.admittedToolIds,
     };
-    let rendered: string;
+    let rendered: RenderedPrompt;
     if (input.chats === null) {
       rendered = this.systemPrompts.render(renderInput);
     } else {
@@ -4310,17 +4408,22 @@ export class RunExecutionService {
         throw new Error('Failed to render system prompt');
       }
     }
-    if (rendered.trim().length === 0) {
+    if (rendered.text.trim().length === 0) {
       throw new ModelContextExecutionError('System prompt rendered empty.');
     }
     return rendered;
   }
 
+  /**
+   * Composes the attempt's catalog; `disclosures` receives each admitted
+   * description's digest disclosure, private to the told-set accounting.
+   */
   private async composeAttemptCatalog(
     tx: Db,
     input: ExecuteRunInput,
     prompt: AttemptPromptInputs,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
+    disclosures: Array<PromptChatsDisclosure>,
   ): Promise<AttemptToolCatalog> {
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
     const callTimeoutSeconds =
@@ -4347,7 +4450,7 @@ export class RunExecutionService {
         if (source.type !== 'code_owned' || !isToolPromptId(id)) {
           return description;
         }
-        return this.toolPromptRenderer.render({
+        const rendered = this.toolPromptRenderer.render({
           toolId: id,
           model: prompt.model,
           anchor: prompt.anchor,
@@ -4355,6 +4458,8 @@ export class RunExecutionService {
           chats: prompt.promptDigestBaseline ?? undefined,
           admittedToolIds,
         });
+        disclosures.push(rendered.chatsDisclosure);
+        return rendered.text;
       },
     });
   }
@@ -4824,14 +4929,14 @@ function deriveRecencyDigestItems(input: {
 }
 
 /**
- * The titled turn's text followed by one image line per file part
- * (vision-media D9), so an image-only message can still be titled. Titling
- * bounds the result like any other title input.
+ * The titled turn's text followed by one line per file part (vision-media D9,
+ * pdf-media D8), so an image- or PDF-only message can still be titled.
+ * Titling bounds the result like any other title input.
  */
 function titleInputText(userMessage: RunUserMessage): string {
   return [
     partsToText(userMessage.parts).trim(),
-    ...fileImageLines(userMessage.parts),
+    ...fileAttachmentLines(userMessage.parts),
   ]
     .join('\n')
     .trim();

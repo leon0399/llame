@@ -1268,15 +1268,6 @@ function assertPositiveInteger(n: number, configPath: string, min = 1): void {
   }
 }
 
-/**
- * Resolve `tools.allowed`: absent → empty (fail closed, no tools). The
- * schema already guarantees an array of non-empty strings when present;
- * `isStringArray` re-checks it at runtime rather than trust that guarantee
- * silently. Code-owned ids remain strict against the registry; exact MCP ids
- * use the mcp-tool-id-v1 parser and namespace permissions use the single
- * canonical `mcp__<server>__*` form. Neither depends on configured servers or
- * discovery succeeding during boot.
- */
 /** Validate ONE `tools.allowed` entry — a wildcard MCP namespace, an exact
  * MCP tool id, or a code-owned id — against the registered tools. Throws on
  * the first invalid id. */
@@ -1310,6 +1301,15 @@ function assertValidAllowlistId(
   }
 }
 
+/**
+ * Resolve `tools.allowed`: absent → empty (fail closed, no tools). The
+ * schema already guarantees an array of non-empty strings when present;
+ * `isStringArray` re-checks it at runtime rather than trust that guarantee
+ * silently. Code-owned ids remain strict against the registry; exact MCP ids
+ * use the mcp-tool-id-v1 parser and namespace permissions use the single
+ * canonical `mcp__<server>__*` form. Neither depends on configured servers or
+ * discovery succeeding during boot.
+ */
 function resolveToolAllowlist(opts: {
   configPath: string;
   present: boolean;
@@ -2085,13 +2085,6 @@ function resolveOptionalNonBlankString(opts: {
   return requireNonBlankString(configPath, raw, env);
 }
 
-/**
- * Resolve `models[]`: the schema guarantees required-field presence and
- * element shape; this resolver owns duplicate-id rejection and the
- * `provider` cross-reference (models[].provider must name a defined
- * providers[].id — not expressible in JSON Schema, which can't reference
- * across sibling arrays).
- */
 /** Shared across every `models[]` entry in one `resolveModels` call —
  *  `seenIds` is mutated in place to detect a duplicate id across entries. */
 type ModelResolutionContext = {
@@ -2335,6 +2328,13 @@ function resolveToolPromptFilesEntry(
   return toolPromptFiles === undefined ? {} : { toolPromptFiles };
 }
 
+/**
+ * Resolve `models[]`: the schema guarantees required-field presence and
+ * element shape; this resolver owns duplicate-id rejection and the
+ * `provider` cross-reference (models[].provider must name a defined
+ * providers[].id — not expressible in JSON Schema, which can't reference
+ * across sibling arrays).
+ */
 function resolveModels(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -2351,16 +2351,6 @@ function resolveModels(
   return entries.map((entry) => resolveModelEntry(entry, context));
 }
 
-/**
- * Resolve one entry's `reasoning` block. The schema admits bare strings and
- * `{ value, label }` objects; this normalizes to `{ value, label? }[]` and
- * owns uniqueness / blank / `defaultEffort` membership on `value` — rules
- * JSON Schema cannot express across the mixed item form.
- *
- * Values are passed through untouched — no trimming, casing, sorting, or
- * rewriting. They are opaque provider tokens, and normalizing one here would
- * silently send the provider a value the operator did not configure.
- */
 /** Validate and normalize ONE `effortLevels[]` item — a bare string or a
  *  `{ value, label }` object — mutating `seen` in place to detect a
  *  duplicate `value` across the whole list. Values are passed through
@@ -2397,6 +2387,16 @@ function resolveEffortLevel(
     : { value: item.value, label: item.label };
 }
 
+/**
+ * Resolve one entry's `reasoning` block. The schema admits bare strings and
+ * `{ value, label }` objects; this normalizes to `{ value, label? }[]` and
+ * owns uniqueness / blank / `defaultEffort` membership on `value` — rules
+ * JSON Schema cannot express across the mixed item form.
+ *
+ * Values are passed through untouched — no trimming, casing, sorting, or
+ * rewriting. They are opaque provider tokens, and normalizing one here would
+ * silently send the provider a value the operator did not configure.
+ */
 function resolveModelReasoning(
   modelId: string,
   raw: RawModelEntry['reasoning'],

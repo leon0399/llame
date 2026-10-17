@@ -235,12 +235,12 @@ function usePrependScrollAnchor({
 
 /**
  * Fires `onLoadOlder` once the sentinel enters the prefetch band above the
- * viewport, gated on `escapedFromLock` (the library sets it exclusively from
- * deliberate user scroll input, never mount/hydration/resize/animation, so a
- * geometry-only gate would self-fire during load-triggered layout shifts).
- * Recreated whenever the oldest message changes: observe() always reports
- * the current intersection, so a reader parked near the top chain-loads page
- * after page without needing to move again.
+ * viewport, gated on `escapedFromLock` — "escaped from the bottom lock", not
+ * a geometry check, so load-triggered layout shifts cannot self-fire it (see
+ * the component JSDoc for who sets it). Recreated whenever the oldest
+ * message changes: observe() always reports the current intersection, so a
+ * reader parked near the top chain-loads page after page without needing to
+ * move again.
  */
 function useLoadOlderOnScroll({
   sentinelRef,
@@ -298,10 +298,16 @@ function useLoadOlderOnScroll({
  *   while stuck to the bottom: the library's catch-up is rAF-deferred, so
  *   without it each growth (async code highlighting settling right after
  *   mount, streaming) paints one off-bottom frame first.
- * - The `escapedFromLock` gate ensures only a reader who DELIBERATELY
- *   scrolled up can trigger a load: the library sets it exclusively from
- *   user input (an upward wheel/scroll or a text selection), never from
- *   mount, hydration, resize catch-up, or animation frames. Geometry-based
+ * - The `escapedFromLock` gate means "escaped from the bottom lock", so a
+ *   load fires only once something deliberately left the bottom. The library
+ *   sets it from user input (an upward wheel/scroll or a text selection),
+ *   never from mount, hydration, resize catch-up, or animation frames. The
+ *   one programmatic setter is a `#msg-N` open: `useTargetScroll`
+ *   (chat-transcript.tsx) calls `stopScroll()` at mount with no reader
+ *   input. That cannot self-fire a load today: the target is the newest row
+ *   of its window, and a window with older history is a full
+ *   `CHAT_HISTORY_PAGE_SIZE` (100) rows, so the sentinel sits far above the
+ *   `PREFETCH_MARGIN_PX` band — revisit if either shrinks. Geometry-based
  *   gates (`isAtBottom`, viewport math) all have windows during load where
  *   deferred markdown popping in makes the page momentarily look
  *   "scrolled up" and self-fires a fetch.

@@ -1,4 +1,7 @@
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import type {
+  LanguageModelV3StreamPart,
+  LanguageModelV3Usage,
+} from '@ai-sdk/provider';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText, type ModelMessage } from 'ai';
 import type { OpenAICompatibleProvider } from '@ai-sdk/openai-compatible';
@@ -52,7 +55,10 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
-import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type {
+  ModelInput,
+  SystemModelCatalogEntry,
+} from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
@@ -68,6 +74,7 @@ import type {
 } from '../tools/types';
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import {
+  isNumber,
   isRecord,
   isString,
   type UnknownRecord,
@@ -86,7 +93,7 @@ import { PromptImportPartsRepository } from '../chats/prompt-import-parts.reposi
 import {
   createPromptImportsItem,
   isPromptImportsPayload,
-  promptImportImageKey,
+  promptImportMediaKey,
 } from '../chats/prompt-imports-item';
 import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
@@ -129,7 +136,13 @@ import type {
 } from '../compaction/compaction.service';
 import { estimateContinuationTokens } from '../compaction/compaction';
 import type { MediaDescriptor } from '../media/media-descriptors';
-import { descriptor, randomPng } from '../media/media-fixtures';
+import {
+  descriptor,
+  descriptorRow,
+  pdfDescriptor,
+  randomPng,
+  storedPdfRow,
+} from '../media/media-fixtures';
 import { composeStepMessages } from '../models/step-composer';
 
 import type { TitleCapability } from '../titles/title.service';
@@ -2414,7 +2427,6 @@ describe('RunExecutionService executeRun', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline,
-        told: [],
         candidates: [],
       });
     const getForOwnerForBinding = vi
@@ -2459,7 +2471,7 @@ describe('RunExecutionService executeRun', () => {
     };
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline, told: [], candidates: [] });
+      .mockResolvedValue({ baseline, candidates: [] });
     const getForOwnerForBinding = vi
       .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
       .mockResolvedValue({ shareRecentChats: true });
@@ -2557,7 +2569,6 @@ describe('RunExecutionService executeRun', () => {
         recentShown: 1,
         recentTotal: 1,
       },
-      told,
       candidates: [
         {
           chatId: 'resurfaced',
@@ -2585,7 +2596,10 @@ describe('RunExecutionService executeRun', () => {
       .mockResolvedValue(undefined);
     const render = vi
       .spyOn(SystemPromptsService.prototype, 'render')
-      .mockReturnValue('Stable system prompt');
+      .mockReturnValue({
+        text: 'Stable system prompt',
+        chatsDisclosure: { pinned: new Set(), recent: new Set() },
+      });
     const repositories = mockNormalExecutionRepositories();
     const findById = vi
       .spyOn(ChatsRepository.prototype, 'findById')
@@ -2636,6 +2650,207 @@ describe('RunExecutionService executeRun', () => {
     expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeLessThan(
       repositories.markFinished.mock.invocationCallOrder[0] ?? -Infinity,
     );
+  });
+  describe('recency digest told-set records only rendered entries', () => {
+    const pinnedEntry = {
+      title: 'Pinned plan',
+      date: '2026-09-01',
+      messageCount: 4,
+      excerpt: 'pinned opening',
+    };
+    const recentEntry = {
+      title: 'Recent notes',
+      date: '2026-09-02',
+      messageCount: 2,
+      excerpt: 'recent opening',
+    };
+    const resolution: RecencyDigestResolution = {
+      baseline: {
+        pinned: [pinnedEntry],
+        recent: [recentEntry],
+        pinnedShown: 1,
+        pinnedTotal: 1,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2026-09-03',
+      },
+      candidates: [
+        { chatId: 'pinned-chat', pinned: true, entry: pinnedEntry },
+        { chatId: 'recent-chat', pinned: false, entry: recentEntry },
+      ],
+    };
+    const toldPinned = {
+      chatId: 'pinned-chat',
+      pinned: true,
+      title: 'Pinned plan',
+    };
+    const toldRecent = {
+      chatId: 'recent-chat',
+      pinned: false,
+      title: 'Recent notes',
+    };
+
+    function sharingOptions(
+      systemPromptTemplate: string,
+      extra: ExecutionServiceOptions = {},
+    ): ExecutionServiceOptions {
+      return {
+        ...extra,
+        model: { ...testModelEntry, systemPromptTemplate },
+        memory: {
+          getForOwnerForBinding: vi
+            .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+            .mockResolvedValue({ shareRecentChats: true }),
+        },
+        recencyDigest: {
+          resolveCandidate: vi
+            .fn<RecencyDigestResolver['resolveCandidate']>()
+            .mockResolvedValue(resolution),
+        },
+      };
+    }
+
+    async function initialize(options: ExecutionServiceOptions) {
+      const setBaseline = vi
+        .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+        .mockResolvedValue(undefined);
+      mockNormalExecutionRepositories();
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        undefined,
+        options,
+      );
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(setBaseline).toHaveBeenCalledTimes(1);
+      return setBaseline.mock.calls[0];
+    }
+
+    it('initializes an empty told-set when neither surface renders the digest', async () => {
+      const [, , baseline, told] = await initialize(
+        sharingOptions('Stable system prompt'),
+      );
+
+      expect(baseline).toEqual(resolution.baseline);
+      expect(told).toEqual([]);
+    });
+
+    it('initializes no told entry from aggregate counts alone', async () => {
+      const [, , , told] = await initialize(
+        sharingOptions(
+          'Shows {{chats.pinnedShown}} of {{chats.pinnedTotal}} pinned.{{#if chats.recent}} Some are recent.{{/if}}',
+        ),
+      );
+
+      expect(told).toEqual([]);
+    });
+
+    it('initializes the told-set from the entries the system prompt emitted', async () => {
+      const [, , , told] = await initialize(
+        sharingOptions('Base.{{#each chats.recent}} {{title}}{{/each}}'),
+      );
+
+      expect(told).toEqual([toldRecent]);
+    });
+
+    it('initializes the told-set from a tool description when it is the only disclosure', async () => {
+      const tmpDir = mkdtempSync(path.join(tmpdir(), 'digest-tool-only-'));
+      writeFileSync(
+        path.join(tmpDir, 'bash-digest.md'),
+        'Run commands.{{#each chats.pinned}} Related: {{title}}.{{/each}}',
+      );
+
+      const [, , , told] = await initialize(
+        sharingOptions('Stable system prompt', {
+          allowed: ['bash'],
+          configPath: path.join(tmpDir, 'llame.config.json'),
+          toolPromptFiles: { bash: 'bash-digest.md' },
+        }),
+      );
+
+      expect(told).toEqual([toldPinned]);
+    });
+
+    async function continueRefreshedEpoch(
+      systemPromptTemplate: string,
+      state: {
+        told?: NonNullable<Chat['recencyDigestTold']>;
+        pinnedChatIds?: ReadonlyArray<string>;
+      } = {},
+    ) {
+      const repositories = mockNormalExecutionRepositories();
+      // A checkpoint refresh published this baseline and reset the told-set;
+      // unless `state.told` says otherwise, nothing was dispatched against it.
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        recencyDigestBaseline: resolution.baseline,
+        recencyDigestTold: state.told ?? [],
+        recencyDigestRebakedFrom: '55555555-5555-4555-8555-555555555555',
+      });
+      vi.spyOn(
+        ChatsRepository.prototype,
+        'findPinnedChatIds',
+      ).mockResolvedValue(new Set(state.pinnedChatIds ?? ['pinned-chat']));
+      const updateRecencyDigestTold = vi
+        .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
+        .mockResolvedValue(undefined);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        undefined,
+        sharingOptions(systemPromptTemplate),
+      );
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      const digestItems = stagedItemsOf(
+        repositories.storeAtDispatch,
+        'recency-digest',
+      );
+      return { updateRecencyDigestTold, digestItems };
+    }
+
+    it('does not re-announce a refreshed baseline the request renders, and advances nothing', async () => {
+      const { updateRecencyDigestTold, digestItems } =
+        await continueRefreshedEpoch(
+          'Base.{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{title}}{{/each}}',
+        );
+
+      expect(digestItems).toEqual([]);
+      expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+    });
+
+    it('appends only the refreshed entries the request did not render, with its rendered ones', async () => {
+      const { updateRecencyDigestTold, digestItems } =
+        await continueRefreshedEpoch(
+          'Base.{{#each chats.pinned}} {{title}}{{/each}}',
+        );
+
+      expect(digestItems).toHaveLength(1);
+      expect(JSON.stringify(digestItems)).toContain('Recent notes');
+      expect(JSON.stringify(digestItems)).not.toContain('Pinned plan');
+      expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, [
+        toldPinned,
+        toldRecent,
+      ]);
+    });
+
+    it('keeps the pin state an earlier append told over the baseline it contradicts', async () => {
+      // An earlier append told the model the pinned chat was unpinned; the
+      // immutable baseline still lists it as pinned.
+      const { updateRecencyDigestTold, digestItems } =
+        await continueRefreshedEpoch(
+          'Base.{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{title}}{{/each}}',
+          { told: [{ ...toldPinned, pinned: false }], pinnedChatIds: [] },
+        );
+
+      expect(digestItems).toEqual([]);
+      expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+    });
   });
   it('freezes the resolved skill baseline and records its told set when the turn completes', async () => {
     const baseline: SkillCatalogBaseline = {
@@ -3217,6 +3432,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         totalTokens: 1200,
         reasoningTokens: 150,
       }),
+      300,
     );
     options.onRequestUsage?.(
       requestUsageReceipt({
@@ -3226,6 +3442,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         totalTokens: 1500,
         reasoningTokens: 60,
       }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3279,6 +3496,106 @@ describe('RunExecutionService executeRun — stream completion', () => {
     ).toMatchObject({ latencyMs: 750 });
   });
 
+  it('stamps the first streamed delta, counts the deltas, and derives throughput on the completed usage (#155)', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+
+    // Two completed text deltas and one reasoning delta each stamp/count once,
+    // and the first stamp survives the second: the offset is measured from the
+    // same stream start `latencyMs` uses.
+    now.mockReturnValue(10_200);
+    options.onTextDelta?.('alpha');
+    now.mockReturnValue(10_300);
+    options.onTextDelta?.('beta');
+    now.mockReturnValue(10_400);
+    options.onReasoningDelta?.('thinking', 'reasoning-1');
+    // An empty reasoning delivery is a part boundary, not streamed output.
+    now.mockReturnValue(10_500);
+    options.onReasoningDelta?.('', 'reasoning-2', {
+      tag: { note: 'metadata' },
+    });
+    options.onRequestUsage?.(
+      requestUsageReceipt({
+        inputTokens: 1000,
+        cachedInputTokens: 0,
+        outputTokens: 90,
+        totalTokens: 1090,
+        reasoningTokens: 30,
+      }),
+      400,
+    );
+    now.mockReturnValue(10_600);
+    await options.onFinish?.({
+      text: 'alphabeta',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const usage = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
+    expect(usage).toMatchObject({
+      status: 'completed',
+      complete: true,
+      // First non-empty text delta at 200 ms; 3 streamed output deltas (2 text +
+      // 1 reasoning); 90 output tokens over the request's own 400 ms generation
+      // window — the window the provider was asked for and reported back, not
+      // the turn's 600 ms wall clock.
+      firstTokenMs: 200,
+      chunkCount: 3,
+      generationMs: 400,
+      tokensPerSecond: 225,
+    });
+  });
+
+  it('sums the generation windows of every request that reported usage (#155)', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+
+    now.mockReturnValue(10_150);
+    options.onTextDelta?.('alpha');
+    // A tool step's window and the answering step's, banked as each request
+    // finishes: 100ms then 50ms. The expected total is the pair the test
+    // handed in, so a rate built from anything but their sum fails here.
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 10 }),
+      100,
+    );
+    now.mockReturnValue(10_300);
+    options.onTextDelta?.('beta');
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      50,
+    );
+    await options.onFinish?.({
+      text: 'alphabeta',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 2,
+    });
+
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+    ).toMatchObject({
+      status: 'completed',
+      complete: true,
+      firstTokenMs: 150,
+      chunkCount: 2,
+      generationMs: 150,
+      // 30 output tokens over 150ms, not over the turn's 300ms wall clock.
+      tokensPerSecond: 200,
+    });
+  });
+
   it('marks the completed aggregate incomplete when step count exceeds receipts', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -3289,6 +3606,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 700, outputTokens: 100 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3323,12 +3641,15 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 102_000, outputTokens: 1000 }),
+      300,
     );
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 50 }),
+      300,
     );
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 500, outputTokens: 100 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3370,6 +3691,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3413,6 +3735,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -3721,6 +4044,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         outputTokens: 30_000,
         totalTokens: 150_000,
       }),
+      300,
     );
     await options.onFinish?.({
       text: 'half',
@@ -3873,6 +4197,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         outputTokens: 200,
         totalTokens: 1200,
       }),
+      300,
     );
     options.onTextDelta?.('partial');
     await options.onError?.({ error: new Error('provider exploded') });
@@ -4012,6 +4337,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         outputTokens: 100,
         totalTokens: 600,
       }),
+      300,
     );
     controller.abort(RUN_TIMEOUT_ABORT_REASON);
     await options.onError?.({ error: new Error('aborted by signal') });
@@ -4169,6 +4495,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 80, outputTokens: 12 }),
+      300,
     );
     options.onTextDelta?.('partial');
     controller.abort();
@@ -4207,6 +4534,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 80, outputTokens: 12 }),
+      300,
     );
     options.onTextDelta?.('partial');
     controller.abort();
@@ -4470,6 +4798,7 @@ const TEST_PROVIDER_USAGE = {
 function providerResponse(
   parts: ReadonlyArray<LanguageModelV3StreamPart>,
   finishReason: 'tool-calls' | 'stop',
+  options: { usage?: LanguageModelV3Usage; chunkDelayInMs?: number } = {},
 ) {
   return {
     stream: simulateReadableStream<LanguageModelV3StreamPart>({
@@ -4479,9 +4808,12 @@ function providerResponse(
         {
           type: 'finish',
           finishReason: { unified: finishReason, raw: undefined },
-          usage: TEST_PROVIDER_USAGE,
+          usage: options.usage ?? TEST_PROVIDER_USAGE,
         },
       ],
+      ...(options.chunkDelayInMs !== undefined && {
+        chunkDelayInMs: options.chunkDelayInMs,
+      }),
     }),
   };
 }
@@ -4536,6 +4868,54 @@ function createToolLoopClient(
   );
   return { client, model };
 }
+
+const SLOW_TOOL_ID = 'tool_loop_slow_tool';
+/** Long enough that the turn's wall clock cannot hide it in scheduling noise. */
+const SLOW_TOOL_SLEEP_MS = 500;
+
+function createSlowTool() {
+  const execute = vi.fn(async () => {
+    await new Promise((resolve) => setTimeout(resolve, SLOW_TOOL_SLEEP_MS));
+    return { status: 'success' as const };
+  });
+  const tool: Tool = {
+    id: SLOW_TOOL_ID,
+    description: 'Sleep before answering.',
+    classification: 'read_only',
+    inputSchema: z.strictObject({}),
+    execute,
+  };
+  return { tool, execute };
+}
+
+/** A provider usage report carrying real counts, so a rate can be derived. */
+function providerCounts(
+  inputTokens: number,
+  outputTokens: number,
+): LanguageModelV3Usage {
+  return {
+    inputTokens: {
+      total: inputTokens,
+      noCache: inputTokens,
+      cacheRead: 0,
+      cacheWrite: 0,
+    },
+    outputTokens: { total: outputTokens, text: outputTokens, reasoning: 0 },
+  };
+}
+
+/** One numeric field of a persisted usage object, narrowed for assertions. */
+function numericUsageField(usage: unknown, field: string): number {
+  if (!isRecord(usage)) {
+    throw new Error('Expected the persisted usage to be a record.');
+  }
+  const value = usage[field];
+  if (!isNumber(value)) {
+    throw new Error(`Expected usage.${field} to be a number.`);
+  }
+  return value;
+}
+
 const MID_RUN_ADDER_ID = 'mid_run_add_workspace_tool';
 const MID_RUN_ADDED_ID = 'mcp__workspace__added';
 const MID_RUN_ADDED_SECOND_ID = 'mcp__workspace__second';
@@ -4626,6 +5006,72 @@ describe('RunExecutionService executeRun — tool loop', () => {
       ]);
     } finally {
       unregisterTestOnlyTool(MID_RUN_ADDER_ID);
+    }
+  });
+
+  it("keeps a step's tool wait out of the turn's generation window (#155)", async () => {
+    const spies = mockNormalExecutionRepositories();
+    const { tool, execute } = createSlowTool();
+    registerTestOnlyTool(tool);
+    try {
+      const { client } = createToolLoopClient([
+        // The model speaks, then waits half a second on its tool, then answers:
+        // the wait sits between the first delta and the turn's end, which is
+        // where the wall clock used to leak into the rate. Both requests space
+        // their chunks, so each leaves a window of its own.
+        providerResponse(
+          [
+            { type: 'text-start', id: 'answer' },
+            { type: 'text-delta', id: 'answer', delta: 'checking. ' },
+            { type: 'text-end', id: 'answer' },
+            {
+              type: 'tool-call',
+              toolCallId: 'slow-call',
+              toolName: SLOW_TOOL_ID,
+              input: '{}',
+            },
+          ],
+          'tool-calls',
+          { usage: providerCounts(10, 20), chunkDelayInMs: 30 },
+        ),
+        providerResponse(
+          [
+            { type: 'text-start', id: 'answer' },
+            { type: 'text-delta', id: 'answer', delta: 'done' },
+            { type: 'text-end', id: 'answer' },
+          ],
+          'stop',
+          { usage: providerCounts(12, 40), chunkDelayInMs: 5 },
+        ),
+      ]);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: [SLOW_TOOL_ID],
+        permissionPolicy: compileTestPermissionPolicy([SLOW_TOOL_ID]),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toContain('done');
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      const usage =
+        spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
+      const latencyMs = numericUsageField(usage, 'latencyMs');
+      const generationMs = numericUsageField(usage, 'generationMs');
+      // The tool slept inside the turn, so the wall clock carries it and the
+      // generation window does not: the provider was only generating for the
+      // spaced chunks of its two requests.
+      expect(latencyMs).toBeGreaterThanOrEqual(SLOW_TOOL_SLEEP_MS);
+      expect(generationMs).toBeLessThan(latencyMs / 2);
+      expect(numericUsageField(usage, 'chunkCount')).toBe(2);
+      // Read against the wall clock rather than against the recorded window, so
+      // the rate has an oracle the code under test did not produce: a rate that
+      // still divided the turn's wall clock could not clear double it.
+      const wallClockRate = 60 / (latencyMs / 1000);
+      expect(numericUsageField(usage, 'tokensPerSecond')).toBeGreaterThan(
+        wallClockRate * 2,
+      );
+    } finally {
+      unregisterTestOnlyTool(SLOW_TOOL_ID);
     }
   });
 
@@ -4750,9 +5196,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
     await vi.waitFor(() => expect(execute).toHaveBeenCalled());
     const startedAt = Date.now();
     controller.abort();
-    await expect(call).rejects.toThrow(
-      'Host command or mutation outcome is unknown',
-    );
+    await expect(call).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
     const elapsedMs = Date.now() - startedAt;
 
     expect(elapsedMs).toBeGreaterThanOrEqual(600);
@@ -4838,7 +5285,38 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(options.abortSignal?.aborted).toBe(true);
   });
 
-  it('stops an MCP unknown outcome without replaying the model step', async () => {
+  it('continues after a native read unknown outcome as a tool observation', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'Unsettled read.',
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      { allowed: ['read'] },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const bound = options.tools?.read;
+    if (!bound?.execute) throw new Error('Native read was not advertised.');
+    await expect(
+      bound.execute(
+        { path: '/native/file' },
+        { toolCallId: 'native-read-unknown', messages: [] },
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+    expect(options.abortSignal?.aborted).toBeFalsy();
+  });
+
+  it('continues after an MCP unknown outcome as a tool observation', async () => {
     mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();
     const capturing = makeCapturingClient();
@@ -4868,10 +5346,12 @@ describe('RunExecutionService executeRun — tool loop', () => {
         { q: 'unknown' },
         'mcp-unknown',
       ),
-    ).rejects.toThrow(
-      'MCP operation outcome is unknown; the Run cannot continue.',
-    );
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
     expect(execute).toHaveBeenCalledOnce();
+    expect(capturing.streamOptions().abortSignal?.aborted).toBeFalsy();
   });
   it('does not treat a successful MCP result with an unknown-looking field as unknown', async () => {
     mockNormalExecutionRepositories();
@@ -5670,6 +6150,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         outputTokens: 200,
         totalTokens: 1200,
       }),
+      300,
     );
     const call = executeBoundTool(options, { q: 'slow' }, 'call-2');
     await Promise.resolve();
@@ -5829,6 +6310,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     const call = executeBoundTool(options, { q: 'slow' }, 'call-4');
     await Promise.resolve();
@@ -6638,7 +7120,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
       {
         model: {
           ...testModelEntry,
-          systemPromptTemplate: '{{#if user}}Never{{/if}}',
+          systemPromptTemplate: ' \n{{#if user}}Never{{/if}}\n ',
         },
       },
     );
@@ -6680,7 +7162,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
     };
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline, told: [], candidates: [] });
+      .mockResolvedValue({ baseline, candidates: [] });
     const getForOwnerForBinding = vi
       .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
       .mockResolvedValue({ shareRecentChats: true });
@@ -6899,7 +7381,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       const rows = input.mediaRows;
       // The resolver's descriptor read is `select().from().where()`; drizzle's
       // builders carry private state no structural double can satisfy.
-      const where = () => Promise.resolve(rows);
+      const where = () => Promise.resolve(rows.map(descriptorRow));
       // SAFETY: the double implements exactly the fluent calls the read makes.
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       vi.spyOn(execution.db, 'select').mockReturnValue({
@@ -6930,7 +7412,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
   });
 
-  describe('image overflow (vision-media D6)', () => {
+  describe('media overflow (vision-media D6, pdf-media D5)', () => {
     const earlierId = '0192f3a4-5b6c-7d8e-9f01-0000000000e1';
     /** A small-dimension image whose base64 model variant is `mib` MiB. */
     const image = (id: string, mib: number) =>
@@ -6958,7 +7440,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       return capturing;
     };
 
-    /** An earlier 20 MiB image, so the trigger's 5 MiB image overflows. */
+    /** An earlier 24 MiB image, so the trigger's 5 MiB image overflows. */
     async function overflowWithEarlierImage(
       summary?: CompactionSummary | null,
     ) {
@@ -6978,7 +7460,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           { ...triggerTurn(), parts: triggerParts },
         ],
         triggerParts,
-        mediaRows: [image(earlierId, 20), image(triggerId, 5)],
+        mediaRows: [image(earlierId, 24), image(triggerId, 5)],
         ...(summary !== undefined && { summary }),
       });
       return { ...outcome, capturing, triggerId };
@@ -7003,14 +7485,18 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // What the composer the clients install makes of the sent request.
       const composed = await composeStepMessages(sent.messages, {
         resolver: {
-          images: media.images,
+          heldMedia: media.heldMedia,
           describe: (ids) => media.describe(ids),
           loadModelBytes: (ids) =>
             Promise.resolve(
               new Map(ids.map((id) => [id, new Uint8Array([1])] as const)),
             ),
         },
-        imageInput: true,
+        context: {
+          input: ['text', 'image'],
+          contextWindowTokens: 128_000,
+          reservedOutputTokens: null,
+        },
       });
       const userParts = composed.flatMap((message) =>
         message.role === 'user' && Array.isArray(message.content)
@@ -7037,7 +7523,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     });
 
     it('does not compact when the overflow lies in the triggering message alone', async () => {
-      const ids = triggerIds(5);
+      const ids = triggerIds(6);
       const triggerParts = [
         ...fileParts(ids),
         { type: 'text', text: 'all of these' },
@@ -7059,7 +7545,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     it("counts the triggering message's prompt-import images as its own", async () => {
       // The item lands on the stored row after the Run was queued, so the
       // queued parts carry none of its references.
-      const ids = triggerIds(5);
+      const ids = triggerIds(6);
       const triggerParts = [{ type: 'text', text: 'look at these' }];
       const item = createPromptImportsItem({
         runId,
@@ -7067,7 +7553,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           locator: `shot${n}.png`,
           outcome: 'imported' as const,
           body: '{"status":"success","kind":"image"}',
-          image: { media: `media://${id}` },
+          attachment: { media: `media://${id}` },
         })),
         omitted: [],
       });
@@ -7080,6 +7566,113 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         ],
         triggerParts,
         mediaRows: ids.map((id) => image(id, 5)),
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    });
+
+    it("does not compact when only the triggering message's prompt-import PDFs exceed the page bound", async () => {
+      // The item's PDF references are the triggering message's own: an earlier
+      // row holds none, so no row exists for compaction to absorb.
+      const ids = triggerIds(2);
+      const item = createPromptImportsItem({
+        runId,
+        outcomes: ids.map((id) => ({
+          locator: `media://${id}`,
+          resolved: `media://${id}`,
+          outcome: 'imported' as const,
+          body: '{"status":"success","kind":"pdf"}',
+          attachment: {
+            kind: 'pdf' as const,
+            mediaType: 'application/pdf',
+            pages: 20,
+            byteSize: 1024,
+            media: `media://${id}`,
+          },
+        })),
+        omitted: [],
+      });
+      const triggerParts = [item, { type: 'text', text: 'read both' }];
+      const capturing = triggerClient();
+      Object.assign(capturing.client, {
+        input: ['text', 'pdf'],
+        // This case is about the overflow, not the size threshold.
+        compactionThresholdTokens: 100_000,
+      });
+
+      const { execution } = await executeTriggerCase({
+        client: capturing.client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 100 }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        // Each PDF fits; their combined 40 pages exceed this model's page bound.
+        mediaRows: ids.map((id) =>
+          pdfDescriptor(id, { pages: 20, byteSize: 1024 }),
+        ),
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    });
+
+    it('takes the threshold variant on PDF overflow when an earlier row holds a stored PDF', async () => {
+      const capturing = triggerClient(400_000);
+      Object.assign(capturing.client, { input: ['text', 'pdf'] });
+      const [triggerId = ''] = triggerIds(1);
+      const pdfPart = (id: string) => ({
+        type: 'file',
+        mediaType: 'application/pdf',
+        url: `media://${id}`,
+        filename: 'paper.pdf',
+      });
+      const triggerParts = [pdfPart(triggerId), { type: 'text', text: 'and?' }];
+
+      const { execution } = await executeTriggerCase({
+        client: capturing.client,
+        historyRows: [
+          ...committedTurn({
+            contextTokens: 100,
+            parts: [pdfPart(earlierId), { type: 'text', text: 'read' }],
+          }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        // 27,962,028 base64 bytes leave no room for the trigger's 2 MiB PDF.
+        mediaRows: [
+          pdfDescriptor(earlierId, { pages: 10, byteSize: 20 * 1024 * 1024 }),
+          pdfDescriptor(triggerId, { pages: 10, byteSize: 2 * 1024 * 1024 }),
+        ],
+      });
+
+      expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+      expect(execution.summarizeCheckpoint.mock.calls[0]?.[0]).toMatchObject({
+        variant: 'threshold',
+      });
+    });
+
+    it('does not compact image overflow when the only earlier reference is a PDF the model cannot take', async () => {
+      const ids = triggerIds(6);
+      const triggerParts = [...fileParts(ids), { type: 'text', text: 'these' }];
+
+      const { execution } = await executeTriggerCase({
+        client: visionClient().client,
+        historyRows: [
+          ...committedTurn({
+            contextTokens: 100,
+            parts: [
+              {
+                type: 'file',
+                mediaType: 'application/pdf',
+                url: `media://${earlierId}`,
+              },
+              { type: 'text', text: 'read' },
+            ],
+          }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        mediaRows: [pdfDescriptor(earlierId), ...ids.map((id) => image(id, 5))],
       });
 
       expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
@@ -7621,7 +8214,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const rebakedChat = {
@@ -7654,7 +8246,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     await executeTriggerCase({
@@ -7669,21 +8260,34 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     expect(setRecencyDigest).not.toHaveBeenCalled();
   });
 
-  it('rebakes a recency digest baseline after checkpoint publication', async () => {
+  it('rebakes a recency digest baseline after checkpoint publication without pre-marking it told', async () => {
     const setRecencyDigest = vi
       .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
+      .mockResolvedValue(undefined);
+    const updateRecencyDigestTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
       .mockResolvedValue(undefined);
     const rebakedChat = {
       ...chat,
       recencyDigestBaseline: digestBaseline,
       recencyDigestTold: [],
     };
+    const entry = {
+      title: 'Fresh source',
+      date: '2026-09-02',
+      messageCount: 3,
+    };
+    const refreshed = {
+      ...digestBaseline,
+      recent: [entry],
+      recentShown: 1,
+      recentTotal: 1,
+    };
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
-        baseline: digestBaseline,
-        told: [],
-        candidates: [],
+        baseline: refreshed,
+        candidates: [{ chatId: 'fresh-source', pinned: false, entry }],
       });
     await executeTriggerCase({
       historyRows: publicationHistory(),
@@ -7694,13 +8298,20 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       recencyDigest: { resolveCandidate },
     });
 
+    // The checkpoint precedes the request that may disclose the refreshed
+    // baseline, so the new epoch starts with nothing told.
     expect(setRecencyDigest).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
-      baseline: digestBaseline,
+      baseline: refreshed,
       told: [],
       rebakedFrom: publishedCheckpointId,
     });
+    // This prompt renders no digest, so the entry stays eligible and enters
+    // through the request's own append instead.
+    expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, [
+      { chatId: 'fresh-source', pinned: false, title: 'Fresh source' },
+    ]);
   });
 
   it('rebakes the skill baseline and copies its told names after publication', async () => {
@@ -8241,6 +8852,7 @@ describe('RunExecutionService settleTerminalRun', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'salvaged answer',
@@ -8320,6 +8932,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'salvage me',
@@ -8392,6 +9005,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
       .streamOptions()
       .onRequestUsage?.(
         requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+        300,
       );
     await capturing.streamOptions().onFinish?.({
       text: 'answer',
@@ -8444,6 +9058,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
       .streamOptions()
       .onRequestUsage?.(
         requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+        300,
       );
     await capturing.streamOptions().onFinish?.({
       text: 'answer',
@@ -8584,6 +9199,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     const options = capturing.streamOptions();
     options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      300,
     );
     await options.onFinish?.({
       text: 'answer',
@@ -9714,7 +10330,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const execution = makeExecutionService(
@@ -9762,7 +10377,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const execution = makeExecutionService(
@@ -9793,7 +10407,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const getForOwnerForBinding = vi
@@ -9849,7 +10462,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [{ chatId: 'a', pinned: true, title: 'Earlier chat' }],
         candidates: [
           {
             chatId: 'b',
@@ -9880,10 +10492,14 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
     await expect(result.text).resolves.toBe('answer');
 
-    // The epoch still initializes from the candidate...
-    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, digestBaseline, [
-      { chatId: 'a', pinned: true, title: 'Earlier chat' },
-    ]);
+    // The epoch still initializes from the candidate, telling only what its
+    // renders disclosed: this baseline lists no entry...
+    expect(setBaseline).toHaveBeenCalledWith(
+      chatId,
+      userId,
+      digestBaseline,
+      [],
+    );
     // ...but with no baseline to diff against, nothing is disclosed as a delta.
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
   });
@@ -12230,6 +12846,60 @@ describe('RunExecutionService prompt imports', () => {
     )?.payload;
   }
 
+  /**
+   * History whose triggering row carries `text` after the prompt-imports
+   * item: `stored`, or the one the attempt appended.
+   */
+  function serveTriggerRow(
+    append: MockInstance<PromptImportPartsRepository['appendForRun']>,
+    text: string,
+    stored?: Message['parts'][number],
+  ) {
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+      () => {
+        const item = stored ?? append.mock.calls[0]?.[0].item;
+        return Promise.resolve([
+          {
+            ...userMessage,
+            parts: [...(item ? [item] : []), { type: 'text', text }],
+          },
+        ]);
+      },
+    );
+  }
+
+  /**
+   * The content following the prompt-imports item's text in the first
+   * request, as the composer every client installs projects it under the
+   * request's model.
+   */
+  async function afterItemText(
+    stream: MockInstance<ModelClient['streamText']>,
+    input: ReadonlyArray<ModelInput>,
+  ) {
+    const sent = stream.mock.calls[0]?.[0];
+    if (sent?.media === undefined) throw new Error('no media resolver sent');
+    const composed = await composeStepMessages(sent.messages, {
+      resolver: sent.media,
+      context: {
+        input,
+        contextWindowTokens: 128_000,
+        reservedOutputTokens: null,
+      },
+    });
+    const trigger = composed.at(-1);
+    const content =
+      trigger?.role === 'user' && Array.isArray(trigger.content)
+        ? trigger.content
+        : [];
+    const at = content.findIndex(
+      (part) =>
+        part.type === 'text' && part.text.includes('producer="prompt-imports"'),
+    );
+    expect(at).toBeGreaterThanOrEqual(0);
+    return { next: content[at + 1], composed };
+  }
+
   it('persists one item with the native read output before the first model request', async () => {
     const root = repoRoot();
     try {
@@ -12490,6 +13160,288 @@ describe('RunExecutionService prompt imports', () => {
     }
   });
 
+  describe('PDF targets (pdf-media D9)', () => {
+    const PDF_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e30';
+    const PDF_MEDIA = `media://${PDF_ID}`;
+
+    /** The Run's own fifteen-page PDF, written into the bound workspace. */
+    function addPaperPdf(root: string) {
+      const pdfPath = path.join(root, 'paper.pdf');
+      const bytes = readFileSync(
+        path.join(__dirname, '../media/testing/pdf/fifteen-pages.pdf'),
+      );
+      writeFileSync(pdfPath, bytes);
+      return { pdfPath, bytes };
+    }
+
+    it.each([
+      ['hundred-one-pages.pdf', 'paper.pdf'],
+      ['owner-password.pdf', 'paper.pdf'],
+      ['fifteen-pages.pdf', 'paper.pdf:1-20'],
+    ])('does not import refused %s as @%s', async (fixture, locator) => {
+      const root = repoRoot();
+      try {
+        writeFileSync(
+          path.join(root, 'paper.pdf'),
+          readFileSync(path.join(__dirname, '../media/testing/pdf', fixture)),
+        );
+        const { append } = serveRepositories();
+        serveTriggerRow(append, `check @${locator}`);
+        bindChat(root);
+        const execution = serviceFor(['enter_workspace', 'read']);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, `check @${locator}`),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        const resolved: unknown = expect.any(String);
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [{ locator, resolved, outcome: 'failed' }],
+        });
+        const { composed } = await afterItemText(stream, ['text', 'pdf']);
+        expect(composed.at(-1)?.content).not.toContainEqual(
+          expect.objectContaining({ type: 'file' }),
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("imports a PDF target into the attempt's memory, after the item text", async () => {
+      const root = repoRoot();
+      try {
+        const { pdfPath, bytes } = addPaperPdf(root);
+        const { append, events } = serveRepositories();
+        serveTriggerRow(append, 'check @paper.pdf');
+        bindChat(root);
+        const ingest = vi.spyOn(MediaService.prototype, 'ingest');
+        const execution = serviceFor(['enter_workspace', 'read']);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @paper.pdf'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        const output = importEvents(events).find(
+          ({ type }) => type === 'tool.completed',
+        )?.payload['output'];
+        expect(output).toEqual({
+          status: 'success',
+          kind: 'pdf',
+          mediaType: 'application/pdf',
+          pages: 15,
+          byteSize: bytes.byteLength,
+          path: pdfPath,
+        });
+        const item = append.mock.calls[0]?.[0].item;
+        expect(item?.data.payload).toEqual({
+          imports: [
+            {
+              locator: 'paper.pdf',
+              resolved: pdfPath,
+              outcome: 'imported',
+              kind: 'pdf',
+              mediaType: 'application/pdf',
+              pages: 15,
+              byteSize: bytes.byteLength,
+            },
+          ],
+        });
+        // The item records metadata alone: no PDF bytes, no encoded copy.
+        expect(item?.data.text).not.toContain('%PDF-');
+        expect(item?.data.text).not.toContain('JVBERi0');
+        // No media object: the importing attempt's memory alone holds it.
+        expect(ingest).not.toHaveBeenCalled();
+        expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
+          type: 'file',
+          data: bytes,
+          mediaType: 'application/pdf',
+          filename: 'paper.pdf',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('imports a PDF target for a model without PDF input, sending the omitted placeholder', async () => {
+      const root = repoRoot();
+      try {
+        const { pdfPath, bytes } = addPaperPdf(root);
+        const { append } = serveRepositories();
+        serveTriggerRow(append, 'check @paper.pdf');
+        bindChat(root);
+        const execution = serviceFor(['enter_workspace', 'read']);
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @paper.pdf'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [
+            {
+              locator: 'paper.pdf',
+              resolved: pdfPath,
+              outcome: 'imported',
+              kind: 'pdf',
+              mediaType: 'application/pdf',
+              pages: 15,
+              byteSize: bytes.byteLength,
+            },
+          ],
+        });
+        // A model that declares no PDF input retains no bytes: its entry
+        // carries the page count alone.
+        const sent = stream.mock.calls[0]?.[0];
+        expect(
+          sent?.media?.heldMedia.get(promptImportMediaKey(runId, 'paper.pdf')),
+        ).toEqual({ locator: pdfPath, pages: 15 });
+        expect((await afterItemText(stream, ['text'])).next).toEqual({
+          type: 'text',
+          text: '[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('imports an owned PDF locator, replaying the stored original', async () => {
+      const root = repoRoot();
+      try {
+        const bytes = readFileSync(
+          path.join(__dirname, '../media/testing/pdf/fifteen-pages.pdf'),
+        );
+        const { append } = serveRepositories();
+        bindChat(root);
+        serveTriggerRow(append, `check @${PDF_MEDIA}`);
+        const ingest = vi.spyOn(MediaService.prototype, 'ingest');
+        const findOwned = vi
+          .spyOn(MediaService.prototype, 'findOwned')
+          .mockResolvedValue(
+            storedPdfRow({
+              id: PDF_ID,
+              ownerUserId: userId,
+              name: 'paper.pdf',
+              pageCount: 15,
+              byteSize: bytes.byteLength,
+            }),
+          );
+        const execution = serviceFor(['enter_workspace', 'read']);
+        const owned = pdfDescriptor(PDF_ID, {
+          name: 'paper.pdf',
+          pages: 15,
+          byteSize: bytes.byteLength,
+        });
+        const where = () =>
+          Promise.resolve([{ ...descriptorRow(owned), data: bytes }]);
+        // SAFETY: the double supplies the descriptor and original-blob query chains.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        vi.spyOn(execution.db, 'select').mockReturnValue({
+          from: () => ({ where, innerJoin: () => ({ where }) }),
+        } as never);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+        const prompt = promptInput(execution.client, `check @${PDF_MEDIA}`);
+        const result = await execution.service.executeRun(prompt);
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(findOwned).toHaveBeenCalledWith(userId, PDF_ID);
+        expect(ingest).not.toHaveBeenCalled();
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [
+            {
+              locator: PDF_MEDIA,
+              resolved: PDF_MEDIA,
+              outcome: 'imported',
+              kind: 'pdf',
+              mediaType: 'application/pdf',
+              pages: 15,
+              byteSize: bytes.byteLength,
+              media: PDF_MEDIA,
+            },
+          ],
+        });
+        const { next } = await afterItemText(stream, ['text', 'pdf']);
+        expect(next).toEqual({
+          type: 'file',
+          data: bytes,
+          mediaType: 'application/pdf',
+          filename: 'paper.pdf',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('reuses the persisted PDF entry on recovery, sending the not-retained placeholder', async () => {
+      const root = repoRoot();
+      try {
+        const { pdfPath, bytes } = addPaperPdf(root);
+        const { find, append, events } = serveRepositories();
+        bindChat(root);
+        const stored = createPromptImportsItem({
+          runId,
+          outcomes: [
+            {
+              locator: 'paper.pdf',
+              resolved: pdfPath,
+              outcome: 'imported',
+              body: '{"status":"success","kind":"pdf"}',
+              attachment: {
+                kind: 'pdf',
+                mediaType: 'application/pdf',
+                pages: 15,
+                byteSize: bytes.byteLength,
+              },
+            },
+          ],
+          omitted: [],
+        });
+        const payload = stored.data.payload;
+        if (!isPromptImportsPayload(payload)) {
+          throw new Error('the stored item must carry a valid payload');
+        }
+        const item = { ...stored, data: { ...stored.data, payload } };
+        find.mockResolvedValue(item);
+        serveTriggerRow(append, 'check @paper.pdf', item);
+        // The PDF changed on disk after the import completed.
+        writeFileSync(
+          pdfPath,
+          readFileSync(
+            path.join(__dirname, '../media/testing/pdf/one-page.pdf'),
+          ),
+        );
+        const ingest = vi.spyOn(MediaService.prototype, 'ingest');
+        const read = vi.spyOn(nativeReadTool, 'execute');
+        const execution = serviceFor(['enter_workspace', 'read']);
+        Object.assign(execution.client, { input: ['text', 'pdf'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @paper.pdf'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(read).not.toHaveBeenCalled();
+        expect(ingest).not.toHaveBeenCalled();
+        expect(append).not.toHaveBeenCalled();
+        expect(importEvents(events)).toEqual([]);
+        expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
+          type: 'text',
+          text: '[pdf "paper.pdf" 15 pages, not retained]',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('image targets (vision-media D8)', () => {
     const IMAGE_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
     const MEDIA = `media://${IMAGE_ID}`;
@@ -12507,6 +13459,7 @@ describe('RunExecutionService prompt imports', () => {
         modelWidth: 1600,
         modelHeight: 900,
         modelByteSize: 100,
+        pageCount: null,
         sha256: 'digest',
         createdAt: new Date(0),
       };
@@ -12525,55 +13478,6 @@ describe('RunExecutionService prompt imports', () => {
           ),
         );
       return { ingest, findOwned };
-    }
-
-    /**
-     * History whose triggering row carries `text` after the prompt-imports
-     * item: `stored`, or the one the attempt appended.
-     */
-    function serveTriggerRow(
-      append: MockInstance<PromptImportPartsRepository['appendForRun']>,
-      text: string,
-      stored?: Message['parts'][number],
-    ) {
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
-        () => {
-          const item = stored ?? append.mock.calls[0]?.[0].item;
-          return Promise.resolve([
-            {
-              ...userMessage,
-              parts: [...(item ? [item] : []), { type: 'text', text }],
-            },
-          ]);
-        },
-      );
-    }
-
-    /**
-     * The content following the prompt-imports item's text in the first
-     * request, as the composer every client installs projects it.
-     */
-    async function afterItemText(
-      stream: MockInstance<ModelClient['streamText']>,
-      imageInput: boolean,
-    ) {
-      const sent = stream.mock.calls[0]?.[0];
-      if (sent?.media === undefined) throw new Error('no media resolver sent');
-      const composed = await composeStepMessages(sent.messages, {
-        resolver: sent.media,
-        imageInput,
-      });
-      const trigger = composed.at(-1);
-      const content =
-        trigger?.role === 'user' && Array.isArray(trigger.content)
-          ? trigger.content
-          : [];
-      const at = content.findIndex(
-        (part) =>
-          part.type === 'text' &&
-          part.text.includes('producer="prompt-imports"'),
-      );
-      return { next: content[at + 1], composed };
     }
 
     async function importShot(imageInput: boolean, root: string) {
@@ -12630,11 +13534,11 @@ describe('RunExecutionService prompt imports', () => {
             },
           ],
         });
-        expect(item?.data.text).toContain(
-          `<file path="shot.png">\n${serializeNativeModelOutput(output)}\n</file>`,
-        );
         expect(item?.data.text).not.toContain('data:image/webp');
-        const { next, composed } = await afterItemText(stream, true);
+        const { next, composed } = await afterItemText(stream, [
+          'text',
+          'image',
+        ]);
         const anyBytes: unknown = expect.any(Uint8Array);
         expect(next).toEqual({
           type: 'image',
@@ -12654,13 +13558,13 @@ describe('RunExecutionService prompt imports', () => {
 
         const sent = stream.mock.calls[0]?.[0];
         expect(
-          sent?.media?.images.get(promptImportImageKey(runId, 'shot.png')),
+          sent?.media?.heldMedia.get(promptImportMediaKey(runId, 'shot.png')),
         ).toEqual({
           locator: `${root}/shot.png`,
           width: 160,
           height: 90,
         });
-        expect((await afterItemText(stream, false)).next).toEqual({
+        expect((await afterItemText(stream, ['text'])).next).toEqual({
           type: 'text',
           text: '[image "shot.png" 160×90, omitted: this model has no image input]',
         });
@@ -12736,7 +13640,7 @@ describe('RunExecutionService prompt imports', () => {
               resolved: `${root}/shot.png`,
               outcome: 'imported',
               body: '{"status":"success","kind":"image"}',
-              image: {
+              attachment: {
                 thumbnail: 'data:image/webp;base64,UklGRg==',
                 width: 160,
                 height: 90,
@@ -12771,7 +13675,7 @@ describe('RunExecutionService prompt imports', () => {
         expect(findOwned).not.toHaveBeenCalled();
         expect(append).not.toHaveBeenCalled();
         expect(importEvents(events)).toEqual([]);
-        expect((await afterItemText(stream, true)).next).toEqual({
+        expect((await afterItemText(stream, ['text', 'image'])).next).toEqual({
           type: 'text',
           text: '[image "shot.png" 160×90, not retained]',
         });

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { ChatProvider } from "@/contexts/chat-context";
 import { ActiveRunsProvider } from "@/contexts/active-runs-context";
+import { LiveUpdatesProvider } from "@/contexts/live-updates-context";
 import { CommandPaletteProvider } from "./components/command-palette";
 import {
   SidebarInset,
@@ -27,30 +28,32 @@ export default async function Layout({
     <>
       {/* h-svh anchors the shell row's height once — the sidebars and inset all fill it. */}
       <SidebarProvider defaultOpen={defaultOpen} className="h-svh">
-        <ActiveRunsProvider>
-          <ChatProvider>
-            <CommandPaletteProvider>
-              {/* Chat-specific header actions + the mobile chat-list fallback are
+        <LiveUpdatesProvider>
+          <ActiveRunsProvider>
+            <ChatProvider>
+              <CommandPaletteProvider>
+                {/* Chat-specific header actions + the mobile chat-list fallback are
                   injected into the shared shell here — AppSidebar itself has no
                   dependency on ChatProvider/CommandPaletteProvider (D1). */}
-              <AppSidebar topActions={<AppSidebarActions />}>
-                <ChatList />
-              </AppSidebar>
+                <AppSidebar topActions={<AppSidebarActions />}>
+                  <ChatList />
+                </AppSidebar>
 
-              {/* Route-scoped second rails: each renders null off its route. */}
-              <ChatListSidebar />
-              <ProjectListSidebar />
+                {/* Route-scoped second rails: each renders null off its route. */}
+                <ChatListSidebar />
+                <ProjectListSidebar />
 
-              <SidebarInset className="flex h-full flex-col overflow-hidden">
-                <ChatHeader className="sticky top-0" />
+                <SidebarInset className="flex h-full flex-col overflow-hidden">
+                  <ChatHeader className="sticky top-0" />
 
-                {children}
-              </SidebarInset>
+                  {children}
+                </SidebarInset>
 
-              <ChatSidebar className="hidden!" />
-            </CommandPaletteProvider>
-          </ChatProvider>
-        </ActiveRunsProvider>
+                <ChatSidebar className="hidden!" />
+              </CommandPaletteProvider>
+            </ChatProvider>
+          </ActiveRunsProvider>
+        </LiveUpdatesProvider>
       </SidebarProvider>
     </>
   );

@@ -20,13 +20,15 @@ const CHARSET_PARAMETER = /;\s*charset\s*=\s*"?([^";\s]+)"?/iu;
 
 const META_CHARSET = /<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)/iu;
 
-const MAX_BODY_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024;
 const CHARSET_SCAN_BYTES = 2048;
 
-export const BODY_TOO_LARGE: WebFetchFailure = {
-  type: 'body_too_large',
-  message: 'The response body exceeds the 5 MiB limit.',
-};
+function bodyTooLarge(maxBytes: number): WebFetchFailure {
+  return {
+    type: 'body_too_large',
+    message: `The response body exceeds the ${maxBytes / (1024 * 1024)} MiB limit.`,
+  };
+}
 
 export type ContentType = {
   /** The header as received, with only the media type lowercased. */
@@ -53,13 +55,14 @@ export function contentTypeOf(header: string | null): ContentType {
   return { value: `${mediaType}${header.slice(separator)}`, mediaType };
 }
 
-/** Whether the response declares a length over the 5 MiB bound. A declared
- *  length is only ever a hint, so it short-circuits the body read and nothing
- *  else. */
-export function declaresBodyOverBound(headers: UndiciHeaders): boolean {
+/** A declared length short-circuits the read; streaming enforces the same cap. */
+function declaresBodyOverBound(
+  headers: UndiciHeaders,
+  maxBytes: number,
+): boolean {
   const declared = headers.get('content-length');
   if (declared === null || !/^\d+$/u.test(declared)) return false;
-  return Number(declared) > MAX_BODY_BYTES;
+  return Number(declared) > maxBytes;
 }
 
 export async function cancelBody(response: UndiciResponse): Promise<void> {
@@ -89,7 +92,7 @@ function concatChunks(
   return bytes;
 }
 
-/** Streams the body against the 5 MiB cap: the read stops at the first chunk
+/** Streams against the response's cap: the read stops at the first chunk
  *  past it instead of buffering the remainder. A read that is still waiting on
  *  the server when the call aborts resolves as done once the reader is
  *  cancelled, or rejects outright because the transport tore the body down, so
@@ -97,6 +100,7 @@ function concatChunks(
 async function readAllChunks(
   reader: UndiciBodyReader,
   deadline: FetchDeadline,
+  maxBytes: number,
 ): Promise<BodyOutcome> {
   const chunks: Array<Uint8Array> = [];
   let total = 0;
@@ -125,7 +129,7 @@ async function readAllChunks(
       );
     }
     total += chunk.byteLength;
-    if (total > MAX_BODY_BYTES) return stopReading(reader, BODY_TOO_LARGE);
+    if (total > maxBytes) return stopReading(reader, bodyTooLarge(maxBytes));
     chunks.push(chunk);
   }
 }
@@ -133,7 +137,12 @@ async function readAllChunks(
 export async function readCappedBody(
   response: UndiciResponse,
   deadline: FetchDeadline,
+  maxBytes: number,
 ): Promise<BodyOutcome> {
+  if (declaresBodyOverBound(response.headers, maxBytes)) {
+    await cancelBody(response);
+    return { kind: 'failure', failure: bodyTooLarge(maxBytes) };
+  }
   const body = response.body;
   if (body === null) return { kind: 'body', bytes: new Uint8Array(0) };
   const reader = body.getReader();
@@ -143,7 +152,7 @@ export async function readCappedBody(
   deadline.signal.addEventListener('abort', onAbort, { once: true });
   if (deadline.signal.aborted) onAbort();
   try {
-    return await readAllChunks(reader, deadline);
+    return await readAllChunks(reader, deadline, maxBytes);
   } finally {
     deadline.signal.removeEventListener('abort', onAbort);
   }

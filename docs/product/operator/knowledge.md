@@ -7,6 +7,7 @@ behavior:
   - ../reference/tools/knowledge-search.md
   - ../reference/locators/kb.md
   - ../reference/instruction-files.md
+  - ../reference/context-documents.md
 ---
 
 # Personal Knowledge

@@ -10,6 +10,8 @@ A project is a first-class, terminal, user-owned chat group. This capability cov
 
 The system SHALL provide a **project** as a first-class, terminal workspace that groups a user's chats. A project SHALL NOT contain child projects or any nested unit — it holds chats only. Each project SHALL have exactly one **owner user**, and SHALL be stored as its own entity, distinct from org units.
 
+Each project SHALL carry a required **name** and MAY carry a **description**: owner-authored free text about what the project is for. A project SHALL have no description until its owner sets one, and a description SHALL be bounded at 1000 characters, so that recording one never becomes a way to store an unbounded document on the row.
+
 This foundation ships **user-owned projects** only. Org-unit ownership and invited members are explicitly deferred to a following change; the model anticipates them (see design), but no such column, table, or surface ships here.
 
 #### Scenario: A user creates a project they own
@@ -26,6 +28,16 @@ This foundation ships **user-owned projects** only. Org-unit ownership and invit
 
 - **WHEN** a project is created without a name
 - **THEN** the request is rejected; a name is required (two projects of the same owner MAY share a name)
+
+#### Scenario: A project starts with no description
+
+- **WHEN** a signed-in user creates a project with a name
+- **THEN** the project has no description, and one may be set later by its owner
+
+#### Scenario: A description beyond the bound is rejected
+
+- **WHEN** a user sets a description longer than the bound
+- **THEN** the request is rejected and the stored description is unchanged
 
 ### Requirement: Chat association with a project
 
@@ -48,7 +60,7 @@ A chat SHALL belong to **at most one** project. A chat's owner SHALL be able to 
 
 ### Requirement: Project visibility and management surface
 
-Projects SHALL be visible and manageable only to their owner, enforced in the datastore (defense-in-depth) and failing closed when the caller's identity is absent. The API SHALL expose project create/read/list/update/delete and chat filing as REST resources, each taking a validated request DTO and returning an explicit response type, deriving the acting identity only from the authenticated session (never from client-supplied ownership input), and surfacing authorization denials honestly rather than returning empty results. The project list SHALL honor the `?archived` and `?pinned` filter contract specified in `item-archive` (default list excludes archived and shows both pinned states; `?archived=with` includes archived, `?pinned=only` returns pinned projects, `?pinned=exclude` returns non-pinned). An archived project SHALL reject every update other than unarchive (`PATCH archived=false`) and delete (`DELETE`), refused with `409 Conflict`. A public/shared project SHALL remain viewable and forkable when archived.
+Projects SHALL be visible and manageable only to their owner, enforced in the datastore (defense-in-depth) and failing closed when the caller's identity is absent. The API SHALL expose project create/read/list/update/delete and chat filing as REST resources, each taking a validated request DTO and returning an explicit response type, deriving the acting identity only from the authenticated session (never from client-supplied ownership input), and surfacing authorization denials honestly rather than returning empty results. The owner SHALL be able to set, change, and clear a project's description through that update resource: a description omitted from the request SHALL leave the stored one unchanged, and one cleared SHALL return the project to no description. The project list SHALL honor the `?archived` and `?pinned` filter contract specified in `item-archive` (default list excludes archived and shows both pinned states; `?archived=with` includes archived, `?pinned=only` returns pinned projects, `?pinned=exclude` returns non-pinned). An archived project SHALL reject every update other than unarchive (`PATCH archived=false`) and delete (`DELETE`), refused with `409 Conflict` — a description change included. A public/shared project SHALL remain viewable and forkable when archived.
 
 #### Scenario: Listing projects returns only the caller's projects
 
@@ -75,9 +87,14 @@ Projects SHALL be visible and manageable only to their owner, enforced in the da
 - **WHEN** a user requests, updates, or deletes a project they do not own
 - **THEN** access is denied — the project is not returned and no change is made
 
+#### Scenario: The owner sets and clears a description
+
+- **WHEN** a user updates a project they own with a description, then updates it again with that description cleared
+- **THEN** the first update stores the description and the second leaves the project with no description
+
 #### Scenario: An archived project rejects edits but allows unarchive and delete
 
-- **WHEN** a user renames an archived project they own
+- **WHEN** a user renames an archived project they own, or changes its description
 - **THEN** the request is refused with `409`; a `PATCH ... archived:false` or `DELETE` on that project succeeds
 
 #### Scenario: A shared project stays viewable when archived

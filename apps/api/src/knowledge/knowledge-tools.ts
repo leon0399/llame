@@ -156,18 +156,6 @@ type SpaceSearchAccumulator = {
   laterPassageExists: boolean;
 };
 
-/**
- * Resolve access to `space` and, if resolved, search it — the whole
- * per-space body of `searchAllCurrentSpaces`'s nested loop, split out
- * (together with `searchSpacePage` and `collectSpaceMatches` below) purely
- * to give each loop level its own depth budget; every check, mutation, and
- * early-return path is unchanged. Returns a `ToolResult` when the whole
- * search must return that result immediately (an unrecoverable access or
- * search failure); rethrows a cancellation the same way the original inline
- * try/catch did; otherwise returns `undefined` to continue the loop.
- */
-/** The search-and-accumulate half of `searchOneSpace`, run once access to
- *  `space` is already resolved — split out purely for its own line budget. */
 /** Merge `attributed` (one space's own sorted matches) into the running,
  *  limit-capped accumulator, and flag whether a later, uncollected passage
  *  exists — the pagination signal `buildSearchPage` turns into `nextOffset`. */
@@ -191,6 +179,8 @@ function accumulateSpaceMatches(
   }
 }
 
+/** The search-and-accumulate half of `searchOneSpace`, run once access to
+ *  `space` is already resolved — split out purely for its own line budget. */
 async function searchAccessibleSpace(
   access: KnowledgeAccess,
   request: SpaceSearchRequest,
@@ -232,6 +222,16 @@ async function searchAccessibleSpace(
   }
 }
 
+/**
+ * Resolve access to `space` and, if resolved, search it — the whole
+ * per-space body of `searchAllCurrentSpaces`'s nested loop, split out
+ * (together with `searchSpacePage` and `collectSpaceMatches` below) purely
+ * to give each loop level its own depth budget; every check, mutation, and
+ * early-return path is unchanged. Returns a `ToolResult` when the whole
+ * search must return that result immediately (an unrecoverable access or
+ * search failure); rethrows a cancellation the same way the original inline
+ * try/catch did; otherwise returns `undefined` to continue the loop.
+ */
 async function searchOneSpace(
   request: SpaceSearchRequest,
   space: KnowledgeToolSpaceReference,

@@ -5,6 +5,7 @@ read_when:
   - you are reading a context receipt or diagnosing a rendered-empty Run
 behavior:
   - ../reference/tools/index.md
+  - ../reference/context-documents.md
 ---
 
 # Tool prompt templates

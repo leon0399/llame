@@ -303,13 +303,13 @@ The system SHALL NOT verify that a declared level is accepted by the provider. A
 The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. The published schema SHALL declare it as a typed free-form object, so the closed-schema rule applies to the `providerOptions` key itself and not to its contents. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
 
 The optional `input` array declares the input modalities the model accepts. Its items SHALL come from
-the closed set `text` and `image`; the array SHALL contain `text` and SHALL NOT repeat an item. An
-absent `input` SHALL resolve to `["text"]`, and a present one SHALL be retained in its declared order.
-An item outside the set, an array without `text`, or a repeated item SHALL fail startup naming the
-model id and the field. The system SHALL NOT verify that a declared modality is accepted by the
-provider: a model declared with `image` that rejects images surfaces the provider's error when a Run
-sends it one. The resolved array is published on the model's available-model entry as required by
-`available-models`.
+the closed set `text`, `image`, and `pdf`; the array SHALL contain `text` and SHALL NOT repeat an
+item. An absent `input` SHALL resolve to `["text"]`, and a present one SHALL be retained in its
+declared order. An item outside the set, an array without `text`, or a repeated item SHALL fail
+startup naming the model id and the field. The system SHALL NOT verify that a declared modality is
+accepted by the provider: a model declared with `image` that rejects images, or with `pdf` that
+rejects PDFs, surfaces the provider's error when a Run sends it one. The resolved array is published
+on the model's available-model entry as required by `available-models`.
 
 #### Scenario: Model references a defined provider
 
@@ -443,6 +443,12 @@ sends it one. The resolved array is published on the model's available-model ent
 - **THEN** startup succeeds
 - **AND** the model's resolved `input` is `["text", "image"]`
 
+#### Scenario: PDF input is declared explicitly
+
+- **WHEN** a model entry sets `input` to `["text", "pdf"]`
+- **THEN** startup succeeds
+- **AND** the model's resolved `input` is `["text", "pdf"]`
+
 #### Scenario: Input without text fails startup
 
 - **WHEN** a model entry sets `input` to `["image"]` or to `[]`
@@ -458,6 +464,12 @@ sends it one. The resolved array is published on the model's available-model ent
 
 - **WHEN** a model entry sets `input` to `["text", "text"]` or `["text", "image", "image"]`
 - **THEN** startup fails naming the model id and the `input` field
+
+#### Scenario: Repeated PDF modality fails startup
+
+- **WHEN** a model entry sets `input` to `["text", "pdf", "pdf"]`
+- **THEN** startup fails naming the model id and the `input` field
+- **AND** no partial catalog is applied
 
 #### Scenario: Declared image input is not verified against the provider
 
@@ -841,7 +853,7 @@ The Knowledge configuration SHALL contain no owner identity, Knowledge Space ide
 
 ### Requirement: First-slice setting surface
 
-The schema SHALL cover the shape-stable operator settings and SHALL be extended by consumer changes, each adding its own keys (add-when-consumed). The settings include: `defaults.modelId`, `defaults.titleGenerationModelId` (instance-level model _pointers_ — not the catalog itself, which lives in the top-level `models` array), `runs.maxOutputTokens`, `runs.heartbeatSeconds`, `runs.timeoutSeconds` (default `null`, meaning no wall-clock budget; otherwise a positive integer of seconds below the Run execution ceiling defined by `durable-runs`), `http.trustProxy`, the `tools` namespace (`tools.allowed`, default empty = no tools, fail closed; `tools.permissions`, default explicit portable code-owned policy without affecting availability; `tools.maxStepsPerRun`, default `null` (no step cap), otherwise a positive integer; `tools.callTimeoutSeconds`, default 120; `tools.webAdapters`, absent SHALL mean `[]` (no adapter is enabled), and present SHALL be an explicit replacement containing only `github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, `substack`, `osv`, `wikipedia`, `telegram`, and `rewrite` entries), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical MCP ids, and the namespace wildcard form `mcp__<server>__*` for any grammar-valid MCP server id, whether or not a server with that id is currently configured. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
+The schema SHALL cover the shape-stable operator settings and SHALL be extended by consumer changes, each adding its own keys (add-when-consumed). The settings include: `defaults.modelId`, `defaults.titleGenerationModelId` (instance-level model _pointers_ — not the catalog itself, which lives in the top-level `models` array), `runs.maxOutputTokens`, `runs.heartbeatSeconds`, `runs.timeoutSeconds` (default `null`, meaning no wall-clock budget; otherwise a positive integer of seconds below the Run execution ceiling defined by `durable-runs`), `http.trustProxy`, the `tools` namespace (`tools.allowed`, default empty = no tools, fail closed; `tools.permissions`, default explicit portable code-owned policy without affecting availability; `tools.maxStepsPerRun`, default `null` (no step cap), otherwise a positive integer; `tools.callTimeoutSeconds`, default 120; `tools.webAdapters`, absent SHALL mean `[]` (no adapter is enabled), and present SHALL be an explicit replacement containing only `github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, `substack`, `osv`, `wikipedia`, `telegram`, `lobsters`, and `rewrite` entries), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical MCP ids, and the namespace wildcard form `mcp__<server>__*` for any grammar-valid MCP server id, whether or not a server with that id is currently configured. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
 
 #### Scenario: Migrated settings resolve from the file
 
@@ -1179,7 +1191,7 @@ A `providers[]` entry and a `models[]` entry MAY each declare an optional `billi
 The optional `tools.webAdapters` setting SHALL be an ordered array of unique
 entries. Each entry SHALL have the shape `{ id, use, ... }`, where `id` is a
 non-empty operator-chosen identifier and `use` is exactly `github`, `bluesky`,
-`npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, `substack`, `osv`, `wikipedia`, `telegram`, or `rewrite`. The array SHALL be an explicit replacement: absent SHALL mean
+`npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, `substack`, `osv`, `wikipedia`, `telegram`, `lobsters`, or `rewrite`. The array SHALL be an explicit replacement: absent SHALL mean
 `[]`, while present SHALL enable exactly the listed entries. A `github` entry
 SHALL have the shape `{ id, use: "github", token? }`; `token`, when present,
 SHALL be an `{env:...}` or `{path:...}` interpolation token. A `bluesky` entry
@@ -1191,8 +1203,9 @@ entry `{ id, use: "huggingface" }`, an `arxiv` entry
 `hackernews` entry `{ id, use: "hackernews" }`, a `doi` entry
 `{ id, use: "doi" }`, a `devto` entry `{ id, use: "devto" }`, a `substack`
 entry `{ id, use: "substack" }`, an `osv` entry `{ id, use: "osv" }`, a
-`wikipedia` entry `{ id, use: "wikipedia" }`, and a `telegram` entry
-`{ id, use: "telegram" }`; none accepts a credential. A `discourse` entry SHALL have
+`wikipedia` entry `{ id, use: "wikipedia" }`, a `telegram` entry
+`{ id, use: "telegram" }`, and a `lobsters` entry `{ id, use: "lobsters" }`;
+none accepts a credential. A `discourse` entry SHALL have
 the shape `{ id, use: "discourse", hosts }`, where `hosts` is a non-empty
 array of canonical lowercase hostnames without a port, validated like a
 rewrite entry's `hosts`; it accepts no credential. A

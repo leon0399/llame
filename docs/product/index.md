@@ -10,8 +10,9 @@ read_when:
 Two subtrees, split by who acts on them.
 
 - [Reference](reference/index.md): what the assistant's tools do, what each
-  locator scheme reaches, and how selectors shape a read. Owners and the
-  assistant rely on these pages.
+  locator scheme reaches, how selectors shape a read, and which documents are
+  imported into the model's context. Owners and the assistant rely on these
+  pages.
 - [Operator](operator/index.md): how an operator enables, restricts, deploys,
   and troubleshoots those capabilities in the instance configuration.
 

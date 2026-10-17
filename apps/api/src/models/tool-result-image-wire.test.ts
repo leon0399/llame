@@ -1,14 +1,22 @@
 /**
- * A `read` image result, stored or held by the attempt, on every wire
- * (vision-media D6): the real clients and provider adapters serialize the
- * request, and only the transport is stubbed, so each assertion reads the body
- * a provider would receive.
+ * A `read` image result, stored or held by the attempt, and an owner PDF
+ * attachment on every wire (vision-media D6, pdf-media D4): the real clients
+ * and provider adapters serialize the request, and only the transport is
+ * stubbed, so each assertion reads the body a provider would receive.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { ModelMessage } from 'ai';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 import { toolResultOutput } from '../media/epoch-admission';
-import { descriptor, fakeResolver } from '../media/media-fixtures';
+import type { RunMediaResolver } from '../media/media-descriptors';
+import {
+  descriptor,
+  fakeResolver,
+  pdfDescriptor,
+} from '../media/media-fixtures';
 import {
   ANTHROPIC_DEFAULT_BASE_URL,
   createAnthropicModelClient,
@@ -163,7 +171,12 @@ const unstoredMessages: Array<ModelMessage> = messages.map((message) =>
     : message,
 );
 
-type Scenario = { messages: Array<ModelMessage>; held: boolean };
+type Scenario = {
+  messages: Array<ModelMessage>;
+  held: boolean;
+  /** The owner's media; by default the stored images `ID` and `ID2`. */
+  media?: RunMediaResolver;
+};
 
 /**
  * Streams a scenario's messages (by default one stored read) with `input` and
@@ -184,8 +197,10 @@ async function sentBody(
   const previousFetch = globalThis.fetch;
   globalThis.fetch = fetchMock;
   try {
-    const { resolver } = fakeResolver([descriptor(ID), descriptor(ID2)]);
-    if (scenario.held) resolver.images.set('call-1', HELD_IMAGE);
+    const resolver =
+      scenario.media ??
+      fakeResolver([descriptor(ID), descriptor(ID2)]).resolver;
+    if (scenario.held) resolver.heldMedia.set('call-1', HELD_IMAGE);
     await expect(
       build(input).streamText({
         chat: CHAT,
@@ -316,7 +331,7 @@ describe('a replayed read image on each wire', () => {
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             { type: 'text', text: `Image from read "media://${ID}":` },
             {
               type: 'image_url',
@@ -345,7 +360,7 @@ describe('a replayed read image on each wire', () => {
       const serialized = JSON.stringify(body);
       for (const absent of [
         'Image from',
-        'Images from tool results:',
+        'Files from tool results:',
         'image_url',
       ]) {
         expect(serialized).not.toContain(absent);
@@ -403,7 +418,7 @@ describe('an unstored read image on each wire', () => {
           ],
         }),
       );
-      expect(JSON.stringify(body)).not.toContain('llameUnstoredImage');
+      expect(JSON.stringify(body)).not.toContain('llameUnstoredMedia');
     },
   );
 
@@ -488,7 +503,7 @@ describe('an unstored read image on each wire', () => {
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             { type: 'text', text: 'Image from read "/work/shot.png":' },
             {
               type: 'image_url',
@@ -497,7 +512,7 @@ describe('an unstored read image on each wire', () => {
           ],
         },
       ]);
-      expect(JSON.stringify(body)).not.toContain('llameUnstoredImage');
+      expect(JSON.stringify(body)).not.toContain('llameUnstoredMedia');
     });
 
     it('keeps the not-retained placeholder in the tool message and adds no image message', async () => {
@@ -513,11 +528,307 @@ describe('an unstored read image on each wire', () => {
       const serialized = JSON.stringify(body);
       for (const absent of [
         'Image from',
-        'Images from tool results:',
+        'Files from tool results:',
         'image_url',
       ]) {
         expect(serialized).not.toContain(absent);
       }
     });
   });
+});
+
+describe('an owner PDF attachment on each wire', () => {
+  const PDF_BYTES = readFileSync(
+    join(__dirname, '../media/testing/pdf/one-page.pdf'),
+  );
+  const PDF_DATA_URL = `data:application/pdf;base64,${PDF_BYTES.toString('base64')}`;
+  const LABEL = { type: 'text', text: `PDF 1 (media://${ID}):` };
+  const PROMPT = 'Summarize the paper.';
+  const READS_PDF: ReadonlyArray<ModelInput> = ['text', 'pdf'];
+
+  /** The owner's one stored 1-page `paper.pdf`, whose original is served. */
+  const paperResolver = (): RunMediaResolver => {
+    const { resolver } = fakeResolver([
+      pdfDescriptor(ID, {
+        name: 'paper.pdf',
+        pages: 1,
+        byteSize: PDF_BYTES.length,
+      }),
+    ]);
+    return {
+      ...resolver,
+      loadModelBytes: (ids) =>
+        Promise.resolve(
+          new Map(ids.filter((id) => id === ID).map((id) => [id, PDF_BYTES])),
+        ),
+    };
+  };
+  const attached = (): Scenario => ({
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            data: `media://${ID}`,
+            mediaType: 'application/pdf',
+            filename: 'paper.pdf',
+          },
+          { type: 'text', text: PROMPT },
+        ],
+      },
+    ],
+    held: false,
+    media: paperResolver(),
+  });
+
+  const responses = (input: ReadonlyArray<ModelInput>) =>
+    createOpenAIModelClient({ ...base, input });
+  const codex = (input: ReadonlyArray<ModelInput>) =>
+    createOpenAICodexModelClient({ ...base, accountId: 'acct', input });
+  const completions = (input: ReadonlyArray<ModelInput>) =>
+    createOpenAICompletionsModelClient({
+      ...base,
+      baseUrl: 'https://api.example.test/v1',
+      input,
+    });
+  const openCodeGo = (input: ReadonlyArray<ModelInput>) =>
+    createOpenCodeGoModelClient({ ...base, input });
+  const anthropic = (input: ReadonlyArray<ModelInput>) =>
+    createAnthropicModelClient({
+      ...base,
+      baseUrl: ANTHROPIC_DEFAULT_BASE_URL,
+      reasoningDeclared: false,
+      input,
+    });
+
+  it.each([
+    ['Responses', responses],
+    ['Codex', codex],
+  ])(
+    'sends the label and an input_file after it on the %s wire',
+    async (_, build) => {
+      const body = await sentBody(
+        build,
+        RESPONSES_STREAM,
+        READS_PDF,
+        attached(),
+      );
+
+      expect(body.input).toContainEqual({
+        role: 'user',
+        content: [
+          { type: 'input_text', text: LABEL.text },
+          {
+            type: 'input_file',
+            filename: 'paper.pdf',
+            file_data: PDF_DATA_URL,
+          },
+          { type: 'input_text', text: PROMPT },
+        ],
+      });
+    },
+  );
+
+  it.each([
+    ['openai-completions', completions],
+    ['opencode-go', openCodeGo],
+  ])(
+    'sends the label and a file part after it on the %s wire',
+    async (_, build) => {
+      const body = await sentBody(
+        build,
+        COMPLETIONS_STREAM,
+        READS_PDF,
+        attached(),
+      );
+
+      expect(body.messages).toContainEqual({
+        role: 'user',
+        content: [
+          LABEL,
+          {
+            type: 'file',
+            file: { filename: 'paper.pdf', file_data: PDF_DATA_URL },
+          },
+          { type: 'text', text: PROMPT },
+        ],
+      });
+    },
+  );
+
+  it('sends the label and a base64 document block after it on the Messages wire', async () => {
+    const body = await sentBody(
+      anthropic,
+      MESSAGES_STREAM,
+      READS_PDF,
+      attached(),
+    );
+
+    expect(body.messages).toContainEqual({
+      role: 'user',
+      content: [
+        LABEL,
+        expect.objectContaining({
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: 'application/pdf',
+            data: PDF_BYTES.toString('base64'),
+          },
+        }),
+        { type: 'text', text: PROMPT },
+      ],
+    });
+  });
+
+  describe('a read PDF', () => {
+    const locator = '/work/paper.pdf';
+    const envelope = JSON.stringify({
+      status: 'success',
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 1,
+      byteSize: PDF_BYTES.length,
+      path: locator,
+    });
+    const read = (): Scenario => {
+      const media = paperResolver();
+      media.heldMedia.set('call-1', {
+        locator,
+        pages: 1,
+        bytes: PDF_BYTES,
+        byteSize: PDF_BYTES.length,
+      });
+      return {
+        media,
+        held: false,
+        messages: [
+          ...messages.slice(0, 2),
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'call-1',
+                toolName: 'read',
+                output: toolResultOutput(envelope, { locator, pages: 1 }),
+              },
+            ],
+          },
+        ],
+      };
+    };
+
+    it.each([
+      ['Responses', responses],
+      ['Codex', codex],
+    ])(
+      'sends the native text envelope and named input_file on %s',
+      async (_, build) => {
+        const body = await sentBody(build, RESPONSES_STREAM, READS_PDF, read());
+        expect(body.input).toContainEqual(
+          expect.objectContaining({
+            type: 'function_call_output',
+            call_id: 'call-1',
+            output: [
+              { type: 'input_text', text: envelope },
+              {
+                type: 'input_file',
+                filename: 'paper.pdf',
+                file_data: PDF_DATA_URL,
+              },
+            ],
+          }),
+        );
+      },
+    );
+
+    it.each([
+      ['openai-completions', completions],
+      ['opencode-go', openCodeGo],
+    ])(
+      'moves the PDF behind the text-only tool output on %s',
+      async (_, build) => {
+        const body = await sentBody(
+          build,
+          COMPLETIONS_STREAM,
+          READS_PDF,
+          read(),
+        );
+        expect(Array.isArray(body.messages) && body.messages.slice(2)).toEqual([
+          { role: 'tool', tool_call_id: 'call-1', content: envelope },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Files from tool results:' },
+              { type: 'text', text: 'PDF from read "/work/paper.pdf":' },
+              {
+                type: 'file',
+                file: { filename: 'paper.pdf', file_data: PDF_DATA_URL },
+              },
+            ],
+          },
+        ]);
+      },
+    );
+
+    it('sends a native document beside the text envelope on Messages', async () => {
+      const body = await sentBody(
+        anthropic,
+        MESSAGES_STREAM,
+        READS_PDF,
+        read(),
+      );
+      expect(body.messages).toContainEqual({
+        role: 'user',
+        content: [
+          expect.objectContaining({
+            type: 'tool_result',
+            tool_use_id: 'call-1',
+            content: [
+              { type: 'text', text: envelope },
+              expect.objectContaining({
+                type: 'document',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: PDF_BYTES.toString('base64'),
+                },
+              }),
+            ],
+          }),
+        ],
+      });
+    });
+  });
+
+  it.each([
+    ['Responses', responses, RESPONSES_STREAM],
+    ['Codex', codex, RESPONSES_STREAM],
+    ['openai-completions', completions, COMPLETIONS_STREAM],
+    ['opencode-go', openCodeGo, COMPLETIONS_STREAM],
+    ['Messages', anthropic, MESSAGES_STREAM],
+  ])(
+    'gives a model without PDF input the omitted placeholder and no document on the %s wire',
+    async (_, build, stream) => {
+      const body = await sentBody(build, stream, ['text'], attached());
+
+      const serialized = JSON.stringify(body);
+      expect(serialized).toContain(
+        JSON.stringify(
+          `[pdf media://${ID} paper.pdf 1 pages, omitted: this model has no PDF input]`,
+        ),
+      );
+      expect(serialized).toContain(JSON.stringify(LABEL.text));
+      for (const absent of [
+        'application/pdf',
+        'file_data',
+        'input_file',
+        '"document"',
+      ]) {
+        expect(serialized).not.toContain(absent);
+      }
+    },
+  );
 });

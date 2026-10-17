@@ -93,6 +93,7 @@
     "anti-slop/no-reflect-get": "error",
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-stacked-jsdoc": "error",
     "anti-slop/no-unknown-parameters": [
       "error",
       { "allowWhenImmediatelyValidated": true, "allowErrorFamilyNames": true }
@@ -285,6 +286,7 @@
       "files": [
         "**/db/migrate.ts",
         "**/generate-openapi.ts",
+        "**/media/pdf-parse-entry.ts",
         "**/operations/cli.ts",
         "**/src/main.ts",
         "**/src/worker.ts"

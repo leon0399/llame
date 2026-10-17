@@ -10,6 +10,12 @@ function applyAutoResize(
   minHeight: number | undefined,
   maxHeight: number | undefined,
 ): void {
+  // `Textarea` carries `field-sizing: content`, so the `auto` collapse below
+  // sizes the box to the WHOLE value: for the length of one layout the box
+  // has no overflow at all, and the browser clamps `scrollTop` to 0. Without
+  // restoring the offset, every keystroke past `maxHeight` jumps to the top.
+  const scrollTop = textarea.scrollTop;
+
   textarea.style.height = "auto";
 
   let scrollHeight = textarea.scrollHeight;
@@ -23,6 +29,7 @@ function applyAutoResize(
   }
 
   textarea.style.height = `${scrollHeight}px`;
+  textarea.scrollTop = scrollTop;
 }
 
 export function useAutoResizeTextarea({

@@ -37,8 +37,12 @@ export type {
 } from "./read";
 export type { DirectoryListingEntry } from "./collected-directory";
 export { selectMultiRangeLines } from "./stream-read";
-export { IMAGE_SELECTOR_MESSAGE } from "./image";
-export type { ImageDecodeSuccess, ImageReadHook } from "./image";
+export { MEDIA_SELECTOR_MESSAGE } from "./media";
+export type {
+  MediaDecodeSuccess,
+  MediaReadHook,
+  MediaReadSuccess,
+} from "./media";
 export {
   editFile,
   createFile,

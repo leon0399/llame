@@ -9,7 +9,7 @@ import {
   selectSourceLines,
   splitSourceLines,
   type DirectorySuccess,
-  type ImageDecodeSuccess,
+  type MediaDecodeSuccess,
   type ReadSuccess,
   type ReadTarget,
 } from '@workspace/native-file-tools';
@@ -102,24 +102,18 @@ export async function buildWebReadResult(
   }
 }
 
-/**
- * The image result of a page whose body was an image (vision-media D7): the
- * decoded image and its display-only thumbnail with the web envelope, no
- * `media` field, and no content or range fields, since the image reaches the
- * model as an image rather than as text.
- */
-export function buildWebImageResult(
+/** Unstored page media with its source attribution and no text/range fields. */
+export function buildWebMediaResult(
   locator: WebLocator,
   finalUrl: string,
-  image: ImageDecodeSuccess,
+  media: MediaDecodeSuccess,
   notes: ReadonlyArray<string>,
-): ImageDecodeSuccess & WebResultEnvelope & UnknownRecord {
+): MediaDecodeSuccess & WebResultEnvelope & UnknownRecord {
   return {
-    ...image,
-    kind: 'image',
+    ...media,
     path: locator.url,
     finalUrl,
-    method: 'image',
+    method: media.kind,
     ...(notes.length > 0 && { notes }),
   };
 }

@@ -183,18 +183,28 @@ export interface ModelStreamInput {
   ) => void;
   /**
    * Called once for each provider model request when its `finish` part arrives,
-   * before any tool calls from that request execute.
+   * before any tool calls from that request execute. `generationMs` is that
+   * request's own generation window, measured between the two provider-side
+   * boundaries the turn's throughput divides by: from its first streamed output
+   * delta, or from the request itself when it streamed none, to that `finish`.
+   * A request that never finished reports no usage and therefore no window.
    */
-  onRequestUsage?: (usage: LanguageModelUsage) => void;
+  onRequestUsage?: (usage: LanguageModelUsage, generationMs: number) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: ModelStreamFinishEvent) => void | Promise<void>;
   /**
    * The Run owner's media, which the step composer (`installStepPreparation`)
-   * uses to turn every `media://` reference in the request into an image part
-   * or a placeholder on each step. Absent leaves messages as they are: only
-   * requests without media references (titles, search) omit it.
+   * uses to turn every `media://` reference in the request into an image,
+   * PDF, or placeholder on each step. Absent leaves messages as they are:
+   * only requests without media references (titles, search) omit it.
    */
   media?: RunMediaResolver;
+  /**
+   * The output reserve the request's fit check subtracts
+   * (`runs.maxOutputTokens`), which the epoch media window's PDF page bound
+   * also subtracts (pdf-media D5). Absent or null means none is configured.
+   */
+  reservedOutputTokens?: number | null;
 }
 
 export type ModelStreamFinishEvent = {

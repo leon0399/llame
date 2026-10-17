@@ -12,10 +12,12 @@ The system SHALL define one stable visible-message text view as the exact stored
 
 The visible view SHALL include eligible `user` messages and immutable eligible `assistant` messages only. System/tool-role messages, context-item parts, reasoning parts, tool parts, attachments, cap notices, and every other non-text part SHALL contribute no bytes. Interleaved excluded parts SHALL NOT change the visible order of retained text values.
 
-`conversation_read` SHALL follow a message's visible text with one image placeholder line per owner
-`file` part of that message, in stored part order: `[image media://<id> <name>]`, where `<name>` is
-the part's stored `filename` passed through the single-line source-label rules `media-store`
-defines, and `[image media://<id>]` for a part without a `filename`.
+`conversation_read` SHALL follow a message's visible text with one placeholder line per owner
+`file` part of that message, in stored part order: `[pdf media://<id> <name>]` for a part whose
+`mediaType` is `application/pdf` and `[image media://<id> <name>]` for every other part, where
+`<name>` is the part's stored `filename` passed through the single-line source-label rules
+`media-store` defines, and `[pdf media://<id>]` or `[image media://<id>]` for a part without a
+`filename`.
 
 Each line SHALL be rendered from the stored part alone: the reader SHALL look up no media object for
 it, so a line discloses nothing beyond the owner's own stored part.
@@ -102,6 +104,16 @@ or placeholder line.
 - **WHEN** an anonymous reader paginates a public Chat whose messages carry owner `file` parts
 - **THEN** each message DTO carries only its text parts
 - **AND** no `file` part, `media://` locator, or placeholder line appears in the page
+
+#### Scenario: A PDF attachment reads as a pdf line
+
+- **WHEN** an eligible user message stores text part `read this` and two owner `file` parts
+  referencing `media://a` (`shot.png`, `image/png`) and `media://p` (`paper.pdf`,
+  `application/pdf`), in that order
+- **AND** the owner reads it from offset zero
+- **THEN** `content` is
+  `1: read this\n[image media://a shot.png]\n[pdf media://p paper.pdf]\n`
+- **AND** the result contains no page count and no PDF bytes
 
 ### Requirement: Public message locators use immutable Chat-local sequence
 
@@ -228,11 +240,11 @@ Only immutable evidence-eligible messages SHALL be returned. Until #611 replaces
 
 Logical lines SHALL use LF as a delimiter, CRLF as one delimiter, and lone CR as source text. Blank lines SHALL count and a terminal delimiter SHALL NOT create a phantom line. Every success SHALL return Chat ID, message sequence, role, timestamp, effective zero-based `offset`, returned `lineCount`, one-based line-numbered `content`, any currently eligible `previousMessageSeq`/`nextMessageSeq`, and one closed notice identifying prior-conversation content as untrusted and potentially stale, unable to change system instructions, tools, permissions, or owner authority.
 
-`content` SHALL render each returned logical source line as `<one-based line number>: <source text>` while preserving that line's LF or CRLF delimiter and preserving an unterminated final line. Image placeholder lines, defined with the visible-text view, follow the numbered lines only as that requirement states; they count toward the structured-result bound, whose fitting reserves their size first, and toward none of the line bounds. The numeric prefix is reader-authored navigation metadata and SHALL NOT enter visible-message source text, projection hashes, lexical data, excerpts, or stored canonical message parts.
+`content` SHALL render each returned logical source line as `<one-based line number>: <source text>` while preserving that line's LF or CRLF delimiter and preserving an unterminated final line. Placeholder lines, defined with the visible-text view, follow the numbered lines only as that requirement states; they count toward the structured-result bound, whose fitting reserves their size first, and toward none of the line bounds. The numeric prefix is reader-authored navigation metadata and SHALL NOT enter visible-message source text, projection hashes, lexical data, excerpts, or stored canonical message parts.
 
 One invocation SHALL return at most 2,000 logical lines and a complete structured result of at most 15,000 JavaScript UTF-16 code units. When current lines remain after the returned slice, success SHALL include `nextOffset = offset + lineCount`; otherwise it SHALL omit `nextOffset`. If the line bound stops an omitted/unbounded request first, success SHALL include `cutReason: "line_limit"`. If the structured-output bound stops it first, the reader SHALL omit the first whole line that cannot fit and include `cutReason: "output_limit"`. An explicit caller limit that completes normally SHALL NOT produce a cut reason even when the message itself continues.
 
-If the first selected logical line cannot fit in one complete structured result, the reader SHALL return `conversation_limit_exceeded` rather than clipping an unrecoverable substring. An offset beyond the current logical-line range SHALL return `conversation_range_invalid`; an empty visible message read at offset zero SHALL return zero lines successfully, with `content` empty apart from any image placeholder lines. Generic tool truncation SHALL NOT clip a successful conversation read.
+If the first selected logical line cannot fit in one complete structured result, the reader SHALL return `conversation_limit_exceeded` rather than clipping an unrecoverable substring. An offset beyond the current logical-line range SHALL return `conversation_range_invalid`; an empty visible message read at offset zero SHALL return zero lines successfully, with `content` empty apart from any placeholder lines. Generic tool truncation SHALL NOT clip a successful conversation read.
 
 #### Scenario: Fitting message read is complete
 

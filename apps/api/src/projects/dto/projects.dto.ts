@@ -10,6 +10,11 @@ import {
 } from 'class-validator';
 import type { Project } from '../../db/schema';
 
+// Cap on an owner-authored project description. Enforced at the DTO rather
+// than the column, so raising it is not a migration — same
+// treatment as the 200-character name bound below and PERSONALIZATION_CAPS.
+const DESCRIPTION_MAX = 1000;
+
 // POST /api/v1/projects — a project starts with just a name (folders-only,
 // no membership/sharing fields yet). Matches(/\S/) — not IsNotEmpty, which
 // waves whitespace-only strings through to a DB write (same guard as
@@ -22,12 +27,12 @@ export class CreateProjectDto {
   name!: string;
 }
 
-// PATCH /api/v1/projects/:id — partial update. `name` is the only mutable
-// field today. ValidateIf (not IsOptional): IsOptional also waves an explicit
-// `null` through, and `name` is a NOT NULL column — an explicit null would
-// otherwise reach the repository and fail as a DB constraint violation (500)
-// instead of a clean 400. Only absence skips validation, mirroring
-// UpdateChatDto.title.
+// PATCH /api/v1/projects/:id — partial update. `name`, `description`, and
+// `archived` are the mutable fields. ValidateIf (not IsOptional) — here and on
+// `name`, unlike `description` below: IsOptional also waves an explicit `null`
+// through, and `name` is a NOT NULL column, so an explicit null would otherwise
+// reach the repository and fail as a DB constraint violation (500) instead of a
+// clean 400. Only absence skips validation, mirroring UpdateChatDto.title.
 export class UpdateProjectDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
   @ValidateIf((o: UpdateProjectDto) => o.name !== undefined)
@@ -35,6 +40,23 @@ export class UpdateProjectDto {
   @Matches(/\S/, { message: 'name must not be blank' })
   @MaxLength(200)
   name?: string;
+
+  // Description — the owner's own prose about what the project is for. IsOptional (not ValidateIf, unlike `name` above): the
+  // column is nullable, so an explicit `null` IS a legitimate value (clear it),
+  // and IsOptional skips further validation for undefined AND null while
+  // IsString/MaxLength still run for any other supplied value — the same
+  // distinction as UpdateChatDto.projectId.
+  @ApiPropertyOptional({
+    type: String,
+    maxLength: DESCRIPTION_MAX,
+    nullable: true,
+    description:
+      'What this project is for. Pass null to clear it; omit to leave unchanged.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(DESCRIPTION_MAX)
+  description?: string | null;
 
   // Archive (true) or unarchive (false) the project. Omit to leave unchanged.
   @ApiPropertyOptional({
@@ -56,6 +78,10 @@ export class ProjectResponse {
   @ApiProperty()
   name!: string;
 
+  // Owner-authored description; null = none.
+  @ApiProperty({ type: String, nullable: true })
+  description!: string | null;
+
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
 
@@ -73,6 +99,7 @@ export function toProjectResponse(project: Project): ProjectResponse {
     id: project.id,
     ownerUserId: project.ownerUserId,
     name: project.name,
+    description: project.description,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     archivedAt: project.archivedAt,

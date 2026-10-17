@@ -13,24 +13,30 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import type { HeldImage, RetainedVariant } from '../media/attempt-images';
+import type { HeldMedia, RetainedVariant } from '../media/attempt-media';
 import {
   EPOCH_MAX_BASE64_BYTES,
   loadMediaSizing,
   toolResultOutput,
+  type MediaAdmissionContext,
 } from '../media/epoch-admission';
 import type { RunMediaResolver } from '../media/media-descriptors';
-import { descriptor, fakeResolver } from '../media/media-fixtures';
+import {
+  descriptor,
+  fakeResolver,
+  pdfDescriptor,
+} from '../media/media-fixtures';
 import { buildContext, type StoredMessage } from '../chats/context-builder';
 import {
   createPromptImportsItem,
-  promptImportImageKey,
+  promptImportMediaKey,
 } from '../chats/prompt-imports-item';
 import type { ModelStreamInput } from './model-client';
 import { composeStepMessages, installStepPreparation } from './step-composer';
 
 const A = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
 const B = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
+const C = '0192f3a4-5b6c-7d8e-9f01-00000000000c';
 const MISSING = '0192f3a4-5b6c-7d8e-9f01-0000000000ff';
 
 const CHAT = {
@@ -38,8 +44,35 @@ const CHAT = {
   lane: 'main',
 } as const;
 
+/** A 128,000-token vision model without an output reserve. */
+const VISION: MediaAdmissionContext = {
+  input: ['text', 'image'],
+  contextWindowTokens: 128_000,
+  reservedOutputTokens: null,
+};
+const TEXT_ONLY: MediaAdmissionContext = { ...VISION, input: ['text'] };
+/** A 200,000-token model declaring `image` and `pdf`: a 53-page PDF bound. */
+const VISION_PDF: MediaAdmissionContext = {
+  input: ['text', 'image', 'pdf'],
+  contextWindowTokens: 200_000,
+  reservedOutputTokens: null,
+};
+const WINDOW = { contextWindowTokens: 128_000 };
+
 const fileRef = (id: string) =>
   ({ type: 'file', data: `media://${id}`, mediaType: 'image/png' }) as const;
+const pdfRef = (id: string) =>
+  ({
+    type: 'file',
+    data: `media://${id}`,
+    mediaType: 'application/pdf',
+    filename: 'paper.pdf',
+  }) as const;
+
+function heldImageModel(resolver: RunMediaResolver, key: string) {
+  const entry = resolver.heldMedia.get(key);
+  return entry !== undefined && !('pages' in entry) ? entry.model : undefined;
+}
 
 describe('composeStepMessages', () => {
   it('labels each attachment and sends the model variant after the rail items, before the text', async () => {
@@ -58,7 +91,7 @@ describe('composeStepMessages', () => {
     ];
 
     expect(
-      await composeStepMessages(messages, { resolver, imageInput: true }),
+      await composeStepMessages(messages, { resolver, context: VISION }),
     ).toEqual([
       {
         role: 'user',
@@ -91,7 +124,7 @@ describe('composeStepMessages', () => {
         { role: 'assistant', content: [{ type: 'text', text: 'seen' }] },
         { role: 'user', content: [fileRef(B)] },
       ],
-      { resolver, imageInput: true },
+      { resolver, context: VISION },
     );
 
     expect(composed[0]?.content).toContainEqual({
@@ -114,7 +147,7 @@ describe('composeStepMessages', () => {
           content: [fileRef(A), { type: 'text', text: 'what?' }],
         },
       ],
-      { resolver, imageInput: false },
+      { resolver, context: TEXT_ONLY },
     );
 
     expect(composed).toEqual([
@@ -137,7 +170,7 @@ describe('composeStepMessages', () => {
     const { resolver, loads } = fakeResolver([]);
     const composed = await composeStepMessages(
       [{ role: 'user', content: [fileRef(MISSING)] }],
-      { resolver, imageInput: true },
+      { resolver, context: VISION },
     );
 
     expect(composed).toEqual([
@@ -161,7 +194,7 @@ describe('composeStepMessages', () => {
           ...resolver,
           loadModelBytes: () => Promise.resolve(new Map()),
         },
-        imageInput: true,
+        context: VISION,
       },
     );
 
@@ -187,7 +220,7 @@ describe('composeStepMessages', () => {
       [A, B].map(
         (id): ModelMessage => ({ role: 'user', content: [fileRef(id)] }),
       ),
-      { resolver, imageInput: true },
+      { resolver, context: VISION },
     );
 
     expect(loads).toEqual([A]);
@@ -209,7 +242,7 @@ describe('composeStepMessages', () => {
     const { resolver } = fakeResolver([descriptor(A)]);
     const plain: Array<ModelMessage> = [{ role: 'user', content: 'hello' }];
     expect(
-      await composeStepMessages(plain, { resolver, imageInput: true }),
+      await composeStepMessages(plain, { resolver, context: VISION }),
     ).toBe(plain);
 
     // A message without a reference keeps its identity beside one that has.
@@ -219,22 +252,306 @@ describe('composeStepMessages', () => {
     };
     const mixed = await composeStepMessages(
       [{ role: 'user', content: [fileRef(A)] }, unreferenced],
-      { resolver, imageInput: true },
+      { resolver, context: VISION },
     );
     expect(mixed[1]).toBe(unreferenced);
 
     const once = await composeStepMessages(
       [{ role: 'user', content: [fileRef(A)] }],
-      { resolver, imageInput: true },
+      { resolver, context: VISION },
     );
-    expect(
-      await composeStepMessages(once, { resolver, imageInput: true }),
-    ).toBe(once);
+    expect(await composeStepMessages(once, { resolver, context: VISION })).toBe(
+      once,
+    );
+  });
+
+  describe('owner PDF attachments', () => {
+    const paper = (pages = 15) =>
+      pdfDescriptor(A, { name: 'paper.pdf', pages, byteSize: 2_215_244 });
+    const paperMessage: ModelMessage = {
+      role: 'user',
+      content: [pdfRef(A), { type: 'text', text: 'summarize' }],
+    };
+
+    it('labels an attached PDF and sends its original as a named PDF file part', async () => {
+      const { resolver, loads } = fakeResolver([paper()]);
+
+      const composed = await composeStepMessages([paperMessage], {
+        resolver,
+        context: VISION_PDF,
+      });
+
+      expect(loads).toEqual([A]);
+      expect(composed[0]?.content).toEqual([
+        { type: 'text', text: `PDF 1 (media://${A}):` },
+        {
+          type: 'file',
+          data: new Uint8Array([0x61]),
+          mediaType: 'application/pdf',
+          filename: 'paper.pdf',
+        },
+        { type: 'text', text: 'summarize' },
+      ]);
+    });
+
+    it('counts images and PDFs separately within one message', async () => {
+      const { resolver } = fakeResolver([
+        descriptor(A),
+        pdfDescriptor(B, { name: 'paper.pdf' }),
+        descriptor(C),
+      ]);
+
+      const composed = await composeStepMessages(
+        [
+          {
+            role: 'user',
+            content: [
+              fileRef(A),
+              pdfRef(B),
+              fileRef(C),
+              { type: 'text', text: 'summarize' },
+            ],
+          },
+        ],
+        { resolver, context: VISION_PDF },
+      );
+
+      expect(composed[0]?.content).toEqual([
+        { type: 'text', text: `Image 1 (media://${A}):` },
+        {
+          type: 'image',
+          image: new Uint8Array([0x61]),
+          mediaType: 'image/png',
+        },
+        { type: 'text', text: `PDF 1 (media://${B}):` },
+        {
+          type: 'file',
+          data: new Uint8Array([0x62]),
+          mediaType: 'application/pdf',
+          filename: 'paper.pdf',
+        },
+        { type: 'text', text: `Image 2 (media://${C}):` },
+        {
+          type: 'image',
+          image: new Uint8Array([0x63]),
+          mediaType: 'image/png',
+        },
+        { type: 'text', text: 'summarize' },
+      ]);
+    });
+
+    it.each([
+      [
+        'a model without PDF input the omitted placeholder',
+        VISION,
+        [paper()],
+        `[pdf media://${A} paper.pdf 15 pages, omitted: this model has no PDF input]`,
+      ],
+      [
+        'an unresolvable PDF reference the PDF unavailable placeholder',
+        VISION_PDF,
+        [],
+        `[pdf media://${A} unavailable]`,
+      ],
+      [
+        'a 64-page PDF over the 53-page bound the limit placeholder',
+        VISION_PDF,
+        [paper(64)],
+        `[pdf media://${A} paper.pdf 64 pages, not attached: this context's PDF limit is reached]`,
+      ],
+    ])(
+      'gives %s after its label and loads no bytes',
+      async (_, context, descriptors, placeholder) => {
+        const { resolver, loads } = fakeResolver(descriptors);
+
+        const composed = await composeStepMessages([paperMessage], {
+          resolver,
+          context,
+        });
+
+        expect(composed[0]?.content).toEqual([
+          { type: 'text', text: `PDF 1 (media://${A}):` },
+          { type: 'text', text: placeholder },
+          { type: 'text', text: 'summarize' },
+        ]);
+        expect(loads).toEqual([]);
+      },
+    );
+
+    it('gives an attached PDF whose original cannot be read the PDF unavailable placeholder', async () => {
+      const { resolver } = fakeResolver([paper()]);
+
+      const composed = await composeStepMessages([paperMessage], {
+        resolver: {
+          ...resolver,
+          loadModelBytes: () => Promise.resolve(new Map()),
+        },
+        context: VISION_PDF,
+      });
+
+      expect(composed[0]?.content).toContainEqual({
+        type: 'text',
+        text: `[pdf media://${A} unavailable]`,
+      });
+    });
+  });
+
+  describe('prompt-import PDFs', () => {
+    const runId = '11111111-2222-4333-8444-555555555555';
+    const locator = 'paper.pdf';
+    const bytes = Buffer.from('%PDF-original');
+    const metadata = {
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 15,
+      byteSize: bytes.byteLength,
+    } as const;
+    const item = createPromptImportsItem({
+      runId,
+      outcomes: [
+        {
+          locator,
+          resolved: '/repo/paper.pdf',
+          outcome: 'imported',
+          body: JSON.stringify({
+            status: 'success',
+            ...metadata,
+            path: '/repo/paper.pdf',
+          }),
+          attachment: metadata,
+        },
+        {
+          locator: `media://${A}`,
+          outcome: 'imported',
+          body: JSON.stringify({
+            status: 'success',
+            ...metadata,
+            media: `media://${A}`,
+          }),
+          attachment: { ...metadata, media: `media://${A}` },
+        },
+      ],
+      omitted: [],
+    });
+    const stored: StoredMessage = {
+      id: 'pdf-import-message',
+      chatId: 'chat-1',
+      seq: 1,
+      role: 'user',
+      senderUserId: 'user-1',
+      attachments: [],
+      createdAt: new Date(0),
+      parts: [item, { type: 'text', text: 'summarize' }],
+    };
+    const messages = () =>
+      buildContext([stored], {
+        systemPrompt: 'system',
+        requestKind: 'continuation',
+      }).messages;
+    const itemText = { type: 'text', text: item.data.text };
+    const paper = () => pdfDescriptor(A, { name: 'archive.pdf', pages: 15 });
+
+    it('places unstored and stored native PDFs immediately after their item text', async () => {
+      const { resolver } = fakeResolver([paper()]);
+      resolver.heldMedia.set(promptImportMediaKey(runId, locator), {
+        locator: '/repo/paper.pdf',
+        pages: 15,
+        bytes,
+        byteSize: bytes.byteLength,
+      });
+
+      const composed = await composeStepMessages(messages(), {
+        resolver,
+        context: VISION_PDF,
+      });
+
+      expect(composed[0]?.content).toEqual([
+        itemText,
+        {
+          type: 'file',
+          mediaType: 'application/pdf',
+          data: bytes,
+          filename: 'paper.pdf',
+        },
+        {
+          type: 'file',
+          mediaType: 'application/pdf',
+          data: new Uint8Array([0x61]),
+          filename: 'archive.pdf',
+        },
+        { type: 'text', text: 'summarize' },
+      ]);
+    });
+
+    it('keeps the PDF kind when a stored import has no descriptor', async () => {
+      const { resolver } = fakeResolver([]);
+      const composed = await composeStepMessages(messages(), {
+        resolver,
+        context: VISION_PDF,
+      });
+      expect(composed[0]?.content).toContainEqual({
+        type: 'text',
+        text: `[pdf media://${A} unavailable]`,
+      });
+    });
+
+    it.each([
+      {
+        name: 'a new attempt',
+        context: VISION_PDF,
+        retain: false,
+        placeholder: '[pdf "paper.pdf" 15 pages, not retained]',
+        storedAttached: true,
+      },
+      {
+        name: 'a model without PDF input',
+        context: TEXT_ONLY,
+        retain: false,
+        placeholder:
+          '[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]',
+        storedAttached: false,
+      },
+      {
+        name: 'a PDF beyond the page window',
+        context: { ...VISION_PDF, contextWindowTokens: 50_000 },
+        retain: true,
+        placeholder: `[pdf "paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`,
+        storedAttached: false,
+      },
+    ] as const)(
+      'uses the correct placeholder for $name while replaying stored media independently',
+      async ({ context, retain, placeholder, storedAttached }) => {
+        const { resolver, loads } = fakeResolver([paper()]);
+        if (retain) {
+          resolver.heldMedia.set(promptImportMediaKey(runId, locator), {
+            locator: '/repo/paper.pdf',
+            pages: 15,
+            bytes,
+            byteSize: bytes.byteLength,
+          });
+        }
+
+        const composed = await composeStepMessages(messages(), {
+          resolver,
+          context,
+        });
+        expect(composed[0]?.content.slice(0, 2)).toEqual([
+          itemText,
+          { type: 'text', text: placeholder },
+        ]);
+        expect(loads).toEqual(storedAttached ? [A] : []);
+        if (!storedAttached) {
+          expect(composed[0]?.content).not.toContainEqual(
+            expect.objectContaining({ type: 'file' }),
+          );
+        }
+      },
+    );
   });
 
   describe('prompt-import images', () => {
     const RUN = '11111111-2222-4333-8444-555555555555';
-    const KEY = promptImportImageKey(RUN, 'shot.png');
+    const KEY = promptImportMediaKey(RUN, 'shot.png');
     const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
     const item = createPromptImportsItem({
       runId: RUN,
@@ -244,7 +561,7 @@ describe('composeStepMessages', () => {
           resolved: '/repo/shot.png',
           outcome: 'imported',
           body: '{"status":"success","kind":"image","path":"/repo/shot.png"}',
-          image: {
+          attachment: {
             thumbnail: THUMBNAIL,
             width: 1600,
             height: 900,
@@ -256,7 +573,7 @@ describe('composeStepMessages', () => {
           resolved: `media://${A}`,
           outcome: 'imported',
           body: '{"status":"success","kind":"image"}',
-          image: { media: `media://${A}` },
+          attachment: { media: `media://${A}` },
         },
       ],
       omitted: [],
@@ -289,7 +606,7 @@ describe('composeStepMessages', () => {
       ({ type: 'image', image: bytes, mediaType: 'image/png' }) as const;
     /** The importing attempt's entry for `@shot.png`, with its variant. */
     const holdShot = (resolver: RunMediaResolver, bytes: Buffer | undefined) =>
-      resolver.images.set(KEY, {
+      resolver.heldMedia.set(KEY, {
         locator: '/repo/shot.png',
         width: 1600,
         height: 900,
@@ -305,7 +622,7 @@ describe('composeStepMessages', () => {
 
       const composed = await composeStepMessages(replay([stored]), {
         resolver,
-        imageInput: true,
+        context: VISION,
       });
 
       expect(composed[0]?.content).toEqual([
@@ -316,10 +633,9 @@ describe('composeStepMessages', () => {
         shotImage(new Uint8Array([0x62])),
         { type: 'text', text: 'compare' },
       ]);
-      expect(itemText.text).toContain('<file path="shot.png">');
       expect(JSON.stringify(composed)).not.toContain(THUMBNAIL);
       expect(
-        await composeStepMessages(composed, { resolver, imageInput: true }),
+        await composeStepMessages(composed, { resolver, context: VISION }),
       ).toBe(composed);
     });
 
@@ -332,7 +648,7 @@ describe('composeStepMessages', () => {
 
       const composed = await composeStepMessages(replay([stored]), {
         resolver,
-        imageInput: false,
+        context: TEXT_ONLY,
       });
 
       expect(composed[0]?.content.slice(0, 3)).toEqual([
@@ -357,7 +673,7 @@ describe('composeStepMessages', () => {
 
       const composed = await composeStepMessages(replay([stored]), {
         resolver,
-        imageInput: true,
+        context: VISION,
       });
 
       expect(composed[0]?.content.slice(0, 3)).toEqual([
@@ -375,7 +691,7 @@ describe('composeStepMessages', () => {
 
       const composed = await composeStepMessages(replay([stored]), {
         resolver,
-        imageInput: false,
+        context: TEXT_ONLY,
       });
 
       expect(composed[0]?.content[1]).toEqual({
@@ -413,14 +729,14 @@ describe('composeStepMessages', () => {
 
       const composed = await composeStepMessages(replay([earlier, trigger]), {
         resolver,
-        imageInput: true,
+        context: VISION,
       });
 
       expect(composed[1]?.content[1]).toEqual({
         type: 'text',
         text: `[image "shot.png" 1600×900, not attached: this context's image limit is reached]`,
       });
-      expect(resolver.images.get(KEY)?.model).toBeUndefined();
+      expect(heldImageModel(resolver, KEY)).toBeUndefined();
     });
 
     it('admits the import of a compacting attempt in the new epoch', async () => {
@@ -432,22 +748,22 @@ describe('composeStepMessages', () => {
       const estimate = await loadMediaSizing(
         replay([earlier, trigger]),
         resolver,
-        true,
+        VISION,
       );
       expect(estimate.statuses).toEqual(['attached', 'limit', 'limit']);
-      expect(resolver.images.get(KEY)?.model?.bytes).toBe(shot);
+      expect(heldImageModel(resolver, KEY)?.bytes).toBe(shot);
       // Compaction absorbed the earlier turn: the first request carries the
       // import as an image and the attempt keeps it.
       const composed = await composeStepMessages(replay([trigger]), {
         resolver,
-        imageInput: true,
+        context: VISION,
       });
 
       const content = composed[0]?.content;
       const sent = Array.isArray(content) ? content[1] : undefined;
       expect(sent).toMatchObject({ type: 'image', mediaType: 'image/png' });
       expect(sent?.type === 'image' && sent.image).toBe(shot);
-      expect(resolver.images.get(KEY)?.model?.bytes).toBe(shot);
+      expect(heldImageModel(resolver, KEY)?.bytes).toBe(shot);
     });
   });
 
@@ -473,7 +789,7 @@ describe('composeStepMessages', () => {
       const { resolver, loads } = fakeResolver([descriptor(A), descriptor(B)]);
       const composed = await composeStepMessages(
         [{ role: 'user', content: [fileRef(A)] }, readResult('call-1', B)],
-        { resolver, imageInput: true },
+        { resolver, context: VISION },
       );
 
       expect(loads).toEqual([A, B]);
@@ -490,27 +806,62 @@ describe('composeStepMessages', () => {
       });
     });
 
+    it('materializes a stored PDF tool reference as a named file', async () => {
+      const { resolver } = fakeResolver([
+        pdfDescriptor(A, { name: 'paper.pdf' }),
+      ]);
+      const envelope = '{"status":"success","kind":"pdf"}';
+      const [composed] = await composeStepMessages(
+        [
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'call-1',
+                toolName: 'read',
+                output: toolResultOutput(envelope, { kind: 'pdf', id: A }),
+              },
+            ],
+          },
+        ],
+        { resolver, context: VISION_PDF },
+      );
+      expect(outputOf(composed)).toEqual({
+        type: 'content',
+        value: [
+          { type: 'text', text: envelope },
+          {
+            type: 'file-data',
+            filename: 'paper.pdf',
+            mediaType: 'application/pdf',
+            data: Buffer.from([0x61]).toString('base64'),
+          },
+        ],
+      });
+    });
+
     it.each([
       [
         'a text-only model',
         [descriptor(A, { name: 'shot.png' })],
-        false,
+        TEXT_ONLY,
         `[image media://${A} shot.png 1600×900, omitted: this model has no image input]`,
       ],
       [
         'another owner or an unknown id',
         [],
-        true,
+        VISION,
         `[image media://${A} unavailable]`,
       ],
     ])(
       'gives %s a text output with the placeholder and no image',
-      async (_, descriptors, imageInput, placeholder) => {
+      async (_, descriptors, context, placeholder) => {
         const { resolver, loads } = fakeResolver(descriptors);
-        for (const moveToolImages of [false, true]) {
+        for (const moveToolMedia of [false, true]) {
           const composed = await composeStepMessages(
             [readResult('call-1', A)],
-            { resolver, imageInput, moveToolImages },
+            { resolver, context, moveToolMedia },
           );
           expect(composed).toHaveLength(1);
           expect(outputOf(composed[0])).toEqual({
@@ -553,7 +904,7 @@ describe('composeStepMessages', () => {
             call('call-3'),
             readResult('call-3', A),
           ],
-          { resolver, imageInput: true, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(loads).toEqual([A, B]);
@@ -563,7 +914,7 @@ describe('composeStepMessages', () => {
         expect(composed[3]).toEqual({
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             label(A),
             image(0x61),
             label(B),
@@ -575,7 +926,7 @@ describe('composeStepMessages', () => {
         expect(composed[6]).toEqual({
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             label(A),
             image(0x61),
           ],
@@ -593,7 +944,7 @@ describe('composeStepMessages', () => {
         }
         const composed = await composeStepMessages(
           [{ role: 'tool', content: [...first.content, ...second.content] }],
-          { resolver, imageInput: true, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(composed).toEqual([
@@ -607,7 +958,7 @@ describe('composeStepMessages', () => {
           {
             role: 'user',
             content: [
-              { type: 'text', text: 'Images from tool results:' },
+              { type: 'text', text: 'Files from tool results:' },
               label(B),
               image(0x62),
               label(A),
@@ -633,7 +984,7 @@ describe('composeStepMessages', () => {
 
         const composed = await composeStepMessages(
           [{ role: 'tool', content: [plain, ...read.content] }],
-          { resolver, imageInput: true, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(composed).toEqual([
@@ -647,7 +998,7 @@ describe('composeStepMessages', () => {
           {
             role: 'user',
             content: [
-              { type: 'text', text: 'Images from tool results:' },
+              { type: 'text', text: 'Files from tool results:' },
               label(A),
               image(0x61),
             ],
@@ -671,15 +1022,15 @@ describe('composeStepMessages', () => {
               ],
             },
           ],
-          { resolver, imageInput: true, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(outputOf(composed[0])).toEqual({
           type: 'text',
-          value: 'The image follows in the next message.',
+          value: 'The files follow in the next message.',
         });
         expect(composed[1]?.content).toEqual([
-          { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: 'Files from tool results:' },
           { type: 'text', text: `Image from view "media://${A}":` },
           image(0x61),
         ]);
@@ -693,7 +1044,7 @@ describe('composeStepMessages', () => {
         ]);
         const composed = await composeStepMessages(
           [{ role: 'user', content: [fileRef(A)] }, readResult('call-1', B)],
-          { resolver, imageInput: true, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(loads).toEqual([A]);
@@ -717,7 +1068,7 @@ describe('composeStepMessages', () => {
       ]);
       const composed = await composeStepMessages(
         [readResult('call-1', A), readResult('call-2', B)],
-        { resolver, imageInput: true },
+        { resolver, context: VISION },
       );
 
       expect(loads).toEqual([A]);
@@ -762,7 +1113,7 @@ describe('composeStepMessages', () => {
       });
       const composed = await composeStepMessages(messages, {
         resolver: fakeResolver([descriptor(A)]).resolver,
-        imageInput: true,
+        context: VISION,
       });
 
       expect(
@@ -786,7 +1137,7 @@ describe('composeStepMessages', () => {
           },
         ],
       };
-      const options = { resolver, imageInput: true } as const;
+      const options = { resolver, context: VISION } as const;
       const once = await composeStepMessages(
         [textResult, readResult('call-1', A)],
         options,
@@ -808,7 +1159,7 @@ describe('composeStepMessages', () => {
 
       const [composed] = await composeStepMessages(
         [{ role: 'tool', content: [plain, ...image.content] }],
-        { resolver, imageInput: true },
+        { resolver, context: VISION },
       );
 
       expect(composed?.content[0]).toBe(plain);
@@ -819,6 +1170,69 @@ describe('composeStepMessages', () => {
         },
       });
     });
+  });
+  describe('unstored read PDFs', () => {
+    const ENVELOPE = '{"status":"success","kind":"pdf","path":"report.pdf"}';
+    const bytes = Buffer.from('%PDF-opaque-test-bytes');
+
+    it.each([
+      [
+        'an http URL without its query or fragment',
+        'http://example.test/read/report.pdf?download=1#page=2',
+        'report.pdf',
+      ],
+      [
+        'a host path with an embedded https:// segment',
+        '/work/https://example.test/read/report.pdf',
+        'report.pdf',
+      ],
+      ['a URL root', 'http://example.test/', 'document.pdf'],
+    ])(
+      'attaches %s with the derived filename',
+      async (_, locator, filename) => {
+        const { resolver } = fakeResolver([]);
+        resolver.heldMedia.set('call-1', {
+          locator,
+          pages: 1,
+          bytes,
+          byteSize: bytes.byteLength,
+        });
+
+        const [composed] = await composeStepMessages(
+          [
+            {
+              role: 'tool',
+              content: [
+                {
+                  type: 'tool-result',
+                  toolCallId: 'call-1',
+                  toolName: 'read',
+                  output: toolResultOutput(ENVELOPE, { locator, pages: 1 }),
+                },
+              ],
+            },
+          ],
+          { resolver, context: VISION_PDF },
+        );
+
+        expect(
+          composed?.role === 'tool' &&
+            composed.content[0]?.type === 'tool-result'
+            ? composed.content[0].output
+            : undefined,
+        ).toMatchObject({
+          type: 'content',
+          value: [
+            { type: 'text', text: ENVELOPE },
+            {
+              type: 'file-data',
+              mediaType: 'application/pdf',
+              filename,
+            },
+          ],
+        });
+      },
+    );
   });
 
   describe('unstored read images', () => {
@@ -837,7 +1251,7 @@ describe('composeStepMessages', () => {
     const held = (
       model: RetainedVariant | undefined,
       image = SHOT,
-    ): HeldImage => ({ ...image, ...(model && { model }) });
+    ): HeldMedia => ({ ...image, ...(model && { model }) });
     const unstoredResult = (
       toolCallId: string,
       image = SHOT,
@@ -856,11 +1270,11 @@ describe('composeStepMessages', () => {
       message?.role === 'tool' && message.content[0]?.type === 'tool-result'
         ? message.content[0].output
         : undefined;
-    const vision = { imageInput: true } as const;
+    const vision = { context: VISION } as const;
 
     it('attaches a read image from the attempt memory without any store read', async () => {
       const { resolver, loads } = fakeResolver([]);
-      resolver.images.set('call-1', held(variant()));
+      resolver.heldMedia.set('call-1', held(variant()));
 
       const [composed] = await composeStepMessages([unstoredResult('call-1')], {
         resolver,
@@ -895,11 +1309,11 @@ describe('composeStepMessages', () => {
 
     it('gives a text-only model the omitted placeholder whether or not the attempt holds the image', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.set('call-1', held(undefined));
+      resolver.heldMedia.set('call-1', held(undefined));
 
       const composed = await composeStepMessages(
         [unstoredResult('call-1'), unstoredResult('call-2')],
-        { resolver, imageInput: false },
+        { resolver, context: TEXT_ONLY },
       );
 
       expect(composed.map(outputOf)).toEqual([
@@ -911,11 +1325,11 @@ describe('composeStepMessages', () => {
 
     it('moves a held read image, labelled by its submitted locator, into the image message and keeps the not-retained placeholder in place on a Chat Completions wire', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.set('call-1', held(variant()));
+      resolver.heldMedia.set('call-1', held(variant()));
 
       const composed = await composeStepMessages(
         [unstoredResult('call-1'), unstoredResult('call-2')],
-        { resolver, imageInput: true, moveToolImages: true },
+        { resolver, context: VISION, moveToolMedia: true },
       );
 
       expect(composed.map(outputOf)).toEqual([
@@ -926,7 +1340,7 @@ describe('composeStepMessages', () => {
       expect(composed[2]).toEqual({
         role: 'user',
         content: [
-          { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: 'Files from tool results:' },
           { type: 'text', text: 'Image from read "/work/shot.png":' },
           { type: 'image', image: variant().bytes, mediaType: 'image/png' },
         ],
@@ -967,7 +1381,7 @@ describe('composeStepMessages', () => {
       expect(JSON.parse(literal)).toBe(bracketed.locator);
 
       // A read of the locator the literal parses to is held and attached.
-      resolver.images.set('call-2', held(variant(), bracketed));
+      resolver.heldMedia.set('call-2', held(variant(), bracketed));
       const composed = await composeStepMessages(
         [
           unstoredResult('call-1', bracketed),
@@ -985,8 +1399,8 @@ describe('composeStepMessages', () => {
     it('drops for good the bytes of a read the window refuses on entry', async () => {
       const { resolver } = fakeResolver([]);
       const half = variant((EPOCH_MAX_BASE64_BYTES * 3) / 8 + 3);
-      resolver.images.set('call-1', held(half));
-      resolver.images.set('call-2', held(half));
+      resolver.heldMedia.set('call-1', held(half));
+      resolver.heldMedia.set('call-2', held(half));
       const messages = [unstoredResult('call-1'), unstoredResult('call-2')];
 
       const first = await composeStepMessages(messages, {
@@ -998,9 +1412,9 @@ describe('composeStepMessages', () => {
         ...vision,
       });
 
-      expect(resolver.images.get('call-1')?.model).toBe(half);
+      expect(heldImageModel(resolver, 'call-1')).toBe(half);
       // The released entry keeps the size the window refused, not the bytes.
-      expect(resolver.images.get('call-2')).toEqual({
+      expect(resolver.heldMedia.get('call-2')).toEqual({
         ...SHOT,
         modelByteSize: half.bytes.byteLength,
       });
@@ -1015,7 +1429,7 @@ describe('composeStepMessages', () => {
 
     it('gives an attached entry without bytes the not-retained placeholder rather than failing', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.set('call-1', { ...SHOT, modelByteSize: 3 });
+      resolver.heldMedia.set('call-1', { ...SHOT, modelByteSize: 3 });
 
       const [composed] = await composeStepMessages([unstoredResult('call-1')], {
         resolver,
@@ -1030,7 +1444,7 @@ describe('composeStepMessages', () => {
 
     it('holds none of a superseded attempt in a new one, even in the same process', async () => {
       const failed = fakeResolver([]).resolver;
-      failed.images.set('call-1', held(variant()));
+      failed.heldMedia.set('call-1', held(variant()));
       const retry = fakeResolver([]).resolver;
       const messages = [unstoredResult('call-1')];
 
@@ -1042,7 +1456,7 @@ describe('composeStepMessages', () => {
         resolver: retry,
         ...vision,
       });
-      retry.images.set('call-2', held(variant()));
+      retry.heldMedia.set('call-2', held(variant()));
       const reread = await composeStepMessages(
         [...messages, unstoredResult('call-2')],
         { resolver: retry, ...vision },
@@ -1066,7 +1480,7 @@ describe('composeStepMessages', () => {
         (_, n) => `0192f3a4-5b6c-7d8e-9f01-${String(n).padStart(12, '0')}`,
       );
       const { resolver } = fakeResolver(owner.map((id) => descriptor(id)));
-      resolver.images.set('call-2', held(variant()));
+      resolver.heldMedia.set('call-2', held(variant()));
 
       const composed = await composeStepMessages(
         [
@@ -1091,11 +1505,11 @@ describe('composeStepMessages', () => {
     });
 
     it.each([
-      [true, NOT_RETAINED],
-      [false, OMITTED],
+      [true, VISION, NOT_RETAINED],
+      [false, TEXT_ONLY, OMITTED],
     ])(
       'replays a stored read image of an earlier turn to a model with image input %s as its placeholder, without the thumbnail',
-      async (imageInput, placeholder) => {
+      async (_, context, placeholder) => {
         const stored: StoredMessage = {
           id: 'msg-1',
           chatId: 'chat-1',
@@ -1129,7 +1543,7 @@ describe('composeStepMessages', () => {
         });
         const composed = await composeStepMessages(messages, {
           resolver: fakeResolver([]).resolver,
-          imageInput,
+          context,
         });
         const output = outputOf(
           composed.find((message) => message.role === 'tool'),
@@ -1214,7 +1628,10 @@ describe('installStepPreparation', () => {
       media: resolver,
     };
     const streamOptions = { model, messages: input.messages };
-    installStepPreparation(streamOptions, input, ['text', 'image']);
+    installStepPreparation(streamOptions, input, {
+      input: ['text', 'image'],
+      ...WINDOW,
+    });
 
     await expect(streamText(streamOptions).text).resolves.toBe('ok');
 
@@ -1231,7 +1648,7 @@ describe('installStepPreparation', () => {
       onStepStart,
     };
     const streamOptions = { model, messages: input.messages };
-    installStepPreparation(streamOptions, input, undefined);
+    installStepPreparation(streamOptions, input, WINDOW);
 
     await expect(streamText(streamOptions).text).resolves.toBe('ok');
 
@@ -1264,7 +1681,10 @@ describe('installStepPreparation', () => {
       tools: input.tools,
       stopWhen: stepCountIs(2),
     };
-    installStepPreparation(streamOptions, input, ['text', 'image']);
+    installStepPreparation(streamOptions, input, {
+      input: ['text', 'image'],
+      ...WINDOW,
+    });
 
     await expect(streamText(streamOptions).text).resolves.toBe('ok');
 
@@ -1278,24 +1698,18 @@ describe('installStepPreparation', () => {
   });
 
   describe('reads inside a Run', () => {
-    const IDS = [1, 2, 3, 4, 5].map(
+    const IDS = [1, 2, 3, 4, 5, 6].map(
       (n) => `0192f3a4-5b6c-7d8e-9f01-0000000000a${n}`,
     );
-    // Each base64 variant is 5 MiB, so four fit the 24 MiB bound.
+    // Each base64 variant is 5 MiB, so five fit the 28 MiB bound.
     const modelByteSize = (5 * 2 ** 20 * 3) / 4;
 
     /** A Run that reads `IDS` one per step and then answers. */
-    async function readFive(moveToolImages?: boolean) {
+    async function readSix(moveToolMedia?: boolean) {
       const { resolver } = fakeResolver(
         IDS.map((id) => descriptor(id, { modelByteSize })),
       );
-      const { model, prompts } = recordingModel([
-        'tool',
-        'tool',
-        'tool',
-        'tool',
-        'tool',
-      ]);
+      const { model, prompts } = recordingModel(IDS.map(() => 'tool' as const));
       let reads = 0;
       const input: ModelStreamInput = {
         chat: CHAT,
@@ -1314,11 +1728,14 @@ describe('installStepPreparation', () => {
         model,
         messages: input.messages,
         tools: input.tools,
-        stopWhen: stepCountIs(6),
+        stopWhen: stepCountIs(7),
       };
-      installStepPreparation(streamOptions, input, ['text', 'image'], {
-        moveToolImages,
-      });
+      installStepPreparation(
+        streamOptions,
+        input,
+        { input: ['text', 'image'], ...WINDOW },
+        { moveToolMedia },
+      );
       await expect(streamText(streamOptions).text).resolves.toBe('ok');
       return prompts;
     }
@@ -1335,12 +1752,12 @@ describe('installStepPreparation', () => {
     }
 
     it('sends every read in the window as image content and only the newest past the bounds as the limit placeholder', async () => {
-      const prompts = await readFive();
+      const prompts = await readSix();
 
-      expect(prompts).toHaveLength(6);
-      const last = toolOutputs(prompts[5] ?? []);
-      expect(last.slice(0, 4)).toEqual(
-        IDS.slice(0, 4).map((id) => ({
+      expect(prompts).toHaveLength(7);
+      const last = toolOutputs(prompts[6] ?? []);
+      expect(last.slice(0, 5)).toEqual(
+        IDS.slice(0, 5).map((id) => ({
           type: 'content',
           value: [
             { type: 'text', text: 'envelope' },
@@ -1352,12 +1769,12 @@ describe('installStepPreparation', () => {
           ],
         })),
       );
-      expect(last[4]).toEqual({
+      expect(last[5]).toEqual({
         type: 'text',
-        value: `envelope\n[image media://${IDS[4]} a5.png 1600×900, not attached: this context's image limit is reached]`,
+        value: `envelope\n[image media://${IDS[5]} a6.png 1600×900, not attached: this context's image limit is reached]`,
       });
       // Each step projects the same prefix: earlier steps attached the same reads.
-      expect(toolOutputs(prompts[4] ?? [])).toEqual(last.slice(0, 4));
+      expect(toolOutputs(prompts[5] ?? [])).toEqual(last.slice(0, 5));
     });
 
     it('retains only the reads the window admits, and the next turn retains none', async () => {
@@ -1378,7 +1795,7 @@ describe('installStepPreparation', () => {
             inputSchema: z.object({}),
             // What the read hook does: hold the decoded variant in the attempt.
             execute: (_, { toolCallId }) => {
-              resolver.images.set(toolCallId, {
+              resolver.heldMedia.set(toolCallId, {
                 ...image(toolCallId),
                 model: {
                   bytes: Buffer.alloc(modelByteSize),
@@ -1401,29 +1818,32 @@ describe('installStepPreparation', () => {
         tools: input.tools,
         stopWhen: stepCountIs(11),
       };
-      installStepPreparation(streamOptions, input, ['text', 'image']);
+      installStepPreparation(streamOptions, input, {
+        input: ['text', 'image'],
+        ...WINDOW,
+      });
       const result = streamText(streamOptions);
       await expect(result.text).resolves.toBe('ok');
 
       const calls = Array.from({ length: 10 }, (_, n) => `call-${n + 1}`);
       const retained = calls.filter(
-        (call) => resolver.images.get(call)?.model !== undefined,
+        (call) => heldImageModel(resolver, call) !== undefined,
       );
-      expect(retained).toEqual(calls.slice(0, 4));
+      expect(retained).toEqual(calls.slice(0, 5));
       const retainedBase64 = retained.map(
         (call) =>
           4 *
-          Math.ceil((resolver.images.get(call)?.model?.bytes.length ?? 0) / 3),
+          Math.ceil((heldImageModel(resolver, call)?.bytes.length ?? 0) / 3),
       );
       expect(retainedBase64.reduce((sum, size) => sum + size, 0)).toBe(
-        4 * 5 * 2 ** 20,
+        5 * 5 * 2 ** 20,
       );
       const last = toolOutputs(prompts[10] ?? []);
-      expect(last.slice(0, 4).map((output) => output.type)).toEqual(
-        calls.slice(0, 4).map(() => 'content'),
+      expect(last.slice(0, 5).map((output) => output.type)).toEqual(
+        calls.slice(0, 5).map(() => 'content'),
       );
-      expect(last.slice(4)).toEqual(
-        calls.slice(4).map((call) => ({
+      expect(last.slice(5)).toEqual(
+        calls.slice(5).map((call) => ({
           type: 'text',
           value: `envelope\n[image "/work/${call}.png" 1600×900, not attached: this context's image limit is reached]`,
         })),
@@ -1434,7 +1854,7 @@ describe('installStepPreparation', () => {
         [...input.messages, ...(await result.response).messages],
         {
           resolver: fakeResolver([]).resolver,
-          imageInput: true,
+          context: VISION,
         },
       );
       expect(JSON.stringify(next).match(/not retained/gu)).toHaveLength(10);
@@ -1442,13 +1862,13 @@ describe('installStepPreparation', () => {
     });
 
     it('sends each read in the window in one image message after its tool message on a Chat Completions wire', async () => {
-      const prompts = await readFive(true);
+      const prompts = await readSix(true);
 
-      expect(prompts).toHaveLength(6);
+      expect(prompts).toHaveLength(7);
       const imageMessage = (id: string) => ({
         role: 'user',
         content: [
-          { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: 'Files from tool results:' },
           { type: 'text', text: `Image from noop "media://${id}":` },
           expect.objectContaining({
             type: 'file',
@@ -1463,23 +1883,23 @@ describe('installStepPreparation', () => {
           message.role === 'tool' ? [prompt[at + 1]] : [],
         );
       // Every step after a read carries exactly one image message per read.
-      for (const [step, prompt] of prompts.slice(1, 5).entries()) {
+      for (const [step, prompt] of prompts.slice(1, 6).entries()) {
         expect(afterTools(prompt)).toEqual(
           IDS.slice(0, step + 1).map((id) => imageMessage(id)),
         );
       }
-      const last = prompts[5] ?? [];
+      const last = prompts[6] ?? [];
       expect(afterTools(last)).toEqual([
-        ...IDS.slice(0, 4).map((id) => imageMessage(id)),
+        ...IDS.slice(0, 5).map((id) => imageMessage(id)),
         undefined,
       ]);
       expect(toolOutputs(last)).toEqual(
         IDS.map((id, index) => ({
           type: 'text',
           value:
-            index < 4
+            index < 5
               ? 'envelope'
-              : `envelope\n[image media://${id} a5.png 1600×900, not attached: this context's image limit is reached]`,
+              : `envelope\n[image media://${id} a6.png 1600×900, not attached: this context's image limit is reached]`,
         })),
       );
     });
@@ -1494,7 +1914,7 @@ describe('installStepPreparation', () => {
       media: resolver,
     };
     const streamOptions = { model, messages: input.messages };
-    installStepPreparation(streamOptions, input, undefined);
+    installStepPreparation(streamOptions, input, WINDOW);
 
     await expect(streamText(streamOptions).text).resolves.toBe('ok');
 
@@ -1504,6 +1924,33 @@ describe('installStepPreparation', () => {
     );
     expect(loads).toEqual([]);
   });
+
+  it.each([
+    { reservedOutputTokens: undefined, pages: 53, attached: true },
+    { reservedOutputTokens: 64_000, pages: 33, attached: false },
+    { reservedOutputTokens: 64_000, pages: 32, attached: true },
+  ])(
+    'bounds PDF pages by the client window less a $reservedOutputTokens reserve: $pages pages attached $attached',
+    async ({ reservedOutputTokens, pages, attached }) => {
+      const { resolver } = fakeResolver([pdfDescriptor(A, { pages })]);
+      const { model, prompts } = recordingModel();
+      const input: ModelStreamInput = {
+        chat: CHAT,
+        messages: [{ role: 'user', content: [pdfRef(A)] }],
+        media: resolver,
+        ...(reservedOutputTokens !== undefined && { reservedOutputTokens }),
+      };
+      const streamOptions = { model, messages: input.messages };
+      installStepPreparation(streamOptions, input, {
+        input: ['text', 'pdf'],
+        contextWindowTokens: 200_000,
+      });
+
+      await expect(streamText(streamOptions).text).resolves.toBe('ok');
+
+      expect(promptFileData(prompts[0] ?? [])).toHaveLength(attached ? 1 : 0);
+    },
+  );
 });
 
 describe('installStepPreparation step cap', () => {
@@ -1523,7 +1970,7 @@ describe('installStepPreparation step cap', () => {
     installStepPreparation(
       streamOptions,
       { chat: CHAT, messages: [], onCapReached, ...input },
-      undefined,
+      WINDOW,
     );
     // SAFETY: the installed `prepareStep` reads only `messages`, `stepNumber`
     // and each prior step's `toolCalls`, which these stand-ins carry.

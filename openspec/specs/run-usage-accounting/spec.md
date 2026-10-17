@@ -180,6 +180,58 @@ The aggregate `reasoningTokens` SHALL be the sum of every request's reported rea
 - **WHEN** one request reported a reasoning count and another did not
 - **THEN** the persisted usage has no `reasoningTokens`
 
+### Requirement: Stream performance metrics are recorded additively
+
+The `running` usage SHALL carry no stream metrics. A terminal assistant message usage SHALL record four additive metrics about the attempt's model stream when the attempt received at least one streamed output delta, a delta being a delivery of answer or reasoning text, with an empty part-boundary delivery counting for neither:
+
+- `firstTokenMs`, the milliseconds from the same stream-start baseline `latencyMs` measures to the first streamed output delta;
+- `chunkCount`, the count of streamed output deltas the attempt received;
+- `generationMs`, the sum of the attempt's generation windows; and
+- `tokensPerSecond`, the attempt's output tokens over `generationMs`, rounded to one decimal.
+
+A request's generation window SHALL cover that request alone, measured on the provider's own stream: from its first streamed part that carries generated output — answer or reasoning text, or a streamed tool-call argument — to its `finish`, or from the request to its `finish` when it streamed no such part, so a request that only called a tool still contributes the time it generated in. Where a wire batches its arguments into a single tool-call part, the whole-span fallback deliberately bills that request's connect time and prefill to the window rather than dropping tokens out from under the rate; the streamed-output metrics themselves keep the narrower text-or-reasoning rule. A request that reported no usage SHALL contribute no window, so the windows and the token counts cover the same requests. The tool-execution time between an attempt's steps is therefore excluded, and the rate describes the model's generation speed rather than the turn's throughput.
+
+When the attempt streamed no output, all four SHALL be absent rather than zero, and `generationMs` SHALL additionally be absent when the attempt's windows sum to nothing. `tokensPerSecond` SHALL additionally be absent when any model request of the attempt reported no input or output count, so the rate is never derived from a partial token total, or when `generationMs` is absent. A missing metric SHALL NOT by itself mark usage incomplete, and a persisted value SHALL NOT be recomputed later. Usage recorded before this capability carries none of the keys and is otherwise unchanged.
+
+#### Scenario: A completed streamed turn records all four
+
+- **WHEN** a completed attempt streams 34 output deltas, stamps its first delta 1,203 ms from stream start, totals 153 output tokens, and its single request finishes 1,595 ms from stream start
+- **THEN** the usage records `firstTokenMs: 1203`, `chunkCount: 34`, `generationMs: 392`, and `tokensPerSecond: 390.3`
+
+#### Scenario: Tool-execution time between steps is not generation time
+
+- **WHEN** a completed attempt makes two requests with a tool call between them, the first streaming 20 output deltas in a 400 ms window and the second 34 output deltas in a 392 ms window, while the tool call itself takes 12,000 ms
+- **THEN** the usage records `chunkCount: 54` and `generationMs: 792`
+- **AND** `tokensPerSecond` is the attempt's output tokens over 792 ms
+
+#### Scenario: A request that streamed no output still contributes its window
+
+- **WHEN** one of the attempt's requests streams no answer, reasoning, or tool-call argument part and finishes 1,100 ms after it was dispatched
+- **THEN** that request's 1,100 ms is part of `generationMs`
+
+#### Scenario: A streamed tool call opens its request's window
+
+- **WHEN** a request's only output is a tool call whose arguments the provider streams, the first argument part arriving 900 ms after dispatch and its `finish` 300 ms later
+- **THEN** that request contributes 300 ms to `generationMs`, not the 1,200 ms that would bill its prefill
+
+#### Scenario: A turn that streamed nothing records none
+
+- **WHEN** a terminal attempt delivered no streamed output delta, for example it failed during its first request
+- **THEN** the usage records no `firstTokenMs`, no `chunkCount`, no `generationMs`, and no `tokensPerSecond`
+- **AND** its `complete` value is unchanged by their absence
+
+#### Scenario: A partial token total records no rate
+
+- **WHEN** an attempt streamed output but one of its requests reported no output count
+- **THEN** the usage records `firstTokenMs`, `chunkCount`, and `generationMs`
+- **AND** records no `tokensPerSecond`
+
+#### Scenario: An absent generation window records no rate
+
+- **WHEN** no generation window of an attempt is positive
+- **THEN** the usage records `firstTokenMs` and `chunkCount`
+- **AND** records no `generationMs` and no `tokensPerSecond`
+
 ### Requirement: Every terminal assistant turn keeps its known usage
 
 When a Run ends failed, cancelled, or expired after its executing attempt started at least one model request, including a cancellation that settles while a tool call is still open, the persisted assistant message usage SHALL contain the aggregate of that attempt's requests that reported before the Run ended, with `complete: false`, and SHALL carry the executing `modelId`, the recorded effort when present, the attempt's latency, and a non-completed turn status (`error` for a failed Run, `aborted` for a cancelled or expired one). The one exception is an attempt that completed after another writer had already expired the Run: its salvaged usage keeps the attempt's own `completed` status, as today, and records `complete: false`. It SHALL NOT record zero tokens or zero cost for requests that did not report. A Run that ends before any of its attempts dispatched a model request, so its event log has no `model.requested` event, has no reply of its own and records no usage, as today: its finalizer creates no reply and writes no usage. A finalizer whose own attempt is not the attempt named in the reply's `running` usage, whether a settlement performed outside an executing attempt (dead-letter expiry, settlement after recovery from an unsettled native effect, cancellation before an attempt starts, admission expiry, or failure at pickup) or a later attempt that fails, is cancelled, or expires before its own dispatch, SHALL replace that `running` usage with the turn status (`error` for a failed Run, `aborted` for a cancelled or expired one), `complete: false`, the `runId`, `attemptId`, `modelId`, effort, and `permissionMode` recorded on the `running` usage when present, and `billing`, and SHALL record no token counts, no latency, and no measured context size, with `costUsd` as for usage on which no request reported. A cancelled turn settled with an open tool call SHALL therefore carry the same non-completed status as any other cancelled turn, and SHALL be retryable and excluded from conversation evidence exactly as those turns are.
@@ -217,7 +269,7 @@ When a Run ends failed, cancelled, or expired after its executing attempt starte
 
 ### Requirement: Live and reloaded usage agree
 
-Every terminal path on which the executing attempt wins the Run's terminal transaction SHALL publish the assistant message's usage through the Run event stream before the Run's terminal event, so a subscriber observes the same token counts, cost, reasoning presence, `complete` value, and `billing` value that a later history read returns. Usage persisted after another writer already ended the Run, or in a standalone write after the terminal transaction rolled back, SHALL be visible on reload and SHALL NOT be published after the terminal event. Replaying the event stream after reconnect SHALL NOT change or accumulate the displayed usage.
+Every terminal path on which the executing attempt wins the Run's terminal transaction SHALL publish the assistant message's usage through the Run event stream before the Run's terminal event, so a subscriber observes the same token counts, cost, reasoning presence, stream performance metrics, `complete` value, and `billing` value that a later history read returns. Usage persisted after another writer already ended the Run, or in a standalone write after the terminal transaction rolled back, SHALL be visible on reload and SHALL NOT be published after the terminal event. Replaying the event stream after reconnect SHALL NOT change or accumulate the displayed usage.
 
 #### Scenario: A failed Run shows usage live
 

@@ -212,3 +212,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+ * Defer layout/paint for off-screen tool/reasoning chrome inside a fat Run
+ * (OpenCode). Do NOT put content-visibility on the message row itself: that
+ * node carries `data-message-key` / `id="msg-N"` and
+ * `usePrependScrollAnchor` / `useTargetScroll` read its real offsetTop /
+ * scrollIntoView geometry — skipped rows resolve against
+ * contain-intrinsic-size instead.
+ */
+[data-transcript-tool],
+[data-transcript-reasoning] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.5rem;
+}

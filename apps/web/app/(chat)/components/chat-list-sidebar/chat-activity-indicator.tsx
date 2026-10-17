@@ -1,3 +1,5 @@
+import type { RunPhase } from "@/lib/services/live/live-messages";
+
 /**
  * Per-chat activity indicator: a small badge on the bottom-right of the chat
  * icon in the sidebar row, per the authoritative design
@@ -39,10 +41,31 @@ export function resolveChatActivityStatus(input: {
 const BADGE_BASE =
   "absolute -right-1 -bottom-0.75 size-2.25 rounded-full ring-2 ring-sidebar";
 
+/** Accessible label for a processing chat; the live run phase, when known,
+ *  refines it without changing its stable "Generating response" prefix. */
+export function processingLabel(phase: RunPhase | undefined): string {
+  const base = "Generating response";
+  switch (phase) {
+    case "queued":
+      return `${base}: queued`;
+    case "thinking":
+      return `${base}: thinking`;
+    case "tool":
+      return `${base}: using a tool`;
+    case "writing":
+      return `${base}: writing`;
+    default:
+      return base;
+  }
+}
+
 export function ChatActivityIndicator({
   status,
+  phase,
 }: {
   status: ChatActivityStatus | null;
+  /** Live run phase, when the live socket supplies one. */
+  phase?: RunPhase;
 }) {
   if (status === "processing") {
     // Achromatic spinner ring (background/border/muted-foreground are all
@@ -53,7 +76,8 @@ export function ChatActivityIndicator({
       // no role (axe aria-prohibited-attr), and output carries role=status
       // natively — this badge IS a live status.
       <output
-        aria-label="Generating response"
+        aria-label={processingLabel(phase)}
+        title={processingLabel(phase)}
         className={`${BADGE_BASE} animate-spin border-2 border-border border-t-muted-foreground bg-background`}
       />
     );

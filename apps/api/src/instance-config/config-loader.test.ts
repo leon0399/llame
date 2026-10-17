@@ -129,7 +129,7 @@ function renderFirstModel(): string {
     template: model.systemPromptTemplate,
     model,
     anchor: TEST_ANCHOR,
-  });
+  }).text;
 }
 
 describe('resolveConfigPath', () => {
@@ -966,6 +966,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const osv = { id: 'advisories', use: 'osv' as const };
     const wikipedia = { id: 'wikipedia', use: 'wikipedia' as const };
     const telegram = { id: 'telegram', use: 'telegram' as const };
+    const lobsters = { id: 'lobsters', use: 'lobsters' as const };
     const forums = {
       id: 'forums',
       use: 'discourse' as const,
@@ -991,6 +992,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             osv,
             wikipedia,
             telegram,
+            lobsters,
           ],
         },
       }),
@@ -1013,6 +1015,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       osv,
       wikipedia,
       telegram,
+      lobsters,
     ]);
   });
 
@@ -2121,7 +2124,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toBe('Relative prompt for m');
     });
 
@@ -2145,7 +2148,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toBe('Absolute prompt');
     });
 
@@ -2211,7 +2214,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toContain('You are the override.');
       // The worker-owned file map is internal, not client-facing.
       expect(model.toolPromptFiles).toEqual({ bash: 'prompts/bash.md' });
@@ -2251,7 +2254,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toMatch(/\S/);
       expect(model).not.toHaveProperty('systemPromptFile');
     });
@@ -2947,12 +2950,18 @@ describe('loadInstanceConfig — models[].input (vision-media, task 2.1)', () =>
     expect(loadInstanceConfig().models[0]?.input).toEqual(['image', 'text']);
   });
 
+  it('retains a declared pdf input in declared order', () => {
+    writeModel(', "input": ["text", "pdf"]');
+    expect(loadInstanceConfig().models[0]?.input).toEqual(['text', 'pdf']);
+  });
+
   it.each([
     ['["image"]', 'an input without text'],
     ['[]', 'an empty input'],
     ['["text", "audio"]', 'an unknown modality'],
     ['["text", "text"]', 'a repeated text'],
     ['["text", "image", "image"]', 'a repeated image'],
+    ['["text", "pdf", "pdf"]', 'a repeated pdf'],
   ])(
     'fails startup on %s (%s), naming the model id and the input field',
     (input) => {

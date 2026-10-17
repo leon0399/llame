@@ -136,6 +136,8 @@ export const Reasoning = memo(
         value={{ isStreaming, isOpen, setIsOpen, duration }}
       >
         <Collapsible
+          // Off-screen paint deferred via globals.css (content-visibility).
+          data-transcript-reasoning=""
           className={cn("not-prose mb-4", className)}
           onOpenChange={handleOpenChange}
           open={isOpen}

@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryKey } from "@tanstack/react-query";
+import { z } from "zod";
 
 import { listProjects as listProjectsEndpoint } from "../../api/generated/projects/projects";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
@@ -22,6 +23,19 @@ export const projectQueryKeys = {
       ? ([...projectQueryKeys.lists(), filters] as const)
       : projectQueryKeys.lists(),
 };
+
+const projectListFiltersSchema = z.object({
+  pinned: z.enum(["only", "exclude"]).optional(),
+  archived: z.enum(["only", "with"]).optional(),
+});
+
+/** The filters of a `projectQueryKeys.filtered` key; `undefined` for any other key. */
+export function projectListFiltersFromKey(
+  queryKey: QueryKey,
+): ProjectListFilters | undefined {
+  if (queryKey[0] !== "projects" || queryKey[1] !== "list") return undefined;
+  return projectListFiltersSchema.safeParse(queryKey[2]).data ?? {};
+}
 
 function authenticatedFetch(): typeof fetch {
   return createAuthenticatedBrowserFetch(globalThis.fetch);

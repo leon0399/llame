@@ -10,6 +10,7 @@ import {
   type Db,
   type TenantRunner,
 } from '../db/tenant-db.service';
+import { type PromptChatsDisclosure } from '../models/model-catalog';
 import { isTextPart } from './context-builder';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
@@ -97,7 +98,6 @@ export function buildRecencyDigestBaseline(input: {
 /** Narrow resolver used by the chat turn, never by a public/shared read path. */
 export type RecencyDigestResolution = {
   baseline: RecencyDigestBaseline;
-  told: Array<RecencyDigestToldEntry>;
   /** Candidate identity and rendered entry are one record, never parallel arrays. */
   candidates: ReadonlyArray<RecencyDigestCandidate>;
 };
@@ -113,10 +113,77 @@ export type RecencyDigestDelta = {
   told: Array<RecencyDigestToldEntry>;
 };
 
+type RecencyDigestEntry = RecencyDigestBaseline['pinned'][number];
+
+/**
+ * Whether two entries show the same chat. Last activity and message count are
+ * left out: they move with the chat's own activity, which the digest never
+ * announces, so they cannot make a chat the model was shown a different one.
+ */
+function showsSameChat(left: RecencyDigestEntry, right: RecencyDigestEntry) {
+  return left.title === right.title && left.excerpt === right.excerpt;
+}
+
+/**
+ * The chats a request's renders actually told the model about, keyed to the
+ * trusted candidates this attempt resolved.
+ *
+ * Renders report positions in the baseline they were given, because the
+ * stored baseline deliberately carries no chat id. A disclosed position pairs
+ * first with a candidate in the same list whose entry is identical — every
+ * position, when an initializing attempt renders its own candidate baseline —
+ * and otherwise with a candidate that `showsSameChat`. A disclosed entry no
+ * candidate matches stays untold and can enter through an append; each
+ * candidate pairs at most once. The pin state recorded is the list the entry
+ * was rendered in: what the model was told.
+ */
+export function disclosedRecencyDigestEntries(input: {
+  baseline: RecencyDigestBaseline;
+  disclosures: ReadonlyArray<PromptChatsDisclosure>;
+  candidates: ReadonlyArray<RecencyDigestCandidate>;
+}): Array<RecencyDigestToldEntry> {
+  const disclosed = (['pinned', 'recent'] as const).flatMap((list) =>
+    input.baseline[list].flatMap((entry, index) =>
+      input.disclosures.some((disclosure) => disclosure[list].has(index))
+        ? [{ entry, pinned: list === 'pinned' }]
+        : [],
+    ),
+  );
+  const unpaired = [...input.candidates];
+  const pair = (
+    matches: (candidate: RecencyDigestCandidate) => boolean,
+  ): RecencyDigestCandidate | undefined => {
+    const index = unpaired.findIndex(matches);
+    return index === -1 ? undefined : unpaired.splice(index, 1)[0];
+  };
+  // Exact pairs are settled before any looser one, so a look-alike chat can
+  // never take the candidate a later entry is identical to.
+  const exact = disclosed.map(({ entry, pinned }) =>
+    pair(
+      (candidate) =>
+        candidate.pinned === pinned &&
+        showsSameChat(candidate.entry, entry) &&
+        candidate.entry.date === entry.date &&
+        candidate.entry.messageCount === entry.messageCount,
+    ),
+  );
+  return disclosed.flatMap(({ entry, pinned }, index) => {
+    const candidate =
+      exact[index] ?? pair((each) => showsSameChat(each.entry, entry));
+    return candidate === undefined
+      ? []
+      : [{ chatId: candidate.chatId, pinned, title: entry.title }];
+  });
+}
+
 /**
  * Capped candidate views control new disclosure; the accumulated told-set
  * controls corrections. Keeping those inputs separate prevents both a corpus
  * dump and fabricated unpins when the cap displaces an still-pinned chat.
+ *
+ * `told` is everything the model has been told, including what this request's
+ * renders disclose, so an entry the prompt already shows is not announced
+ * again.
  */
 export function deriveRecencyDigestDelta(input: {
   candidate: RecencyDigestResolution;
@@ -128,11 +195,13 @@ export function deriveRecencyDigestDelta(input: {
   );
   // Pairing separately-built arrays here could announce one chat with another
   // chat's title/excerpt: an owner-scoped cross-chat content leak.
-  const entries = input.candidate.candidates.flatMap((candidate) =>
-    toldByChatId.has(candidate.chatId)
-      ? []
-      : [{ ...candidate.entry, pinned: candidate.pinned }],
+  const untold = input.candidate.candidates.filter(
+    (candidate) => !toldByChatId.has(candidate.chatId),
   );
+  const entries = untold.map((candidate) => ({
+    ...candidate.entry,
+    pinned: candidate.pinned,
+  }));
   // One pass over the told-set: current pin state is read once per entry and
   // used for both the correction it may emit and the state it carries forward.
   const pinChanges: RecencyDigestDelta['pinChanges'] = [];
@@ -154,7 +223,11 @@ export function deriveRecencyDigestDelta(input: {
 
   const told = [
     ...carriedForward,
-    ...input.candidate.told.filter((entry) => !toldByChatId.has(entry.chatId)),
+    ...untold.map(({ chatId, pinned, entry }) => ({
+      chatId,
+      pinned,
+      title: entry.title,
+    })),
   ];
   return { entries, pinChanges, told };
 }
@@ -313,11 +386,6 @@ export class RecencyDigestService {
         recentTotal,
         compiledOn: new Date(),
       }),
-      told: candidates.map(({ chatId, pinned, entry }) => ({
-        chatId,
-        pinned,
-        title: entry.title,
-      })),
       candidates,
     };
   }

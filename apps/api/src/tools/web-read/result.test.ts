@@ -8,7 +8,7 @@ import {
 import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 import { type WebRender } from './pipeline';
-import { buildWebImageResult, buildWebReadResult } from './result';
+import { buildWebReadResult } from './result';
 
 const GUIDE_URL = 'https://example.test/guide';
 const RANGED_MARKDOWN = [
@@ -951,54 +951,6 @@ describe('buildWebReadResult', () => {
       type: 'invalid_selector',
       message:
         'The selector :2-3 selected no line of this page, which rendered no text.',
-    });
-  });
-});
-
-describe('buildWebImageResult', () => {
-  const IMAGE_URL = 'https://example.test/shot.png';
-  const FINAL_URL = 'https://cdn.example.test/shot.png';
-  const decoded = {
-    status: 'success',
-    mediaType: 'image/png',
-    width: 4,
-    height: 3,
-    thumbnail: 'data:image/webp;base64,AAAA',
-  } as const;
-
-  it('returns the decoded image with the web envelope and no notes', () => {
-    const result = buildWebImageResult(
-      { url: IMAGE_URL },
-      FINAL_URL,
-      decoded,
-      [],
-    );
-
-    expect(result).toStrictEqual({
-      ...decoded,
-      kind: 'image',
-      path: IMAGE_URL,
-      finalUrl: FINAL_URL,
-      method: 'image',
-    });
-  });
-
-  it('carries the adapter notes the read collected', () => {
-    const notes = ['The reader adapter declined this page.'];
-    const result = buildWebImageResult(
-      { url: IMAGE_URL },
-      FINAL_URL,
-      decoded,
-      notes,
-    );
-
-    expect(result).toStrictEqual({
-      ...decoded,
-      kind: 'image',
-      path: IMAGE_URL,
-      finalUrl: FINAL_URL,
-      method: 'image',
-      notes,
     });
   });
 });

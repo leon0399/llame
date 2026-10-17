@@ -1,0 +1,28 @@
+diff --git a/dist/chunks/coverage.DM_a_rWm.js b/dist/chunks/coverage.DM_a_rWm.js
+index 0e039440d46cadf3057f1937c0552670a7ec1b53..c61dab65cbe179c4cad1f709170c29d3a9209bb2 100644
+--- a/dist/chunks/coverage.DM_a_rWm.js
++++ b/dist/chunks/coverage.DM_a_rWm.js
+@@ -681,16 +681,20 @@ Update your dependencies and make sure the versions match.`));
+ 		return included;
+ 	}
+ 	async getUntestedFilesByRoot(testedFiles, include, root) {
++		const tested = new Set(testedFiles.map((file) => slash(file)));
+ 		let includedFiles = await glob(include, {
+ 			cwd: root,
+-			ignore: [...this.options.exclude, ...testedFiles.map((file) => slash(file))],
++			ignore: this.options.exclude,
+ 			absolute: true,
+ 			dot: true,
+ 			onlyFiles: true
+ 		});
+ 		// Run again through picomatch as tinyglobby's exclude pattern is different ({ "exclude": ["math"] } should ignore "src/math.ts")
+-		includedFiles = includedFiles.filter((file) => this.isIncluded(file, root));
+-		if (this.changedFiles) includedFiles = this.changedFiles.filter((file) => includedFiles.includes(file));
++		includedFiles = includedFiles.filter((file) => !tested.has(file) && this.isIncluded(file, root));
++		if (this.changedFiles) {
++			const included = new Set(includedFiles);
++			includedFiles = this.changedFiles.filter((file) => included.has(file));
++		}
+ 		return includedFiles.map((file) => slash(path.resolve(root, file)));
+ 	}
+ 	async getUntestedFiles(testedFiles) {

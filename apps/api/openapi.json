@@ -991,7 +991,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MediaDescriptorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MediaPdfDescriptorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -1001,7 +1008,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MediaDescriptorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MediaPdfDescriptorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -1066,7 +1080,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MediaDescriptorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MediaPdfDescriptorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -1128,6 +1149,12 @@
                 }
               },
               "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/pdf": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -2386,6 +2413,9 @@
           "401": {
             "description": ""
           },
+          "403": {
+            "description": "Caller lacks admin-tier on the path of the parent unit"
+          },
           "404": {
             "description": "Parent unit not found / not visible"
           },
@@ -2493,13 +2523,13 @@
             "description": ""
           },
           "403": {
-            "description": "Caller lacks the admin-tier this update requires"
+            "description": "Caller lacks the admin-tier this update requires, or is not an owner of the source tree root, which moving a unit out of its tree requires"
           },
           "404": {
             "description": "Org unit (or the target parentId) not found / not visible"
           },
           "409": {
-            "description": "Org tree changed concurrently — retry",
+            "description": "Org tree changed concurrently — retry; or a unit promoted to root would have no owner",
             "content": {
               "application/json": {
                 "schema": {
@@ -3613,6 +3643,36 @@
           "model"
         ]
       },
+      "MediaPdfDescriptorResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locator": {
+            "type": "string",
+            "example": "media://01920000-0000-7000-8000-000000000000"
+          },
+          "mediaType": {
+            "type": "string",
+            "enum": ["application/pdf"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Single-line source label"
+          },
+          "byteSize": {
+            "type": "number"
+          },
+          "pages": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": ["id", "locator", "mediaType", "name", "byteSize", "pages"]
+      },
       "MediaTooLargeErrorResponse": {
         "type": "object",
         "properties": {
@@ -3627,7 +3687,7 @@
           },
           "code": {
             "type": "string",
-            "enum": ["image_too_large"]
+            "enum": ["media_too_large"]
           }
         },
         "required": ["statusCode", "error", "message", "code"]
@@ -3741,7 +3801,7 @@
             "description": "Input modalities this model accepts, in the operator-declared order. Always present and always contains `text`; `[\"text\"]` when the operator declared none. Never inferred from the model id or provider.",
             "items": {
               "type": "string",
-              "enum": ["text", "image"]
+              "enum": ["text", "image", "pdf"]
             }
           },
           "pricingUsdPer1M": {
@@ -4223,6 +4283,10 @@
           "name": {
             "type": "string"
           },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -4241,6 +4305,7 @@
           "id",
           "ownerUserId",
           "name",
+          "description",
           "createdAt",
           "updatedAt",
           "archivedAt"
@@ -4253,6 +4318,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true,
+            "description": "What this project is for. Pass null to clear it; omit to leave unchanged."
           },
           "archived": {
             "type": "boolean",

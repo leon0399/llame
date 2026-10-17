@@ -23,11 +23,10 @@ import type {
   ProviderMetadata,
 } from 'ai';
 
-import { userImagePart } from '../media/epoch-admission';
 import { storedFilePartSchema } from '../media/media-descriptors';
 import { parseMediaLocator } from '../media/media-locator';
 import { isContextItemPart, type ContextItemPart } from './context-item';
-import { promptImportImageRefs } from './prompt-imports-item';
+import { promptImportMediaParts } from './prompt-imports-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
@@ -37,6 +36,12 @@ import {
 } from './tool-observation-part';
 
 export { projectToolObservations };
+/**
+ * `ModelMessage` is now the SDK's own type, re-exported above. Content can
+ * carry text, tool-call parts (assistant), and tool-result parts (tool role),
+ * so tool observations survive into later turns in the conventional
+ * representation.
+ */
 export type { ModelMessage };
 
 /** AI SDK v5 UIMessage part shape (text part — the common case). */
@@ -135,13 +140,6 @@ export interface StoredMessage {
 }
 
 /**
- * `ModelMessage` is now the SDK's own type, re-exported above. Content can
- * carry text, tool-call parts (assistant), and tool-result parts (tool role),
- * so tool observations survive into later turns in the conventional
- * representation.
- */
-
-/**
  * A persisted checkpoint selected for replay. The text is read from the
  * checkpoint row once, then emitted literally; replay never re-renders it.
  */
@@ -215,10 +213,7 @@ export function userPartsToModelContent(
     if (isContextItemPart(part)) {
       const text = part.data.text;
       if (text !== undefined && text.length > 0) {
-        content.push(
-          { type: 'text', text },
-          ...promptImportImageRefs(part).map(userImagePart),
-        );
+        content.push({ type: 'text', text }, ...promptImportMediaParts(part));
       }
       afterLastItem = content.length;
       continue;

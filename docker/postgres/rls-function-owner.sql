@@ -78,3 +78,11 @@ GRANT EXECUTE ON FUNCTION llame_search_projection_stale_chats_v2(integer, intege
 -- are implicit and the migration's explicit grant must remain durable.
 ALTER FUNCTION llame_search_projection_coverage_v2(integer) OWNER TO app_rls;
 GRANT EXECUTE ON FUNCTION llame_search_projection_coverage_v2(integer) TO app;
+-- Owner bootstrap (#1258): the `memberships_insert` freshness check must run
+-- AS app_rls (BYPASSRLS) to see a root's memberships that the caller cannot
+-- (a departed creator). It returns only a boolean, and only for the caller's
+-- own root. It fails closed (false) until this reassignment runs, which also
+-- blocks root bootstrap. Re-grant EXECUTE after the transfer, as above.
+-- Idempotent; safe to re-run on every migrate.
+ALTER FUNCTION llame_org_unit_is_fresh_root(uuid) OWNER TO app_rls;
+GRANT EXECUTE ON FUNCTION llame_org_unit_is_fresh_root(uuid) TO app;

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AtSignIcon } from "lucide-react";
 
-import { ImageThumbnail } from "@workspace/ui/components/custom/image-thumbnail";
+import { MediaThumbnail } from "@workspace/ui/components/custom/media-thumbnail";
 import {
   ImageDimensionsTile,
   type MediaImageSize,
@@ -29,13 +29,15 @@ type ImportedImage = {
   slide: MediaLightboxSlide;
 };
 
-/** An imported image's thumbnail and lightbox slide, or `null` when it has
- *  no thumbnail: a stored image opens its original, captioned with its
+/** An imported image's thumbnail and lightbox slide, or `null` when the
+ *  entry is not one: a stored image opens its original, captioned with its
  *  `media://` locator; an unstored one opens its inline thumbnail, captioned
  *  with the original's size and the locator as written. */
 function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
+  // PDFs have document tiles, never image variants or lightbox slides.
+  if ("kind" in entry) return null;
   const alt = entry.locator;
-  if (entry.media !== undefined) {
+  if ("media" in entry) {
     const sources = storedImageSources(entry.media);
     if (sources === null) return null;
     const caption = mediaCaption(entry.media);
@@ -44,7 +46,7 @@ function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
       slide: { key, src: sources.original, alt, caption },
     };
   }
-  if (entry.thumbnail === undefined) return null;
+  if (!("thumbnail" in entry) || entry.thumbnail === undefined) return null;
   const caption = mediaCaption(entry.locator, entry);
   return {
     thumbnail: { src: entry.thumbnail, alt },
@@ -52,24 +54,37 @@ function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
   };
 }
 
-/** One tile under the chips: an image with its thumbnail, or only its size. */
+/** One imported image preview, image dimensions tile, or PDF document tile. */
 type ImportedTile =
   | { key: string; image: ImportedImage }
+  | { key: string; pdf: { name: string; href?: string } }
   | { key: string; size: MediaImageSize };
 
-/** An import's tile, or `null` for an entry that is not an image. */
+/** An import's tile, or `null` for an entry that has none. */
 function importedTile(entry: ImportEntry, key: string): ImportedTile | null {
+  if ("kind" in entry) {
+    return {
+      key,
+      pdf: {
+        name: entry.locator,
+        href:
+          entry.media === undefined
+            ? undefined
+            : storedImageSources(entry.media)?.original,
+      },
+    };
+  }
   const image = importedImage(entry, key);
   if (image !== null) return { key, image };
-  if (entry.width === undefined) return null;
+  if (!("width" in entry)) return null;
   const { width, height, mediaType } = entry;
   return { key, size: { width, height, mediaType } };
 }
 
-/** The imported images under the chips, in entry order, opening a lightbox
- *  over this chip's images; an unstored image without a thumbnail shows only
- *  its size. */
-function ImportedImages({ imports }: Pick<PromptImportsPayload, "imports">) {
+/** Imported media in entry order. Only images enter the lightbox; an
+ *  unstored image without a thumbnail shows its dimensions, and an unstored
+ *  PDF remains a static document tile. */
+function ImportedMedia({ imports }: Pick<PromptImportsPayload, "imports">) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const tiles = imports.flatMap(
     (entry, index) => importedTile(entry, String(index)) ?? [],
@@ -80,19 +95,20 @@ function ImportedImages({ imports }: Pick<PromptImportsPayload, "imports">) {
       <ul
         // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- WebKit drops the list role from a `list-style: none` list.
         role="list"
-        aria-label="Imported images"
+        aria-label="Imported media"
         className="my-1 flex flex-wrap gap-2"
       >
         {tiles.map((tile) => (
           <li key={tile.key}>
-            {"image" in tile ? (
-              <ImageThumbnail
+            {"image" in tile && (
+              <MediaThumbnail
+                kind="image"
                 {...tile.image.thumbnail}
                 onOpen={() => setOpenKey(tile.key)}
               />
-            ) : (
-              <ImageDimensionsTile {...tile.size} />
             )}
+            {"pdf" in tile && <MediaThumbnail kind="pdf" {...tile.pdf} />}
+            {"size" in tile && <ImageDimensionsTile {...tile.size} />}
           </li>
         ))}
       </ul>
@@ -111,14 +127,14 @@ function ImportedImages({ imports }: Pick<PromptImportsPayload, "imports">) {
  * The owner-facing chip for a `prompt-imports` context item: each import marker
  * a user prompt carried, marked when the result was truncated, denied by the
  * `read` permission group, failed to read, or omitted past a bound. An
- * imported image also shows its thumbnail, which opens a lightbox over the
- * chip's images. The
+ * imported image opens the chip's image lightbox. A stored PDF opens its
+ * original in a new tab, while an unstored PDF remains a static tile. The
  * model text names denied, failed, and omitted targets only as not imported;
  * the outcomes and resolved paths shown here are owner-only and never reach a
  * public share. It renders at the top of the triggering user turn, live and
  * reloaded alike.
  *
- * @summary owner chip for imported, truncated, denied, failed, and omitted prompt files and images
+ * @summary owner chip for imported, truncated, denied, failed, and omitted prompt files, images, and PDFs
  */
 export function PromptImportsPart(payload: PromptImportsPayload) {
   return (
@@ -126,7 +142,9 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
       <ContextChipGroup icon={<AtSignIcon />} label="Imports">
         {payload.imports.map((entry) => {
           const state: ContextFileState =
-            entry.outcome === "imported" && entry.truncated
+            entry.outcome === "imported" &&
+            "truncated" in entry &&
+            entry.truncated
               ? "truncated"
               : entry.outcome;
           const detail =
@@ -153,7 +171,7 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
           />
         ))}
       </ContextChipGroup>
-      <ImportedImages imports={payload.imports} />
+      <ImportedMedia imports={payload.imports} />
     </>
   );
 }

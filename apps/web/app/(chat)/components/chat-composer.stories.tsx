@@ -1,7 +1,11 @@
-import { type ComponentProps, type ReactNode, useEffect } from "react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, screen, waitFor, within } from "storybook/test";
-import { vi } from "vitest";
+import { expect, fn, mocked, screen, waitFor, within } from "storybook/test";
 
 import { Toaster } from "@workspace/ui/components/sonner";
 
@@ -16,13 +20,15 @@ import {
   useComposerAttachments,
 } from "./use-composer-attachments";
 
-const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
+const useModelsQuery = mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
-const uploadImage = vi.mocked(uploads.uploadImage);
+const uploadAttachment = mocked(uploads.uploadAttachment);
 
 const TEXT_MODEL_ID = "system:openai:model-one";
 const VISION_MODEL_ID = "system:openai:vision-one";
+const PDF_MODEL_ID = "system:openai:pdf-one";
+const OMNI_MODEL_ID = "system:openai:omni-one";
 
 const CATALOG = {
   defaultModelId: TEXT_MODEL_ID,
@@ -41,6 +47,20 @@ const CATALOG = {
       contextWindowTokens: 128_000,
       input: ["text", "image"],
     },
+    {
+      id: PDF_MODEL_ID,
+      source: "system",
+      name: "PDF One",
+      contextWindowTokens: 128_000,
+      input: ["text", "pdf"],
+    },
+    {
+      id: OMNI_MODEL_ID,
+      source: "system",
+      name: "Omni One",
+      contextWindowTokens: 128_000,
+      input: ["text", "image", "pdf"],
+    },
   ],
 } satisfies { defaultModelId: string; models: Array<AvailableModel> };
 
@@ -52,6 +72,7 @@ const NO_ATTACHMENTS: ComposerAttachments = {
   retry: fn(),
   clear: fn(),
   restore: fn(),
+  accept: "image/png,image/jpeg,image/gif,image/webp",
   attachDisabled: false,
   blockReason: null,
   sendBlocked: false,
@@ -69,6 +90,11 @@ function pngFile(name: string): File {
   return new File([PNG_BYTES], name, { type: "image/png" });
 }
 
+/** A PDF file; the upload is mocked, so its bytes are never parsed. */
+function pdfFile(name: string): File {
+  return new File(["%PDF-1.4"], name, { type: "application/pdf" });
+}
+
 function descriptorFor(file: File): MediaDescriptor {
   return {
     id: "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
@@ -79,6 +105,20 @@ function descriptorFor(file: File): MediaDescriptor {
     height: 1,
     byteSize: file.size,
     model: { mediaType: "image/png", width: 1, height: 1, byteSize: file.size },
+  };
+}
+
+/** The media id every mocked PDF upload resolves under. */
+const PDF_MEDIA_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7b8b";
+
+function pdfDescriptorFor(file: File): MediaDescriptor {
+  return {
+    id: PDF_MEDIA_ID,
+    locator: `media://${PDF_MEDIA_ID}`,
+    mediaType: "application/pdf",
+    name: file.name,
+    byteSize: file.size,
+    pages: 3,
   };
 }
 
@@ -144,6 +184,7 @@ const meta = {
       <ChatProvider>
         <div className="w-full max-w-3xl">
           <Story />
+          <Toaster />
         </div>
       </ChatProvider>
     ),
@@ -211,10 +252,15 @@ export const ControlStates: Story = {
 
 const PLACEHOLDER = "What would you like to know?";
 
-/** Uploads that resolve immediately with a descriptor for the file. */
+/** Uploads that resolve immediately with a descriptor for the file: an image
+ *  descriptor for an image, a PDF descriptor for a PDF. */
 function resolveUploads() {
-  uploadImage.mockImplementation((file: File) =>
-    Promise.resolve(descriptorFor(file)),
+  uploadAttachment.mockImplementation((file: File) =>
+    Promise.resolve(
+      file.type === "application/pdf"
+        ? pdfDescriptorFor(file)
+        : descriptorFor(file),
+    ),
   );
 }
 
@@ -232,7 +278,7 @@ let resolveHeldUpload: (descriptor: MediaDescriptor) => void = () => {};
 export const PastedImageUploadsBeforeSend: Story = {
   tags: ["ai-generated"],
   beforeEach: () => {
-    uploadImage.mockImplementation(
+    uploadAttachment.mockImplementation(
       () =>
         new Promise<MediaDescriptor>((resolve) => {
           resolveHeldUpload = resolve;
@@ -252,11 +298,11 @@ export const PastedImageUploadsBeforeSend: Story = {
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
     await userEvent.paste(filesTransfer([file]));
 
-    const list = await canvas.findByRole("list", { name: "Attached images" });
+    const list = await canvas.findByRole("list", { name: "Attachments" });
     await expect(
       within(list).getByRole("img", { name: "shot.png" }),
     ).toBeVisible();
-    await expect(uploadImage).toHaveBeenCalledWith(file);
+    await expect(uploadAttachment).toHaveBeenCalledWith(file);
     await expect(
       within(list).getByRole("status", { name: "Uploading" }),
     ).toBeInTheDocument();
@@ -281,7 +327,7 @@ export const FailedUploadRetries: Story = {
   tags: ["ai-generated"],
   beforeEach: () => {
     resolveUploads();
-    uploadImage.mockRejectedValueOnce(
+    uploadAttachment.mockRejectedValueOnce(
       new Error("POST /api/v1/media failed (413)"),
     );
   },
@@ -296,8 +342,8 @@ export const FailedUploadRetries: Story = {
     await expect(send).toBeDisabled();
 
     await userEvent.click(canvas.getByRole("button", { name: "Retry upload" }));
-    await expect(uploadImage).toHaveBeenCalledTimes(2);
-    await expect(uploadImage).toHaveBeenNthCalledWith(2, file);
+    await expect(uploadAttachment).toHaveBeenCalledTimes(2);
+    await expect(uploadAttachment).toHaveBeenNthCalledWith(2, file);
     await waitFor(() => expect(send).toBeEnabled());
     await expect(canvas.queryByText("Upload failed")).toBeNull();
   },
@@ -329,7 +375,7 @@ export const PickerAndDropAttach: Story = {
       new File(["notes"], "notes.txt", { type: "text/plain" }),
     ]);
 
-    const list = await canvas.findByRole("list", { name: "Attached images" });
+    const list = await canvas.findByRole("list", { name: "Attachments" });
     await waitFor(() =>
       expect(
         within(list)
@@ -337,7 +383,7 @@ export const PickerAndDropAttach: Story = {
           .map((image) => image.getAttribute("alt")),
       ).toEqual(["picked.png", "dropped.png"]),
     );
-    await expect(uploadImage).toHaveBeenCalledTimes(2);
+    await expect(uploadAttachment).toHaveBeenCalledTimes(2);
   },
 };
 
@@ -357,7 +403,7 @@ export const EleventhImageIgnored: Story = {
       pngFile(`image-${index + 1}.png`),
     );
     dropFiles(form!, ten);
-    const list = await canvas.findByRole("list", { name: "Attached images" });
+    const list = await canvas.findByRole("list", { name: "Attachments" });
     await waitFor(() =>
       expect(within(list).getAllByRole("listitem")).toHaveLength(10),
     );
@@ -366,10 +412,277 @@ export const EleventhImageIgnored: Story = {
     // Let any render the drop would have scheduled land before asserting.
     await new Promise((resolve) => setTimeout(resolve, 0));
     await expect(within(list).getAllByRole("listitem")).toHaveLength(10);
-    await expect(uploadImage).toHaveBeenCalledTimes(10);
+    await expect(uploadAttachment).toHaveBeenCalledTimes(10);
     await expect(
       canvas.queryByRole("img", { name: "image-11.png" }),
     ).toBeNull();
+  },
+};
+
+/**
+ * With a PDF-declaring model selected, the picker accepts PDFs and a picked,
+ * pasted, or dropped PDF attaches: while its upload runs the tile shows the
+ * name and no link, and once it succeeds the tile links its stored
+ * `/original` in a new tab. No image node renders for a PDF, and the attached
+ * PDFs are sendable.
+ *
+ * @summary a PDF attaches from the picker, paste, and drop
+ */
+export const PdfAttachesFromPickerPasteAndDrop: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    resolveUploads();
+    uploadAttachment.mockImplementationOnce(
+      () =>
+        new Promise<MediaDescriptor>((resolve) => {
+          resolveHeldUpload = resolve;
+        }),
+    );
+  },
+  args: {
+    onSubmit: fn((event: React.FormEvent<HTMLFormElement>) =>
+      event.preventDefault(),
+    ),
+  },
+  render: attachingStory(PDF_MODEL_ID),
+  play: async ({ args, canvas, canvasElement, userEvent }) => {
+    const picker =
+      canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+    await expect(picker).toHaveAttribute("accept", "application/pdf");
+    await userEvent.upload(picker!, pdfFile("picked.pdf"));
+
+    const list = await canvas.findByRole("list", { name: "Attachments" });
+    await expect(within(list).getByText("picked.pdf")).toBeVisible();
+    await expect(
+      within(list).getByRole("status", { name: "Uploading" }),
+    ).toBeInTheDocument();
+    await expect(within(list).queryByRole("link")).toBeNull();
+
+    resolveHeldUpload(pdfDescriptorFor(pdfFile("picked.pdf")));
+    const link = await within(list).findByRole("link", {
+      name: "Open picked.pdf in a new tab",
+    });
+    await expect(link).toHaveAttribute(
+      "href",
+      expect.stringMatching(
+        new RegExp(`/api/v1/media/${PDF_MEDIA_ID}/original$`),
+      ),
+    );
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(filesTransfer([pdfFile("pasted.pdf")]));
+    const form = canvas.getByPlaceholderText(PLACEHOLDER).closest("form");
+    dropFiles(form!, [pdfFile("dropped.pdf")]);
+
+    await waitFor(() =>
+      expect(within(list).getAllByRole("listitem")).toHaveLength(3),
+    );
+    await expect(within(list).queryByRole("img")).toBeNull();
+    await expect(uploadAttachment).toHaveBeenCalledTimes(3);
+    await expect(screen.queryByRole("dialog")).toBeNull();
+
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+    await userEvent.click(send);
+    await expect(args.onSubmit).toHaveBeenCalledOnce();
+  },
+};
+
+/**
+ * With a model that declares image but not pdf selected, a pasted PDF is
+ * refused with a toast naming the model: no tile and no upload; an image in
+ * the same drop still attaches.
+ *
+ * @summary a model without pdf input refuses PDFs with a toast
+ */
+export const UnsupportedPdfRefusedByToast: Story = {
+  tags: ["ai-generated"],
+  beforeEach: resolveUploads,
+  render: attachingStory(VISION_MODEL_ID),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(filesTransfer([pdfFile("notes.pdf")]));
+
+    const shown = await canvas.findAllByText("Vision One has no pdf input");
+    await expect(shown).toHaveLength(1);
+    await expect(shown[0]!.closest("[data-sonner-toast]")).not.toBeNull();
+    await expect(
+      canvas.queryByRole("list", { name: "Attachments" }),
+    ).toBeNull();
+    await expect(uploadAttachment).not.toHaveBeenCalled();
+
+    const form = canvas.getByPlaceholderText(PLACEHOLDER).closest("form");
+    dropFiles(form!, [pdfFile("again.pdf"), pngFile("shot.png")]);
+    const list = await canvas.findByRole("list", { name: "Attachments" });
+    await waitFor(() =>
+      expect(within(list).getAllByRole("listitem")).toHaveLength(1),
+    );
+    await expect(
+      within(list).getByRole("img", { name: "shot.png" }),
+    ).toBeVisible();
+    await expect(uploadAttachment).toHaveBeenCalledOnce();
+  },
+};
+
+/**
+ * Until the catalog publishes its PDF input, a selected model cannot admit PDFs.
+ * @summary a loading catalog cannot grant PDF input
+ */
+export const UndeclaredModelRefusesPdf: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    resolveUploads();
+    useModelsQuery.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isPending: true,
+    });
+  },
+  render: attachingStory(PDF_MODEL_ID),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(filesTransfer([pdfFile("notes.pdf")]));
+    await waitFor(() =>
+      expect(canvas.getByText("Selected model has no pdf input")).toBeVisible(),
+    );
+    await expect(
+      canvas.queryByRole("list", { name: "Attachments" }),
+    ).toBeNull();
+  },
+};
+
+/**
+ * With a PDF-only model selected, the picker accepts PDFs only and a pasted
+ * image is refused with a toast naming the model, while a pasted PDF attaches.
+ *
+ * @summary a model without image input refuses images with a toast
+ */
+export const PdfOnlyModelRefusesImage: Story = {
+  tags: ["ai-generated"],
+  beforeEach: resolveUploads,
+  render: attachingStory(PDF_MODEL_ID),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const picker =
+      canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+    await expect(picker).toHaveAttribute("accept", "application/pdf");
+    await expect(
+      canvas.getByRole("button", { name: "Attach files" }),
+    ).toBeEnabled();
+
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(filesTransfer([pngFile("shot.png")]));
+
+    const shown = await canvas.findAllByText("PDF One has no image input");
+    await expect(shown).toHaveLength(1);
+    await expect(shown[0]!.closest("[data-sonner-toast]")).not.toBeNull();
+    await expect(
+      canvas.queryByRole("list", { name: "Attachments" }),
+    ).toBeNull();
+
+    await userEvent.paste(filesTransfer([pdfFile("doc.pdf")]));
+    const list = await canvas.findByRole("list", { name: "Attachments" });
+    await waitFor(() =>
+      expect(within(list).getAllByRole("listitem")).toHaveLength(1),
+    );
+    await expect(uploadAttachment).toHaveBeenCalledOnce();
+  },
+};
+
+/**
+ * Switching from a PDF-declaring model to one without pdf keeps the attached
+ * PDF's tile but disables send with an inline reason; switching back enables
+ * it again.
+ *
+ * @summary a model without pdf input blocks sending an attached PDF
+ */
+export const SwitchingAwayFromPdfBlocksSend: Story = {
+  tags: ["ai-generated"],
+  // Base UI's portalled model picker leaves aria-hidden focus guards that
+  // axe's aria-hidden-focus rule misreads (as in project-item.stories.tsx).
+  parameters: {
+    a11y: {
+      config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
+    },
+  },
+  beforeEach: resolveUploads,
+  render: attachingStory(OMNI_MODEL_ID),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(filesTransfer([pdfFile("doc.pdf")]));
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+
+    await chooseModel(canvas, userEvent, /Vision One/);
+    await expect(
+      await canvas.findByText("Vision One has no pdf input"),
+    ).toBeVisible();
+    await expect(send).toBeDisabled();
+    await expect(
+      canvas.getByRole("button", { name: "Attach files" }),
+    ).toBeEnabled();
+    await expect(
+      within(canvas.getByRole("list", { name: "Attachments" })).getAllByRole(
+        "listitem",
+      ),
+    ).toHaveLength(1);
+
+    await chooseModel(canvas, userEvent, /Omni One/);
+    await waitFor(() => expect(send).toBeEnabled());
+    await expect(canvas.queryByText("Vision One has no pdf input")).toBeNull();
+  },
+};
+
+/**
+ * The 10-attachment cap counts images and PDFs together, in add order: twelve
+ * mixed files keep their first ten, alternating image and PDF, and upload
+ * exactly those.
+ *
+ * @summary images and PDFs share the ten-attachment cap
+ */
+export const MixedAttachmentsShareTheCap: Story = {
+  tags: ["ai-generated"],
+  beforeEach: resolveUploads,
+  render: attachingStory(OMNI_MODEL_ID),
+  play: async ({ canvas }) => {
+    const form = canvas.getByPlaceholderText(PLACEHOLDER).closest("form");
+    dropFiles(
+      form!,
+      Array.from({ length: 6 }, (_, index) => [
+        pngFile(`image-${index * 2 + 1}.png`),
+        pdfFile(`doc-${index * 2 + 2}.pdf`),
+      ]).flat(),
+    );
+    const list = await canvas.findByRole("list", { name: "Attachments" });
+    await waitFor(() =>
+      expect(within(list).getAllByRole("listitem")).toHaveLength(10),
+    );
+
+    const order = within(list)
+      .getAllByRole("listitem")
+      .map(
+        (item) =>
+          item.querySelector("img")?.getAttribute("alt") ??
+          item.querySelector("span")?.textContent,
+      );
+    await expect(order).toEqual([
+      "image-1.png",
+      "doc-2.pdf",
+      "image-3.png",
+      "doc-4.pdf",
+      "image-5.png",
+      "doc-6.pdf",
+      "image-7.png",
+      "doc-8.pdf",
+      "image-9.png",
+      "doc-10.pdf",
+    ]);
+    await expect(uploadAttachment).toHaveBeenCalledTimes(10);
+    await expect(
+      canvas.queryByRole("img", { name: "image-11.png" }),
+    ).toBeNull();
+    await expect(canvas.queryByText("doc-12.pdf")).toBeNull();
   },
 };
 
@@ -382,20 +695,12 @@ export const EleventhImageIgnored: Story = {
  */
 export const TextOnlyModelRefusesAttach: Story = {
   tags: ["ai-generated"],
-  decorators: [
-    (Story) => (
-      <>
-        <Story />
-        <Toaster />
-      </>
-    ),
-  ],
   beforeEach: resolveUploads,
   render: attachingStory(TEXT_MODEL_ID),
   play: async ({ canvas, userEvent }) => {
     await waitFor(() =>
       expect(
-        canvas.getByRole("button", { name: "Attach images" }),
+        canvas.getByRole("button", { name: "Attach files" }),
       ).toBeDisabled(),
     );
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
@@ -405,9 +710,9 @@ export const TextOnlyModelRefusesAttach: Story = {
     await expect(shown).toHaveLength(1);
     await expect(shown[0]!.closest("[data-sonner-toast]")).not.toBeNull();
     await expect(
-      canvas.queryByRole("list", { name: "Attached images" }),
+      canvas.queryByRole("list", { name: "Attachments" }),
     ).toBeNull();
-    await expect(uploadImage).not.toHaveBeenCalled();
+    await expect(uploadAttachment).not.toHaveBeenCalled();
   },
 };
 
@@ -451,9 +756,9 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
     ).toBeVisible();
     await expect(send).toBeDisabled();
     await expect(
-      canvas.getByRole("button", { name: "Attach images" }),
+      canvas.getByRole("button", { name: "Attach files" }),
     ).toBeDisabled();
-    const list = canvas.getByRole("list", { name: "Attached images" });
+    const list = canvas.getByRole("list", { name: "Attachments" });
     await expect(
       within(list)
         .getAllByRole("img")
@@ -463,7 +768,7 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
     await chooseModel(canvas, userEvent, /Vision One/);
     await waitFor(() => expect(send).toBeEnabled());
     await expect(
-      canvas.getByRole("button", { name: "Attach images" }),
+      canvas.getByRole("button", { name: "Attach files" }),
     ).toBeEnabled();
     await expect(canvas.queryByText("Model One has no image input")).toBeNull();
   },
@@ -492,7 +797,7 @@ function storedDescriptor(file: File): MediaDescriptor {
 export const ComposerThumbnailOpensLightbox: Story = {
   tags: ["ai-generated"],
   beforeEach: () => {
-    uploadImage.mockImplementation((file: File) =>
+    uploadAttachment.mockImplementation((file: File) =>
       file.name === "a.png"
         ? Promise.resolve(storedDescriptor(file))
         : new Promise<MediaDescriptor>((resolve) => {
@@ -504,7 +809,7 @@ export const ComposerThumbnailOpensLightbox: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
     await userEvent.paste(filesTransfer([pngFile("a.png"), pngFile("b.png")]));
-    const list = await canvas.findByRole("list", { name: "Attached images" });
+    const list = await canvas.findByRole("list", { name: "Attachments" });
     await userEvent.click(within(list).getByRole("img", { name: "b.png" }));
     await expect(screen.queryByRole("dialog")).toBeNull();
 
@@ -544,5 +849,96 @@ export const ComposerThumbnailOpensLightbox: Story = {
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(opener).toHaveFocus());
+  },
+};
+
+/** A prompt far taller than the composer's `maxHeight`, ending in a short
+ *  line so one more character at the end wraps nothing. */
+const LONG_PROMPT = [
+  ...Array.from({ length: 20 }, (_, index) => `Prompt line ${index + 1}`),
+  "tail",
+].join("\n");
+
+/** The composer over its own input state, as the chat page wires it, so a
+ *  keystroke drives the same controlled re-render. */
+function TypingComposer({
+  initialInput,
+  ...args
+}: ComponentProps<typeof ChatComposer> & { initialInput: string }) {
+  const [input, setInput] = useState(initialInput);
+  return <ChatComposer {...args} input={input} onInputChange={setInput} />;
+}
+
+/**
+ * A prompt taller than the composer scrolls; typing at its end keeps the
+ * textarea where it was scrolled, instead of jumping back to the top.
+ *
+ * @summary a long prompt keeps its scroll position while typing
+ */
+export const LongPromptKeepsItsScrollPosition: Story = {
+  tags: ["ai-generated"],
+  render: (args) => <TypingComposer {...args} initialInput={LONG_PROMPT} />,
+  play: async ({ canvasElement, userEvent }) => {
+    const textarea =
+      within(canvasElement).getByRole<HTMLTextAreaElement>("textbox");
+    // The offset only exists once the value overflows the maxHeight clamp.
+    await waitFor(() =>
+      expect(textarea.scrollHeight).toBeGreaterThan(textarea.clientHeight),
+    );
+
+    textarea.scrollTop = textarea.scrollHeight;
+    const scrolled = textarea.scrollTop;
+    await expect(scrolled).toBeGreaterThan(0);
+
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    await userEvent.keyboard("x");
+    // The hook resizes on the frame after `input`; measuring before that
+    // frame reads the pre-resize offset and would assert nothing.
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
+    await expect(textarea).toHaveValue(`${LONG_PROMPT}x`);
+    await expect(textarea.scrollTop).toBe(scrolled);
+  },
+};
+
+/**
+ * With an image and a PDF attached, opening the uploaded image shows a
+ * lightbox over the composer's images only: the PDF is not a slide, so the
+ * single-image dialog offers no previous or next step.
+ *
+ * @summary a PDF is never an image lightbox slide
+ */
+export const PdfExcludedFromImageSlides: Story = {
+  tags: ["ai-generated"],
+  beforeEach: resolveUploads,
+  render: attachingStory(OMNI_MODEL_ID),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(
+      filesTransfer([pngFile("a.png"), pdfFile("doc.pdf")]),
+    );
+    const list = await canvas.findByRole("list", { name: "Attachments" });
+    await waitFor(() =>
+      expect(within(list).getAllByRole("listitem")).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(within(list).queryAllByRole("status")).toEqual([]),
+    );
+
+    await userEvent.click(within(list).getByRole("img", { name: "a.png" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toBeVisible());
+    await expect(within(dialog).getAllByRole("img")).toHaveLength(1);
+    await expect(
+      within(dialog).queryByRole("button", { name: "Next image" }),
+    ).toBeNull();
+    await expect(
+      within(dialog).queryByRole("button", { name: "Previous image" }),
+    ).toBeNull();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   },
 };

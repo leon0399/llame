@@ -88,6 +88,9 @@ describe("parseTurnUsage", () => {
           reasoningTokens: 5,
           modelId: "system:openai:gpt-4o-mini",
           latencyMs: 900,
+          firstTokenMs: 320,
+          chunkCount: 1180,
+          tokensPerSecond: 62.5,
           costUsd: 0.0001,
           status: "completed",
           complete: true,
@@ -103,6 +106,9 @@ describe("parseTurnUsage", () => {
       reasoningTokens: 5,
       modelId: "system:openai:gpt-4o-mini",
       latencyMs: 900,
+      firstTokenMs: 320,
+      chunkCount: 1180,
+      tokensPerSecond: 62.5,
       costUsd: 0.0001,
       status: "completed",
       complete: true,
@@ -157,6 +163,19 @@ describe("parseTurnUsage", () => {
     });
     expect(parsed?.totalTokens).toBeUndefined();
     expect(parsed?.outputTokens).toBe(5);
+  });
+
+  it("drops non-numeric stream performance fields", () => {
+    const parsed = parseTurnUsage({
+      usage: {
+        firstTokenMs: "fast",
+        chunkCount: null,
+        tokensPerSecond: "40",
+      },
+    });
+    expect(parsed?.firstTokenMs).toBeUndefined();
+    expect(parsed?.chunkCount).toBeUndefined();
+    expect(parsed?.tokensPerSecond).toBeUndefined();
   });
 });
 
@@ -306,8 +325,88 @@ describe("buildUsageLine", () => {
     const result = line({ modelId: "system:openai:gpt-4o", latencyMs: 1500 });
     expect(result?.sections).toContainEqual({
       header: "Performance",
-      rows: [{ label: "Total", value: "1.50s" }],
+      rows: [
+        { label: "Total", value: "1.50s" },
+        { label: "First token", value: "—" },
+        { label: "Speed", value: "—" },
+        { label: "Chunks", value: "—" },
+      ],
     });
+  });
+
+  it("shows the captured first-token time, throughput, and chunk count", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      latencyMs: 4820,
+      firstTokenMs: 640,
+      tokensPerSecond: 62.7,
+      chunkCount: 312,
+    });
+    expect(result?.sections).toContainEqual({
+      header: "Performance",
+      rows: [
+        { label: "Total", value: "4.82s" },
+        { label: "First token", value: "640ms" },
+        { label: "Speed", value: "62.7 tok/s" },
+        { label: "Chunks", value: "312" },
+      ],
+    });
+  });
+
+  it("keeps a sub-unit throughput visible instead of rounding it to zero", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      latencyMs: 60_000,
+      firstTokenMs: 100,
+      tokensPerSecond: 0.4,
+      chunkCount: 12,
+    });
+    const performance = result?.sections.find(
+      (section) => section.header === "Performance",
+    );
+    expect(performance?.rows).toContainEqual({
+      label: "Speed",
+      value: "0.4 tok/s",
+    });
+  });
+
+  it("drops a trailing zero in throughput and abbreviates a large chunk count", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      latencyMs: 900,
+      firstTokenMs: 300,
+      tokensPerSecond: 40,
+      chunkCount: 2400,
+    });
+    const performance = result?.sections.find(
+      (section) => section.header === "Performance",
+    );
+    expect(performance?.rows).toContainEqual({
+      label: "Speed",
+      value: "40 tok/s",
+    });
+    expect(performance?.rows).toContainEqual({
+      label: "Chunks",
+      value: "2.4k",
+    });
+  });
+
+  it("reports a streamed turn with no reported rate as unavailable, not zero", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      latencyMs: 900,
+      firstTokenMs: 300,
+      chunkCount: 40,
+    });
+    const performance = result?.sections.find(
+      (section) => section.header === "Performance",
+    );
+    expect(performance?.rows).toContainEqual({
+      label: "First token",
+      value: "300ms",
+    });
+    expect(performance?.rows).toContainEqual({ label: "Chunks", value: "40" });
+    expect(performance?.rows).toContainEqual({ label: "Speed", value: "—" });
   });
 
   it("always includes 'of which cached', even at zero (matches the design's row set)", () => {
@@ -587,6 +686,9 @@ describe("reload parity (live message-metadata vs. history)", () => {
     reasoningTokens: 0,
     modelId: "system:openai:gpt-4o",
     latencyMs: 900,
+    firstTokenMs: 320,
+    chunkCount: 1180,
+    tokensPerSecond: 62.5,
     finishReason: "stop",
     status: "completed",
     costUsd: 0.001,
@@ -631,6 +733,15 @@ describe("reload parity (live message-metadata vs. history)", () => {
     expect(parseTurnUsage(historyMessage?.metadata)).toMatchObject({
       complete: false,
       billing: "subscription",
+    });
+    expect(historyLine?.sections).toContainEqual({
+      header: "Performance",
+      rows: [
+        { label: "Total", value: "900ms" },
+        { label: "First token", value: "320ms" },
+        { label: "Speed", value: "62.5 tok/s" },
+        { label: "Chunks", value: "1.2k" },
+      ],
     });
     expect(historyLine?.sections).toContainEqual({
       header: "Tokens",

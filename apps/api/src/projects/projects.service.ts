@@ -41,7 +41,7 @@ export class ProjectsService {
   async updateProject(
     projectId: string,
     ownerUserId: string,
-    patch: { name?: string; archived?: boolean },
+    patch: { name?: string; description?: string | null; archived?: boolean },
   ): Promise<Project | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ProjectsRepository(tx).update(projectId, ownerUserId, patch),

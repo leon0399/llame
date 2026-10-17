@@ -24,9 +24,11 @@
         "src/**/*.integration.test.ts",
         "evals/**/*.test.ts",
         "stryker.config.json",
-        "src/instance-config/prompt-built-runtime.contract.ts"
+        "src/instance-config/prompt-built-runtime.contract.ts",
+        "src/media/pdf-parse-entry.ts"
       ],
-      "project": ["src/**/*.ts", "evals/**/*.ts"]
+      "project": ["src/**/*.ts", "evals/**/*.ts"],
+      "ignoreBinaries": ["prlimit"]
     },
     "apps/web": {
       "entry": [
@@ -82,6 +84,9 @@
   },
   "ignore": [
     "apps/web/lib/api/generated/**",
+    "apps/web/lib/api/live-generated/**",
+    "apps/api/src/live/generated/**",
+    "apps/api/src/queue/generated/**",
     "packages/oxlint-plugin-anti-slop/vendor/**"
   ],
   "ignoreDependencies": ["next", "shadcn", "typescript-language-server"],

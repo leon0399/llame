@@ -526,10 +526,10 @@
         "knowledgeCutoff": { "type": "string" },
         "input": {
           "type": "array",
-          "items": { "type": "string", "enum": ["text", "image"] },
+          "items": { "type": "string", "enum": ["text", "image", "pdf"] },
           "uniqueItems": true,
           "contains": { "const": "text" },
-          "description": "Optional input modalities this model accepts, from the closed set text and image. Must contain text and must not repeat an item; declared order is kept. Absent: [\"text\"]. Not verified against the provider: a model declared with image that rejects images surfaces the provider's error when a Run sends it one. Returned on every GET /api/v1/models entry."
+          "description": "Optional input modalities this model accepts, from the closed set text, image and pdf. Must contain text and must not repeat an item; declared order is kept. Absent: [\"text\"]. pdf sends PDFs natively to providers that accept them (Responses input_file, Chat Completions file, Anthropic document); declare it only for a model whose provider accepts PDFs. Not verified against the provider: a model declared with image or pdf that rejects that input surfaces the provider's error when a Run sends it one. Returned on every GET /api/v1/models entry."
         },
         "reasoning": { "$ref": "#/$defs/modelReasoning" },
         "website": { "type": "string" },
@@ -936,7 +936,7 @@
               {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "One native Hacker News adapter. It reads an item and its whole reply tree from the keyless hn.algolia.com API; it takes no credential.",
+                "description": "One native Hacker News adapter. It reads an item with its whole reply tree, and a story list's first page, from the keyless hn.algolia.com API; it takes no credential.",
                 "required": ["id", "use"],
                 "properties": {
                   "id": {
@@ -948,7 +948,7 @@
                   "use": {
                     "type": "string",
                     "enum": ["hackernews"],
-                    "description": "Adapter implementation for news.ycombinator.com item URLs."
+                    "description": "Adapter implementation for news.ycombinator.com item and story-list URLs."
                   }
                 }
               },
@@ -1088,6 +1088,25 @@
                     "type": "string",
                     "enum": ["telegram"],
                     "description": "Adapter implementation for public t.me posts and channel pages."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native Lobsters adapter. It reads a story and its whole comment thread from the site's keyless JSON API; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["lobsters"],
+                    "description": "Adapter implementation for lobste.rs story URLs."
                   }
                 }
               }

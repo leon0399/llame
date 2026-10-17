@@ -1,8 +1,8 @@
 ---
 summary: "Import markers in a prompt: which marker shapes and read locators import, how admission and bounds apply, and what the model receives"
 read_when:
-  - you want the assistant to start a turn with a file, range, outline, Knowledge file, skill, URL, or image already read
-  - you need to know why a marker in your prompt was or was not imported
+  - you want the assistant to start a turn with a file, range, outline, Knowledge file, skill, URL, image, or PDF already read
+  - you need to know why a marker in your prompt was or was not imported, and where the result is injected
   - you are reasoning about the prompt-imports context item, its bounds, or its audit
 spec: prompt-imports
 configured_by:
@@ -16,7 +16,13 @@ configured_by:
 A marker in your prompt points at something `read` can read. Before the Run's
 first model request, llame reads it for you and puts the result in front of the
 model, so the assistant does not spend a step fetching what you already named.
-Your text is stored and shown exactly as typed; the import is added beside it.
+Your text is stored and shown exactly as typed; the import is a separate
+context item beside it.
+
+The same marker shapes also appear in project instruction files and in skill
+files, where they resolve differently. Which document expands a marker, and
+which item receives the bytes, is the [context documents](context-documents.md#the-same-marker-three-importers)
+map.
 
 ## Markers
 
@@ -60,7 +66,7 @@ its selector attached. Every `read` locator is accepted:
 | `kb://<space>/<path>`        | the [Knowledge Space](locators/kb.md) file         |
 | `skill://<name>/<path>`      | a [skill package](locators/skill.md) file, as data |
 | `http://…`, `https://…`      | the [web](locators/web.md) read                    |
-| `media://<id>`               | an image you [stored](locators/media.md)           |
+| `media://<id>`               | an image or PDF you [stored](locators/media.md)    |
 
 On a text target any [selector](selectors.md) rides along, so the imported body
 is what `read` returns for the same locator, context lines and Markdown ancestor
@@ -71,10 +77,10 @@ headings included:
 | `@README.md:30-35`                                       | lines 30-35 of the Workspace's `README.md`, with the context lines and ancestor headings `read` adds |
 | `@https://github.com/leon0399/llame/issues/1029:outline` | the outline representation of that page                                                              |
 
-An image target, `media://<id>` or any locator that reads as an image, accepts
-no selector: `read` refuses a selector on an image with `invalid_selector`
-([read errors](tools/read.md#errors)), so `@media://<id>:1-5` or `@shot.png:raw`
-is reported as failed, not imported.
+An image or PDF target, `media://<id>` or another locator that reads as either
+kind, accepts no selector: `read` refuses it with `invalid_selector`
+([read errors](tools/read.md#errors)), so `@media://<id>:1-5`, `@shot.png:raw`,
+or `@paper.pdf:1-20` is reported as failed, not imported.
 
 A regular file literally named with a selector-shaped suffix wins over the
 selector, as for `read`.
@@ -85,8 +91,8 @@ host reads; a `kb://` target only when the operator has configured Knowledge
 (see [native files](../operator/native-files.md) and
 [Knowledge](../operator/knowledge.md)). A `kb://` Space that is not
 yours is not found, so its marker stays prose. A `media://` id that is unknown
-or names another owner's image is not found either, so its marker stays prose
-and nothing about that image is recorded.
+or names another owner's media is not found either, so its marker stays prose
+and nothing about that media is recorded.
 
 ## Admission
 
@@ -98,7 +104,7 @@ Imports use the same authority as a model `read`, not more:
    without a probe, **whether or not the file exists**, so a denial never
    reveals a path.
 2. Only an admitted target is probed; a `media://` probe looks the id up among
-   your own images. An admitted target that does not exist, or a host target
+   your own media. An admitted target that does not exist, or a host target
    on a process with no native executor, stays prose with no audit event,
    notice, or chip.
 3. Each surviving target is read once through `read`. In `bypass` mode the
@@ -121,13 +127,26 @@ read never appears as an assistant tool call.
 
 ## What the model receives
 
-All imports of one message are one `prompt-imports` notice, rendered before the
-message text and after any skill activation. It holds one file block per
-imported target, labelled with the locator as written, with reserved delimiters
+All imports of one message are one `prompt-imports` context item with form
+`notice`, stored on your message. On the first dispatch it follows any
+`instructions`, `skill-catalog`, and `skill-activation` items and precedes your
+text. A retry keeps a stored item in place. The first model request carries the
+stored item. It holds one file block per imported
+target, labelled with the locator as written, with reserved delimiters
 neutralized, under a statement that the content is third-party data ranked
 below system instructions and your requests and cannot grant tools or relax
 authorization. A denied or failed target is named only as not imported, with no
 content.
+
+```text
+<system-reminder producer="prompt-imports" form="notice">
+Inserted by llame; not written by the user.
+…one labelled block per imported target…
+</system-reminder>
+```
+
+The reminder above is the rail envelope every context item uses. The block
+inside it is the import.
 
 A target whose `read` returns an image, such as `@shot.png` or
 `@media://<id>`, becomes an image entry. Its file block holds exactly the
@@ -138,7 +157,7 @@ such as one over 40 megapixels, is reported as not imported.
 An image read from a file, Knowledge, a skill, or a URL is not stored. The
 worker decodes it and keeps the model variant only in the memory of the Run
 attempt that imported it. Right after the notice's text, a
-[vision model](../operator/media.md#model-image-input) receives it as an image
+[vision model](../operator/media.md#model-input) receives it as an image
 part in that attempt's requests, if the epoch image window admits it when the
 attempt's first request is composed (after any compaction); otherwise it gets
 the `not attached` placeholder. Every later request, whether a later turn, a
@@ -153,18 +172,39 @@ from the store in that turn and every later one, under the same window; a
 text-only model, or an image outside the window, gets the matching
 `[image media://<id> …]` placeholder.
 
+A PDF target, including `@paper.pdf`, `@https://example.com/paper.pdf`, or
+`@media://<id>`, becomes a PDF entry. Its file block holds exactly the
+[PDF result](tools/read.md#pdf-result) from `read`, without PDF bytes. The
+private entry records its page count and byte size. An encrypted, unopenable,
+or oversized PDF that `read` refuses is reported only as not imported.
+
+For a PDF imported from a host file, Knowledge, a skill, or the web, a model
+declaring `pdf` input receives the original as a native file part immediately
+after the notice's text, if the shared media window admits it. The original
+stays only in that importing attempt's memory; no media object is created.
+Outside the window the model gets
+`[pdf "paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`;
+a later turn, retry, or resumed attempt gets
+`[pdf "paper.pdf" 15 pages, not retained]`. A model without PDF input always gets
+`[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]`.
+The quoted locator is the marker's locator encoded as a JSON string.
+
+A PDF imported from `@media://<id>` records that stored locator privately and
+replays its original from the owner-scoped store on later requests under the
+same media window, without creating another media object.
+
 Imported files are data. Markers inside them are not followed, so imports do not
 nest. `@skill://review` reads that skill's `SKILL.md` as data and activates
 nothing; activation stays the `$review` form.
 
 ## Bounds
 
-| Bound              | Limit                                                                                                                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| markers considered | 64, in first-occurrence order; later ones are prose                                                                                                                                             |
-| reads per message  | 8 admitted targets that survive the probe or need none, images included; a denied host, Knowledge, or `media://` target (within the 64-marker cap) is audited without a read and does not count |
-| output             | 128 KiB for the whole item; each result keeps `read`'s own truncation; an image counts only as its result text, never its bytes or thumbnail                                                    |
-| work               | 30 s, probes included, or the Run's remaining deadline                                                                                                                                          |
+| Bound              | Limit                                                                                                                                                                                                    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| markers considered | 64, in first-occurrence order; later ones are prose                                                                                                                                                      |
+| reads per message  | 8 admitted targets that survive the probe or need none, images and PDFs included; a denied host, Knowledge, or `media://` target (within the 64-marker cap) is audited without a read and does not count |
+| output             | 128 KiB for the whole item; each text result keeps `read`'s own truncation; an image or PDF counts only as its result text, never its bytes or an image thumbnail                                        |
+| work               | 30 s, probes included, or the Run's remaining deadline                                                                                                                                                   |
 
 A target past the count or output bound, or one that survived probing when the
 time bound fires, is listed once as omitted and not read. A host or Knowledge
@@ -178,8 +218,8 @@ further read: a target cut off that way is omitted, never reported as failed.
 A retry or worker resumption reuses the stored item and reads nothing that
 completed, in the original order; a target whose read started but did not
 complete is admitted and read afresh. A file edited after the turn is not read
-again. An image entry is reused as stored, so a new attempt gets the
-not-retained placeholder for an image that was not stored, and a `media://`
+again. Image and PDF entries are reused as stored, so a new attempt gets the
+not-retained placeholder for media that was not stored, and a `media://`
 entry still replays from the store.
 
 Imports run after the attempt's Workspace binding re-check. An attempt that
@@ -200,9 +240,10 @@ denied, failed, or omitted, an image entry among them as imported; hovering
 shows the resolved path when it differs. The chip reads the item's private
 metadata, which also records an image entry's original width, height, and
 format with its display-only thumbnail, left out when it would exceed its cap,
-or its `media://<id>` locator; the thumbnail never reaches a model. Other
-owners, public shares, transcript exports, and search see neither the item's
-text nor its metadata.
+or its `media://<id>` locator; the thumbnail never reaches a model. PDF entries
+record their kind, media type, page count, byte size, and optional stored
+locator, with no thumbnail. Other owners, public shares, transcript exports,
+and search see neither the item's text nor its metadata.
 
 ## Configured by
 

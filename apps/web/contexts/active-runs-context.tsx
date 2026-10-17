@@ -36,6 +36,8 @@ import {
   isTerminalRunStatus,
   resolveTerminalRun,
 } from "@/lib/services/chat/run-notifications";
+import type { RunMessage, RunPhase } from "@/lib/services/live/live-messages";
+import { useOptionalLiveUpdates } from "@/contexts/live-updates-context";
 
 const POLL_MS = 4000;
 
@@ -58,6 +60,9 @@ type ActiveRunsContextValue = {
   /** Chats with a currently-tracked, not-yet-terminal run (drives the sidebar's
    *  "processing" activity indicator). */
   activeChatIds: ReadonlySet<string>;
+  /** Live phase of each chat's in-flight run (only while the live socket is
+   *  connected); drives the sidebar indicator's label. */
+  runPhaseByChatId: ReadonlyMap<string, RunPhase>;
 };
 
 const ActiveRunsContext = createContext<ActiveRunsContextValue | null>(null);
@@ -137,13 +142,23 @@ function dropRun(
   return next;
 }
 
-function addTrackedRun(
+/** Title a run is tracked under until a real one is known. */
+const PLACEHOLDER_TITLE = "Chat";
+
+export function addTrackedRun(
   prev: Map<string, TrackedRun>,
   runId: string,
   chatId: string,
   title: string,
 ): Map<string, TrackedRun> {
-  if (prev.get(runId)?.chatId === chatId) return prev; // idempotent
+  const existing = prev.get(runId);
+  // Idempotent, except that a real title replaces the placeholder a live
+  // message may have tracked the run under before the sender's own call.
+  if (
+    existing?.chatId === chatId &&
+    (existing.title === title || title === PLACEHOLDER_TITLE)
+  )
+    return prev;
   return new Map(prev).set(runId, { chatId, title });
 }
 
@@ -259,6 +274,7 @@ function useRehydrateActiveRuns(
 // the tab is backgrounded, so polling must NOT pause on blur/hidden the way
 // refetchInterval does by default.
 function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
+  const liveConnected = useOptionalLiveUpdates()?.connected ?? false;
   return useQueries({
     queries: activeEntries.map(([runId]) => ({
       queryKey: activeRunsQueryKeys.run(runId),
@@ -268,6 +284,8 @@ function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
         const data = query.state.data;
         if (data === undefined) return POLL_MS; // no result yet — keep polling
         if (data === null) return false; // 404: gone, nothing left to poll
+        // The live socket pushes status changes; poll only without it.
+        if (liveConnected) return false;
         return isTerminalRunStatus(data.status) ? false : POLL_MS;
       },
       refetchIntervalInBackground: true,
@@ -298,7 +316,7 @@ function handleTerminalRun(
     viewedChatIdRef,
     routerRef,
   } = deps;
-  if (handledRunIds.current.has(runId)) return;
+  if (handledRunIds.current.has(runId)) return drop(runId); // re-tracked late
   if (run === undefined) return; // still loading / errored — keep waiting
   if (run === null) {
     handledRunIds.current.add(runId);
@@ -424,6 +442,7 @@ function useContextValue(params: {
   completedChats: ReadonlySet<string>;
   markChatSeen: ActiveRunsContextValue["markChatSeen"];
   activeChatIds: ReadonlySet<string>;
+  runPhaseByChatId: ReadonlyMap<string, RunPhase>;
 }): ActiveRunsContextValue {
   const {
     trackRun,
@@ -432,6 +451,7 @@ function useContextValue(params: {
     completedChats,
     markChatSeen,
     activeChatIds,
+    runPhaseByChatId,
   } = params;
   return useMemo(
     () => ({
@@ -441,6 +461,7 @@ function useContextValue(params: {
       completedChats,
       markChatSeen,
       activeChatIds,
+      runPhaseByChatId,
     }),
     [
       trackRun,
@@ -449,9 +470,84 @@ function useContextValue(params: {
       completedChats,
       markChatSeen,
       activeChatIds,
+      runPhaseByChatId,
     ],
   );
 }
+
+/** Title for a run first seen over the live socket (started on another tab or
+ *  device): the cached chat detail when present, else a placeholder. */
+function cachedChatTitle(queryClient: QueryClient, chatId: string): string {
+  const detail = queryClient.getQueryData<{ title?: string | null }>(
+    chatQueryKeys.detail(chatId),
+  );
+  return detail?.title ?? PLACEHOLDER_TITLE;
+}
+
+/** Next phase map after one progress message: set while in flight, cleared at
+ *  terminal. Returns `prev` when nothing changed. */
+export function nextRunPhases(
+  prev: ReadonlyMap<string, RunPhase>,
+  message: RunMessage,
+): ReadonlyMap<string, RunPhase> {
+  if (message.type === "run.progress") {
+    if (prev.get(message.chatId) === message.phase) return prev;
+    return new Map(prev).set(message.chatId, message.phase);
+  }
+  const { chatId, status } = message.run;
+  if (!isTerminalRunStatus(status) || !prev.has(chatId)) return prev;
+  const next = new Map(prev);
+  next.delete(chatId);
+  return next;
+}
+
+/**
+ * Applies live run messages. `run.updated` carries the Run record: a Run
+ * started elsewhere is tracked (so the sidebar shows it processing and its
+ * completion notifies), and the record is written into the run's query cache
+ * so the existing terminal handling fires without a poll; a terminal cached
+ * status is never overwritten by a later non-terminal one. `run.progress`
+ * keeps the per-chat phase.
+ */
+function useLiveRunProgress(
+  trackRun: ActiveRunsContextValue["trackRun"],
+  queryClient: QueryClient,
+): ReadonlyMap<string, RunPhase> {
+  const live = useOptionalLiveUpdates();
+  const [phases, setPhases] = useState<ReadonlyMap<string, RunPhase>>(
+    () => new Map(),
+  );
+  const subscribe = live?.subscribeRunMessages;
+
+  useEffect(() => {
+    if (!subscribe) return undefined;
+    return subscribe((message) => {
+      setPhases((prev) => nextRunPhases(prev, message));
+      if (message.type !== "run.updated") return;
+      const { run } = message;
+      // Terminal too: coalescing can deliver a Run's first message already
+      // finished, and its completion must still notify this tab.
+      trackRun(run.id, run.chatId, cachedChatTitle(queryClient, run.chatId));
+      queryClient.setQueryData<Run | null>(
+        activeRunsQueryKeys.run(run.id),
+        (prev) => (prev && isTerminalRunStatus(prev.status) ? prev : run),
+      );
+    });
+  }, [subscribe, trackRun, queryClient]);
+
+  // Phases are only maintained while connected; clear them on disconnect so
+  // a stale label cannot outlive the stream that set it, even after a
+  // reconnect.
+  const connected = live?.connected ?? false;
+  const [phasesConnected, setPhasesConnected] = useState(connected);
+  if (phasesConnected !== connected) {
+    setPhasesConnected(connected);
+    if (!connected) setPhases(EMPTY_PHASES);
+  }
+  return connected ? phases : EMPTY_PHASES;
+}
+
+const EMPTY_PHASES: ReadonlyMap<string, RunPhase> = new Map();
 
 type ActiveRunsProviderProps = { children: React.ReactNode };
 
@@ -474,6 +570,7 @@ export function ActiveRunsProvider({ children }: ActiveRunsProviderProps) {
   useRehydrateActiveRuns(trackRun);
 
   const { activeEntries, activeChatIds } = useActiveEntries(active);
+  const runPhaseByChatId = useLiveRunProgress(trackRun, queryClient);
 
   useRunCompletionEffects({
     activeEntries,
@@ -491,6 +588,7 @@ export function ActiveRunsProvider({ children }: ActiveRunsProviderProps) {
     completedChats,
     markChatSeen,
     activeChatIds,
+    runPhaseByChatId,
   });
 
   return (

@@ -591,7 +591,7 @@ function buildOpenAIStreamOptions(
   };
   applyRequestOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input, gate);
-  installStepPreparation(streamOptions, input, config.input);
+  installStepPreparation(streamOptions, input, config);
   applyTextDeltaCallback(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);

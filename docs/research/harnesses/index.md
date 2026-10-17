@@ -138,7 +138,7 @@ assessment.
 16. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
 17. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
 18. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
-19. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
+19. [Hermes Agent](./hermes-agent.md) — Recall framing, memory-provider lifecycle, and TUI gateway transport and workspace cwd
 20. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
 21. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
 22. [AX](./ax.md) — Desired-state task sandboxes, snapshot-backed workspaces, and fail-open control-plane gaps
@@ -159,3 +159,4 @@ assessment.
 37. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
 38. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
 39. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
+40. [AgentOne](./agent-one.md) — Desktop webview agent with no session workspace, transcript snapshots, and per-chat approval overlays

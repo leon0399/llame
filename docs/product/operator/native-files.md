@@ -13,6 +13,7 @@ behavior:
   - ../reference/locators/index.md
   - ../reference/selectors.md
   - ../reference/instruction-files.md
+  - ../reference/context-documents.md
   - ../reference/permission-modes.md
   - ../reference/mutation-recovery.md
 ---

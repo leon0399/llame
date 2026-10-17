@@ -15,7 +15,7 @@ import type {
   MultiReadSuccess,
   ReadSuccess,
 } from "./read";
-import type { ImageReadSuccess } from "./image";
+import type { MediaReadSuccess } from "./media";
 import { selectMultiRangeLines } from "./stream-read";
 import { measureNativeModelOutput } from "./serialization";
 import { selectSourceLines, splitSourceLines } from "./source-lines";
@@ -23,7 +23,7 @@ import { selectSourceLines, splitSourceLines } from "./source-lines";
 /** What a native read reports, before the guard below narrows it. */
 type ReadOutcome =
   | ReadSuccess
-  | ImageReadSuccess
+  | MediaReadSuccess
   | DirectorySuccess
   | DirectoryFailure
   | FileFailure;

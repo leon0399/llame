@@ -59,7 +59,7 @@ retried; its note adds `resets <ISO-8601>` when GitHub sends the header.
 
 ## Thread adapters
 
-Bluesky, Hacker News, Discourse, and Telegram use the
+Bluesky, Hacker News, Discourse, Telegram, and Lobsters use the
 [x.md](https://x.pcstyle.dev/) thread layout: one
 `## {Label} · {i}/{n} — {author}` entry per post, ending in `Source:` and
 `Date:` lines.
@@ -80,7 +80,12 @@ Date: 2026-10-01T00:00:00Z
   withheld.
 - **Hacker News:** the item as `Post` (a story adds its title, `Link:`, and
   `Points:`), then replies depth-first in API order. Dead and deleted comments
-  are omitted.
+  are omitted. Outside the thread layout, the list pages render
+  `# Hacker News: front page` (`/`, `/news`, `/front`) and
+  `# Hacker News: newest` (`/newest`), each listing the first 30 stories as
+  `- **{title}** — {points} points — {comments} comments — {url} — {item URL}`
+  bullets, omitting fields the API does not report. The front page's set
+  matches the site's, in the API's points order.
 - **Discourse:** the first post as `Post` with the topic title, then up to 199
   replies, each with `Replying to @{author}` when it answers a later post.
 - **Telegram:** a post renders one `Post` entry: `> Forwarded from:`, a
@@ -95,6 +100,9 @@ Date: 2026-10-01T00:00:00Z
   cursor URL carries a query, so a cursor page takes no line selector; only
   the head page (`t.me/{name}:N-M`) does. A truncated cursor page continues
   with `?before={id}` from the last shown `Source:` id.
+- **Lobsters:** the story as `Post` (its title, `Link:`, `Tags:`, and
+  `Score:`), then its comments in the site's thread order, each with `Score:`
+  and a `Replying to @{author}` line when it answers another comment.
 
 ## Package adapters
 

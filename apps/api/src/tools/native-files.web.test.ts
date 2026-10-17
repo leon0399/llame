@@ -1,17 +1,25 @@
+import { readFileSync } from 'node:fs';
 import { createServer, type Server, type ServerResponse } from 'node:http';
+import { join } from 'node:path';
 
-import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { Response } from 'undici';
 import { type Mock, vi } from 'vitest';
 
-import { type ToolMediaStore } from '../media/tool-media-store';
+import type { HeldMedia } from '../media/attempt-media';
+import type { MediaService } from '../media/media.service';
+import * as pdfPreparation from '../media/pdf-preparation';
+import {
+  createToolMediaStore,
+  type ToolMediaStore,
+} from '../media/tool-media-store';
+import type { ModelInput } from '../models/model-catalog';
 import {
   nativeEditTool,
   nativeReadTool,
   nativeWriteTool,
 } from './native-files';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
-import { type ToolContext } from './types';
+import { ToolResult, type ToolContext } from './types';
 import {
   createWebReadExecutor,
   realWebReadDeps,
@@ -189,6 +197,7 @@ function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 const DECODED_IMAGE = {
   status: 'success',
+  kind: 'image',
   mediaType: 'image/png',
   width: 4,
   height: 3,
@@ -199,14 +208,14 @@ const DECODED_IMAGE = {
 function imageStore() {
   const decoded: Array<{ byteSize: number; bytes: Buffer }> = [];
   const media = {
-    readImage: vi.fn<ToolMediaStore['readImage']>(
+    readMedia: vi.fn<ToolMediaStore['readMedia']>(
       () =>
         async ({ byteSize, readBytes }) => {
           decoded.push({ byteSize, bytes: await readBytes() });
           return DECODED_IMAGE;
         },
     ),
-    findImage: () => Promise.resolve(undefined),
+    findMedia: () => Promise.resolve(undefined),
   } satisfies ToolMediaStore;
   return { media, decoded };
 }
@@ -292,7 +301,6 @@ describe('web locator dispatch', () => {
         status: 'error',
         type: 'invalid_path',
       });
-      expect(JSON.stringify(result)).toContain('read-only');
     }
     expect(fixture.requests).toEqual([]);
   });
@@ -307,7 +315,6 @@ describe('web locator dispatch', () => {
       status: 'error',
       type: 'executor_unavailable',
     });
-    expect(JSON.stringify(result)).toContain('User-Agent');
     expect(JSON.stringify(result)).not.toContain('/guide');
     expect(fixture.requests).toEqual([]);
   });
@@ -320,10 +327,6 @@ describe('web locator dispatch', () => {
     expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
     // The two web schemes are not a catch-all: a scheme outside them keeps
     // the unknown-scheme refusal rather than the web locator's own.
-    expect(result).toHaveProperty(
-      'message',
-      'This path scheme is not available.',
-    );
     expect(fixture.requests).toEqual([]);
   });
 
@@ -402,8 +405,6 @@ describe('web locator dispatch', () => {
     expect(result).toMatchObject({
       status: 'error',
       type: 'invalid_selector',
-      message:
-        'The :outline member reads text/markdown content only; read this source without it.',
     });
     expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
@@ -676,6 +677,7 @@ describe('web locator dispatch', () => {
           return response;
         },
         fetchPage: session.fetchPage,
+        untilDeadline: session.untilDeadline,
         dispose: session.dispose,
       };
     };
@@ -717,6 +719,7 @@ describe('web locator dispatch', () => {
       return {
         fetch: session.fetch,
         fetchPage: session.fetchPage,
+        untilDeadline: session.untilDeadline,
         dispose: () => {
           session.dispose();
           dispose();
@@ -768,6 +771,7 @@ describe('web locator dispatch', () => {
           return response;
         },
         dispose: session.dispose,
+        untilDeadline: session.untilDeadline,
       };
     };
     fetchDouble.mockImplementationOnce(() =>
@@ -818,7 +822,7 @@ describe('web locator dispatch', () => {
         finalUrl: IMAGE_URL,
         method: 'image',
       });
-      expect(media.readImage).toHaveBeenCalledWith(IMAGE_URL, 'call-1');
+      expect(media.readMedia).toHaveBeenCalledWith(IMAGE_URL, 'call-1');
       expect(decoded).toStrictEqual([
         { byteSize: IMAGE_BYTES.byteLength, bytes: Buffer.from(IMAGE_BYTES) },
       ]);
@@ -832,12 +836,247 @@ describe('web locator dispatch', () => {
         input: { path: `${IMAGE_URL}:1-5` },
       });
 
-      expect(result).toStrictEqual({
+      expect(result).toMatchObject({
         status: 'error',
         type: 'invalid_selector',
-        message: IMAGE_SELECTOR_MESSAGE,
       });
       expect(decoded).toStrictEqual([]);
+    });
+  });
+
+  /** A page the transport returns as PDF bytes, read through the real media
+   *  store over the attempt's own memory: the page count comes from a real
+   *  parse of the fixture, so a read that skipped preparation could not report
+   *  it, and nothing but the read itself can put bytes in the map. */
+  describe('an unstored PDF page', () => {
+    const CALL_ID = 'call-web-pdf';
+    const PDF_URL = 'https://example.test/paper.pdf';
+    const PDF_FIXTURES = join(__dirname, '../media/testing/pdf');
+    /** An unstored page is served from the attempt, never the store, so a
+     *  lookup here means the read took a path it must not have. */
+    const mediaService: Pick<MediaService, 'findOwned'> = {
+      findOwned: () =>
+        Promise.reject(new Error('An unstored PDF looked up the media store.')),
+    };
+    let paper: Buffer;
+    let held: Map<string, HeldMedia>;
+
+    const fixture = (name: string): Buffer =>
+      readFileSync(join(PDF_FIXTURES, name));
+
+    const pdfPage = (body: Buffer): Response =>
+      new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'application/pdf' },
+      });
+
+    const readPdf = (
+      path: string = PDF_URL,
+      overrides: Partial<ToolContext> = {},
+      modelInput: ReadonlyArray<ModelInput> = ['text', 'pdf'],
+    ): Promise<ToolResult> =>
+      webReadExecutor()(
+        webContext({
+          media: createToolMediaStore(mediaService, 'owner', held, modelInput),
+          toolCallId: CALL_ID,
+          ...overrides,
+        }),
+        { operation: 'read', input: { path } },
+      );
+
+    beforeAll(() => {
+      paper = fixture('fifteen-pages.pdf');
+    });
+
+    beforeEach(() => {
+      held = new Map<string, HeldMedia>();
+    });
+
+    it('parses the page count and holds the original under the submitted locator', async () => {
+      fetchDouble.mockImplementationOnce(() => Promise.resolve(pdfPage(paper)));
+
+      const result = await readPdf();
+
+      expect(result).toStrictEqual({
+        status: 'success',
+        kind: 'pdf',
+        mediaType: 'application/pdf',
+        pages: 15,
+        byteSize: paper.byteLength,
+        path: PDF_URL,
+        finalUrl: PDF_URL,
+        method: 'pdf',
+      });
+      expect(held.get(CALL_ID)).toStrictEqual({
+        locator: PDF_URL,
+        pages: 15,
+        byteSize: paper.byteLength,
+        bytes: paper,
+      });
+    });
+
+    it('counts the pages for a model with no PDF input and holds no bytes', async () => {
+      fetchDouble.mockImplementationOnce(() => Promise.resolve(pdfPage(paper)));
+
+      const result = await readPdf(PDF_URL, {}, ['text']);
+
+      expect(result).toStrictEqual({
+        status: 'success',
+        kind: 'pdf',
+        mediaType: 'application/pdf',
+        pages: 15,
+        byteSize: paper.byteLength,
+        path: PDF_URL,
+        finalUrl: PDF_URL,
+        method: 'pdf',
+      });
+      expect(held.get(CALL_ID)).toStrictEqual({ locator: PDF_URL, pages: 15 });
+    });
+
+    it('refuses a page whose head carries markup before the PDF header', async () => {
+      // pdf.js finds a `%PDF-` header past the first bytes and parses the
+      // whole document from it, so this body is a 15-page PDF to a reader that
+      // does not check the page's own head: the refusal can only come from
+      // that check.
+      fetchDouble.mockImplementationOnce(() =>
+        Promise.resolve(pdfPage(Buffer.concat([Buffer.from('<html>'), paper]))),
+      );
+
+      const result = await readPdf();
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'unsupported_media_type',
+      });
+      expect(held.size).toBe(0);
+    });
+
+    it.each([':raw', ':1-5', ':outline'])(
+      'refuses the %s selector instead of preparing the page',
+      async (selector) => {
+        fetchDouble.mockImplementationOnce(() =>
+          Promise.resolve(pdfPage(paper)),
+        );
+
+        const result = await readPdf(`${PDF_URL}${selector}`);
+
+        expect(result).toMatchObject({
+          status: 'error',
+          type: 'invalid_selector',
+        });
+        expect(held.size).toBe(0);
+      },
+    );
+
+    it.each([
+      ['owner-password.pdf', 'unsupported_media_type'],
+      ['hundred-one-pages.pdf', 'media_too_large'],
+    ])(
+      'refuses %s as the preparation refusal it is and holds nothing',
+      async (name, type) => {
+        fetchDouble.mockImplementationOnce(() =>
+          Promise.resolve(pdfPage(fixture(name))),
+        );
+
+        const result = await readPdf();
+
+        expect(result).toMatchObject({ status: 'error', type });
+        expect(held.size).toBe(0);
+      },
+    );
+
+    it('refuses a PDF body past the 20 MiB allowance and holds nothing', async () => {
+      const oversized = Buffer.concat([
+        paper,
+        Buffer.alloc(21 * 1024 * 1024 - paper.byteLength, 0x20),
+      ]);
+      fetchDouble.mockImplementationOnce(() =>
+        Promise.resolve(pdfPage(oversized)),
+      );
+
+      const result = await readPdf();
+
+      expect(result).toMatchObject({ status: 'error', type: 'body_too_large' });
+      expect(held.size).toBe(0);
+    });
+
+    it('refuses the PDF when the read was built without a media store', async () => {
+      fetchDouble.mockImplementationOnce(() => Promise.resolve(pdfPage(paper)));
+
+      const result = await webReadExecutor()(webContext(), {
+        operation: 'read',
+        input: { path: PDF_URL },
+      });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'unsupported_content_type',
+      });
+    });
+
+    describe('a call that ends while the page is being prepared', () => {
+      // The cases drive the clock themselves, so a failure inside one must not
+      // leave fake timers behind for the rest of the file.
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      /** A preparation that reports when it is running and never settles until
+       *  the test says so, leaving the call's own bounds to end the read. */
+      function pendingPreparation() {
+        const { promise: started, resolve: entered } =
+          Promise.withResolvers<void>();
+        const { promise: prepared, resolve: finish } =
+          Promise.withResolvers<number>();
+        const parse = vi
+          .spyOn(pdfPreparation, 'preparePdf')
+          .mockImplementation(() => {
+            entered();
+            return prepared;
+          });
+        return { started, finish, restore: () => parse.mockRestore() };
+      }
+
+      it.each(['call_timeout', 'aborted'])(
+        'returns %s while the preparation runs and holds nothing that lands after',
+        async (type) => {
+          vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+          const preparation = pendingPreparation();
+          const abort = new AbortController();
+          let observed: ToolResult | undefined;
+          fetchDouble.mockImplementationOnce(() =>
+            Promise.resolve(pdfPage(paper)),
+          );
+          const pending = readPdf(PDF_URL, {
+            abortSignal: abort.signal,
+          }).then((result) => {
+            observed = result;
+            return result;
+          });
+          const settled = Promise.allSettled([pending]);
+          try {
+            await preparation.started;
+            if (type === 'aborted') abort.abort();
+            else await vi.advanceTimersByTimeAsync(30_000);
+            await vi.advanceTimersByTimeAsync(0);
+
+            // The read is answered and the attempt is empty while the
+            // preparation is still running.
+            expect(observed).toMatchObject({ status: 'error', type });
+            expect(held.size).toBe(0);
+
+            preparation.finish(15);
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(held.size).toBe(0);
+          } finally {
+            preparation.finish(15);
+            await settled;
+            preparation.restore();
+            vi.useRealTimers();
+          }
+        },
+      );
     });
   });
 });

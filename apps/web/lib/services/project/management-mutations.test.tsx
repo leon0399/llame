@@ -103,12 +103,42 @@ describe("useUpdateProject", () => {
     result.current.mutate({ id: "p1", name: "Renamed" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastErrorSpy).toHaveBeenCalledWith("Couldn't rename the project.");
+    expect(toastErrorSpy).toHaveBeenCalledWith("Couldn't save the project.");
     const request = requestFromCall(fetchMock);
     expect(request.method).toBe("PATCH");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/p1");
     await expect(request.clone().json()).resolves.toEqual({
       name: "Renamed",
+    });
+  });
+
+  it("sends the description alongside the name", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
+    const { result } = renderHook(() => useUpdateProject(), { wrapper });
+
+    result.current.mutate({
+      id: "p1",
+      name: "Renamed",
+      description: "Acme relaunch",
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await expect(requestFromCall(fetchMock).clone().json()).resolves.toEqual({
+      name: "Renamed",
+      description: "Acme relaunch",
+    });
+  });
+
+  it("sends an explicit null when the description was cleared", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
+    const { result } = renderHook(() => useUpdateProject(), { wrapper });
+
+    result.current.mutate({ id: "p1", name: "Renamed", description: null });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await expect(requestFromCall(fetchMock).clone().json()).resolves.toEqual({
+      name: "Renamed",
+      description: null,
     });
   });
 

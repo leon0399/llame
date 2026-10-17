@@ -1,11 +1,12 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type RefObject,
-} from "react";
+/**
+ * The lower-level `useChat` plumbing `useChatConversation` composes: model
+ * readiness, the send transport, cache refresh, the `useChat` call itself,
+ * and its adjacent effects (scroll-to-target, resume/history-adoption,
+ * run-presence). Split into its own module once `use-chat-conversation.ts`
+ * outgrew the project's 500-line cap.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 
 import { useChat } from "@ai-sdk/react";
 import {
@@ -26,12 +27,19 @@ import {
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
+import {
+  useStreamRepair,
+  type StreamInterruption,
+} from "@/lib/services/chat/stream-repair";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
 import {
   hasModelId,
+  type AvailableModel,
   type ModelsResponse,
   useModelsQuery,
 } from "@/lib/services/models/queries";
+
+const EMPTY_AVAILABLE_MODELS: ReadonlyArray<AvailableModel> = [];
 import { parseTurnUsage } from "./message-usage";
 import {
   permissionModesQueryKey,
@@ -42,16 +50,10 @@ import { adoptServerHistory } from "@/lib/services/chat/history";
 import {
   notificationLabel,
   streamingRunId,
+  isInterruptedStream,
+  type StreamCompletion,
 } from "@/lib/services/chat/run-notifications";
 import { safeRandomUUID } from "@/lib/uuid";
-
-/**
- * The lower-level `useChat` plumbing `useChatConversation` composes: model
- * readiness, the send transport, cache refresh, the `useChat` call itself,
- * and its adjacent effects (scroll-to-target, resume/history-adoption,
- * run-presence). Split into its own module once `use-chat-conversation.ts`
- * outgrew the project's 500-line cap.
- */
 
 /** The available models and this chat's ability to send right now — derived
  *  from the models query and kept in sync with `selectedModel` by one
@@ -61,7 +63,9 @@ export function useChatModelSelection(
   setSelectedModel: (modelId: string) => void,
 ) {
   const modelsQuery = useModelsQuery();
-  const availableModels = modelsQuery.data?.models ?? [];
+  // Stable empty sentinel — `?? []` would allocate a new array every render
+  // and defeat memoized transcript rows while models are still loading.
+  const availableModels = modelsQuery.data?.models ?? EMPTY_AVAILABLE_MODELS;
   const selectedModelAvailable = hasModelId(availableModels, selectedModel);
 
   useEffect(() => {
@@ -414,20 +418,34 @@ type UseChatEngineArgs = {
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
   onSendFailed: () => void;
+  /** The run a just-ended stream belonged to, when that stream ended while the
+   *  run was still executing (see `isInterruptedStream`). */
+  onStreamInterrupted: (runId: string | null) => void;
   untrackChat: (chatId: string) => void;
   refreshChatData: () => void;
 };
 
-/** A stream that ended by abort/disconnect/error is NOT a completed turn: a
- *  page reload aborts the in-flight fetch, and treating that as finish cleared
- *  the recorded draft id during teardown — destroying the refresh-resume path
- *  this slice adds (found via CI trace diagnostics). The run survives
+/** A stream that ended by abort/disconnect/error/truncation is NOT a completed
+ *  turn: a page reload aborts the in-flight fetch, and treating that as finish
+ *  cleared the recorded draft id during teardown — destroying the refresh-resume
+ *  path this slice adds (found via CI trace diagnostics). The run survives
  *  server-side; the reloaded page recovers the sent route and resumes it. */
 function handleChatFinish(
-  status: { isAbort: boolean; isDisconnect: boolean; isError: boolean },
+  status: StreamCompletion,
   args: UseChatEngineArgs,
 ): void {
-  if (status.isAbort || status.isDisconnect || status.isError) {
+  if (
+    status.isAbort ||
+    status.isDisconnect ||
+    status.isError ||
+    status.finishReason === undefined
+  ) {
+    // Re-attach before the draft/history path below gets a chance to: for a
+    // chat whose mount probe already ran, that path recovers nothing, which is
+    // what left a long turn dead until a manual reload.
+    if (isInterruptedStream(status)) {
+      args.onStreamInterrupted(streamingRunId(status.messages));
+    }
     if (args.onTargetSendInterrupted()) {
       args.refreshChatData();
       return;
@@ -495,27 +513,6 @@ export function useChatEngine(args: UseChatEngineArgs) {
   });
 }
 
-/** Scrolls the target message into view once it has rendered. */
-export function useTargetScrollEffect(
-  targetMessageRendered: boolean,
-  targetSeq: number | null,
-) {
-  const scrolledTargetRef = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    if (
-      !targetMessageRendered ||
-      targetSeq === null ||
-      scrolledTargetRef.current === targetSeq
-    ) {
-      return;
-    }
-    const target = document.getElementById(`msg-${targetSeq}`);
-    if (!target) return;
-    target.scrollIntoView({ block: "center" });
-    scrolledTargetRef.current = targetSeq;
-  }, [targetMessageRendered, targetSeq]);
-}
-
 type UseChatHistorySyncArgs = {
   resume: boolean;
   resumeStream: ReturnType<typeof useChat>["resumeStream"];
@@ -524,10 +521,14 @@ type UseChatHistorySyncArgs = {
   messages: Array<UIMessage>;
   status: ReturnType<typeof useChat>["status"];
   setMessages: ReturnType<typeof useChat>["setMessages"];
+  /** The Run whose stream ended while it was still executing (see
+   *  `isInterruptedStream`), or null. */
+  interruption: StreamInterruption | null;
 };
 
-/** Resume-on-refresh and live first-send recovery (#49), and adopting the
- *  refetched history it triggers (#261). */
+/** Resume-on-refresh and live first-send recovery (#49), re-attaching after an
+ *  interrupted stream (#1284), and adopting the refetched history it triggers
+ *  (#261). */
 export function useChatHistorySync({
   resume,
   resumeStream,
@@ -536,32 +537,54 @@ export function useChatHistorySync({
   messages,
   status,
   setMessages,
+  interruption,
 }: UseChatHistorySyncArgs) {
+  // One attach per mount for the `resume` probe; the repair below claims the
+  // same slot so the two cannot race two reconnects on the same Chat instance
+  // (#259/#260 — see the note at the useChat call in `useChatEngine`).
+  const attachedRef = useRef(false);
+
+  // Always re-read history once the probe settles, INCLUDING when it answers
+  // 204. Verified in the pinned SDK (ai 6.0.217): `reconnectToStream` returns
+  // null on 204 and `makeRequest` then returns before the block that fires
+  // onFinish — so that path emits no callback at all, and with a 60s
+  // staleTime nothing else would refetch. That is precisely the case where
+  // the run went terminal between this page's history read and the probe,
+  // i.e. where the answer is durable and the log is the only stale thing
+  // (#261). Cheap and idempotent otherwise: the adoption below is a no-op
+  // when the refetch brings nothing new.
+  // Promise.resolve: `resumeStream()` is a promise in the SDK, but wrapping
+  // keeps this from depending on that — a stubbed/void-returning
+  // implementation must not throw here.
+  const attach = useCallback(() => {
+    void Promise.resolve(resumeStream()).finally(refreshChatMessages);
+  }, [resumeStream, refreshChatMessages]);
+
   // Driven here instead of via useChat's `resume` prop: the SDK's own effect
   // has no cleanup or re-entrancy guard, so Strict Mode's double-invoked
   // mount effect resumes the same Chat instance twice and the two concurrent
   // requests race on shared state (#259/#260 — see the note at the useChat
-  // call in `useChatEngine`). The ref is set synchronously before the call,
-  // so the second invocation is a no-op; each route identity has one owner
-  // and one Chat instance.
-  const resumedRef = useRef(false);
+  // call in `useChatEngine`). Each route identity has one owner and one Chat
+  // instance.
   useEffect(() => {
-    if (!resume || resumedRef.current) return;
-    resumedRef.current = true;
-    // Always re-read history once the probe settles, INCLUDING when it answers
-    // 204. Verified in the pinned SDK (ai 6.0.217): `reconnectToStream` returns
-    // null on 204 and `makeRequest` then returns before the block that fires
-    // onFinish — so that path emits no callback at all, and with a 60s
-    // staleTime nothing else would refetch. That is precisely the case where
-    // the run went terminal between this page's history read and the probe,
-    // i.e. where the answer is durable and the log is the only stale thing
-    // (#261). Cheap and idempotent otherwise: the adoption below is a no-op
-    // when the refetch brings nothing new.
-    // Promise.resolve: `resumeStream()` is a promise in the SDK, but wrapping
-    // keeps this from depending on that — a stubbed/void-returning
-    // implementation must not throw here.
-    void Promise.resolve(resumeStream()).finally(refreshChatMessages);
-  }, [resume, resumeStream, refreshChatMessages]);
+    if (!resume || attachedRef.current) return;
+    attachedRef.current = true;
+    attach();
+  }, [resume, attach]);
+
+  // The repair episode itself — immediate first attempt, equal-jitter retries,
+  // capped — lives in its own module. This hook owns only the attach and the
+  // slot the probe below shares with it (#1284).
+  const claimAttachSlot = useCallback(() => {
+    attachedRef.current = true;
+  }, []);
+  useStreamRepair({
+    attach,
+    interruption,
+    currentRunId: streamingRunId(messages),
+    healthy: status === "streaming",
+    onAttempt: claimAttachSlot,
+  });
 
   // Adopt that refetched history — the client half of #261. useChat freezes
   // `messages` at creation (see PersistedChatSession) and never re-adopts a

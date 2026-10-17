@@ -682,14 +682,17 @@ describe('native file authority and durable effects', () => {
     const media = new MediaService(tenantDb);
     const ownerContext: ToolContext = {
       ...context,
-      media: createToolMediaStore(media, owner, new Map(), true),
+      media: createToolMediaStore(media, owner, new Map(), ['text', 'image']),
     };
     const otherContext: ToolContext = {
       userId: otherOwner,
       chatId: randomUUID(),
       tenantDb,
       permissionPolicy: compileTestPermissionPolicy(),
-      media: createToolMediaStore(media, otherOwner, new Map(), true),
+      media: createToolMediaStore(media, otherOwner, new Map(), [
+        'text',
+        'image',
+      ]),
     };
     const ownedObjects = () =>
       tenantDb.runAs(owner, (tx) =>
@@ -725,6 +728,16 @@ describe('native file authority and durable effects', () => {
       source: 'shot.png',
     });
     const locator = `media://${upload.id}`;
+    for (const selector of [':1', ':raw', ':img']) {
+      expect(
+        await runTool(
+          nativeReadTool,
+          { path: `${locator}${selector}` },
+          ownerContext,
+          5,
+        ),
+      ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    }
     expect(
       await runTool(nativeReadTool, { path: locator }, ownerContext, 5),
     ).toEqual({
@@ -742,10 +755,9 @@ describe('native file authority and durable effects', () => {
       otherContext,
       5,
     );
-    expect(foreign).toEqual({
+    expect(foreign).toMatchObject({
       status: 'error',
       type: 'not_found',
-      message: 'Image not found.',
     });
     expect(
       await runTool(

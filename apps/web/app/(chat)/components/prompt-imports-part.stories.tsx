@@ -157,7 +157,7 @@ export const WithImageEntry: Story = {
     omitted: ["extra.png"],
   },
   play: async ({ canvas }) => {
-    const thumbnails = canvas.getByRole("list", { name: "Imported images" });
+    const thumbnails = canvas.getByRole("list", { name: "Imported media" });
     await expect(
       within(thumbnails).getByRole("img", { name: "shot.png" }),
     ).toHaveAttribute("src", SHOT_THUMBNAIL);
@@ -206,7 +206,7 @@ export const ImportedImageOpensLightbox: Story = {
   tags: ["ai-generated"],
   args: WithImageEntry.args,
   play: async ({ canvas, userEvent }) => {
-    const thumbnails = canvas.getByRole("list", { name: "Imported images" });
+    const thumbnails = canvas.getByRole("list", { name: "Imported media" });
     const opener = within(thumbnails).getByRole("button", { name: "shot.png" });
     await userEvent.click(opener);
     const dialog = await screen.findByRole("dialog");
@@ -232,5 +232,69 @@ export const ImportedImageOpensLightbox: Story = {
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(opener).toHaveFocus());
+  },
+};
+
+/**
+ * A stored PDF import shows a document tile that opens its original in a new
+ * tab without requesting an image variant or entering the image lightbox.
+ *
+ * @summary a stored PDF import opens its original
+ */
+export const WithPdfEntry: Story = {
+  tags: ["ai-generated"],
+  args: {
+    imports: [
+      {
+        locator: MEDIA_LOCATOR,
+        outcome: "imported",
+        kind: "pdf",
+        mediaType: "application/pdf",
+        pages: 15,
+        byteSize: 2_215_244,
+        media: MEDIA_LOCATOR,
+      },
+    ],
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByLabelText(`Imported prompt file: ${MEDIA_LOCATOR}`),
+    ).toBeVisible();
+    const tile = canvas.getByRole("link", {
+      name: `Open ${MEDIA_LOCATOR} in a new tab`,
+    });
+    await expect(tile.getAttribute("href")).toMatch(
+      /\/api\/v1\/media\/0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f\/original$/,
+    );
+    await expect(tile).toHaveAttribute("target", "_blank");
+    await expect(canvas.queryByRole("img")).toBeNull();
+  },
+};
+
+/**
+ * An unstored PDF import keeps its source name but offers no original link.
+ * @summary an unstored PDF import is a static document tile
+ */
+export const WithUnstoredPdfEntry: Story = {
+  tags: ["ai-generated"],
+  args: {
+    imports: [
+      {
+        locator: "paper.pdf",
+        resolved: "/repo/paper.pdf",
+        outcome: "imported",
+        kind: "pdf",
+        mediaType: "application/pdf",
+        pages: 15,
+        byteSize: 2523,
+      },
+    ],
+  },
+  play: async ({ canvas }) => {
+    const tiles = canvas.getByRole("list", { name: "Imported media" });
+    await expect(within(tiles).getByText("paper.pdf")).toBeVisible();
+    await expect(within(tiles).queryByRole("link")).toBeNull();
+    await expect(within(tiles).queryByRole("button")).toBeNull();
+    await expect(within(tiles).queryByRole("img")).toBeNull();
   },
 };

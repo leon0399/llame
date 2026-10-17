@@ -144,8 +144,8 @@ other persisted item. It SHALL NOT need a second storage shape to preserve its
 semantic form.
 
 `data.text` SHALL be the sole replay authority, except that request assembly
-emits the image parts or placeholders of a `prompt-imports` item from
-the image entries in its payload, after `data.text`. Producer, form, Run linkage,
+emits the image and PDF parts or placeholders of a `prompt-imports` item from
+the image and PDF entries in its payload, after `data.text`. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
 owner UI, provenance, and inspection. A metadata/text disagreement SHALL NOT
 cause text to be regenerated: text wins for model replay, while metadata
@@ -226,6 +226,13 @@ backfilled or reconstructed from its raw summary either.
   referencing media owned by a different owner and no text part
 - **THEN** the message is rejected before any row is written
 - **AND** no part referencing the other owner's media is persisted
+
+#### Scenario: A prompt-imports item's PDF entry replays after its text
+
+- **WHEN** a stored `prompt-imports` item's payload holds one PDF entry
+- **THEN** replay supplies the item's `data.text` followed by that entry's PDF file part or PDF
+  placeholder, chosen as `media-attachments` requires
+- **AND** the item's text is not regenerated from its payload
 
 ### Requirement: Producer item bodies are packaged templates rendered at author time
 
@@ -629,7 +636,10 @@ ordinary SDK text part containing `data.text`, followed, for each image entry
 that `prompt-imports` attaches to that item, by either one image part built from
 the image's model variant or the image placeholder text part, chosen by the
 variant's availability, the epoch image window, and the request model's declared
-input as `media-attachments` requires. A `data-context`
+input as `media-attachments` requires, and, for each PDF entry, by either one
+file part built from the PDF's original or the PDF placeholder text part, chosen
+by the original's availability, the epoch image window, and the request model's
+declared input as `media-attachments` requires. A `data-context`
 part stored on an
 assistant message SHALL be mapped to one user-role message containing one text
 part with `data.text`, emitted directly after the tool-result message of the
@@ -647,15 +657,20 @@ to the AI SDK rather than manually constructing a joined transcript.
 
 Each owner `file` part on a user message SHALL be mapped at request time from the
 media object it references; a stored part SHALL carry only its `media://`
-reference and never image bytes. Within that message, the mapped file parts SHALL
+reference and never image or PDF bytes. Within that message, the mapped file parts SHALL
 be inserted, in their stored order, immediately after the last mapped
 `data-context` part, the temporal row included, or at the start of the message
 when it has none, while every other part keeps its stored relative order. Each
-file part SHALL map to one text part `Image n (media://<id>):`, with `n` counting
-that message's file parts from 1,
+image file part SHALL map to one text part `Image n (media://<id>):`, and each
+file part whose `mediaType` is `application/pdf` SHALL map to one text part
+`PDF n (media://<id>):`, with `n` counting that message's file parts of the same
+kind from 1. An image label SHALL be
 followed by either one image part built from the object's model variant or the
-image placeholder text part, chosen by the epoch image window and the request model's
-declared input as `media-attachments` requires.
+image placeholder text part, and a PDF label by either one file part with
+`mediaType` `application/pdf` and the stored name as `filename`, built from the
+object's original, or the PDF placeholder text part, each chosen by the epoch
+image window and the request model's declared input as `media-attachments`
+requires.
 
 A stored tool part whose result is an image result (`kind: "image"`) SHALL map to
 a tool output of type `content` carrying the result's text followed by one image
@@ -665,13 +680,23 @@ followed by the image placeholder and no image part. The model variant is the
 stored object's for a `media://` result or image entry, and for every other
 image the one the current attempt's memory holds, which is available only within
 the attempt that read it. The display-only `thumbnail` of an image result or
-image entry SHALL NOT cross the boundary. The transport of image outputs on Chat
-Completions wires is specified by `media-attachments`.
+image entry SHALL NOT cross the boundary.
+
+A stored tool part whose result is a PDF result (`kind: "pdf"`) SHALL map to a
+tool output of type `content` carrying the result's text followed by one file
+part built from the PDF's original when `media-attachments` selects a file part
+for that reference; otherwise its output SHALL carry the result's text followed
+by the PDF placeholder and no file part. The original is the stored object's for
+a `media://` result or PDF entry, and for every other PDF the one the current
+attempt's memory holds, which is available only within the attempt that read it.
+The transport of image and PDF outputs on Chat Completions wires is specified by
+`media-attachments`.
 
 Media references SHALL resolve only within the Run owner's media. A `media://`
 reference that does not resolve for that owner SHALL contribute no byte or
 descriptor field of any media object to the request and SHALL map to the
-unavailable placeholder that `media-attachments` defines.
+unavailable placeholder that `media-attachments` defines, or its PDF unavailable
+placeholder for a PDF reference.
 
 This SHALL be an application-level best-effort invariant, not a promise of
 provider-wire byte identity. SDK conversion, role grouping, and provider
@@ -774,10 +799,56 @@ no other stored form of superseded history is replayed.
 
 #### Scenario: Another owner's media never enters the request
 
-- **WHEN** a stored file part or `media://` image result in owner A's chat references a media
+- **WHEN** a stored file part or `media://` image or PDF result in owner A's chat references a media
   object owned by owner B
-- **THEN** no byte, dimension, name, or media type of B's object appears in A's request
-- **AND** the reference maps to the unavailable placeholder
+- **THEN** no byte, dimension, page count, name, or media type of B's object appears in A's request
+- **AND** the reference maps to the unavailable placeholder, or to `[pdf media://<id> unavailable]`
+  for a PDF reference
+
+#### Scenario: Images and a PDF in one message are labelled by kind
+
+- **WHEN** a stored user message holds one text part and file parts for two images followed by one
+  PDF, the request model declares `image` and `pdf` input, and the epoch image window attaches all
+  three references
+- **THEN** the request supplies, ahead of the owner's text, `Image 1 (media://<first id>):`, the
+  first image part, `Image 2 (media://<second id>):`, the second image part,
+  `PDF 1 (media://<pdf id>):`, and one file part with `mediaType` `application/pdf` and the stored
+  name as `filename`, built from that object's original
+- **AND** the stored parts still carry only their `media://` references
+
+#### Scenario: A model without PDF input receives a labelled PDF placeholder
+
+- **WHEN** a stored user message holds one text part and one file part referencing a stored 15-page
+  PDF named `paper.pdf`, and the request model's `input` lacks `pdf`
+- **THEN** the file part maps to `PDF 1 (media://<id>):` followed by
+  `[pdf media://<id> paper.pdf 15 pages, omitted: this model has no PDF input]` ahead of the owner's
+  text
+- **AND** no file part is supplied for that message
+
+#### Scenario: A PDF read result crosses as tool content
+
+- **WHEN** a later step of the Run that read a PDF replays that `read` tool part, the request model
+  declares `pdf` input, and the epoch image window attaches the reference
+- **THEN** the tool-result message carries an output of type `content` holding the result's text
+  followed by one file part built from the original that attempt's memory holds
+
+#### Scenario: An earlier turn's PDF read result carries the not-retained placeholder
+
+- **WHEN** a later turn on a model declaring `pdf` input replays a stored `read` tool part whose
+  result is a PDF result without a `media` field
+- **THEN** the tool output carries the result's text followed by the PDF not-retained placeholder
+- **AND** it carries no file part
+
+#### Scenario: A prompt-import PDF crosses as a file part or a placeholder
+
+- **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one
+  PDF entry, and the Run that imported it sends a request to a model declaring `pdf` input with the
+  reference attached by the epoch image window, and a later Run replays it to a model whose `input`
+  lacks `pdf`
+- **THEN** the first request supplies the item's text followed by one file part built from the PDF's
+  original
+- **AND** the second supplies the item's text followed by the PDF omitted placeholder text part and
+  no file part for that entry
 
 ### Requirement: The skill catalog is a frozen prefix baseline stored on the chat
 

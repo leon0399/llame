@@ -506,7 +506,7 @@ export const AttachedImageWithText: Story = {
       timeout: 15_000,
     });
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
-    const list = canvas.getByRole("list", { name: "Attached images" });
+    const list = canvas.getByRole("list", { name: "Attachments" });
     const images = within(list).getAllByRole("img");
     await expect(images.map((image) => image.getAttribute("alt"))).toEqual([
       "diagram.png",
@@ -549,7 +549,7 @@ export const AttachedImageOpensLightbox: Story = {
   args: AttachedImageWithText.args,
   play: async ({ canvas }) => {
     const list = await waitFor(
-      () => canvas.getByRole("list", { name: "Attached images" }),
+      () => canvas.getByRole("list", { name: "Attachments" }),
       { timeout: 15_000 },
     );
     const opener = within(list).getByRole("button", { name: "photo.jpg" });
@@ -598,7 +598,7 @@ export const ImageOnlyMessage: Story = {
       { timeout: 15_000 },
     );
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
-    const list = canvas.getByRole("list", { name: "Attached images" });
+    const list = canvas.getByRole("list", { name: "Attachments" });
     // The thumbnails are the row's first child and the action row its second:
     // no bubble sits between them.
     const row = canvasElement.querySelector(
@@ -606,6 +606,134 @@ export const ImageOnlyMessage: Story = {
     );
     await expect(row?.children[0]).toBe(list);
     await expect(row?.children[1]).toContainElement(fork);
+  },
+};
+
+/** A stored owner PDF: its tile links the `/original`, and no `/model`
+ *  variant exists for it. */
+const PDF_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8d";
+const PDF_FILENAME = "report.pdf";
+const PDF_PART: UIMessage["parts"][number] = {
+  type: "file",
+  mediaType: "application/pdf",
+  url: `media://${PDF_ID}`,
+  filename: PDF_FILENAME,
+};
+const PDF_ORIGINAL_SRC = new RegExp(`/api/v1/media/${PDF_ID}/original$`);
+
+/**
+ * An owner message with an image and a PDF: both render above the bubble in
+ * stored order. The image keeps its `/model` thumbnail and opens the
+ * lightbox over this message's images; the PDF is a document tile named by
+ * its stored file name whose link opens the `/original` in a new tab, so it
+ * loads no image route and enters no slide.
+ *
+ * @summary an attached PDF renders beside an image without an image route
+ */
+export const AttachedImageAndPdf: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: {
+      id: "user-image-pdf",
+      role: "user",
+      parts: [
+        IMAGE_PART,
+        PDF_PART,
+        { type: "text", text: "Summarize the report." },
+      ],
+    },
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const caption = await waitFor(
+      () => canvas.getByText("Summarize the report."),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
+    const list = canvas.getByRole("list", { name: "Attachments" });
+    const [image, pdf] = within(list).getAllByRole("listitem");
+    await expect(
+      within(image!).getByRole("img", { name: "diagram.png" }),
+    ).toHaveAttribute(
+      "src",
+      expect.stringMatching(/\/api\/v1\/media\/[^/]+\/model$/),
+    );
+    // Stored order: the image's tile precedes the PDF's, and the bubble
+    // follows both.
+    await expect(
+      pdf!.compareDocumentPosition(image!) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    await expect(
+      list.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const link = within(pdf!).getByRole("link", {
+      name: `Open ${PDF_FILENAME} in a new tab`,
+    });
+    await expect(link).toHaveAttribute(
+      "href",
+      expect.stringMatching(PDF_ORIGINAL_SRC),
+    );
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // The PDF loads no image route: the row's only image is the image's.
+    await expect(within(list).getAllByRole("img")).toHaveLength(1);
+    await expect(canvasElement.querySelector(`[src*="${PDF_ID}"]`)).toBeNull();
+
+    // The lightbox holds this message's images only, so the PDF is no slide.
+    await userEvent.click(
+      within(image!).getByRole("button", { name: "diagram.png" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "diagram.png" });
+    await expect(within(dialog).queryByText(PDF_FILENAME)).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  },
+};
+
+/**
+ * A PDF-only owner message: the document tile and its link render and open
+ * no lightbox, while a `file` part whose URL is no `media://` locator paints
+ * nothing rather than the "unsupported part type" fallback.
+ *
+ * @summary an attached PDF alone renders a tile and no lightbox
+ */
+export const AttachedPdfOnly: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "user-pdf-only",
+    message: {
+      id: "user-pdf-only",
+      role: "user",
+      parts: [
+        PDF_PART,
+        {
+          type: "file",
+          mediaType: "application/pdf",
+          url: "https://example.test/notes.pdf",
+          filename: "notes.pdf",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const fork = await waitFor(
+      () => canvas.getByRole("button", { name: "Fork from here" }),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
+    const list = canvas.getByRole("list", { name: "Attachments" });
+    await expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    await expect(
+      within(list).getByRole("link", {
+        name: `Open ${PDF_FILENAME} in a new tab`,
+      }),
+    ).toBeVisible();
+    await expect(canvas.queryByText("notes.pdf")).toBeNull();
+    await expect(within(list).queryAllByRole("img")).toEqual([]);
+    await expect(canvas.queryByRole("dialog")).toBeNull();
+    await expect(
+      list.compareDocumentPosition(fork) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   },
 };
 
@@ -775,6 +903,62 @@ export const CacheWriteUsage: Story = {
 
     const cacheWriteRow = await revealedUsageRow("of which cache write");
     await expect(cacheWriteRow).toHaveTextContent("11.2k");
+  },
+};
+
+const STREAM_METRICS_MESSAGE: UIMessage = {
+  id: "assistant-stream-metrics",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 12_800,
+      cachedInputTokens: 12_000,
+      cacheWriteTokens: 0,
+      outputTokens: 412,
+      totalTokens: 13_212,
+      modelId: CLAUDE_SONNET_MODEL.id,
+      latencyMs: 8240,
+      firstTokenMs: 1180,
+      chunkCount: 412,
+      tokensPerSecond: 58.4,
+      costUsd: 0.02,
+      status: "completed",
+      complete: true,
+      billing: "usage",
+    },
+  },
+  parts: [{ type: "text", text: "Streamed the whole answer token by token." }],
+};
+
+/**
+ * A completed streamed turn: hovering the usage badge reveals the Performance
+ * column's first-token time, output throughput, and chunk count beside Total,
+ * so a slow start and a slow generation are told apart before reading the
+ * answer.
+ *
+ * @summary the usage hover card shows the turn's stream performance
+ */
+export const StreamMetricsUsage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: STREAM_METRICS_MESSAGE,
+    availableModels: [CLAUDE_SONNET_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await expect(trigger).toHaveTextContent("Claude Sonnet 5 · 8.24s");
+
+    await userEvent.hover(trigger);
+
+    const firstTokenRow = await revealedUsageRow("First token");
+    await expect(firstTokenRow).toHaveTextContent("1.18s");
+    const speedRow = await revealedUsageRow("Speed");
+    await expect(speedRow).toHaveTextContent("58.4 tok/s");
+    const chunksRow = await revealedUsageRow("Chunks");
+    await expect(chunksRow).toHaveTextContent("412");
   },
 };
 

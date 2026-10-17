@@ -15,7 +15,7 @@ import {
   type ReadTarget,
 } from "./path";
 import { streamFileWindow } from "./stream-read";
-import type { ImageReadHook, ImageReadSuccess } from "./image";
+import type { MediaReadHook, MediaReadSuccess } from "./media";
 import { missingFileMessage } from "./read-suggestions";
 import {
   listDirectory,
@@ -65,8 +65,8 @@ type ReadOutcome =
  * renderer omits where a link leads, which is what keeps a resolved host path
  * out of a Knowledge listing.
  *
- * `image` opts the read into image detection (vision-media D7); without it a
- * file is always read as text.
+ * `media` opts the read into image and PDF detection; without it a file is
+ * always read as text.
  */
 export type NativeReadOptions = {
   readonly displayPath: string;
@@ -75,7 +75,7 @@ export type NativeReadOptions = {
   readonly followSymlinks?: boolean;
   readonly linkTargets?: boolean;
   readonly signal?: AbortSignal | undefined;
-  readonly image?: ImageReadHook | undefined;
+  readonly media?: MediaReadHook | undefined;
 };
 
 export async function loadText(
@@ -99,12 +99,12 @@ export async function loadText(
   }
 }
 
-/** Without an `image` hook every file is read as text. */
+/** Without a `media` hook every file is read as text. */
 export async function readFile(
   input: { path: string },
   signal?: AbortSignal,
-  image?: ImageReadHook,
-): Promise<ReadOutcome | ImageReadSuccess> {
+  media?: MediaReadHook,
+): Promise<ReadOutcome | MediaReadSuccess> {
   let hostPath = input.path;
   try {
     const target = await resolveReadTarget(input.path);
@@ -115,7 +115,7 @@ export async function readFile(
           hostPath: target.path,
           followSymlinks: true,
           signal,
-          image,
+          media,
         });
   } catch (error) {
     return readFailure(error, hostPath, input.path, true);
@@ -124,12 +124,12 @@ export async function readFile(
 
 /**
  * Read a target a scheme resolver has already authorized and resolved.
- * Without an `image` hook every file is read as text.
+ * Without a `media` hook every file is read as text.
  */
 export async function readResolvedFile(
   hostPath: string,
   options: NativeReadOptions,
-): Promise<ReadOutcome | ImageReadSuccess> {
+): Promise<ReadOutcome | MediaReadSuccess> {
   const followSymlinks = options.followSymlinks ?? false;
   try {
     const target = await resolveResolvedTarget(hostPath, options);
@@ -139,7 +139,7 @@ export async function readResolvedFile(
           hostPath,
           followSymlinks,
           signal: options.signal,
-          image: options.image,
+          media: options.media,
         });
   } catch (error) {
     return readFailure(error, hostPath, options.displayPath, followSymlinks);

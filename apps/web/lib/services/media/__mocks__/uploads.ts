@@ -5,7 +5,7 @@ import { fn } from "storybook/test";
 import type { MediaDescriptor } from "../uploads";
 
 // Storybook manual mock for media uploads (registered globally via `sb.mock`
-// in .storybook/preview.tsx). The constant is re-declared rather than
+// in .storybook/preview.tsx). The constants are re-declared rather than
 // re-exported from "../uploads": sb.mock redirects that specifier back to
 // THIS module, so a re-export would be a circular self-import.
 
@@ -16,9 +16,11 @@ export const ATTACHABLE_IMAGE_TYPES: ReadonlyArray<string> = [
   "image/webp",
 ];
 
+export const ATTACHABLE_PDF_TYPE = "application/pdf";
+
 /** Never settles by default; stories set the outcome per test. (The web lib
  *  targets pre-ES2024, so no `Promise.withResolvers`.) */
-export const uploadImage = fn(
+export const uploadAttachment = fn(
   (_file: File): Promise<MediaDescriptor> =>
     new Promise<MediaDescriptor>(() => {}),
-).mockName("uploadImage");
+).mockName("uploadAttachment");

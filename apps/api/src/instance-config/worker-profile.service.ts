@@ -11,6 +11,12 @@ import { type WorkerGroup } from './llame-config';
 const WORKER_PROFILE_ENV = 'LLAME_WORKER_PROFILE';
 const DEFAULT_PROFILE = 'all';
 
+/** The only capability a worker entrypoint needs (#268). */
+export type WorkerConcurrencyResolver = Pick<
+  WorkerProfileService,
+  'concurrencyFor'
+>;
+
 /**
  * WorkerProfileService (durable-run-workers D2/D4) — resolves the active
  * worker profile once at boot: which consumer groups THIS process registers,
@@ -24,12 +30,6 @@ const DEFAULT_PROFILE = 'all';
  * the configured `workers` map is a misconfiguration that must never
  * silently run zero consumers for a group nobody else covers.
  */
-/** The only capability a worker entrypoint needs (#268). */
-export type WorkerConcurrencyResolver = Pick<
-  WorkerProfileService,
-  'concurrencyFor'
->;
-
 @Injectable()
 export class WorkerProfileService {
   private readonly logger = new Logger(WorkerProfileService.name);

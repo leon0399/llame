@@ -88,7 +88,7 @@ function executeNative(
     if (scheme !== undefined) return executeLocator(context, call, scheme);
     hostCall = projectNativeCall(context, call);
   }
-  // An image placeholder names the path as submitted, not the host path.
+  // A media placeholder names the path as submitted, not the host path.
   if (hostCall.operation === 'read')
     return executeNativeBound(context, hostCall, call.input.path);
   return serializeMutation(() =>
@@ -167,8 +167,7 @@ async function executeKnowledge(
     return replacing(call) && target.type === 'not_found'
       ? { ...target, message: REPLACE_TARGET_MISSING_MESSAGE }
       : target;
-  if (call.operation === 'read')
-    return readKnowledge(context, target, call.input.path);
+  if (call.operation === 'read') return readKnowledge(context, target);
   // A `const` keeps the narrowing across the closure the queue runs later.
   const mutation = call;
   return serializeMutation(() => mutateKnowledge(context, mutation, target));
@@ -210,7 +209,7 @@ async function executeSkill(
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
     followSymlinks: true,
     signal: context.abortSignal,
-    image: context.media?.readImage(call.input.path, context.toolCallId),
+    media: context.media?.readMedia(resolved.locator, context.toolCallId),
   };
   const result = await readResolvedFile(
     resolved.hostPath,
@@ -286,7 +285,6 @@ function skillCatalogUnavailableResult(): ToolResult {
 async function readKnowledge(
   context: ToolContext,
   target: ResolvedKnowledgeTarget,
-  submitted: string,
 ): Promise<ToolResult> {
   const escaped = await target.assertInsideSpace();
   if (escaped) return escaped;
@@ -298,7 +296,7 @@ async function readKnowledge(
     // renders without its target.
     linkTargets: false,
     signal: context.abortSignal,
-    image: context.media?.readImage(submitted, context.toolCallId),
+    media: context.media?.readMedia(target.locator, context.toolCallId),
   };
   const result = await readResolvedFile(
     target.hostPath,
@@ -428,7 +426,7 @@ function performNative(
     ? readFile(
         call.input,
         context.abortSignal,
-        context.media?.readImage(submitted, context.toolCallId),
+        context.media?.readMedia(submitted, context.toolCallId),
       )
     : performMutation(call, call.input.path, { signal: context.abortSignal });
 }

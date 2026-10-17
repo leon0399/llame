@@ -238,6 +238,30 @@ describe('ProjectsRepository (real Postgres)', () => {
       }
     });
 
+    it('stores a description, then clears it with an explicit null', async () => {
+      const created = await asA((repo) =>
+        repo.create({ ownerUserId: ownerA, name: 'Described' }),
+      );
+      try {
+        // A fresh project has none: the column is nullable and never defaulted.
+        expect(created.description).toBeNull();
+
+        const described = await asA((repo) =>
+          repo.update(created.id, ownerA, {
+            description: 'Everything about the relaunch',
+          }),
+        );
+        expect(described?.description).toBe('Everything about the relaunch');
+
+        const cleared = await asA((repo) =>
+          repo.update(created.id, ownerA, { description: null }),
+        );
+        expect(cleared?.description).toBeNull();
+      } finally {
+        await asA((repo) => repo.delete(created.id, ownerA));
+      }
+    });
+
     it('a no-op patch ({}) returns the current row unchanged', async () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Untouched' }),

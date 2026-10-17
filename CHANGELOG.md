@@ -1,10 +1,275 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-17
+
+- The background job queues are now described by an AsyncAPI document,
+  `apps/api/asyncapi.queues.yaml`: each queue's name, payload, and static
+  pg-boss options. The API's queue payload guards, names, and options are
+  generated from it, replacing the hand-written guards, and CI fails when the
+  generated module drifts. A payload that does not match still fails its job
+  before the handler runs; unknown fields are still ignored. The WebSocket
+  document is renamed `apps/api/asyncapi.websocket.yaml`, and
+  `scripts/generate-live-protocol.mjs` is now
+  `scripts/generate-asyncapi-module.mjs`.
+
+- A turn's throughput no longer counts the time it spent waiting on its own
+  tools. The rate divides its output tokens by the time its provider requests
+  were actually generating: each request's window from the first thing it
+  streamed — answer text, thinking, or a tool call's arguments — to that
+  request's finish, summed over the turn. A request that streamed nothing of its
+  own still contributes its whole span, so a wire that hands over a tool call in
+  one piece never drops its argument tokens out from under the rate, and a
+  `bash` call that took a minute between two steps no longer drags the number
+  down: the card's `Speed` row finally means what it looks like it means. The
+  window is persisted beside the rate as `generationMs`, absent rather than zero
+  when nothing was measured, and a turn recorded before this keeps the value it
+  was recorded with (#155).
+
+- A project now carries a **description** — the owner's own prose about what the
+  project is for — beside its name. It is empty until you set one, so nothing
+  changes for an existing project, and it is edited from a new **Settings**
+  entry in a project row's menu, which opens the name and the description
+  together. Saving an emptied description clears it rather than storing a blank
+  string, and an archived project refuses a description change exactly as it
+  refuses a rename (#1309).
+
+# 2026-10-16
+
+- Added PDF composer attachments and document tiles (#1277). Models declaring
+  PDF input accept PDF paste, picker, and drop through the shared 10-attachment
+  limit. Stored PDFs open their original in a new tab; unstored read and import
+  PDFs show static tiles. Image thumbnails and lightboxes keep their existing
+  behavior.
+
+- The native `hackernews` adapter now reads the front page (`/`, `/news`,
+  `/front`) and `/newest` as bullet lists of the first 30 stories — title,
+  points, comment count, the story link, and its HN discussion link — from
+  the keyless hn.algolia.com search endpoints. The front page's set matches
+  the site's, in the API's points order. The site's ranked pages (`/best`,
+  `/ask`, `/show`) stay on the generic ladder, because the API exposes no
+  equivalent ranking.
+
+- The usage hover card now says what a turn's stream did, not just what it
+  cost: its time to first token, its output throughput, and how many streamed
+  deltas delivered the answer, beside the Total it already showed. The worker
+  stamps the first output delta against the same clock `latencyMs` measures
+  from, counts the deltas the model client delivers, and derives tokens/second
+  over the window that follows the first delta — all persisted on the
+  message's usage beside the tokens and cost, so the live card and a reloaded
+  one agree. A rate is recorded only when the turn's whole output total is
+  known and the window is non-empty, and a turn that streamed nothing (or
+  predates the capture) shows `—` rather than a fabricated zero (#155).
+
+- A long turn no longer loses its live stream. The run-event bridge is the
+  only writer of a chat, and it cut every connection at five minutes of
+  wall-clock time — mid-Run, while the Run was still streaming — then sent
+  `Stream window elapsed; the run is still executing`, which the durable-run
+  design never asked for: the Run kept executing, the composer stopped
+  rendering it, and the record of the send survived only for a full page load
+  to replay. The window is gone, so a Run's stream lives exactly as long as the
+  Run does, and a quiet stretch (thinking, a long tool call) is held open with
+  an SSE comment rather than being cut. The bridge's terminal chunk now carries
+  `finishReason`, the only positive signal that a Run reached its end — a
+  failed Run still replaces it with its error — and the client re-attaches to a
+  stream that ended without one, so a dropped connection, a proxy timeout, or a
+  deploy resumes rendering instead of reporting a turn that never finished. The
+  first attempt is immediate; consecutive failures wait an equal-jitter delay,
+  and five of them hand the Run to the durable path. That policy is its own
+  module, because it is what makes an hours-long Run viewable and not a corner
+  of the chat engine (#1284).
+
+- PDF parsing now fails closed when the compiled parse entry is missing.
+  Production no longer selects the unbounded TypeScript test parser; requests
+  report `PDF parsing is unavailable on this server` and log the start failure.
+
+- Documented how each context document is chosen, imported, and injected.
+  [Context documents](docs/product/reference/context-documents.md) maps the
+  system prompt, project instruction files, prompt markers, and skill files
+  onto the surface that carries them. Instruction files now show the
+  `instructions` item shape, and prompt imports now show where that item sits
+  relative to a skill activation and the user's text.
+
+- Added PDF prompt imports (#1275): admitted `@path`, Knowledge, skill, web,
+  and `@media://` targets now record PDF metadata and send the original to
+  models declaring PDF input. Unstored bytes remain in the importing attempt;
+  later turns and resumed attempts use a not-retained placeholder, while
+  stored PDF imports replay from the owner-scoped media store and retain their
+  PDF kind when the stored object is unavailable. PDFs share the eight-target
+  bound and contribute only their read envelope to the 128 KiB text bound.
+  Selectors and refused PDFs remain not imported.
+
+# 2026-10-15
+
+- Fixed the composer textarea jumping back to the top on every keystroke once
+  the prompt grew past its `maxHeight` (#1287). The auto-resize collapses the
+  textarea to `height: auto` to re-measure, and `Textarea`'s
+  `field-sizing: content` made that fit the whole value, so the box had no
+  overflow for one layout and the browser clamped `scrollTop` to 0 — discarding
+  both a manual scroll and the offset the browser had just set to reveal the
+  caret. The offset is restored after the height is written, and a composer
+  story types at the end of an overflowing prompt and asserts it did not move.
+
+- Dependency security pass across the workspace: `pnpm audit` goes from 72
+  advisories over 28 packages (5 critical, 25 high) to one, and every open
+  Dependabot alert is cleared. The one survivor, `braces`, has no patched
+  release upstream — `micromatch` pins `^3.0.3` — and no runtime import path in
+  llame, though it is not dev-only by `pnpm audit`'s classification: production
+  `shadcn` in `packages/ui` is one of its eight paths. It carries no Dependabot
+  alert. Direct dependencies moved to their patched versions: `next` 16.3.4
+  → 16.3.8 (patch-level inside 16.3, whose security fixes are the payload the
+  superseded Dependabot PR #1067 could not land inside the 7-day
+  `minimumReleaseAge` cooldown), `@modelcontextprotocol/sdk` 1.29.0 → 1.31.0,
+  `handlebars` 4.7.9 → 4.7.10, and `katex` 0.16.27 → 0.18.2. Everything else
+  was already reachable inside its parents' declared ranges, so the 33 overrides
+  generated by `pnpm audit --fix` were trimmed to the 24 parent-scoped entries
+  (12 payload packages) whose parent pins below the fix; each names its parent in
+  `pnpm-workspace.yaml`. Four of those entries carry their dependency's own major
+  forward, the only path to an advisory's fix when no patched release exists
+  inside the major its parent pins: `katex` 0.16 → 0.18, `file-type` 20 → 21,
+  `postcss-selector-parser` 6 → 7, and `esbuild` 0.18 → 0.25; all four land on a
+  `.1`-or-later release. `katex` is the pass's one forward jump with a runtime
+  surface — `rehype-katex` 7.0.1 calls only `katex.renderToString`, and the
+  Storybook math stories pass on 0.18.2.
+
+- Fixed chat UI jank on tool-heavy Runs and long transcripts. Idle message
+  objects stay referentially stable across stream ticks so memoized rows skip
+  reconciling prior turns that carry dozens of tool headers; tool and
+  reasoning chrome use `content-visibility: auto` (not message rows — those
+  carry scroll-anchor geometry); expanded tool JSON and `read` bodies are
+  height-capped behind a focusable scrollport for Firefox/Safari. Harness
+  (`chat-transcript.perf.test.tsx`, 87-tool fixture): 50 stream ticks cost
+  ~1506ms / 50 idle commits when identity breaks each tick vs ~3ms / 0 commits
+  when identity holds; first mount of 87 collapsed tool rows ~70ms in jsdom.
+  `content-visibility` paint savings are not measured here (jsdom).
+
+- The native `lobsters` web adapter reads `lobste.rs/s/` story links, which
+  the generic converter reduced to a stray comment, as x.md threads: the
+  story with its title, link, tags, and score, then every comment in the
+  site's thread order with its score, from the site's keyless JSON API in one
+  request.
+
+- Added unstored web PDF reads (#916): a page declaring `application/pdf`
+  and starting with `%PDF-` returns PDF metadata and gives PDF-capable models
+  the original for the reading attempt, under a 20 MiB body and 100-page
+  bound. Selectors, encrypted or unopenable PDFs, and invalid signatures are
+  refused; probes and adapters remain text-only. The whole-call deadline
+  also covers media preparation.
+
+- Added PDF reads from host files, `file:`, Knowledge, skills, and `media://`
+  locators (#1275). PDF-capable models receive the original under the shared
+  media window; unstored reads keep bytes only in the reading Run attempt and
+  replay as not retained later. Stored PDFs replay from the owner-scoped store.
+  Every selector on an image or PDF is refused with
+  `An image or PDF is read without a selector.`; encrypted, unopenable, or
+  oversized PDFs are refused without text fallback. PDF prompt imports remain
+  unsupported until their own delivery layer.
+
+# 2026-10-14
+
+- Added owner PDF attachments and the `pdf` model input (#1275). A message
+  may now carry `file` parts referencing stored PDFs, stored as
+  `application/pdf` under the PDF's stored name. `models[].input` accepts
+  `pdf`, published by `GET /api/v1/models`; a model that declares it receives
+  each attached PDF's original, labelled `PDF n (media://<id>):`, as an
+  `input_file` on the Responses wire, a `file` part on Chat Completions, and a
+  `document` block on Anthropic Messages, while any other model gets
+  `[pdf media://<id> <name> <P> pages, omitted: this model has no PDF input]`.
+  Images and PDFs now share one epoch window: 100 images, 28 MiB of base64
+  (up from 24 MiB), and at most 100 PDF pages or fewer on a smaller context
+  window, with `[pdf …, not attached: this context's PDF limit is reached]`
+  beyond it. Context estimates charge 3,000 tokens per page, `conversation_read`
+  and title generation list `[pdf media://<id> <name>]`, and compaction
+  summaries keep PDF locators. Declare `pdf` only where the provider accepts
+  PDFs; the ChatGPT Codex backend accepted a 15-page PDF on `gpt-6.1-sol`
+  (checked 2026-10-14). See
+  [model input](docs/product/operator/media.md#model-input).
+
+- Added PDF uploads to the media store (#1275): `POST /api/v1/media` stores
+  a PDF of up to 20 MiB and 100 pages and `GET /api/v1/media/:id/original`
+  serves it, while a larger PDF is `413` `media_too_large` and an unopenable
+  or encrypted one `415` `unsupported_media_type`. Until PDFs can be read,
+  `read` of a stored PDF's `media://` locator fails `unsupported_media_type`.
+  **Breaking:** `image_too_large` is now `media_too_large` on upload, `read`,
+  web `read`, and prompt imports, with the message
+  `Image exceeds 20 MiB or 40 megapixels`, `PDF exceeds 20 MiB or 100 pages`,
+  or `File exceeds 20 MiB`; there is no alias. See
+  [media store](docs/product/operator/media.md#pdfs) for the rest.
+
 # 2026-10-11
 
 - Fixed the admin organization tree's "New organization" dialog keeping a
   cancelled name: reopening it after Cancel now starts from an empty field, as
   it already did after Escape.
+
+- The search embed worker now copies an existing vector instead of calling
+  the embedding provider when the same owner already has a valid one for
+  byte-identical chunk content under the current model key and input version
+  (#597). A forked chat, whose messages get fresh ids and so new content
+  hashes, is now embedded with no provider calls for its copied transcript.
+  Reuse stays inside the owner's row-level-security scope and never crosses
+  users. A new partial `md5(content)` index narrows candidates, and the copy
+  still requires the content bytes to match. Failed (tombstoned) documents are
+  never reused.
+
+- Fixed an org `admin` being able to take a unit out of its owners' control
+  (#1260). An admin could promote a unit to root and leave it with no owner,
+  then mint `owner` on it, or move a unit into another tree they own and gain
+  owner rights over it and its owners. Moving a unit to root or into another
+  tree now needs the caller to be an `owner` of the source tree's root; owning
+  the unit or a unit between it and the root is not enough. A unit promoted to
+  root must have an `owner` by the end of the move (the API answers 409
+  otherwise). Moves within one tree still need only `admin`. A unit's
+  `created_by` can no longer be changed, and the sole owner of a root can no
+  longer move their owner row to another unit. The database enforces all of
+  this, so direct SQL is blocked too. Creating a child without admin rights
+  now returns 403 instead of 500.
+
+- Fixed a root org's creator being able to grant themselves `owner` again
+  after transferring ownership and leaving, or after being demoted and
+  leaving, and then revoke the new owner (#1258). The creator's self-grant of
+  `owner` now works only on a fresh root that has no memberships yet, which
+  is the one-transaction bootstrap in root creation. The database enforces
+  this, so direct SQL is blocked too. **Upgrade note:** run
+  `pnpm db:provision-rls` after `pnpm db:migrate`. Until the new
+  `llame_org_unit_is_fresh_root` function is owned by `app_rls`, it fails
+  closed and creating a root org is refused.
+
+- Fixed the merged web coverage report counting a story-covered file twice
+  when it lives under a Next route group such as `app/(chat)/`. Vitest 4.1.11
+  passed tested file paths to its untested-file glob as patterns, so the
+  parentheses never matched and each such file was also added as an all-zero
+  "uncovered" copy whose statement locations differed from the browser's. A
+  pnpm patch backports the upstream fix (vitest-dev/vitest#11531). Now that
+  the #860 story migrations are on master, merged statements read 90.45%
+  instead of 85.64%. Files no test loads, such as `app/(chat)/layout.tsx`,
+  still report 0%.
+
+- Fixed the pins write gate so that an update must also reference an item the
+  caller can access. Before, the `pins_owner_update` row-level security policy
+  checked only the pin's owner, so a user could re-point their own pin at
+  another user's chat or project with a direct `UPDATE` and keep a pin to an
+  item they cannot access. The policy now applies the same per-type access
+  check as `pins_owner_insert`. Pin reorder is unaffected because it only
+  rewrites the rank of pins whose item is still accessible.
+
+- Fixed opening `/chat/<id>#msg-N` not landing on the target message
+  (#1237). The target scroll ran before the transcript had rendered while the
+  Markdown renderers were still loading, found no row and never retried; when
+  it did run, stick-to-bottom pulled the view straight back to the newest
+  message. The scroll now runs when the transcript mounts and releases the
+  bottom pin, so the target (centred, even when taller than the screen) stays
+  in view until the reader scrolls. Ordinary opens still land on the newest
+  message. The product E2E suite now checks the target is in view without
+  scrolling to it.
+
+- Fixed the recency digest marking chats as told that the model never saw
+  (#1206). Both prompt renders now report which digest entries they actually
+  emitted, and the told-set records only those. An operator template that
+  leaves the digest out of the system prompt and every tool description no
+  longer marks the baseline's chats told, so they reach the model through
+  appends instead of never. A checkpoint refresh now starts the new epoch with
+  nothing told. The next request still does not re-announce the entries it
+  renders, and appends the ones it does not.
 
 - Fixed explicit `$skill` activation loading a skill's instructions and
   imported package files when `read` is not in `tools.allowed` (#1264).
@@ -177,6 +442,34 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- CI now saves the pnpm store cache only from pushes to `master`; every job
+  still restores it, and a pull request whose lockfile differs falls back to
+  `master`'s store and downloads only the delta. `pnpm/setup`'s
+  `cache: true` had saved a 360–400 MB store from every pull-request ref, once
+  per store path (host and container jobs differ). That came to 22 entries,
+  8.3 GB of the repository's 11.1 GB, which put it past GitHub's 10 GB limit
+  and evicted caches still in use. The setup action now restores and saves
+  the store itself with `actions/cache`.
+
+- **pnpm 11 → 12** (#634). `packageManager` pins `pnpm@12.9.0`, the version
+  nixpkgs packages as `pnpm_12`, and the Nix dev shell switches to
+  `pkgs.pnpm_12` on a nixpkgs lock bumped to 2026-10-08, which also moves its
+  Node to 22.23.3 (CI still reads `.node-version`). pnpm 12's patch parser
+  rejected `patches/@orval__fetch@8.24.0.patch`, whose last three hunks had
+  new-side starts that ignored the lines earlier hunks add. pnpm 11 never
+  read those numbers. The headers are corrected and the patch's content is
+  unchanged; its lockfile hash updates with them. The lockfile now also
+  records `pnpm@12.9.0` and its platform binaries, which pnpm 12 writes. No
+  repository script uses one of the install flags pnpm 12 removed.
+  `minimumReleaseAgeStrict` is now on, pnpm 12's default when a cooldown is
+  set: `pnpm add` of a version younger than seven days fails instead of
+  appending a silent exclusion. `minimumReleaseAgeExcludePrune` drops
+  exact-version exclusions once they age out, which removed three that had
+  been added without review (`esbuild@0.24.3`, `image-size@2.0.3`,
+  `qs@6.15.4`). `enableGlobalVirtualStore: false` becomes its current name,
+  `virtualStoreType: project`. A global pnpm 11 older than 11.28.4 cannot hand
+  off to the pnpm 12 pin, so run pnpm from the Nix dev shell.
+
 - Chat images now open in a lightbox (#1166, #935). The `read` tool card shows
   a thumbnail for an image result and the prompt-imports chip one per imported
   image, beside the attachment thumbnails above a sent message; an image read
@@ -285,7 +578,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   lists a message's images after its text, compaction summaries keep the
   locators of the images they mention, and public shares and shared forks omit
   them. Messages cannot carry images until a later release. See
-  [media store](docs/product/operator/media.md#model-image-input).
+  [media store](docs/product/operator/media.md#model-input).
 
 - Added the media store for owner images (#935). `POST /api/v1/media` uploads
   one PNG, JPEG, GIF, or WebP image, detected by magic bytes, of at most

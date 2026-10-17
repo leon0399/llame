@@ -612,6 +612,108 @@ describeIfDb(
       expect(secondReceipts[0]?.systemPrompt).not.toContain('must stay absent');
     });
 
+    /** The chat row and the digest append on its latest user message. */
+    const digestState = (chatId: string) =>
+      tenantDb.runAs(userId, async (tx) => {
+        const chat = await new ChatsRepository(tx).findById(chatId, userId);
+        const messages = await new MessagesRepository(tx).findByChatId(
+          chatId,
+          userId,
+        );
+        const latestUser = messages
+          .filter(({ role }) => role === 'user')
+          .at(-1);
+        return {
+          told: chat?.recencyDigestTold,
+          baseline: chat?.recencyDigestBaseline,
+          append: (latestUser?.parts ?? [])
+            .filter(isContextItemPart)
+            .find(({ data }) => data.producer === 'recency-digest')?.data.text,
+        };
+      });
+
+    it('leaves a baseline no surface rendered untold, so its chats are appended on the next run', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      const source = await seedEligibleChat(
+        userId,
+        'Unrendered source',
+        'unrendered opening',
+      );
+      // An operator template that renders the digest in neither surface: no
+      // admitted tool description in this harness references `chats` either.
+      systemPrompt = 'Base without the digest.';
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'first target turn');
+      await finishActive(chatId);
+      const first = await digestState(chatId);
+      expect(first.baseline?.recent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ title: 'Unrendered source' }),
+        ]),
+      );
+      // The baseline is bound, but the model was told about none of it.
+      expect(first.told).toEqual([]);
+      expect(first.append).toBeUndefined();
+
+      await send(chatId, crypto.randomUUID(), 'second target turn');
+      await finishActive(chatId);
+      const second = await digestState(chatId);
+      expect(second.append).toContain('Unrendered source');
+      expect(second.append).toContain('unrendered opening');
+      expect(second.told).toContainEqual({
+        chatId: source.id,
+        pinned: false,
+        title: 'Unrendered source',
+      });
+      expect(second.baseline).toEqual(first.baseline);
+    });
+
+    it('records only the entries the executed template branch emitted', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      // No text in its opening message, so it renders no excerpt field.
+      const silent = await seedEligibleChat(userId, 'Silent source', '');
+      const shown = await seedEligibleChat(userId, 'Shown source', 'shown');
+      // The collection is iterated for both chats, but only an entry with an
+      // excerpt has any of its values emitted.
+      systemPrompt =
+        'Base.{{#each chats.recent}}{{#if excerpt}} {{title}}: {{excerpt}}{{/if}}{{/each}}';
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'first target turn');
+      await finishActive(chatId);
+      const first = await digestState(chatId);
+      expect(first.baseline?.recent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ title: 'Silent source' }),
+          expect.objectContaining({ title: 'Shown source' }),
+        ]),
+      );
+      expect(first.told).toContainEqual({
+        chatId: shown.id,
+        pinned: false,
+        title: 'Shown source',
+      });
+      expect(first.told?.map(({ chatId: told }) => told)).not.toContain(
+        silent.id,
+      );
+
+      await send(chatId, crypto.randomUUID(), 'second target turn');
+      await finishActive(chatId);
+      const second = await digestState(chatId);
+      expect(second.append).toContain('Silent source');
+      expect(second.append).not.toContain('Shown source');
+      expect(second.told).toContainEqual({
+        chatId: silent.id,
+        pinned: false,
+        title: 'Silent source',
+      });
+    });
+
     it('renders the packaged digest into the receipt and retains a bound baseline after withdrawal', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,

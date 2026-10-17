@@ -263,7 +263,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     expect(intoOwnSubtree.status).toBe(422);
   });
 
-  it('PATCH { parentId: null } promotes to root — needs admin-tier ON THE UNIT ITSELF, inherited tier is not enough', async () => {
+  it('PATCH { parentId: null } promotes to root — needs owner of the source tree root and an owner ON THE UNIT ITSELF (#1260)', async () => {
     const root = await createRoot(a, 'Acme');
     const team = await createChild(a, root.id, 'Team');
 
@@ -279,7 +279,24 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .send({ parentId: null });
     expect(deniedOnInheritedTierOnly.status).toBe(403);
 
-    await grant(a, team.id, a.id, 'admin'); // explicit membership ON team itself
+    // #1260 F1: an explicit `admin` row passes the policy, but the promoted
+    // root would have no `owner` — the datastore refuses it (409, the
+    // last-owner contract), so the unit stays where it was.
+    await grant(a, team.id, a.id, 'admin');
+    const ownerless = await request(http)
+      .patch(`/api/v1/org-units/${team.id}`)
+      .set('Cookie', a.cookie)
+      .send({ parentId: null });
+    expect(ownerless.status).toBe(409);
+    expect(ownerless.body.code).toBe('LAST_OWNER');
+
+    // An owner of the source tree's root mints `owner` on the unit, and
+    // the promotion then lands with the new root owned.
+    const promote = await request(http)
+      .patch(`/api/v1/org-units/${team.id}/memberships/${a.id}`)
+      .set('Cookie', a.cookie)
+      .send({ role: 'owner' });
+    expect(promote.status).toBe(200);
     const promoted = await request(http)
       .patch(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie)
@@ -287,6 +304,73 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     expect(promoted.status).toBe(200);
     expect(promoted.body.parentId).toBeNull();
     expect(promoted.body.path).toBe(team.id);
+  });
+
+  it('#1260 F1: an admin cannot promote a unit to root and take it out of the owners’ tree (403)', async () => {
+    const root = await createRoot(a, 'Owned');
+    await grant(a, root.id, b.id, 'admin');
+    const team = await createChild(b, root.id, 'Taken');
+    expect((await grant(b, team.id, b.id, 'admin')).status).toBe(204);
+
+    const promote = await request(http)
+      .patch(`/api/v1/org-units/${team.id}`)
+      .set('Cookie', b.cookie)
+      .send({ parentId: null });
+    expect(promote.status).toBe(403);
+
+    // The owner still sees the unit where it was.
+    const seenByOwner = await request(http)
+      .get(`/api/v1/org-units/${team.id}`)
+      .set('Cookie', a.cookie);
+    expect(seenByOwner.status).toBe(200);
+    expect(seenByOwner.body.path).toBe(`${root.id}/${team.id}`);
+  });
+
+  it('#1260 F2: an admin cannot move a unit into another tree they own; an owner of the source tree can', async () => {
+    // a owns root A and child Y; b holds `owner` directly on Y; c is `admin`
+    // on A and owns its own root B.
+    const rootA = await createRoot(a, 'Source');
+    const y = await createChild(a, rootA.id, 'Y');
+    expect((await grant(a, y.id, b.id, 'owner')).status).toBe(204);
+    expect((await grant(a, rootA.id, c.id, 'admin')).status).toBe(204);
+    const rootB = await createRoot(c, 'Destination');
+
+    const byAdmin = await request(http)
+      .patch(`/api/v1/org-units/${y.id}`)
+      .set('Cookie', c.cookie)
+      .send({ parentId: rootB.id });
+    expect(byAdmin.status).toBe(403);
+
+    // Y stayed in A, and c gained no owner tier over b's row.
+    const stillInA = await request(http)
+      .get(`/api/v1/org-units/${y.id}`)
+      .set('Cookie', a.cookie);
+    expect(stillInA.body.path).toBe(`${rootA.id}/${y.id}`);
+    const revokeOwner = await request(http)
+      .delete(`/api/v1/org-units/${y.id}/memberships/${b.id}`)
+      .set('Cookie', c.cookie);
+    expect(revokeOwner.status).toBe(403);
+
+    // An owner of the source tree, with admin tier on the destination, may
+    // still move the unit across.
+    expect((await grant(c, rootB.id, a.id, 'admin')).status).toBe(204);
+    const byOwner = await request(http)
+      .patch(`/api/v1/org-units/${y.id}`)
+      .set('Cookie', a.cookie)
+      .send({ parentId: rootB.id });
+    expect(byOwner.status).toBe(200);
+    expect(byOwner.body.path).toBe(`${rootB.id}/${y.id}`);
+  });
+
+  it('#1260 F4: a plain member creating a child is refused with 403, not 500', async () => {
+    const root = await createRoot(a, 'Members Only');
+    await grant(a, root.id, b.id, 'member');
+
+    const res = await request(http)
+      .post(`/api/v1/org-units/${root.id}/children`)
+      .set('Cookie', b.cookie)
+      .send({ name: 'Nope' });
+    expect(res.status).toBe(403);
   });
 
   it('DELETE: a unit with children → 409, leaf-first succeeds → 204, then 404', async () => {
@@ -457,6 +541,29 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .delete(`/api/v1/org-units/${root.id}/memberships/${a.id}`)
       .set('Cookie', a.cookie);
     expect(leaveAfterTransfer.status).toBe(204);
+  });
+
+  it('#1258: a creator who handed the root over and left cannot grant themselves owner again (403)', async () => {
+    const root = await createRoot(a, 'Handed Over');
+    expect((await grant(a, root.id, b.id, 'owner')).status).toBe(204);
+    const leave = await request(http)
+      .delete(`/api/v1/org-units/${root.id}/memberships/${a.id}`)
+      .set('Cookie', a.cookie);
+    expect(leave.status).toBe(204);
+
+    const reclaim = await grant(a, root.id, a.id, 'owner');
+    expect(reclaim.status).toBe(403);
+
+    const roster = await request(http)
+      .get(`/api/v1/org-units/${root.id}/memberships`)
+      .set('Cookie', b.cookie);
+    expect(roster.status).toBe(200);
+    expect(
+      roster.body.map((m: { userId: string; role: string }) => [
+        m.userId,
+        m.role,
+      ]),
+    ).toEqual([[b.id, 'owner']]);
   });
 
   it('GET .../memberships/me: reports nearest-wins + inherited; invisible unit → 404', async () => {

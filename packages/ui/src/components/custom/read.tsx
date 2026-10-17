@@ -11,7 +11,7 @@ import {
   ToolOutput,
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
-import { ImageThumbnail } from "@workspace/ui/components/custom/image-thumbnail";
+import { MediaThumbnail } from "@workspace/ui/components/custom/media-thumbnail";
 import {
   ImageDimensionsTile,
   imageSizeLabel,
@@ -19,6 +19,7 @@ import {
   type MediaLightboxSlide,
   mediaCaption,
 } from "@workspace/ui/components/custom/media-lightbox";
+import { ScrollRegion } from "@workspace/ui/components/custom/scroll-region";
 import { SearchLink } from "@workspace/ui/components/custom/web-search";
 import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
@@ -77,8 +78,22 @@ const imageOutputSchema = z.looseObject({
   height: z.number(),
 });
 
+/** A read whose bytes were a PDF, with the original's page count and size and
+ *  no content: only a `media://` read carries the stored object's locator,
+ *  which is also where a later turn reads it again. Loose for the same scheme
+ *  envelopes as a text read. */
+const pdfOutputSchema = z.looseObject({
+  ...readSourceFields,
+  kind: z.literal("pdf"),
+  media: z.string().optional(),
+  mediaType: z.string(),
+  pages: z.number(),
+  byteSize: z.number(),
+});
+
 type ReadOutput = z.infer<typeof textOutputSchema>;
 type ImageReadOutput = z.infer<typeof imageOutputSchema>;
+type PdfReadOutput = z.infer<typeof pdfOutputSchema>;
 type LineRange = z.infer<typeof lineRangeSchema>;
 
 /** Props for the dedicated read tool row. */
@@ -93,13 +108,15 @@ export type ReadToolProps = {
   state: ToolHeaderState;
   /** Markdown renderer supplied by the chat so web links use link safety. */
   Markdown: ComponentType<{ children?: string }>;
-  /** The thumbnail and full-size URLs of an image result's `media://`
-   *  locator, or `null` when it has none. An unstored image result shows its
+  /** The thumbnail and original URLs of a stored media result's `media://`
+   *  locator, or `null` when it has none: an image's tile and lightbox image,
+   *  or the original a PDF's tile links to. An unstored image result shows its
    *  inline `thumbnail` instead; without either it shows its size only. */
   mediaSources?: (media: string) => MediaSources | null;
 };
 
-/** Where a stored image's thumbnail and its lightbox image load from. */
+/** Where a stored media result loads from: an image's thumbnail and lightbox
+ *  image, or the original a PDF tile links to. */
 export type MediaSources = { thumbnail: string; original: string };
 
 /** The locator the model submitted to `read`: its input `path`. */
@@ -128,7 +145,9 @@ function truncation(output: ReadOutput): string | undefined {
 
 /** A rewrite adapter fetches another host, so its route and origin name
  *  where the content actually came from. */
-function methodLabel(output: ReadOutput | ImageReadOutput): string | undefined {
+function methodLabel(
+  output: ReadOutput | ImageReadOutput | PdfReadOutput,
+): string | undefined {
   const { adapter, method } = output;
   if (!adapter) return method;
   const provenance = [
@@ -142,8 +161,11 @@ function methodLabel(output: ReadOutput | ImageReadOutput): string | undefined {
 /** Every field `schema` does not declare, under its own key, so no envelope
  *  is ever dropped. */
 function envelopeRows(
-  output: ReadOutput | ImageReadOutput,
-  schema: typeof textOutputSchema | typeof imageOutputSchema,
+  output: ReadOutput | ImageReadOutput | PdfReadOutput,
+  schema:
+    | typeof textOutputSchema
+    | typeof imageOutputSchema
+    | typeof pdfOutputSchema,
 ): Array<[string, string]> {
   return Object.entries(output)
     .filter(([key]) => !Object.hasOwn(schema.shape, key))
@@ -186,6 +208,45 @@ function imageMetadataRows(output: ImageReadOutput): Array<[string, string]> {
   return rows.filter((row): row is [string, string] => row[1] !== undefined);
 }
 
+/** A PDF result's rows: the original's page count and byte size, the stored
+ *  locator a later turn can read again (if any), and the shared source rows. */
+function pdfMetadataRows(output: PdfReadOutput): Array<[string, string]> {
+  const rows: Array<[string, string | undefined]> = [
+    ["PDF", pdfSizeLabel(output)],
+    ["Media", output.media],
+    ["Method", methodLabel(output)],
+    ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
+    ...envelopeRows(output, pdfOutputSchema),
+  ];
+  return rows.filter((row): row is [string, string] => row[1] !== undefined);
+}
+
+/** The original's page count and byte size, e.g. `15 pages · 2.1 MiB`. */
+function pdfSizeLabel({ pages, byteSize }: PdfReadOutput): string {
+  let size: string;
+  if (byteSize < 1024) {
+    size = `${byteSize} B`;
+  } else if (byteSize < 1024 * 1024) {
+    size = `${(byteSize / 1024).toFixed(1)} KiB`;
+  } else {
+    size = `${(byteSize / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+  return `${pages} ${pages === 1 ? "page" : "pages"} · ${size}`;
+}
+
+/** The file name a PDF result's tile shows: the last non-empty segment of the
+ *  path of the locator the read settled on — the api names the model-facing
+ *  file the same way, a web URL by its path — or `document.pdf` when no
+ *  segment is left. A `media://` read therefore names the stored id. */
+function pdfName({ path, finalUrl }: PdfReadOutput): string {
+  // A locator's path only: drop the scheme and authority, then any query or
+  // fragment.
+  const locator = (finalUrl ?? path).replace(/^[a-z][a-z0-9+.-]*:\/\//iu, "");
+  const pathOnly = locator.slice(locator.indexOf("/") + 1).split(/[?#]/u)[0];
+  const segment = (pathOnly ?? "").split("/").filter(Boolean).at(-1);
+  return segment ?? "document.pdf";
+}
+
 function ReadMetadata({ rows }: { rows: Array<[string, string]> }) {
   return (
     <ul className="space-y-0.5 border-border border-t px-4 py-3 text-muted-foreground text-xs">
@@ -202,7 +263,7 @@ function ReadSource({
   output,
   Markdown,
 }: {
-  output: ReadOutput | ImageReadOutput;
+  output: ReadOutput | ImageReadOutput | PdfReadOutput;
   Markdown: ComponentType<{ children?: string }>;
 }) {
   return (
@@ -240,10 +301,17 @@ function ReadBody({
         {output.content === "" ? (
           <p className="text-muted-foreground text-sm">No content.</p>
         ) : (
-          // Wrapped, not scrolled: a scroll container would need keyboard focus.
-          <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-xs">
-            {output.content}
-          </pre>
+          // Cap height so a large read cannot inflate the transcript when
+          // expanded. ScrollRegion is tab-focusable — Firefox/Safari omit
+          // bare overflow nodes from the tab order (Chromium does not).
+          <ScrollRegion
+            label="File contents"
+            className="rounded-md bg-muted/50"
+          >
+            <pre className="whitespace-pre-wrap break-words p-3 font-mono text-xs">
+              {output.content}
+            </pre>
+          </ScrollRegion>
         )}
       </div>
       <ReadMetadata rows={metadataRows(output)} />
@@ -299,7 +367,8 @@ function ReadImagePreview(props: ReadImageProps) {
   }
   return (
     <>
-      <ImageThumbnail
+      <MediaThumbnail
+        kind="image"
         src={preview.thumbnail}
         alt={preview.slide.alt}
         onOpen={() => setOpenKey(preview.slide.key)}
@@ -328,6 +397,34 @@ function ReadImageBody({
   );
 }
 
+type ReadPdfProps = Pick<ReadToolProps, "mediaSources"> & {
+  output: PdfReadOutput;
+};
+
+/** The document tile of a PDF result, named after the locator the read
+ *  settled on. Only a stored PDF links anywhere: its tile opens the original
+ *  in a new tab, while an unstored one stays static and is never loaded as an
+ *  image. */
+function ReadPdfBody({
+  output,
+  Markdown,
+  mediaSources,
+}: ReadPdfProps & { Markdown: ComponentType<{ children?: string }> }) {
+  const href =
+    output.media === undefined
+      ? undefined
+      : mediaSources?.(output.media)?.original;
+  return (
+    <div className="space-y-4">
+      <ReadSource output={output} Markdown={Markdown} />
+      <div className="px-4">
+        <MediaThumbnail kind="pdf" name={pdfName(output)} href={href} />
+      </div>
+      <ReadMetadata rows={pdfMetadataRows(output)} />
+    </div>
+  );
+}
+
 function ReadResult({
   input,
   output,
@@ -347,6 +444,16 @@ function ReadResult({
       />
     );
   }
+  const pdfOutput = pdfOutputSchema.safeParse(output).data;
+  if (pdfOutput) {
+    return (
+      <ReadPdfBody
+        output={pdfOutput}
+        Markdown={Markdown}
+        mediaSources={mediaSources}
+      />
+    );
+  }
   if (output !== undefined) {
     return <ToolOutput output={output} errorText={undefined} />;
   }
@@ -358,9 +465,12 @@ function ReadResult({
  * as the model received it, and how much of the source that content covers.
  * An image result shows a thumbnail instead of content (its inline
  * `thumbnail`, or the stored image for a `media://` read) that opens it in a
- * lightbox, or only its size when it has neither.
+ * lightbox, or only its size when it has neither. A PDF result shows a
+ * document tile named after the locator it settled on, with the original's
+ * page count and byte size; a `media://` PDF's tile opens the stored original
+ * in a new tab, while an unstored PDF's tile is static.
  *
- * @summary displays a file, directory, image, or web read inside a collapsible tool row
+ * @summary displays a file, directory, image, PDF, or web read inside a collapsible tool row
  */
 export function ReadTool({
   input,

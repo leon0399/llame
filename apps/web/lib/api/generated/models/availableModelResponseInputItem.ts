@@ -12,4 +12,5 @@ export type AvailableModelResponseInputItem =
 export const AvailableModelResponseInputItem = {
   text: "text",
   image: "image",
+  pdf: "pdf",
 } as const;

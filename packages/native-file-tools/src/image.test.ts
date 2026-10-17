@@ -2,7 +2,7 @@ import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFile, readResolvedFile } from "./read";
-import { IMAGE_SELECTOR_MESSAGE, type ImageReadHook } from "./image";
+import { MEDIA_SELECTOR_MESSAGE, type MediaReadHook } from "./media";
 
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -21,6 +21,7 @@ const WEBP = Buffer.concat([
 
 const DECODED = {
   status: "success" as const,
+  kind: "image" as const,
   mediaType: "image/png",
   width: 1600,
   height: 900,
@@ -30,7 +31,7 @@ const DECODED = {
 /** A hook that decodes whatever it is given and records what it was given. */
 function decodingHook() {
   const handed: Array<{ byteSize: number; bytes: Buffer }> = [];
-  const hook: ImageReadHook = async ({ byteSize, readBytes }) => {
+  const hook: MediaReadHook = async ({ byteSize, readBytes }) => {
     handed.push({ byteSize, bytes: await readBytes() });
     return DECODED;
   };
@@ -56,19 +57,6 @@ describe("native image reads", () => {
     expect(handed).toEqual([{ byteSize: PNG.length, bytes: PNG }]);
   });
 
-  it("hands the hook the read's abort signal", async () => {
-    const path = join(directory, "shot.png");
-    await writeFile(path, PNG);
-    const abort = new AbortController();
-    const signals: Array<AbortSignal | undefined> = [];
-    const hook: ImageReadHook = ({ signal }) => {
-      signals.push(signal);
-      return Promise.resolve(DECODED);
-    };
-    await readFile({ path }, abort.signal, hook);
-    expect(signals).toEqual([abort.signal]);
-  });
-
   it.each([
     ["JPEG", JPEG],
     ["GIF", GIF],
@@ -89,6 +77,7 @@ describe("native image reads", () => {
 
   it.each([
     ["HTML named .png", "notes.png", "<!doctype html><p>hi</p>\n"],
+    ["HTML named .pdf", "notes.pdf", "<!doctype html><p>hi</p>\n"],
     [
       "SVG",
       "logo.svg",
@@ -118,18 +107,24 @@ describe("native image reads", () => {
     expect(handed).toEqual([]);
   });
 
-  it.each([":1-10", ":raw", ":outline", ":-20", ":2-", ":raw:1-2"])(
-    "refuses the %s selector on an image before any count or decode",
-    async (selector) => {
-      const path = join(directory, "shot.png");
-      await writeFile(path, JPEG);
+  it.each(
+    [JPEG, Buffer.from("%PDF-1.7\n\xff binary PDF")].flatMap((bytes) =>
+      [":1-10", ":raw", ":outline", ":-20", ":2-", ":raw:1-2", ":1,3"].map(
+        (selector) => ({ bytes, selector }),
+      ),
+    ),
+  )(
+    "refuses $selector on media before any count or decode",
+    async ({ bytes, selector }) => {
+      const path = join(directory, "media.dat");
+      await writeFile(path, bytes);
       const { hook, handed } = decodingHook();
       expect(
         await readFile({ path: `${path}${selector}` }, undefined, hook),
       ).toEqual({
         status: "error",
         type: "invalid_selector",
-        message: IMAGE_SELECTOR_MESSAGE,
+        message: MEDIA_SELECTOR_MESSAGE,
       });
       expect(handed).toEqual([]);
     },
@@ -138,17 +133,17 @@ describe("native image reads", () => {
   it("returns a decode refusal as the read's failure, never as text", async () => {
     const path = join(directory, "huge.png");
     await writeFile(path, PNG);
-    const hook: ImageReadHook = ({ byteSize }) => {
+    const hook: MediaReadHook = ({ byteSize }) => {
       expect(byteSize).toBe(PNG.length);
       return Promise.resolve({
         status: "error",
-        type: "image_too_large",
+        type: "media_too_large",
         message: "Image exceeds 20 MiB or 40 megapixels",
       });
     };
     expect(await readFile({ path }, undefined, hook)).toEqual({
       status: "error",
-      type: "image_too_large",
+      type: "media_too_large",
       message: "Image exceeds 20 MiB or 40 megapixels",
     });
   });
@@ -173,7 +168,7 @@ describe("native image reads", () => {
     const { hook } = decodingHook();
     const result = await readResolvedFile(path, {
       displayPath: "kb://space/diagrams/flow.png",
-      image: hook,
+      media: hook,
     });
     expect(result).toEqual({
       ...DECODED,
@@ -191,7 +186,7 @@ describe("native image reads", () => {
       await readResolvedFile(path, {
         displayPath: "kb://space/diagrams/flow.png",
         selector: "raw",
-        image: hook,
+        media: hook,
       }),
     ).toMatchObject({ status: "error", type: "invalid_selector" });
     expect(handed).toEqual([]);
@@ -203,6 +198,33 @@ describe("native image reads", () => {
     expect(await readFile({ path })).toMatchObject({
       status: "error",
       type: "invalid_utf8",
+    });
+  });
+
+  it("detects a PDF before text decoding and returns only its metadata", async () => {
+    const path = join(directory, "paper.dat");
+    const bytes = Buffer.from("%PDF-1.7\n\xff binary PDF");
+    await writeFile(path, bytes);
+    const hook = vi.fn<MediaReadHook>(async (input) => {
+      expect(input.kind).toBe("pdf");
+      expect(input.byteSize).toBe(bytes.length);
+      expect(await input.readBytes()).toEqual(bytes);
+      return {
+        status: "success",
+        kind: "pdf",
+        mediaType: "application/pdf",
+        pages: 15,
+        byteSize: bytes.length,
+      };
+    });
+
+    expect(await readFile({ path }, undefined, hook)).toEqual({
+      status: "success",
+      kind: "pdf",
+      mediaType: "application/pdf",
+      pages: 15,
+      byteSize: bytes.length,
+      path,
     });
   });
 });

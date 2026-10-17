@@ -17,6 +17,7 @@ import {
   buildRecencyDigestBaseline,
   toDigestEntry,
   deriveRecencyDigestDelta,
+  disclosedRecencyDigestEntries,
   RECENCY_DIGEST_LIST_LIMIT,
   RecencyDigestService,
   truncateRecencyDigestExcerpt,
@@ -271,11 +272,19 @@ describe('recency digest baseline', () => {
     );
     expect(result.baseline.pinned[0]?.title).toBe('pinned-0');
     expect(result.baseline.pinned[1]?.title).toBe('pinned-1');
-    expect(result.told).toEqual([
+    expect(
+      result.candidates.map(({ chatId, pinned, entry }) => ({
+        chatId,
+        pinned,
+        title: entry.title,
+      })),
+    ).toEqual([
       ...pinned.map(({ id, title }) => ({ chatId: id, pinned: true, title })),
       ...recent.map(({ id, title }) => ({ chatId: id, pinned: false, title })),
     ]);
-    expect(new Set(result.told.map(({ chatId }) => chatId)).size).toBe(20);
+    expect(new Set(result.candidates.map(({ chatId }) => chatId)).size).toBe(
+      20,
+    );
   });
 
   it('renders one stored baseline byte-identically and exposes no told-set id', () => {
@@ -306,12 +315,12 @@ describe('recency digest baseline', () => {
       model,
       anchor: TEST_ANCHOR,
       chats: baseline,
-    });
+    }).text;
     const second = service.render({
       model,
       anchor: TEST_ANCHOR,
       chats: baseline,
-    });
+    }).text;
     expect(second).toBe(first);
     expect(first).not.toContain('never-render-this-id');
   });
@@ -392,11 +401,6 @@ describe('recency digest deltas', () => {
       deriveRecencyDigestDelta({
         candidate: {
           baseline,
-          told: [
-            { chatId: 'pinned', pinned: true, title: 'Pinned' },
-            { chatId: 'resurfaced', pinned: false, title: 'Resurfaced' },
-            { chatId: 'new', pinned: false, title: 'New chat' },
-          ],
           candidates: [
             { chatId: 'pinned', pinned: true, entry: baseline.pinned[0] },
             {
@@ -429,14 +433,6 @@ describe('recency digest deltas', () => {
       deriveRecencyDigestDelta({
         candidate: {
           baseline,
-          told: [
-            {
-              chatId: 'resurfaced',
-              pinned: false,
-              title: 'Resurfaced',
-            },
-            { chatId: 'pinned', pinned: true, title: 'Pinned' },
-          ],
           candidates: [
             {
               chatId: 'resurfaced',
@@ -459,10 +455,6 @@ describe('recency digest deltas', () => {
       deriveRecencyDigestDelta({
         candidate: {
           baseline,
-          told: [
-            { chatId: 'pinned', pinned: true },
-            { chatId: 'resurfaced', pinned: false },
-          ],
           candidates: [],
         },
         told: [
@@ -477,7 +469,7 @@ describe('recency digest deltas', () => {
   it('emits nothing for capped-view departures, archival, or deletion alone', () => {
     expect(
       deriveRecencyDigestDelta({
-        candidate: { baseline, told: [], candidates: [] },
+        candidate: { baseline, candidates: [] },
         told: [{ chatId: 'still-pinned-but-gone', pinned: true }],
         pinnedChatIds: new Set(['still-pinned-but-gone']),
       }),
@@ -487,7 +479,7 @@ describe('recency digest deltas', () => {
   it('does not announce an untold chat merely because it was unpinned', () => {
     expect(
       deriveRecencyDigestDelta({
-        candidate: { baseline, told: [], candidates: [] },
+        candidate: { baseline, candidates: [] },
         told: [],
         pinnedChatIds: new Set(),
       }),
@@ -497,7 +489,7 @@ describe('recency digest deltas', () => {
   it('batches pin corrections for told chats outside the capped views', () => {
     expect(
       deriveRecencyDigestDelta({
-        candidate: { baseline, told: [], candidates: [] },
+        candidate: { baseline, candidates: [] },
         told: [
           {
             chatId: 'formerly-pinned',
@@ -523,10 +515,143 @@ describe('recency digest deltas', () => {
   it('silently drops a pin correction from a legacy told entry without its announced title', () => {
     expect(
       deriveRecencyDigestDelta({
-        candidate: { baseline, told: [], candidates: [] },
+        candidate: { baseline, candidates: [] },
         told: [{ chatId: 'legacy-entry', pinned: true }],
         pinnedChatIds: new Set(),
       }),
     ).toBeNull();
+  });
+});
+
+describe('recency digest disclosure accounting', () => {
+  const pinned = {
+    title: 'Pinned',
+    date: '2026-08-12',
+    messageCount: 2,
+    excerpt: 'p',
+  };
+  const recent = { title: 'Recent', date: '2026-08-13', messageCount: 3 };
+  const baseline = {
+    pinned: [pinned],
+    recent: [recent],
+    pinnedShown: 1,
+    pinnedTotal: 1,
+    recentShown: 1,
+    recentTotal: 1,
+    compiledOn: '2026-08-13',
+  };
+  const disclosed = (
+    pinnedIndexes: Array<number>,
+    recentIndexes: Array<number>,
+  ) => ({
+    pinned: new Set(pinnedIndexes),
+    recent: new Set(recentIndexes),
+  });
+
+  it('tells nothing that no render emitted', () => {
+    expect(
+      disclosedRecencyDigestEntries({
+        baseline,
+        disclosures: [disclosed([], []), disclosed([], [])],
+        candidates: [
+          { chatId: 'p', pinned: true, entry: pinned },
+          { chatId: 'r', pinned: false, entry: recent },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('unions both surfaces and records the list each entry was rendered in', () => {
+    expect(
+      disclosedRecencyDigestEntries({
+        baseline,
+        disclosures: [disclosed([], [0]), disclosed([0], [])],
+        candidates: [
+          { chatId: 'r', pinned: false, entry: recent },
+          // Unpinned since the baseline was compiled: the model was still
+          // told it was pinned, so a later correction can say otherwise.
+          { chatId: 'p', pinned: false, entry: pinned },
+        ],
+      }),
+    ).toEqual([
+      { chatId: 'p', pinned: true, title: 'Pinned' },
+      { chatId: 'r', pinned: false, title: 'Recent' },
+    ]);
+  });
+
+  it('keys a stored entry to its chat across activity, and leaves an unmatched one untold', () => {
+    expect(
+      disclosedRecencyDigestEntries({
+        // A stored baseline: equal values, never the candidates' own objects.
+        baseline: structuredClone(baseline),
+        disclosures: [disclosed([0], [0])],
+        candidates: [
+          // New messages moved its activity snapshot, not its identity.
+          {
+            chatId: 'p',
+            pinned: true,
+            entry: { ...pinned, date: '2026-09-01', messageCount: 9 },
+          },
+          // Renamed since the baseline: not provably the chat it showed.
+          {
+            chatId: 'r',
+            pinned: false,
+            entry: { ...recent, title: 'Renamed' },
+          },
+        ],
+      }),
+    ).toEqual([{ chatId: 'p', pinned: true, title: 'Pinned' }]);
+  });
+
+  it.each([
+    ['last activity', { date: '2026-08-01' }],
+    ['message count', { messageCount: 1 }],
+  ])(
+    'pairs an identical entry before a look-alike differing in %s can take its candidate',
+    (_field, difference) => {
+      const twin = { ...recent, ...difference };
+      expect(
+        disclosedRecencyDigestEntries({
+          baseline: { ...baseline, pinned: [], recent: [twin, recent] },
+          disclosures: [disclosed([], [0, 1])],
+          candidates: [
+            { chatId: 'current', pinned: false, entry: recent },
+            { chatId: 'twin', pinned: false, entry: twin },
+          ],
+        }),
+      ).toEqual([
+        { chatId: 'twin', pinned: false, title: 'Recent' },
+        { chatId: 'current', pinned: false, title: 'Recent' },
+      ]);
+    },
+  );
+
+  it('pairs an exact entry within the list it was rendered in', () => {
+    expect(
+      disclosedRecencyDigestEntries({
+        baseline: { ...baseline, pinned: [recent], recent: [recent] },
+        disclosures: [disclosed([0], [])],
+        candidates: [
+          { chatId: 'recent-look-alike', pinned: false, entry: recent },
+          { chatId: 'pinned', pinned: true, entry: recent },
+        ],
+      }),
+    ).toEqual([{ chatId: 'pinned', pinned: true, title: 'Recent' }]);
+  });
+
+  it('does not key an entry to a chat with the same title but another opening', () => {
+    expect(
+      disclosedRecencyDigestEntries({
+        baseline,
+        disclosures: [disclosed([0], [])],
+        candidates: [
+          {
+            chatId: 'other',
+            pinned: true,
+            entry: { ...pinned, excerpt: 'another opening' },
+          },
+        ],
+      }),
+    ).toEqual([]);
   });
 });

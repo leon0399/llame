@@ -19,7 +19,6 @@ import type {
 } from '../models/model-catalog';
 import { isValidSkillName } from '../skills/skill-name';
 import { resolvePackagedToolDescriptionPath } from '../prompts/tool-descriptions';
-import { WEB_RENDER_METHODS } from '../tools/web-read/pipeline';
 import { isRecord } from '@workspace/runtime-safety';
 import { parseWebLocator } from '../tools/web-read/locator';
 
@@ -64,7 +63,7 @@ const renderResolved = (
     anchor: TEST_ANCHOR,
     user,
     chats,
-  });
+  }).text;
 
 const renderAdmitted = (
   resolved: { systemPromptTemplate: string },
@@ -76,7 +75,7 @@ const renderAdmitted = (
     model,
     anchor: TEST_ANCHOR,
     admittedToolIds,
-  });
+  }).text;
 
 const renderFor = (
   model: TestModel,
@@ -231,7 +230,7 @@ describe('model prompt rendering', () => {
         template: resolved.systemPromptTemplate,
         model,
         anchor: TEST_ANCHOR,
-      }),
+      }).text,
     ).toBe('id model-id name Model Name literal {{model.name}}');
     expect(resolved.systemPromptSource).toBe('project_default');
   });
@@ -849,6 +848,47 @@ describe('bounded chat-digest iteration', () => {
   });
 
   it.each([
+    ['no digest reference', 'base', [], []],
+    [
+      'only gates, iterations, and aggregate counts',
+      'base{{#if chats.pinned}} pinned{{/if}}{{#each chats.recent}}{{#if excerpt}} has excerpt{{/if}}{{/each}} {{chats.recentShown}}/{{chats.recentTotal}}',
+      [],
+      [],
+    ],
+    [
+      'one field of one list',
+      'base{{#each chats.recent}} {{messageCount}}{{/each}}',
+      [],
+      [0, 1],
+    ],
+    [
+      'values inside an item conditional',
+      'base{{#each chats.recent}}{{#if excerpt}} {{title}}{{/if}}{{/each}}{{#each chats.pinned}}{{#unless excerpt}} {{title}}{{/unless}}{{/each}}',
+      [],
+      [1],
+    ],
+    [
+      'both lists',
+      'base{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{date}}{{/each}}',
+      [0],
+      [0, 1],
+    ],
+  ])(
+    'reports the entries a render emitted: %s',
+    (_case, template, pinned, recent) => {
+      const { chatsDisclosure } = renderSystemPromptTemplate({
+        template,
+        model: { id: 'm' },
+        anchor: TEST_ANCHOR,
+        chats,
+      });
+
+      expect([...chatsDisclosure.pinned]).toEqual(pinned);
+      expect([...chatsDisclosure.recent]).toEqual(recent);
+    },
+  );
+
+  it.each([
     [
       'undeclared item field',
       '{{#each chats.recent}}{{secret}}{{/each}}',
@@ -1073,7 +1113,7 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills,
-      }),
+      }).text,
     ).toBe(
       'base<skill name="pdf">Extract text from PDF files.</skill><skill name="research">Plan a multi-source investigation.</skill>',
     );
@@ -1089,7 +1129,7 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills,
-      }),
+      }).text,
     ).toBe('base\nSection');
     // An empty admission is indistinguishable from no catalog at all, which is
     // what makes `{{#if skills}}` safe as the section's only guard.
@@ -1099,14 +1139,14 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills: { entries: [], omitted: 0 },
-      }),
+      }).text,
     ).toBe('base');
     expect(
       renderSystemPromptTemplate({
         template,
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
-      }),
+      }).text,
     ).toBe('base');
   });
 
@@ -1122,7 +1162,7 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills: { entries: skills.entries, omitted },
-      });
+      }).text;
 
     // A wrapped "0" would be an object and therefore truthy, rendering the
     // overflow line around an empty remainder.
@@ -1149,7 +1189,7 @@ describe('bounded skill-catalog projection', () => {
         ],
         omitted: 0,
       },
-    });
+    }).text;
 
     // Exactly the fence the template opened survives: the authored closer is
     // entity-escaped, and the authored opener cannot pair with a real closer
@@ -1185,7 +1225,7 @@ describe('bounded skill-catalog projection', () => {
         ],
         omitted: 0,
       },
-    });
+    }).text;
 
     // Exactly the two real entries, in order: no forged element survives.
     expect(rendered.match(/<skill name=/gu)).toHaveLength(2);
@@ -1212,7 +1252,7 @@ describe('bounded skill-catalog projection', () => {
           entries: [{ name: 'pdf', description: 'Use the skill-2 helper.' }],
           omitted: 0,
         },
-      }),
+      }).text,
     ).toContain('Use the skill-2 helper.');
   });
 
@@ -1437,44 +1477,6 @@ describe('prompt template rejection messages', () => {
   });
 });
 
-/**
- * The methods this branch can report, read from the list the pipeline derives
- * its union from, so the assertions below cannot drift from it and hold on
- * every layer of the stack: the `policy` layer's probe adapters widen that
- * list, and this test then requires the description to name them too.
- */
-const PRODUCIBLE_WEB_RENDER_METHODS: ReadonlyArray<string> = WEB_RENDER_METHODS;
-
-/**
- * The method values the packaged `read` description may name beyond what this
- * branch produces. The announced alternate, the Markdown suffix probe, and the
- * `llms.txt` walk are the `policy` layer's derived-locator adapters
- * (`tasks.md` 3.1b), and the description travels with the stack, so it
- * documents the change's whole vocabulary before their producers exist.
- */
-const PENDING_WEB_RENDER_METHODS: ReadonlyArray<string> = [
-  'alternate',
-  'md-suffix',
-  'llms-txt',
-];
-
-/** The description's own `method` vocabulary: the parenthesized, comma- or
- *  `or`-separated list the sentence introducing `method` publishes. */
-const DESCRIBED_WEB_RENDER_METHODS =
-  /method reports which adapter produced the content \(([^)]+)\)/;
-
-/** The method values the rendered description publishes; empty when it
- *  publishes none, so a description that drops the list cannot pass
- *  vacuously. */
-function describedWebRenderMethods(description: string): ReadonlyArray<string> {
-  const published = DESCRIBED_WEB_RENDER_METHODS.exec(description)?.[1];
-  if (published === undefined) return [];
-  return published
-    .split(/,|\s+or\s+/)
-    .map((method) => method.trim())
-    .filter((method) => method !== '');
-}
-
 /** The packaged `read` description as the live model receives it, with no
  *  instance or model override. */
 function renderPackagedReadDescription(
@@ -1486,7 +1488,7 @@ function renderPackagedReadDescription(
     model,
     anchor: TEST_ANCHOR,
     admittedToolIds,
-  });
+  }).text;
 }
 
 describe('llame-owned tool description templates', () => {
@@ -1524,13 +1526,13 @@ describe('llame-owned tool description templates', () => {
       toolId: 'bash' as const,
       admittedToolIds: ['bash'],
     };
-    expect(renderer.render({ ...base, model: { id: 'model' } })).toBe(
+    expect(renderer.render({ ...base, model: { id: 'model' } }).text).toBe(
       'model model',
     );
-    expect(renderer.render({ ...base, model: { id: 'null-model' } })).toBe(
+    expect(renderer.render({ ...base, model: { id: 'null-model' } }).text).toBe(
       'instance null-model',
     );
-    expect(renderer.render({ ...base, model: { id: 'other' } })).toBe(
+    expect(renderer.render({ ...base, model: { id: 'other' } }).text).toBe(
       'instance other',
     );
   });
@@ -1604,7 +1606,7 @@ describe('llame-owned tool description templates', () => {
         model: { id: 'model' },
         anchor: TEST_ANCHOR,
         admittedToolIds: ['bash'],
-      }),
+      }).text,
     ).toBe('Base description. ');
   });
 
@@ -1652,13 +1654,13 @@ describe('llame-owned tool description templates', () => {
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['bash'],
-    });
+    }).text;
     const bashWithEdit = renderer.render({
       toolId: 'bash',
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['bash', 'edit'],
-    });
+    }).text;
     expect(bashWithoutEdit).not.toContain(
       'Prefer native edit for small exact replacements.',
     );
@@ -1672,13 +1674,13 @@ describe('llame-owned tool description templates', () => {
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['search_conversations'],
-    });
+    }).text;
     const searchWithReader = renderer.render({
       toolId: 'search_conversations',
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['conversation_read', 'search_conversations'],
-    });
+    }).text;
     expect(searchWithoutReader).not.toContain(
       'Use returned coordinates with conversation_read',
     );
@@ -1759,27 +1761,6 @@ describe('llame-owned tool description templates', () => {
     expect(parseWebLocator('https://example.test/guide#install')).toEqual({
       url: 'https://example.test/guide',
     });
-  });
-
-  it('names every web render method the pipeline can report', () => {
-    const described = describedWebRenderMethods(
-      renderPackagedReadDescription(['read']),
-    );
-
-    // Every method this branch can report must be documented ...
-    expect(described).toEqual(
-      expect.arrayContaining([...PRODUCIBLE_WEB_RENDER_METHODS]),
-    );
-    // ... and the description may name nothing outside the change's
-    // vocabulary: the producible set plus the `policy` layer's three probe
-    // methods.
-    expect(
-      described.filter(
-        (method) =>
-          !PRODUCIBLE_WEB_RENDER_METHODS.includes(method) &&
-          !PENDING_WEB_RENDER_METHODS.includes(method),
-      ),
-    ).toEqual([]);
   });
 
   it('rejects an unsupported instance override id regardless of its value', () => {

@@ -6,13 +6,14 @@ import {
 } from '@nestjs/common';
 
 import { WorkerProfileService } from '../instance-config/worker-profile.service';
+import { sessionsCleanupChannel } from '../queue/generated/queue-protocol';
 import { defineQueue, QUEUE, type Queue } from '../queue/queue';
 import { SESSION_IDLE_TTL_MS } from './constants';
 import { SessionsRepository } from './sessions.repository';
 
 /** Cron tick payload — the job carries no data; the sweep derives everything. */
 export const SESSIONS_CLEANUP_QUEUE = defineQueue<Record<string, never>>({
-  name: 'sessions.cleanup',
+  name: sessionsCleanupChannel.address,
 });
 
 /**

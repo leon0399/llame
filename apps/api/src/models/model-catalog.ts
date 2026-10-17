@@ -65,8 +65,8 @@ export type ModelReasoning = {
   readonly cacheInvalidatedByEffortChange: boolean;
 };
 
-/** One input modality a model accepts (vision-media D9). */
-export type ModelInput = 'text' | 'image';
+/** One input modality a model accepts (vision-media D9, pdf-media D4). */
+export type ModelInput = 'text' | 'image' | 'pdf';
 
 export interface PublicModelCatalogEntry {
   id: string;
@@ -96,13 +96,6 @@ export interface PublicModelCatalogEntry {
   releasedAt?: string;
 }
 
-/**
- * The internal execution-side entry: adds the server-only provider reference,
- * the optional per-model compaction and output-token overrides, and the
- * operator's provider-options object, none of which is display metadata or
- * exposed via `GET /api/v1/models` (same non-exposure rule as
- * `providerModelId`).
- */
 /**
  * Raw per-user values for one run, before escaping (add-user-personalization).
  * The caller decides WHICH values may render — the owner's `enabled` and
@@ -138,6 +131,17 @@ export type PromptChatsInput = {
   compiledOn: string;
 };
 
+/**
+ * Positions of the `chats` entries whose values one render actually emitted.
+ *
+ * Private render metadata for the told-set: never a template variable, a
+ * receipt field, or stored tool-description metadata.
+ */
+export type PromptChatsDisclosure = {
+  readonly pinned: ReadonlySet<number>;
+  readonly recent: ReadonlySet<number>;
+};
+
 /** One proactively eligible skill as the prompt projects it. */
 export type PromptSkillEntry = {
   name: string;
@@ -150,6 +154,13 @@ export type PromptSkillsInput = {
   omitted: number;
 };
 
+/**
+ * The internal execution-side entry: adds the server-only provider reference,
+ * the optional per-model compaction and output-token overrides, and the
+ * operator's provider-options object, none of which is display metadata or
+ * exposed via `GET /api/v1/models` (same non-exposure rule as
+ * `providerModelId`).
+ */
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;

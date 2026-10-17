@@ -21,6 +21,7 @@ const project: Project = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'verified-user',
   name: 'Project',
+  description: null,
   createdAt: new Date('2026-08-01T00:00:00.000Z'),
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   archivedAt: null,
@@ -112,6 +113,7 @@ describe('ProjectsController', () => {
     await expect(
       controller.updateProject('verified-user', project.id, {
         name: 'Renamed',
+        description: 'Acme relaunch',
         archived: true,
       }),
     ).resolves.toEqual(project);
@@ -119,6 +121,7 @@ describe('ProjectsController', () => {
     expect(getProjectById).toHaveBeenCalledWith(project.id, 'verified-user');
     expect(updateProject).toHaveBeenCalledWith(project.id, 'verified-user', {
       name: 'Renamed',
+      description: 'Acme relaunch',
       archived: true,
     });
   });

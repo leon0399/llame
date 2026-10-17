@@ -244,18 +244,20 @@ test.describe("conversation provenance (browser, full stack)", () => {
     expect(foreignTarget.status()).toBe(404);
 
     // Paste the owner-issued sequence URL. The target route must load the
-    // source message by opaque sequence, not by the position in a page array.
+    // source message by opaque sequence, not by the position in a page array,
+    // and leave it on screen without the test scrolling to it.
     await page.goto(`/chat/${sourceChatId}#msg-${source.seq}`);
     const target = page.locator(`#msg-${source.seq}`);
     await expect(target).toHaveCount(1, { timeout: 15_000 });
-    await target.scrollIntoViewIfNeeded();
     await expect(target).toContainText(sourceMarker);
+    await expect(target).toBeInViewport();
     await expect(page).toHaveURL(`/chat/${sourceChatId}#msg-${source.seq}`);
 
     await page.reload({ waitUntil: "domcontentloaded" });
     const reloadedTarget = page.locator(`#msg-${source.seq}`);
     await expect(reloadedTarget).toHaveCount(1, { timeout: 15_000 });
     await expect(reloadedTarget).toContainText(sourceMarker);
+    await expect(reloadedTarget).toBeInViewport();
     await expect(page).toHaveURL(`/chat/${sourceChatId}#msg-${source.seq}`);
 
     // Keep the destination id live in the test's evidence so the preceding

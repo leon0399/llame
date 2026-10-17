@@ -90,14 +90,6 @@ function childrenOf(
 }
 
 /**
- * Builds the flat, depth-ordered row list a tree view renders, including
- * each row's connector-guide columns — a straight port of the design's
- * `buildRows`/guide algorithm (Admin.dc.html): for each ancestor column,
- * `bar`/`blank` continues or breaks the vertical line depending on whether
- * that ancestor still had siblings after it, and the immediate-parent
- * column resolves to `elbow` (last child) or `tee` (more siblings follow).
- */
-/**
  * The guide glyph for each ancestor level of one row: a bar or blank for the
  * levels above, and the elbow or tee that joins this row to its parent.
  */
@@ -117,6 +109,14 @@ function guideKinds(
   );
 }
 
+/**
+ * Builds the flat, depth-ordered row list a tree view renders, including
+ * each row's connector-guide columns — a straight port of the design's
+ * `buildRows`/guide algorithm (Admin.dc.html): for each ancestor column,
+ * `bar`/`blank` continues or breaks the vertical line depending on whether
+ * that ancestor still had siblings after it, and the immediate-parent
+ * column resolves to `elbow` (last child) or `tee` (more siblings follow).
+ */
 export function buildRows(
   units: Array<OrgUnitResponse>,
   collapsed: Record<string, boolean>,

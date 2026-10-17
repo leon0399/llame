@@ -9,10 +9,6 @@ import type {
   BashTimedOutResult,
   BashUnavailableResult,
 } from "./types";
-import {
-  rejectQuarantinedGroups,
-  resetAttemptLedgerForTests,
-} from "./attempt-ledger";
 import { managedChildEnvironment, managedEnvironmentCollision } from "./env";
 import { MANAGED_EXECUTOR } from "./managed-constants";
 import { requireManagedBoundary } from "./sanitize";
@@ -46,7 +42,6 @@ type RunRequest = {
 
 export function resetManagedExecutorForTests(): void {
   activeProcesses = 0;
-  resetAttemptLedgerForTests();
 }
 
 function measureInput(input: BashCommandInput): number {
@@ -132,8 +127,6 @@ function rejectIfNotAdmitted(
 ): BashUnavailableResult | BashTimedOutResult | null {
   const boundary = requireManagedBoundary(context);
   if (boundary) return boundary;
-  const quarantine = rejectQuarantinedGroups();
-  if (quarantine) return quarantine;
   const collision = managedEnvironmentCollision(input.env);
   if (collision !== undefined) {
     return {

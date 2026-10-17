@@ -1,6 +1,6 @@
 /**
  * SearchEmbedWorker.embedChat on a live DB (RLS), chat-search-embeddings
- * design D5/D7/D15/D16, task 6.6-6.11:
+ * design D5/D7/D15/D16, task 6.6-6.11, and identical-input reuse (#597):
  * - a batch of outstanding documents is embedded and persisted correctly;
  * - the persist writes EXACTLY the five embedding columns — never
  *   `chats.updated_at` or `search_chat_state` (trap 3/D15 "no feedback loop");
@@ -16,7 +16,11 @@
  *   job without an unthrottled retry loop;
  * - a job bounded by EMBED_MAX_BATCHES_PER_JOB re-enqueues itself when work
  *   remains, and a chat far larger than one job's bound is fully embedded
- *   across several coalesced job runs.
+ *   across several coalesced job runs;
+ * - an owner's existing vector for byte-identical content under the current
+ *   model key and input version is copied with no provider call (a fork's
+ *   whole transcript), stamped with the destination's own content hash, and
+ *   never across owners, model keys, input versions, or a mere md5 match.
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
@@ -24,6 +28,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
+import { type PgTransactionConfig } from 'drizzle-orm/pg-core';
 import { MockEmbeddingModelV3 } from 'ai/test';
 import postgres from 'postgres';
 import { z } from 'zod';
@@ -31,6 +36,8 @@ import { z } from 'zod';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { ChatsService } from '../chats/chats.service';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   BUILT_IN_DEFAULTS,
@@ -55,6 +62,9 @@ import {
   SearchEmbedWorker,
 } from './search-embed.worker';
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
+import { noopEmbedDispatch } from './search-embed-dispatch.stub';
+import { noopQueryEmbedder } from './chat-search-query-embedder.stub';
+import { noopReindexDispatch } from './search-reindex-dispatch.stub';
 import { SearchIndexService } from './search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -71,6 +81,35 @@ const MODEL: EmbeddingModelCatalogEntry = {
   batchSize: 8,
   distanceMetric: 'cosine',
 };
+
+/** A tenant runner whose transactions resolve unqualified functions through
+ *  `searchPath` first — the md5-collision fixture's way of making every
+ *  candidate hash equal inside the worker's own owner-scoped statements. */
+class SearchPathTenantDb extends TenantDbService {
+  constructor(
+    db: Db,
+    private readonly searchPath: string,
+  ) {
+    super(db);
+  }
+
+  override runAs<T>(
+    userId: string,
+    fn: (tx: Db) => Promise<T>,
+    config?: PgTransactionConfig,
+  ): Promise<T> {
+    return super.runAs(
+      userId,
+      async (tx) => {
+        await tx.execute(
+          sql.raw(`SET LOCAL search_path TO ${this.searchPath}`),
+        );
+        return fn(tx);
+      },
+      config,
+    );
+  }
+}
 
 describeIfDb('SearchEmbedWorker.embedChat', () => {
   let sqlClient: SqlClient;
@@ -91,17 +130,18 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
   async function seed(
     title: string,
     msgs: Array<{ role: 'user' | 'assistant'; text: string }>,
+    owner: string = u,
   ): Promise<string> {
     const id = crypto.randomUUID();
-    await tenantDb.runAs(u, async (tx) => {
+    await tenantDb.runAs(owner, async (tx) => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
-      await chats.createIfAbsent({ id, ownerUserId: u, title });
+      await chats.createIfAbsent({ id, ownerUserId: owner, title });
       for (const m of msgs) {
         await messages.create({
           chatId: id,
           role: m.role,
-          senderUserId: m.role === 'user' ? u : null,
+          senderUserId: m.role === 'user' ? owner : null,
           parts: text(m.text),
         });
       }
@@ -114,14 +154,16 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
    *  search-reindex.worker.test.ts's DI pattern, adapted for a live DB. */
   async function buildWorker(overrides?: {
     enqueueChatEmbed?: (chatId: string, ownerUserId: string) => Promise<void>;
+    tenantDb?: TenantDbService;
   }) {
     const enqueueChatEmbed =
       overrides?.enqueueChatEmbed ?? vi.fn().mockResolvedValue(undefined);
+    const workerTenantDb = overrides?.tenantDb ?? tenantDb;
     const moduleRef = await Test.createTestingModule({
       providers: [
         SearchEmbedWorker,
         { provide: QUEUE, useValue: {} },
-        { provide: TenantDbService, useFactory: () => tenantDb },
+        { provide: TenantDbService, useFactory: () => workerTenantDb },
         {
           provide: SearchEmbedDispatchService,
           useValue: { enqueueChatEmbed },
@@ -810,5 +852,262 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       z.object({ n: z.number() }),
     );
     expect(embeddedAfterSecond[0].n).toBe(totalDocs[0].n);
+  });
+
+  describe('identical-input reuse (#597)', () => {
+    const documentRow = z.object({
+      id: z.string(),
+      content: z.string(),
+      content_hash: z.string(),
+      embedding: z.string().nullable(),
+      embedding_model_key: z.string().nullable(),
+      embedded_content_hash: z.string().nullable(),
+      embed_input_version: z.number().nullable(),
+      embedding_fail_reason: z.string().nullable(),
+    });
+
+    const documentsOf = (owner: string, chatId: string) =>
+      tenantDb
+        .runAs(owner, (tx) =>
+          tx.execute(sql`
+            SELECT id, content, content_hash, embedding::text AS embedding,
+                   embedding_model_key, embedded_content_hash,
+                   embed_input_version, embedding_fail_reason
+            FROM search_chat_documents
+            WHERE chat_id = ${chatId}
+            ORDER BY chunk_ordinal`),
+        )
+        .then((rows) => documentRow.array().parse([...rows]));
+
+    /** Records every document id sent to the "provider" and returns a
+     *  distinct vector per document, so a copied vector is attributable. */
+    function recordingBackend(sent: Array<string>, base: number) {
+      return fakeBackend((documents) => {
+        sent.push(...documents.map((d) => d.documentId));
+        return Promise.resolve(
+          documents.map((d, index) => ({
+            documentId: d.documentId,
+            contentHash: d.contentHash,
+            embedding: vector(base + index * 10),
+          })),
+        );
+      });
+    }
+
+    /** An embedded source chat plus an indexed, not-yet-embedded duplicate
+     *  of it (fresh message ids, byte-identical text). */
+    async function embeddedSourceAndDuplicate(label: string) {
+      const msgs = [
+        { role: 'user' as const, text: `${label} ${crypto.randomUUID()}` },
+      ];
+      const source = await seed(`${label} source`, msgs);
+      await indexService.reindexChat(source, u);
+      const { worker } = await buildWorker();
+      await worker.embedChat(source, u, MODEL, recordingBackend([], 100));
+      const duplicate = await seed(`${label} duplicate`, msgs);
+      await indexService.reindexChat(duplicate, u);
+      const [sourceDoc] = await documentsOf(u, source);
+      const [duplicateDoc] = await documentsOf(u, duplicate);
+      expect(duplicateDoc.content).toBe(sourceDoc.content);
+      return { worker, source, duplicate, duplicateDoc };
+    }
+
+    it('a fork takes its source vectors with no provider call, each stamped with its own content hash', async () => {
+      const token = crypto.randomUUID();
+      const source = await seed('Fork source', [
+        { role: 'user', text: `fork ${token} first question` },
+        { role: 'assistant', text: `fork ${token} first answer` },
+        // Over the chunk budget, so the transcript spans several documents.
+        { role: 'user', text: `fork ${token} ${'long '.repeat(900)}` },
+      ]);
+      await indexService.reindexChat(source, u);
+      const { worker } = await buildWorker();
+      const sourceSent: Array<string> = [];
+      await worker.embedChat(
+        source,
+        u,
+        MODEL,
+        recordingBackend(sourceSent, 10),
+      );
+
+      const chats = new ChatsService(
+        tenantDb,
+        new RunAbortRegistry(),
+        noopReindexDispatch(),
+        noopEmbedDispatch(),
+        noopQueryEmbedder(),
+      );
+      const fork = await chats.forkChat(source, u);
+      await indexService.reindexChat(fork.id, u);
+      const forkSent: Array<string> = [];
+      await worker.embedChat(
+        fork.id,
+        u,
+        MODEL,
+        recordingBackend(forkSent, 500),
+      );
+
+      const sourceDocs = await documentsOf(u, source);
+      const forkDocs = await documentsOf(u, fork.id);
+      expect(sourceDocs.length).toBeGreaterThan(1);
+      expect(sourceSent).toHaveLength(sourceDocs.length);
+      expect(forkSent).toEqual([]);
+      expect(forkDocs).toHaveLength(sourceDocs.length);
+      forkDocs.forEach((forkDoc, ordinal) => {
+        const sourceDoc = sourceDocs[ordinal];
+        expect(forkDoc.content).toBe(sourceDoc.content);
+        // The fork's content_hash differs by construction (fresh message
+        // ids), which is why it cannot be the reuse key.
+        expect(forkDoc.content_hash).not.toBe(sourceDoc.content_hash);
+        expect(forkDoc.embedding).toBe(sourceDoc.embedding);
+        expect(forkDoc.embedding).not.toBeNull();
+        expect(forkDoc.embedded_content_hash).toBe(forkDoc.content_hash);
+        expect(forkDoc.embedding_model_key).toBe(MODEL_KEY);
+        expect(forkDoc.embed_input_version).toBe(EMBED_INPUT_VERSION);
+        expect(forkDoc.embedding_fail_reason).toBeNull();
+      });
+    });
+
+    it('never reuses identical content owned by another user', async () => {
+      const other = crypto.randomUUID();
+      await sqlClient`INSERT INTO users (id, name, email) VALUES (${other}, 'O', ${`o-${other}@t.com`})`;
+      try {
+        const msgs = [
+          { role: 'user' as const, text: `tenant ${crypto.randomUUID()}` },
+        ];
+        const mine = await seed('Mine', msgs);
+        await indexService.reindexChat(mine, u);
+        const { worker } = await buildWorker();
+        await worker.embedChat(mine, u, MODEL, recordingBackend([], 10));
+        const theirs = await seed('Theirs', msgs, other);
+        await indexService.reindexChat(theirs, other);
+
+        const sent: Array<string> = [];
+        await worker.embedChat(
+          theirs,
+          other,
+          MODEL,
+          recordingBackend(sent, 70),
+        );
+
+        const [myDoc] = await documentsOf(u, mine);
+        const [theirDoc] = await documentsOf(other, theirs);
+        expect(theirDoc.content).toBe(myDoc.content);
+        expect(myDoc.embedding).toBe('[10,11,12]');
+        expect(sent).toEqual([theirDoc.id]);
+        expect(theirDoc.embedding).toBe('[70,71,72]');
+      } finally {
+        await sqlClient`DELETE FROM users WHERE id = ${other}`;
+      }
+    });
+
+    it('does not reuse a vector produced under another model key', async () => {
+      const { worker, duplicate, duplicateDoc } =
+        await embeddedSourceAndDuplicate('model key');
+      const otherModel = { ...MODEL, id: `reuse-other-${crypto.randomUUID()}` };
+
+      const sent: Array<string> = [];
+      await worker.embedChat(
+        duplicate,
+        u,
+        otherModel,
+        recordingBackend(sent, 7),
+      );
+
+      expect(sent).toEqual([duplicateDoc.id]);
+      const [after] = await documentsOf(u, duplicate);
+      expect(after.embedding).toBe('[7,8,9]');
+      expect(after.embedding_model_key).toBe(otherModel.id);
+    });
+
+    it('does not reuse a vector produced under a superseded input version', async () => {
+      const { worker, source, duplicate, duplicateDoc } =
+        await embeddedSourceAndDuplicate('input version');
+      await tenantDb.runAs(u, (tx) =>
+        tx.execute(sql`
+          UPDATE search_chat_documents
+          SET embed_input_version = ${EMBED_INPUT_VERSION - 1}
+          WHERE chat_id = ${source}`),
+      );
+
+      const sent: Array<string> = [];
+      await worker.embedChat(duplicate, u, MODEL, recordingBackend(sent, 7));
+
+      expect(sent).toEqual([duplicateDoc.id]);
+      const [after] = await documentsOf(u, duplicate);
+      expect(after.embedding).toBe('[7,8,9]');
+    });
+
+    it('does not reuse a source vector whose stamp no longer matches its content hash', async () => {
+      const { worker, source, duplicate, duplicateDoc } =
+        await embeddedSourceAndDuplicate('stale stamp');
+      await tenantDb.runAs(u, (tx) =>
+        tx.execute(sql`
+          UPDATE search_chat_documents
+          SET embedded_content_hash = 'superseded'
+          WHERE chat_id = ${source}`),
+      );
+
+      const sent: Array<string> = [];
+      await worker.embedChat(duplicate, u, MODEL, recordingBackend(sent, 7));
+
+      expect(sent).toEqual([duplicateDoc.id]);
+    });
+
+    // Byte-recheck: a real md5 collision in valid UTF-8 text is not cheaply
+    // constructible, so this shadows `md5(text)` for the worker's own
+    // transactions with a constant, making every candidate's hash collide.
+    it('rechecks content bytes: a colliding md5 candidate with different content is never reused', async () => {
+      const schemaName = `md5_collide_${crypto.randomUUID().replaceAll('-', '')}`;
+      await sqlClient`CREATE SCHEMA ${sqlClient(schemaName)}`;
+      await sqlClient.unsafe(
+        `CREATE FUNCTION ${schemaName}.md5(text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT 'collide' $$`,
+      );
+      try {
+        const source = await seed('Collision source', [
+          { role: 'user', text: `alpha ${crypto.randomUUID()}` },
+        ]);
+        await indexService.reindexChat(source, u);
+        const { worker } = await buildWorker();
+        await worker.embedChat(source, u, MODEL, recordingBackend([], 10));
+        const target = await seed('Collision target', [
+          { role: 'user', text: `beta ${crypto.randomUUID()}` },
+        ]);
+        await indexService.reindexChat(target, u);
+
+        const colliding = new SearchPathTenantDb(
+          db,
+          `${schemaName}, pg_catalog, public`,
+        );
+        const [probe] = await colliding
+          .runAs(u, (tx) =>
+            tx.execute(sql`SELECT md5('alpha') = md5('beta') AS collides`),
+          )
+          .then((rows) =>
+            z
+              .object({ collides: z.boolean() })
+              .array()
+              .parse([...rows]),
+          );
+        expect(probe.collides).toBe(true);
+
+        const { worker: collidingWorker } = await buildWorker({
+          tenantDb: colliding,
+        });
+        const sent: Array<string> = [];
+        await collidingWorker.embedChat(
+          target,
+          u,
+          MODEL,
+          recordingBackend(sent, 7),
+        );
+
+        const [targetDoc] = await documentsOf(u, target);
+        expect(sent).toEqual([targetDoc.id]);
+        expect(targetDoc.embedding).toBe('[7,8,9]');
+      } finally {
+        await sqlClient.unsafe(`DROP SCHEMA ${schemaName} CASCADE`);
+      }
+    });
   });
 });

@@ -140,6 +140,14 @@ bytes decide the format, so a JPEG declared as `image/png` reports
 `invalid_selector`. An adapter response or an alternate, suffix, or `llms.txt`
 probe with an image type is a refused content type, never an image.
 
+A page response declaring `application/pdf` and starting with `%PDF-` returns
+the [PDF result](../tools/read.md#pdf-result), with `path`, `finalUrl`,
+`method: "pdf"`, and `notes` only when non-empty. It has no content, range fields,
+thumbnail, embedded data, or `media` locator. The original is unstored and
+available only in the reading attempt to models with PDF input. Any selector
+is refused. Adapter responses and alternate, suffix, and `llms.txt` probes
+remain text-only; a PDF response disqualifies their candidate.
+
 The web adapter stage runs after the source locator passes `read` permission
 admission and before the source is fetched: a claimed URL whose adapter renders
 makes no request to the source host. `:raw` bypasses every adapter. A URL
@@ -154,6 +162,7 @@ The full order is:
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `adapter`     | a configured adapter's rendered content, with structured provenance and notes                                   |
 | `image`       | a PNG, JPEG, GIF, or WebP page body, returned as the decoded image with no content, before any probe            |
+| `pdf`         | an `application/pdf` page body starting with `%PDF-`, returned as a validated PDF before any probe              |
 | `negotiated`  | the first response itself: `text/markdown` or `text/plain`, returned as served                                  |
 | `alternate`   | a Markdown URL announced by a `Link` header or a head `<link rel="alternate" type="text/markdown">`             |
 | `md-suffix`   | the publisher's `.md` suffix probe: `/a/b.html` → `/a/b.html.md`, `/a/b` → `/a/b.md`, `/a/b/` → `/a/b/index.md` |
@@ -242,8 +251,9 @@ The URLs each configured adapter claims and the document it renders are in
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | Response headers              | 10 s per request (`headers_timeout`)                                                                          |
 | The whole call, every request | 30 s (`call_timeout`)                                                                                         |
-| Response body                 | 5 MiB streamed (`body_too_large`)                                                                             |
-| Page image                    | the 5 MiB body bound, then 40 megapixels (`image_too_large`)                                                  |
+| Response body                 | 5 MiB streamed, or 20 MiB for a PDF page response (`body_too_large`)                                          |
+| Page image                    | the 5 MiB body bound, then 40 megapixels (`media_too_large`)                                                  |
+| Page PDF                      | the 20 MiB body bound, then 100 pages (`media_too_large`)                                                     |
 | Redirects per call            | 20 (`too_many_redirects`)                                                                                     |
 | Requests per call             | 27: first, 20 hops, one alternate, one suffix probe, four `llms.txt`                                          |
 | Retries                       | none: no request is repeated, and a probe's failure disqualifies its candidate                                |
@@ -257,7 +267,7 @@ A declared body length above the cap fails before the body is read, and a
 streaming body is aborted at the first chunk past the cap instead of being
 buffered. `Accept-Encoding` is left to the runtime; every request of a call
 counts against the same 30-second deadline, while the 10-second wait for
-headers and the 5 MiB body cap are each request's own.
+headers and the applicable body cap are each request's own.
 
 Line selectors apply to the rendered text under the native rules
 ([selectors](../selectors.md)): the default window, context lines, merged
@@ -270,16 +280,16 @@ refused ([selectors](../selectors.md#media-types-and-errors)).
 | Error type                 | Meaning                                                                                                                                                                                                                                               |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `invalid_path`             | the locator is not an absolute web URL, has a port that is not a number, carries userinfo, or targets `edit` or `write`                                                                                                                               |
-| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, such as an unencoded colon in the last segment, or any selector on an image body                                                                                                        |
+| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, or any selector is applied to an image or PDF body                                                                                                                                      |
 | `executor_unavailable`     | instance configuration resolved no boot-time version for `User-Agent: llame/<version>`                                                                                                                                                                |
 | `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                                                                                                                         |
 | `call_timeout`             | the call passed 30 seconds across its requests                                                                                                                                                                                                        |
-| `body_too_large`           | the body declared or streamed more than 5 MiB                                                                                                                                                                                                         |
+| `body_too_large`           | the body declared or streamed more than its applicable body bound                                                                                                                                                                                     |
 | `representation_too_large` | a `-K` member or `:outline` on an adapter document cut at the 5 MiB rendered-document bound                                                                                                                                                           |
 | `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                                                                                                                         |
-| `unsupported_content_type` | the response is neither a text body nor, on the page response of a read with the Run's media store, an accepted image type, or it declares no content type                                                                                            |
-| `unsupported_media_type`   | the response declared an accepted image type, but its bytes are no PNG, JPEG, GIF, or WebP image; nothing is decoded                                                                                                                                  |
-| `image_too_large`          | the page image passed the 5 MiB body bound but is over 40 megapixels; the shared message also names the 20 MiB image bound, which a web read never reaches                                                                                            |
+| `unsupported_content_type` | the response is neither text nor, on a page response with the Run's media store, an accepted image or PDF type, or declares no content type                                                                                                           |
+| `unsupported_media_type`   | accepted image bytes cannot be decoded, or a declared PDF lacks `%PDF-`, is encrypted, or cannot be opened                                                                                                                                            |
+| `media_too_large`          | the decoded image exceeds 40 megapixels or the PDF exceeds 100 pages                                                                                                                                                                                  |
 | `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused                                                                                            |
 | `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                                                                                                                        |
 | `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                                                                                                                         |
@@ -292,9 +302,9 @@ whole call on permissions; a refused probe only disqualifies its candidate.
 
 ### What is not read
 
-- **PDF and every other non-text, non-image body.** They fail
-  `unsupported_content_type` naming the received type, and no extraction or
-  conversion is attempted. `image/svg+xml` is a text body.
+- **Other binary bodies.** They fail `unsupported_content_type` naming the
+  received type, and no extraction or conversion is attempted.
+  `image/svg+xml` is a text body.
 - **A cache or a snapshot.** Nothing is stored between calls, so a selector
   read refetches and rerenders, and reading one locator twice issues two
   requests whose content may differ.

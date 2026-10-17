@@ -1,11 +1,3 @@
-import {
-  findRegexCandidates,
-  splitBySpans,
-  type RegexCandidate,
-} from "@workspace/ui/lib/regex-detect";
-import { decodeString } from "micromark-util-decode-string";
-import { REGEX_TOKEN_TAG } from "#regex-tester/token";
-
 /**
  * Streamdown Markdown wiring for the message regex tester: remark and rehype
  * rewrites wrap regex literals in prose and inline code with `<regex-token>`
@@ -13,6 +5,14 @@ import { REGEX_TOKEN_TAG } from "#regex-tester/token";
  * adapter; both surfaces communicate with the provider through the shared
  * token protocol.
  */
+
+import {
+  findRegexCandidates,
+  splitBySpans,
+  type RegexCandidate,
+} from "@workspace/ui/lib/regex-detect";
+import { decodeString } from "micromark-util-decode-string";
+import { REGEX_TOKEN_TAG } from "#regex-tester/token";
 
 /** `allowedTags` entry that lets `<regex-token>` survive rehype-sanitize. */
 export const regexTokenAllowedTags = { [REGEX_TOKEN_TAG]: [] };

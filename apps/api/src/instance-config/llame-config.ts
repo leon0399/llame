@@ -14,24 +14,6 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 
 /**
- * Executable provider client implementations (providers-and-models-as-code,
- * #167). `type` names the wire API the entry speaks — never inferred from
- * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
- * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
- * `/v1/responses` server); `openai-completions` executes the Chat
- * Completions API through `@ai-sdk/openai-compatible` at its required
- * `baseUrl`; `anthropic-messages` executes the Messages API through
- * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
- * default, a Messages-speaking gateway when configured); `openai-codex`
- * uses the personal Codex subscription backend; `opencode-go` executes the
- * Chat Completions wire against the OpenCode Go subscription gateway, at a
- * destination fixed in llame's code, from a required `key` and no endpoint
- * field of its own.
- * This set is strict-closed on purpose — a schema that advertised a `type`
- * it cannot execute would fail at request time instead of at the offending
- * config path.
- */
-/**
  * A configured provider connection: `type` selects the client
  * implementation, `key`/`baseUrl` are resolved (interpolated) values.
  * Providers are duplicable — two entries of the same `type` with distinct
@@ -105,6 +87,24 @@ export type OpenCodeGoProviderConfig = {
   headers: RequestHeaderTemplates;
 };
 
+/**
+ * Executable provider client implementations (providers-and-models-as-code,
+ * #167). `type` names the wire API the entry speaks — never inferred from
+ * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
+ * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
+ * `/v1/responses` server); `openai-completions` executes the Chat
+ * Completions API through `@ai-sdk/openai-compatible` at its required
+ * `baseUrl`; `anthropic-messages` executes the Messages API through
+ * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
+ * default, a Messages-speaking gateway when configured); `openai-codex`
+ * uses the personal Codex subscription backend; `opencode-go` executes the
+ * Chat Completions wire against the OpenCode Go subscription gateway, at a
+ * destination fixed in llame's code, from a required `key` and no endpoint
+ * field of its own.
+ * This set is strict-closed on purpose — a schema that advertised a `type`
+ * it cannot execute would fail at request time instead of at the offending
+ * config path.
+ */
 export type ProviderConfig =
   | OpenAIResponsesProviderConfig
   | OpenAICompletionsProviderConfig
@@ -473,15 +473,6 @@ export type RawModelEntry = {
   releasedAt?: string;
 };
 
-/**
- * The raw config document's shape once `assertValidRaw` (config-loader.ts)
- * has run the closed published JSON Schema over it — the composite fields
- * below are what the schema guarantees about their element/entry shape, not
- * a re-derivation of it. Scalar leaves stay `unknown`: `readLeaf` derives
- * per-group-and-key presence generically, and each resolver narrows its own
- * leaf with its own runtime check. Extending `Record<string, unknown>` keeps
- * this assignable everywhere a plain parsed-JSON record is still expected.
- */
 /** The still-uninterpolated web adapter entry once schema-validated. */
 export type RawWebAdapterEntry =
   | {
@@ -535,7 +526,7 @@ export type RawWebAdapterEntry =
     }
   | {
       id: string;
-      use: 'devto' | 'substack' | 'osv' | 'wikipedia' | 'telegram';
+      use: 'devto' | 'substack' | 'osv' | 'wikipedia' | 'telegram' | 'lobsters';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -543,6 +534,15 @@ export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
 };
 
+/**
+ * The raw config document's shape once `assertValidRaw` (config-loader.ts)
+ * has run the closed published JSON Schema over it — the composite fields
+ * below are what the schema guarantees about their element/entry shape, not
+ * a re-derivation of it. Scalar leaves stay `unknown`: `readLeaf` derives
+ * per-group-and-key presence generically, and each resolver narrows its own
+ * leaf with its own runtime check. Extending `Record<string, unknown>` keeps
+ * this assignable everywhere a plain parsed-JSON record is still expected.
+ */
 export interface RawInstanceConfig extends Record<string, unknown> {
   tools?: RawToolsConfig;
   mcpServers?: Record<string, RawMcpServerEntry>;
@@ -573,45 +573,23 @@ export type GithubWebAdapterConfig = {
   readonly token?: string;
 };
 
-export type BlueskyWebAdapterConfig = {
+/** A native adapter entry that takes no field beyond its id. */
+type FieldlessWebAdapterConfig<Use extends string> = {
   readonly id: string;
-  readonly use: 'bluesky';
+  readonly use: Use;
 };
 
-export type NpmWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'npm';
-};
-
-export type HuggingfaceWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'huggingface';
-};
-
-export type ArxivWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'arxiv';
-};
-
-export type StackexchangeWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'stackexchange';
-};
-
-export type CratesWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'crates';
-};
-
-export type HackernewsWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'hackernews';
-};
-
-export type DoiWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'doi';
-};
+export type BlueskyWebAdapterConfig = FieldlessWebAdapterConfig<'bluesky'>;
+export type NpmWebAdapterConfig = FieldlessWebAdapterConfig<'npm'>;
+export type HuggingfaceWebAdapterConfig =
+  FieldlessWebAdapterConfig<'huggingface'>;
+export type ArxivWebAdapterConfig = FieldlessWebAdapterConfig<'arxiv'>;
+export type StackexchangeWebAdapterConfig =
+  FieldlessWebAdapterConfig<'stackexchange'>;
+export type CratesWebAdapterConfig = FieldlessWebAdapterConfig<'crates'>;
+export type HackernewsWebAdapterConfig =
+  FieldlessWebAdapterConfig<'hackernews'>;
+export type DoiWebAdapterConfig = FieldlessWebAdapterConfig<'doi'>;
 
 /** Discourse runs on any host, so the operator lists the forums by exact
  *  canonical hostname (lowercase, no port). */
@@ -621,17 +599,12 @@ export type DiscourseWebAdapterConfig = {
   readonly hosts: ReadonlyArray<string>;
 };
 
-/** A native adapter entry that takes no field beyond its id. */
-type FieldlessWebAdapterConfig<Use extends string> = {
-  readonly id: string;
-  readonly use: Use;
-};
-
 export type DevtoWebAdapterConfig = FieldlessWebAdapterConfig<'devto'>;
 export type SubstackWebAdapterConfig = FieldlessWebAdapterConfig<'substack'>;
 export type OsvWebAdapterConfig = FieldlessWebAdapterConfig<'osv'>;
 export type WikipediaWebAdapterConfig = FieldlessWebAdapterConfig<'wikipedia'>;
 export type TelegramWebAdapterConfig = FieldlessWebAdapterConfig<'telegram'>;
+export type LobstersWebAdapterConfig = FieldlessWebAdapterConfig<'lobsters'>;
 
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
@@ -649,7 +622,8 @@ export type WebAdapterConfig =
   | SubstackWebAdapterConfig
   | OsvWebAdapterConfig
   | WikipediaWebAdapterConfig
-  | TelegramWebAdapterConfig;
+  | TelegramWebAdapterConfig
+  | LobstersWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

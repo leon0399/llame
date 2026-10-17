@@ -1,8 +1,16 @@
 "use client";
 
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  type RefObject,
+} from "react";
 import { useRouter } from "next/navigation";
 
 import type { ChatStatus, UIMessage } from "ai";
+import type { StickToBottomContext } from "use-stick-to-bottom";
 
 import {
   Conversation,
@@ -18,7 +26,11 @@ import {
 import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ChatMessageRow, messageBoundaries } from "./chat-message-row";
-import { messageRenderKey, type Compaction } from "@/lib/services/chat/history";
+import {
+  messageRenderKey,
+  messageSeqFromMetadata,
+  type Compaction,
+} from "@/lib/services/chat/history";
 import type { AvailableModel } from "@/lib/services/models/queries";
 
 type ChatTranscriptMessageProps = {
@@ -34,9 +46,24 @@ type ChatTranscriptMessageProps = {
   onForked: (forkedChatId: string) => void;
 };
 
+/** Test-only render probe — fires when a memoized transcript row actually
+ *  renders (not when memo bails). Used by the stream-tick harness. Counts
+ *  render-phase invocations, including ones React may discard. */
+let transcriptMessageRenderProbe: ((renderKey: string) => void) | null = null;
+
+export function setTranscriptMessageRenderProbe(
+  probe: ((renderKey: string) => void) | null,
+): void {
+  transcriptMessageRenderProbe = probe;
+}
+
 /** One row's boundary computation plus its `ChatMessageRow` — split out of
- *  `ChatTranscriptMessages` as its own self-contained region. */
-function ChatTranscriptMessage({
+ *  `ChatTranscriptMessages` as its own self-contained region. Memoized so a
+ *  streaming token on the live tail does not reconcile idle fat turns (80+
+ *  tool headers) when `mergeTrustedModelContextParts` preserved their
+ *  message identity. Default shallow compare is enough once parent props
+ *  (`onForked`, `availableModels`, message refs) stay stable across ticks. */
+const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
   chatId,
   message,
   index,
@@ -49,6 +76,7 @@ function ChatTranscriptMessage({
   onForked,
 }: ChatTranscriptMessageProps) {
   const renderKey = messageRenderKey(message);
+  transcriptMessageRenderProbe?.(renderKey);
   const { boundary, modelBoundary } = messageBoundaries({
     message,
     index,
@@ -72,7 +100,7 @@ function ChatTranscriptMessage({
       onInspectContext={onInspectContext}
     />
   );
-}
+});
 
 type ChatTranscriptCompactionBoundaryProps = {
   compaction: Compaction;
@@ -103,6 +131,40 @@ type ChatTranscriptMessagesProps = {
   onInspectContext: (runId: string) => void;
 };
 
+type ChatTranscriptMessageListProps = ChatTranscriptMessagesProps & {
+  onForked: (forkedChatId: string) => void;
+};
+
+/** The mapped message rows only — kept separate so the parent stays under
+ *  the per-function line budget after the stable `onForked` callback.
+ *  Exported for the memo regression harness (stream-tick idle-row commits). */
+export function ChatTranscriptMessageList({
+  chatId,
+  displayMessages,
+  compaction,
+  compactionIndex,
+  availableModels,
+  status,
+  onInspectContext,
+  onForked,
+}: ChatTranscriptMessageListProps) {
+  return displayMessages.map((message, index) => (
+    <ChatTranscriptMessage
+      key={`message-${messageRenderKey(message)}`}
+      chatId={chatId}
+      message={message}
+      index={index}
+      isLast={index === displayMessages.length - 1}
+      compaction={compaction}
+      compactionIndex={compactionIndex}
+      availableModels={availableModels}
+      status={status}
+      onInspectContext={onInspectContext}
+      onForked={onForked}
+    />
+  ));
+}
+
 /** Every message row, plus the trailing compaction boundary when it lands
  *  after the last loaded message. Split out of `ChatTranscript` as its own
  *  self-contained region. */
@@ -116,24 +178,25 @@ function ChatTranscriptMessages({
   onInspectContext,
 }: ChatTranscriptMessagesProps) {
   const router = useRouter();
+  const onForked = useCallback(
+    (forkedChatId: string) => {
+      router.push(`/chat/${forkedChatId}`);
+    },
+    [router],
+  );
 
   return (
     <>
-      {displayMessages.map((message, index) => (
-        <ChatTranscriptMessage
-          key={`message-${messageRenderKey(message)}`}
-          chatId={chatId}
-          message={message}
-          index={index}
-          isLast={index === displayMessages.length - 1}
-          compaction={compaction}
-          compactionIndex={compactionIndex}
-          availableModels={availableModels}
-          status={status}
-          onInspectContext={onInspectContext}
-          onForked={(forkedChatId) => router.push(`/chat/${forkedChatId}`)}
-        />
-      ))}
+      <ChatTranscriptMessageList
+        chatId={chatId}
+        displayMessages={displayMessages}
+        compaction={compaction}
+        compactionIndex={compactionIndex}
+        availableModels={availableModels}
+        status={status}
+        onInspectContext={onInspectContext}
+        onForked={onForked}
+      />
       {/* All loaded messages are within the summarized span → boundary sits
           after the last one. */}
       {compaction && compactionIndex === displayMessages.length && (
@@ -215,9 +278,51 @@ function ChatTranscriptBody({
   );
 }
 
+/**
+ * Lands a `#msg-N` open on its target row (#1237). Runs from the component
+ * that owns the `Conversation`, so it fires on the commit that first mounts
+ * the transcript — which waits for the Markdown renderers, so the row exists —
+ * after the stick-to-bottom context has attached. Layout effects run child
+ * first, so `ChatLoadOlder`'s pre-paint bottom pin has already run (and
+ * latched) by then; this scroll simply overrides it. What pulls the reader
+ * back afterwards is every writer that runs on LATER frames while the lock
+ * holds: the library's content ResizeObserver (its initial bottom snap and
+ * each growth catch-up, a `scrollToBottom` whose rAF loop continues only
+ * while `state.isAtBottom`) and `ChatLoadOlder`'s synchronous re-pin on
+ * resize (gated on `isAtBottom` / `escapedFromLock`). `stopScroll` — the
+ * library's own escape, what its wheel handler calls when the reader scrolls
+ * up — clears `isAtBottom` and sets `escapedFromLock`, which disarms all of
+ * them. Ordinary opens (no target) keep the bottom pin.
+ */
+function useTargetScroll(
+  conversationRef: RefObject<StickToBottomContext | null>,
+  displayMessages: Array<UIMessage>,
+  targetSeq: number | null,
+) {
+  const targetLoaded =
+    targetSeq !== null &&
+    displayMessages.some(
+      (message) => messageSeqFromMetadata(message.metadata) === targetSeq,
+    );
+  const scrolledTargetRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (!targetLoaded || scrolledTargetRef.current === targetSeq) return;
+    const target = document.getElementById(`msg-${targetSeq}`);
+    if (!target) return;
+    conversationRef.current?.stopScroll();
+    target.scrollIntoView({ block: "center" });
+    scrolledTargetRef.current = targetSeq;
+  }, [conversationRef, targetLoaded, targetSeq]);
+}
+
 /** The scrollable message log. Split out of `ChatSessionContent` as its own
  *  self-contained region. */
-export function ChatTranscript(props: ChatTranscriptProps) {
+export function ChatTranscript({
+  targetSeq,
+  ...props
+}: ChatTranscriptProps & { targetSeq: number | null }) {
+  const conversationRef = useRef<StickToBottomContext>(null);
+  useTargetScroll(conversationRef, props.displayMessages, targetSeq);
   return (
     <div className="relative flex-1 overflow-hidden">
       {/* initial="instant": the reader must LAND at the newest message, not
@@ -228,12 +333,16 @@ export function ChatTranscript(props: ChatTranscriptProps) {
           through ChatMarkdownProvider before the transcript mounts, so on a
           hard reload growth should not come from empty shells filling in.
           Instant still covers streaming growth and older-page prepends. */}
-      <Conversation className="h-full" initial="instant" resize="instant">
-        {/* TODO(#187): a reader who walks a several-thousand-message chat
-            to the top accumulates the whole transcript in the DOM. If that
-            ever measures heavy, [content-visibility:auto] on message rows
-            (or the virtualization #187 originally named) is the next step
-            — measure before reaching for either. */}
+      <Conversation
+        className="h-full"
+        initial="instant"
+        resize="instant"
+        contextRef={conversationRef}
+      >
+        {/* #187: tool/reasoning chrome uses content-visibility:auto
+            (globals.css); message rows do not — they own scroll-anchor
+            geometry. True list virtualization remains deferred until a
+            several-thousand-message walk still measures heavy after that. */}
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {/* The message column's own rhythm: 20px gutters, 48px of air above
               and below, 48px between rows — the 32px the primitive's gap-8

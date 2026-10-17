@@ -1,9 +1,9 @@
 import type { UIMessage } from "ai";
 
 /**
- * Pure decision logic for background run-completion notifications — extracted
- * from the effect so the branching (the regression-prone part) is testable
- * without timers, polling, or the DOM.
+ * Pure decision logic for run tracking, stream completion, and background
+ * run-completion notifications — extracted from the effect so the branching
+ * (the regression-prone part) is testable without timers, polling, or the DOM.
  */
 
 export type RunStatus = string;
@@ -88,4 +88,38 @@ export function notificationLabel(
     }
   }
   return "your conversation";
+}
+
+/** The completion report `useChat`'s `onFinish` hands the engine. */
+export type StreamCompletion = {
+  isAbort: boolean;
+  isDisconnect: boolean;
+  isError: boolean;
+  finishReason?: string | undefined;
+  messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>;
+};
+
+/**
+ * Whether a finished stream ended while its Run was still executing: the
+ * bridge is the only writer, its terminal chunk is the only signal that the Run
+ * reached an end, and a failed Run replaces that chunk with an error. A
+ * transport failure, a proxy or deploy cutting the connection, or a stream that
+ * simply stops arriving therefore leaves the Run executing server-side (#50),
+ * and the client re-attaches instead of reporting a turn that never completed
+ * (#1284).
+ *
+ * The user's own stop is deliberate, and anything else reported as an error is
+ * the Run's own terminal failure (or an HTTP refusal) — neither is repaired.
+ */
+export function isInterruptedStream(
+  status: Pick<
+    StreamCompletion,
+    "isAbort" | "isDisconnect" | "isError" | "finishReason"
+  >,
+): boolean {
+  if (status.isAbort) return false;
+  // A dropped fetch surfaces as both `isDisconnect` and `isError`; the
+  // connection broke, the Run did not.
+  if (status.isDisconnect) return true;
+  return !status.isError && status.finishReason === undefined;
 }

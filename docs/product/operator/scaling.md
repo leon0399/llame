@@ -134,12 +134,30 @@ attempt's admitted catalog from its own discovery. An execution-time declaration
 mismatch settles that tool unavailable. See [mcp-tools.md](mcp-tools.md) for
 configuration and deployment.
 
+## Live updates
+
+Every API process holds one dedicated LISTEN connection for live updates
+(`/api/v1/live`). Workers hold none.
+
+- LISTEN needs a persistent session. Point `POSTGRES_URL` at Postgres directly
+  or at a session-mode pooler. Through a transaction-mode pooler (PgBouncer
+  `pool_mode = transaction`) the API starts and accepts sockets, but updates
+  can stop arriving without an error.
+- Count one extra connection per API replica toward `max_connections`.
+- Postgres serializes the commit of every transaction that sends a NOTIFY. Run
+  event inserts notify, so concurrent streaming Runs share that lock (#1304).
+- A listener that stops reading can fill the notification queue, after which
+  every notifying write fails. The API only parses and enqueues each
+  notification, so this needs a stalled process, not load.
+
 ## Open scaling work
 
 - #118: replace 200 ms live-event polling and add cross-process cancellation
   signaling; cursor polling remains for resume.
 - #119: prune unbounded terminal `model.delta` history.
 - #116: production image/compose for independent workers.
+- #1304: stop notifying on streamed delta inserts once commit contention is
+  measured.
 
 If Postgres becomes the measured limit, swap at existing seams: queue interface
 to Redis-backed queue, LISTEN/NOTIFY to pub/sub, then SSE/read paths to replicas.

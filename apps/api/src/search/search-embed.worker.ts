@@ -4,7 +4,8 @@ import {
   Logger,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { searchChatDocuments } from '../db/schema/search';
@@ -142,6 +143,10 @@ function embedGuardWhere(
   return sql`id = ${id} AND content_hash = ${contentHash} AND embed_input_version IS NOT DISTINCT FROM ${priorEmbedInputVersion}`;
 }
 
+/** The model/version identity every embedding write stamps — travels
+ *  together across `persistEmbeddingSuccess`/`persistEmbeddingFailure`. */
+type EmbedTarget = { readonly modelKey: string; readonly inputVersion: number };
+
 /**
  * Conditional persist of a successfully embedded document (design D7/D15).
  * See `embedGuardWhere` for the WHERE clause's guarantee.
@@ -151,10 +156,6 @@ function embedGuardWhere(
  * would let the lexical staleness predicate re-flag the chat, triggering a
  * rebuild, which enqueues an embed, forever.
  */
-/** The model/version identity every embedding write stamps — travels
- *  together across `persistEmbeddingSuccess`/`persistEmbeddingFailure`. */
-type EmbedTarget = { readonly modelKey: string; readonly inputVersion: number };
-
 async function persistEmbeddingSuccess(
   tx: Db,
   result: EmbeddingResult,
@@ -207,6 +208,70 @@ async function persistEmbeddingFailure(
     WHERE ${embedGuardWhere(row.id, row.contentHash, row.priorEmbedInputVersion)}
   `);
   return updated.count > 0;
+}
+
+const reuseSource = alias(searchChatDocuments, 'reuse_source');
+
+/**
+ * Identical-input reuse (#597): a vector is a pure function of
+ * `(content, embedding_model_key, embed_input_version)` — D11 embeds
+ * `content` verbatim, and the model's document prefix is pinned per key by
+ * the binding ledger — so a pending document whose owner already holds a
+ * valid vector for byte-identical `content` under the current model key and
+ * input version takes a copy of it instead of a provider call. A fork copies
+ * messages under fresh ids, so its `content_hash` never matches its source's
+ * and cannot serve as this key.
+ *
+ * Tenancy: this runs inside the caller's `runAs(owner)`, so FORCE RLS
+ * already hides every other tenant's rows; the explicit owner predicate is
+ * defense in depth, not the boundary. Cross-tenant reuse would be a
+ * membership oracle for exact text and is deliberately impossible here.
+ *
+ * Validity: the source must itself be valid (its stamp equals its live
+ * hash, under the current model and version), `md5` only narrows candidates
+ * through the partial index, and `content` is rechecked for byte equality.
+ * The destination is matched on its LIVE content in this same statement and
+ * stamped with its OWN `content_hash` (D7), never the source's — so a
+ * rebuild racing this write either still matches (the copied vector
+ * describes the new content too) or drops the row from the update, leaving
+ * it for the provider path and its own anti-clobber guard. A terminal-
+ * failure tombstone (NULL embedding) is never a source: recording a failure
+ * the provider did not return for this document is not reuse.
+ *
+ * Writes exactly the five embedding columns, like `persistEmbeddingSuccess`.
+ */
+async function reuseIdenticalEmbeddings(
+  tx: Db,
+  ownerUserId: string,
+  documentIds: ReadonlyArray<string>,
+  target: EmbedTarget,
+): Promise<ReadonlySet<string>> {
+  const destination = searchChatDocuments;
+  const source = reuseSource;
+  const reused = await tx
+    .update(destination)
+    .set({
+      embedding: sql`${source.embedding}`,
+      embeddingModelKey: target.modelKey,
+      embeddedContentHash: sql`${destination.contentHash}`,
+      embedInputVersion: target.inputVersion,
+      embeddingFailReason: null,
+    })
+    .from(source)
+    .where(
+      and(
+        inArray(destination.id, [...documentIds]),
+        eq(source.ownerUserId, ownerUserId),
+        isNotNull(source.embedding),
+        eq(source.embeddingModelKey, target.modelKey),
+        eq(source.embedInputVersion, target.inputVersion),
+        eq(source.embeddedContentHash, source.contentHash),
+        sql`md5(${source.content}) = md5(${destination.content})`,
+        eq(source.content, destination.content),
+      ),
+    )
+    .returning({ id: destination.id });
+  return new Set(reused.map((row) => row.id));
 }
 
 /**
@@ -353,14 +418,6 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     void this.dispatch.enqueueChatEmbed(chatId, ownerUserId);
   }
 
-  /**
-   * One batch: re-query outstanding documents under `runAs(owner)`, close
-   * the transaction, embed over the network with NO transaction open
-   * (design D15 rule 1 — the embed's own persist takes a row-level lock a
-   * concurrent rebuild wants, so holding it across a provider call would
-   * block rebuilds directly), then persist conditionally in a short
-   * transaction (READ COMMITTED — `runAs`'s default, matching D15 rule 3).
-   */
   /** Persist every successfully embedded result, then (D1) write the binding
    *  ledger row on the first vector this batch actually persisted — see
    *  `ensureBindingLedgerRow`'s own comment. Returns how many wrote. */
@@ -428,15 +485,17 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     }
   }
 
-  /** Query this batch's outstanding rows and shape them for embedding —
-   *  undefined means nothing is outstanding. Split out of `processBatch`
-   *  purely for its own line budget. */
+  /** Query this batch's outstanding rows, copy an owner's existing vector
+   *  into every row with identical embed input (#597), and shape the rest
+   *  for the provider — undefined means nothing is outstanding. Split out of
+   *  `processBatch` purely for its own line budget. */
   private async loadOutstandingBatch(
     chatRef: ChatRef,
     model: EmbeddingModelCatalogEntry,
   ): Promise<
     | {
-        readonly outstanding: Array<OutstandingRow>;
+        readonly pending: Array<OutstandingRow>;
+        readonly reusedCount: number;
         readonly hasMore: boolean;
         readonly byId: ReadonlyMap<string, OutstandingRow>;
         readonly documents: Array<EmbeddingDocumentInput>;
@@ -449,17 +508,53 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     );
     if (outstanding.length === 0) return undefined;
     const hasMore = outstanding.length === batchSize;
-    const byId = new Map(outstanding.map((row) => [row.id, row]));
+    const reused = await this.reuseIdenticalInput(
+      chatRef.ownerUserId,
+      outstanding,
+      model,
+    );
+    const pending = outstanding.filter((row) => !reused.has(row.id));
+    const byId = new Map(pending.map((row) => [row.id, row]));
     // Design D11: embed `content` verbatim — role labels, original casing,
     // never `normalized_content`.
-    const documents: Array<EmbeddingDocumentInput> = outstanding.map((row) => ({
+    const documents: Array<EmbeddingDocumentInput> = pending.map((row) => ({
       documentId: row.id,
       contentHash: row.contentHash,
       content: row.content,
     }));
-    return { outstanding, hasMore, byId, documents };
+    return { pending, reusedCount: reused.size, hasMore, byId, documents };
   }
 
+  /** Copies reusable vectors (see `reuseIdenticalEmbeddings`) in one owner-
+   *  scoped statement, writing the binding ledger row beside them exactly
+   *  as `persistBatchSuccesses` does. Returns the ids that took a copy. */
+  private reuseIdenticalInput(
+    ownerUserId: string,
+    outstanding: ReadonlyArray<OutstandingRow>,
+    model: EmbeddingModelCatalogEntry,
+  ): Promise<ReadonlySet<string>> {
+    return this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const reused = await reuseIdenticalEmbeddings(
+        tx,
+        ownerUserId,
+        outstanding.map((row) => row.id),
+        { modelKey: model.id, inputVersion: EMBED_INPUT_VERSION },
+      );
+      if (reused.size > 0) {
+        await ensureBindingLedgerRow(tx, model);
+      }
+      return reused;
+    });
+  }
+
+  /**
+   * One batch: re-query outstanding documents under `runAs(owner)`, close
+   * the transaction, embed over the network with NO transaction open
+   * (design D15 rule 1 — the embed's own persist takes a row-level lock a
+   * concurrent rebuild wants, so holding it across a provider call would
+   * block rebuilds directly), then persist conditionally in a short
+   * transaction (READ COMMITTED — `runAs`'s default, matching D15 rule 3).
+   */
   private async processBatch(
     chatId: string,
     ownerUserId: string,
@@ -471,7 +566,11 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     if (loaded === undefined) {
       return { processedCount: 0, hasMore: false };
     }
-    const { outstanding, hasMore, byId, documents } = loaded;
+    const { pending, reusedCount, hasMore, byId, documents } = loaded;
+    if (pending.length === 0) {
+      // Every outstanding row took an existing vector: no provider call.
+      return { processedCount: reusedCount, hasMore };
+    }
 
     let results: Array<EmbeddingResult>;
     try {
@@ -485,7 +584,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     } catch (error) {
       return this.handleBatchFailure(
         chatRef,
-        { outstanding, modelId: model.id, hasMore },
+        { outstanding: pending, modelId: model.id, hasMore },
         error,
       );
     }
@@ -497,15 +596,10 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       model,
     );
     if (written === 0) {
-      await this.assertRecoverableZeroWrite(
-        chatId,
-        model,
-        results,
-        outstanding,
-      );
+      await this.assertRecoverableZeroWrite(chatId, model, results, pending);
       return { processedCount: 0, hasMore: false };
     }
-    return { processedCount: written, hasMore };
+    return { processedCount: reusedCount + written, hasMore };
   }
 
   private async handleBatchFailure(

@@ -144,9 +144,7 @@ async function settleAbort(session: WatchSession): Promise<void> {
     });
     return;
   }
-  session.finish(
-    completeAttemptUnknown(session.request.attemptId, session.pgid),
-  );
+  session.finish(completeAttemptUnknown(session.request.attemptId));
 }
 
 function armDeadline(session: WatchSession): void {
@@ -170,9 +168,7 @@ async function settleDeadline(session: WatchSession): Promise<void> {
   session.controls.settling = true;
   const stopped = await stopProcessGroup(session.pgid);
   if (!stopped) {
-    session.finish(
-      completeAttemptUnknown(session.request.attemptId, session.pgid),
-    );
+    session.finish(completeAttemptUnknown(session.request.attemptId));
     return;
   }
   await drainOutput(session);
@@ -274,9 +270,7 @@ async function settleChildError(session: WatchSession): Promise<void> {
   if (session.controls.settling) return;
   session.controls.settling = true;
   await stopProcessGroup(session.pgid);
-  session.finish(
-    completeAttemptUnknown(session.request.attemptId, session.pgid),
-  );
+  session.finish(completeAttemptUnknown(session.request.attemptId));
 }
 
 async function settleExit(
@@ -297,19 +291,16 @@ async function settleExit(
       });
       return;
     }
-    session.finish(
-      completeAttemptUnknown(session.request.attemptId, session.pgid),
-    );
+    session.finish(completeAttemptUnknown(session.request.attemptId));
     return;
   }
 
-  const survivors = !(await waitForProcessGroupQuiescence(session.pgid, 50));
-  if (survivors) {
-    await stopProcessGroup(session.pgid);
-    session.finish(
-      completeAttemptUnknown(session.request.attemptId, session.pgid),
-    );
-    return;
+  if (!(await waitForProcessGroupQuiescence(session.pgid, 50))) {
+    const stopped = await stopProcessGroup(session.pgid);
+    if (!stopped) {
+      session.finish(completeAttemptUnknown(session.request.attemptId));
+      return;
+    }
   }
 
   session.finish(knownCloseResult(code, session));

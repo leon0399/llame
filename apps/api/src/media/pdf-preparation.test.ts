@@ -1,0 +1,528 @@
+import { spawnSync } from 'node:child_process';
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+
+import { MEDIA_MAX_BYTES, MEDIA_REFUSAL } from './media-ingest';
+import {
+  BOUNDED_START,
+  isPdfSignature,
+  pdfParseChild,
+  preparePdf,
+} from './pdf-preparation';
+
+vi.setConfig({ testTimeout: 30_000 });
+
+afterEach(() => vi.unstubAllEnvs());
+
+const UNOPENABLE = {
+  name: 'MediaIngestError',
+  ...MEDIA_REFUSAL.unopenablePdf,
+};
+const TOO_LARGE = { name: 'MediaIngestError', ...MEDIA_REFUSAL.pdfTooLarge };
+const UNAVAILABLE = {
+  name: 'MediaIngestError',
+  ...MEDIA_REFUSAL.pdfUnavailable,
+};
+
+const onLinux = process.platform === 'linux';
+const hasPrlimit = onLinux && spawnSync('prlimit', ['--version']).status === 0;
+
+function fixture(name: string): Buffer {
+  return readFileSync(path.join(__dirname, 'testing', 'pdf', name));
+}
+
+/** A parse child running `node -e code` through the production start chain. */
+function fakeEntry(code: string, timeoutMs = 10_000) {
+  return pdfParseChild(['-e', code], timeoutMs);
+}
+
+/** A `%PDF-` body padded with spaces to `size` bytes. */
+function paddedPdf(size: number): Buffer {
+  const head = Buffer.from('%PDF-1.7\n');
+  return Buffer.concat([head, Buffer.alloc(size - head.length, 0x20)]);
+}
+
+describe('isPdfSignature', () => {
+  it('accepts bytes that start with %PDF-', () => {
+    expect(isPdfSignature(Buffer.from('%PDF-1.7\n'))).toBe(true);
+  });
+
+  it('refuses a shorter or different head', () => {
+    expect(isPdfSignature(Buffer.from('%PDF'))).toBe(false);
+    expect(isPdfSignature(Buffer.from(' %PDF-1.7'))).toBe(false);
+  });
+});
+
+describe('preparePdf', () => {
+  it.each([
+    ['one-page.pdf', 1],
+    ['fifteen-pages.pdf', 15],
+  ])('counts the pages of %s', async (name, pages) => {
+    await expect(preparePdf(fixture(name))).resolves.toBe(pages);
+  });
+
+  it('refuses a missing compiled parser outside vitest', async () => {
+    vi.stubEnv('VITEST', undefined);
+
+    await expect(preparePdf(fixture('one-page.pdf'))).rejects.toMatchObject(
+      UNAVAILABLE,
+    );
+  });
+
+  it('refuses a truncated PDF', async () => {
+    const input = fixture('one-page.pdf');
+
+    await expect(
+      preparePdf(input.subarray(0, input.length / 2)),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+
+  it('refuses %PDF- followed by garbage', async () => {
+    await expect(
+      preparePdf(Buffer.from('%PDF-1.7\nnot a document at all')),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+
+  it('refuses a PDF whose page tree counts zero pages', async () => {
+    await expect(preparePdf(fixture('zero-pages.pdf'))).rejects.toMatchObject(
+      UNOPENABLE,
+    );
+  });
+
+  it('refuses a PDF over 100 pages', async () => {
+    await expect(
+      preparePdf(fixture('hundred-one-pages.pdf')),
+    ).rejects.toMatchObject(TOO_LARGE);
+  });
+  it('accepts a PDF whose parser reports exactly 100 pages', async () => {
+    const boundary = fakeEntry(
+      'process.stdout.write(JSON.stringify({ pages: 100, encrypted: false }))',
+    );
+
+    await expect(preparePdf(fixture('one-page.pdf'), boundary)).resolves.toBe(
+      100,
+    );
+  });
+
+  it('refuses an input over 20 MiB before spawning a parser', async () => {
+    const neverStarts = {
+      command: path.join(__dirname, 'no-such-parse-child'),
+      args: [],
+      timeoutMs: 1000,
+    };
+
+    await expect(
+      preparePdf(paddedPdf(21 * 1024 * 1024), neverStarts),
+    ).rejects.toMatchObject(TOO_LARGE);
+  });
+
+  it.each([
+    'owner-password.pdf',
+    'user-password.pdf',
+    'owner-password-no-p.pdf',
+    'encrypt-text.pdf',
+  ])('refuses %s as encrypted', async (name) => {
+    await expect(preparePdf(fixture(name))).rejects.toMatchObject(UNOPENABLE);
+  });
+
+  it('refuses a PDF the parser reports as encrypted', async () => {
+    const encrypted = fakeEntry(
+      'process.stdout.write(JSON.stringify({ pages: 1, encrypted: true }))',
+    );
+
+    await expect(
+      preparePdf(fixture('one-page.pdf'), encrypted),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+
+  it('refuses unparseable parser output', async () => {
+    const garbled = fakeEntry('process.stdout.write("pages: 1")');
+
+    await expect(
+      preparePdf(fixture('one-page.pdf'), garbled),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+  it('refuses a nonzero parser exit even with valid output', async () => {
+    const failed = fakeEntry(
+      'process.stdout.write(JSON.stringify({ pages: 1, encrypted: false })); process.exitCode = 1;',
+    );
+
+    await expect(
+      preparePdf(fixture('one-page.pdf'), failed),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+
+  it('treats a bounded-start status with output as an unopenable PDF', async () => {
+    const failedStart = fakeEntry(
+      String.raw`process.stderr.write("bound failed\n"); process.stdout.write(JSON.stringify({ pages: 1, encrypted: false })); process.exitCode = 70;`,
+    );
+
+    await expect(
+      preparePdf(fixture('one-page.pdf'), failedStart),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+  it('drains parser stderr while accepting its valid report', async () => {
+    const noisy = fakeEntry(
+      'process.stderr.write("x".repeat(1024 * 1024)); process.stdout.write(JSON.stringify({ pages: 1, encrypted: false }))',
+      2000,
+    );
+
+    await expect(preparePdf(fixture('one-page.pdf'), noisy)).resolves.toBe(1);
+  });
+
+  it('leaves the caller buffer intact', async () => {
+    const input = fixture('fifteen-pages.pdf');
+    const before = Buffer.from(input);
+
+    await preparePdf(input);
+
+    expect(input.length).toBe(before.length);
+    expect(input.equals(before)).toBe(true);
+  });
+});
+
+describe('parse child entry', () => {
+  // The TypeScript entry vitest runs; production runs its compiled twin.
+  const entryArgs = [
+    '--import',
+    'tsx',
+    path.join(__dirname, 'pdf-parse-entry.ts'),
+  ];
+
+  it('reports the permissions of an owner-password PDF', () => {
+    const child = spawnSync(process.execPath, entryArgs, {
+      cwd: __dirname,
+      input: fixture('owner-password.pdf'),
+    });
+
+    expect(child.status).toBe(0);
+    expect(JSON.parse(child.stdout.toString())).toEqual({
+      pages: 1,
+      encrypted: true,
+    });
+  });
+
+  it('exits 1 without output on a user-password PDF', () => {
+    const child = spawnSync(process.execPath, entryArgs, {
+      cwd: __dirname,
+      input: fixture('user-password.pdf'),
+    });
+
+    expect(child.status).toBe(1);
+    expect(child.stdout.toString()).toBe('');
+  });
+});
+
+describe('parse child bounds', () => {
+  it('kills a parser past its time bound while the parent keeps running', async () => {
+    // Real time on purpose: the bound kills a real child process, and the
+    // ticking interval proves the parent's event loop stayed free meanwhile.
+    let ticks = 0;
+    const interval = setInterval(() => {
+      ticks += 1;
+    }, 10);
+    const started = performance.now();
+    try {
+      await expect(
+        preparePdf(
+          fixture('one-page.pdf'),
+          fakeEntry('setTimeout(() => undefined, 60_000)', 500),
+        ),
+      ).rejects.toMatchObject(UNOPENABLE);
+    } finally {
+      clearInterval(interval);
+    }
+
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(ticks).toBeGreaterThan(10);
+  });
+
+  it.runIf(onLinux)(
+    'refuses a parser that exhausts its address space',
+    async () => {
+      // 3 GiB of untouched memory, then a hang: only the 2 GiB address-space
+      // bound ends this child before its 5 s time bound.
+      const allocating = fakeEntry(
+        'const held = []; for (let i = 0; i < 48; i += 1) held.push(Buffer.allocUnsafeSlow(1 << 26)); setTimeout(() => undefined, 60_000);',
+        5000,
+      );
+      const started = performance.now();
+
+      await expect(
+        preparePdf(fixture('one-page.pdf'), allocating),
+      ).rejects.toMatchObject(UNOPENABLE);
+      expect(performance.now() - started).toBeLessThan(3000);
+      await expect(preparePdf(fixture('one-page.pdf'))).resolves.toBe(1);
+    },
+  );
+
+  it.each([
+    ['a small body', () => fixture('one-page.pdf')],
+    ['a 20 MiB body', () => paddedPdf(MEDIA_MAX_BYTES)],
+  ])('reports a start failure with %s as unavailable', async (_, body) => {
+    const failingStart = {
+      command: 'sh',
+      args: ['-c', 'echo "ulimit: cannot apply" >&2; exit 70'],
+      timeoutMs: 5000,
+    };
+
+    await expect(preparePdf(body(), failingStart)).rejects.toMatchObject(
+      UNAVAILABLE,
+    );
+  });
+
+  it('reports a parser that cannot be spawned as unavailable', async () => {
+    const missing = {
+      command: path.join(__dirname, 'no-such-parse-child'),
+      args: [],
+      timeoutMs: 5000,
+    };
+
+    await expect(
+      preparePdf(fixture('one-page.pdf'), missing),
+    ).rejects.toMatchObject(UNAVAILABLE);
+  });
+
+  it.runIf(hasPrlimit)(
+    'starts a parser under an inherited hard limit below 2 GiB',
+    () => {
+      const { command, args } = fakeEntry(
+        'process.stdout.write(\'{"pages":15,"encrypted":false}\')',
+      );
+      const child = spawnSync(
+        'prlimit',
+        ['--as=1610612736:1610612736', '--', command, ...args],
+        { cwd: __dirname },
+      );
+
+      expect(child.status).toBe(0);
+      expect(JSON.parse(child.stdout.toString())).toEqual({
+        pages: 15,
+        encrypted: false,
+      });
+    },
+  );
+
+  it.runIf(hasPrlimit)(
+    'refuses to start under a hard limit below the V8 floor',
+    () => {
+      const child = spawnSync('prlimit', [
+        '--as=1073741824:1073741824',
+        '--',
+        'sh',
+        '-c',
+        BOUNDED_START,
+        'sh',
+        process.execPath,
+        '-e',
+        '1',
+      ]);
+
+      expect(child.status).toBe(70);
+      expect(child.stdout.toString()).toBe('');
+    },
+  );
+
+  it('runs at most two parsers at once and settles every call', async () => {
+    const liveDir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-live-'));
+    // Each child registers itself, waits, then reports how many were live.
+    const counting = pdfParseChild([
+      '-e',
+      `const fs = require('node:fs');
+       const mine = require('node:path').join(process.argv[1], String(process.pid));
+       fs.writeFileSync(mine, '');
+       setTimeout(() => {
+         const live = fs.readdirSync(process.argv[1]).length;
+         fs.unlinkSync(mine);
+         process.stdout.write(JSON.stringify({ pages: live, encrypted: false }));
+       }, 300);`,
+      liveDir,
+    ]);
+    try {
+      const input = fixture('one-page.pdf');
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () => preparePdf(input, counting)),
+      );
+
+      expect(results).toHaveLength(5);
+      expect(Math.max(...results)).toBeLessThan(3);
+    } finally {
+      rmSync(liveDir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * A parse child that watches `dir` and reports one page once a `gate` file
+ * appears there. It writes its `started-<pid>` marker only after the watcher
+ * is armed, so the parent can tell started work from queued work and release
+ * a parked child by creating that file: no signal, no polling in the child,
+ * and no event it can miss.
+ */
+const PARKED_CHILD = `const fs = require('node:fs');
+const path = require('node:path');
+const dir = process.argv[1];
+const gate = path.join(dir, 'gate');
+const watcher = fs.watch(dir);
+let released = false;
+const release = () => {
+  if (released || !fs.existsSync(gate)) return;
+  released = true;
+  watcher.close();
+  process.stdout.write(JSON.stringify({ pages: 1, encrypted: false }));
+};
+watcher.on('change', release);
+fs.writeFileSync(path.join(dir, 'started-' + process.pid), '');
+release();`;
+
+function parkedEntry(dir: string) {
+  return pdfParseChild(['-e', PARKED_CHILD, dir]);
+}
+
+/** The pids of the parked children that reached their marker, from its name. */
+function startedPids(dir: string): Array<number> {
+  return readdirSync(dir).flatMap((name) =>
+    name.startsWith('started-') ? [Number(name.slice('started-'.length))] : [],
+  );
+}
+
+/** Wait for OS state, bounded by the test runner's cancellation signal. */
+async function waitUntil(
+  condition: () => boolean,
+  signal: AbortSignal,
+): Promise<void> {
+  while (!condition()) await delay(5, undefined, { signal });
+}
+
+describe('cancelled PDF reads', () => {
+  it('drops a queued parse without losing either parser slot', async ({
+    signal,
+    onTestFinished,
+  }) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-queue-'));
+    const after = mkdtempSync(path.join(tmpdir(), 'pdf-parse-capacity-'));
+    const jobs: Array<Promise<number>> = [];
+    onTestFinished(async () => {
+      writeFileSync(path.join(dir, 'gate'), '');
+      writeFileSync(path.join(after, 'gate'), '');
+      await Promise.allSettled(jobs);
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(after, { recursive: true, force: true });
+    });
+    const parked = parkedEntry(dir);
+    const blockers = [
+      preparePdf(fixture('one-page.pdf'), parked, signal),
+      preparePdf(fixture('one-page.pdf'), parked, signal),
+    ];
+    jobs.push(...blockers);
+    await waitUntil(() => startedPids(dir).length === 2, signal);
+    const controller = new AbortController();
+    const reason = new Error('call cancelled');
+    const queued = preparePdf(
+      fixture('one-page.pdf'),
+      parked,
+      AbortSignal.any([signal, controller.signal]),
+    );
+    jobs.push(queued);
+    controller.abort(reason);
+    await expect(queued).rejects.toBe(reason);
+    writeFileSync(path.join(dir, 'gate'), '');
+    await expect(Promise.all(blockers)).resolves.toEqual([1, 1]);
+    expect(startedPids(dir)).toHaveLength(2);
+    const following = [
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+    ];
+    jobs.push(...following);
+    await waitUntil(() => startedPids(after).length === 2, signal);
+    writeFileSync(path.join(after, 'gate'), '');
+    await expect(Promise.all(following)).resolves.toEqual([1, 1]);
+  });
+
+  it('kills a running parser without freeing its slot early', async ({
+    signal,
+    onTestFinished,
+  }) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-kill-'));
+    const after = mkdtempSync(path.join(tmpdir(), 'pdf-parse-slots-'));
+    const jobs: Array<Promise<number>> = [];
+    onTestFinished(async () => {
+      writeFileSync(path.join(dir, 'gate'), '');
+      writeFileSync(path.join(after, 'gate'), '');
+      await Promise.allSettled(jobs);
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(after, { recursive: true, force: true });
+    });
+    const controller = new AbortController();
+    const reason = new Error('call cancelled');
+    const pending = preparePdf(
+      fixture('one-page.pdf'),
+      parkedEntry(dir),
+      AbortSignal.any([signal, controller.signal]),
+    );
+    jobs.push(pending);
+    let closed = false;
+    void pending.then(
+      () => {
+        closed = true;
+      },
+      () => {
+        closed = true;
+      },
+    );
+    await waitUntil(() => startedPids(dir).length === 1, signal);
+    controller.abort(reason);
+    // Drain the async call chain without advancing to the child's close event.
+    for (let tick = 0; tick < 16; tick += 1) await Promise.resolve();
+    expect(closed).toBe(false);
+    await expect(pending).rejects.toBe(reason);
+    const [pid] = startedPids(dir);
+    expect(() => process.kill(pid, 0)).toThrow(
+      expect.objectContaining({ code: 'ESRCH' }),
+    );
+    const following = [
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+    ];
+    jobs.push(...following);
+    await waitUntil(() => startedPids(after).length === 2, signal);
+    writeFileSync(path.join(after, 'gate'), '');
+    await expect(Promise.all(following)).resolves.toEqual([1, 1]);
+  });
+
+  it('does no work at all for an already-cancelled read', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-cancelled-'));
+    const controller = new AbortController();
+    const reason = new Error('call cancelled');
+    controller.abort(reason);
+    try {
+      await expect(
+        preparePdf(
+          fixture('one-page.pdf'),
+          parkedEntry(dir),
+          controller.signal,
+        ),
+      ).rejects.toBe(reason);
+      expect(startedPids(dir)).toEqual([]);
+      // Cancellation precedes the refusals: an over-bound body is not scanned.
+      await expect(
+        preparePdf(
+          paddedPdf(21 * 1024 * 1024),
+          parkedEntry(dir),
+          controller.signal,
+        ),
+      ).rejects.toBe(reason);
+      expect(startedPids(dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

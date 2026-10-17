@@ -1,17 +1,21 @@
 import type { ModelMessage } from 'ai';
 
+import type { ModelInput } from '../models/model-catalog';
 import {
-  admitEpochImages,
+  admitEpochMedia,
   collectMediaRefs,
   EPOCH_MAX_BASE64_BYTES,
   EPOCH_MAX_IMAGES,
-  imageResultRef,
+  mediaResultRef,
   loadMediaSizing,
+  pdfPageBound,
   submittedLocator,
   toolResultOutput,
   userImagePart,
+  type EpochMediaRef,
+  type MediaAdmissionContext,
 } from './epoch-admission';
-import { descriptor, fakeResolver } from './media-fixtures';
+import { descriptor, fakeResolver, pdfDescriptor } from './media-fixtures';
 import type { MediaDescriptor } from './media-descriptors';
 
 const SHOT = { locator: '/work/shot.png', width: 1600, height: 900 };
@@ -31,13 +35,33 @@ const range = (count: number) => Array.from({ length: count }, (_, n) => n);
 
 /** Raw bytes whose base64 form is exactly 5 MiB. */
 const FIVE_MIB_BASE64_RAW = (5 * 1024 * 1024 * 3) / 4;
+/** 20 MiB: the largest PDF ingest stores, 27,962,028 bytes of base64. */
+const TWENTY_MIB = 20 * 1024 * 1024;
 
-describe('admitEpochImages', () => {
+/** A model declaring `input`, with a window and no output reserve by default. */
+function model(
+  input: ReadonlyArray<ModelInput>,
+  contextWindowTokens = 400_000,
+  reservedOutputTokens: number | null = null,
+): MediaAdmissionContext {
+  return { input, contextWindowTokens, reservedOutputTokens };
+}
+
+const VISION = model(['text', 'image']);
+const VISION_PDF = model(['text', 'image', 'pdf']);
+
+describe('admitEpochMedia', () => {
+  const admit = (
+    refs: ReadonlyArray<EpochMediaRef>,
+    descriptors: ReadonlyArray<MediaDescriptor>,
+    ctx: MediaAdmissionContext = VISION,
+  ) => admitEpochMedia(refs, descriptorMap(descriptors), ctx);
+
   it('attaches the 100 oldest images and puts the 101st at the limit', () => {
     const ids = range(101).map(mediaId);
-    const statuses = admitEpochImages(
+    const statuses = admit(
       ids,
-      descriptorMap(ids.map((id) => descriptor(id))),
+      ids.map((id) => descriptor(id)),
     );
 
     expect(statuses.slice(0, EPOCH_MAX_IMAGES)).toEqual(
@@ -46,24 +70,21 @@ describe('admitEpochImages', () => {
     expect(statuses[100]).toBe('limit');
   });
 
-  it('stops at the byte bound: five 5 MiB base64 variants attach four', () => {
-    const large = range(5).map(mediaId);
+  it('stops at the byte bound: six 5 MiB base64 variants attach five', () => {
+    const large = range(6).map(mediaId);
     const small = range(3).map((n) => mediaId(100 + n));
-    const statuses = admitEpochImages(
+    const statuses = admit(
       [...large, ...small],
-      descriptorMap([
+      [
         ...large.map((id) =>
           descriptor(id, { modelByteSize: FIVE_MIB_BASE64_RAW }),
         ),
         ...small.map((id) => descriptor(id)),
-      ]),
+      ],
     );
 
     expect(statuses).toEqual([
-      'attached',
-      'attached',
-      'attached',
-      'attached',
+      ...range(5).map(() => 'attached'),
       'limit',
       // Later small images stay out too: the first overflow latches.
       'limit',
@@ -72,28 +93,139 @@ describe('admitEpochImages', () => {
     ]);
   });
 
+  it('counts a PDF original toward the byte bound: six 5 MiB base64 PDFs attach five', () => {
+    const ids = range(6).map(mediaId);
+    const statuses = admit(
+      ids,
+      ids.map((id) =>
+        pdfDescriptor(id, { pages: 10, byteSize: FIVE_MIB_BASE64_RAW }),
+      ),
+      VISION_PDF,
+    );
+
+    expect(statuses).toEqual([...range(5).map(() => 'attached'), 'limit']);
+  });
+
+  it('lets images and PDFs share the byte bound', () => {
+    const [pdf = '', image = ''] = range(2).map(mediaId);
+    const statuses = admit(
+      [pdf, image],
+      [
+        pdfDescriptor(pdf, { byteSize: TWENTY_MIB }),
+        descriptor(image, { modelByteSize: 1_200_000 }),
+      ],
+      model(['text', 'image', 'pdf'], 200_000),
+    );
+
+    // 27,962,028 + 1,600,000 base64 bytes exceed 29,360,128.
+    expect(statuses).toEqual(['attached', 'limit']);
+  });
+
   it('attaches a variant that fills the byte bound exactly', () => {
     const [first = '', second = ''] = range(2).map(mediaId);
-    const statuses = admitEpochImages(
+    const statuses = admit(
       [first, second],
-      descriptorMap([
+      [
         descriptor(first, { modelByteSize: (EPOCH_MAX_BASE64_BYTES * 3) / 4 }),
         descriptor(second, { modelByteSize: 1 }),
-      ]),
+      ],
     );
 
     expect(statuses).toEqual(['attached', 'limit']);
   });
 
+  it('stops at the page bound: an 80-page then a 30-page PDF on a 400,000-token model', () => {
+    const [first = '', second = '', image = ''] = range(3).map(mediaId);
+    const statuses = admit(
+      [first, second, image],
+      [
+        pdfDescriptor(first, { pages: 80 }),
+        pdfDescriptor(second, { pages: 30 }),
+        descriptor(image),
+      ],
+      VISION_PDF,
+    );
+
+    expect(statuses).toEqual(['attached', 'limit', 'limit']);
+  });
+
+  it('puts a 64-page PDF over the 53-page bound of a 200,000-token model at the limit, and everything after it', () => {
+    const [large = '', small = '', image = ''] = range(3).map(mediaId);
+    const statuses = admit(
+      [large, small, image],
+      [
+        pdfDescriptor(large, { pages: 64 }),
+        pdfDescriptor(small, { pages: 5 }),
+        descriptor(image),
+      ],
+      model(['text', 'image', 'pdf'], 200_000),
+    );
+
+    expect(statuses).toEqual(['limit', 'limit', 'limit']);
+  });
+
+  it('subtracts the output reserve: 32 pages fit a 200,000-token model with a 64,000-token reserve, 33 do not', () => {
+    const ctx = model(['text', 'pdf'], 200_000, 64_000);
+    const [fits = '', over = ''] = range(2).map(mediaId);
+
+    expect(admit([fits], [pdfDescriptor(fits, { pages: 32 })], ctx)).toEqual([
+      'attached',
+    ]);
+    expect(admit([over], [pdfDescriptor(over, { pages: 33 })], ctx)).toEqual([
+      'limit',
+    ]);
+  });
+
+  it('omits a 20 MiB PDF on an image-only model without touching the image budget', () => {
+    const [pdf = '', ...images] = range(6).map(mediaId);
+    const statuses = admit(
+      [pdf, ...images],
+      [
+        pdfDescriptor(pdf, { byteSize: TWENTY_MIB }),
+        ...images.map((id) =>
+          descriptor(id, { modelByteSize: FIVE_MIB_BASE64_RAW }),
+        ),
+      ],
+    );
+
+    expect(statuses).toEqual(['omitted', ...range(5).map(() => 'attached')]);
+  });
+
+  it('omits an image on a model without image input, held or not', () => {
+    const id = mediaId(1);
+    const statuses = admit(
+      [
+        id,
+        { unstored: 'held', kind: 'image', modelByteSize: 3 },
+        { unstored: 'not-retained', kind: 'image' },
+      ],
+      [descriptor(id)],
+      model(['text', 'pdf']),
+    );
+
+    expect(statuses).toEqual(['omitted', 'omitted', 'omitted']);
+  });
+
+  it('counts images and PDFs separately: 100 images still leave room for a PDF', () => {
+    const images = range(100).map(mediaId);
+    const [pdf, extra] = [mediaId(500), mediaId(501)];
+    const statuses = admit(
+      [...images, pdf, extra],
+      [...[...images, extra].map((id) => descriptor(id)), pdfDescriptor(pdf)],
+      VISION_PDF,
+    );
+
+    expect(statuses.slice(0, 101)).toEqual(range(101).map(() => 'attached'));
+    expect(statuses[101]).toBe('limit');
+  });
+
   it('never changes an earlier status when a reference is appended', () => {
     const ids = range(100).map(mediaId);
     const next = mediaId(500);
-    const descriptors = descriptorMap(
-      [...ids, next].map((id) => descriptor(id)),
-    );
+    const descriptors = [...ids, next].map((id) => descriptor(id));
 
-    const before = admitEpochImages(ids, descriptors);
-    const after = admitEpochImages([...ids, next], descriptors);
+    const before = admit(ids, descriptors);
+    const after = admit([...ids, next], descriptors);
 
     expect(after.slice(0, ids.length)).toEqual(before);
     expect(after.at(-1)).toBe('limit');
@@ -101,9 +233,9 @@ describe('admitEpochImages', () => {
 
   it('counts a repeated id again', () => {
     const id = mediaId(1);
-    const statuses = admitEpochImages(
+    const statuses = admit(
       range(101).map(() => id),
-      descriptorMap([descriptor(id)]),
+      [descriptor(id)],
     );
 
     expect(statuses.filter((status) => status === 'attached')).toHaveLength(
@@ -115,9 +247,9 @@ describe('admitEpochImages', () => {
   it('marks unresolvable references unavailable without counting them', () => {
     const known = range(100).map(mediaId);
     const unknown = mediaId(999);
-    const statuses = admitEpochImages(
+    const statuses = admit(
       [unknown, ...known, unknown],
-      descriptorMap(known.map((id) => descriptor(id))),
+      known.map((id) => descriptor(id)),
     );
 
     expect(statuses[0]).toBe('unavailable');
@@ -127,9 +259,13 @@ describe('admitEpochImages', () => {
 
   it('never counts a not-retained read: 99 attachments, an earlier read, and one more attach all 100', () => {
     const owner = range(100).map(mediaId);
-    const statuses = admitEpochImages(
-      [...owner.slice(0, 99), { unstored: 'not-retained' }, ...owner.slice(99)],
-      descriptorMap(owner.map((id) => descriptor(id))),
+    const statuses = admit(
+      [
+        ...owner.slice(0, 99),
+        { unstored: 'not-retained', kind: 'image' },
+        ...owner.slice(99),
+      ],
+      owner.map((id) => descriptor(id)),
     );
 
     expect(statuses[99]).toBe('not-retained');
@@ -141,21 +277,32 @@ describe('admitEpochImages', () => {
   it('sizes an unstored image held with bytes like a stored one', () => {
     const held = {
       unstored: 'held',
+      kind: 'image',
       modelByteSize: FIVE_MIB_BASE64_RAW,
     } as const;
-    const statuses = admitEpochImages(
-      range(5).map(() => held),
-      new Map(),
+    const statuses = admit(
+      range(6).map(() => held),
+      [],
     );
 
-    expect(statuses).toEqual([
-      'attached',
-      'attached',
-      'attached',
-      'attached',
-      'limit',
-    ]);
+    expect(statuses).toEqual([...range(5).map(() => 'attached'), 'limit']);
   });
+});
+
+describe('pdfPageBound', () => {
+  it.each([
+    { tokens: 200_000, reserve: null, pages: 53 },
+    { tokens: 128_000, reserve: null, pages: 34 },
+    { tokens: 375_000, reserve: null, pages: 100 },
+    { tokens: 1_000_000, reserve: null, pages: 100 },
+    { tokens: 200_000, reserve: 64_000, pages: 32 },
+    { tokens: 50_000, reserve: 64_000, pages: 0 },
+  ])(
+    'bounds a $tokens-token window with a $reserve reserve at $pages pages',
+    ({ tokens, reserve, pages }) => {
+      expect(pdfPageBound(model(['text', 'pdf'], tokens, reserve))).toBe(pages);
+    },
+  );
 });
 
 describe('collectMediaRefs', () => {
@@ -285,10 +432,10 @@ describe('imageResultRef', () => {
   it('names the media of a successful media image result', () => {
     const media = `media://${mediaId(4)}`;
     expect(
-      imageResultRef({ status: 'success', kind: 'image', media }, 'x'),
+      mediaResultRef({ status: 'success', kind: 'image', media }, 'x'),
     ).toBe(mediaId(4));
     expect(
-      imageResultRef(
+      mediaResultRef(
         { status: 'success', kind: 'image', media: `MEDIA://${mediaId(4)}` },
         'x',
       ),
@@ -305,17 +452,17 @@ describe('imageResultRef', () => {
       path: '/host/projected/shot.png',
       thumbnail: 'data:image/webp;base64,UklGRg==',
     };
-    expect(imageResultRef(result, SHOT.locator)).toEqual(SHOT);
-    expect(imageResultRef(result, undefined)).toBeUndefined();
+    expect(mediaResultRef(result, SHOT.locator)).toEqual(SHOT);
+    expect(mediaResultRef(result, undefined)).toBeUndefined();
   });
 
   it('names nothing for a non-image or failed result', () => {
     const image = { kind: 'image', width: 1, height: 1 };
     expect(
-      imageResultRef({ ...image, status: 'success', kind: 'file' }, 'x'),
+      mediaResultRef({ ...image, status: 'success', kind: 'file' }, 'x'),
     ).toBeUndefined();
-    expect(imageResultRef({ ...image, status: 'error' }, 'x')).toBeUndefined();
-    expect(imageResultRef('media', 'x')).toBeUndefined();
+    expect(mediaResultRef({ ...image, status: 'error' }, 'x')).toBeUndefined();
+    expect(mediaResultRef('media', 'x')).toBeUndefined();
   });
 
   it('reads the locator a read call submitted', () => {
@@ -349,28 +496,28 @@ describe('loadMediaSizing', () => {
         },
       ],
       resolver,
-      true,
+      VISION,
     );
 
     expect(describeSpy).toHaveBeenCalledWith([mediaId(1), mediaId(2)]);
     expect(sizing).toMatchObject({
       refs: [mediaId(1), mediaId(2)],
       statuses: ['attached', 'unavailable'],
-      imageInput: true,
+      context: VISION,
     });
     expect(loads).toEqual([]);
   });
 
   it("admits unstored references by what the attempt's memory holds for them", async () => {
     const { resolver } = fakeResolver([]);
-    const model = {
+    const variant = {
       bytes: Buffer.alloc((EPOCH_MAX_BASE64_BYTES * 3) / 4),
       mediaType: 'image/png' as const,
       width: 1600,
       height: 900,
     };
-    resolver.images.set('c1', { ...SHOT, model });
-    resolver.images.set('c2', { ...SHOT, model });
+    resolver.heldMedia.set('c1', { ...SHOT, model: variant });
+    resolver.heldMedia.set('c2', { ...SHOT, model: variant });
     const result = (toolCallId: string): ModelMessage => ({
       role: 'tool',
       content: [
@@ -386,10 +533,43 @@ describe('loadMediaSizing', () => {
     const sizing = await loadMediaSizing(
       [result('c0'), result('c1'), result('c2')],
       resolver,
-      true,
+      VISION,
     );
 
     expect(sizing.statuses).toEqual(['not-retained', 'attached', 'limit']);
     expect([...sizing.held.keys()]).toEqual(['c1', 'c2']);
+  });
+
+  it('keeps a released PDF beyond the append-only byte window', async () => {
+    const byteSize = 12 * 1024 * 1024;
+    const { resolver } = fakeResolver([
+      pdfDescriptor(mediaId(1), { pages: 1, byteSize }),
+    ]);
+    const ref = { locator: '/work/second.pdf', pages: 1 };
+    resolver.heldMedia.set('c2', { ...ref, byteSize });
+    const sizing = await loadMediaSizing(
+      [
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: 'c1',
+              toolName: 'read',
+              output: toolResultOutput('', { kind: 'pdf', id: mediaId(1) }),
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'c2',
+              toolName: 'read',
+              output: toolResultOutput('', ref),
+            },
+          ],
+        },
+      ],
+      resolver,
+      VISION_PDF,
+    );
+    expect(sizing.statuses).toEqual(['attached', 'limit']);
   });
 });

@@ -66,6 +66,8 @@ export * from "./mediaDescriptorResponse";
 export * from "./mediaDescriptorResponseMediaType";
 export * from "./mediaModelVariantResponse";
 export * from "./mediaModelVariantResponseMediaType";
+export * from "./mediaPdfDescriptorResponse";
+export * from "./mediaPdfDescriptorResponseMediaType";
 export * from "./mediaTooLargeErrorResponse";
 export * from "./mediaTooLargeErrorResponseCode";
 export * from "./mediaUnsupportedErrorResponse";

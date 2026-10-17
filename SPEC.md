@@ -203,10 +203,15 @@ authority fails closed with `executor_unavailable`. A `read` of a host,
 `kb://`, or `skill://` regular file whose leading bytes are a PNG, JPEG, GIF, or
 WebP image decodes it without storing it and returns an image result with its
 format, dimensions, and a display-only thumbnail instead of text; its model
-variant lives only in the reading Run attempt's memory, and a selector on an
-image is refused. `media://<id>` reads an image the Run owner uploaded without
-an executor; it is read-only, takes no selector, and another owner's id is
-`not_found`.
+variant lives only in the reading Run attempt's memory. A regular file
+starting with `%PDF-` is validated in the bounded PDF child without storing
+it and returns a PDF envelope with its page count and byte size. Its original
+is retained only when the attempt's model declares PDF input; image and PDF
+bytes share the epoch media window. Releasing bytes preserves sizing metadata,
+and a later attempt sees a not-retained placeholder. Every selector on an
+image or PDF is refused. `media://<id>` reads an image or PDF the Run owner
+uploaded without an executor and can replay it across attempts; it is
+read-only, takes no selector, and another owner's id is `not_found`.
 
 The native host also exposes `enter_workspace({ path })` and
 `exit_workspace({})` when both tools are allowlisted with their own permission

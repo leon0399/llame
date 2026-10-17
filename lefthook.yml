@@ -19,6 +19,10 @@ pre-commit:
       glob: &openapi-glob "{apps/api/openapi.json,apps/api/redocly.yaml}"
       run: pnpm lint:openapi
 
+    - name: AsyncAPI lint
+      glob: &asyncapi-glob "{apps/api/asyncapi.websocket.yaml,apps/api/asyncapi.queues.yaml,apps/api/openapi.json,scripts/generate-asyncapi-module.mjs}"
+      run: pnpm lint:asyncapi
+
     - name: dead-code lint
       glob: "{knip.json,package.json,apps/*/package.json,packages/*/package.json}"
       run: pnpm lint:dead-code
@@ -98,6 +102,10 @@ pre-push:
     - name: OpenAPI lint
       glob: *openapi-glob
       run: pnpm lint:openapi
+
+    - name: AsyncAPI lint
+      glob: *asyncapi-glob
+      run: pnpm lint:asyncapi
 
     - name: typecheck
       glob: [*code-glob, "{pnpm-workspace.yaml,**/turbo.json}"]

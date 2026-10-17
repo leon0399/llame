@@ -33,7 +33,7 @@ falls through with `permission`, a refused secondary one adds
 | `arxiv`         | `arxiv.org/abs/`, `/pdf/`, `/html/{id}`                                                         | 1, or 2 when no HTML exists (abstract fallback) | `arxiv.org`                                                              |
 | `stackexchange` | `/questions/`, `/q/`, `/a/` on Stack Exchange network sites                                     | 2–4                                             | `api.stackexchange.com`                                                  |
 | `crates`        | `crates.io/crates/{name}[/{version}]`                                                           | 3–4: crate, version, dependencies, README       | `crates.io/api/`, `static.crates.io`                                     |
-| `hackernews`    | `news.ycombinator.com/item?id={id}`                                                             | 1                                               | `hn.algolia.com`                                                         |
+| `hackernews`    | `news.ycombinator.com/item?id={id}`, `/`, `/news`, `/front`, `/newest`                          | 1                                               | `hn.algolia.com`                                                         |
 | `doi`           | `doi.org/{doi}`, `dx.doi.org/{doi}`                                                             | 1                                               | `api.openalex.org`                                                       |
 | `discourse`     | `/t/[{slug}/]{id}[/{post}]` on `hosts`                                                          | 1–3                                             | each listed host                                                         |
 | `devto`         | `dev.to/{username}/{slug}`                                                                      | 1                                               | `dev.to`                                                                 |
@@ -41,6 +41,7 @@ falls through with `permission`, a refused secondary one adds
 | `osv`           | `osv.dev/vulnerability/`, `nvd.nist.gov/vuln/detail/`, `github.com/advisories/`, cve.org        | 1                                               | `api.osv.dev`                                                            |
 | `wikipedia`     | `{lang}[.m].wikipedia.org/wiki/{title}`, no query, no namespace                                 | 1                                               | `{lang}.wikipedia.org`                                                   |
 | `telegram`      | `t.me`, `telegram.me`, `telegram.dog`: `/{name}`, `/s/{name}`, `/{name}/{id}`, `/s/{name}/{id}` | 1                                               | `t.me`                                                                   |
+| `lobsters`      | `lobste.rs/s/{id}[/{slug}]`                                                                     | 1                                               | `lobste.rs`                                                              |
 
 ## Rewrite
 

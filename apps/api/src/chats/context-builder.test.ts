@@ -30,7 +30,7 @@ import {
 } from './tool-observation-part';
 import {
   createPromptImportsItem,
-  promptImportImageKey,
+  promptImportMediaKey,
 } from './prompt-imports-item';
 import {
   isRecord,
@@ -425,7 +425,7 @@ describe('buildContext', () => {
             locator: 'shot.png',
             outcome: 'imported',
             body: '{"status":"success","kind":"image"}',
-            image: {
+            attachment: {
               thumbnail: 'data:image/webp;base64,UklGRg==',
               width: 1600,
               height: 900,
@@ -436,7 +436,7 @@ describe('buildContext', () => {
             locator: `media://${imported}`,
             outcome: 'imported',
             body: '{"status":"success","kind":"image"}',
-            image: { media: `media://${imported}` },
+            attachment: { media: `media://${imported}` },
           },
           { locator: 'notes.md', outcome: 'imported', body: 'notes' },
         ],
@@ -464,11 +464,11 @@ describe('buildContext', () => {
               type: 'image',
               image: '',
               providerOptions: {
-                llameUnstoredImage: {
+                llameUnstoredMedia: {
                   locator: 'shot.png',
                   width: 1600,
                   height: 900,
-                  key: promptImportImageKey(runId, 'shot.png'),
+                  key: promptImportMediaKey(runId, 'shot.png'),
                 },
               },
             },

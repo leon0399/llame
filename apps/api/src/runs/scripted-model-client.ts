@@ -504,7 +504,7 @@ class HarnessModelClient implements ModelClient {
     applyRequestUsageCallback(streamOptions, input);
     // The same step preparation every production client installs: the
     // composer on every step, `onStepStart` and the cap only with tools.
-    installStepPreparation(streamOptions, input, this.input);
+    installStepPreparation(streamOptions, input, this);
     return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
   }
 }
@@ -515,8 +515,7 @@ class HarnessModelClient implements ModelClient {
  * dispatching, and RunsWorkerService.executeJob's `createClient(modelId)`
  * call resolves to it deterministically regardless of which order
  * concurrent jobs actually get claimed in.
- */
-/**
+ *
  * `implements ModelSelectionValidator` is load-bearing: the harness injects
  * this by Nest override, which is not structurally typechecked, so a method
  * added to the narrow contract would otherwise fail at run time rather than at

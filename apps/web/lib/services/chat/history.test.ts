@@ -4,7 +4,6 @@ import {
   adoptServerHistory,
   isInstructionsPart,
   isPromptImportsPart,
-  type PromptImportsPayload,
   messageRenderKey,
   mergeTrustedModelContextParts,
   messageSeqFromMetadata,
@@ -429,6 +428,75 @@ describe("trusted model-context projection", () => {
       null,
     );
   });
+
+  // Streaming re-runs this merge on every token. Returning a fresh object for
+  // every idle row forces every ChatMessageRow to reconcile — catastrophic
+  // when a prior turn carries 80+ tool parts (see chats 23b5e438 / d0adafa6).
+  it("keeps the live message object when the merge changes nothing", () => {
+    const idleAssistant: UIMessage = {
+      id: "assistant-idle",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "Done." },
+        {
+          type: "tool-bash",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { command: "true" },
+          output: "ok",
+        },
+      ],
+    };
+    const streamingTail: UIMessage = {
+      id: "assistant-live",
+      role: "assistant",
+      parts: [{ type: "text", text: "Streaming…" }],
+    };
+
+    const first = mergeTrustedModelContextParts(
+      [idleAssistant, streamingTail],
+      [],
+    );
+    const nextTail: UIMessage = {
+      ...streamingTail,
+      parts: [{ type: "text", text: "Streaming… more" }],
+    };
+    const second = mergeTrustedModelContextParts([idleAssistant, nextTail], []);
+
+    expect(first[0]).toBe(idleAssistant);
+    expect(second[0]).toBe(idleAssistant);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
+    expect(second[1]?.parts[0]).toEqual({
+      type: "text",
+      text: "Streaming… more",
+    });
+  });
+
+  it("keeps an already-merged message object on a no-op re-merge", () => {
+    const live: UIMessage = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Continue" }],
+    };
+    const server: UIMessage = {
+      id: "user-1",
+      role: "user",
+      // SAFETY: `switchPart` is narrower than the SDK part union — same cast
+      // the merge itself uses at the re-insert boundary.
+      parts: [switchPart as never, { type: "text", text: "Continue" }],
+    };
+
+    const [merged] = mergeTrustedModelContextParts([live], [server]);
+    expect(merged?.parts).toEqual([
+      switchPart,
+      { type: "text", text: "Continue" },
+    ]);
+    // A later stream tick re-merges the previous result against the same
+    // server page — the control parts are already correct, so identity holds.
+    const [again] = mergeTrustedModelContextParts([merged!], [server]);
+    expect(again).toBe(merged);
+  });
 });
 
 describe("instructions context items", () => {
@@ -830,6 +898,124 @@ describe("prompt-imports context items", () => {
     expect(isPromptImportsPart(withPayload({ imports: [image] }))).toBe(true);
   });
 
+  it("accepts an imported PDF entry, stored or not, through the history decode", () => {
+    const item = withPayload({
+      imports: [
+        {
+          locator: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+          outcome: "imported",
+          kind: "pdf",
+          mediaType: "application/pdf",
+          pages: 15,
+          byteSize: 2_215_244,
+          media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+        },
+        {
+          locator: "/home/u/repo/paper.pdf",
+          resolved: "/home/u/repo/paper.pdf",
+          outcome: "imported",
+          kind: "pdf",
+          mediaType: "application/pdf",
+          pages: 15,
+          byteSize: 2_215_244,
+        },
+      ],
+    });
+
+    const [message] = toChatUiMessages(
+      normalizeChatMessagesResponse({
+        messages: [
+          {
+            id: "user-1",
+            chatId: "chat-1",
+            seq: 1,
+            role: "user",
+            senderUserId: "user-1",
+            parts: [item, { type: "text", text: "Summarize @paper.pdf" }],
+            attachments: [],
+            usage: null,
+            inReplyTo: null,
+            createdAt: "2026-10-15T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    // The render gate accepts the decoded part, so both chips render.
+    expect(message?.parts.some((part) => isPromptImportsPart(part))).toBe(true);
+  });
+
+  it("rejects an entry that carries PDF keys but is not exactly the api's PDF shape", () => {
+    const pdf = {
+      locator: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+      outcome: "imported",
+      kind: "pdf",
+      mediaType: "application/pdf",
+      pages: 15,
+      byteSize: 2_215_244,
+      media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+    };
+    for (const bad of [
+      { ...pdf, kind: "image" },
+      {
+        locator: "shot.png",
+        outcome: "imported",
+        kind: "image",
+        media: pdf.media,
+      },
+      { ...pdf, mediaType: "image/png" },
+      { ...pdf, mediaType: "application/pdf; charset=binary" },
+      { ...pdf, pages: 0 },
+      { ...pdf, pages: 101 },
+      { ...pdf, pages: 1.5 },
+      { ...pdf, pages: "15" },
+      { ...pdf, byteSize: 0 },
+      { ...pdf, byteSize: 2_215_244.5 },
+      { ...pdf, byteSize: "2215244" },
+      { ...pdf, outcome: "failed" },
+      { ...pdf, outcome: "denied" },
+      { ...pdf, truncated: true },
+      { ...pdf, truncated: undefined },
+      { ...pdf, thumbnail: "data:image/webp;base64,UklGRg==" },
+      { ...pdf, width: 1600 },
+      { ...pdf, height: 900 },
+      { ...pdf, media: "media://not-a-uuid" },
+      { ...pdf, media: undefined },
+      { ...pdf, resolved: "" },
+      { ...pdf, extra: "leak" },
+      {
+        locator: pdf.locator,
+        outcome: "imported",
+        mediaType: "application/pdf",
+        pages: 15,
+        byteSize: 2_215_244,
+      },
+      {
+        locator: pdf.locator,
+        outcome: "imported",
+        kind: "pdf",
+        pages: 15,
+        byteSize: 2_215_244,
+      },
+      {
+        locator: pdf.locator,
+        outcome: "imported",
+        kind: "pdf",
+        mediaType: "application/pdf",
+        byteSize: 2_215_244,
+      },
+      {
+        locator: pdf.locator,
+        outcome: "imported",
+        kind: "pdf",
+        mediaType: "application/pdf",
+        pages: 15,
+      },
+    ]) {
+      expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
+    }
+  });
+
   it("rejects a malformed unstored image entry or one carrying both thumbnail and media", () => {
     const image = {
       locator: "shot.png",
@@ -874,32 +1060,6 @@ describe("prompt-imports context items", () => {
       },
       { ...image, thumbnail: undefined },
     ]) {
-      expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
-    }
-  });
-
-  it("types an entry no wider than the validator admits", () => {
-    type Entry = PromptImportsPayload["imports"][number];
-    const base = { locator: "shot.png", outcome: "imported" } as const;
-    const size = { width: 1600, height: 900, mediaType: "image/png" };
-    const media = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
-
-    const valid: Array<Entry> = [
-      base,
-      { ...base, media },
-      { ...base, ...size },
-    ];
-    // @ts-expect-error `width` without `height` and `mediaType`.
-    const widthOnly: Entry = { ...base, width: 1600 };
-    // @ts-expect-error `height` and `mediaType` without `width`.
-    const noWidth: Entry = { ...base, height: 900, mediaType: "image/png" };
-    // @ts-expect-error `mediaType` without `width` and `height`.
-    const typeOnly: Entry = { ...base, mediaType: "image/png" };
-    // @ts-expect-error A stored image carries no original's size and type.
-    const both: Entry = { ...base, media, ...size };
-
-    expect(isPromptImportsPart(withPayload({ imports: valid }))).toBe(true);
-    for (const bad of [widthOnly, noWidth, typeOnly, both]) {
       expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
     }
   });

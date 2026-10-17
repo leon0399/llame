@@ -446,8 +446,8 @@ than reinterpret listing text.
 
 A read whose source is an image under the image read requirement, or whose
 locator is `media://`, SHALL take no selector: any selector, every range member,
-`:raw`, and `:outline` included, SHALL fail with `invalid_selector`, whose
-message states that an image is read without a selector, and SHALL decode no
+`:raw`, and `:outline` included, SHALL fail with `invalid_selector` and the
+message `An image or PDF is read without a selector.`, and SHALL decode no
 image. An image has no line count. On a host, `file://`, `kb://`, or
 `skill://` regular file, the image check on the leading bytes SHALL run before
 the line count an `N-` or `-K` member requires, so an image is never counted. An
@@ -539,7 +539,7 @@ image result SHALL carry no requested or shown range, `nextOffset`, or
 #### Scenario: A selector on an image is refused
 
 - **WHEN** the model reads `/work/shot.png:1-10`, `/work/shot.png:raw`, or `kb://<id>/diagrams/flow.png:raw`, and each file's leading bytes are a PNG image
-- **THEN** the tool returns `invalid_selector` stating that an image is read without a selector
+- **THEN** the tool returns `invalid_selector` with the message `An image or PDF is read without a selector.`
 - **AND** no image is decoded and no line content is returned
 
 #### Scenario: A tail member on an image is refused before counting
@@ -1129,9 +1129,9 @@ truncation, mutation, and `file_exists` behavior as absolute paths. No
 Markdown-only or per-file byte policy SHALL apply to `kb://` operations, except
 that the explicit `outline` representation is available only for content the
 representation requirements identify as Markdown, and that a file whose leading
-bytes match an accepted image signature is bounded by the media store's bounds
-under "Image decode refusals fail the read" and takes no selector; text and raw
-reads of other files, edits, and writes are unaffected.
+bytes match an accepted image signature or the PDF signature is bounded by the
+media store's bounds under "Image decode refusals fail the read" and takes no
+selector; text and raw reads of other files, edits, and writes are unaffected.
 
 Every `kb://` result SHALL identify the target by its locator and SHALL carry
 the response-time Knowledge Space identifier and display name. It SHALL expose
@@ -1143,6 +1143,8 @@ line-number prefixes are removed, or read with `:raw` to omit them. An
 `outline` read returns a selection of verbatim source lines under that same
 rule while retaining the same locator, Space attribution, and notice. A `kb://`
 read whose file is an image SHALL return the image result with the same
+locator, Space attribution, and notice, and SHALL carry no line content. A
+`kb://` read whose file is a PDF SHALL return the PDF result with the same
 locator, Space attribution, and notice, and SHALL carry no line content.
 
 The `kb://` grammar is the authority-aware locator that later schemes follow; a
@@ -1226,6 +1228,12 @@ unsupported operation SHALL return a structured error without side effects.
 - **WHEN** the model reads `kb://<id>/diagrams/flow.png` and the identifier belongs to another owner's Space that holds a PNG at that path
 - **THEN** the tool returns `knowledge_space_not_found`, identical to the result for an absent identifier
 - **AND** no file is opened and no image is decoded for either owner
+
+#### Scenario: A Knowledge PDF keeps its attribution
+
+- **WHEN** the model calls `read` with `kb://<id>/papers/paper.pdf` and the file's leading bytes are `%PDF-`
+- **THEN** the result is the PDF result with `mediaType`, `pages`, and `byteSize`, plus the locator, Space identifier, display name, and untrusted-content notice
+- **AND** it carries no `media` field and no `content`, and exposes no configured root or resolved child path
 
 ### Requirement: Web locators are fetched by the native read tool
 
@@ -1419,9 +1427,11 @@ NOT claim another product's client identity. A request whose response
 headers do not arrive within 10 seconds SHALL fail the call with
 `headers_timeout`. A call that has not completed within 30 seconds, counted
 across every request it issues, SHALL fail with `call_timeout`. The response
-body SHALL be streamed against a 5 MiB cap and aborted past it with
-`body_too_large`, and a declared length above the cap SHALL fail before the
-body is read. `Accept-Encoding` SHALL be left to the runtime. A web call
+body SHALL be streamed against a 5 MiB cap, or a 20 MiB cap for a page
+response, after any redirects, whose `Content-Type` is `application/pdf`, and
+aborted past it with `body_too_large`, and a declared length above the cap
+SHALL fail before the body is read; adapter and probe responses SHALL keep the
+5 MiB cap whatever their type. `Accept-Encoding` SHALL be left to the runtime. A web call
 SHALL NOT retry: a transport failure, a timeout, and an error status SHALL
 each be reported to the model as an error observation with no second
 attempt. A non-2xx status other than a redirect status (301, 302, 303, 307,
@@ -1476,9 +1486,15 @@ across all of its requests.
 
 #### Scenario: An oversized body is aborted
 
-- **WHEN** a response declares or streams more than 5 MiB
+- **WHEN** a response other than an `application/pdf` page response declares or streams more than 5 MiB
 - **THEN** the call fails with `body_too_large`
 - **AND** the read stops streaming instead of buffering the remainder
+
+#### Scenario: A PDF page response has a 20 MiB body bound
+
+- **WHEN** a locator serves `application/pdf` with a 12 MiB body that starts `%PDF-`
+- **THEN** the body is read whole under the 20 MiB bound and the read returns the PDF result
+- **AND** an `application/pdf` page response that declares or streams more than 20 MiB fails with `body_too_large`, while a 6 MiB `text/html` response still fails with `body_too_large`
 
 #### Scenario: Rate limiting is reported, not retried
 
@@ -1494,7 +1510,7 @@ across all of its requests.
 
 ### Requirement: Web reads accept text and image bodies
 
-A web read SHALL accept only text bodies and image bodies. Text bodies are
+A web read SHALL accept only text bodies, image bodies, and PDF bodies. Text bodies are
 `text/*` media types, `application/json`, `application/xml`, and any type whose
 subtype carries a `+json` or `+xml` suffix, so `image/svg+xml` is a text body.
 `text/markdown` SHALL be handled as Markdown. An image body is a page response,
@@ -1508,11 +1524,22 @@ content. A body declared as one of those image types whose leading bytes match
 none of the four signatures SHALL fail with `unsupported_media_type`, SHALL
 decode no image, and its body SHALL NOT be returned as content. Any
 selector on an image body, `:raw` included, SHALL fail with `invalid_selector`
-and SHALL decode no image. Every other content type, `application/pdf`
-and `application/octet-stream` included, SHALL fail with
-`unsupported_content_type` naming the received type, and its body SHALL NOT be
-returned as content. An adapter response, or an alternate, suffix, or
-`llms.txt` probe response, with an image type SHALL count as a refused content
+and SHALL decode no image. A PDF body is a page response, after any redirects,
+whose declared media type is `application/pdf` and whose leading bytes are
+`%PDF-`. A PDF body SHALL remain under the 20 MiB body bound the fetch-bound
+requirement gives it, SHALL end the ladder with `method` `pdf`, and SHALL be
+returned as the PDF result under the PDF read requirement, never as content. A
+body declared `application/pdf` whose leading bytes are not `%PDF-` SHALL fail
+with `unsupported_media_type`, SHALL parse no PDF, and its body SHALL NOT be
+returned as content. A PDF body over 100 pages SHALL fail with
+`media_too_large`, and a PDF body that is encrypted or does not open SHALL fail
+with `unsupported_media_type`. Any selector on a PDF body, `:raw` included,
+SHALL fail with `invalid_selector` under the PDF selector requirement. Every
+other content type, `application/octet-stream` and `application/zip`
+included, SHALL fail with `unsupported_content_type` naming the received type,
+and its body SHALL NOT be returned as content. An adapter response, or an
+alternate, suffix, or `llms.txt` probe response, with an image type or
+`application/pdf` SHALL count as a refused content
 type. An adapter
 response with a refused content type SHALL disqualify that adapter with a
 bounded `content_type` note and SHALL not fail the source call. Only a
@@ -1535,7 +1562,7 @@ first 2 KiB of the body, else as UTF-8.
 
 #### Scenario: A binary body is refused with its type named
 
-- **WHEN** a locator serves `application/pdf` or `application/octet-stream`
+- **WHEN** a locator serves `application/zip` or `application/octet-stream`
 - **THEN** the read fails with `unsupported_content_type` naming that type
 - **AND** no conversion or extraction is attempted
 
@@ -1585,6 +1612,24 @@ first 2 KiB of the body, else as UTF-8.
 - **WHEN** a locator serves `image/png` with a body larger than 5 MiB
 - **THEN** the read fails with `body_too_large`
 - **AND** no image is decoded
+
+#### Scenario: A PDF body is returned as a PDF result
+
+- **WHEN** a locator serves `application/pdf` and the body is a 15-page PDF of 2,215,244 bytes that starts `%PDF-`
+- **THEN** the read returns the PDF result with `method` `pdf`, `mediaType` `application/pdf`, `pages` 15, and `byteSize` 2215244, and no `media` field
+- **AND** the result carries no `content`, and the body is parsed without being stored
+
+#### Scenario: A declared PDF over other bytes is refused
+
+- **WHEN** a locator serves `application/pdf` and the body is an HTML document
+- **THEN** the read fails with `unsupported_media_type`
+- **AND** no PDF is parsed and no part of the body is returned as content
+
+#### Scenario: A web PDF over the page bound or encrypted is refused
+
+- **WHEN** a locator serves `application/pdf` with a 101-page PDF, and separately with an encrypted PDF
+- **THEN** the first read fails with `media_too_large` and the second with `unsupported_media_type`
+- **AND** neither returns a PDF result or any part of the body as content
 
 ### Requirement: Web HTML reads prefer publisher Markdown
 
@@ -1947,10 +1992,15 @@ as the locator with its selector stripped, as a local read reports it —
 extended with `finalUrl` and `method`, plus `notes` only when
 the tool has something to report. `method` SHALL be one of `negotiated`,
 `alternate`, `md-suffix`, `readability`, `llms-txt`, `text`, `raw`, `adapter`,
-or `image`, and SHALL name the ladder stage or adapter that produced the returned content.
+`image`, or `pdf`, and SHALL name the ladder stage or adapter that produced the returned content.
 For `method: "image"`, the result SHALL instead be the image result under the
 image read requirement — `status`, `kind: "image"`, `mediaType`, `width`, and
 `height`, with no `media` field — together with `path`, `finalUrl`, `method`,
+and `notes` only when non-empty, and SHALL carry no `content`, range fields,
+`nextOffset`, or `truncated`.
+For `method: "pdf"`, the result SHALL instead be the PDF result under the PDF
+read requirement — `status`, `kind: "pdf"`, `mediaType`, `pages`, and
+`byteSize`, with no `media` field — together with `path`, `finalUrl`, `method`,
 and `notes` only when non-empty, and SHALL carry no `content`, range fields,
 `nextOffset`, or `truncated`.
 For `method: "adapter"`, the result SHALL carry an `adapter` object with its
@@ -2013,6 +2063,12 @@ promise that two reads of the same URL return the same text.
 
 - **WHEN** `https://example.test/shot` redirects to `https://cdn.example.test/shot.png`, which serves `image/png` with PNG bytes
 - **THEN** the result has `kind: "image"`, `mediaType`, `width`, `height`, `path` `https://example.test/shot`, `finalUrl` `https://cdn.example.test/shot.png`, and `method: "image"`
+- **AND** it carries no `media`, `content`, range fields, `nextOffset`, `truncated`, `url`, or `contentType`
+
+#### Scenario: A PDF result carries the web fields and no content
+
+- **WHEN** `https://example.test/paper` redirects to `https://cdn.example.test/paper.pdf`, which serves `application/pdf` with a body that starts `%PDF-`
+- **THEN** the result has `kind: "pdf"`, `mediaType` `application/pdf`, `pages`, `byteSize`, `path` `https://example.test/paper`, `finalUrl` `https://cdn.example.test/paper.pdf`, and `method: "pdf"`
 - **AND** it carries no `media`, `content`, range fields, `nextOffset`, `truncated`, `url`, or `contentType`
 
 ### Requirement: Web adapter contract is ordered, admitted, and fallible
@@ -2665,10 +2721,11 @@ anchors (such as GitHub-style heading links) removed.
 
 ### Requirement: Hacker News native adapter reads item threads
 
-A configured `hackernews` adapter SHALL claim only
+A configured `hackernews` adapter SHALL claim
 `https://news.ycombinator.com/item` locators whose `id` query parameter is a
-positive decimal item id, ignoring other query parameters; every other path
-SHALL be unclaimed. The adapter SHALL send one unauthenticated `GET` to
+positive decimal item id, ignoring other query parameters; the story-list
+paths are claimed by the story-list requirement below. The adapter SHALL send
+one unauthenticated `GET` to
 `https://hn.algolia.com/api/v1/items/{id}`; a failed or unparsable response,
 and a poll or poll option, SHALL fall through.
 
@@ -2686,6 +2743,30 @@ which the API omits together with their replies, are not rendered.
 - **WHEN** the model reads `https://news.ycombinator.com/item?id=8863`
 - **THEN** the adapter requests only `https://hn.algolia.com/api/v1/items/8863`
 - **AND** the text has one `Post` entry followed by one `Reply` entry per comment, each with `Source:` and `Date:` lines
+
+### Requirement: Hacker News native adapter reads story lists
+
+A configured `hackernews` adapter SHALL claim
+`https://news.ycombinator.com` locators for the front page (`/`, `/news`,
+`/front`) and `/newest`, ignoring query parameters; every other path SHALL be
+unclaimed. The adapter SHALL send one unauthenticated `GET`, with
+`hitsPerPage=30`, to `https://hn.algolia.com/api/v1/search?tags=front_page`
+for the front page and `https://hn.algolia.com/api/v1/search_by_date?tags=story`
+for `/newest`; a failed or unparsable response SHALL fall through.
+
+The render SHALL be `# Hacker News: front page` or `# Hacker News: newest`,
+then the first 30 stories as `- **{title}** — {points} points — {comments}
+comments — {url} — {item URL}` bullets, omitting the fields the API does not
+report; an empty page SHALL render `No stories.`, and a page whose API match
+count exceeds the shown stories SHALL add a `stories truncated: the first 30
+only` note. The front page's set matches the site's, in the API's points
+order.
+
+#### Scenario: The front page renders as a story list
+
+- **WHEN** the model reads `https://news.ycombinator.com/`
+- **THEN** the adapter requests only `https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30`
+- **AND** the text has one bullet per story, each with its points, comment count, and item URL
 
 ### Requirement: DOI native adapter reads work metadata
 
@@ -2941,6 +3022,32 @@ service messages. A read SHALL fetch one page.
 - **WHEN** the preview serves the channel header, a "No posts found" placeholder without a post id, and a page link whose cursor value is empty, such as `/s/durov?before=`
 - **THEN** the text is the header with no entries and no cursor line
 
+### Requirement: Lobsters native adapter reads story threads
+
+A configured `lobsters` adapter SHALL claim only HTTPS `lobste.rs` locators
+whose path is `/s/{short_id}` or `/s/{short_id}/{slug}`, where `{short_id}` is
+lowercase alphanumeric; every other host and path SHALL be unclaimed. The
+adapter SHALL send one unauthenticated `GET` to
+`https://lobste.rs/s/{short_id}.json`, whatever form and query the locator
+carried; a failed or unparsable response SHALL fall through, and a response
+whose final URL left `https://lobste.rs` SHALL fall through as `status`.
+
+The render SHALL use x.md's thread layout: the story as
+`## Post · 1/{n} — @{author}`, then every comment in the response's order,
+which is the site's thread order, as `## Reply · {i}/{n} — @{author}`, with a
+`Replying to @{author}` line when the comment answers another comment. The
+story entry carries its title in bold, its description converted to Markdown
+when present, `Link:` and `Tags:` lines when the story has them, `Score:`, and
+`Source:` and `Date:` lines; every comment entry carries `Score:`, `Source:`,
+and `Date:`. A user the API does not report renders as `[deleted]`, and
+entries SHALL be separated by a `---` line between blank lines.
+
+#### Scenario: A story renders with its comment thread
+
+- **WHEN** the model reads `https://lobste.rs/s/o0ixth`
+- **THEN** the adapter requests only `https://lobste.rs/s/o0ixth.json`
+- **AND** the text has one `Post` entry followed by one `Reply` entry per comment in the response's order, each with `Source:` and `Date:` lines
+
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
 A `rewrite` adapter entry SHALL be enabled only when an operator declares it.
@@ -3020,8 +3127,11 @@ bytes rather than decoded text SHALL define their own input contract rather
 than widening this one. Image detection is such a byte-level reader and sits
 outside the table: under the image read requirement it inspects a regular
 file's leading bytes, or a web body declared as an accepted image type, before
-any text decoding. The table SHALL gain no image member and no image media type,
-an image source SHALL have no representation, and an image result SHALL carry no
+any text decoding. PDF detection is another such reader: under the PDF read
+requirement it inspects a regular file's leading bytes for `%PDF-`, or a web
+body declared `application/pdf`, before any text decoding. The table SHALL gain
+no image or PDF member and no image or PDF media type, an image or PDF source
+SHALL have no representation, and an image or PDF result SHALL carry no
 `representation` field.
 
 #### Scenario: A Markdown file selects the outline reader
@@ -3038,9 +3148,9 @@ an image source SHALL have no representation, and an image result SHALL carry no
 
 #### Scenario: An unsupported media type names the accepted types
 
-- **WHEN** the model requests `:outline` for an otherwise readable `.json`, `.mdx`, `.pdf`, `.txt`, or binary file, or for a web read whose result is `text`, `raw`, or a `negotiated` `text/plain` body
+- **WHEN** the model requests `:outline` for an otherwise readable `.json`, `.mdx`, `.txt`, or binary file whose leading bytes match no image signature and no PDF signature, or for a web read whose result is `text`, `raw`, or a `negotiated` `text/plain` body
 - **THEN** the tool returns `invalid_selector` naming `text/markdown` as the member's accepted media type
-- **AND** an ordinary read of that source is unchanged
+- **AND** an ordinary read of that source is unchanged, and `:outline` on a `.pdf` file whose leading bytes are `%PDF-` returns `invalid_selector` with the message `An image or PDF is read without a selector.`
 
 #### Scenario: Admission denies the submitted locator before any parse
 
@@ -3065,6 +3175,12 @@ an image source SHALL have no representation, and an image result SHALL carry no
 - **WHEN** the model reads `/work/shot.png` without a member and its leading bytes are a PNG image
 - **THEN** the result is the image result and carries no `representation` field
 - **AND** `/work/shot.png:outline` returns `invalid_selector` rather than an outline or an image result
+
+#### Scenario: A PDF is detected outside the representation table
+
+- **WHEN** the model reads `/docs/paper.pdf` without a member and its leading bytes are `%PDF-`
+- **THEN** the result is the PDF result and carries no `representation` field
+- **AND** `/docs/paper.pdf:outline` returns `invalid_selector` rather than an outline or a PDF result
 
 ### Requirement: Markdown outlines are verbatim structural lines
 
@@ -3585,8 +3701,7 @@ which never reaches the model.
 For a regular file on a host path, `file:` alias, Workspace-relative path, `kb://`, or `skill://`,
 after the same admission, permission decision, owner resolution, and regular-file check as a text
 read, the reader SHALL compare the file's leading bytes with the PNG, JPEG, GIF, and WebP signatures
-before any UTF-8 decoding or line counting. The file extension SHALL NOT decide. Bytes that match no
-signature, SVG included, SHALL stay on the text path unchanged and SHALL decode no image.
+and the PDF signature `%PDF-` before any UTF-8 decoding or line counting.
 
 #### Scenario: The extension does not decide
 
@@ -3605,6 +3720,23 @@ signature, SVG included, SHALL stay on the text path unchanged and SHALL decode 
 - **WHEN** permission admission denies a `read` of `/work/shot.png`, whose bytes are a PNG image
 - **THEN** the tool returns `permission_denied` without opening the file
 - **AND** no image is decoded and no `thumbnail` is produced
+
+#### Scenario: The extension does not decide for a PDF
+
+- **WHEN** the model reads `/docs/paper.bin`, whose leading bytes are `%PDF-` and which is a PDF, and `/docs/notes.pdf`, whose bytes are plain text
+- **THEN** `/docs/paper.bin` returns the PDF result
+- **AND** `/docs/notes.pdf` returns its text with line numbers and no PDF is parsed
+
+#### Scenario: The extension never decides the path
+
+- **WHEN** any such read encounters a file
+- **THEN** the path is chosen only from the file's leading bytes, and the extension never decides
+  whether the read takes the media path or the text path
+
+#### Scenario: Bytes matching no signature stay on the text path
+
+- **WHEN** the bytes of any such read match no accepted signature, an SVG document included
+- **THEN** the read stays on the text path unchanged and decodes no image and parses no PDF
 
 ### Requirement: Image reads are decoded without being stored
 
@@ -3634,37 +3766,66 @@ or identifier from an earlier read.
 
 ### Requirement: Image decode refusals fail the read
 
-A regular file whose leading bytes match an accepted image signature and whose size exceeds the media
-store's byte bound SHALL be refused without being read whole. A file matching no signature SHALL stay
-on the text path whatever its size. A decode refusal SHALL fail the read with a bounded structured
-error, `image_too_large` for the byte or pixel bound and `unsupported_media_type` for bytes that match
-a signature but cannot be decoded, store nothing, and not fall back to text.
+A regular file whose leading bytes match an accepted image signature or the PDF signature and whose
+size exceeds the media store's byte bound SHALL be refused without being read whole. A file matching
+no signature SHALL stay on the text path whatever its size. A decode refusal SHALL fail the read with
+a bounded structured error, store nothing, and not fall back to text.
 
 #### Scenario: An oversized image is refused
 
 - **WHEN** the model reads a 21 MiB PNG file, or a PNG file under 20 MiB whose header declares 41 megapixels
-- **THEN** the read fails with `image_too_large`
+- **THEN** the read fails with `media_too_large` and the message `Image exceeds 20 MiB or 40 megapixels`
 - **AND** no image is decoded, nothing is stored, and no text content is returned
+
+#### Scenario: An oversized PDF is refused
+
+- **WHEN** the model reads a 21 MiB file whose leading bytes are `%PDF-`, or a PDF file under 20 MiB with 101 pages
+- **THEN** the read fails with `media_too_large` and the message `PDF exceeds 20 MiB or 100 pages`
+- **AND** the 21 MiB file is not read whole, nothing is stored, and no text content is returned
+
+#### Scenario: An encrypted or unopenable PDF is refused
+
+- **WHEN** the model reads an encrypted PDF file, or a file whose leading bytes are `%PDF-` followed by bytes that do not open as a PDF
+- **THEN** the read fails with `unsupported_media_type`
+- **AND** nothing is stored and no text content is returned
 
 #### Scenario: A large text file is read as text
 
 - **WHEN** the model reads `/work/app.log`, a 25 MiB regular file whose bytes are text
 - **THEN** the read returns the file's text with line numbers under the ordinary text read rules
-- **AND** it does not fail with `image_too_large` and no image is decoded
+- **AND** it does not fail with `media_too_large`, no image is decoded, and no PDF is parsed
+
+#### Scenario: A decode refusal's error names what was detected
+
+- **WHEN** any such read is refused, because an image is over the byte or pixel bound, a PDF is over
+  the byte or page bound, bytes matching a signature cannot be decoded, or a PDF is encrypted or
+  does not open
+- **THEN** an image over the byte or pixel bound fails with `media_too_large` and the message
+  `Image exceeds 20 MiB or 40 megapixels`
+- **AND** a PDF over the byte or page bound fails with `media_too_large` and the message
+  `PDF exceeds 20 MiB or 100 pages`
+- **AND** bytes that match a signature but cannot be decoded, and a PDF that is encrypted or does
+  not open, fail with `unsupported_media_type`
 
 ### Requirement: Media locators read the owner's stored media
 
 `read` SHALL accept `media://<id>`, where `<id>` is a lower-case canonical UUID under the
-`media-store` locator grammar, and SHALL return the image result for the Run owner's object with
-that id, with `media` and `path` both equal to the locator. The id SHALL resolve under tenant
-enforcement against the Run owner only. Another owner's id and an unknown id SHALL return the same
-`not_found`. A bare `media://` or a malformed id SHALL fail with `invalid_path` before any lookup.
+`media-store` locator grammar, and SHALL return, for the Run owner's object with that id, the image
+result for an image or the PDF result for a PDF, with `media` and `path` both equal to the locator.
+The id SHALL resolve under tenant enforcement against the Run owner only, and another owner's id and
+an unknown id SHALL return the same `not_found`.
 
 #### Scenario: The owner's stored image is returned
 
 - **WHEN** the model reads `media://<id>` naming an image the Run owner stored
 - **THEN** the result is the image result with `media` and `path` equal to `media://<id>` and the stored original's `mediaType`, `width`, and `height`
 - **AND** no media object is created or changed, and the stored tool output carries no `thumbnail`
+
+#### Scenario: The owner's stored PDF is returned
+
+- **WHEN** the model reads `media://<id>` naming a PDF the Run owner stored
+- **THEN** the result is the PDF result with `media` and `path` equal to `media://<id>` and the stored object's `mediaType` `application/pdf`, `pages`, and `byteSize`
+- **AND** no media object is created or changed, and the result carries no `content` and no `thumbnail`
 
 #### Scenario: Another owner's id is indistinguishable from an unknown id
 
@@ -3675,6 +3836,13 @@ enforcement against the Run owner only. Another owner's id and an unknown id SHA
 #### Scenario: Bare and malformed media locators are invalid
 
 - **WHEN** the model reads `media://`, `media://123`, or `media://` followed by an upper-case UUID
+- **THEN** the tool returns `invalid_path`
+- **AND** no media lookup is performed
+
+#### Scenario: Any invalid media locator fails before lookup
+
+- **WHEN** any read's `media://` locator is bare or carries a malformed `id`, an upper-case UUID
+  included
 - **THEN** the tool returns `invalid_path`
 - **AND** no media lookup is performed
 
@@ -3714,3 +3882,91 @@ reject a `media://` locator with the unsupported-operation error, without a look
 - **WHEN** the model reads `media://<id>` while a Workspace is entered
 - **THEN** the result is the image result
 - **AND** no instruction-file chain is triggered by the read
+
+### Requirement: PDF reads return a PDF result
+
+A native `read` SHALL return a PDF result when the bytes it acquires are a PDF: a host path, `file:` alias, or Workspace-relative path, `kb://`, `skill://`, a web PDF body, or `media://`. The model-facing result SHALL carry `status: "success"`, `kind: "pdf"`, `mediaType: "application/pdf"`, `pages`, `byteSize`, and the source's existing attribution fields, and no `content`, range fields, or PDF bytes. It SHALL NOT depend on the Run's model and SHALL carry no `thumbnail`.
+
+#### Scenario: A host PDF returns a PDF result
+
+- **WHEN** the model reads `/docs/paper.pdf`, a regular file whose bytes are a 15-page PDF of 2,215,244 bytes
+- **THEN** the result has `status: "success"`, `kind: "pdf"`, `mediaType` `application/pdf`, `pages` 15, `byteSize` 2215244, and `path` `/docs/paper.pdf`
+- **AND** it carries no `media` field, no `content`, no range fields, and no encoding of the PDF bytes
+- **AND** its stored tool output carries no `thumbnail`
+
+#### Scenario: A skill PDF keeps the skill envelope
+
+- **WHEN** the model reads `skill://pdf/assets/sample.pdf`, whose bytes are a PDF
+- **THEN** the result is the PDF result with the logical locator, selected source, `resolvedPath`, and `skillDirectory`
+- **AND** it carries no `content`
+
+#### Scenario: A model without PDF input still receives the envelope
+
+- **WHEN** a Run whose model declares no `pdf` input reads `/docs/paper.pdf`, whose bytes are a PDF
+- **THEN** the tool result is the same PDF result that a Run on a model declaring `pdf` input receives
+- **AND** the PDF is parsed all the same
+
+### Requirement: Only a media read's PDF result carries a media locator
+
+Only a `media://` read's PDF result SHALL carry `media`, the stored object's locator. Every other PDF result SHALL carry no `media` field and no `media://` locator.
+
+#### Scenario: An unstored PDF result carries no locator
+
+- **WHEN** the model reads `https://example.test/paper.pdf`, which serves `application/pdf` with a body that starts `%PDF-`, and separately reads `/docs/paper.pdf`, whose bytes are a PDF
+- **THEN** neither result carries a `media` field or a `media://` locator
+- **AND** each names the PDF only by its `path`
+
+#### Scenario: A media read's PDF result carries its locator
+
+- **WHEN** the model reads `media://<id>` naming a PDF the Run owner stored
+- **THEN** the result carries `media` equal to `media://<id>`
+
+### Requirement: PDF reads are parsed without being stored
+
+A PDF detected on any source other than `media://` SHALL be parsed by the worker with the preparation `media-store` applies to an uploaded PDF and SHALL NOT be written to the media store, whether the model or a prompt import reads it. The worker SHALL keep it only in the reading attempt's memory, as `media-attachments` defines. Every such read SHALL parse its bytes afresh and SHALL reuse no PDF or identifier from an earlier read.
+
+#### Scenario: A read PDF creates no media object
+
+- **WHEN** the model reads `/docs/paper.pdf`, whose bytes are a PDF
+- **THEN** the Run owner holds no media object for those bytes
+- **AND** the result names the PDF only by its `path`
+
+#### Scenario: A prompt-import PDF read is not stored either
+
+- **WHEN** a prompt import reads `/docs/paper.pdf` through `read` with system origin `prompt-import`
+- **THEN** the result is the same PDF result a model `read` returns
+- **AND** no media object is created
+
+#### Scenario: Re-reading a PDF parses it again
+
+- **WHEN** the model reads `/docs/paper.pdf` in one turn and again in a later turn
+- **THEN** the later read parses the file afresh and returns a PDF result with no `media` field
+- **AND** the later read's PDF is attachable in the later turn's Run
+
+### Requirement: A selector on a PDF is refused
+
+A read whose source is a PDF SHALL take no selector: any selector, every range member, `:raw`, and `:outline` included, SHALL fail with `invalid_selector` and the message `An image or PDF is read without a selector.`, the same message an image or `media://` selector refusal carries, and SHALL return no PDF result. On a regular file the PDF check on the leading bytes SHALL run before the line count an `N-` or `-K` member requires.
+
+#### Scenario: A selector on a local PDF is refused
+
+- **WHEN** the model reads `/docs/paper.pdf:1-10`, `/docs/paper.pdf:raw`, or `kb://<id>/papers/paper.pdf:raw`, and each file's leading bytes are `%PDF-`
+- **THEN** the tool returns `invalid_selector` with the message `An image or PDF is read without a selector.`
+- **AND** no line content and no PDF result is returned
+
+#### Scenario: A tail member on a PDF is refused before counting
+
+- **WHEN** the model reads `/docs/paper.pdf:-5`, whose leading bytes are `%PDF-`
+- **THEN** the tool returns `invalid_selector` with the message `An image or PDF is read without a selector.`
+- **AND** no line of the file is counted
+
+#### Scenario: A selector on a web PDF is refused
+
+- **WHEN** the model reads `https://example.test/paper.pdf:raw` or `https://example.test/paper.pdf:1-5` and the locator serves `application/pdf` with a body that starts `%PDF-`
+- **THEN** the read fails with `invalid_selector` with the message `An image or PDF is read without a selector.`
+- **AND** the raw bytes are not returned and no PDF result is returned
+
+#### Scenario: A selector on a media locator is refused before lookup
+
+- **WHEN** the model reads `media://<id>:raw` naming a PDF the Run owner stored
+- **THEN** the tool returns `invalid_selector` with the message `An image or PDF is read without a selector.`
+- **AND** no media lookup is performed
