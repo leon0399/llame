@@ -136,6 +136,21 @@ A setext heading remains verbatim, including its underline:
 9: ===
 ```
 
+Every root GFM table contributes a three-line table excerpt at the table's
+position, after the entries before it: its header row, its first content row, and
+its last content row, which is the last body row the scan decided. The delimiter
+row and the table's other content rows are never emitted, so a table inside a
+blockquote or a list item contributes nothing of its own. A table with one
+content row emits its header row and that row; a table with no content row emits
+its header row alone. A section whose first non-blank line is a table's header
+row takes that excerpt as its own, in place of a single excerpt line:
+
+```text
+5: | Excuse | Reality |
+7: | "Codex found nothing this round" | One reviewer is one reviewer. …
+11: | "Reviewer said X is wrong" | Verify against the primary source. …
+```
+
 Every emitted source line is cut at 120 UTF-16 code units with a trailing `…`
 when it is longer, backing up one unit rather than splitting a surrogate pair.
 A line of exactly 120 code units is unchanged. The only generated text is that
@@ -185,7 +200,13 @@ recognition but remains in the emitted source line.
 The outline prepends the direct ancestor chain of source line N: root headings
 whose sections contain N, shallowest first. Each ancestor is rendered with its
 heading lines and excerpt, restricted to lines before N, and is omitted when its
-own lines are already in scope. Frontmatter and the root excerpt appear only
+own lines are already in scope. A scope that starts at a root table's delimiter
+row or one of its body rows also prepends that table's excerpt restricted to the
+lines before N — its header row, and its first content row when that row precedes
+N — so a scope inside a table carries its column names. A chain never names the
+table's last content row: that row lies at or after N. The table's own position
+emits the excerpt lines the scope holds, so a scope covering the table's header
+row, first content row, and last content row shows all three. Frontmatter and the root excerpt appear only
 when their source lines are in scope. If the ancestor chain of N does not fit
 the result budget or 2,000-line cap on its own, omit the whole chain and
 continue with in-scope lines, so every continuation read makes progress. A scope

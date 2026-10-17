@@ -323,6 +323,9 @@ describe('Workspace-relative native paths', () => {
   });
 
   it('keeps raw, outline, and non-Markdown reads free of the header pair', async () => {
+    // The outline names the table's shape, not the ranged read's pair: it
+    // carries the header row and the first and last content rows, never the
+    // delimiter row.
     const root = await mkdtemp(join(tmpdir(), 'table-range-negatives-'));
     const markdown = join(root, 'guide.md');
     const text = join(root, 'guide.txt');
@@ -356,9 +359,16 @@ describe('Workspace-relative native paths', () => {
         kind: 'file',
         path: markdown,
         representation: 'outline',
-        content: '1: # Root\n2: Root body\n3: ## Details\n4: Details intro\n',
+        content:
+          '1: # Root\n' +
+          '2: Root body\n' +
+          '3: ## Details\n' +
+          '4: Details intro\n' +
+          '5: | Name | Value |\n' +
+          '7: | alpha | 1 |\n' +
+          '8: | beta | 2 |\n',
         requestedRange: { startLine: 1, endLine: 8 },
-        shownRange: { startLine: 1, endLine: 4 },
+        shownRange: { startLine: 1, endLine: 8 },
         truncated: false,
       });
 

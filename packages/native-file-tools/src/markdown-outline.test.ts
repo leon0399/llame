@@ -317,6 +317,99 @@ describe("markdown outline reader", () => {
     expect(result.content).toContain("3550: ## In scope\n");
   });
 
+  it("emits a root table's excerpt where the table sits", async () => {
+    const source =
+      "# Guide\n\nIntro sentence.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n| 7 | 8 |\n| 9 | 10 |\n\n## Next\n\nAfter.\n";
+    await expect(read(source)).resolves.toMatchObject({
+      content:
+        "1: # Guide\n3: Intro sentence.\n5: | a | b |\n7: | 1 | 2 |\n11: | 9 | 10 |\n13: ## Next\n15: After.\n",
+      shownRange: { startLine: 1, endLine: 15 },
+      truncated: false,
+    });
+  });
+
+  it("emits a table's header row once when the document opens with it", async () => {
+    const source = "| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n";
+    await expect(read(source)).resolves.toMatchObject({
+      content: "1: | a | b |\n3: | 1 | 2 |\n4: | 3 | 4 |\n",
+    });
+  });
+
+  it("replaces a section's excerpt line when the table opens the section", async () => {
+    const source = "# H\n| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n";
+    await expect(read(source)).resolves.toMatchObject({
+      content: "1: # H\n2: | a | b |\n4: | 1 | 2 |\n5: | 3 | 4 |\n",
+    });
+  });
+
+  it("emits two lines for a one-row table and the header alone with none", async () => {
+    await expect(
+      read("# H\n\n| a | b |\n| - | - |\n| 1 | 2 |\n"),
+    ).resolves.toMatchObject({
+      content: "1: # H\n3: | a | b |\n5: | 1 | 2 |\n",
+    });
+    await expect(read("# H\n\n| a | b |\n| - | - |\n")).resolves.toMatchObject({
+      content: "1: # H\n3: | a | b |\n",
+    });
+  });
+
+  it("cuts a long first content row like an excerpt line", async () => {
+    const source = `# H\n\n| a | b |\n| - | - |\n| ${"x".repeat(200)} | 2 |\n`;
+    const result = await read(source);
+    expect(result.content).toBe(
+      `1: # H\n3: | a | b |\n5: | ${"x".repeat(118)}…\n`,
+    );
+  });
+
+  it("emits no excerpt for a table inside a container", async () => {
+    await expect(
+      read("# H\n\nintro\n\n> | a | b |\n> | - | - |\n> | 1 | 2 |\n"),
+    ).resolves.toMatchObject({ content: "1: # H\n3: intro\n" });
+  });
+
+  it("prepends a table's header row and first content row for a scope inside it", async () => {
+    const source =
+      "# R\n\nbody\n\n| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n";
+    await expect(read(source, "outline:7-8")).resolves.toMatchObject({
+      content: "1: # R\n3: body\n5: | a | b |\n7: | 1 | 2 |\n8: | 3 | 4 |\n",
+      shownRange: { startLine: 1, endLine: 8 },
+    });
+    await expect(read(source, "outline:6-6")).resolves.toMatchObject({
+      content: "1: # R\n3: body\n5: | a | b |\n",
+    });
+    await expect(read(source, "outline:5-8")).resolves.toMatchObject({
+      content: "1: # R\n3: body\n5: | a | b |\n7: | 1 | 2 |\n8: | 3 | 4 |\n",
+    });
+  });
+
+  it("names a table's content range for a scope that ends inside it", async () => {
+    const lines: Array<string> = [];
+    for (let index = 1; index <= 160; index += 1) lines.push(`body ${index}\n`);
+    lines[5] = "# Iterative Review Refinement\n";
+    lines[6] = "\n";
+    lines[7] = "## Overview\n";
+    lines[8] = "\n";
+    lines[123] = "## Common Rationalizations\n";
+    lines[124] = "\n";
+    lines[125] = "| Excuse | Reality |\n";
+    lines[126] = "|--------|---------|\n";
+    for (let index = 127; index <= 134; index += 1)
+      lines[index] = `| row ${index + 1} | cell ${index + 1} |\n`;
+    lines[135] = "## Red Flags\n";
+    const source = lines.slice(0, 140).join("");
+
+    await expect(read(source, "outline:129-130")).resolves.toMatchObject({
+      content:
+        "6: # Iterative Review Refinement\n124: ## Common Rationalizations\n126: | Excuse | Reality |\n128: | row 128 | cell 128 |\n",
+      shownRange: { startLine: 6, endLine: 128 },
+    });
+    await expect(read(source, "outline:125-135")).resolves.toMatchObject({
+      content:
+        "6: # Iterative Review Refinement\n124: ## Common Rationalizations\n126: | Excuse | Reality |\n128: | row 128 | cell 128 |\n135: | row 135 | cell 135 |\n",
+      shownRange: { startLine: 6, endLine: 135 },
+    });
+  });
+
   it("emits a native line holding two headings once", async () => {
     await expect(read("# A\r\r## B\nbody\n")).resolves.toMatchObject({
       content: "1: # A\r\r## B\n2: body\n",

@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- A Markdown outline now names each root table's shape: the table's header row,
+  its first content row, and its last content row are emitted where the table
+  sits, with the same verbatim text and 120-code-unit cut as a section's excerpt
+  line (#1322). A section whose first line is a table's header row takes that
+  excerpt as its own, and a scope that starts inside a table prepends the header
+  row and, when it precedes the scope, the first content row, so `:outline`
+  shows a table's columns instead of hiding them behind whichever line the
+  excerpt rule happened to pick. Tables inside blockquotes and list items
+  contribute nothing of their own, and `:raw`, ordinary ranged reads, and
+  outlines of sources without tables are unchanged.
+
 - The Settings page no longer shows the chat list beside it: only the main
   rail stays, with its quick actions and pinned items.
 
