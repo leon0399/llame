@@ -2,6 +2,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- The Settings page no longer shows the chat list beside it: only the main
+  rail stays, with its quick actions and pinned items.
+
 - A **Gallery** page at `/gallery`, reached from the sidebar rail, shows every
   image and PDF you have stored, newest first, as square cards that load more
   as you scroll. An image opens the viewer over the loaded images; a PDF opens
