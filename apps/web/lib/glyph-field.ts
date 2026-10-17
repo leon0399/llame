@@ -79,10 +79,6 @@ function beamMask(now: number, alpha: number, reduced: boolean): string {
 type TrailPoint = { x: number; y: number; born: number };
 
 export class GlyphField {
-  private readonly base = document.createElement("canvas");
-  private readonly lit = document.createElement("canvas");
-  private readonly bx: CanvasRenderingContext2D;
-  private readonly lx: CanvasRenderingContext2D;
   private readonly reduced = matchMedia("(prefers-reduced-motion: reduce)")
     .matches;
   private readonly coarse = matchMedia("(hover: none)").matches;
@@ -102,16 +98,35 @@ export class GlyphField {
   private readonly resize = new ResizeObserver(() => this.setup());
   private readonly theme = new MutationObserver(() => this.setup());
 
-  constructor(private readonly host: HTMLElement) {
+  /** Starts a field in `host`, or does nothing where the platform has no 2D
+   *  canvas — the field is decoration, never worth failing a page over. */
+  static mount(host: HTMLElement): GlyphField | null {
+    const base = document.createElement("canvas");
+    const lit = document.createElement("canvas");
+    const bx = base.getContext("2d");
+    const lx = lit.getContext("2d");
+    if (!bx || !lx) return null;
+    return new GlyphField(host, { base, bx }, { base: lit, bx: lx });
+  }
+
+  private readonly base: HTMLCanvasElement;
+  private readonly lit: HTMLCanvasElement;
+  private readonly bx: CanvasRenderingContext2D;
+  private readonly lx: CanvasRenderingContext2D;
+
+  private constructor(
+    private readonly host: HTMLElement,
+    baseLayer: { base: HTMLCanvasElement; bx: CanvasRenderingContext2D },
+    litLayer: { base: HTMLCanvasElement; bx: CanvasRenderingContext2D },
+  ) {
+    this.base = baseLayer.base;
+    this.bx = baseLayer.bx;
+    this.lit = litLayer.base;
+    this.lx = litLayer.bx;
     for (const canvas of [this.base, this.lit]) {
       Object.assign(canvas.style, { position: "absolute", left: "0" });
       host.append(canvas);
     }
-    const bx = this.base.getContext("2d");
-    const lx = this.lit.getContext("2d");
-    if (!bx || !lx) throw new Error("GlyphField needs a 2D canvas context");
-    this.bx = bx;
-    this.lx = lx;
     this.start();
   }
 

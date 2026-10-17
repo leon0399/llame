@@ -20,8 +20,8 @@ export function GlyphField() {
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const field = new GlyphFieldRenderer(host);
-    return () => field.destroy();
+    const field = GlyphFieldRenderer.mount(host);
+    return () => field?.destroy();
   }, []);
 
   return (
