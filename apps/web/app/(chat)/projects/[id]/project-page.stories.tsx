@@ -153,17 +153,17 @@ export const NotFound: Story = {
     ).toBeVisible();
     await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
     await expect(
-      canvas.queryByText("Chats in this project"),
+      canvas.queryByRole("region", { name: "Chats" }),
     ).not.toBeInTheDocument();
   },
 };
 
 /**
  * The route's project heads the content with its name, its description, a
- * pin toggle and its menu, and its chats card says it has none yet. The page
- * asks the server for this project's chats only.
+ * pin toggle and its menu, and its chats list — no heading of its own — says
+ * it has none yet. The page asks the server for this project's chats only.
  *
- * @summary a project with no chats: its header and the empty chats card
+ * @summary a project with no chats: its header and the empty chats list
  */
 export const NoChats: Story = {
   tags: ["ai-generated"],
@@ -187,9 +187,12 @@ export const NoChats: Story = {
       canvas.getByRole("button", { name: "Send message" }),
     ).toBeDisabled();
     await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
-    await expect(canvas.getByText("Chats in this project")).toBeVisible();
+    const chats = within(canvas.getByRole("region", { name: "Chats" }));
     await expect(
-      canvas.getByText("No chats in this project yet."),
+      chats.getByText("No chats in this project yet."),
+    ).toBeVisible();
+    await expect(
+      chats.getByRole("button", { name: "View options" }),
     ).toBeVisible();
     await expect(sentRoutes()).toEqual([
       PROJECTS_ROUTE,

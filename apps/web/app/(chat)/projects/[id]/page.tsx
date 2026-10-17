@@ -90,9 +90,10 @@ function ProjectChatsList({
   );
 }
 
-/** The "Chats in this project" card: the same view menu and grouped list as
- *  the chats rail, scoped to this project. */
-function ProjectChatsCard({
+/** The project's chats, unboxed — a list that grows as it scrolls does not
+ *  belong in a bordered card — with the same view menu and grouped list as
+ *  the chats rail. No heading: on a project's page, the chats are its own. */
+function ProjectChats({
   view,
   rows,
 }: {
@@ -100,16 +101,15 @@ function ProjectChatsCard({
   rows: ProjectChatRows;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border p-3">
-      <div className="flex items-center gap-2 pl-2">
-        <span className="flex-1 text-sm font-semibold">
-          Chats in this project
-        </span>
-        <ListViewMenu show={view.show} onShowChange={view.onShowChange} />
+    <section aria-label="Chats" className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <ListViewChip show={view.show} onShowChange={view.onShowChange} />
+        <div className="ml-auto">
+          <ListViewMenu show={view.show} onShowChange={view.onShowChange} />
+        </div>
       </div>
-      <ListViewChip show={view.show} onShowChange={view.onShowChange} />
       <ProjectChatsList view={view} rows={rows} />
-    </div>
+    </section>
   );
 }
 
@@ -181,7 +181,7 @@ function ProjectPageBody({
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
           <ProjectPromptInput projectId={data.project.id} />
-          <ProjectChatsCard
+          <ProjectChats
             view={data.view}
             rows={{
               projects: data.allProjects,
