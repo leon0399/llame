@@ -32,6 +32,7 @@ import {
   type Compaction,
 } from "@/lib/services/chat/history";
 import type { AvailableModel } from "@/lib/services/models/queries";
+import { GlyphField } from "@/components/glyph-field";
 
 type ChatTranscriptMessageProps = {
   chatId: string;
@@ -325,6 +326,9 @@ export function ChatTranscript({
   useTargetScroll(conversationRef, props.displayMessages, targetSeq);
   return (
     <div className="relative flex-1 overflow-hidden">
+      {/* A new chat has nothing to read yet: the page shows the glyph field
+          until the first message lands. */}
+      {props.displayMessages.length === 0 && <GlyphField />}
       {/* initial="instant": the reader must LAND at the newest message, not
           watch the page scroll from the top to it — with SSR-rendered
           history the smooth initial animation reads as a jump to the top
