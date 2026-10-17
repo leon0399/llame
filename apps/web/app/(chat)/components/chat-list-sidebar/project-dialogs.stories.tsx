@@ -436,6 +436,33 @@ export const SettingsSeed: SettingsStory = {
 };
 
 /**
+ * The API stores a description exactly as written, so a value that carries its
+ * own surrounding whitespace must not read as an edit its owner never made:
+ * the seed is shown verbatim and an untouched Save still only closes.
+ *
+ * @summary settings: an untouched save leaves stored whitespace alone
+ */
+export const SettingsUntouchedWhitespace: SettingsStory = {
+  tags: ["ai-generated"],
+  args: {
+    ...settingsArgs,
+    project: { id: "p1", name: "Acme relaunch", description: "  padded  " },
+  },
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    await expect(dialog.getByLabelText("Description")).toHaveValue(
+      "  padded  ",
+    );
+
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+
+    await expect(args.onOpenChange).toHaveBeenCalledWith(false);
+    await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+/**
  * Editing both fields PATCHes both in one request — the name and the
  * description — and closes the dialog once the server accepts it. The
  * single-field cases are `SettingsRename` and `SettingsClearsDescription`.

@@ -349,7 +349,12 @@ function SettingsDescriptionField({
  *  that landed while the dialog was open (a rename from a second tab) is not
  *  reverted by a save made to edit prose — the client keeps the API's
  *  "omitted means unchanged" contract. A blank description becomes null, the
- *  stored form of "no description". */
+ *  stored form of "no description".
+ *
+ *  The description comparison trims the stored value the way it trims the
+ *  input: the API keeps what it is given, so a description written around its
+ *  own whitespace (a direct API write, say) must not read as an edit its owner
+ *  never made. The name keeps whatever comparison Rename's own field makes. */
 function projectSettingsPatch(
   project: ProjectSettingsRef,
   name: string,
@@ -360,7 +365,7 @@ function projectSettingsPatch(
   const nextDescription = description.trim();
   const patch: UpdateProjectPatch = {};
   if (nextName !== project.name) patch.name = nextName;
-  if (nextDescription !== (project.description ?? "")) {
+  if (nextDescription !== (project.description ?? "").trim()) {
     patch.description = nextDescription || null;
   }
   return Object.keys(patch).length === 0 ? null : patch;
