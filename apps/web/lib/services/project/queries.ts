@@ -49,10 +49,11 @@ export const fetchProjects = (filters?: ProjectListFilters) => {
   return listProjectsEndpoint(filters, undefined, authenticatedFetch());
 };
 
-export function useProjectsQuery(filters?: ProjectListFilters) {
+export function useProjectsQuery(filters?: ProjectListFilters, enabled = true) {
   return useQuery({
     queryKey: projectQueryKeys.filtered(filters),
     queryFn: () => fetchProjects(filters),
+    enabled,
   });
 }
 

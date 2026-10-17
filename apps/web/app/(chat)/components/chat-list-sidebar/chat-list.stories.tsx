@@ -11,7 +11,7 @@ import type {
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 import {
   ChatListShowProvider,
-  ChatListViewMenu,
+  ListViewMenu,
   useChatListShow,
 } from "../chat-list-view";
 import { ChatList } from "./chat-list";
@@ -21,7 +21,7 @@ function RailViewMenu() {
   return (
     <div className="flex items-center px-2 pb-1">
       <span className="flex-1 text-sm font-semibold">Chats</span>
-      <ChatListViewMenu {...useChatListShow()} />
+      <ListViewMenu {...useChatListShow()} />
     </div>
   );
 }

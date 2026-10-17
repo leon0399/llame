@@ -19,7 +19,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { topBarClasses } from "@/app/shell/top-bar";
 import { SHORTCUT_KEY_NEW_CHAT } from "../app-sidebar/app-sidebar-actions";
-import { ChatListViewMenu, useChatListShow } from "../chat-list-view";
+import { ListViewMenu, useChatListShow } from "../chat-list-view";
 import { ChatList } from "./chat-list";
 
 /** The rail's new-chat button. Its tooltip names the same Ctrl/⌘+Shift+O
@@ -75,7 +75,7 @@ export function ChatListSidebar() {
     <Sidebar collapsible="none" className="hidden w-64 shrink-0 md:flex">
       <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
         <span className="flex-1 text-sm font-semibold">Chats</span>
-        <ChatListViewMenu {...view} />
+        <ListViewMenu {...view} />
         <NewChatButton />
       </div>
 

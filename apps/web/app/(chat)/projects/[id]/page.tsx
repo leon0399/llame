@@ -14,9 +14,9 @@ import { useParams } from "next/navigation";
 
 import {
   chatListFilters,
-  type ChatListShow,
-  ChatListShowChip,
-  ChatListViewMenu,
+  type ListShow,
+  ListViewChip,
+  ListViewMenu,
   pinnedChatsFilters,
 } from "../../components/chat-list-view";
 import {
@@ -30,7 +30,7 @@ import { ProjectDetailsHeader } from "./project-details-header";
 import { ProjectPromptInput } from "./project-prompt-input";
 import { ProjectSidePanel } from "./project-side-panel";
 
-const EMPTY_TEXT = new Map<ChatListShow, string>([
+const EMPTY_TEXT = new Map<ListShow, string>([
   ["active", "No chats in this project yet."],
   ["archived", "No archived chats in this project."],
   ["all", "No chats in this project yet."],
@@ -43,8 +43,8 @@ type ProjectChatRows = {
 };
 
 type ProjectChatsView = {
-  show: ChatListShow;
-  onShowChange: (show: ChatListShow) => void;
+  show: ListShow;
+  onShowChange: (show: ListShow) => void;
   /** Above the view's list in Active and All; none in Archived. */
   pinnedChats: Array<ChatResponse>;
   chats: Array<ChatResponse>;
@@ -105,9 +105,9 @@ function ProjectChatsCard({
         <span className="flex-1 text-sm font-semibold">
           Chats in this project
         </span>
-        <ChatListViewMenu show={view.show} onShowChange={view.onShowChange} />
+        <ListViewMenu show={view.show} onShowChange={view.onShowChange} />
       </div>
-      <ChatListShowChip show={view.show} onShowChange={view.onShowChange} />
+      <ListViewChip show={view.show} onShowChange={view.onShowChange} />
       <ProjectChatsList view={view} rows={rows} />
     </div>
   );
@@ -119,7 +119,7 @@ function ProjectChatsCard({
  *  own header keeps the page; only unarchived projects are offered as
  *  filing targets, since an archived one refuses new chats. */
 function useProjectPageData(id: string) {
-  const [show, setShow] = React.useState<ChatListShow>("active");
+  const [show, setShow] = React.useState<ListShow>("active");
   const { data: projects, isLoading } = useProjectsQuery({ archived: "with" });
   const { data: pinnedData } = useChatsQuery(pinnedChatsFilters(id));
   const { data, isLoading: chatsLoading } = useChatsQuery(

@@ -21,21 +21,21 @@ import { ListFilterIcon, XIcon } from "lucide-react";
 
 import type { ChatListFilters } from "@/lib/services/chat/queries";
 
-/** Which chats a list shows. Every chat list surface offers the same three. */
-export type ChatListShow = "active" | "archived" | "all";
+/** Which items a list shows — the same three on every chat and project list. */
+export type ListShow = "active" | "archived" | "all";
 
-const SHOW_LABELS = new Map<ChatListShow, string>([
+const SHOW_LABELS = new Map<ListShow, string>([
   ["active", "Active"],
   ["archived", "Archived"],
   ["all", "All"],
 ]);
 
-function isChatListShow(value: unknown): value is ChatListShow {
+function isChatListShow(value: unknown): value is ListShow {
   return value === "active" || value === "archived" || value === "all";
 }
 
 /** The `?archived` filter a view sends; Active is the server default. */
-function archivedFilter(show: ChatListShow): "only" | "with" | undefined {
+export function archivedFilter(show: ListShow): "only" | "with" | undefined {
   if (show === "archived") return "only";
   if (show === "all") return "with";
   return undefined;
@@ -45,7 +45,7 @@ function archivedFilter(show: ChatListShow): "only" | "with" | undefined {
  *  Active and All sit below a Pinned section, so they exclude pins; Archived
  *  has no Pinned section and lists archived pins too. */
 export function chatListFilters(
-  show: ChatListShow,
+  show: ListShow,
   projectId?: string,
 ): ChatListFilters {
   if (show === "archived") return { projectId, archived: "only" };
@@ -58,13 +58,13 @@ export function pinnedChatsFilters(projectId?: string): ChatListFilters {
 }
 
 type ShowControlProps = {
-  show: ChatListShow;
-  onShowChange: (show: ChatListShow) => void;
+  show: ListShow;
+  onShowChange: (show: ListShow) => void;
 };
 
 /** The menu trigger turns secondary while a non-default view is applied, so
  *  a forgotten filter stays visible. */
-function ChatListViewTrigger({ show }: { show: ChatListShow }) {
+function ListViewTrigger({ show }: { show: ListShow }) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -91,10 +91,10 @@ function ChatListViewTrigger({ show }: { show: ChatListShow }) {
 }
 
 /** The list's view menu: a Show radio today, room for more filters later. */
-export function ChatListViewMenu({ show, onShowChange }: ShowControlProps) {
+export function ListViewMenu({ show, onShowChange }: ShowControlProps) {
   return (
     <DropdownMenu>
-      <ChatListViewTrigger show={show} />
+      <ListViewTrigger show={show} />
       <DropdownMenuContent align="end" className="w-40">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Show</DropdownMenuLabel>
@@ -117,7 +117,7 @@ export function ChatListViewMenu({ show, onShowChange }: ShowControlProps) {
 }
 
 /** The applied non-default view, removable in one click. */
-export function ChatListShowChip({ show, onShowChange }: ShowControlProps) {
+export function ListViewChip({ show, onShowChange }: ShowControlProps) {
   if (show === "active") return null;
   const label = SHOW_LABELS.get(show);
   return (
@@ -144,7 +144,7 @@ export function ChatListShowProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [show, setShow] = React.useState<ChatListShow>("active");
+  const [show, setShow] = React.useState<ListShow>("active");
   const value = React.useMemo(() => ({ show, onShowChange: setShow }), [show]);
   return (
     <ChatListShowContext.Provider value={value}>

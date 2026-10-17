@@ -18,8 +18,8 @@ import { usePathname } from "next/navigation";
 
 import {
   chatListFilters,
-  type ChatListShow,
-  ChatListShowChip,
+  type ListShow,
+  ListViewChip,
   pinnedChatsFilters,
   useChatListShow,
 } from "../chat-list-view";
@@ -98,13 +98,13 @@ function ChatListLoadingState() {
   );
 }
 
-const EMPTY_TEXT = new Map<ChatListShow, string>([
+const EMPTY_TEXT = new Map<ListShow, string>([
   ["active", "Your conversations will appear here once you start chatting!"],
   ["archived", "No archived chats."],
   ["all", "Your conversations will appear here once you start chatting!"],
 ]);
 
-function ChatListEmptyState({ show }: { show: ChatListShow }) {
+function ChatListEmptyState({ show }: { show: ListShow }) {
   return (
     <SidebarGroup>
       <SidebarGroupContent>
@@ -163,7 +163,7 @@ export function ChatList() {
   const view = useChatListShow();
   return (
     <>
-      <ChatListShowChip {...view} />
+      <ListViewChip {...view} />
       <ChatListBody />
     </>
   );
