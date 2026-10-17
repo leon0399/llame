@@ -331,3 +331,45 @@ export const OpenArchivedProjectStaysListed: Story = {
     ).toBeVisible();
   },
 };
+
+/**
+ * Search is a header button, not a standing field: choosing it opens the
+ * field focused in place of the title and actions, a query narrows the list,
+ * the × clears it and brings the actions back, and leaving an empty field
+ * closes it too.
+ *
+ * @summary search opens focused, filters, and closes from × or an empty blur
+ */
+export const SearchOnRequest: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    unpinnedProjects = [project("p1", "Acme"), project("p2", "Trip")];
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole("link", { name: /Acme/ });
+    await expect(canvas.queryByRole("textbox")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Search projects" }),
+    );
+    const field = canvas.getByRole("textbox", { name: "Search projects…" });
+    await expect(field).toHaveFocus();
+
+    await userEvent.type(field, "tri");
+    await expect(canvas.queryByRole("link", { name: /Acme/ })).toBeNull();
+    await expect(canvas.getByRole("link", { name: /Trip/ })).toBeVisible();
+
+    await userEvent.click(canvas.getByRole("button", { name: "Clear search" }));
+    await expect(canvas.queryByRole("textbox")).not.toBeInTheDocument();
+    await expect(canvas.getByRole("link", { name: /Acme/ })).toBeVisible();
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Search projects" }),
+    );
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(canvas.queryByRole("textbox")).not.toBeInTheDocument(),
+    );
+  },
+};

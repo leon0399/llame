@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ComponentProps } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 
 import {
   DropdownMenu,
@@ -24,7 +24,12 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
-import { FolderIcon, FolderPlusIcon, MoreHorizontalIcon } from "lucide-react";
+import {
+  FolderIcon,
+  FolderPlusIcon,
+  MoreHorizontalIcon,
+  SearchIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -148,36 +153,163 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
 }
 
 type ListView = { show: ListShow; onShowChange: (show: ListShow) => void };
+type ProjectSearch = { query: string; onQueryChange: (query: string) => void };
 
-function ProjectListSidebarHeader({
+/** A header icon button, labelled by its tooltip. */
+function HeaderAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={onClick}
+          />
+        }
+      >
+        {children}
+        <span className="sr-only">{label}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="end">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Where the search button sits; while searching, the field in its place. */
+function SearchSlot({
+  searching,
+  search,
+  onSearchingChange,
+}: {
+  searching: boolean;
+  search: ProjectSearch;
+  onSearchingChange: (searching: boolean) => void;
+}) {
+  if (!searching)
+    return (
+      <HeaderAction
+        label="Search projects"
+        onClick={() => onSearchingChange(true)}
+      >
+        <SearchIcon />
+      </HeaderAction>
+    );
+  return (
+    <SearchFilterInput
+      value={search.query}
+      onChange={search.onQueryChange}
+      placeholder="Search projects…"
+      focusOnMount
+      onClose={() => onSearchingChange(false)}
+    />
+  );
+}
+
+const HEADER_MOTION = "transition-all duration-200 ease-linear";
+
+/** The rail's title, narrowing to nothing while the search field is open.
+ *  Its trailing space is a margin, not the bar's gap, so it collapses with
+ *  it and leaves the field even spacing. */
+function HeaderTitle({ searching }: { searching: boolean }) {
+  return (
+    <span
+      aria-hidden={searching}
+      className={cn(
+        "basis-0 overflow-hidden text-sm font-semibold whitespace-nowrap",
+        HEADER_MOTION,
+        searching ? "mr-0 grow-0 opacity-0" : "mr-2 grow",
+      )}
+    >
+      Projects
+    </span>
+  );
+}
+
+/** The view menu and New project, narrowing to nothing (and leaving the tab
+ *  order) while the search field is open; leading space as for the title. */
+function HeaderActions({
+  searching,
   view,
   onNewProject,
 }: {
+  searching: boolean;
   view: ListView;
   onNewProject: () => void;
 }) {
   return (
-    <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
-      <span className="flex-1 text-sm font-semibold">Projects</span>
+    <div
+      inert={searching}
+      className={cn(
+        "flex shrink-0 gap-2 overflow-hidden",
+        HEADER_MOTION,
+        searching ? "ml-0 w-0 opacity-0" : "ml-2 w-18",
+      )}
+    >
       <ListViewMenu {...view} />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={onNewProject}
-            />
-          }
-        >
-          <FolderPlusIcon />
-          <span className="sr-only">New project</span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="end">
-          New project
-        </TooltipContent>
-      </Tooltip>
+      <HeaderAction label="New project" onClick={onNewProject}>
+        <FolderPlusIcon />
+      </HeaderAction>
+    </div>
+  );
+}
+
+/**
+ * The rail's top bar: its title and actions, or — once Search is chosen —
+ * the search field, focused. The field grows out of the search button's own
+ * place: the slot widens while the title and the other actions narrow to
+ * nothing on either side of it, and the bar's padding evens out around it.
+ * Its × or Escape clears the query and brings the actions back, as does
+ * leaving an empty field.
+ */
+function ProjectListSidebarHeader({
+  view,
+  search,
+  onNewProject,
+}: {
+  view: ListView;
+  search: ProjectSearch;
+  onNewProject: () => void;
+}) {
+  const [searching, setSearching] = useState(false);
+  return (
+    <div
+      className={cn(
+        topBarClasses,
+        HEADER_MOTION,
+        searching ? "px-1.5" : "pr-1.5 pl-3",
+      )}
+    >
+      <HeaderTitle searching={searching} />
+      <div
+        className={cn(
+          "min-w-8 basis-8",
+          HEADER_MOTION,
+          searching ? "grow" : "grow-0",
+        )}
+      >
+        <SearchSlot
+          searching={searching}
+          search={search}
+          onSearchingChange={setSearching}
+        />
+      </div>
+      <HeaderActions
+        searching={searching}
+        view={view}
+        onNewProject={onNewProject}
+      />
     </div>
   );
 }
@@ -342,13 +474,8 @@ export function ProjectListSidebar() {
     <Sidebar collapsible="none" className="hidden w-64 shrink-0 md:flex">
       <ProjectListSidebarHeader
         view={view}
+        search={{ query: filter, onQueryChange: setFilter }}
         onNewProject={() => setNewProjectOpen(true)}
-      />
-      <SearchFilterInput
-        value={filter}
-        onChange={setFilter}
-        placeholder="Search projects…"
-        className="border-b px-3 py-2"
       />
       <SidebarContent>
         <ListViewChip {...view} />
