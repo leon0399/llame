@@ -59,10 +59,10 @@ export type MarkdownLine = {
   role: MarkdownLineRole;
   /** The root heading this line belongs to when `role` is `heading`. */
   heading?: MarkdownHeading;
-  /** Pushed as root paragraph text or as a root link reference definition
-   *  line, rather than as container content, a fence, HTML, or code. A setext
-   *  underline later turns those lines into `heading` text, so a consumer
-   *  reads this with the role. */
+  /** Root-level paragraph text, or a line a root link reference definition
+   *  consumes, as the scanner decided it. Container content, a fence, HTML,
+   *  code, and heading text, including a setext heading's text lines, never
+   *  carry it. */
   rootParagraph?: boolean;
 };
 

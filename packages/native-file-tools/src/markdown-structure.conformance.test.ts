@@ -347,6 +347,50 @@ const TABLE_FIXTURES: ReadonlyArray<Fixture> = [
     name: "an ordered list marker that cannot interrupt a paragraph is not a list",
     source: "para\n2. item\na | b\n-|-\n1|2\n",
   },
+  {
+    name: "a tab-surrounded delimiter row",
+    source: "| a | b |\n|\t---\t|\t---\t|\n| 1 | 2 |\n",
+  },
+  {
+    name: "a tab-surrounded aligned delimiter row",
+    source: "| a | b |\n|\t:---\t|\t---:\t|\n| 1 | 2 |\n",
+  },
+  {
+    name: "a spaced thematic break ends the list a table ended",
+    source: "x | y\n-|-\n1|2\n2. x\n* * *\na | b\n-|-\n1|2\n",
+  },
+  {
+    name: "a spaced hyphen thematic break ends the list a table ended",
+    source: "x | y\n-|-\n1|2\n2. x\n- - -\na | b\n-|-\n1|2\n",
+  },
+  {
+    name: "an indented paragraph line continues a wide list item",
+    source: "x | y\n-|-\n1|2\n2.   x\n    more\na | b\n-|-\n1|2\n3|4\n",
+  },
+  {
+    name: "a lone HTML line inside an item that ended a table",
+    source: "x | y\n-|-\n1|2\n2. x\n   <span>\na | b\n-|-\n1|2\n",
+  },
+  {
+    name: "a lone HTML line after an empty item that ended a table",
+    source: "x | y\n-|-\n1|2\n2.\n<span>\na | b\n-|-\n1|2\n",
+  },
+  {
+    name: "indented code inside an item whose paragraph is open",
+    source: "x | y\n-|-\n1|2\n2. x\n       more\na | b\n-|-\n1|2\n",
+  },
+  {
+    name: "indented code inside an item after a blank",
+    source: "x | y\n-|-\n1|2\n2. x\n\n       more\na | b\n-|-\n1|2\n",
+  },
+  {
+    name: "an indented ATX line inside an item is code, not a heading",
+    source: "x | y\n-|-\n1|2\n2. x\n       # H\na | b\n-|-\n1|2\n",
+  },
+  {
+    name: "an indented fence inside an item is code, not a fence",
+    source: "x | y\n-|-\n1|2\n2. x\n       ~~~\na | b\n-|-\n1|2\n",
+  },
 ];
 
 /** Fixtures where this overlay deliberately keeps the CommonMark heading
@@ -394,8 +438,23 @@ const DIVERGENT_TABLE_FIXTURES: ReadonlyArray<
     ],
   },
   {
+    name: "a link reference definition title stays root text",
+    source: "# R\n[a]: /u '\n| h |\n| - |\n'\n| b |\n===\nx\ny\nz\n",
+    tables: [{ startLine: 3, endLine: 5 }],
+  },
+  {
     name: "a heading after a lone HTML line stays a root heading",
     source: "x | y\n-|-\n1|2\n<span>\n# H\na | b\n-|-\n1|2\n",
+    tables: [{ startLine: 1, endLine: 3 }],
+  },
+  {
+    name: "a type-6 HTML line inside an item hides the table the oracle opens",
+    source: "x | y\n-|-\n1|2\n2. x\n   <div>\na | b\n-|-\n1|2\n",
+    tables: [{ startLine: 1, endLine: 3 }],
+  },
+  {
+    name: "a lone HTML line after a blank inside an item hides the oracle's table",
+    source: "x | y\n-|-\n1|2\n2. x\n\n   <span>\na | b\n-|-\n1|2\n",
     tables: [{ startLine: 1, endLine: 3 }],
   },
 ];
@@ -449,11 +508,9 @@ function compareHeadings(left: RootHeading, right: RootHeading): number {
   );
 }
 
-function expectedHeadings(
-  source: string,
-  parse: typeof ParseMarkdown = fromMarkdown,
-): Array<RootHeading> {
-  const tree = parse(blankClosedFrontmatter(source));
+function expectedHeadings(source: string, gfm = false): Array<RootHeading> {
+  const text = blankClosedFrontmatter(source);
+  const tree = gfm ? parseGfm(text) : fromMarkdown(text);
   const expected: Array<RootHeading> = [];
 
   tree.children.forEach((child, index) => {
@@ -563,9 +620,7 @@ describe("markdown structure CommonMark conformance", () => {
 
   it.each(TABLE_FIXTURES)("table fixture $name", ({ source }) => {
     // GFM is the oracle only where the two agree on every heading.
-    expect(expectedHeadings(source, parseGfm)).toEqual(
-      expectedHeadings(source),
-    );
+    expect(expectedHeadings(source, true)).toEqual(expectedHeadings(source));
     expect(trackedTables(source)).toEqual(oracleTables(source));
   });
 

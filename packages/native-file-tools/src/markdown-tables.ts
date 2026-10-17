@@ -57,7 +57,7 @@ type MeasuredLine = {
 };
 
 const BLANK_FIELD = /^[ \t]*$/u;
-const DELIMITER_CELL = /^ *:?-+:? *$/u;
+const DELIMITER_CELL = /^[ \t]*:?-+:?[ \t]*$/u;
 const MAX_ROW_INDENT = 3;
 
 function measureLine(text: string): MeasuredLine {
@@ -101,13 +101,15 @@ function rowCells(text: string, firstLine: boolean): Array<string> {
 }
 
 /** A block that closes an open paragraph: an ATX heading, a fence, a thematic
- *  break, or an HTML block. A blockquote, a list item, and indented code do
- *  not, since none of them interrupts a paragraph. */
+ *  break, or a type-1 to type-6 HTML block. A blockquote, a list item,
+ *  indented code, and a lone type-7 HTML line do not, since none of them
+ *  interrupts a paragraph. */
 function startsInterruptingBlock(measured: MeasuredLine): boolean {
   if (ATX.test(measured.content)) return true;
   if (fenceOpen(measured.content) !== undefined) return true;
   if (THEMATIC.test(measured.content)) return true;
-  return htmlStartKind(measured.content, true) > 0;
+  const html = htmlStartKind(measured.content, true);
+  return html > 0 && html !== 7;
 }
 
 /** Whether a non-blank line starts a block GFM ends a table on instead of
@@ -117,7 +119,8 @@ function startsBlock(measured: MeasuredLine): boolean {
   if (measured.content.startsWith(">")) return true;
   if (listItemStart(measured.body, 0, measured.indent, false) !== undefined)
     return true;
-  return startsInterruptingBlock(measured);
+  if (startsInterruptingBlock(measured)) return true;
+  return htmlStartKind(measured.content, true) === 7;
 }
 
 export class MarkdownRootTableTracker {
@@ -134,16 +137,18 @@ export class MarkdownRootTableTracker {
       line.rootParagraph === true &&
       measured.indent <= MAX_ROW_INDENT;
     if (this.table !== undefined) {
-      if (!measured.blank && !startsBlock(measured)) return this.table;
+      if (line.role !== "heading" && !measured.blank && !startsBlock(measured))
+        return this.table;
       this.table = undefined;
       this.candidate = undefined;
       this.suppression = this.followingBlock(measured, rootText);
       return undefined;
     }
-    if (this.suppression !== undefined) {
-      const suppression = this.followSuppression(measured);
-      this.suppression = suppression;
-      if (suppression !== undefined) return undefined;
+    const suppression = this.suppression;
+    if (suppression !== undefined) {
+      const next = this.followSuppression(suppression, measured);
+      this.suppression = next;
+      if (next !== undefined) return undefined;
     }
     return this.open(line, rootText);
   }
@@ -165,29 +170,44 @@ export class MarkdownRootTableTracker {
         afterBlank: false,
       };
     if (htmlStartKind(measured.content, true) === 7) return { kind: "html" };
+    // A root paragraph line blocks a table only as a GFM-only list item or as a
+    // type-7 HTML line: every other block start leaves the line non-root.
     return undefined;
   }
 
   /** The suppression in force after this line, or `undefined` once the block
    *  that carries it has ended. */
-  private followSuppression(measured: MeasuredLine): Suppression | undefined {
-    const suppression = this.suppression;
-    if (suppression === undefined) return undefined;
+  private followSuppression(
+    suppression: Suppression,
+    measured: MeasuredLine,
+  ): Suppression | undefined {
     if (suppression.kind === "html")
       return measured.blank ? undefined : suppression;
     if (measured.blank) return { ...suppression, afterBlank: true };
-    if (measured.indent >= suppression.required)
-      return {
-        ...suppression,
-        lazy: !startsInterruptingBlock(measured),
-        afterBlank: false,
-      };
+    const paragraphOpen = suppression.lazy && !suppression.afterBlank;
+    const relativeIndent = measured.indent - suppression.required;
+    if (relativeIndent >= 0)
+      return relativeIndent > MAX_ROW_INDENT
+        ? { ...suppression, lazy: paragraphOpen, afterBlank: false }
+        : {
+            ...suppression,
+            lazy: !startsInterruptingBlock(measured),
+            afterBlank: false,
+          };
+    // A thematic break ends the list; a line indented past a row's limit only
+    // continues the open paragraph, since indented code cannot interrupt one.
+    if (measured.indent <= MAX_ROW_INDENT && THEMATIC.test(measured.content))
+      return undefined;
+    if (measured.indent > MAX_ROW_INDENT && paragraphOpen) return suppression;
     const item = listItemStart(measured.body, 0, measured.indent, false);
     if (item !== undefined) {
       const lazy = measured.body.slice(item.offset).trim() !== "";
       return { kind: "list", required: item.required, lazy, afterBlank: false };
     }
-    if (startsBlock(measured)) return undefined;
+    if (startsBlock(measured))
+      return htmlStartKind(measured.content, true) === 7 && !paragraphOpen
+        ? { kind: "html" }
+        : undefined;
     if (suppression.afterBlank || !suppression.lazy) return undefined;
     return suppression;
   }
