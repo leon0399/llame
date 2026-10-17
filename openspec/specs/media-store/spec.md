@@ -457,6 +457,27 @@ SHALL return `304` without bytes only to the owner whose `If-None-Match` matches
 - **THEN** the browser revalidates its cached entry against the API instead of reusing it
 - **AND** owner B receives the same `404` response as for an unknown id and none of owner A's bytes
 
+### Requirement: Owners list their own media newest first
+
+`GET /api/v1/media` SHALL return one newest-first page of the authenticated owner's image and PDF
+descriptors as `{ items, nextCursor }`, holding only objects created before the canonical media id
+`before` when given. `limit` SHALL default to 48 and range from 1 to 100; an invalid `limit` or
+`before` SHALL return `400`. `nextCursor` SHALL be the last item's id while older objects remain,
+else `null`. Another owner's objects SHALL never appear in a page.
+
+#### Scenario: Pages walk the owner's media newest first
+
+- **WHEN** an owner with three objects lists with `limit=2`, then with `before` set to the returned
+  `nextCursor`
+- **THEN** the first page holds the two newest objects and a `nextCursor`
+- **AND** the second page holds the oldest object and `nextCursor` is `null`
+
+#### Scenario: Another owner's media never appears
+
+- **WHEN** owner B stores an object after owner A's, and owner A lists
+- **THEN** owner A's pages hold none of owner B's objects
+- **AND** owner B's pages hold none of owner A's objects
+
 ### Requirement: Media routes admit only the authenticated owner
 
 The media routes SHALL authenticate with the same session cookie as other owner routes, so a

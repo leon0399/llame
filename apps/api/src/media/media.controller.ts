@@ -8,6 +8,7 @@ import {
   Inject,
   NotFoundException,
   Param,
+  Query,
   PayloadTooLargeException,
   Post,
   Req,
@@ -46,8 +47,10 @@ import type { Options as MulterOptions } from 'multer';
 import { CurrentUser } from '../auth/auth-context';
 import { type MediaVariant } from '../db/schema';
 import {
+  ListMediaQueryDto,
   MEDIA_RESPONSE_SCHEMA,
   MediaDescriptorResponse,
+  MediaPageResponse,
   MediaPdfDescriptorResponse,
   MediaTooLargeErrorResponse,
   MediaUnsupportedErrorResponse,
@@ -180,6 +183,22 @@ export class MediaController {
       if (error instanceof MediaIngestError) throw ingestRefusal(error);
       throw error;
     }
+  }
+
+  @Get()
+  @ApiOperation({ operationId: 'listMedia' })
+  @ApiOkResponse({ type: MediaPageResponse })
+  @ApiBadRequestResponse({ description: 'Invalid cursor or limit' })
+  @ApiUnauthorizedResponse()
+  async listMedia(
+    @CurrentUser() userId: string,
+    @Query() query: ListMediaQueryDto,
+  ): Promise<MediaPageResponse> {
+    const page = await this.media.listOwned(userId, query);
+    return {
+      items: page.items.map(toMediaDescriptor),
+      nextCursor: page.nextCursor,
+    };
   }
 
   @Get(':id')

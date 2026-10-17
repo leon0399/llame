@@ -219,3 +219,53 @@ describe('MediaService ingest', () => {
     });
   });
 });
+
+describe('MediaService listOwned', () => {
+  const NEWEST = '01927c1e-8f3a-7b2c-9d4e-000000000004';
+  const NEWER = '01927c1e-8f3a-7b2c-9d4e-000000000003';
+  const MIDDLE = '01927c1e-8f3a-7b2c-9d4e-000000000002';
+  const OLDEST = '01927c1e-8f3a-7b2c-9d4e-000000000001';
+  const row = (id: string) => objectRow({ ...stored('digest'), id });
+
+  it("reads one row past the page in the owner's scope, newest first", async () => {
+    const { media, statements, owners } = scriptedTenantDb([
+      [row(NEWEST), row(NEWER), row(MIDDLE), row(OLDEST)],
+    ]);
+
+    const page = await media.listOwned(OWNER, { limit: 3 });
+
+    expect(page.items.map(({ id }) => id)).toEqual([NEWEST, NEWER, MIDDLE]);
+    // The cursor is the page's LAST id, so the next page starts after it.
+    expect(page.nextCursor).toBe(MIDDLE);
+    expect(owners).toEqual([OWNER]);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.sql).toMatch(
+      /where "media_objects"\."owner_user_id" = \$1 order by "media_objects"\."id" desc limit \$2$/u,
+    );
+    expect(statements[0]?.params).toEqual([OWNER, 4]);
+  });
+
+  it('ends the list when no row lies past the page', async () => {
+    const { media } = scriptedTenantDb([[row(MIDDLE), row(OLDEST)]]);
+
+    const page = await media.listOwned(OWNER, { limit: 2 });
+
+    expect(page.items.map(({ id }) => id)).toEqual([MIDDLE, OLDEST]);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('pages from the cursor with an id bound', async () => {
+    const { media, statements } = scriptedTenantDb([[row(OLDEST)]]);
+
+    const page = await media.listOwned(OWNER, { before: MIDDLE, limit: 2 });
+
+    expect(page).toEqual({
+      items: [expect.objectContaining({ id: OLDEST })],
+      nextCursor: null,
+    });
+    expect(statements[0]?.sql).toMatch(
+      /where \("media_objects"\."owner_user_id" = \$1 and "media_objects"\."id" < \$2\)/u,
+    );
+    expect(statements[0]?.params).toEqual([OWNER, MIDDLE, 3]);
+  });
+});

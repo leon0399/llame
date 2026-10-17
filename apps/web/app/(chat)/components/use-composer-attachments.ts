@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import type { FileUIPart } from "ai";
 import type { MediaThumbnailStatus } from "@workspace/ui/components/custom/media-thumbnail";
@@ -17,6 +18,7 @@ import {
   type MediaDescriptor,
   uploadAttachment,
 } from "@/lib/services/media/uploads";
+import { mediaQueryKeys } from "@/lib/services/media/queries";
 import {
   modelDisplayName,
   useModelsQuery,
@@ -149,6 +151,7 @@ function useAttachmentList(): AttachmentListState {
 }
 
 function useUploader(update: UpdateAttachments): UploadAttachment {
+  const queryClient = useQueryClient();
   return useCallback<UploadAttachment>(
     (key, file) => {
       const patch = (change: Partial<ComposerAttachment>) =>
@@ -159,11 +162,17 @@ function useUploader(update: UpdateAttachments): UploadAttachment {
         );
       patch({ status: "uploading" });
       uploadAttachment(file).then(
-        (descriptor) => patch({ status: "ready", descriptor }),
+        (descriptor) => {
+          patch({ status: "ready", descriptor });
+          // A new upload is the gallery's newest item.
+          void queryClient.invalidateQueries({
+            queryKey: mediaQueryKeys.list(),
+          });
+        },
         () => patch({ status: "failed" }),
       );
     },
-    [update],
+    [update, queryClient],
   );
 }
 

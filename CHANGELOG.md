@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- A **Gallery** page at `/gallery`, reached from the sidebar rail, shows every
+  image and PDF you have stored, newest first, as square cards that load more
+  as you scroll. An image opens the viewer over the loaded images; a PDF opens
+  its original in a new tab. It is backed by a new owner-scoped
+  `GET /api/v1/media` that pages your media with a `before` cursor.
+
 - The composer's permission mode, model, and effort controls moved to a quiet
   row under the input card as small ghost buttons: the permission mode on the
   left, the model and its effort together on the right. Send and Stop are

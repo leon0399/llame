@@ -157,6 +157,39 @@ describe('MediaController descriptor', () => {
   });
 });
 
+describe('MediaController list', () => {
+  it("pages the session owner's media as descriptors with the next cursor", async () => {
+    await withMediaApp(async (server, media) => {
+      const listOwned = vi
+        .spyOn(media, 'listOwned')
+        .mockResolvedValue({ items: [storedPdf], nextCursor: ID });
+
+      const response = await request(server)
+        .get('/api/v1/media')
+        .query({ before: ID, limit: '2' })
+        .expect(200);
+
+      expect(listOwned).toHaveBeenCalledWith(OWNER, {
+        before: ID,
+        limit: '2',
+      });
+      expect(response.body).toStrictEqual({
+        items: [
+          {
+            id: ID,
+            locator: `media://${ID}`,
+            mediaType: 'application/pdf',
+            name: 'scan.pdf',
+            byteSize: 1234,
+            pages: 15,
+          },
+        ],
+        nextCursor: ID,
+      });
+    });
+  });
+});
+
 describe('MediaController byte routes', () => {
   it.each([
     ['original', 'image/gif'],

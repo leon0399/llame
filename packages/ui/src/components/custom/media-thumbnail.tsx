@@ -17,9 +17,10 @@ export type MediaThumbnailStatus = "ready" | "uploading" | "failed";
 
 /**
  * `compact` is a 64px square (composer, tool cards); `card` is a wider tile
- * with a preview above a file-name caption (a sent message's attachments).
+ * with a preview above a file-name caption (attachments); `grid` is that card
+ * filling its grid cell, with a square preview (the gallery).
  */
-export type MediaThumbnailVariant = "compact" | "card";
+export type MediaThumbnailVariant = "compact" | "card" | "grid";
 
 /** Images load a preview; PDFs show a document icon and their name. */
 type ThumbnailContent =
@@ -133,14 +134,21 @@ function CardContent({
   preview,
   name,
   named,
+  square,
 }: {
   preview: ReactNode;
   name: string;
   named: boolean;
+  square: boolean;
 }) {
   return (
     <>
-      <span className="flex h-21 items-center justify-center overflow-hidden bg-muted text-muted-foreground">
+      <span
+        className={cn(
+          "flex items-center justify-center overflow-hidden bg-muted text-muted-foreground",
+          square ? "aspect-square" : "h-21",
+        )}
+      >
         {preview}
       </span>
       <span
@@ -168,19 +176,20 @@ function PdfSurface({
   variant: MediaThumbnailVariant;
 }) {
   const content =
-    variant === "card" ? (
-      <CardContent
-        preview={<FileTextIcon aria-hidden="true" className="size-6" />}
-        name={name}
-        named={href !== undefined}
-      />
-    ) : (
+    variant === "compact" ? (
       <div className="flex size-full flex-col items-center justify-center gap-1 p-1 text-foreground">
         <FileTextIcon aria-hidden="true" className="size-6" />
         <span className="w-full truncate text-center text-xs" title={name}>
           {name}
         </span>
       </div>
+    ) : (
+      <CardContent
+        preview={<FileTextIcon aria-hidden="true" className="size-6" />}
+        name={name}
+        named={href !== undefined}
+        square={variant === "grid"}
+      />
     );
   if (!href) return content;
   return (
@@ -216,10 +225,15 @@ function ThumbnailSurface(
   const image = <ThumbnailImage src={src} alt={alt} />;
   // The image's `alt` always names an image card, wrapped or not.
   const content =
-    variant === "card" ? (
-      <CardContent preview={image} name={alt} named />
-    ) : (
+    variant === "compact" ? (
       image
+    ) : (
+      <CardContent
+        preview={image}
+        name={alt}
+        named
+        square={variant === "grid"}
+      />
     );
   if (!onOpen || status !== "ready") return content;
   return (
@@ -231,7 +245,8 @@ function ThumbnailSurface(
 
 /**
  * An image or PDF tile with upload state and an optional remove action: a
- * 64px square (`compact`), or a preview above a file-name caption (`card`).
+ * 64px square (`compact`), a preview above a file-name caption (`card`), or
+ * that card filling its cell with a square preview (`grid`).
  * Images activate the caller's viewer; stored PDFs open their original in a
  * new tab. Unstored PDFs and unfinished uploads cannot open.
  *
@@ -251,7 +266,9 @@ export function MediaThumbnail({
       data-variant={variant}
       className={cn(
         "group/thumbnail relative shrink-0 overflow-hidden rounded-xl border",
-        variant === "card" ? "w-33 bg-card shadow-xs" : "size-16 bg-muted",
+        variant === "compact"
+          ? "size-16 bg-muted"
+          : cn("bg-card shadow-xs", variant === "grid" ? "w-full" : "w-33"),
       )}
     >
       <ThumbnailSurface {...surface} status={status} variant={variant} />

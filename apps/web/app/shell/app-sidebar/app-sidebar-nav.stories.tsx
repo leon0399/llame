@@ -27,7 +27,7 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * The primary rail's main nav (admin-area-org-tree task 2.3): live links
- * (Chats, Projects) carry no chip, every not-yet-built placeholder renders
+ * (Chats, Projects, Gallery) carry no chip, every not-yet-built placeholder renders
  * disabled with a visible "soon" chip (llame's unimplemented-UI convention:
  * disabled, never hidden), and Administration is absent here — it is its own
  * bottom-pinned group per AppShell.dc.html.
@@ -39,19 +39,13 @@ export const Basic: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    for (const label of [
-      "Dashboard",
-      "Gallery",
-      "Calendar",
-      "Email",
-      "Brain",
-    ]) {
+    for (const label of ["Dashboard", "Calendar", "Email", "Brain"]) {
       const button = canvas.getByText(label).closest("button");
       await expect(button).toHaveAttribute("aria-disabled", "true");
       await expect(button?.textContent).toContain("soon");
     }
 
-    for (const label of ["Chats", "Projects"]) {
+    for (const label of ["Chats", "Projects", "Gallery"]) {
       const el = canvas.getByText(label).closest("a, button");
       await expect(el?.textContent).not.toContain("soon");
     }
