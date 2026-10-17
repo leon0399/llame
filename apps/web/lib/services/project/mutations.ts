@@ -18,7 +18,7 @@ function authenticatedFetch(): typeof fetch {
   return createAuthenticatedBrowserFetch(globalThis.fetch);
 }
 
-/**
+/*
  * Project management — owner-scoped CRUD via POST/PATCH/DELETE
  * /api/v1/projects(/:id), mirroring ../chat/management.ts's shape (folders-only,
  * no membership/sharing here — SPEC's projects-foundation slice). Mutations
@@ -26,8 +26,14 @@ function authenticatedFetch(): typeof fetch {
  * than failing silently. Rename/delete also invalidate the pins list (design
  * D5a) — the pins cache holds its own denormalized copy of the project name.
  */
-export async function createProject(name: string): Promise<ProjectResponse> {
-  return createProjectEndpoint({ name }, undefined, authenticatedFetch());
+
+/** A new project's details: a name, and a description or null for none. */
+export type NewProjectDetails = { name: string; description: string | null };
+
+export async function createProject(
+  details: NewProjectDetails,
+): Promise<ProjectResponse> {
+  return createProjectEndpoint(details, undefined, authenticatedFetch());
 }
 
 export function useCreateProject() {

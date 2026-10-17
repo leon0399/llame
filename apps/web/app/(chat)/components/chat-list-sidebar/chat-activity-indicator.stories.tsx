@@ -29,6 +29,21 @@ export const Unread: Story = {
 };
 
 /**
+ * The failed badge: a run failed or expired while the user was elsewhere.
+ *
+ * @summary failed-run badge
+ */
+export const Failed: Story = {
+  tags: ["ai-generated"],
+  args: { status: "failed" },
+  play: async ({ canvasElement }) => {
+    await expect(
+      within(canvasElement).getByLabelText("Run failed"),
+    ).toBeVisible();
+  },
+};
+
+/**
  * The processing badge (spinner ring) while a run is still generating —
  * takes precedence over unread, since a generating reply isn't unread yet.
  *

@@ -12,11 +12,13 @@ import type { RunPhase } from "@/lib/services/live/live-messages";
 //   useActiveRuns.mockReturnValue({ ...emptyActiveRuns(),
 //     activeChatIds: new Set(["chat-1"]) })
 
+type UnseenRunOutcome = "completed" | "failed";
+
 type ActiveRunsContextValue = {
   trackRun: (runId: string, chatId: string, title: string) => void;
   untrackChat: (chatId: string) => void;
   registerViewedChat: (chatId: string) => () => void;
-  completedChats: ReadonlySet<string>;
+  unseenRunOutcomes: ReadonlyMap<string, UnseenRunOutcome>;
   markChatSeen: (chatId: string) => void;
   activeChatIds: ReadonlySet<string>;
   runPhaseByChatId: ReadonlyMap<string, RunPhase>;
@@ -28,7 +30,7 @@ export function emptyActiveRuns(): ActiveRunsContextValue {
     trackRun: () => {},
     untrackChat: () => {},
     registerViewedChat: () => () => {},
-    completedChats: new Set(),
+    unseenRunOutcomes: new Map(),
     markChatSeen: () => {},
     activeChatIds: new Set(),
     runPhaseByChatId: new Map(),

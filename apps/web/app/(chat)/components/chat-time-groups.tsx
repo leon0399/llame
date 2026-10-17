@@ -16,9 +16,11 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { CollapsibleSidebarGroup } from "@/components/collapsible-sidebar-group";
+
 import { ChatItem } from "./chat-list-sidebar/chat-item";
 
-export const chatGroupTitles = {
+const chatGroupTitles = {
   [ChatGroupPeriod.TODAY]: "Today",
   [ChatGroupPeriod.YESTERDAY]: "Yesterday",
   [ChatGroupPeriod.LAST_WEEK]: "Last 7 Days",
@@ -45,47 +47,88 @@ type ChatRowProps = {
   pinnedAtByChatId?: ReadonlyMap<string, string>;
 };
 
-/** One time-period section (e.g. "Today", "Last 7 Days") of the chat list. */
-function ChatTimeGroup({
-  period,
+/** A group's chat rows. */
+function ChatGroupRows({
+  chats,
+  rowProps,
+  pinned,
+}: {
+  chats: Array<ChatResponse>;
+  rowProps: ChatRowProps;
+  /** Every row is pinned, whether or not the pins map has loaded yet. */
+  pinned: boolean;
+}) {
+  const { onRequestNewProject, pinnedAtByChatId } = rowProps;
+  return (
+    <SidebarGroupContent>
+      <SidebarMenu>
+        {chats.map((chat) => (
+          <ChatItem
+            key={chat.id}
+            chat={chat}
+            isActive={chat.id === rowProps.selectedChatId}
+            projects={rowProps.projects}
+            onNewProject={
+              onRequestNewProject && (() => onRequestNewProject(chat.id))
+            }
+            isPinned={pinned || (pinnedAtByChatId?.has(chat.id) ?? false)}
+          />
+        ))}
+      </SidebarMenu>
+    </SidebarGroupContent>
+  );
+}
+
+/** One titled section ("Today", "Last 7 Days", …) of the list. Its heading
+ *  is a sticky scroll anchor that paints the surface it scrolls over: this
+ *  list renders on the sidebar rail and sheet and on the project page, so
+ *  the surface comes from the caller, and a wrapper paints it because the
+ *  label primitive owns its own color. */
+function ChatGroup({
+  title,
   chats,
   rowProps,
   surfaceClassName,
 }: {
-  period: ChatGroupPeriod;
+  title: string;
   chats: Array<ChatResponse>;
   rowProps: ChatRowProps;
   surfaceClassName: string;
 }) {
   return (
     <SidebarGroup>
-      {/* Sticky scroll anchor. It has to paint the surface it scrolls over,
-          and this list renders on two of them — the sidebar rail and sheet,
-          and the project page — so the surface comes from the caller rather
-          than a breakpoint guess here. It is painted by this wrapper because
-          the label primitive owns its own color. */}
       <div className={cn("sticky top-0 z-10", surfaceClassName)}>
-        <SidebarGroupLabel>{chatGroupTitles[period]}</SidebarGroupLabel>
+        <SidebarGroupLabel>{title}</SidebarGroupLabel>
       </div>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {chats.map((chat) => (
-            <ChatItem
-              key={chat.id}
-              chat={chat}
-              isActive={chat.id === rowProps.selectedChatId}
-              projects={rowProps.projects}
-              onNewProject={
-                rowProps.onRequestNewProject
-                  ? () => rowProps.onRequestNewProject?.(chat.id)
-                  : undefined
-              }
-              isPinned={rowProps.pinnedAtByChatId?.has(chat.id) ?? false}
-            />
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
+      <ChatGroupRows chats={chats} rowProps={rowProps} pinned={false} />
     </SidebarGroup>
+  );
+}
+
+/** The Pinned section every chat list shows above its time groups — a
+ *  discrete server query, never interleaved with them (#204) — and the one
+ *  group that folds away from its heading. Renders nothing without pinned
+ *  chats. */
+export function PinnedChatGroup({
+  chats,
+  surfaceClassName,
+  ...rowProps
+}: {
+  chats: Array<ChatResponse>;
+  surfaceClassName: string;
+} & ChatRowProps) {
+  if (chats.length === 0) return null;
+  return (
+    <CollapsibleSidebarGroup
+      title="Pinned"
+      headingWrapper={(heading) => (
+        <div className={cn("sticky top-0 z-10", surfaceClassName)}>
+          {heading}
+        </div>
+      )}
+    >
+      <ChatGroupRows chats={chats} rowProps={rowProps} pinned />
+    </CollapsibleSidebarGroup>
   );
 }
 
@@ -97,11 +140,8 @@ function ChatTimeGroup({
  */
 export function ChatTimeGroups({
   chats,
-  selectedChatId,
-  projects,
-  onRequestNewProject,
-  pinnedAtByChatId,
   surfaceClassName,
+  ...rowProps
 }: {
   chats: Array<ChatResponse>;
   /**
@@ -115,24 +155,18 @@ export function ChatTimeGroups({
     () => groupChatsByTimePeriod(chats),
     [chats],
   );
-  const rowProps: ChatRowProps = {
-    selectedChatId,
-    projects,
-    onRequestNewProject,
-    pinnedAtByChatId,
-  };
 
   return (
     <>
       {Object.entries(groupedChats)
         .filter(([, groupChats]) => groupChats.length > 0)
         .map(([period, groupChats]) => (
-          <ChatTimeGroup
+          <ChatGroup
             key={period}
             // SAFETY: `groupedChats` is built by `groupChatsByTimePeriod`,
             // which only ever populates `ChatGroupPeriod` enum keys —
             // `Object.entries` widens the key type to `string` regardless.
-            period={period as ChatGroupPeriod}
+            title={chatGroupTitles[period as ChatGroupPeriod]}
             chats={groupChats}
             rowProps={rowProps}
             surfaceClassName={surfaceClassName}

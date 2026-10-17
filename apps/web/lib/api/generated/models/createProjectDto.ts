@@ -12,4 +12,10 @@ export interface CreateProjectDto {
    * @maxLength 200
    */
   name: string;
+  /**
+   * What this project is for. Omit or pass null for none.
+   * @maxLength 1000
+   * @nullable
+   */
+  description?: string | null;
 }

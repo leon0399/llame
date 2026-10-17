@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
+import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { vi, type Mock } from "vitest";
 
 import type {
@@ -8,7 +9,22 @@ import type {
   ProjectResponse,
 } from "@/lib/api/generated/models";
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
+import {
+  ChatListShowProvider,
+  ListViewMenu,
+  useChatListShow,
+} from "../chat-list-view";
 import { ChatList } from "./chat-list";
+
+/** The rail header's view menu, as ChatListSidebar renders it. */
+function RailViewMenu() {
+  return (
+    <div className="flex items-center px-2 pb-1">
+      <span className="flex-1 text-sm font-semibold">Chats</span>
+      <ListViewMenu {...useChatListShow()} />
+    </div>
+  );
+}
 
 // No query hook mocking: the real chat list, projects and pins queries run
 // against a stubbed globalThis.fetch. A story can hold any of them until it
@@ -116,9 +132,12 @@ const meta = {
     // under the test pointer, which rests at the top-left corner and would
     // otherwise hover the first row.
     <SidebarProvider className="min-h-0">
-      <div className="w-64 bg-sidebar p-2">
-        <ChatList />
-      </div>
+      <ChatListShowProvider>
+        <div className="w-64 bg-sidebar p-2">
+          <RailViewMenu />
+          <ChatList />
+        </div>
+      </ChatListShowProvider>
     </SidebarProvider>
   ),
 } satisfies Meta<typeof ChatList>;
@@ -310,5 +329,123 @@ export const NoChats: Story = {
     await expect(canvas.queryByText("Today")).not.toBeInTheDocument();
     await expect(canvas.queryByRole("link")).not.toBeInTheDocument();
     await expect(sentRoutes()).toEqual(RAIL_ROUTES);
+  },
+};
+
+const ARCHIVED_ROUTE = "GET /api/v1/chats?archived=only";
+
+function archivedChat(id: string, title: string): ChatListItemResponse {
+  return { ...chat(id, title), archivedAt: new Date().toISOString() };
+}
+
+/**
+ * The view menu's Archived option lists archived chats (archived pins
+ * included, no Pinned section); the chip it raises returns to Active.
+ *
+ * @summary view menu: Archived, then back to Active through the chip
+ */
+export const ArchivedView: Story = {
+  tags: ["ai-generated"],
+  // The view menu is a Base UI portalled menu, whose aria-hidden focus guards
+  // axe's aria-hidden-focus rule misreads (as in chat-composer.stories.tsx).
+  parameters: {
+    a11y: { config: { rules: [{ id: "aria-hidden-focus", enabled: false }] } },
+  },
+  beforeEach: () => {
+    responses.set(PINNED_ROUTE, () => jsonResponse([chat("p", "Pinned chat")]));
+    responses.set(ALL_ROUTE, () => jsonResponse([chat("c1", "Live chat")]));
+    responses.set(ARCHIVED_ROUTE, () =>
+      jsonResponse([archivedChat("a1", "Old plan")]),
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    await canvas.findByRole("link", { name: "Live chat" });
+
+    await userEvent.click(canvas.getByRole("button", { name: "View options" }));
+    await userEvent.click(
+      await body.findByRole("menuitemradio", { name: "Archived" }),
+    );
+
+    const row = await canvas.findByRole("link", { name: /Old plan/ });
+    await expect(within(row).getByText("Archived")).toBeVisible();
+    await expect(canvas.queryByText("Pinned chat")).not.toBeInTheDocument();
+    await expect(canvas.queryByText("Live chat")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Clear view: Archived" }),
+    );
+    await expect(
+      await canvas.findByRole("link", { name: "Live chat" }),
+    ).toBeVisible();
+    await expect(canvas.queryByText("Old plan")).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * The open chat is listed whatever the view: an archived chat opened from a
+ * link joins the Active list, dimmed, with its Archived badge.
+ *
+ * @summary the open archived chat stays listed in the Active view
+ */
+export const OpenArchivedChatStaysListed: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    nextjs: { appDirectory: true, navigation: { pathname: "/chat/a1" } },
+    // #232: the Archived pill's tracked low-contrast token defect.
+    ...contrastKnownIssue232,
+  },
+  beforeEach: () => {
+    responses.set(ALL_ROUTE, () => jsonResponse([chat("c1", "Live chat")]));
+    responses.set("GET /api/v1/chats/a1", () =>
+      jsonResponse(archivedChat("a1", "Old plan")),
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    const row = await canvas.findByRole("link", { name: /Old plan/ });
+    await expect(within(row).getByText("Archived")).toBeVisible();
+    await expect(canvas.getByRole("link", { name: "Live chat" })).toBeVisible();
+  },
+};
+
+/**
+ * The Pinned section folds away from the chevron on its heading — the only
+ * control there; the heading text is not a button — and unfolds again.
+ *
+ * @summary Pinned folds and unfolds from its heading's chevron
+ */
+export const PinnedCollapses: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    responses.set(PINNED_ROUTE, () =>
+      jsonResponse([chat("c1", "Pinned chat")]),
+    );
+    responses.set(ALL_ROUTE, () => jsonResponse([chat("c2", "Unpinned chat")]));
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole("link", { name: "Pinned chat" });
+    const toggle = canvas.getByRole("button", { name: "Toggle Pinned" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("link", { name: "Pinned chat" }),
+      ).not.toBeInTheDocument(),
+    );
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(canvas.getByText("Pinned")).toBeVisible();
+    await expect(
+      canvas.getByRole("link", { name: "Unpinned chat" }),
+    ).toBeVisible();
+
+    await userEvent.click(toggle);
+    await expect(
+      await canvas.findByRole("link", { name: "Pinned chat" }),
+    ).toBeVisible();
   },
 };

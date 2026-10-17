@@ -54,12 +54,16 @@ const archivedProjectPin: PinnedItem = {
 let fetchMock: Mock<typeof fetch>;
 let serverPins: Array<PinnedItem>;
 let releasePins: () => void;
+/** The project's description as the server holds it now; undefined makes
+ *  the project's read fail. */
+let serverDescription: string | undefined;
 
 type PinsParameters = { pins?: Array<PinnedItem>; holdPins?: boolean };
 
 function routeFetch() {
   return ({ parameters }: { parameters: PinsParameters }) => {
     serverPins = parameters.pins ?? [];
+    serverDescription = "Everything about the relaunch";
     const holdPins = parameters.holdPins === true;
     unpinMutate.mockClear();
     useUnpinItem.mockReturnValue({ mutate: unpinMutate, isPending: false });
@@ -82,6 +86,22 @@ function routeFetch() {
       if (key === "PATCH /api/v1/projects/p1") {
         serverPins = [archivedProjectPin];
         return Promise.resolve(emptyResponse());
+      }
+      if (key === "GET /api/v1/projects/p1") {
+        if (serverDescription === undefined) {
+          return Promise.resolve(new Response(null, { status: 500 }));
+        }
+        return Promise.resolve(
+          jsonResponse({
+            id: "p1",
+            ownerUserId: "u1",
+            name: "Acme relaunch",
+            description: serverDescription,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            archivedAt: null,
+          }),
+        );
       }
       throw new Error(`unrouted fetch in story: ${key}`);
     });
@@ -359,10 +379,10 @@ export const ChatDelete: Story = {
 };
 
 /**
- * The pinned project's menu carries the same Unpin, Rename, Archive and Delete
- * actions as the pinned chat's.
+ * The pinned project's menu carries Unpin, Edit details, Archive and Delete;
+ * Edit details is its only edit action.
  *
- * @summary pinned project menu: unpin, rename, archive, delete
+ * @summary pinned project menu: unpin, edit details, archive, delete
  */
 export const ProjectRowMenu: Story = {
   tags: ["ai-generated"],
@@ -372,7 +392,7 @@ export const ProjectRowMenu: Story = {
 
     await expect(
       menu.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["Unpin", "Rename", "Archive", "Delete"]);
+    ).toEqual(["Unpin", "Edit details", "Archive", "Delete"]);
   },
 };
 
@@ -419,5 +439,82 @@ export const ProjectArchive: Story = {
     await expect(sentBody("PATCH /api/v1/projects/p1")).resolves.toEqual({
       archived: true,
     });
+  },
+};
+
+/**
+ * The pin holds only the project's name, so Edit details reads the project
+ * when chosen and opens seeded with its name and description.
+ *
+ * @summary pinned project menu: Edit details reads the project and opens seeded
+ */
+export const ProjectEditDetails: Story = {
+  tags: ["ai-generated"],
+  parameters: { pins: [projectPin] },
+  play: async ({ canvasElement }) => {
+    await chooseFromRowMenu(canvasElement, "Edit details");
+
+    const dialog = await openedDialog("dialog", "Edit details");
+    await expect(dialog.getByLabelText("Name")).toHaveValue("Acme relaunch");
+    await expect(dialog.getByLabelText("Description")).toHaveValue(
+      "Everything about the relaunch",
+    );
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/projects/p1",
+    ]);
+  },
+};
+
+/**
+ * Closing the dialog keeps the row mounted, and the project read with it, so
+ * a reopen must read the project again rather than seed from the copy of the
+ * first open: here the description changed elsewhere in between.
+ *
+ * @summary pinned project menu: reopening Edit details reads the project again
+ */
+export const ProjectEditDetailsReopen: Story = {
+  tags: ["ai-generated"],
+  parameters: { pins: [projectPin] },
+  play: async ({ canvasElement }) => {
+    await chooseFromRowMenu(canvasElement, "Edit details");
+    const first = await openedDialog("dialog", "Edit details");
+    await expect(first.getByLabelText("Description")).toHaveValue(
+      "Everything about the relaunch",
+    );
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    serverDescription = "Changed in another tab";
+    await chooseFromRowMenu(canvasElement, "Edit details");
+    const second = await openedDialog("dialog", "Edit details");
+    await expect(second.getByLabelText("Description")).toHaveValue(
+      "Changed in another tab",
+    );
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/projects/p1",
+      "GET /api/v1/projects/p1",
+    ]);
+  },
+};
+
+/**
+ * Edit details opens at once on the pin's lean card; when the project's read
+ * fails, the dialog says so instead of a form that could not be seeded.
+ *
+ * @summary pinned project menu: Edit details reports a failed read
+ */
+export const ProjectEditDetailsReadFails: Story = {
+  tags: ["ai-generated"],
+  parameters: { pins: [projectPin] },
+  play: async ({ canvasElement }) => {
+    serverDescription = undefined;
+    await chooseFromRowMenu(canvasElement, "Edit details");
+    const dialog = await openedDialog("dialog", "Edit details");
+    await expect(await dialog.findByRole("alert")).toHaveTextContent(
+      "Couldn't load this project's details",
+    );
+    await expect(dialog.queryByLabelText("Description")).toBeNull();
   },
 };

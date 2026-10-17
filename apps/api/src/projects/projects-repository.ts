@@ -96,11 +96,20 @@ export class ProjectsRepository {
     return rows[0];
   }
 
-  /** Create a new project owned by a user. */
-  async create(input: { ownerUserId: string; name: string }): Promise<Project> {
+  /** Create a new project owned by a user; an omitted description is stored
+   *  as the column's null. */
+  async create(input: {
+    ownerUserId: string;
+    name: string;
+    description?: string | null;
+  }): Promise<Project> {
     const [created] = await this.db
       .insert(projects)
-      .values({ ownerUserId: input.ownerUserId, name: input.name })
+      .values({
+        ownerUserId: input.ownerUserId,
+        name: input.name,
+        description: input.description,
+      })
       .returning();
 
     return created;

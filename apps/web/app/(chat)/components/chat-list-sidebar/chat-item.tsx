@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MessagesSquareIcon } from "lucide-react";
 import Link from "next/link";
 
-import { useActiveRuns } from "@/contexts/active-runs-context";
+import { useOptionalActiveRuns } from "@/contexts/active-runs-context";
 import type { ChatResponse } from "@/lib/services/chat/queries";
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
@@ -88,8 +88,13 @@ function ChatItemTitleBlock({
           // so it reads as in progress rather than as the chat's actual
           // title.
           shimmer={chat.title === null && activityStatus === "processing"}
-          // Archived title de-emphasis (mock's `.sec-title` rule).
-          className={cn(isArchived && "text-muted-foreground")}
+          // Muted: an archived title (mock's `.sec-title` rule), or the
+          // placeholder of an untitled chat no run is naming any more.
+          className={cn(
+            (isArchived ||
+              (chat.title === null && activityStatus !== "processing")) &&
+              "text-muted-foreground",
+          )}
         />
         {isArchived && <ArchivedBadge />}
       </span>
@@ -151,6 +156,14 @@ function ChatItemRow({
   isActive: boolean;
   children: ReactNode;
 }) {
+  // The open chat's row comes into view when it becomes active (navigation,
+  // search, a deep link). `nearest` leaves an already-visible row alone;
+  // the scroll margin keeps it clear of the sticky group heading.
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (isActive) rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isActive]);
+
   return (
     // A flex line, not the primitive's overlay: the actions below are real
     // layout, so the text shrinks by exactly their width and the row reserves
@@ -167,8 +180,9 @@ function ChatItemRow({
     // lookup resolve exactly as before.
     <SidebarMenuItem>
       <div
+        ref={rowRef}
         className={cn(
-          "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
+          "flex scroll-mt-8 items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
           isActive && "bg-sidebar-accent",
         )}
       >
@@ -228,6 +242,20 @@ function ChatItemDialogs({
   );
 }
 
+/** The chat's run activity. Optional provider: pinned projects nest these
+ *  rows in the main rail, which the admin shell mounts without the runs
+ *  provider — there nothing runs. */
+function useChatActivity(chatId: string) {
+  const runs = useOptionalActiveRuns();
+  return {
+    activityStatus: resolveChatActivityStatus({
+      processing: runs?.activeChatIds.has(chatId) ?? false,
+      outcome: runs?.unseenRunOutcomes.get(chatId),
+    }),
+    runPhase: runs?.runPhaseByChatId.get(chatId),
+  };
+}
+
 /** Everything `ChatItem` derives before it can render: activity status, the
  * three action dialogs, and the pin toggle. Split out so the component below
  * is composition only. */
@@ -236,11 +264,7 @@ function useChatItemRow(
   isPinned: boolean,
   isActive: boolean,
 ) {
-  const { completedChats, activeChatIds, runPhaseByChatId } = useActiveRuns();
-  const activityStatus = resolveChatActivityStatus({
-    processing: activeChatIds.has(chat.id),
-    unread: completedChats.has(chat.id),
-  });
+  const { activityStatus, runPhase } = useChatActivity(chat.id);
   const dialogs = useChatItemDialogs();
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
@@ -270,7 +294,7 @@ function useChatItemRow(
     isArchived: chat.archivedAt !== null,
     excerpt: chat.lastMessage,
     activityStatus,
-    runPhase: runPhaseByChatId.get(chat.id),
+    runPhase,
     onRename: dialogs.openRename,
     onShare: dialogs.openShare,
     onDelete: dialogs.openDelete,

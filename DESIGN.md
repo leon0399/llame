@@ -21,7 +21,7 @@ This is the source-of-truth brief for anyone — human or AI coding agent — ge
 
 llame looks like a well-lit, near-silent workshop. The interface is almost entirely **achromatic** — a grayscale stack from pure white through ash to near-black — so that the user's content (chats, knowledge, artifacts) is the only thing carrying color and weight. There is **no brand hue**, no gradient field, no decorative imagery. Separation between regions comes from subtle value shifts (white canvas against a faintly cooler off-white rail) and thin hairline borders, not from heavy shadows or chrome.
 
-The mood is **calm, dense-but-uncluttered, and utilitarian**. Corners are softly rounded (10px), elevation is whisper-flat, and typography does most of the expressive work. The one chromatic note in the entire system is a saturated red reserved exclusively for destructive intent — its rarity is what makes it legible. Color is present in exactly two governed places: **data visualization** (the chart ramp) and **danger** (destructive). Everything else is ink and paper.
+The mood is **calm, dense-but-uncluttered, and utilitarian**. Corners are softly rounded (10px), elevation is whisper-flat, and typography does most of the expressive work. The chromatic notes are few and each has one job: a saturated red reserved for destructive intent and failure, and a blue reserved for a status that asks for attention without alarm (an unread reply) — their rarity is what makes them legible. Color is present in exactly three governed places: **data visualization** (the chart ramp), **danger** (destructive), and **status signals** (info, as small marks only). Everything else is ink and paper.
 
 Full dark mode is a first-class peer, not an afterthought: the same semantic roles invert into a charcoal canvas with off-white ink.
 
@@ -35,17 +35,18 @@ The palette is Tailwind's **neutral** ramp expressed in OKLCH, addressed through
 
 ### 2.1 Light mode (`:root`)
 
-| Name       | OKLCH (authoritative)       | ~Hex      | Token(s)                              | Role                                                                                         |
-| ---------- | --------------------------- | --------- | ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Pure White | `oklch(1 0 0)`              | `#ffffff` | `--background`, `--card`, `--popover` | Main canvas, card and popover surfaces — where attention belongs                             |
-| Bone       | `oklch(0.985 0 0)`          | `#fafafa` | `--sidebar`, `--primary-foreground`   | The slightly cooler off-white of the navigation rail; also text on dark fills                |
-| Mist       | `oklch(0.97 0 0)`           | `#f5f5f5` | `--secondary`, `--muted`, `--accent`  | Quiet fills for secondary buttons, muted blocks, hover/active surfaces                       |
-| Hairline   | `oklch(0.922 0 0)`          | `#e5e5e5` | `--border`, `--input`                 | The thin 1px lines that separate regions and outline inputs                                  |
-| Pewter     | `oklch(0.708 0 0)`          | `#a1a1a1` | `--ring`                              | Focus ring base (rendered at ~50% opacity)                                                   |
-| Slate      | `oklch(0.556 0 0)`          | `#737373` | `--muted-foreground`                  | Secondary/helper text, placeholders, captions, inactive icons                                |
-| Ink        | `oklch(0.205 0 0)`          | `#171717` | `--primary`                           | Primary action fill, the strongest interactive surface in light mode                         |
-| Near-Black | `oklch(0.145 0 0)`          | `#0a0a0a` | `--foreground`, `--card-foreground`   | Body text, headings, icons — the default ink                                                 |
-| Alert Red  | `oklch(0.577 0.245 27.325)` | `#e7000b` | `--destructive`                       | The system's **only** standing chromatic color — destructive actions and invalid states only |
+| Name        | OKLCH (authoritative)        | ~Hex      | Token(s)                              | Role                                                                                       |
+| ----------- | ---------------------------- | --------- | ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Pure White  | `oklch(1 0 0)`               | `#ffffff` | `--background`, `--card`, `--popover` | Main canvas, card and popover surfaces — where attention belongs                           |
+| Bone        | `oklch(0.985 0 0)`           | `#fafafa` | `--sidebar`, `--primary-foreground`   | The slightly cooler off-white of the navigation rail; also text on dark fills              |
+| Mist        | `oklch(0.97 0 0)`            | `#f5f5f5` | `--secondary`, `--muted`, `--accent`  | Quiet fills for secondary buttons, muted blocks, hover/active surfaces                     |
+| Hairline    | `oklch(0.922 0 0)`           | `#e5e5e5` | `--border`, `--input`                 | The thin 1px lines that separate regions and outline inputs                                |
+| Pewter      | `oklch(0.708 0 0)`           | `#a1a1a1` | `--ring`                              | Focus ring base (rendered at ~50% opacity)                                                 |
+| Slate       | `oklch(0.556 0 0)`           | `#737373` | `--muted-foreground`                  | Secondary/helper text, placeholders, captions, inactive icons                              |
+| Ink         | `oklch(0.205 0 0)`           | `#171717` | `--primary`                           | Primary action fill, the strongest interactive surface in light mode                       |
+| Near-Black  | `oklch(0.145 0 0)`           | `#0a0a0a` | `--foreground`, `--card-foreground`   | Body text, headings, icons — the default ink                                               |
+| Alert Red   | `oklch(0.577 0.245 27.325)`  | `#e7000b` | `--destructive`                       | Destructive actions, invalid states, and failure marks (a failed run's dot)                |
+| Signal Blue | `oklch(0.623 0.214 259.815)` | `#2b7fff` | `--info`                              | Non-alarming attention marks only (an unread reply's dot) — never fills, text, or controls |
 
 ### 2.2 Dark mode (`.dark`)
 
@@ -59,6 +60,7 @@ Roles invert; the canvas becomes charcoal and ink becomes off-white. Key shifts:
 | `--secondary`, `--muted`, `--accent`, `--border`, `--input` | `oklch(0.269 0 0)`           | `#262626` | Graphite quiet surfaces and lines                                                |
 | `--muted-foreground`, `--ring`                              | `oklch(0.708 0 0)` / `0.556` | `#a1a1a1` | Dimmed text and focus ring                                                       |
 | `--destructive`                                             | `oklch(0.396 0.141 25.723)`  | `#82181a` | Deeper red fill; foreground brightens to `oklch(0.637 0.237 25.331)` ≈ `#fb2c36` |
+| `--info`                                                    | `oklch(0.623 0.214 259.815)` | `#2b7fff` | Unchanged; holds its contrast against both the canvas and the rail               |
 | `--sidebar`                                                 | `oklch(0.205 0 0)`           | `#171717` | Rail sits one step above the charcoal canvas                                     |
 
 ### 2.3 Chart ramp — the sanctioned chromatic exception
@@ -206,8 +208,9 @@ Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (
 ## 10. Guidelines — Do
 
 - Use the **semantic tokens** (`bg-primary`, `text-muted-foreground`, `border-input`, …) — never raw hex or one-off OKLCH in components.
-- Keep the interface **achromatic**; let user content and the chart ramp carry color.
-- Reserve **Alert Red strictly for destructive actions and invalid states** — its scarcity is its signal.
+- Keep the interface **achromatic**; let user content and the chart ramp carry color, and status marks their one signal.
+- Reserve **Alert Red strictly for destructive actions, invalid states, and failure** — its scarcity is its signal.
+- Reserve **Signal Blue for small status marks** (dots, badges' marks) that ask for attention without alarm.
 - Stay on the **10px-derived radius scale**: `rounded-md` for controls, `rounded-xl` for cards/code.
 - Separate regions with **borders and value shifts first**, a faint `shadow-sm` at most.
 - Cap weight at **600**; create emphasis through Ink↔Slate value contrast, not heavy type.
@@ -218,7 +221,7 @@ Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (
 
 ## 10b. Guidelines — Don't
 
-- **Don't introduce a brand hue, gradient, or accent color** — monochrome is the signature, not a gap to fill (until §12 is resolved deliberately).
+- **Don't introduce a brand hue, gradient, or decorative accent color** — monochrome is the signature, not a gap to fill (until §12 is resolved deliberately). `--info` is a status signal, not an accent: never use it for fills, links, or calls to action.
 - **Don't use heavy or high-contrast drop shadows** for elevation.
 - **Don't use pill (`rounded-full`) or sharp (`rounded-none`) shapes** for buttons, inputs, or containers.
 - **Don't repurpose chart colors** (`--chart-*`) as UI accents or branding.

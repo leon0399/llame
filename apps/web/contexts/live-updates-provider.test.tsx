@@ -92,10 +92,13 @@ function ConnectionProbe() {
 }
 
 function RunsProbe() {
-  const { activeChatIds, runPhaseByChatId, completedChats } = useActiveRuns();
+  const { activeChatIds, runPhaseByChatId, unseenRunOutcomes } =
+    useActiveRuns();
   return (
     <div>
-      <span data-testid="completed">{String(completedChats.has(chatId))}</span>
+      <span data-testid="completed">
+        {String(unseenRunOutcomes.has(chatId))}
+      </span>
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
       <span data-testid="phase">{runPhaseByChatId.get(chatId) ?? "none"}</span>
     </div>

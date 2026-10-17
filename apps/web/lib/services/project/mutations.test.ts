@@ -33,14 +33,17 @@ afterEach(() => {
 });
 
 describe("createProject", () => {
-  it("POSTs /projects with the name", async () => {
+  it("POSTs /projects with the name and the description", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
-    await createProject("Acme");
+    await createProject({ name: "Acme", description: "The relaunch" });
 
     const request = requestFromCall(fetchMock);
     expect(request.method).toBe("POST");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects");
-    await expect(request.clone().json()).resolves.toEqual({ name: "Acme" });
+    await expect(request.clone().json()).resolves.toEqual({
+      name: "Acme",
+      description: "The relaunch",
+    });
   });
 });
 

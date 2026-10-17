@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
+import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
 
@@ -21,14 +22,19 @@ const usePinItem = vi.mocked(pinsMutations.usePinItem, { partial: true });
 const useUnpinItem = vi.mocked(pinsMutations.useUnpinItem, { partial: true });
 
 // No query hook mocking: the real useProjectsQuery runs both of the rail's
-// server-driven lists against a stubbed globalThis.fetch. A story can hold
-// them until it releases them, to observe the rail while they load. An
-// unrouted request fails the story.
+// server-driven lists against a stubbed globalThis.fetch, and usePins reads
+// the stubbed pins. A story can hold the lists until it releases them, to
+// observe the rail while they load. An unrouted request fails the story.
 const PINNED_ROUTE = "GET /api/v1/projects?pinned=only&archived=with";
 const UNPINNED_ROUTE = "GET /api/v1/projects?pinned=exclude";
+const PINS_ROUTE = "GET /api/v1/pins";
+const RAIL_ROUTES = [PINNED_ROUTE, UNPINNED_ROUTE, PINS_ROUTE];
+const ARCHIVED_ROUTE = "GET /api/v1/projects?archived=only";
+const WITH_ARCHIVED_ROUTE = "GET /api/v1/projects?archived=with";
 
 let fetchMock: Mock<typeof fetch>;
 let pinnedProjects: Array<ProjectResponse>;
+let archivedProjects: Array<ProjectResponse>;
 let unpinnedProjects: Array<ProjectResponse>;
 let holdLists: boolean;
 let releaseLists: Array<() => void>;
@@ -70,7 +76,24 @@ function routeFetch() {
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
     if (key === PINNED_ROUTE) return answer(pinnedProjects);
+    if (key === ARCHIVED_ROUTE) return answer(archivedProjects);
+    if (key === WITH_ARCHIVED_ROUTE) {
+      return answer([...unpinnedProjects, ...archivedProjects]);
+    }
     if (key === UNPINNED_ROUTE) return answer(unpinnedProjects);
+    if (key === PINS_ROUTE) {
+      return Promise.resolve(
+        jsonResponse(
+          pinnedProjects.map(({ id, name, archivedAt }, position) => ({
+            itemType: "project",
+            itemId: id,
+            position,
+            pinnedAt: "2026-01-01T00:00:00.000Z",
+            item: { id, name, archivedAt },
+          })),
+        ),
+      );
+    }
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -86,6 +109,7 @@ const meta = {
   beforeEach: () => {
     pinnedProjects = [];
     unpinnedProjects = [];
+    archivedProjects = [];
     holdLists = false;
     releaseLists = [];
     usePinItem.mockReturnValue({ mutate: pinMutate, isPending: false });
@@ -138,7 +162,7 @@ export const PinnedAndAllProjects: Story = {
     await expect(tops).toEqual([...tops].sort((a, b) => a - b));
     await expect(new Set(tops).size).toBe(4);
 
-    await expect(sentRoutes()).toEqual([PINNED_ROUTE, UNPINNED_ROUTE]);
+    await expect(sentRoutes()).toEqual(RAIL_ROUTES);
   },
 };
 
@@ -161,7 +185,7 @@ export const NothingPinned: Story = {
     ).toBeVisible();
     await expect(canvas.queryByText("Pinned")).not.toBeInTheDocument();
     await expect(canvas.queryByText("All projects")).not.toBeInTheDocument();
-    await expect(sentRoutes()).toEqual([PINNED_ROUTE, UNPINNED_ROUTE]);
+    await expect(sentRoutes()).toEqual(RAIL_ROUTES);
   },
 };
 
@@ -181,9 +205,7 @@ export const PinAnUnpinnedProject: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await waitFor(() =>
-      expect(sentRoutes()).toEqual([PINNED_ROUTE, UNPINNED_ROUTE]),
-    );
+    await waitFor(() => expect(sentRoutes()).toEqual(RAIL_ROUTES));
     // That placeholder rows show, not how many: the count is the shared
     // skeleton's default, which the chats rail owns as much as this one.
     await expect(
@@ -205,7 +227,7 @@ export const PinAnUnpinnedProject: Story = {
       card: { id: "p1", name: "Acme", archivedAt: null },
     });
     await expect(unpinMutate).not.toHaveBeenCalled();
-    await expect(sentRoutes()).toEqual([PINNED_ROUTE, UNPINNED_ROUTE]);
+    await expect(sentRoutes()).toEqual(RAIL_ROUTES);
   },
 };
 
@@ -232,6 +254,136 @@ export const UnpinAPinnedProject: Story = {
       itemId: "p1",
     });
     await expect(pinMutate).not.toHaveBeenCalled();
-    await expect(sentRoutes()).toEqual([PINNED_ROUTE, UNPINNED_ROUTE]);
+    await expect(sentRoutes()).toEqual(RAIL_ROUTES);
+  },
+};
+
+function archived(id: string, name: string): ProjectResponse {
+  return { ...project(id, name), archivedAt: "2026-01-02T00:00:00.000Z" };
+}
+
+/**
+ * The view menu's Archived option lists archived projects, with no Pinned
+ * section; the chip it raises returns to Active.
+ *
+ * @summary view menu: Archived, then back to Active through the chip
+ */
+export const ArchivedView: Story = {
+  tags: ["ai-generated"],
+  // The view menu is a Base UI portalled menu, whose aria-hidden focus guards
+  // axe's aria-hidden-focus rule misreads (as in chat-composer.stories.tsx).
+  parameters: {
+    a11y: { config: { rules: [{ id: "aria-hidden-focus", enabled: false }] } },
+  },
+  beforeEach: () => {
+    pinnedProjects = [project("p1", "Pinned project")];
+    unpinnedProjects = [project("p2", "Live project")];
+    archivedProjects = [archived("p3", "Old project")];
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    await canvas.findByRole("link", { name: /Live project/ });
+
+    await userEvent.click(canvas.getByRole("button", { name: "View options" }));
+    await userEvent.click(
+      await body.findByRole("menuitemradio", { name: "Archived" }),
+    );
+
+    await expect(
+      await canvas.findByRole("link", { name: /Old project/ }),
+    ).toBeVisible();
+    await expect(canvas.queryByText("Pinned project")).not.toBeInTheDocument();
+    await expect(canvas.queryByText("Live project")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Clear view: Archived" }),
+    );
+    await expect(
+      await canvas.findByRole("link", { name: /Live project/ }),
+    ).toBeVisible();
+    await expect(canvas.queryByText("Old project")).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * The open project is listed whatever the view: an archived project opened
+ * by link joins the Active list, with its Archived badge.
+ *
+ * @summary the open archived project stays listed in the Active view
+ */
+export const OpenArchivedProjectStaysListed: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    nextjs: { appDirectory: true, navigation: { pathname: "/projects/p3" } },
+    // #232: the Archived pill's tracked low-contrast token defect.
+    ...contrastKnownIssue232,
+  },
+  beforeEach: () => {
+    unpinnedProjects = [project("p2", "Live project")];
+    archivedProjects = [archived("p3", "Old project")];
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    const row = await canvas.findByRole("link", { name: /Old project/ });
+    await expect(within(row).getByText("Archived")).toBeVisible();
+    await expect(
+      canvas.getByRole("link", { name: /Live project/ }),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * Search is a header button, not a standing field: choosing it opens the
+ * field focused in place of the title and actions, a query narrows the list,
+ * the × clears it and brings the actions back, and leaving an empty field
+ * closes it too.
+ *
+ * @summary search opens focused, filters, and closes from × or an empty blur
+ */
+export const SearchOnRequest: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    unpinnedProjects = [project("p1", "Acme"), project("p2", "Trip")];
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole("link", { name: /Acme/ });
+    await expect(canvas.queryByRole("textbox")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Search projects" }),
+    );
+    const field = canvas.getByRole("textbox", { name: "Search projects…" });
+    await expect(field).toHaveFocus();
+
+    await userEvent.type(field, "tri");
+    await expect(canvas.queryByRole("link", { name: /Acme/ })).toBeNull();
+    await expect(canvas.getByRole("link", { name: /Trip/ })).toBeVisible();
+
+    await userEvent.click(canvas.getByRole("button", { name: "Clear search" }));
+    await expect(canvas.queryByRole("textbox")).not.toBeInTheDocument();
+    await expect(canvas.getByRole("link", { name: /Acme/ })).toBeVisible();
+    // The × that held focus is gone, so focus returns to the button.
+    await expect(
+      canvas.getByRole("button", { name: "Search projects" }),
+    ).toHaveFocus();
+
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Escape}");
+    await expect(
+      canvas.getByRole("button", { name: "Search projects" }),
+    ).toHaveFocus();
+
+    await userEvent.keyboard("{Enter}");
+    // Tabbing onto the field's own × keeps it open; focus leaving closes it.
+    await userEvent.tab();
+    const clearButton = canvas.getByRole("button", { name: "Clear search" });
+    await expect(clearButton).toHaveFocus();
+    clearButton.blur();
+    await waitFor(() =>
+      expect(canvas.queryByRole("textbox")).not.toBeInTheDocument(),
+    );
   },
 };

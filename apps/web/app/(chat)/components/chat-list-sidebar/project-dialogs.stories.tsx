@@ -17,18 +17,17 @@ import {
 import {
   CreateProjectForChatDialog,
   DeleteProjectDialog,
+  EditProjectDialog,
   NewProjectDialog,
-  RenameProjectDialog,
-  SettingsProjectDialog,
 } from "./project-dialogs";
 
 // No hook mocking: the real project mutations (and useFileChat) run against a
 // stubbed globalThis.fetch. The create POST and the delete DELETE are held
 // until a story releases them, so a story can observe the dialog while the
-// request is still in flight and prove what is (not yet) sent. The rename,
-// settings, and chat-filing PATCHes succeed at once. An unrouted request is
-// recorded and the meta's afterEach fails the story on it: the throw alone
-// would only reach the hook's onError toast.
+// request is still in flight and prove what is (not yet) sent. The edit and
+// chat-filing PATCHes succeed at once. An unrouted request is recorded and
+// the meta's afterEach fails the story on it: the throw alone would only
+// reach the hook's onError toast.
 let fetchMock: Mock<typeof fetch>;
 let unrouted: Array<string>;
 let releaseCreate: () => void;
@@ -98,8 +97,7 @@ const meta = {
   component: NewProjectDialog,
   subcomponents: {
     CreateProjectForChatDialog,
-    RenameProjectDialog,
-    SettingsProjectDialog,
+    EditProjectDialog,
     DeleteProjectDialog,
   },
   tags: ["autodocs"],
@@ -116,31 +114,35 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 type ForChatStory = StoryObj<typeof CreateProjectForChatDialog>;
-type RenameStory = StoryObj<typeof RenameProjectDialog>;
-type SettingsStory = StoryObj<typeof SettingsProjectDialog>;
+type EditStory = StoryObj<typeof EditProjectDialog>;
 type DeleteStory = StoryObj<typeof DeleteProjectDialog>;
 
 /**
- * Creating a project POSTs its name; Create stays disabled and the dialog
- * stays open until the server answers, then the dialog closes.
+ * Creating a project POSTs its name and description; Create stays disabled
+ * and the dialog stays open until the server answers, then the dialog closes.
  *
- * @summary new project: Create sends the name and closes once created
+ * @summary new project: Create sends both fields and closes once created
  */
 export const Create: Story = {
   tags: ["ai-generated"],
   play: async ({ args }) => {
     const dialog = await openedDialog("dialog", "New project");
-    const field = dialog.getByLabelText("Project name");
+    const name = dialog.getByLabelText("Name");
     const create = dialog.getByRole("button", { name: "Create" });
-    await expect(field).toHaveValue("");
+    await expect(name).toHaveValue("");
+    await expect(dialog.getByLabelText("Description")).toHaveValue("");
     await expect(create).toBeDisabled();
 
-    await userEvent.type(field, "New Co");
+    await userEvent.type(name, "New Co");
+    await userEvent.type(dialog.getByLabelText("Description"), "Launch prep");
     await userEvent.click(create);
 
     const request = await sentRequest();
     await expect(sentRoutes()).toEqual(["POST /api/v1/projects"]);
-    await expect(request.clone().json()).resolves.toEqual({ name: "New Co" });
+    await expect(request.clone().json()).resolves.toEqual({
+      name: "New Co",
+      description: "Launch prep",
+    });
     await waitFor(() => expect(create).toBeDisabled());
     await expect(args.onOpenChange).not.toHaveBeenCalled();
 
@@ -153,7 +155,8 @@ export const Create: Story = {
 
 /**
  * A blank or spaces-only name keeps Create disabled, and Enter in the field
- * sends nothing either; Enter with a real name creates the project.
+ * sends nothing either; Enter with a real name creates the project, with no
+ * description when none was written.
  *
  * @summary new project: a blank name is never sent, even via Enter
  */
@@ -161,7 +164,7 @@ export const CreateBlank: Story = {
   tags: ["ai-generated"],
   play: async () => {
     const dialog = await openedDialog("dialog", "New project");
-    const field = dialog.getByLabelText("Project name");
+    const field = dialog.getByLabelText("Name");
 
     await userEvent.type(field, "   ");
     await expect(dialog.getByRole("button", { name: "Create" })).toBeDisabled();
@@ -175,6 +178,7 @@ export const CreateBlank: Story = {
     await expect(sentRoutes()).toEqual(["POST /api/v1/projects"]);
     await expect(request.clone().json()).resolves.toEqual({
       name: "Real name",
+      description: null,
     });
     releaseCreate();
   },
@@ -194,10 +198,10 @@ function NewProjectFromSidebar() {
 }
 
 /**
- * Each time the dialog opens, the name field starts blank: a cancelled draft
- * is gone.
+ * Each time the dialog opens, both fields start blank: a cancelled draft is
+ * gone.
  *
- * @summary new project: reopening starts from a blank name
+ * @summary new project: reopening starts from blank fields
  */
 export const CreateReopen: Story = {
   tags: ["ai-generated"],
@@ -207,14 +211,16 @@ export const CreateReopen: Story = {
 
     await userEvent.click(canvas.getByRole("button", { name: "New project" }));
     let dialog = await openedDialog("dialog", "New project");
-    await userEvent.type(dialog.getByLabelText("Project name"), "Draft");
+    await userEvent.type(dialog.getByLabelText("Name"), "Draft");
+    await userEvent.type(dialog.getByLabelText("Description"), "Notes");
     await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     await userEvent.click(canvas.getByRole("button", { name: "New project" }));
 
     dialog = await openedDialog("dialog", "New project");
-    await expect(dialog.getByLabelText("Project name")).toHaveValue("");
+    await expect(dialog.getByLabelText("Name")).toHaveValue("");
+    await expect(dialog.getByLabelText("Description")).toHaveValue("");
     await expect(fetchMock).not.toHaveBeenCalled();
   },
 };
@@ -260,7 +266,7 @@ export const ForChat: ForChatStory = {
       canvas.getByRole("button", { name: "File into new project" }),
     );
     const dialog = await openedDialog("dialog", "New project");
-    await userEvent.type(dialog.getByLabelText("Project name"), "New Co");
+    await userEvent.type(dialog.getByLabelText("Name"), "New Co");
     await userEvent.click(dialog.getByRole("button", { name: "Create" }));
 
     await sentRequest();
@@ -300,129 +306,20 @@ export const ForChatCancel: ForChatStory = {
   },
 };
 
-const renameArgs = { project, open: true, onOpenChange: fn() };
+const editArgs = { project, open: true, onOpenChange: fn() };
 
 /**
- * Saving the name unchanged just closes the dialog; nothing is sent.
+ * Both fields start from the project. Saving without touching either closes
+ * the dialog and sends nothing.
  *
- * @summary rename: Save with the same name closes without a request
+ * @summary edit details: seeded from the project, an unchanged save sends nothing
  */
-export const RenameUnchanged: RenameStory = {
+export const EditSeed: EditStory = {
   tags: ["ai-generated"],
-  args: renameArgs,
-  render: (args) => <RenameProjectDialog {...args} />,
+  args: editArgs,
+  render: (args) => <EditProjectDialog {...args} />,
   play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Rename project");
-    await expect(dialog.getByLabelText("Project name")).toHaveValue(
-      "Acme relaunch",
-    );
-
-    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
-
-    await expect(args.onOpenChange).toHaveBeenCalledWith(false);
-    await expect(fetchMock).not.toHaveBeenCalled();
-  },
-};
-
-/**
- * Saving a new name PATCHes the project with it and closes the dialog once
- * the server accepts it.
- *
- * @summary rename: Save with a new name sends it and closes on success
- */
-export const RenameChanged: RenameStory = {
-  tags: ["ai-generated"],
-  args: renameArgs,
-  render: (args) => <RenameProjectDialog {...args} />,
-  play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Rename project");
-    const field = dialog.getByLabelText("Project name");
-
-    await userEvent.clear(field);
-    await userEvent.type(field, "Renamed");
-    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
-    const request = await sentRequest();
-    await expect(sentRoutes()).toEqual(["PATCH /api/v1/projects/p1"]);
-    await expect(request.clone().json()).resolves.toEqual({ name: "Renamed" });
-  },
-};
-
-/**
- * Stands in for the project row that owns the dialog: it opens the dialog from
- * a Rename button, and "Rename in another tab" replaces the project's name
- * the way a list refetch does after the project was renamed elsewhere.
- */
-function RenameFromSidebar({
-  project: initial,
-}: ComponentProps<typeof RenameProjectDialog>) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(initial.name);
-  return (
-    <>
-      <Button onClick={() => setOpen(true)}>Rename</Button>
-      <Button variant="outline" onClick={() => setName("Updated elsewhere")}>
-        Rename in another tab
-      </Button>
-      <RenameProjectDialog
-        project={{ ...initial, name }}
-        open={open}
-        onOpenChange={setOpen}
-      />
-    </>
-  );
-}
-
-/**
- * Each time the dialog opens, the field starts from the project's current
- * name: a cancelled draft is gone, and a name changed while the dialog was
- * closed shows up.
- *
- * @summary rename: reopening starts from the project's current name
- */
-export const RenameReopen: RenameStory = {
-  tags: ["ai-generated"],
-  args: renameArgs,
-  render: (args) => <RenameFromSidebar {...args} />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await userEvent.click(canvas.getByRole("button", { name: "Rename" }));
-    let dialog = await openedDialog("dialog", "Rename project");
-    await userEvent.clear(dialog.getByLabelText("Project name"));
-    await userEvent.type(dialog.getByLabelText("Project name"), "Draft");
-    await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Rename in another tab" }),
-    );
-    await userEvent.click(canvas.getByRole("button", { name: "Rename" }));
-
-    dialog = await openedDialog("dialog", "Rename project");
-    await expect(dialog.getByLabelText("Project name")).toHaveValue(
-      "Updated elsewhere",
-    );
-    await expect(fetchMock).not.toHaveBeenCalled();
-  },
-};
-
-const settingsArgs = { project, open: true, onOpenChange: fn() };
-
-/**
- * Both fields start from the project: the name Rename edits, and the
- * description. Saving without touching either closes the dialog and sends
- * nothing, exactly as Rename does with an unchanged name.
- *
- * @summary settings: reopening starts from the project and an unchanged save sends nothing
- */
-export const SettingsSeed: SettingsStory = {
-  tags: ["ai-generated"],
-  args: settingsArgs,
-  render: (args) => <SettingsProjectDialog {...args} />,
-  play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Project settings");
+    const dialog = await openedDialog("dialog", "Edit details");
     await expect(dialog.getByLabelText("Name")).toHaveValue("Acme relaunch");
     await expect(dialog.getByLabelText("Description")).toHaveValue(
       "Everything about the relaunch",
@@ -440,17 +337,17 @@ export const SettingsSeed: SettingsStory = {
  * own surrounding whitespace must not read as an edit its owner never made:
  * the seed is shown verbatim and an untouched Save still only closes.
  *
- * @summary settings: an untouched save leaves stored whitespace alone
+ * @summary edit details: an untouched save leaves stored whitespace alone
  */
-export const SettingsUntouchedWhitespace: SettingsStory = {
+export const EditUntouchedWhitespace: EditStory = {
   tags: ["ai-generated"],
   args: {
-    ...settingsArgs,
+    ...editArgs,
     project: { id: "p1", name: "Acme relaunch", description: "  padded  " },
   },
-  render: (args) => <SettingsProjectDialog {...args} />,
+  render: (args) => <EditProjectDialog {...args} />,
   play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Project settings");
+    const dialog = await openedDialog("dialog", "Edit details");
     await expect(dialog.getByLabelText("Description")).toHaveValue(
       "  padded  ",
     );
@@ -463,18 +360,18 @@ export const SettingsUntouchedWhitespace: SettingsStory = {
 };
 
 /**
- * Editing both fields PATCHes both in one request — the name and the
- * description — and closes the dialog once the server accepts it. The
- * single-field cases are `SettingsRename` and `SettingsClearsDescription`.
+ * Editing both fields PATCHes both in one request and closes the dialog once
+ * the server accepts it. The single-field cases are `EditRename` and
+ * `EditClearsDescription`.
  *
- * @summary settings: Save with both fields edited sends both
+ * @summary edit details: Save with both fields edited sends both
  */
-export const SettingsChanged: SettingsStory = {
+export const EditChanged: EditStory = {
   tags: ["ai-generated"],
-  args: settingsArgs,
-  render: (args) => <SettingsProjectDialog {...args} />,
+  args: editArgs,
+  render: (args) => <EditProjectDialog {...args} />,
   play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Project settings");
+    const dialog = await openedDialog("dialog", "Edit details");
     const name = dialog.getByLabelText("Name");
     const description = dialog.getByLabelText("Description");
 
@@ -501,14 +398,14 @@ export const SettingsChanged: SettingsStory = {
  * not echoed back, so a rename that landed elsewhere while the dialog was open
  * survives a save made to edit prose.
  *
- * @summary settings: an emptied description is sent as null, without the name
+ * @summary edit details: an emptied description is sent as null, without the name
  */
-export const SettingsClearsDescription: SettingsStory = {
+export const EditClearsDescription: EditStory = {
   tags: ["ai-generated"],
-  args: settingsArgs,
-  render: (args) => <SettingsProjectDialog {...args} />,
+  args: editArgs,
+  render: (args) => <EditProjectDialog {...args} />,
   play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Project settings");
+    const dialog = await openedDialog("dialog", "Edit details");
     const description = dialog.getByLabelText("Description");
 
     await userEvent.clear(description);
@@ -527,14 +424,14 @@ export const SettingsClearsDescription: SettingsStory = {
  * a description that landed elsewhere while the dialog was open is not cleared
  * by a save made to rename.
  *
- * @summary settings: a name-only edit is sent without the description
+ * @summary edit details: a name-only edit is sent without the description
  */
-export const SettingsRename: SettingsStory = {
+export const EditRename: EditStory = {
   tags: ["ai-generated"],
-  args: settingsArgs,
-  render: (args) => <SettingsProjectDialog {...args} />,
+  args: editArgs,
+  render: (args) => <EditProjectDialog {...args} />,
   play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Project settings");
+    const dialog = await openedDialog("dialog", "Edit details");
     const name = dialog.getByLabelText("Name");
 
     await userEvent.clear(name);
@@ -548,18 +445,17 @@ export const SettingsRename: SettingsStory = {
 };
 
 /**
- * Emptying the name and pressing Enter closes without saving anything: a
- * project always has a name, so there is nothing to save — the same rule the
- * Rename dialog's own field follows.
+ * Emptying the name disables Save, and Enter in the name field saves nothing
+ * and keeps the dialog open: a project always has a name.
  *
- * @summary settings: an emptied name is never saved, even via Enter
+ * @summary edit details: an emptied name is never saved, even via Enter
  */
-export const SettingsBlankName: SettingsStory = {
+export const EditBlankName: EditStory = {
   tags: ["ai-generated"],
-  args: settingsArgs,
-  render: (args) => <SettingsProjectDialog {...args} />,
+  args: editArgs,
+  render: (args) => <EditProjectDialog {...args} />,
   play: async ({ args }) => {
-    const dialog = await openedDialog("dialog", "Project settings");
+    const dialog = await openedDialog("dialog", "Edit details");
     const name = dialog.getByLabelText("Name");
 
     await userEvent.clear(name);
@@ -567,7 +463,66 @@ export const SettingsBlankName: SettingsStory = {
     // Enter in the name field submits directly, past the disabled Save button.
     await userEvent.type(name, "{Enter}");
 
-    await expect(args.onOpenChange).toHaveBeenCalledWith(false);
+    await expect(args.onOpenChange).not.toHaveBeenCalled();
+    await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * Stands in for the project row that owns the dialog: it opens the dialog from
+ * an Edit details button, and "Rename in another tab" replaces the project's
+ * name the way a list refetch does after the project was renamed elsewhere.
+ */
+function EditFromSidebar({
+  project: initial,
+}: ComponentProps<typeof EditProjectDialog>) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(initial.name);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>Edit details</Button>
+      <Button variant="outline" onClick={() => setName("Updated elsewhere")}>
+        Rename in another tab
+      </Button>
+      <EditProjectDialog
+        project={{ ...initial, name }}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </>
+  );
+}
+
+/**
+ * Each time the dialog opens, the fields start from the project as it is
+ * then: a cancelled draft is gone, and a name changed while the dialog was
+ * closed shows up.
+ *
+ * @summary edit details: reopening starts from the project's current details
+ */
+export const EditReopen: EditStory = {
+  tags: ["ai-generated"],
+  args: editArgs,
+  render: (args) => <EditFromSidebar {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await userEvent.click(canvas.getByRole("button", { name: "Edit details" }));
+    let dialog = await openedDialog("dialog", "Edit details");
+    await userEvent.clear(dialog.getByLabelText("Name"));
+    await userEvent.type(dialog.getByLabelText("Name"), "Draft");
+    await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Rename in another tab" }),
+    );
+    await userEvent.click(canvas.getByRole("button", { name: "Edit details" }));
+
+    dialog = await openedDialog("dialog", "Edit details");
+    await expect(dialog.getByLabelText("Name")).toHaveValue(
+      "Updated elsewhere",
+    );
     await expect(fetchMock).not.toHaveBeenCalled();
   },
 };
@@ -580,7 +535,7 @@ export const SettingsBlankName: SettingsStory = {
  */
 export const Delete: DeleteStory = {
   tags: ["ai-generated"],
-  args: renameArgs,
+  args: editArgs,
   // #232 — the confirm button is base-nova's subtle destructive Button
   // (`bg-destructive/10 text-destructive`, ~3.82:1), the tracked low-contrast
   // token defect. Suppress only color-contrast until the token fix lands.

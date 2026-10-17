@@ -4345,6 +4345,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true,
+            "description": "What this project is for. Omit or pass null for none."
           }
         },
         "required": ["name"]

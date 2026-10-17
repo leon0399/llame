@@ -2,20 +2,26 @@
 
 import * as React from "react";
 
-import { useChatsQuery } from "@/lib/services/chat/queries";
+import { useChatsQuery, useOpenChat } from "@/lib/services/chat/queries";
 import { selectPinnedChatMap, usePins } from "@/lib/services/pins/queries";
 import { useProjects } from "@/lib/services/project/queries";
 import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarMenu,
 } from "@workspace/ui/components/sidebar";
 import { usePathname } from "next/navigation";
 
-import { ChatTimeGroups } from "../chat-time-groups";
+import {
+  chatListFilters,
+  type ListShow,
+  ListViewChip,
+  pinnedChatsFilters,
+  useChatListShow,
+  withOpenItem,
+} from "../chat-list-view";
+import { ChatTimeGroups, PinnedChatGroup } from "../chat-time-groups";
 import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
-import { ChatItem } from "./chat-item";
 import { CreateProjectForChatDialog } from "./project-dialogs";
 
 function useChatListData() {
@@ -23,25 +29,24 @@ function useChatListData() {
   const routeChatId = pathname.startsWith("/chat/")
     ? pathname.split("/")[2]
     : undefined;
+  const { show } = useChatListShow();
 
-  const { data: pinnedData, isLoading: pinnedLoading } = useChatsQuery({
-    pinned: "only",
-    archived: "with",
-  });
-  const {
-    data,
-    isLoading: chatsLoading,
-    hasData,
-  } = useChatsQuery({
-    pinned: "exclude",
-  });
+  const { data: pinnedData, isLoading: pinnedLoading } =
+    useChatsQuery(pinnedChatsFilters());
+  const { data, isLoading: chatsLoading } = useChatsQuery(
+    chatListFilters(show),
+  );
+  const openChat = useOpenChat(routeChatId);
   const { data: projects } = useProjects();
   const { data: pins } = usePins();
   const pinnedChats = React.useMemo(
-    () => pinnedData?.pages.flat() ?? [],
-    [pinnedData],
+    () => (show === "archived" ? [] : (pinnedData?.pages.flat() ?? [])),
+    [pinnedData, show],
   );
-  const allChats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
+  const allChats = React.useMemo(
+    () => withOpenItem(data?.pages.flat() ?? [], openChat, pinnedChats),
+    [data, openChat, pinnedChats],
+  );
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
   const pinnedAtByChatId = React.useMemo(
     () => selectPinnedChatMap(pins),
@@ -49,56 +54,16 @@ function useChatListData() {
   );
 
   return {
+    show,
     routeChatId,
     pinnedChats,
     allChats,
     allProjects,
     pinnedAtByChatId,
-    hasData,
-    isLoading: chatsLoading || pinnedLoading,
+    // Pinned gates the first paint; a view switch reloads only the list.
+    isLoading: pinnedLoading,
+    listLoading: chatsLoading,
   };
-}
-
-function PinnedChatsSection({
-  chats,
-  routeChatId,
-  projects,
-  onNewProject,
-}: {
-  chats: ReturnType<typeof useChatListData>["pinnedChats"];
-  routeChatId: string | undefined;
-  projects: ReturnType<typeof useChatListData>["allProjects"];
-  onNewProject: (chatId: string) => void;
-}) {
-  if (chats.length === 0) return null;
-
-  return (
-    <SidebarGroup>
-      {/* The sticky backdrop lives on a plain wrapper: the label owns its own
-          appearance, and the opaque fill that hides rows scrolling under it
-          is a container concern. `bg-sidebar` matches the rail in both places
-          this list renders (mobile sheet and desktop panel). */}
-      <div className="sticky top-0 z-10 bg-sidebar">
-        <SidebarGroupLabel>Pinned</SidebarGroupLabel>
-      </div>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {chats.map((chat) => (
-            <ChatItem
-              key={chat.id}
-              chat={chat}
-              isActive={chat.id === routeChatId}
-              projects={projects}
-              onNewProject={
-                onNewProject ? () => onNewProject(chat.id) : undefined
-              }
-              isPinned={true}
-            />
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  );
 }
 
 function ChatListLoadingState() {
@@ -112,63 +77,73 @@ function ChatListLoadingState() {
   );
 }
 
-function ChatListEmptyState() {
+const EMPTY_TEXT: Record<ListShow, string> = {
+  active: "Your conversations will appear here once you start chatting!",
+  archived: "No archived chats.",
+  all: "Your conversations will appear here once you start chatting!",
+};
+
+function ChatListEmptyState({ show }: { show: ListShow }) {
   return (
     <SidebarGroup>
       <SidebarGroupContent>
         <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
-          Your conversations will appear here once you start chatting!
+          {EMPTY_TEXT[show]}
         </div>
       </SidebarGroupContent>
     </SidebarGroup>
   );
 }
 
-// Chat list splits into two server-driven categories (design D4/D5):
-//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
-//   2. All section    — ?pinned=exclude (archived excluded by default)
-// This retires bug #204 by construction: Pinned is a discrete rendered
-// section above the time-grouped All, never interleaved.
-export function ChatList() {
-  const {
-    routeChatId,
-    pinnedChats,
-    allChats,
-    allProjects,
-    pinnedAtByChatId,
-    hasData,
-    isLoading,
-  } = useChatListData();
+function ChatListBody() {
+  const list = useChatListData();
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );
 
-  if (isLoading) return <ChatListLoadingState />;
-  if (!hasData && pinnedChats.length === 0) return <ChatListEmptyState />;
+  if (list.isLoading) return <ChatListLoadingState />;
+  if (
+    !list.listLoading &&
+    list.allChats.length === 0 &&
+    list.pinnedChats.length === 0
+  )
+    return <ChatListEmptyState show={list.show} />;
 
+  const rowProps = {
+    selectedChatId: list.routeChatId,
+    projects: list.allProjects,
+    onRequestNewProject: setNewProjectChatId,
+    pinnedAtByChatId: list.pinnedAtByChatId,
+    // Rail and sheet both render on the sidebar surface.
+    surfaceClassName: "bg-sidebar",
+  };
   return (
     <>
-      <PinnedChatsSection
-        chats={pinnedChats}
-        routeChatId={routeChatId}
-        projects={allProjects}
-        onNewProject={setNewProjectChatId}
-      />
-      {hasData && (
-        <ChatTimeGroups
-          chats={allChats}
-          selectedChatId={routeChatId}
-          projects={allProjects}
-          onRequestNewProject={setNewProjectChatId}
-          pinnedAtByChatId={pinnedAtByChatId}
-          // Rail and sheet both render on the sidebar surface.
-          surfaceClassName="bg-sidebar"
-        />
+      <PinnedChatGroup chats={list.pinnedChats} {...rowProps} />
+      {list.listLoading ? (
+        <ChatListLoadingState />
+      ) : (
+        <ChatTimeGroups chats={list.allChats} {...rowProps} />
       )}
       <CreateProjectForChatDialog
         chatId={newProjectChatId}
         onClose={() => setNewProjectChatId(null)}
       />
+    </>
+  );
+}
+
+// Chat list splits into two server-driven categories (design D4/D5):
+//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
+//   2. The view's list — Active, Archived, or All (see chatListFilters)
+// This retires bug #204 by construction: Pinned is a discrete rendered
+// section above the time-grouped list, never interleaved.
+export function ChatList() {
+  const view = useChatListShow();
+  return (
+    <>
+      <ListViewChip {...view} />
+      <ChatListBody />
     </>
   );
 }

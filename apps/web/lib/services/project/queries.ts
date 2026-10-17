@@ -1,7 +1,10 @@
 import { useQuery, type QueryKey } from "@tanstack/react-query";
 import { z } from "zod";
 
-import { listProjects as listProjectsEndpoint } from "../../api/generated/projects/projects";
+import {
+  getProject,
+  listProjects as listProjectsEndpoint,
+} from "../../api/generated/projects/projects";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
 // Serializable-array key factory (TkDodo's "Effective React Query Keys"),
@@ -22,6 +25,7 @@ export const projectQueryKeys = {
     filters && (filters.pinned !== undefined || filters.archived !== undefined)
       ? ([...projectQueryKeys.lists(), filters] as const)
       : projectQueryKeys.lists(),
+  detail: (id: string) => [...projectQueryKeys.all, "detail", id] as const,
 };
 
 const projectListFiltersSchema = z.object({
@@ -45,14 +49,48 @@ export const fetchProjects = (filters?: ProjectListFilters) => {
   return listProjectsEndpoint(filters, undefined, authenticatedFetch());
 };
 
-export function useProjectsQuery(filters?: ProjectListFilters) {
+export function useProjectsQuery(filters?: ProjectListFilters, enabled = true) {
   return useQuery({
     queryKey: projectQueryKeys.filtered(filters),
     queryFn: () => fetchProjects(filters),
+    enabled,
   });
+}
+
+/** One project from the archive-inclusive list (so archiving it keeps it
+ *  found), plus the list itself for callers that offer the others. */
+export function useProjectById(id: string | undefined, enabled = true) {
+  const { data: projects, isLoading } = useProjectsQuery(
+    { archived: "with" },
+    enabled && id !== undefined,
+  );
+  return {
+    projects,
+    isLoading,
+    project: projects?.find((candidate) => candidate.id === id),
+  };
 }
 
 /** @deprecated Use useProjectsQuery with explicit filters instead. */
 export function useProjects() {
   return useProjectsQuery();
+}
+
+/**
+ * One project in full, for an edit surface that only holds a lean card (the
+ * rail's pinned rows carry no description): read once each time it is
+ * enabled (each time the dialog opens), even while an observer keeps the
+ * last copy cached; `isFetching` tells the caller that copy may be stale.
+ * Focus and reconnect do not refetch it, so an open form is never withdrawn.
+ */
+export function useProjectQuery(id: string, enabled = true) {
+  return useQuery({
+    queryKey: projectQueryKeys.detail(id),
+    queryFn: ({ signal }) => getProject(id, { signal }, authenticatedFetch()),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
 }

@@ -289,4 +289,39 @@ describeIfDb('MessagesRepository running replies', () => {
     expect(reads.preview?.id).toBe(turn.userId);
     expect(reads.byId).toBeUndefined();
   });
+
+  it('previews the newest text: a failed reply with none falls back to the prompt', async () => {
+    const empty = await seedTurn();
+    const partial = await seedTurn();
+    await withMessages(async (messages) => {
+      await messages.create({
+        chatId: empty.chatId,
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: 'thinking' },
+          { type: 'text', text: '  ' },
+        ],
+        usage: { status: 'failed' },
+        inReplyTo: empty.userId,
+      });
+      await messages.create({
+        chatId: partial.chatId,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'half an answer' }],
+        usage: { status: 'failed' },
+        inReplyTo: partial.userId,
+      });
+    });
+
+    const previews = await withMessages((messages) =>
+      messages.findLatestPerOwnedChat(owner),
+    );
+    const previewOf = (chatId: string) =>
+      previews.find((message) => message.chatId === chatId);
+
+    expect(previewOf(empty.chatId)?.id).toBe(empty.userId);
+    expect(previewOf(partial.chatId)?.parts).toEqual([
+      { type: 'text', text: 'half an answer' },
+    ]);
+  });
 });

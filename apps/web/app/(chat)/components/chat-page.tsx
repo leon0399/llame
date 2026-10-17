@@ -32,6 +32,10 @@ import {
 } from "./use-chat-markdown-ready";
 import { ChatTranscript } from "./chat-transcript";
 import { ChatComposer } from "./chat-composer";
+import {
+  ArchivedChatBanner,
+  useOpenChatArchived,
+} from "./archived-chat-banner";
 import { EffectiveContextInspector } from "./effective-context-inspector";
 
 // Module-level so a draft's empty history keeps a stable identity across
@@ -322,6 +326,7 @@ function ChatSessionBody({
   ...session
 }: ChatSessionBodyProps) {
   const { status, composer, transcript, dialog } = conversation;
+  const archived = useOpenChatArchived(session.chatId);
   return (
     <>
       <ChatSessionMain
@@ -331,6 +336,7 @@ function ChatSessionBody({
         status={status}
         onInspectContext={dialog.setInspectedRunId}
       />
+      {archived && <ArchivedChatBanner chatId={session.chatId} />}
       <ChatComposer
         chatId={session.chatId}
         input={composer.input}
@@ -342,7 +348,7 @@ function ChatSessionBody({
         modelReadyForSend={composer.modelReadyForSend}
         modelSendUnavailableReason={composer.modelSendUnavailableReason}
         attachments={composer.attachments}
-        disabled={markdown.renderers === null}
+        disabled={markdown.renderers === null || archived}
       />
       <ChatSessionDialog dialog={dialog} />
     </>

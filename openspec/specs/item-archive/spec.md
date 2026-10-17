@@ -88,25 +88,6 @@ The chat and project list endpoints (`GET /chats`, `GET /projects`) SHALL accept
 - **WHEN** a user lists with `?pinned=only` after assigning an explicit pin order
 - **THEN** items appear in that owner's pin-rank order for the listed type (not by `updatedAt`)
 
-### Requirement: Web list splits into Pinned and All categories (retires #204)
-
-The web client SHALL render the chat list and the projects list as two categories built from two queries: a Pinned category from `?pinned=only&archived=with`, and an "All" category from `?pinned=exclude` (archived excluded by default). The Pinned category SHALL be a discrete rendered section above the time-grouped All category, so it is never interleaved among time groups (this retires bug #204). The Pinned category SHALL include archived pinned items (with an indicator, per the next requirement).
-
-#### Scenario: Pinned is a discrete top section
-
-- **WHEN** the chat or projects list renders
-- **THEN** pinned items form a separate section above the time-grouped All items, never rendered between time groups
-
-#### Scenario: Pinned category includes archived pinned items
-
-- **WHEN** a pinned item is archived
-- **THEN** it still appears in the Pinned category (with an indicator) rather than vanishing
-
-#### Scenario: All category excludes pinned and archived
-
-- **WHEN** the All category query (`?pinned=exclude`) returns
-- **THEN** it contains non-pinned, non-archived items only, time-grouped
-
 ### Requirement: Pinned rail keeps archived items with an indicator
 
 The pinned list (`GET /pins`) SHALL continue to include archived pinned items rather than silently dropping them, and each pin reference card (chat and project) SHALL carry `archivedAt` so the client can render an "Archived" indicator. Archived items in the rail SHALL NOT be unpinned or removed by archiving.
@@ -139,22 +120,3 @@ An archived item SHALL reject every mutating operation other than unarchive (`PA
 
 - **WHEN** a caller issues `PATCH ... archived:false` or `DELETE` on an archived item
 - **THEN** the operation succeeds (unarchive clears `archived_at`; delete removes the item)
-
-### Requirement: Web Archive control is an Archive⇄Unarchive toggle
-
-The web client SHALL present Archive as a toggle on the chat row menu, the project row menu, and the pinned-rail kebab, labeled **Archive** when the item is not archived and **Unarchive** when it is, driven by the item's `archivedAt`. Archiving SHALL optimistically update the list caches (remove from the non-pinned list, flip `archivedAt` on pinned/rail caches) with a toast and SHALL NOT navigate away from an open item. For this change, unarchive SHALL be reachable only from the pinned rail (there is no Archived view and no open-item unarchive control); non-pinned archived items are not unarchivable from the UI.
-
-#### Scenario: Toggle reflects archive state
-
-- **WHEN** a user opens the menu for an archived item
-- **THEN** the control reads Unarchive; for a non-archived item it reads Archive
-
-#### Scenario: Archive optimistically updates caches
-
-- **WHEN** a user archives an open item
-- **THEN** it is removed from the non-pinned list cache, its `archivedAt` flips in the pinned/rail caches, with a toast, and the open view remains
-
-#### Scenario: Unarchive reachable from pinned rail
-
-- **WHEN** a user opens the pinned-rail kebab for an archived pinned item
-- **THEN** the Unarchive action re-admits the item to the overview lists

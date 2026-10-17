@@ -31,8 +31,13 @@ This foundation ships **user-owned projects** only. Org-unit ownership and invit
 
 #### Scenario: A project starts with no description
 
-- **WHEN** a signed-in user creates a project with a name
+- **WHEN** a signed-in user creates a project with a name only
 - **THEN** the project has no description, and one may be set later by its owner
+
+#### Scenario: A project is created with a description
+
+- **WHEN** a signed-in user creates a project with a name and a description within the bound
+- **THEN** the project is persisted with that description
 
 #### Scenario: A description beyond the bound is rejected
 

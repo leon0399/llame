@@ -8,6 +8,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
+import { useMemo } from "react";
 import { z } from "zod";
 import {
   getChat,
@@ -353,18 +354,51 @@ export function useChatQuery(chatId: string, enabled = true) {
   });
 }
 
-export function useChatsQuery(filters?: ChatListFilters) {
+export function useChatsQuery(filters?: ChatListFilters, enabled = true) {
   const query = useInfiniteQuery({
     queryKey: chatQueryKeys.infinite(filters),
     queryFn: fetchChats,
     initialPageParam: undefined,
     getNextPageParam: () => undefined,
+    enabled,
   });
 
   return {
     ...query,
     hasData: query.data?.pages.every((page) => page.length > 0) ?? false,
   };
+}
+
+/**
+ * The open chat's card, wherever it is: the Pinned or Active list caches
+ * when the row is there (rename/title generation keep those fresh), else
+ * GET /chats/:id — the only source for an archived or not-yet-loaded chat.
+ * The detail fetch runs only when no list has the row.
+ *
+ * `fetch: false` only observes what those queries already hold, for a
+ * reader beside one that loads them (the chat page beside its header).
+ */
+export function useOpenChat(
+  chatId: string | undefined,
+  { fetch = true }: { fetch?: boolean } = {},
+): ChatResponse | undefined {
+  const { data: pinnedData } = useChatsQuery(
+    { pinned: "only", archived: "with" },
+    fetch,
+  );
+  const { data: activeData } = useChatsQuery({ pinned: "exclude" }, fetch);
+  const fromList = useMemo(() => {
+    if (!chatId) return undefined;
+    return [
+      ...(pinnedData?.pages.flat() ?? []),
+      ...(activeData?.pages.flat() ?? []),
+    ].find((candidate) => candidate.id === chatId);
+  }, [activeData, chatId, pinnedData]);
+  const { data: fromFetch } = useChatQuery(
+    chatId ?? "",
+    fetch && chatId !== undefined && fromList === undefined,
+  );
+  return chatId ? (fromList ?? fromFetch) : undefined;
 }
 
 export enum ChatGroupPeriod {

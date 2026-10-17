@@ -262,6 +262,22 @@ describe('ProjectsRepository (real Postgres)', () => {
       }
     });
 
+    it('creates a project with its description', async () => {
+      const created = await asA((repo) =>
+        repo.create({
+          ownerUserId: ownerA,
+          name: 'Described at birth',
+          description: 'Launch prep',
+        }),
+      );
+      try {
+        const found = await asA((repo) => repo.findById(created.id, ownerA));
+        expect(found?.description).toBe('Launch prep');
+      } finally {
+        await asA((repo) => repo.delete(created.id, ownerA));
+      }
+    });
+
     it('a no-op patch ({}) returns the current row unchanged', async () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Untouched' }),

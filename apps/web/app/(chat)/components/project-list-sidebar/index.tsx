@@ -1,16 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 import {
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
-import { Button } from "@workspace/ui/components/button";
 import {
   Sidebar,
   SidebarContent,
@@ -22,154 +23,45 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@workspace/ui/components/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 import {
-  ArchiveIcon,
-  CogIcon,
   FolderIcon,
   FolderPlusIcon,
   MoreHorizontalIcon,
-  PenLineIcon,
-  PinIcon,
-  PinOffIcon,
-  TrashIcon,
+  SearchIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { ArchivedBadge } from "@/components/archived-badge";
+import { CollapsibleSidebarGroup } from "@/components/collapsible-sidebar-group";
 import { PinButton } from "@/components/pin-button";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
-import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
-import { useSetProjectArchive } from "@/lib/services/project/mutations";
-import { filterProjectsByName } from "@/lib/services/project/filter";
-import { useProjectsQuery } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
+import {
+  type ListShow,
+  ListViewChip,
+  ListViewMenu,
+  type ShowControlProps,
+} from "../chat-list-view";
 import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { topBarClasses } from "@/app/shell/top-bar";
+import { NewProjectDialog } from "../chat-list-sidebar/project-dialogs";
 import {
-  DeleteProjectDialog,
-  NewProjectDialog,
-  RenameProjectDialog,
-  SettingsProjectDialog,
-} from "../chat-list-sidebar/project-dialogs";
-
-function useProjectItemPin(project: ProjectResponse, isPinned: boolean) {
-  const pinMutation = usePinItem();
-  const unpinMutation = useUnpinItem();
-  return () =>
-    isPinned
-      ? unpinMutation.mutate({ itemType: "project", itemId: project.id })
-      : pinMutation.mutate({
-          itemType: "project",
-          itemId: project.id,
-          card: {
-            id: project.id,
-            name: project.name,
-            archivedAt: project.archivedAt,
-          },
-        });
-}
-
-type ProjectRowMenuItemsProps = {
-  project: ProjectResponse;
-  isPinned: boolean;
-  onTogglePin: () => void;
-  onRename: () => void;
-  onSettings: () => void;
-  onDelete: () => void;
-};
-
-/** The row's own "danger zone" (archive toggle, then delete). It owns the
- *  archive mutation because both the label and the payload are read from the
- *  project's archive state. */
-function ProjectRowLifecycleItems({
-  project,
-  onDelete,
-}: {
-  project: ProjectResponse;
-  onDelete: () => void;
-}) {
-  const archiveMutation = useSetProjectArchive();
-  const isArchived = project.archivedAt !== null;
-
-  return (
-    <DropdownMenuGroup>
-      <DropdownMenuItem
-        onSelect={() =>
-          archiveMutation.mutate({ id: project.id, archived: !isArchived })
-        }
-      >
-        <ArchiveIcon />
-        <span>{isArchived ? "Unarchive" : "Archive"}</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-        <TrashIcon />
-        <span>Delete</span>
-      </DropdownMenuItem>
-    </DropdownMenuGroup>
-  );
-}
-
-// Grouped by action semantics with dividers, mirroring ChatItem's row menu:
-// pin toggle → rename, settings → lifecycle (archive, then delete).
-function ProjectRowMenuItems({
-  project,
-  isPinned,
-  onTogglePin,
-  onRename,
-  onSettings,
-  onDelete,
-}: ProjectRowMenuItemsProps) {
-  return (
-    <DropdownMenuContent side="bottom" align="start">
-      <DropdownMenuGroup>
-        <DropdownMenuItem onSelect={onTogglePin}>
-          {isPinned ? <PinOffIcon /> : <PinIcon />}
-          <span>{isPinned ? "Unpin" : "Pin"}</span>
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
-      <DropdownMenuSeparator />
-      <DropdownMenuGroup>
-        <DropdownMenuItem onSelect={onRename}>
-          <PenLineIcon />
-          <span>Rename</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onSettings}>
-          <CogIcon />
-          <span>Settings</span>
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
-      <DropdownMenuSeparator />
-      <ProjectRowLifecycleItems project={project} onDelete={onDelete} />
-    </DropdownMenuContent>
-  );
-}
+  ProjectDialogs,
+  ProjectMenuItems,
+  useProjectDialogs,
+  useProjectItemPin,
+} from "./project-actions";
+import { useProjectListData } from "./project-list-data";
 
 function ProjectRowMenu({
-  project,
   isActive,
-  isPinned,
-  onTogglePin,
-  onRename,
-  onSettings,
-  onDelete,
-}: {
-  project: ProjectResponse;
-  isActive: boolean;
-  isPinned: boolean;
-  onTogglePin: () => void;
-  onRename: () => void;
-  onSettings: () => void;
-  onDelete: () => void;
-}) {
+  ...items
+}: ComponentProps<typeof ProjectMenuItems> & { isActive: boolean }) {
   return (
     <DropdownMenu modal={true}>
       <HoverReveal atRest={isActive}>
@@ -178,14 +70,7 @@ function ProjectRowMenu({
           <span className="sr-only">More</span>
         </DropdownMenuTrigger>
       </HoverReveal>
-      <ProjectRowMenuItems
-        project={project}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        onRename={onRename}
-        onSettings={onSettings}
-        onDelete={onDelete}
-      />
+      <ProjectMenuItems {...items} />
     </DropdownMenu>
   );
 }
@@ -227,7 +112,7 @@ function ProjectRowLabel({
 
 // One project row, mirroring ChatItem's shape: icon + name, a live pin
 // toggle (design D2/D5a — the unified /api/v1/pins resource, pins is the
-// sole source of pin state), and a "…" menu with Rename / Settings / Archive /
+// sole source of pin state), and a "…" menu with Edit details / Archive /
 // Delete.
 type ProjectItemProps = {
   project: ProjectResponse;
@@ -236,71 +121,14 @@ type ProjectItemProps = {
   isPinned: boolean;
 };
 
-function useProjectItemDialogs() {
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  return {
-    renameOpen,
-    settingsOpen,
-    deleteOpen,
-    setRenameOpen,
-    setSettingsOpen,
-    setDeleteOpen,
-    openRename: () => setTimeout(() => setRenameOpen(true), 0),
-    openSettings: () => setTimeout(() => setSettingsOpen(true), 0),
-    openDelete: () => setTimeout(() => setDeleteOpen(true), 0),
-  };
-}
-
 const projectRowClassName = cn(
   "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
 );
 
-/** The row's three dialogs, mounted with the row so each one's field state
- *  re-seeds from the project on open (see project-dialogs.tsx). */
-function ProjectItemDialogs({
-  project,
-  renameOpen,
-  onRenameOpenChange,
-  settingsOpen,
-  onSettingsOpenChange,
-  deleteOpen,
-  onDeleteOpenChange,
-}: {
-  project: ProjectResponse;
-  renameOpen: boolean;
-  onRenameOpenChange: (open: boolean) => void;
-  settingsOpen: boolean;
-  onSettingsOpenChange: (open: boolean) => void;
-  deleteOpen: boolean;
-  onDeleteOpenChange: (open: boolean) => void;
-}) {
-  return (
-    <>
-      <RenameProjectDialog
-        project={project}
-        open={renameOpen}
-        onOpenChange={onRenameOpenChange}
-      />
-      <SettingsProjectDialog
-        project={project}
-        open={settingsOpen}
-        onOpenChange={onSettingsOpenChange}
-      />
-      <DeleteProjectDialog
-        project={project}
-        open={deleteOpen}
-        onOpenChange={onDeleteOpenChange}
-      />
-    </>
-  );
-}
-
 export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
   const isArchived = project.archivedAt !== null;
   const togglePin = useProjectItemPin(project, isPinned);
-  const dialogs = useProjectItemDialogs();
+  const dialogs = useProjectDialogs();
 
   return (
     // In-flow actions and a row-level fill, exactly as ChatItem — see
@@ -321,77 +149,180 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
           isActive={isActive}
           isPinned={isPinned}
           onTogglePin={togglePin}
-          onRename={dialogs.openRename}
-          onSettings={dialogs.openSettings}
+          onEdit={dialogs.openEdit}
           onDelete={dialogs.openDelete}
         />
-        <ProjectItemDialogs
-          project={project}
-          renameOpen={dialogs.renameOpen}
-          onRenameOpenChange={dialogs.setRenameOpen}
-          settingsOpen={dialogs.settingsOpen}
-          onSettingsOpenChange={dialogs.setSettingsOpen}
-          deleteOpen={dialogs.deleteOpen}
-          onDeleteOpenChange={dialogs.setDeleteOpen}
-        />
+        <ProjectDialogs project={project} dialogs={dialogs} />
       </div>
     </SidebarMenuItem>
   );
 }
 
-// Two server-driven categories (mirroring ChatList's architecture):
-//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
-//   2. All section    — ?pinned=exclude (archived excluded by default)
-// This retires bug #204 by construction: Pinned is a discrete rendered
-// section above All, never interleaved.
-function useProjectListSidebarData(filter: string) {
-  const { data: pinnedData, isLoading: pinnedLoading } = useProjectsQuery({
-    pinned: "only",
-    archived: "with",
-  });
-  const { data: unpinnedData, isLoading: listLoading } = useProjectsQuery({
-    pinned: "exclude",
-  });
+type ProjectSearch = { query: string; onQueryChange: (query: string) => void };
 
-  const pinnedProjects = filterProjectsByName(pinnedData ?? [], filter);
-  const filteredUnpinned = filterProjectsByName(unpinnedData ?? [], filter);
-  const hasData =
-    (pinnedData?.length ?? 0) > 0 || (unpinnedData?.length ?? 0) > 0;
-
-  return {
-    pinnedProjects,
-    filteredUnpinned,
-    hasData,
-    isLoading: pinnedLoading || listLoading,
-  };
+/** A header icon button, labelled by its tooltip. */
+function HeaderAction({
+  label,
+  onClick,
+  children,
+  ref,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
+}) {
+  return (
+    <IconButtonTooltip
+      ref={ref}
+      label={label}
+      className="size-8"
+      onClick={onClick}
+      side="bottom"
+      align="end"
+    >
+      {children}
+    </IconButtonTooltip>
+  );
 }
 
-function ProjectListSidebarHeader({
+/** Where the search button sits; while searching, the field in its place.
+ *  Closing the field removes whatever in it held focus (Escape, or the ×),
+ *  so the button that replaces it takes focus back — unless focus already
+ *  went elsewhere, as when an emptied field is tabbed away from. */
+function SearchSlot({
+  searching,
+  search,
+  onSearchingChange,
+}: {
+  searching: boolean;
+  search: ProjectSearch;
+  onSearchingChange: (searching: boolean) => void;
+}) {
+  const closed = useRef(false);
+  if (!searching)
+    return (
+      <HeaderAction
+        ref={(button) => {
+          if (button === null || !closed.current) return;
+          closed.current = false;
+          if (document.activeElement === document.body) button.focus();
+        }}
+        label="Search projects"
+        onClick={() => onSearchingChange(true)}
+      >
+        <SearchIcon />
+      </HeaderAction>
+    );
+  return (
+    <SearchFilterInput
+      value={search.query}
+      onChange={search.onQueryChange}
+      placeholder="Search projects…"
+      focusOnMount
+      onClose={() => {
+        closed.current = true;
+        onSearchingChange(false);
+      }}
+    />
+  );
+}
+
+const HEADER_MOTION = "transition-all duration-200 ease-linear";
+
+/** The rail's title, narrowing to nothing while the search field is open.
+ *  Its trailing space is a margin, not the bar's gap, so it collapses with
+ *  it and leaves the field even spacing. */
+function HeaderTitle({ searching }: { searching: boolean }) {
+  return (
+    <span
+      aria-hidden={searching}
+      className={cn(
+        "basis-0 overflow-hidden text-sm font-semibold whitespace-nowrap",
+        HEADER_MOTION,
+        searching ? "mr-0 grow-0 opacity-0" : "mr-2 grow",
+      )}
+    >
+      Projects
+    </span>
+  );
+}
+
+/** The view menu and New project, narrowing to nothing (and leaving the tab
+ *  order) while the search field is open; leading space as for the title. */
+function HeaderActions({
+  searching,
+  view,
   onNewProject,
 }: {
+  searching: boolean;
+  view: ShowControlProps;
   onNewProject: () => void;
 }) {
   return (
-    <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
-      <span className="flex-1 text-sm font-semibold">Projects</span>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={onNewProject}
-            />
-          }
-        >
-          <FolderPlusIcon />
-          <span className="sr-only">New project</span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="end">
-          New project
-        </TooltipContent>
-      </Tooltip>
+    <div
+      inert={searching}
+      // Clipped only while collapsed: a focus ring draws outside its
+      // button, so a clipping box would crop it.
+      className={cn(
+        "flex shrink-0 gap-2",
+        HEADER_MOTION,
+        searching ? "ml-0 w-0 overflow-hidden opacity-0" : "ml-2 w-18",
+      )}
+    >
+      <ListViewMenu {...view} />
+      <HeaderAction label="New project" onClick={onNewProject}>
+        <FolderPlusIcon />
+      </HeaderAction>
+    </div>
+  );
+}
+
+/**
+ * The rail's top bar: its title and actions, or — once Search is chosen —
+ * the search field, focused. The field grows out of the search button's own
+ * place: the slot widens while the title and the other actions narrow to
+ * nothing on either side of it, and the bar's padding evens out around it.
+ * Its × or Escape clears the query and brings the actions back, as does
+ * leaving an empty field.
+ */
+function ProjectListSidebarHeader({
+  view,
+  search,
+  onNewProject,
+}: {
+  view: ShowControlProps;
+  search: ProjectSearch;
+  onNewProject: () => void;
+}) {
+  const [searching, setSearching] = useState(false);
+  return (
+    <div
+      className={cn(
+        topBarClasses,
+        HEADER_MOTION,
+        searching ? "px-1.5" : "pr-1.5 pl-3",
+      )}
+    >
+      <HeaderTitle searching={searching} />
+      <div
+        className={cn(
+          "min-w-8 basis-8",
+          HEADER_MOTION,
+          searching ? "grow" : "grow-0",
+        )}
+      >
+        <SearchSlot
+          searching={searching}
+          search={search}
+          onSearchingChange={setSearching}
+        />
+      </div>
+      <HeaderActions
+        searching={searching}
+        view={view}
+        onNewProject={onNewProject}
+      />
     </div>
   );
 }
@@ -408,143 +339,160 @@ function EmptyProjectsMessage({ text }: { text: string }) {
   );
 }
 
-function ProjectGroup({
-  label,
-  projects,
-  pathname,
-  isPinned,
-}: {
-  label: string | null;
-  projects: Array<ProjectResponse>;
-  pathname: string;
-  isPinned: boolean;
-}) {
-  if (projects.length === 0) return null;
+function ProjectListSkeleton() {
   return (
     <SidebarGroup>
-      {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
       <SidebarGroupContent>
-        <SidebarMenu>
-          {projects.map((project) => (
-            <ProjectItem
-              key={project.id}
-              project={project}
-              isActive={pathname === `/projects/${project.id}`}
-              isPinned={isPinned}
-            />
-          ))}
-        </SidebarMenu>
+        <SidebarRowSkeletons />
       </SidebarGroupContent>
     </SidebarGroup>
   );
 }
 
-type ProjectListSidebarContentProps = {
-  isLoading: boolean;
-  hasData: boolean;
-  pinnedProjects: Array<ProjectResponse>;
-  filteredUnpinned: Array<ProjectResponse>;
+/** A group's project rows. */
+function ProjectRows({
+  projects,
+  pathname,
+  isPinned,
+}: {
+  projects: Array<ProjectResponse>;
   pathname: string;
-};
-
-function projectListIsEmpty({
-  isLoading,
-  hasData,
-  pinnedProjects,
-  filteredUnpinned,
-}: ProjectListSidebarContentProps): boolean {
+  isPinned: (projectId: string) => boolean;
+}) {
   return (
-    (isLoading && !hasData) ||
-    !hasData ||
-    (pinnedProjects.length === 0 && filteredUnpinned.length === 0)
+    <SidebarGroupContent>
+      <SidebarMenu>
+        {projects.map((project) => (
+          <ProjectItem
+            key={project.id}
+            project={project}
+            isActive={pathname === `/projects/${project.id}`}
+            isPinned={isPinned(project.id)}
+          />
+        ))}
+      </SidebarMenu>
+    </SidebarGroupContent>
   );
 }
 
-function ProjectListSidebarLoadingOrEmptyState({
-  isLoading,
-  hasData,
-  pinnedProjects,
-  filteredUnpinned,
-}: ProjectListSidebarContentProps) {
-  if (isLoading && !hasData) {
-    return (
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <SidebarRowSkeletons />
-        </SidebarGroupContent>
-      </SidebarGroup>
-    );
-  }
-  if (!hasData) {
-    return (
-      <EmptyProjectsMessage text="No projects yet — create one to group your chats." />
-    );
-  }
-  if (pinnedProjects.length === 0 && filteredUnpinned.length === 0) {
-    return <EmptyProjectsMessage text="No projects found" />;
-  }
-  return null;
+/** The Pinned section, folding away from its heading as the chats rail's
+ *  does. Every row in it is pinned, whether or not the pins map has loaded. */
+function PinnedProjectGroup({
+  projects,
+  pathname,
+}: {
+  projects: Array<ProjectResponse>;
+  pathname: string;
+}) {
+  if (projects.length === 0) return null;
+  return (
+    <CollapsibleSidebarGroup title="Pinned">
+      <ProjectRows
+        projects={projects}
+        pathname={pathname}
+        isPinned={() => true}
+      />
+    </CollapsibleSidebarGroup>
+  );
 }
 
+function ProjectGroup({
+  label,
+  projects,
+  pathname,
+  pinnedAtByProjectId,
+}: {
+  label: string | null;
+  projects: Array<ProjectResponse>;
+  pathname: string;
+  pinnedAtByProjectId: ReadonlyMap<string, string>;
+}) {
+  if (projects.length === 0) return null;
+  return (
+    <SidebarGroup>
+      {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
+      <ProjectRows
+        projects={projects}
+        pathname={pathname}
+        isPinned={(projectId) => pinnedAtByProjectId.has(projectId)}
+      />
+    </SidebarGroup>
+  );
+}
+
+const NO_PROJECTS_TEXT: Record<ListShow, string> = {
+  active: "No projects yet — create one to group your chats.",
+  archived: "No archived projects.",
+  all: "No projects yet — create one to group your chats.",
+};
+
+type ProjectListSidebarContentProps = ReturnType<typeof useProjectListData> & {
+  show: ListShow;
+  pathname: string;
+};
+
 function ProjectListSidebarContent(props: ProjectListSidebarContentProps) {
-  if (projectListIsEmpty(props)) {
-    return <ProjectListSidebarLoadingOrEmptyState {...props} />;
-  }
-  const { pinnedProjects, filteredUnpinned, pathname } = props;
+  const { pinnedProjects, listedProjects, pinnedAtByProjectId, pathname } =
+    props;
+  if (props.isLoading && !props.hasData) return <ProjectListSkeleton />;
+  if (!props.listLoading && !props.hasData)
+    return <EmptyProjectsMessage text={NO_PROJECTS_TEXT[props.show]} />;
+  if (
+    !props.listLoading &&
+    pinnedProjects.length === 0 &&
+    listedProjects.length === 0
+  )
+    return <EmptyProjectsMessage text="No projects found" />;
   return (
     <>
-      <ProjectGroup
-        label="Pinned"
-        projects={pinnedProjects}
-        pathname={pathname}
-        isPinned
-      />
-      <ProjectGroup
-        label={pinnedProjects.length > 0 ? "All projects" : null}
-        projects={filteredUnpinned}
-        pathname={pathname}
-        isPinned={false}
-      />
+      <PinnedProjectGroup projects={pinnedProjects} pathname={pathname} />
+      {props.listLoading ? (
+        <ProjectListSkeleton />
+      ) : (
+        <ProjectGroup
+          label={pinnedProjects.length > 0 ? "All projects" : null}
+          projects={listedProjects}
+          pathname={pathname}
+          pinnedAtByProjectId={pinnedAtByProjectId}
+        />
+      )}
     </>
   );
 }
 
 // Secondary (nested) sidebar listing projects — the /projects counterpart of
-// ChatListSidebar, same shell and desktop-only rule.
+// ChatListSidebar, with the same shell, desktop-only rule and view menu
+// (Active / Archived / All). Two server-driven categories, as there:
+//   1. Pinned section — ?pinned=only&archived=with (includes archived pinned)
+//   2. The view's list — see projectListFilters
+// This retires bug #204 by construction: Pinned is a discrete rendered
+// section above the list, never interleaved.
 export function ProjectListSidebar() {
   const { isMobile } = useSidebar();
   const pathname = usePathname();
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const { pinnedProjects, filteredUnpinned, hasData, isLoading } =
-    useProjectListSidebarData(filter);
+  const [show, setShow] = useState<ListShow>("active");
+  const openProjectId = /^\/projects\/([^/]+)/.exec(pathname)?.[1];
+  const data = useProjectListData(show, filter, openProjectId);
 
   // Only alongside the /projects routes; ChatListSidebar owns the rest.
   if (isMobile || !pathname.startsWith("/projects")) {
     return null;
   }
 
+  const view = { show, onShowChange: setShow };
   return (
     <Sidebar collapsible="none" className="hidden w-64 shrink-0 md:flex">
-      <ProjectListSidebarHeader onNewProject={() => setNewProjectOpen(true)} />
-
-      <SearchFilterInput
-        value={filter}
-        onChange={setFilter}
-        placeholder="Search projects…"
-        className="border-b px-3 py-2"
+      <ProjectListSidebarHeader
+        view={view}
+        search={{ query: filter, onQueryChange: setFilter }}
+        onNewProject={() => setNewProjectOpen(true)}
       />
-
       <SidebarContent>
-        <ProjectListSidebarContent
-          isLoading={isLoading}
-          hasData={hasData}
-          pinnedProjects={pinnedProjects}
-          filteredUnpinned={filteredUnpinned}
-          pathname={pathname}
-        />
+        <ListViewChip {...view} />
+        <ProjectListSidebarContent {...data} show={show} pathname={pathname} />
       </SidebarContent>
-
       <NewProjectDialog
         open={newProjectOpen}
         onOpenChange={setNewProjectOpen}

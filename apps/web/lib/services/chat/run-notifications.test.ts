@@ -24,25 +24,16 @@ describe("resolveTerminalRun", () => {
   const viewing = { viewingThisChat: true, tabHidden: false };
 
   it("cancelled is always silent (user stop / superseded)", () => {
-    expect(resolveTerminalRun("cancelled", away)).toEqual({
-      toast: null,
-      badge: false,
-    });
-    expect(resolveTerminalRun("cancelled", viewing).toast).toBeNull();
+    expect(resolveTerminalRun("cancelled", away)).toBeNull();
+    expect(resolveTerminalRun("cancelled", viewing)).toBeNull();
   });
 
   it("completed while away → reply-ready toast + badge", () => {
-    expect(resolveTerminalRun("completed", away)).toEqual({
-      toast: "completed",
-      badge: true,
-    });
+    expect(resolveTerminalRun("completed", away)).toBe("completed");
   });
 
   it("completed while viewing + visible → silent (they saw it)", () => {
-    expect(resolveTerminalRun("completed", viewing)).toEqual({
-      toast: null,
-      badge: false,
-    });
+    expect(resolveTerminalRun("completed", viewing)).toBeNull();
   });
 
   it("completed while viewing but tab hidden → notify (they backgrounded it)", () => {
@@ -50,14 +41,14 @@ describe("resolveTerminalRun", () => {
       resolveTerminalRun("completed", {
         viewingThisChat: true,
         tabHidden: true,
-      }).toast,
+      }),
     ).toBe("completed");
   });
 
   it("failed and expired both surface a failure toast when away", () => {
-    expect(resolveTerminalRun("failed", away).toast).toBe("failed");
+    expect(resolveTerminalRun("failed", away)).toBe("failed");
     // expired = reaped/hung — the reply never came, so it's NOT swallowed.
-    expect(resolveTerminalRun("expired", away).toast).toBe("failed");
+    expect(resolveTerminalRun("expired", away)).toBe("failed");
   });
 });
 

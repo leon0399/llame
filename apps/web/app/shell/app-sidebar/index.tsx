@@ -12,6 +12,8 @@ import {
   useSidebar,
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
+import { Kbd } from "@workspace/ui/components/kbd";
+import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 import { PanelLeftIcon } from "lucide-react";
 import { topBarClasses } from "../top-bar";
 import { AppSidebarAdminEntry } from "./app-sidebar-admin-entry";
@@ -26,14 +28,38 @@ export {
 
 function AppSidebarToggle() {
   const { open, toggleSidebar } = useSidebar();
+  const modifierKey = usePrimaryModifierKey();
   const label = open ? "Collapse sidebar" : "Expand sidebar";
+  // The sidebar primitive owns the binding (Ctrl/⌘+B); this only shows it.
+  const shortcut = `${modifierKey}+B`;
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton tooltip={label} onClick={toggleSidebar}>
+        <SidebarMenuButton
+          tooltip={{
+            // Same tooltip shape as the rail's New Chat and Search actions.
+            className:
+              "flex items-center has-data-[slot=kbd]:gap-1.5 has-data-[slot=kbd]:pe-1.5",
+            children: (
+              <>
+                {label}
+                <Kbd>{shortcut}</Kbd>
+              </>
+            ),
+          }}
+          onClick={toggleSidebar}
+          aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+B`}
+        >
           <PanelLeftIcon />
           <span>{label}</span>
+          {/* Announced through `aria-keyshortcuts`, not the button's name. */}
+          <Kbd
+            aria-hidden="true"
+            className="ml-auto group-data-[collapsible=icon]:hidden"
+          >
+            {shortcut}
+          </Kbd>
         </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>

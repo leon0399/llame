@@ -1,5 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import type { ChatResponse } from "../../api/generated/models";
+
 import {
   deleteChat as deleteChatEndpoint,
   updateChat,
@@ -54,8 +56,8 @@ export function useRenameChat() {
 export async function setChatArchive(
   id: string,
   archived: boolean,
-): Promise<void> {
-  await updateChat(
+): Promise<ChatResponse | undefined> {
+  return updateChat(
     id,
     { archived },
     undefined,
@@ -68,7 +70,10 @@ export function useSetChatArchive() {
   return useMutation({
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
       setChatArchive(id, archived),
-    onSuccess: () => {
+    onSuccess: (chat, { id }) => {
+      // The open chat leaves the Active list on refetch but stays listed via
+      // its detail card (see useOpenChat); seed it so the row never blinks.
+      if (chat) queryClient.setQueryData(chatQueryKeys.detail(id), chat);
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
     },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 
 import { SidebarTrigger } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
@@ -10,7 +10,7 @@ import { topBarClasses } from "@/app/shell/top-bar";
 import { useTypewriter } from "@/components/use-typewriter";
 import { WorkspaceIndicator } from "@/components/workspace-indicator";
 
-import { useChatQuery, useChatsQuery } from "@/lib/services/chat/queries";
+import { useOpenChat } from "@/lib/services/chat/queries";
 
 export interface ChatHeaderProps {
   className?: string;
@@ -28,37 +28,12 @@ function isResolvedTitle(title: string | null | undefined): title is string {
   return typeof title === "string";
 }
 
-/** Resolves the active chat from sidebar list caches, falling back to a
- * direct fetch for archived-unpinned chats those caches drop. */
+/** Resolves the active chat from the list caches, falling back to a direct
+ * fetch for chats those caches drop (see `useOpenChat`). */
 function useResolvedChat(
   chatId: string | undefined,
 ): { title: string; workspaceRoot: string | null } | null | undefined {
-  // Prefer the sidebar list caches when the active chat is in them — rename /
-  // title-generation invalidate lists(), so the header stays in lockstep.
-  const { data: pinnedData } = useChatsQuery({
-    pinned: "only",
-    archived: "with",
-  });
-  const { data: allData } = useChatsQuery({ pinned: "exclude" });
-
-  const chatFromList = useMemo(() => {
-    if (!chatId) return undefined;
-    const chats = [
-      ...(pinnedData?.pages.flat() ?? []),
-      ...(allData?.pages.flat() ?? []),
-    ];
-    return chats.find((candidate) => candidate.id === chatId);
-  }, [allData, chatId, pinnedData]);
-
-  // Archived unpinned chats drop out of both list queries above; cold deep
-  // links may not be in a loaded page. GET /chats/:id covers both — only
-  // when the list has no row, so a healthy list path pays no extra request.
-  const { data: chatFromFetch } = useChatQuery(
-    chatId ?? "",
-    chatId !== undefined && chatFromList === undefined,
-  );
-
-  const chat = chatFromList ?? chatFromFetch;
+  const chat = useOpenChat(chatId);
 
   return !chatId
     ? null

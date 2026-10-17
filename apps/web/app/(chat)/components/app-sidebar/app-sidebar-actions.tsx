@@ -7,14 +7,37 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { Kbd } from "@workspace/ui/components/kbd";
 import { cn } from "@workspace/ui/lib/utils";
-import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
+import {
+  detectPrimaryModifier,
+  usePrimaryModifierKey,
+} from "@workspace/ui/hooks/use-modifier-key";
 import { SearchIcon, SquarePenIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
+import {
+  isNewChatShortcut,
+  SHORTCUT_KEY_NEW_CHAT,
+} from "@/lib/command-palette";
 import { useCommandPalette } from "../command-palette";
 
-const SHORTCUT_KEY_NEW_CHAT = "o";
 const SHORTCUT_KEY_SEARCH = "k";
+
+/** Opens a new chat from anywhere in the chat shell. A held chord's
+ *  auto-repeat is ignored, so holding the keys navigates once. */
+function useNewChatShortcut() {
+  const router = useRouter();
+  useEffect(() => {
+    const isMac = detectPrimaryModifier() === "⌘";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || !isNewChatShortcut(e, isMac)) return;
+      e.preventDefault();
+      router.push("/");
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [router]);
+}
 
 function ShortcutKeyLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -44,6 +67,7 @@ export function AppSidebarActions() {
   const pathname = usePathname();
   const modifierKey = usePrimaryModifierKey();
   const palette = useCommandPalette();
+  useNewChatShortcut();
 
   const newChatShortcut = `${modifierKey}+Shift+${SHORTCUT_KEY_NEW_CHAT.toUpperCase()}`;
   const searchShortcut = `${modifierKey}+${SHORTCUT_KEY_SEARCH.toUpperCase()}`;

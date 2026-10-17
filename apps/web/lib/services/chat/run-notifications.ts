@@ -20,12 +20,8 @@ export function isTerminalRunStatus(status: RunStatus): boolean {
   return TERMINAL.has(status);
 }
 
-export type TerminalResolution = {
-  /** Which toast to show (null = stay silent). */
-  toast: "completed" | "failed" | null;
-  /** Whether to mark the chat with an unseen-completion badge. */
-  badge: boolean;
-};
+/** The outcome to surface as a toast and an unseen badge (null = stay silent). */
+export type TerminalResolution = "completed" | "failed" | null;
 
 /**
  * Decide how a tracked run reaching a terminal status is surfaced.
@@ -41,16 +37,13 @@ export function resolveTerminalRun(
   opts: { viewingThisChat: boolean; tabHidden: boolean },
 ): TerminalResolution {
   if (status === "cancelled") {
-    return { toast: null, badge: false };
+    return null;
   }
   const alreadySeen = opts.viewingThisChat && !opts.tabHidden;
   if (alreadySeen) {
-    return { toast: null, badge: false };
+    return null;
   }
-  return {
-    toast: status === "completed" ? "completed" : "failed",
-    badge: true,
-  };
+  return status === "completed" ? "completed" : "failed";
 }
 
 /**

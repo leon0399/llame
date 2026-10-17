@@ -23,51 +23,26 @@ import {
 import type { UpdateProjectPatch } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 
-// Mirrors ../app-sidebar/chat-item-dialogs.tsx's Rename/Delete pattern —
-// same Dialog+Input / AlertDialog shapes, no new visual language.
+// Mirrors ../app-sidebar/chat-item-dialogs.tsx's Dialog / AlertDialog shapes,
+// no new visual language.
 const NAME_MAX = 200;
-// The API's own cap on an owner-authored description (UpdateProjectDto); the
-// browser stops typing here rather than letting a save come back 400.
+// The API's own cap on an owner-authored description (Create/UpdateProjectDto);
+// the browser stops typing here rather than letting a save come back 400.
 const DESCRIPTION_MAX = 1000;
 
-function NameEntryInput({
-  name,
-  onNameChange,
-  onSubmit,
-  placeholder,
-}: {
-  name: string;
-  onNameChange: (name: string) => void;
-  onSubmit: () => void;
-  placeholder?: string;
-}) {
-  return (
-    <Input
-      value={name}
-      onChange={(e) => onNameChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onSubmit();
-        }
-      }}
-      maxLength={NAME_MAX}
-      placeholder={placeholder}
-      aria-label="Project name"
-      // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
-      // open; this is the dialog's primary field.
-      // oxlint-disable-next-line jsx-a11y/no-autofocus
-      autoFocus
-    />
-  );
-}
+// Only id/name are read by Delete — a narrow shape (not ProjectResponse) so
+// callers that only have a lean reference card (e.g. the rail's pinned
+// project rows) can pass one directly.
+type ProjectRef = { id: string; name: string };
 
-/** The Dialog frame `NewProjectDialog` and `RenameProjectDialog` both need —
- *  split out so each owns only its own field and submit logic. The body is a
- *  child rather than a prop set, so each form's field state lives BELOW
- *  `DialogContent`: the content unmounts while the dialog is closed, which
- *  re-seeds the field on every open without a mount-time reset. */
-function NameEntryDialog({
+/** What the details dialog edits: the lean card plus the description. */
+type ProjectDetailsRef = ProjectRef & { description: string | null };
+
+/** The Dialog frame both details dialogs share. The body is a child rather
+ *  than a prop set, so its field state lives BELOW `DialogContent`: the
+ *  content unmounts while the dialog is closed, which re-seeds the fields on
+ *  every open without a mount-time reset. */
+function ProjectDetailsFrame({
   open,
   onOpenChange,
   title,
@@ -90,200 +65,8 @@ function NameEntryDialog({
   );
 }
 
-export function NewProjectDialog({
-  open,
-  onOpenChange,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** Follow-up on the created project (e.g. file the requesting chat into it). */
-  onCreated?: (project: ProjectResponse) => void;
-}) {
-  return (
-    <NameEntryDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="New project"
-    >
-      <NewProjectForm
-        onClose={() => onOpenChange(false)}
-        onCreated={onCreated}
-      />
-    </NameEntryDialog>
-  );
-}
-
-/** The field and mutation, mounted together with the dialog's content — so a
- *  reopened dialog is a fresh mount whose field starts blank. */
-function NewProjectForm({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated?: (project: ProjectResponse) => void;
-}) {
-  const create = useCreateProject();
-  const [name, setName] = useState("");
-
-  const submit = () => {
-    const next = name.trim();
-    // isPending: the Create button disables itself, but Enter in the input
-    // calls submit() directly — guard the double-fire here too.
-    if (!next || create.isPending) return;
-    create.mutate(next, {
-      onSuccess: (project) => {
-        onClose();
-        onCreated?.(project);
-      },
-    });
-  };
-
-  return (
-    <>
-      <NameEntryInput
-        name={name}
-        onNameChange={setName}
-        onSubmit={submit}
-        placeholder="Project name"
-      />
-      <DialogSubmitFooter
-        onCancel={onClose}
-        onSubmit={submit}
-        submitLabel="Create"
-        submitDisabled={!name.trim() || create.isPending}
-      />
-    </>
-  );
-}
-
-/**
- * "New project" invoked FROM a chat row's filing submenu: one shared dialog
- * instance per list (never one per row), and the requesting chat is filed
- * into the project the moment it's created — that's the only sensible intent
- * of that entry point. `chatId === null` ⇒ closed.
- */
-export function CreateProjectForChatDialog({
-  chatId,
-  onClose,
-}: {
-  chatId: string | null;
-  onClose: () => void;
-}) {
-  const fileChat = useFileChat();
-
-  return (
-    <NewProjectDialog
-      open={chatId !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-      onCreated={(project) => {
-        if (chatId !== null) {
-          fileChat.mutate({ chatId, projectId: project.id });
-        }
-      }}
-    />
-  );
-}
-
-// Only id/name are read below — a narrow shape (not ProjectResponse) so
-// callers that only have a lean reference card (e.g. the rail's pinned
-// project rows, which never load the full ProjectResponse) can pass one
-// directly. Every existing ProjectResponse caller is a superset and still
-// typechecks.
-type ProjectRef = { id: string; name: string };
-
-export function RenameProjectDialog({
-  project,
-  open,
-  onOpenChange,
-}: {
-  project: ProjectRef;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  return (
-    <NameEntryDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Rename project"
-    >
-      <RenameProjectForm
-        project={project}
-        onClose={() => onOpenChange(false)}
-      />
-    </NameEntryDialog>
-  );
-}
-
-/** Seeded from the project's name at mount — i.e. each time the dialog opens. */
-function RenameProjectForm({
-  project,
-  onClose,
-}: {
-  project: ProjectRef;
-  onClose: () => void;
-}) {
-  const rename = useUpdateProject();
-  const [name, setName] = useState(project.name);
-
-  const submit = () => {
-    if (rename.isPending) return; // Enter bypasses the disabled Save button
-    const next = name.trim();
-    if (!next || next === project.name) {
-      onClose();
-      return;
-    }
-    rename.mutate({ id: project.id, name: next }, { onSuccess: onClose });
-  };
-
-  return (
-    <>
-      <NameEntryInput name={name} onNameChange={setName} onSubmit={submit} />
-      <DialogSubmitFooter
-        onCancel={onClose}
-        onSubmit={submit}
-        submitLabel="Save"
-        submitDisabled={!name.trim() || rename.isPending}
-      />
-    </>
-  );
-}
-
-/** The Settings dialog's own shape: the same lean card Rename and Delete take,
- *  plus the description only an edit surface needs. */
-type ProjectSettingsRef = ProjectRef & { description: string | null };
-
-/** The project's two editable fields in one dialog — the name the Rename
- *  dialog also edits, and the description. Rename stays as the one-field
- *  shortcut to the name; this is where both live together. */
-export function SettingsProjectDialog({
-  project,
-  open,
-  onOpenChange,
-}: {
-  project: ProjectSettingsRef;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  return (
-    <NameEntryDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Project settings"
-    >
-      <SettingsProjectForm
-        project={project}
-        onClose={() => onOpenChange(false)}
-      />
-    </NameEntryDialog>
-  );
-}
-
-/** The Settings dialog's name field: the same control Rename uses, plus the
- *  visible label a two-field form needs. Enter saves. */
-function SettingsNameField({
+/** The name field: single line, and Enter saves. */
+function ProjectNameField({
   name,
   onNameChange,
   onSubmit,
@@ -319,7 +102,7 @@ function SettingsNameField({
 
 /** The description field: multi-line, since a project description is prose.
  *  Enter inserts a newline here rather than saving. */
-function SettingsDescriptionField({
+function ProjectDescriptionField({
   description,
   onDescriptionChange,
 }: {
@@ -342,26 +125,148 @@ function SettingsDescriptionField({
   );
 }
 
-/** The patch a save should send, or null when there is nothing to save: a
- *  blank name (Save is disabled for it, but Enter calls submit directly) or an
- *  untouched pair both just close the dialog, exactly as Rename's own field
- *  does. Only fields that actually moved are sent, so a `project.upserted`
- *  that landed while the dialog was open (a rename from a second tab) is not
- *  reverted by a save made to edit prose — the client keeps the API's
- *  "omitted means unchanged" contract. A blank description becomes null, the
- *  stored form of "no description".
+/** Both fields and the footer, seeded from `initial` at mount. Submitting
+ *  with a blank name does nothing (Save is disabled for it, but Enter calls
+ *  submit directly), as does submitting while a save is in flight. */
+function ProjectDetailsFields({
+  initial,
+  submitLabel,
+  pending,
+  onSubmit,
+  onClose,
+}: {
+  initial: { name: string; description: string };
+  submitLabel: string;
+  pending: boolean;
+  onSubmit: (name: string, description: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [description, setDescription] = useState(initial.description);
+  const submit = () => {
+    if (!name.trim() || pending) return;
+    onSubmit(name, description);
+  };
+
+  return (
+    <>
+      <ProjectNameField name={name} onNameChange={setName} onSubmit={submit} />
+      <ProjectDescriptionField
+        description={description}
+        onDescriptionChange={setDescription}
+      />
+      <DialogSubmitFooter
+        onCancel={onClose}
+        onSubmit={submit}
+        submitLabel={submitLabel}
+        submitDisabled={!name.trim() || pending}
+      />
+    </>
+  );
+}
+
+export function NewProjectDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Follow-up on the created project (e.g. file the requesting chat into it). */
+  onCreated?: (project: ProjectResponse) => void;
+}) {
+  return (
+    <ProjectDetailsFrame
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New project"
+    >
+      <NewProjectForm
+        onClose={() => onOpenChange(false)}
+        onCreated={onCreated}
+      />
+    </ProjectDetailsFrame>
+  );
+}
+
+/** Mounted with the dialog's content, so a reopened dialog starts blank. A
+ *  blank description is sent as null, the stored form of "no description". */
+function NewProjectForm({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated?: (project: ProjectResponse) => void;
+}) {
+  const create = useCreateProject();
+  return (
+    <ProjectDetailsFields
+      initial={{ name: "", description: "" }}
+      submitLabel="Create"
+      pending={create.isPending}
+      onClose={onClose}
+      onSubmit={(name, description) =>
+        create.mutate(
+          { name: name.trim(), description: description.trim() || null },
+          {
+            onSuccess: (project) => {
+              onClose();
+              onCreated?.(project);
+            },
+          },
+        )
+      }
+    />
+  );
+}
+
+/**
+ * "New project" invoked FROM a chat row's filing submenu: one shared dialog
+ * instance per list (never one per row), and the requesting chat is filed
+ * into the project the moment it's created — that's the only sensible intent
+ * of that entry point. `chatId === null` ⇒ closed.
+ */
+export function CreateProjectForChatDialog({
+  chatId,
+  onClose,
+}: {
+  chatId: string | null;
+  onClose: () => void;
+}) {
+  const fileChat = useFileChat();
+
+  return (
+    <NewProjectDialog
+      open={chatId !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      onCreated={(project) => {
+        if (chatId !== null) {
+          fileChat.mutate({ chatId, projectId: project.id });
+        }
+      }}
+    />
+  );
+}
+
+/** The patch a save should send, or null when there is nothing to save: an
+ *  untouched pair just closes the dialog. Only fields that actually moved
+ *  are sent, so a `project.upserted` that landed while the dialog was open (a
+ *  rename from a second tab) is not reverted by a save made to edit prose —
+ *  the client keeps the API's "omitted means unchanged" contract. A blank
+ *  description becomes null, the stored form of "no description".
  *
  *  The description comparison trims the stored value the way it trims the
  *  input: the API keeps what it is given, so a description written around its
  *  own whitespace (a direct API write, say) must not read as an edit its owner
- *  never made. The name keeps whatever comparison Rename's own field makes. */
-function projectSettingsPatch(
-  project: ProjectSettingsRef,
+ *  never made. */
+function projectDetailsPatch(
+  project: ProjectDetailsRef,
   name: string,
   description: string,
 ): UpdateProjectPatch | null {
   const nextName = name.trim();
-  if (!nextName) return null;
   const nextDescription = description.trim();
   const patch: UpdateProjectPatch = {};
   if (nextName !== project.name) patch.name = nextName;
@@ -371,43 +276,74 @@ function projectSettingsPatch(
   return Object.keys(patch).length === 0 ? null : patch;
 }
 
+/** What Edit details shows before the form: the read of a lean card's
+ *  description is still running, or it failed. */
+function ProjectDetailsPending({ failed }: { failed: boolean }) {
+  return failed ? (
+    <p role="alert" className="text-sm text-destructive">
+      Couldn&apos;t load this project&apos;s details. Close and try again.
+    </p>
+  ) : (
+    <output className="text-sm text-muted-foreground">Loading details…</output>
+  );
+}
+
+/** The project's details — name and description — edited together; the one
+ *  edit surface every project menu opens. A lean card (no `description`)
+ *  opens it at once, and the form appears once the full project is read. */
+export function EditProjectDialog({
+  project,
+  readFailed = false,
+  open,
+  onOpenChange,
+}: {
+  project: ProjectRef & { description?: string | null };
+  /** The read of a lean card's full project failed. */
+  readFailed?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { description } = project;
+  return (
+    <ProjectDetailsFrame
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Edit details"
+    >
+      {description === undefined ? (
+        <ProjectDetailsPending failed={readFailed} />
+      ) : (
+        <EditProjectForm
+          project={{ ...project, description }}
+          onClose={() => onOpenChange(false)}
+        />
+      )}
+    </ProjectDetailsFrame>
+  );
+}
+
 /** Seeded from the project at mount — i.e. each time the dialog opens — and
- *  saved as one PATCH of the fields that moved (see projectSettingsPatch). */
-function SettingsProjectForm({
+ *  saved as one PATCH of the fields that moved (see projectDetailsPatch). */
+function EditProjectForm({
   project,
   onClose,
 }: {
-  project: ProjectSettingsRef;
+  project: ProjectDetailsRef;
   onClose: () => void;
 }) {
   const update = useUpdateProject();
-  const [name, setName] = useState(project.name);
-  const [description, setDescription] = useState(project.description ?? "");
-
-  const submit = () => {
-    if (update.isPending) return; // Save disables itself, Enter does not
-    const patch = projectSettingsPatch(project, name, description);
-    if (patch === null) {
-      onClose();
-      return;
-    }
-    update.mutate({ id: project.id, ...patch }, { onSuccess: onClose });
-  };
-
   return (
-    <>
-      <SettingsNameField name={name} onNameChange={setName} onSubmit={submit} />
-      <SettingsDescriptionField
-        description={description}
-        onDescriptionChange={setDescription}
-      />
-      <DialogSubmitFooter
-        onCancel={onClose}
-        onSubmit={submit}
-        submitLabel="Save"
-        submitDisabled={!name.trim() || update.isPending}
-      />
-    </>
+    <ProjectDetailsFields
+      initial={{ name: project.name, description: project.description ?? "" }}
+      submitLabel="Save"
+      pending={update.isPending}
+      onClose={onClose}
+      onSubmit={(name, description) => {
+        const patch = projectDetailsPatch(project, name, description);
+        if (patch === null) return onClose();
+        update.mutate({ id: project.id, ...patch }, { onSuccess: onClose });
+      }}
+    />
   );
 }
 
@@ -415,15 +351,23 @@ export function DeleteProjectDialog({
   project,
   open,
   onOpenChange,
+  onDeleted,
 }: {
   project: ProjectRef;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Follow-up once the project is gone (e.g. leave its page). */
+  onDeleted?: () => void;
 }) {
   const del = useDeleteProject();
 
   const confirm = () => {
-    del.mutate(project.id, { onSuccess: () => onOpenChange(false) });
+    del.mutate(project.id, {
+      onSuccess: () => {
+        onOpenChange(false);
+        onDeleted?.();
+      },
+    });
   };
 
   return (

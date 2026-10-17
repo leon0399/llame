@@ -84,13 +84,21 @@ function Probe({
   chatId: string;
   viewedChatId?: string;
 }) {
-  const { activeChatIds, completedChats, trackRun, untrackChat, markChatSeen } =
-    useActiveRuns();
+  const {
+    activeChatIds,
+    unseenRunOutcomes,
+    trackRun,
+    untrackChat,
+    markChatSeen,
+  } = useActiveRuns();
   return (
     <div>
       {viewedChatId ? <ViewedChatRegistration chatId={viewedChatId} /> : null}
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
-      <span data-testid="unread">{String(completedChats.has(chatId))}</span>
+      <span data-testid="unread">{String(unseenRunOutcomes.has(chatId))}</span>
+      <span data-testid="outcome">
+        {unseenRunOutcomes.get(chatId) ?? "none"}
+      </span>
       <button
         type="button"
         onClick={() => trackRun("run-track", chatId, "Tracked chat")}
@@ -414,7 +422,7 @@ describe("ActiveRunsProvider — failed/expired runs", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByTestId("unread").textContent).toBe("true"),
+      expect(screen.getByTestId("outcome").textContent).toBe("failed"),
     );
     expect(screen.getByText("Run failed — Tracked chat")).toBeTruthy();
     expect(screen.queryByText(/Reply ready/)).toBeNull();

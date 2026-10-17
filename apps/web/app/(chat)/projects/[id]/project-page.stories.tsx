@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
 
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
@@ -12,14 +12,17 @@ import ProjectPage from "./page";
 // The project list and the project's chats can be held until a story releases
 // them, so a story can observe the page while they are still in flight. An
 // unrouted request fails the story.
-const PROJECTS_ROUTE = "GET /api/v1/projects";
-const CHATS_ROUTE = "GET /api/v1/chats?projectId=p1";
+const PROJECTS_ROUTE = "GET /api/v1/projects?archived=with";
+const PINNED_CHATS_ROUTE =
+  "GET /api/v1/chats?projectId=p1&pinned=only&archived=with";
+const CHATS_ROUTE = "GET /api/v1/chats?projectId=p1&pinned=exclude";
 const PINS_ROUTE = "GET /api/v1/pins";
 
 const tripPlanning = {
   id: "p1",
   ownerUserId: "u1",
   name: "Trip planning",
+  description: "Flights, stays and the day-by-day plan.",
   archivedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -54,6 +57,7 @@ function routeFetch() {
     if (key === PROJECTS_ROUTE) {
       return answer(projects, (release) => (releaseProjects = release));
     }
+    if (key === PINNED_CHATS_ROUTE) return Promise.resolve(jsonResponse([]));
     if (key === CHATS_ROUTE) {
       return answer([], (release) => (releaseChats = release));
     }
@@ -110,13 +114,20 @@ export const Loading: Story = {
     await expect(canvas.getByText("…")).toBeVisible();
     await expect(canvas.getAllByRole("listitem")).toHaveLength(4);
     await waitFor(() =>
-      expect(sentRoutes()).toEqual([PROJECTS_ROUTE, CHATS_ROUTE, PINS_ROUTE]),
+      expect(sentRoutes()).toEqual([
+        PROJECTS_ROUTE,
+        PINNED_CHATS_ROUTE,
+        CHATS_ROUTE,
+        PINS_ROUTE,
+      ]),
     );
 
     releaseProjects();
     releaseChats();
 
-    await expect(await canvas.findByText("Trip planning")).toBeVisible();
+    await expect(
+      await canvas.findByRole("heading", { level: 1, name: "Trip planning" }),
+    ).toBeVisible();
     await expect(canvas.queryByText("…")).not.toBeInTheDocument();
     await expect(canvas.queryAllByRole("listitem")).toHaveLength(0);
   },
@@ -142,30 +153,99 @@ export const NotFound: Story = {
     ).toBeVisible();
     await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
     await expect(
-      canvas.queryByText("Chats in this project"),
+      canvas.queryByRole("region", { name: "Chats in this project" }),
     ).not.toBeInTheDocument();
   },
 };
 
 /**
- * The route's project heads the page, and its chats card says it has none
- * yet. The page asks the server for this project's chats only.
+ * The route's project heads the content with its name, its description, a
+ * pin toggle and its menu, and its chats list, under its own heading, says
+ * it has none yet. The page asks the server for this project's chats only.
  *
- * @summary a project with no chats: its name and the empty chats card
+ * @summary a project with no chats: its header and the empty chats list
  */
 export const NoChats: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(await canvas.findByText("Trip planning")).toBeVisible();
-    await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
-    await expect(canvas.getByText("Chats in this project")).toBeVisible();
     await expect(
-      canvas.getByText("No chats in this project yet."),
+      await canvas.findByRole("heading", { level: 1, name: "Trip planning" }),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText("Flights, stays and the day-by-day plan."),
+    ).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Pin" })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "More" })).toBeVisible();
+    // Starting a chat in the project is not built yet (#1328): the new-chat
+    // composer is there, but neither its input nor Send can be used.
+    await expect(
+      canvas.getByPlaceholderText("Describe a task or ask a question"),
+    ).toBeDisabled();
+    await expect(
+      canvas.getByRole("button", { name: "Send message" }),
+    ).toBeDisabled();
+    await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
+    const chats = within(
+      canvas.getByRole("region", { name: "Chats in this project" }),
+    );
+    await expect(
+      chats.getByText("No chats in this project yet."),
+    ).toBeVisible();
+    await expect(
+      chats.getByRole("button", { name: "View options" }),
     ).toBeVisible();
     await expect(sentRoutes()).toEqual([
       PROJECTS_ROUTE,
+      PINNED_CHATS_ROUTE,
+      CHATS_ROUTE,
+      PINS_ROUTE,
+    ]);
+  },
+};
+
+/**
+ * The side panel previews project settings that do not exist yet (#1329,
+ * #1330): Instructions' action flips between its empty state and sample
+ * text, and Context's + adds sample cards that their own remove button takes
+ * away. Nothing is sent.
+ *
+ * @summary demo side panel: instructions toggle, context cards add and remove
+ */
+export const SidePanelDemo: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const panel = within(
+      await canvas.findByRole("complementary", { name: "Project settings" }),
+    );
+
+    await expect(
+      panel.getByText("Add instructions to tailor llame's responses"),
+    ).toBeVisible();
+    await userEvent.click(
+      panel.getByRole("button", { name: "Add instructions" }),
+    );
+    await expect(
+      panel.getByRole("button", { name: "Edit instructions" }),
+    ).toBeVisible();
+    await expect(
+      panel.queryByText("Add instructions to tailor llame's responses"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(panel.getByRole("button", { name: "Add context" }));
+    await userEvent.click(panel.getByRole("button", { name: "Add context" }));
+    const cards = within(panel.getByRole("list", { name: "Project context" }));
+    await expect(cards.getAllByRole("listitem")).toHaveLength(2);
+
+    await userEvent.click(
+      cards.getByRole("button", { name: "Remove Design notes.pdf" }),
+    );
+    await expect(cards.getAllByRole("listitem")).toHaveLength(1);
+    await expect(sentRoutes()).toEqual([
+      PROJECTS_ROUTE,
+      PINNED_CHATS_ROUTE,
       CHATS_ROUTE,
       PINS_ROUTE,
     ]);
