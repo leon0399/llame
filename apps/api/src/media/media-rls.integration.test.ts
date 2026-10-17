@@ -11,11 +11,15 @@
  * - the datastore rejects metadata or bytes written for another owner, and
  *   no tenant scope can update or delete media
  * - ingest dedups per owner only, also under concurrency, and commits the
- *   object with both variants atomically
+ *   object with its variants atomically
  * - `media://` resolution returns only the caller's objects
+ * - the `media_objects_shape` CHECK admits exactly the image and the PDF
+ *   shapes (pdf-media D2), and a PDF row is as private as an image row
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { z } from 'zod';
@@ -57,6 +61,7 @@ describe('RLS integration — media store tenancy', () => {
   let userAId: string;
   let userBId: string;
   let objectAId: string;
+  let pdfAId: string;
 
   const asUser = <T>(userId: string, fn: (tx: Sql) => Promise<T>) =>
     sql.begin(async (tx: Sql) => {
@@ -81,6 +86,10 @@ describe('RLS integration — media store tenancy', () => {
     await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Media B', ${`media-b-${userBId}@test.com`})`;
 
     objectAId = (await ingestAs(userAId, await randomPng())).media.id;
+    const pdfBytes = await readFile(
+      join(__dirname, 'testing/pdf/one-page.pdf'),
+    );
+    pdfAId = (await ingestAs(userAId, pdfBytes)).media.id;
   });
 
   afterAll(async () => {
@@ -233,6 +242,67 @@ describe('RLS integration — media store tenancy', () => {
     expect(await media.findOwned(userBId, unknownId)).toBeUndefined();
     expect(await media.readVariant(userBId, id, 'original')).toBeUndefined();
     expect(await media.readVariant(userBId, id, 'model')).toBeUndefined();
+  });
+
+  it("keeps A's PDF row and its one original invisible to B", async () => {
+    const owner = await asUser(userAId, async (tx) =>
+      variantRows.parse(
+        await tx`SELECT variant::text AS variant FROM media_blobs WHERE media_id = ${pdfAId}`,
+      ),
+    );
+    expect(owner).toEqual([{ variant: 'original' }]);
+
+    const seen = await asUser(userBId, async (tx) => ({
+      objects: await tx`SELECT id FROM media_objects WHERE id = ${pdfAId}`,
+      blobs:
+        await tx`SELECT media_id FROM media_blobs WHERE media_id = ${pdfAId}`,
+    }));
+    expect(seen.objects).toHaveLength(0);
+    expect(seen.blobs).toHaveLength(0);
+    expect(await media.findOwned(userBId, pdfAId)).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'a PDF with dimensions',
+      { mediaType: 'application/pdf', width: 1, model: null, pages: 1 },
+    ],
+    [
+      'a PDF over 100 pages',
+      { mediaType: 'application/pdf', width: null, model: null, pages: 101 },
+    ],
+    [
+      'a PDF without a page count',
+      { mediaType: 'application/pdf', width: null, model: null, pages: null },
+    ],
+    [
+      'an image without model columns',
+      { mediaType: 'image/png', width: 1, model: null, pages: null },
+    ],
+    [
+      'an image with a page count',
+      { mediaType: 'image/png', width: 1, model: 'image/png', pages: 1 },
+    ],
+  ])('the shape CHECK rejects %s', async (_label, row) => {
+    const modelSize = row.model === null ? null : 1;
+    await expect(
+      asUser(
+        userAId,
+        (tx) => tx`
+          INSERT INTO media_objects (
+            id, owner_user_id, name, media_type, width, height,
+            byte_size, model_media_type, model_width, model_height,
+            model_byte_size, page_count, sha256
+          ) VALUES (
+            ${randomUUID()}, ${userAId}, 'mixed', ${row.mediaType},
+            ${row.width}, ${row.width}, 1, ${row.model}, ${modelSize},
+            ${modelSize}, ${modelSize}, ${row.pages}, ${randomUUID()}
+          )`,
+      ),
+    ).rejects.toMatchObject({
+      code: '23514',
+      constraint_name: 'media_objects_shape',
+    });
   });
 
   it('yields one object for concurrent identical ingests', async () => {

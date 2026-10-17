@@ -991,7 +991,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MediaDescriptorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MediaPdfDescriptorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -1001,7 +1008,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MediaDescriptorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MediaPdfDescriptorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -1066,7 +1080,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MediaDescriptorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MediaPdfDescriptorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -1128,6 +1149,12 @@
                 }
               },
               "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/pdf": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -3616,6 +3643,36 @@
           "model"
         ]
       },
+      "MediaPdfDescriptorResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locator": {
+            "type": "string",
+            "example": "media://01920000-0000-7000-8000-000000000000"
+          },
+          "mediaType": {
+            "type": "string",
+            "enum": ["application/pdf"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Single-line source label"
+          },
+          "byteSize": {
+            "type": "number"
+          },
+          "pages": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": ["id", "locator", "mediaType", "name", "byteSize", "pages"]
+      },
       "MediaTooLargeErrorResponse": {
         "type": "object",
         "properties": {
@@ -3630,7 +3687,7 @@
           },
           "code": {
             "type": "string",
-            "enum": ["image_too_large"]
+            "enum": ["media_too_large"]
           }
         },
         "required": ["statusCode", "error", "message", "code"]

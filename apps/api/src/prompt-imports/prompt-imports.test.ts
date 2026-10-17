@@ -868,7 +868,7 @@ describe('resolvePromptImports image entries', () => {
       existing: ['/repo/huge.png'],
       result: () => ({
         status: 'error',
-        type: 'image_too_large',
+        type: 'media_too_large',
         message: 'The image exceeds the 40-megapixel limit.',
       }),
     });

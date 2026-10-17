@@ -13,11 +13,17 @@ export const ATTACHABLE_IMAGE_TYPES: ReadonlyArray<string> = [
 ];
 
 /** Stores one image through `POST /api/v1/media` with the session cookie;
- *  rejects on any non-2xx answer (413 too large, 415 unsupported). */
-export function uploadImage(file: File): Promise<MediaDescriptor> {
-  return uploadMedia(
+ *  rejects on any non-2xx answer (413 too large, 415 unsupported), and on a
+ *  PDF descriptor, which the API returns when the picked file's bytes are a
+ *  PDF whatever its name: the composer attaches images only. */
+export async function uploadImage(file: File): Promise<MediaDescriptor> {
+  const descriptor = await uploadMedia(
     { file },
     undefined,
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );
+  if (!("width" in descriptor)) {
+    throw new Error("Only images can be attached");
+  }
+  return descriptor;
 }

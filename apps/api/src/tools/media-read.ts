@@ -43,8 +43,12 @@ export async function executeMediaRead(
     return refusal('invalid_selector', IMAGE_SELECTOR_MESSAGE);
   }
   signal?.throwIfAborted();
-  const image = await media.findImage(id);
-  return image
-    ? { ...image, kind: 'image', path }
-    : refusal('not_found', 'Image not found.');
+  const found = await media.findImage(id);
+  if (found === undefined) return refusal('not_found', 'Image not found.');
+  // Interim guard (pdf-media `pdf-store`, deleted by `pdf-read`): this also
+  // fails an `@media://` prompt import of a stored PDF.
+  if (found.kind === 'pdf') {
+    return refusal('unsupported_media_type', 'PDF reads are not supported yet');
+  }
+  return { ...found, path };
 }

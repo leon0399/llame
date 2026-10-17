@@ -10,5 +10,5 @@ export type MediaTooLargeErrorResponseCode =
   (typeof MediaTooLargeErrorResponseCode)[keyof typeof MediaTooLargeErrorResponseCode];
 
 export const MediaTooLargeErrorResponseCode = {
-  image_too_large: "image_too_large",
+  media_too_large: "media_too_large",
 } as const;

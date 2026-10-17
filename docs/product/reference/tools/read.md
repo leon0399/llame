@@ -154,7 +154,7 @@ message naming the working forms; see
 adapter document cut at the document bound fails as `representation_too_large`
 instead ([selectors](../selectors.md#media-types-and-errors)).
 A selector on an image is `invalid_selector` (`An image is read without a
-selector.`). An image over 20 MiB fails `image_too_large` before it is read
+selector.`). An image over 20 MiB fails `media_too_large` before it is read
 whole, as does one over 40 megapixels; bytes that match a signature but cannot
 be decoded fail `unsupported_media_type`. Neither falls back to text.
 `unsupported_operation` is a `skill://` or `media://` mutation refusal, and

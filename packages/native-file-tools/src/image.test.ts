@@ -142,13 +142,13 @@ describe("native image reads", () => {
       expect(byteSize).toBe(PNG.length);
       return Promise.resolve({
         status: "error",
-        type: "image_too_large",
+        type: "media_too_large",
         message: "Image exceeds 20 MiB or 40 megapixels",
       });
     };
     expect(await readFile({ path }, undefined, hook)).toEqual({
       status: "error",
-      type: "image_too_large",
+      type: "media_too_large",
       message: "Image exceeds 20 MiB or 40 megapixels",
     });
   });

@@ -31,7 +31,7 @@ export class NativeFileError extends Error {
       | "executor_unavailable"
       | "directory_too_large"
       | "representation_too_large"
-      | "image_too_large"
+      | "media_too_large"
       | "unsupported_media_type",
     message?: string,
   ) {

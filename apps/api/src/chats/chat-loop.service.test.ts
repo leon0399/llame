@@ -25,7 +25,7 @@ import { ChatLoopService } from './chat-loop.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import type { MediaDescriptor } from '../media/media-descriptors';
-import { descriptor } from '../media/media-fixtures';
+import { descriptor, storedPdfRow } from '../media/media-fixtures';
 import { MediaService } from '../media/media.service';
 
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
@@ -156,6 +156,8 @@ function makeService(options?: {
         ),
       ),
     );
+  // The stored-PDF guard looks up each id the ownership read missed.
+  const findOwned = vi.spyOn(media, 'findOwned').mockResolvedValue(undefined);
   const validateModelSelection = vi.fn(() => model);
   const resolveEffortSelection = vi.fn(() => undefined);
   const modelsService: ModelSelectionValidator = {
@@ -270,6 +272,7 @@ function makeService(options?: {
     findTurnState,
     listByRunId,
     describeOwned,
+    findOwned,
   };
 }
 
@@ -400,6 +403,39 @@ describe('ChatLoopService.createMessageStream', () => {
           parts: [storedFile, { type: 'text', text: 'compare' }],
         }),
       );
+    });
+    it('refuses a sender-owned stored PDF after checking only ownership misses', async () => {
+      const pdfId = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
+      const pdf = storedPdfRow({
+        id: pdfId,
+        ownerUserId: chat.ownerUserId,
+      });
+      const { service, describeOwned, findOwned, createUserMessageIfAbsent } =
+        makeService({ ownedMedia: [owned] });
+      findOwned.mockImplementation((_ownerUserId, id) =>
+        Promise.resolve(id === pdfId ? pdf : undefined),
+      );
+
+      await expect(
+        send(service, [
+          sentFile,
+          {
+            type: 'file',
+            mediaType: 'application/pdf',
+            url: `media://${pdfId}`,
+          },
+        ]),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: 'PDF attachments are not supported yet',
+      });
+      expect(describeOwned).toHaveBeenCalledWith(chat.ownerUserId, [
+        mediaId,
+        pdfId,
+      ]);
+      expect(findOwned).toHaveBeenCalledWith(chat.ownerUserId, pdfId);
+      expect(findOwned).toHaveBeenCalledTimes(1);
+      expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
     });
 
     // context-injection "Service-level defense keeps an image-only message"

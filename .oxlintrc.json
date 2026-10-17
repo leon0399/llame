@@ -286,6 +286,7 @@
       "files": [
         "**/db/migrate.ts",
         "**/generate-openapi.ts",
+        "**/media/pdf-parse-entry.ts",
         "**/operations/cli.ts",
         "**/src/main.ts",
         "**/src/worker.ts"

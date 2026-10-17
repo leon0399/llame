@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-16
 
+- PDF parsing now fails closed when the compiled parse entry is missing.
+  Production no longer selects the unbounded TypeScript test parser; requests
+  report `PDF parsing is unavailable on this server` and log the start failure.
+
 - The native `hackernews` adapter now reads the front page (`/`, `/news`,
   `/front`) and `/newest` as bullet lists of the first 30 stories — title,
   points, comment count, the story link, and its HN discussion link — from
@@ -95,6 +99,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   story with its title, link, tags, and score, then every comment in the
   site's thread order with its score, from the site's keyless JSON API in one
   request.
+
+# 2026-10-14
+
+- Added PDF uploads to the media store (#1275): `POST /api/v1/media` stores
+  a PDF of up to 20 MiB and 100 pages and `GET /api/v1/media/:id/original`
+  serves it, while a larger PDF is `413` `media_too_large` and an unopenable
+  or encrypted one `415` `unsupported_media_type`. Until PDFs can be attached
+  or read, a message referencing a stored PDF is `400` and `read` of its
+  `media://` locator fails `unsupported_media_type`. **Breaking:**
+  `image_too_large` is now `media_too_large` on upload, `read`, web `read`,
+  and prompt imports, with the message `Image exceeds 20 MiB or 40 megapixels`,
+  `PDF exceeds 20 MiB or 100 pages`, or `File exceeds 20 MiB`; there is no
+  alias. See [media store](docs/product/operator/media.md#pdfs) for the rest.
 
 # 2026-10-11
 

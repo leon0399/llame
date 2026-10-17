@@ -7,6 +7,7 @@
  */
 import type {
   MediaDescriptorResponse,
+  MediaPdfDescriptorResponse,
   MediaTooLargeErrorResponse,
   MediaUnsupportedErrorResponse,
   UploadMediaBody,
@@ -26,7 +27,7 @@ export const uploadMedia = async (
   uploadMediaBody: UploadMediaBody,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
-): Promise<MediaDescriptorResponse> => {
+): Promise<MediaDescriptorResponse | MediaPdfDescriptorResponse> => {
   const formData = new FormData();
   formData.append(`file`, uploadMediaBody.file);
 
@@ -53,7 +54,9 @@ export const uploadMedia = async (
     err.status = res.status;
     throw err;
   }
-  const data: MediaDescriptorResponse = body ? JSON.parse(body) : {};
+  const data: MediaDescriptorResponse | MediaPdfDescriptorResponse = body
+    ? JSON.parse(body)
+    : {};
   return data;
 };
 
@@ -67,7 +70,7 @@ export const getMedia = async (
   id: string,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
-): Promise<MediaDescriptorResponse> => {
+): Promise<MediaDescriptorResponse | MediaPdfDescriptorResponse> => {
   const res = await fetchFn(getGetMediaUrl(id), {
     ...options,
     method: "GET",
@@ -88,7 +91,9 @@ export const getMedia = async (
     err.status = res.status;
     throw err;
   }
-  const data: MediaDescriptorResponse = body ? JSON.parse(body) : {};
+  const data: MediaDescriptorResponse | MediaPdfDescriptorResponse = body
+    ? JSON.parse(body)
+    : {};
   return data;
 };
 

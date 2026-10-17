@@ -6,7 +6,12 @@ import request from 'supertest';
 
 import { AuthContext, type AuthenticatedRequest } from '../auth/auth-context';
 import { type MediaObject } from '../db/schema';
-import { MEDIA_MAX_BYTES, MediaIngestError } from './media-ingest';
+import { storedPdfRow } from './media-fixtures';
+import {
+  MEDIA_MAX_BYTES,
+  MEDIA_REFUSAL,
+  MediaIngestError,
+} from './media-ingest';
 import { MediaController } from './media.controller';
 import { MediaService } from './media.service';
 
@@ -26,9 +31,12 @@ const stored: MediaObject = {
   modelWidth: 8,
   modelHeight: 6,
   modelByteSize: 1000,
+  pageCount: null,
   sha256: SHA,
   createdAt: new Date('2026-10-10T00:00:00.000Z'),
 };
+
+const storedPdf = storedPdfRow({ ownerUserId: OWNER, pageCount: 15 });
 
 /**
  * The controller behind the real Nest pipeline (multer, filters, Express
@@ -74,32 +82,31 @@ describe('MediaController upload', () => {
   });
 
   it.each([
-    [
-      'image_too_large',
-      413,
-      'Payload Too Large',
-      'Image exceeds 20 MiB or 40 megapixels',
-    ],
-    [
-      'unsupported_media_type',
-      415,
-      'Unsupported Media Type',
-      'Only PNG, JPEG, GIF, and WebP images are accepted',
-    ],
+    [MEDIA_REFUSAL.imageTooLarge, 413, 'Payload Too Large'],
+    [MEDIA_REFUSAL.pdfTooLarge, 413, 'Payload Too Large'],
+    [MEDIA_REFUSAL.unsupportedImage, 415, 'Unsupported Media Type'],
+    [MEDIA_REFUSAL.unopenablePdf, 415, 'Unsupported Media Type'],
   ] as const)(
-    'answers an ingest %s refusal %i',
-    async (code, statusCode, error, message) => {
+    'answers the ingest refusal %j with %i (%s)',
+    async (refusal, statusCode, error) => {
       await withMediaApp(async (server, media) => {
-        vi.spyOn(media, 'ingest').mockRejectedValue(new MediaIngestError(code));
+        vi.spyOn(media, 'ingest').mockRejectedValue(
+          new MediaIngestError(refusal),
+        );
 
         const response = await uploadPng(server).expect(statusCode);
 
-        expect(response.body).toEqual({ statusCode, error, message, code });
+        expect(response.body).toEqual({
+          statusCode,
+          error,
+          message: refusal.message,
+          code: refusal.code,
+        });
       });
     },
   );
 
-  it('answers a file over the byte bound with the image_too_large body', async () => {
+  it('answers a file over the byte bound with the media_too_large body', async () => {
     await withMediaApp(async (server, media) => {
       const ingest = vi.spyOn(media, 'ingest');
 
@@ -111,8 +118,8 @@ describe('MediaController upload', () => {
       expect(response.body).toEqual({
         statusCode: 413,
         error: 'Payload Too Large',
-        message: 'Image exceeds 20 MiB or 40 megapixels',
-        code: 'image_too_large',
+        message: MEDIA_REFUSAL.fileTooLarge.message,
+        code: MEDIA_REFUSAL.fileTooLarge.code,
       });
       expect(ingest).not.toHaveBeenCalled();
     });
@@ -125,6 +132,27 @@ describe('MediaController upload', () => {
       const response = await uploadPng(server).expect(500);
 
       expect(response.body).not.toHaveProperty('code');
+    });
+  });
+});
+
+describe('MediaController descriptor', () => {
+  it('answers a PDF with the closed PDF descriptor', async () => {
+    await withMediaApp(async (server, media) => {
+      vi.spyOn(media, 'findOwned').mockResolvedValue(storedPdf);
+
+      const response = await request(server)
+        .get(`/api/v1/media/${ID}`)
+        .expect(200);
+
+      expect(response.body).toStrictEqual({
+        id: ID,
+        locator: `media://${ID}`,
+        mediaType: 'application/pdf',
+        name: 'scan.pdf',
+        byteSize: 1234,
+        pages: 15,
+      });
     });
   });
 });
@@ -183,6 +211,51 @@ describe('MediaController byte routes', () => {
       vi.spyOn(media, 'readVariant').mockResolvedValue(undefined);
 
       await request(server).get(`/api/v1/media/${ID}/original`).expect(404);
+    });
+  });
+
+  // media-store "A PDF has no model route": the same 404 as an unknown id,
+  // decided before any validator is set or compared.
+  it.each<[string, Record<string, string>]>([
+    ['without If-None-Match', {}],
+    ['with a matching If-None-Match', { 'If-None-Match': `"${SHA}-model"` }],
+  ])('answers 404 for the model of a PDF %s', async (_label, headers) => {
+    await withMediaApp(async (server, media) => {
+      vi.spyOn(media, 'findOwned')
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValue(storedPdf);
+      const readVariant = vi.spyOn(media, 'readVariant');
+      const unknown = await request(server)
+        .get(`/api/v1/media/${ID}/model`)
+        .expect(404);
+
+      const response = await request(server)
+        .get(`/api/v1/media/${ID}/model`)
+        .set(headers)
+        .expect(404);
+
+      expect(response.body).toEqual(unknown.body);
+      // Express sets its own body ETag on every 404; the variant validator is never set.
+      expect(response.headers.etag).not.toBe(`"${SHA}-model"`);
+      expect(response.headers.etag).toBe(unknown.headers.etag);
+      expect(readVariant).not.toHaveBeenCalled();
+    });
+  });
+
+  it('serves the original of a PDF as application/pdf', async () => {
+    await withMediaApp(async (server, media) => {
+      vi.spyOn(media, 'findOwned').mockResolvedValue(storedPdf);
+      vi.spyOn(media, 'readVariant').mockResolvedValue(Buffer.from('%PDF-'));
+
+      const response = await request(server)
+        .get(`/api/v1/media/${ID}/original`)
+        .expect(200);
+
+      expect(response.headers).toMatchObject({
+        etag: `"${SHA}-original"`,
+        'content-type': 'application/pdf',
+        'content-security-policy': 'sandbox',
+      });
     });
   });
 });

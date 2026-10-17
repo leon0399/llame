@@ -2,9 +2,11 @@ import type { ImageReadHook } from '@workspace/native-file-tools';
 
 import type { MediaObject } from '../db/schema';
 import type { HeldImage } from './attempt-images';
+import { imageColumns } from './media-descriptors';
 import {
   encodeThumbnail,
   MEDIA_MAX_BYTES,
+  MEDIA_REFUSAL,
   MediaIngestError,
   prepareMedia,
 } from './media-ingest';
@@ -14,11 +16,15 @@ import type { MediaService } from './media.service';
 /** The owner's stored image a `media://` read returns. */
 export type StoredImage = {
   status: 'success';
+  kind: 'image';
   media: string;
   mediaType: string;
   width: number;
   height: number;
 };
+
+/** The owner's stored PDF, which a `media://` read refuses until pdf-read. */
+export type StoredPdf = { kind: 'pdf' };
 
 /**
  * The Run owner's media as native `read` sees it (vision-media D7), bound at
@@ -37,17 +43,27 @@ export type ToolMediaStore = {
     locator: string,
     key: string | undefined,
   ) => ImageReadHook;
-  /** The owner's image, or undefined for a foreign or unknown id alike. */
-  readonly findImage: (id: string) => Promise<StoredImage | undefined>;
+  /**
+   * The owner's image or PDF, or undefined for a foreign or unknown id alike.
+   */
+  readonly findImage: (
+    id: string,
+  ) => Promise<StoredImage | StoredPdf | undefined>;
 };
 
-function imageOf(stored: MediaObject): StoredImage {
+function storedOf(stored: MediaObject): StoredImage | StoredPdf | undefined {
+  // Only a PDF row has a page count (media_objects_shape).
+  if (stored.pageCount !== null) return { kind: 'pdf' };
+  const image = imageColumns(stored);
+  if (image === undefined) return undefined;
+  const { width, height } = image;
   return {
     status: 'success',
+    kind: 'image',
     media: mediaLocator(stored.id),
     mediaType: stored.mediaType,
-    width: stored.width,
-    height: stored.height,
+    width,
+    height,
   };
 }
 
@@ -68,7 +84,7 @@ function unstoredRead(
   return async ({ byteSize, readBytes, signal }) => {
     try {
       if (byteSize > MEDIA_MAX_BYTES) {
-        throw new MediaIngestError('image_too_large');
+        throw new MediaIngestError(MEDIA_REFUSAL.imageTooLarge);
       }
       const { original, model } = await prepareMedia(await readBytes());
       const thumbnail = await encodeThumbnail(model.bytes);
@@ -109,7 +125,7 @@ export function createToolMediaStore(
       unstoredRead({ images, imageInput }, locator, key),
     async findImage(id) {
       const stored = await media.findOwned(ownerUserId, id);
-      return stored && imageOf(stored);
+      return stored && storedOf(stored);
     },
   };
 }
