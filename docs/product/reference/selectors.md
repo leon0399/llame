@@ -218,11 +218,13 @@ line, and a setext heading contributes all of its text lines and its underline
 verbatim. No excerpt line or outline 120-code-unit cut is added, and lines
 already emitted by the passage window or an earlier chain are not repeated.
 
-For a single range, emitting at least one ancestor promotes the result to the
-existing plural `requestedRanges` and `shownRanges` shape. `requestedRanges`
-contains only the requested interval; `shownRanges` includes the ancestor and
-context intervals, merging adjacent intervals. If no ancestor line is emitted,
-singular `requestedRange` and `shownRange` remain unchanged. A comma-separated
+For a single range, emitting at least one ancestor or header line promotes
+the result to the existing plural `requestedRanges` and `shownRanges` shape, so
+a headingless file read at a table body row is plural on the header pair alone.
+`requestedRanges` contains only the requested interval; `shownRanges` includes
+the ancestor, header, and context intervals, merging adjacent intervals. If no
+ancestor or header line is emitted, singular `requestedRange` and `shownRange`
+remain unchanged. A comma-separated
 request is plural as usual; each merged passage gets the chain for its first
 requested line. A chain emits only heading lines before its passage's first shown
 line, and a chain line that would precede content already emitted is skipped, so
