@@ -12,7 +12,6 @@ import { AppSidebarActions } from "./components/app-sidebar/app-sidebar-actions"
 import { ChatList } from "./components/chat-list-sidebar/chat-list";
 import { ChatListSidebar } from "./components/chat-list-sidebar";
 import { ProjectListSidebar } from "./components/project-list-sidebar";
-import { ChatSidebar } from "./components/chat-sidebar";
 import { ChatHeader } from "./components/chat-header";
 import { ChatListShowProvider } from "./components/chat-list-view";
 
@@ -50,8 +49,6 @@ export default async function Layout({
 
                     {children}
                   </SidebarInset>
-
-                  <ChatSidebar className="hidden!" />
                 </ChatListShowProvider>
               </CommandPaletteProvider>
             </ChatProvider>
