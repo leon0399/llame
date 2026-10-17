@@ -112,48 +112,6 @@ checkpoint recovery, and an approval UI provide different guarantees.
 
 Read the ranked index first, then open individual references as needed.
 
-## Multi-machine and container placement
-
-Which References document **execution placement** beyond one local worktree host.
-Worktrees-on-one-Mac, remote UI/relay only, OS tool sandboxes (bwrap/seatbelt),
-and LLM provider backends are not placement. Confidence is moderate: closed
-products and README claims were not re-executed here.
-
-**Multi-host / multi-box** (control plane can use more than one machine or
-backend for agent execution):
-
-- [bb](./bb.md) — server plus enrolled host daemons; environment binds workspace→host
-- [Shipyard](./shipyard.md) — per-box `berthd`; agents run on the boxes
-- [Orca](./orca.md) — execution hosts `local` / `ssh:` / `runtime:` plus cloud VM recipes
-- [Zeron](./zeron.md) — headless/VPS engine driven from a laptop; multi-device sync peers
-- [OpenHands](./openhands.md) — switchable local / remote / Docker / Cloud Agent Server backends
-- [Jean](./jean.md) — multiple `jean-server` connections; `(serverId, resourceId)` identity
-- [Emdash](./emdash.md) — local and remote SSH project hosts
-- [Kandev](./kandev.md) — executor profiles across local/worktree/Docker/K8s/SSH/Sprites
-- [Paseo](./paseo.md) — CLI `--host` / `ssh://` selects among remote daemons
-- [Superset](./superset.md) — connect another machine; Remote Access hosts; cloud workspaces
-- [MonoCode](./monocode.md) — Settings→Connections machine registry (experimental SSH hosts)
-- [Ghostex](./ghostex.md) — remote machines via Easy Connect or SSH in the sidebar
-- [Agentastic](./agentastic.md) — SSH hosts plus Modal/Fly/Vercel (closed; site claims)
-- [OpenClaw](./openclaw.md) — tool sandboxes, Crabbox cloud workers, paired-device hosting
-  (detail in the [execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md))
-
-**Multi-container / cloud sandbox placement** (per-task or disposable runtime,
-even with a single laptop UI):
-
-- [OpenHands](./openhands.md) — `OH_CONVERSATION_RUNTIME=docker` per conversation
-- [Omnigent](./omnigent.md) — cloud sandbox provider matrix (Modal, E2B, K8s, …)
-- [Hermes Agent](./hermes-agent.md) — seven terminal backends (local/Docker/SSH/Modal/…)
-- [Loki Agent](./loki.md) — same Hermes-derived terminal backend matrix (+ AgentVM)
-- [Conductor](./conductor.md) — optional Conductor Cloud (Vercel) sandboxes
-- [nanoclaw](./nanoclaw.md) — per-session containers with host mailbox
-- [OpenDots](./opendots.md) — per-Dot authorized computer executors
-- [AX](./ax.md) — desired-state task sandboxes over Agent Substrate
-
-**Single remote only** (optional one SSH/daemon host, not a multi-box registry):
-[super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
-[T3 Code](./t3-code.md).
-
 ## Index
 
 Ordered by implementation relevance during llame's alpha: breadth of reusable
@@ -224,3 +182,45 @@ assessment.
 60. [Ghostex](./ghostex.md) — GPUI workarea over gxserver and zmx/wmx session daemons; peer CLIs with chat/CLI views, Tab prompt queue, and orchestrator/thread vocabulary
 61. [Tortie](./tortie.md) — macOS Electron agent multiplexer: private tmux sessions, SQLite manifest-before-spawn, armed resume commands, and cross-project needs-input attention
 62. [OpenCodex](./opencodex.md) — Provider proxy / Responses wire translator (better as a tool); ChatGPT account-pool affinity
+
+## Multi-machine and container placement
+
+Which References document **execution placement** beyond one local worktree host.
+Worktrees-on-one-Mac, remote UI/relay only, OS tool sandboxes (bwrap/seatbelt),
+and LLM provider backends are not placement. Confidence is moderate: closed
+products and README claims were not re-executed here.
+
+**Multi-host / multi-box** (control plane can use more than one machine or
+backend for agent execution):
+
+- [bb](./bb.md) — server plus enrolled host daemons; environment binds workspace→host
+- [Shipyard](./shipyard.md) — per-box `berthd`; agents run on the boxes
+- [Orca](./orca.md) — execution hosts `local` / `ssh:` / `runtime:` plus cloud VM recipes
+- [Zeron](./zeron.md) — headless/VPS engine driven from a laptop; multi-device sync peers
+- [OpenHands](./openhands.md) — switchable local / remote / Docker / Cloud Agent Server backends
+- [Jean](./jean.md) — multiple `jean-server` connections; `(serverId, resourceId)` identity
+- [Emdash](./emdash.md) — local and remote SSH project hosts
+- [Kandev](./kandev.md) — executor profiles across local/worktree/Docker/K8s/SSH/Sprites
+- [Paseo](./paseo.md) — CLI `--host` / `ssh://` selects among remote daemons
+- [Superset](./superset.md) — connect another machine; Remote Access hosts; cloud workspaces
+- [MonoCode](./monocode.md) — Settings→Connections machine registry (experimental SSH hosts)
+- [Ghostex](./ghostex.md) — remote machines via Easy Connect or SSH in the sidebar
+- [Agentastic](./agentastic.md) — SSH hosts plus Modal/Fly/Vercel (closed; site claims)
+- [OpenClaw](./openclaw.md) — tool sandboxes, Crabbox cloud workers, paired-device hosting
+  (detail in the [execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md))
+
+**Multi-container / cloud sandbox placement** (per-task or disposable runtime,
+even with a single laptop UI):
+
+- [OpenHands](./openhands.md) — `OH_CONVERSATION_RUNTIME=docker` per conversation
+- [Omnigent](./omnigent.md) — cloud sandbox provider matrix (Modal, E2B, K8s, …)
+- [Hermes Agent](./hermes-agent.md) — seven terminal backends (local/Docker/SSH/Modal/…)
+- [Loki Agent](./loki.md) — same Hermes-derived terminal backend matrix (+ AgentVM)
+- [Conductor](./conductor.md) — optional Conductor Cloud (Vercel) sandboxes
+- [nanoclaw](./nanoclaw.md) — per-session containers with host mailbox
+- [OpenDots](./opendots.md) — per-Dot authorized computer executors
+- [AX](./ax.md) — desired-state task sandboxes over Agent Substrate
+
+**Single remote only** (optional one SSH/daemon host, not a multi-box registry):
+[super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
+[T3 Code](./t3-code.md).
