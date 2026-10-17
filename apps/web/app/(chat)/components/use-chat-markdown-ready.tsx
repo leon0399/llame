@@ -121,16 +121,23 @@ export function useChatMarkdownReady(): ChatMarkdownLoadState {
   return useContext(ChatMarkdownContext);
 }
 
-/** Resolve (and cache) the renderers — used by tests to avoid a cold-load flake. */
-export function ensureChatMarkdownRenderersLoaded(): Promise<ChatMarkdownRenderers> {
-  return loadChatMarkdownRenderers();
-}
-
 /** Test-only: replace the dynamic import with a controllable promise. */
 export function setChatMarkdownLoadForTests(
   override: (() => Promise<ChatMarkdownRenderers>) | null,
 ): void {
   loadOverride = override;
   cachedRenderers = null;
+  loadPromise = null;
+}
+
+/**
+ * Test-only: start from a warm cache holding `renderers`, as a tab that has
+ * already loaded the chunks would, without importing them. `null` clears it.
+ */
+export function setChatMarkdownRenderersForTests(
+  renderers: ChatMarkdownRenderers | null,
+): void {
+  loadOverride = null;
+  cachedRenderers = renderers;
   loadPromise = null;
 }
