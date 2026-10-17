@@ -344,7 +344,15 @@ than decoding the whole file first. A reader SHALL NOT change source
 admission, permission projection, owner resolution, executor binding, request
 policy, or the source-specific result envelope. Readers over
 bytes rather than decoded text SHALL define their own input contract rather
-than widening this one.
+than widening this one. Image detection is such a byte-level reader and sits
+outside the table: under the image read requirement it inspects a regular
+file's leading bytes, or a web body declared as an accepted image type, before
+any text decoding. PDF detection is another such reader: under the PDF read
+requirement it inspects a regular file's leading bytes for `%PDF-`, or a web
+body declared `application/pdf`, before any text decoding. The table SHALL gain
+no image or PDF member and no image or PDF media type, an image or PDF source
+SHALL have no representation, and an image or PDF result SHALL carry no
+`representation` field.
 
 #### Scenario: A Markdown file selects the outline reader
 
@@ -360,9 +368,9 @@ than widening this one.
 
 #### Scenario: An unsupported media type names the accepted types
 
-- **WHEN** the model requests `:outline` for an otherwise readable `.json`, `.mdx`, `.pdf`, `.txt`, or binary file, or for a web read whose result is `text`, `raw`, or a `negotiated` `text/plain` body
+- **WHEN** the model requests `:outline` for an otherwise readable `.json`, `.mdx`, `.txt`, or binary file whose leading bytes match no image signature and no PDF signature, or for a web read whose result is `text`, `raw`, or a `negotiated` `text/plain` body
 - **THEN** the tool returns `invalid_selector` naming `text/markdown` as the member's accepted media type
-- **AND** an ordinary read of that source is unchanged
+- **AND** an ordinary read of that source is unchanged, and `:outline` on a `.pdf` file whose leading bytes are `%PDF-` returns `invalid_selector` with the message `An image or PDF is read without a selector.`
 
 #### Scenario: Admission denies the submitted locator before any parse
 
@@ -381,3 +389,15 @@ than widening this one.
 - **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory, on `skill://`, or on a web read whose adapter returned a directory result
 - **THEN** the tool returns `invalid_selector`
 - **AND** it does not reinterpret the listing as headings or return a listing page as outline content
+
+#### Scenario: An image is detected outside the representation table
+
+- **WHEN** the model reads `/work/shot.png` without a member and its leading bytes are a PNG image
+- **THEN** the result is the image result and carries no `representation` field
+- **AND** `/work/shot.png:outline` returns `invalid_selector` rather than an outline or an image result
+
+#### Scenario: A PDF is detected outside the representation table
+
+- **WHEN** the model reads `/docs/paper.pdf` without a member and its leading bytes are `%PDF-`
+- **THEN** the result is the PDF result and carries no `representation` field
+- **AND** `/docs/paper.pdf:outline` returns `invalid_selector` rather than an outline or a PDF result
