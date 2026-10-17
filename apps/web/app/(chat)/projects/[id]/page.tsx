@@ -91,8 +91,8 @@ function ProjectChatsList({
 }
 
 /** The project's chats, unboxed — a list that grows as it scrolls does not
- *  belong in a bordered card — with the same view menu and grouped list as
- *  the chats rail. No heading: on a project's page, the chats are its own. */
+ *  belong in a bordered card — under their own heading, with the same view
+ *  menu and grouped list as the chats rail. */
 function ProjectChats({
   view,
   rows,
@@ -100,14 +100,16 @@ function ProjectChats({
   view: ProjectChatsView;
   rows: ProjectChatRows;
 }) {
+  const headingId = React.useId();
   return (
-    <section aria-label="Chats" className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2">
-        <ListViewChip show={view.show} onShowChange={view.onShowChange} />
-        <div className="ml-auto">
-          <ListViewMenu show={view.show} onShowChange={view.onShowChange} />
-        </div>
+    <section aria-labelledby={headingId} className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 pl-2">
+        <h2 id={headingId} className="flex-1 text-sm font-semibold">
+          Chats in this project
+        </h2>
+        <ListViewMenu show={view.show} onShowChange={view.onShowChange} />
       </div>
+      <ListViewChip show={view.show} onShowChange={view.onShowChange} />
       <ProjectChatsList view={view} rows={rows} />
     </section>
   );
