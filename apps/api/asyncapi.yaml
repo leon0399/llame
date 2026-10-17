@@ -176,7 +176,7 @@ components:
     projectUpserted:
       name: project.upserted
       title: Project created or updated
-      summary: The project as `GET /api/v1/projects` lists it, after any change (rename, archive).
+      summary: The project as `GET /api/v1/projects` lists it, after any change (rename, description, archive).
       payload:
         $ref: '#/components/schemas/ProjectUpsertedMessage'
       examples:
@@ -187,6 +187,7 @@ components:
               id: 5d0f2b9e-71c4-4a6b-8e3d-2f9a1c7b4e60
               ownerUserId: usr_8Jq2mXv4Kp
               name: Realtime
+              description: null
               createdAt: '2026-10-16T09:20:31.004Z'
               updatedAt: '2026-10-16T09:20:31.004Z'
               archivedAt: null

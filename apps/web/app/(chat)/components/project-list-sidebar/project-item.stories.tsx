@@ -10,6 +10,7 @@ const baseProject: ProjectResponse = {
   id: "p1",
   ownerUserId: "u1",
   name: "Acme relaunch",
+  description: null,
   createdAt: "2026-07-20T10:00:00.000Z",
   updatedAt: "2026-07-20T10:00:00.000Z",
   archivedAt: null,
@@ -134,5 +135,35 @@ export const RowMenu: Story = {
     await expect(
       within(menu).getByRole("menuitem", { name: "Delete" }),
     ).toBeInTheDocument();
+  },
+};
+
+/**
+ * The Settings entry beside Rename opens the project's settings dialog, with
+ * the name and the description seeded from the project.
+ *
+ * @summary Settings opens the name + description dialog
+ */
+export const RowMenuSettings: Story = {
+  args: {
+    project: { ...baseProject, description: "Everything about the relaunch" },
+  },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+    const menu = await screen.findByRole("menu");
+    await userEvent.click(
+      within(menu).getByRole("menuitem", { name: "Settings" }),
+    );
+
+    const dialog = within(
+      await screen.findByRole("dialog", { name: "Project settings" }),
+    );
+    await expect(dialog.getByLabelText("Name")).toHaveValue("Acme relaunch");
+    await expect(dialog.getByLabelText("Description")).toHaveValue(
+      "Everything about the relaunch",
+    );
   },
 };

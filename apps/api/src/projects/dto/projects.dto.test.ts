@@ -13,6 +13,7 @@ const project: Project = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'verified-user',
   name: 'Project',
+  description: 'Everything about the Acme relaunch',
   createdAt: new Date('2026-08-01T00:00:00.000Z'),
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   archivedAt: null,
@@ -25,6 +26,24 @@ describe('project DTOs', () => {
     // A pass-through that handed the stored row back would leak whatever the
     // schema grows next; the mapper must build its own object.
     expect(response).not.toBe(project);
+  });
+
+  it('accepts a description, clears it with an explicit null, and bounds it', async () => {
+    const [kept, cleared, tooLong, notText] = await Promise.all([
+      validate(plainToInstance(UpdateProjectDto, { description: 'Acme' })),
+      validate(plainToInstance(UpdateProjectDto, { description: null })),
+      validate(
+        plainToInstance(UpdateProjectDto, { description: 'x'.repeat(1001) }),
+      ),
+      validate(plainToInstance(UpdateProjectDto, { description: 42 })),
+    ]);
+
+    expect(kept).toEqual([]);
+    // null is a legitimate value here (clear it), not a rejected one — unlike
+    // `name`, whose NOT NULL column must reject an explicit null.
+    expect(cleared).toEqual([]);
+    expect(tooLong).not.toEqual([]);
+    expect(notText).not.toEqual([]);
   });
 
   it('accepts boolean archive flags and rejects null', async () => {

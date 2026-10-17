@@ -12,6 +12,12 @@ export interface UpdateProjectDto {
    * @maxLength 200
    */
   name?: string;
+  /**
+   * What this project is for. Pass null to clear it; omit to leave unchanged.
+   * @maxLength 1000
+   * @nullable
+   */
+  description?: string | null;
   /** Archive (true) or unarchive (false) the project. Omit to leave unchanged. */
   archived?: boolean;
 }

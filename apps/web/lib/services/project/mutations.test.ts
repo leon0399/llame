@@ -45,15 +45,19 @@ describe("createProject", () => {
 });
 
 describe("updateProject", () => {
-  it("PATCHes /projects/:id with the name", async () => {
+  it("PATCHes /projects/:id with the name and the description", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
-    await updateProject("p1", "Renamed");
+    await updateProject("p1", {
+      name: "Renamed",
+      description: "Acme relaunch",
+    });
 
     const request = requestFromCall(fetchMock);
     expect(request.method).toBe("PATCH");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/p1");
     await expect(request.clone().json()).resolves.toEqual({
       name: "Renamed",
+      description: "Acme relaunch",
     });
   });
 });

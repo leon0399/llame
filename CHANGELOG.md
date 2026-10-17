@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-17
+
+- A project now carries a **description** — the owner's own prose about what the
+  project is for — beside its name. It is empty until you set one, so nothing
+  changes for an existing project, and it is edited from a new **Settings**
+  entry in a project row's menu, which opens the name and the description
+  together. Saving an emptied description clears it rather than storing a blank
+  string, and an archived project refuses a description change exactly as it
+  refuses a rename (#1309).
+
 # 2026-10-16
 
 - Added PDF composer attachments and document tiles (#1277). Models declaring

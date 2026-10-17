@@ -30,6 +30,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import {
   ArchiveIcon,
+  CogIcon,
   FolderIcon,
   FolderPlusIcon,
   MoreHorizontalIcon,
@@ -57,6 +58,7 @@ import {
   DeleteProjectDialog,
   NewProjectDialog,
   RenameProjectDialog,
+  SettingsProjectDialog,
 } from "../chat-list-sidebar/project-dialogs";
 
 function useProjectItemPin(project: ProjectResponse, isPinned: boolean) {
@@ -81,19 +83,50 @@ type ProjectRowMenuItemsProps = {
   isPinned: boolean;
   onTogglePin: () => void;
   onRename: () => void;
+  onSettings: () => void;
   onDelete: () => void;
-  onArchiveToggle: () => void;
 };
 
+/** The row's own "danger zone" (archive toggle, then delete). It owns the
+ *  archive mutation because both the label and the payload are read from the
+ *  project's archive state. */
+function ProjectRowLifecycleItems({
+  project,
+  onDelete,
+}: {
+  project: ProjectResponse;
+  onDelete: () => void;
+}) {
+  const archiveMutation = useSetProjectArchive();
+  const isArchived = project.archivedAt !== null;
+
+  return (
+    <DropdownMenuGroup>
+      <DropdownMenuItem
+        onSelect={() =>
+          archiveMutation.mutate({ id: project.id, archived: !isArchived })
+        }
+      >
+        <ArchiveIcon />
+        <span>{isArchived ? "Unarchive" : "Archive"}</span>
+      </DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+        <TrashIcon />
+        <span>Delete</span>
+      </DropdownMenuItem>
+    </DropdownMenuGroup>
+  );
+}
+
 // Grouped by action semantics with dividers, mirroring ChatItem's row menu:
-// pin toggle → rename → lifecycle (archive, then delete).
+// pin toggle → rename, settings → lifecycle (archive, then delete).
 function ProjectRowMenuItems({
   project,
   isPinned,
   onTogglePin,
   onRename,
+  onSettings,
   onDelete,
-  onArchiveToggle,
 }: ProjectRowMenuItemsProps) {
   return (
     <DropdownMenuContent side="bottom" align="start">
@@ -109,18 +142,13 @@ function ProjectRowMenuItems({
           <PenLineIcon />
           <span>Rename</span>
         </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onSettings}>
+          <CogIcon />
+          <span>Settings</span>
+        </DropdownMenuItem>
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
-      <DropdownMenuGroup>
-        <DropdownMenuItem onSelect={onArchiveToggle}>
-          <ArchiveIcon />
-          <span>{project.archivedAt === null ? "Archive" : "Unarchive"}</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-          <TrashIcon />
-          <span>Delete</span>
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
+      <ProjectRowLifecycleItems project={project} onDelete={onDelete} />
     </DropdownMenuContent>
   );
 }
@@ -131,6 +159,7 @@ function ProjectRowMenu({
   isPinned,
   onTogglePin,
   onRename,
+  onSettings,
   onDelete,
 }: {
   project: ProjectResponse;
@@ -138,10 +167,9 @@ function ProjectRowMenu({
   isPinned: boolean;
   onTogglePin: () => void;
   onRename: () => void;
+  onSettings: () => void;
   onDelete: () => void;
 }) {
-  const archiveMutation = useSetProjectArchive();
-
   return (
     <DropdownMenu modal={true}>
       <HoverReveal atRest={isActive}>
@@ -155,13 +183,8 @@ function ProjectRowMenu({
         isPinned={isPinned}
         onTogglePin={onTogglePin}
         onRename={onRename}
+        onSettings={onSettings}
         onDelete={onDelete}
-        onArchiveToggle={() =>
-          archiveMutation.mutate({
-            id: project.id,
-            archived: project.archivedAt === null,
-          })
-        }
       />
     </DropdownMenu>
   );
@@ -204,7 +227,8 @@ function ProjectRowLabel({
 
 // One project row, mirroring ChatItem's shape: icon + name, a live pin
 // toggle (design D2/D5a — the unified /api/v1/pins resource, pins is the
-// sole source of pin state), and a "…" menu with Rename / Archive / Delete.
+// sole source of pin state), and a "…" menu with Rename / Settings / Archive /
+// Delete.
 type ProjectItemProps = {
   project: ProjectResponse;
   isActive: boolean;
@@ -214,13 +238,17 @@ type ProjectItemProps = {
 
 function useProjectItemDialogs() {
   const [renameOpen, setRenameOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   return {
     renameOpen,
+    settingsOpen,
     deleteOpen,
     setRenameOpen,
+    setSettingsOpen,
     setDeleteOpen,
     openRename: () => setTimeout(() => setRenameOpen(true), 0),
+    openSettings: () => setTimeout(() => setSettingsOpen(true), 0),
     openDelete: () => setTimeout(() => setDeleteOpen(true), 0),
   };
 }
@@ -228,6 +256,46 @@ function useProjectItemDialogs() {
 const projectRowClassName = cn(
   "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
 );
+
+/** The row's three dialogs, mounted with the row so each one's field state
+ *  re-seeds from the project on open (see project-dialogs.tsx). */
+function ProjectItemDialogs({
+  project,
+  renameOpen,
+  onRenameOpenChange,
+  settingsOpen,
+  onSettingsOpenChange,
+  deleteOpen,
+  onDeleteOpenChange,
+}: {
+  project: ProjectResponse;
+  renameOpen: boolean;
+  onRenameOpenChange: (open: boolean) => void;
+  settingsOpen: boolean;
+  onSettingsOpenChange: (open: boolean) => void;
+  deleteOpen: boolean;
+  onDeleteOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <>
+      <RenameProjectDialog
+        project={project}
+        open={renameOpen}
+        onOpenChange={onRenameOpenChange}
+      />
+      <SettingsProjectDialog
+        project={project}
+        open={settingsOpen}
+        onOpenChange={onSettingsOpenChange}
+      />
+      <DeleteProjectDialog
+        project={project}
+        open={deleteOpen}
+        onOpenChange={onDeleteOpenChange}
+      />
+    </>
+  );
+}
 
 export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
   const isArchived = project.archivedAt !== null;
@@ -254,17 +322,17 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
           isPinned={isPinned}
           onTogglePin={togglePin}
           onRename={dialogs.openRename}
+          onSettings={dialogs.openSettings}
           onDelete={dialogs.openDelete}
         />
-        <RenameProjectDialog
+        <ProjectItemDialogs
           project={project}
-          open={dialogs.renameOpen}
-          onOpenChange={dialogs.setRenameOpen}
-        />
-        <DeleteProjectDialog
-          project={project}
-          open={dialogs.deleteOpen}
-          onOpenChange={dialogs.setDeleteOpen}
+          renameOpen={dialogs.renameOpen}
+          onRenameOpenChange={dialogs.setRenameOpen}
+          settingsOpen={dialogs.settingsOpen}
+          onSettingsOpenChange={dialogs.setSettingsOpen}
+          deleteOpen={dialogs.deleteOpen}
+          onDeleteOpenChange={dialogs.setDeleteOpen}
         />
       </div>
     </SidebarMenuItem>

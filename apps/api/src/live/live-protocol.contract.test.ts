@@ -12,6 +12,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import type { ChatListItemResponse as ChatDto } from '../chats/dto/chats.dto';
+import type { ProjectResponse as ProjectDto } from '../projects/dto/projects.dto';
 import type { RunResponse as RunDto } from '../runs/dto/runs.dto';
 import {
   LIVE_CHAT_ID,
@@ -27,6 +28,7 @@ import { toWireMessage } from './change-hub.service';
 import {
   type ChatListItemResponse as ChatWire,
   liveMessageSchema,
+  type ProjectUpsertedMessage,
   type RunResponse as RunWire,
 } from './generated/live-protocol';
 import { RunProgressTracker, type ServerLiveMessage } from './live-messages';
@@ -130,6 +132,22 @@ describe('live protocol contract', () => {
     >
       ? true
       : false = true;
-    expect([chatCompatible, runCompatible]).toEqual([true, true]);
+    // The project record is the pair a field change moves on both sides, so it
+    // is pinned here too — the two cases above build their messages from the
+    // `live-records` fixture, which would not notice a DTO/schema drift. Both
+    // directions, because `extends` alone is one-way: the first catches a wire
+    // field the DTO cannot supply, the second a DTO field the wire would drop.
+    const projectCompatible: Serialized<ProjectDto> extends ProjectUpsertedMessage['project']
+      ? true
+      : false = true;
+    const projectComplete: ProjectUpsertedMessage['project'] extends Serialized<ProjectDto>
+      ? true
+      : false = true;
+    expect([
+      chatCompatible,
+      runCompatible,
+      projectCompatible,
+      projectComplete,
+    ]).toEqual([true, true, true, true]);
   });
 });

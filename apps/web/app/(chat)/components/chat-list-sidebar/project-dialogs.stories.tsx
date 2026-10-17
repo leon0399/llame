@@ -19,21 +19,26 @@ import {
   DeleteProjectDialog,
   NewProjectDialog,
   RenameProjectDialog,
+  SettingsProjectDialog,
 } from "./project-dialogs";
 
 // No hook mocking: the real project mutations (and useFileChat) run against a
 // stubbed globalThis.fetch. The create POST and the delete DELETE are held
 // until a story releases them, so a story can observe the dialog while the
-// request is still in flight and prove what is (not yet) sent. The rename and
-// chat-filing PATCHes succeed at once. An unrouted request is recorded and the
-// meta's afterEach fails the story on it: the throw alone would only reach the
-// hook's onError toast.
+// request is still in flight and prove what is (not yet) sent. The rename,
+// settings, and chat-filing PATCHes succeed at once. An unrouted request is
+// recorded and the meta's afterEach fails the story on it: the throw alone
+// would only reach the hook's onError toast.
 let fetchMock: Mock<typeof fetch>;
 let unrouted: Array<string>;
 let releaseCreate: () => void;
 let releaseDelete: () => void;
 
-const project = { id: "p1", name: "Acme relaunch" };
+const project = {
+  id: "p1",
+  name: "Acme relaunch",
+  description: "Everything about the relaunch",
+};
 
 function routeFetch() {
   return () => {
@@ -94,6 +99,7 @@ const meta = {
   subcomponents: {
     CreateProjectForChatDialog,
     RenameProjectDialog,
+    SettingsProjectDialog,
     DeleteProjectDialog,
   },
   tags: ["autodocs"],
@@ -111,6 +117,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 type ForChatStory = StoryObj<typeof CreateProjectForChatDialog>;
 type RenameStory = StoryObj<typeof RenameProjectDialog>;
+type SettingsStory = StoryObj<typeof SettingsProjectDialog>;
 type DeleteStory = StoryObj<typeof DeleteProjectDialog>;
 
 /**
@@ -397,6 +404,170 @@ export const RenameReopen: RenameStory = {
     await expect(dialog.getByLabelText("Project name")).toHaveValue(
       "Updated elsewhere",
     );
+    await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+const settingsArgs = { project, open: true, onOpenChange: fn() };
+
+/**
+ * Both fields start from the project: the name Rename edits, and the
+ * description. Saving without touching either closes the dialog and sends
+ * nothing, exactly as Rename does with an unchanged name.
+ *
+ * @summary settings: reopening starts from the project and an unchanged save sends nothing
+ */
+export const SettingsSeed: SettingsStory = {
+  tags: ["ai-generated"],
+  args: settingsArgs,
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    await expect(dialog.getByLabelText("Name")).toHaveValue("Acme relaunch");
+    await expect(dialog.getByLabelText("Description")).toHaveValue(
+      "Everything about the relaunch",
+    );
+
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+
+    await expect(args.onOpenChange).toHaveBeenCalledWith(false);
+    await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * The API stores a description exactly as written, so a value that carries its
+ * own surrounding whitespace must not read as an edit its owner never made:
+ * the seed is shown verbatim and an untouched Save still only closes.
+ *
+ * @summary settings: an untouched save leaves stored whitespace alone
+ */
+export const SettingsUntouchedWhitespace: SettingsStory = {
+  tags: ["ai-generated"],
+  args: {
+    ...settingsArgs,
+    project: { id: "p1", name: "Acme relaunch", description: "  padded  " },
+  },
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    await expect(dialog.getByLabelText("Description")).toHaveValue(
+      "  padded  ",
+    );
+
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+
+    await expect(args.onOpenChange).toHaveBeenCalledWith(false);
+    await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * Editing both fields PATCHes both in one request — the name and the
+ * description — and closes the dialog once the server accepts it. The
+ * single-field cases are `SettingsRename` and `SettingsClearsDescription`.
+ *
+ * @summary settings: Save with both fields edited sends both
+ */
+export const SettingsChanged: SettingsStory = {
+  tags: ["ai-generated"],
+  args: settingsArgs,
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    const name = dialog.getByLabelText("Name");
+    const description = dialog.getByLabelText("Description");
+
+    await userEvent.clear(name);
+    await userEvent.type(name, "Renamed");
+    await userEvent.clear(description);
+    await userEvent.type(description, "Relaunch notes");
+
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
+    const request = await sentRequest();
+    await expect(sentRoutes()).toEqual(["PATCH /api/v1/projects/p1"]);
+    await expect(request.clone().json()).resolves.toEqual({
+      name: "Renamed",
+      description: "Relaunch notes",
+    });
+  },
+};
+
+/**
+ * Emptying the description saves it as an explicit null — the stored form of
+ * "no description" — and sends only that field: an untouched name is omitted,
+ * not echoed back, so a rename that landed elsewhere while the dialog was open
+ * survives a save made to edit prose.
+ *
+ * @summary settings: an emptied description is sent as null, without the name
+ */
+export const SettingsClearsDescription: SettingsStory = {
+  tags: ["ai-generated"],
+  args: settingsArgs,
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    const description = dialog.getByLabelText("Description");
+
+    await userEvent.clear(description);
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
+    const request = await sentRequest();
+    await expect(request.clone().json()).resolves.toEqual({
+      description: null,
+    });
+  },
+};
+
+/**
+ * The mirror of the case above: editing the name alone sends only the name, so
+ * a description that landed elsewhere while the dialog was open is not cleared
+ * by a save made to rename.
+ *
+ * @summary settings: a name-only edit is sent without the description
+ */
+export const SettingsRename: SettingsStory = {
+  tags: ["ai-generated"],
+  args: settingsArgs,
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    const name = dialog.getByLabelText("Name");
+
+    await userEvent.clear(name);
+    await userEvent.type(name, "Renamed");
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
+    const request = await sentRequest();
+    await expect(request.clone().json()).resolves.toEqual({ name: "Renamed" });
+  },
+};
+
+/**
+ * Emptying the name and pressing Enter closes without saving anything: a
+ * project always has a name, so there is nothing to save — the same rule the
+ * Rename dialog's own field follows.
+ *
+ * @summary settings: an emptied name is never saved, even via Enter
+ */
+export const SettingsBlankName: SettingsStory = {
+  tags: ["ai-generated"],
+  args: settingsArgs,
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    const name = dialog.getByLabelText("Name");
+
+    await userEvent.clear(name);
+    await expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled();
+    // Enter in the name field submits directly, past the disabled Save button.
+    await userEvent.type(name, "{Enter}");
+
+    await expect(args.onOpenChange).toHaveBeenCalledWith(false);
     await expect(fetchMock).not.toHaveBeenCalled();
   },
 };

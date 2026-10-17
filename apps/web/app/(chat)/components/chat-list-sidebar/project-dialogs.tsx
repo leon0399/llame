@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import {
   Dialog,
@@ -9,6 +9,8 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
+import { Label } from "@workspace/ui/components/label";
+import { Textarea } from "@workspace/ui/components/textarea";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
@@ -18,11 +20,15 @@ import {
   useFileChat,
   useUpdateProject,
 } from "@/lib/services/project/mutations";
+import type { UpdateProjectPatch } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 
 // Mirrors ../app-sidebar/chat-item-dialogs.tsx's Rename/Delete pattern —
 // same Dialog+Input / AlertDialog shapes, no new visual language.
 const NAME_MAX = 200;
+// The API's own cap on an owner-authored description (UpdateProjectDto); the
+// browser stops typing here rather than letting a save come back 400.
+const DESCRIPTION_MAX = 1000;
 
 function NameEntryInput({
   name,
@@ -240,6 +246,166 @@ function RenameProjectForm({
         onSubmit={submit}
         submitLabel="Save"
         submitDisabled={!name.trim() || rename.isPending}
+      />
+    </>
+  );
+}
+
+/** The Settings dialog's own shape: the same lean card Rename and Delete take,
+ *  plus the description only an edit surface needs. */
+type ProjectSettingsRef = ProjectRef & { description: string | null };
+
+/** The project's two editable fields in one dialog — the name the Rename
+ *  dialog also edits, and the description. Rename stays as the one-field
+ *  shortcut to the name; this is where both live together. */
+export function SettingsProjectDialog({
+  project,
+  open,
+  onOpenChange,
+}: {
+  project: ProjectSettingsRef;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <NameEntryDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Project settings"
+    >
+      <SettingsProjectForm
+        project={project}
+        onClose={() => onOpenChange(false)}
+      />
+    </NameEntryDialog>
+  );
+}
+
+/** The Settings dialog's name field: the same control Rename uses, plus the
+ *  visible label a two-field form needs. Enter saves. */
+function SettingsNameField({
+  name,
+  onNameChange,
+  onSubmit,
+}: {
+  name: string;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+}) {
+  const id = useId();
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>Name</Label>
+      <Input
+        id={id}
+        value={name}
+        onChange={(e) => onNameChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+        maxLength={NAME_MAX}
+        placeholder="Project name"
+        // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
+        // open; this is the dialog's primary field.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+      />
+    </div>
+  );
+}
+
+/** The description field: multi-line, since a project description is prose.
+ *  Enter inserts a newline here rather than saving. */
+function SettingsDescriptionField({
+  description,
+  onDescriptionChange,
+}: {
+  description: string;
+  onDescriptionChange: (description: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>Description</Label>
+      <Textarea
+        id={id}
+        value={description}
+        onChange={(e) => onDescriptionChange(e.target.value)}
+        maxLength={DESCRIPTION_MAX}
+        rows={4}
+        placeholder="What this project is for"
+      />
+    </div>
+  );
+}
+
+/** The patch a save should send, or null when there is nothing to save: a
+ *  blank name (Save is disabled for it, but Enter calls submit directly) or an
+ *  untouched pair both just close the dialog, exactly as Rename's own field
+ *  does. Only fields that actually moved are sent, so a `project.upserted`
+ *  that landed while the dialog was open (a rename from a second tab) is not
+ *  reverted by a save made to edit prose — the client keeps the API's
+ *  "omitted means unchanged" contract. A blank description becomes null, the
+ *  stored form of "no description".
+ *
+ *  The description comparison trims the stored value the way it trims the
+ *  input: the API keeps what it is given, so a description written around its
+ *  own whitespace (a direct API write, say) must not read as an edit its owner
+ *  never made. The name keeps whatever comparison Rename's own field makes. */
+function projectSettingsPatch(
+  project: ProjectSettingsRef,
+  name: string,
+  description: string,
+): UpdateProjectPatch | null {
+  const nextName = name.trim();
+  if (!nextName) return null;
+  const nextDescription = description.trim();
+  const patch: UpdateProjectPatch = {};
+  if (nextName !== project.name) patch.name = nextName;
+  if (nextDescription !== (project.description ?? "").trim()) {
+    patch.description = nextDescription || null;
+  }
+  return Object.keys(patch).length === 0 ? null : patch;
+}
+
+/** Seeded from the project at mount — i.e. each time the dialog opens — and
+ *  saved as one PATCH of the fields that moved (see projectSettingsPatch). */
+function SettingsProjectForm({
+  project,
+  onClose,
+}: {
+  project: ProjectSettingsRef;
+  onClose: () => void;
+}) {
+  const update = useUpdateProject();
+  const [name, setName] = useState(project.name);
+  const [description, setDescription] = useState(project.description ?? "");
+
+  const submit = () => {
+    if (update.isPending) return; // Save disables itself, Enter does not
+    const patch = projectSettingsPatch(project, name, description);
+    if (patch === null) {
+      onClose();
+      return;
+    }
+    update.mutate({ id: project.id, ...patch }, { onSuccess: onClose });
+  };
+
+  return (
+    <>
+      <SettingsNameField name={name} onNameChange={setName} onSubmit={submit} />
+      <SettingsDescriptionField
+        description={description}
+        onDescriptionChange={setDescription}
+      />
+      <DialogSubmitFooter
+        onCancel={onClose}
+        onSubmit={submit}
+        submitLabel="Save"
+        submitDisabled={!name.trim() || update.isPending}
       />
     </>
   );

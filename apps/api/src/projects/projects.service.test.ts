@@ -9,6 +9,7 @@ const project = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'verified-user',
   name: 'Project',
+  description: null,
   createdAt: new Date('2026-08-01T00:00:00.000Z'),
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   archivedAt: null,
@@ -89,6 +90,7 @@ describe('ProjectsService', () => {
     await expect(
       service.updateProject(project.id, project.ownerUserId, {
         name: 'Renamed',
+        description: 'Acme relaunch',
       }),
     ).resolves.toBe(project);
     await expect(
@@ -98,6 +100,7 @@ describe('ProjectsService', () => {
     expect(findById).toHaveBeenCalledWith(project.id, project.ownerUserId);
     expect(update).toHaveBeenCalledWith(project.id, project.ownerUserId, {
       name: 'Renamed',
+      description: 'Acme relaunch',
     });
     expect(remove).toHaveBeenCalledWith(project.id, project.ownerUserId);
     expect(runAsSpy.mock.calls).toEqual([
