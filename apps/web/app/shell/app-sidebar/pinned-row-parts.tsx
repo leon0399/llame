@@ -15,7 +15,6 @@ import {
   ArchiveIcon,
   GripVerticalIcon,
   MoreHorizontalIcon,
-  PenLineIcon,
   PinOffIcon,
   TrashIcon,
 } from "lucide-react";
@@ -71,10 +70,18 @@ export function PinDragHandle({
 // Fork) have no data to act on here and are deliberately omitted rather than
 // faked.
 
+/** The row's one edit action: Rename for a chat, Edit details for a
+ *  project. */
+type PinRowEditAction = {
+  label: string;
+  icon: ReactNode;
+  onSelect: () => void;
+};
+
 type PinRowMenuProps = {
   isActive: boolean;
   onUnpin: () => void;
-  onRename: () => void;
+  edit: PinRowEditAction;
   isArchived: boolean;
   onToggleArchive: () => void;
   onDelete: () => void;
@@ -105,12 +112,12 @@ function PinRowLifecycleGroup({
   );
 }
 
-/** The kebab menu shape both row types share (Unpin → Rename → Archive/
+/** The kebab menu shape both row types share (Unpin → edit → Archive/
  *  Delete) — split out so each row composes only its own label and dialogs. */
 export function PinRowMenu({
   isActive,
   onUnpin,
-  onRename,
+  edit,
   isArchived,
   onToggleArchive,
   onDelete,
@@ -132,9 +139,9 @@ export function PinRowMenu({
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={onRename}>
-            <PenLineIcon />
-            <span>Rename</span>
+          <DropdownMenuItem onSelect={edit.onSelect}>
+            {edit.icon}
+            <span>{edit.label}</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />

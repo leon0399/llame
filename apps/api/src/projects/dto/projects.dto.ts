@@ -15,16 +15,28 @@ import type { Project } from '../../db/schema';
 // treatment as the 200-character name bound below and PERSONALIZATION_CAPS.
 const DESCRIPTION_MAX = 1000;
 
-// POST /api/v1/projects — a project starts with just a name (folders-only,
-// no membership/sharing fields yet). Matches(/\S/) — not IsNotEmpty, which
-// waves whitespace-only strings through to a DB write (same guard as
-// CreateTextMessagePartDto.text / CreateMessageDto.modelId).
+// POST /api/v1/projects — a project starts with a name and, optionally, a
+// description (folders-only, no membership/sharing fields yet).
+// Matches(/\S/) — not IsNotEmpty, which waves whitespace-only strings through
+// to a DB write (same guard as CreateTextMessagePartDto.text /
+// CreateMessageDto.modelId).
 export class CreateProjectDto {
   @ApiProperty({ minLength: 1, maxLength: 200 })
   @IsString()
   @Matches(/\S/, { message: 'name must not be blank' })
   @MaxLength(200)
   name!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    maxLength: DESCRIPTION_MAX,
+    nullable: true,
+    description: 'What this project is for. Omit or pass null for none.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(DESCRIPTION_MAX)
+  description?: string | null;
 }
 
 // PATCH /api/v1/projects/:id — partial update. `name`, `description`, and

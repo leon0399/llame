@@ -11,7 +11,7 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 import { Reorder, useDragControls, type DragControls } from "framer-motion";
-import { MessagesSquareIcon } from "lucide-react";
+import { MessagesSquareIcon, PenLineIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -131,7 +131,11 @@ function usePinnedChatActions(pin: PinnedChat, isArchived: boolean) {
     deleteOpen,
     setDeleteOpen,
     unpin: () => unpinMutation.mutate({ itemType: "chat", itemId: pin.itemId }),
-    startRename: () => setTimeout(() => setRenameOpen(true), 0),
+    edit: {
+      label: "Rename",
+      icon: <PenLineIcon />,
+      onSelect: () => setTimeout(() => setRenameOpen(true), 0),
+    },
     toggleArchive: () =>
       archiveMutation.mutate({
         id: pin.itemId,
@@ -164,18 +168,15 @@ export function PinnedChatRow({
         isArchived={isArchived}
         isActive={isActive}
       />
-
       <PinDragHandle dragControls={dragControls} />
-
       <PinRowMenu
         isActive={isActive}
         onUnpin={actions.unpin}
-        onRename={actions.startRename}
+        edit={actions.edit}
         isArchived={isArchived}
         onToggleArchive={actions.toggleArchive}
         onDelete={actions.startDelete}
       />
-
       <PinnedChatDialogs
         chat={{ id: pin.itemId, title: label }}
         isActive={isActive}

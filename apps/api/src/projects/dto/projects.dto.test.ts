@@ -46,6 +46,27 @@ describe('project DTOs', () => {
     expect(notText).not.toEqual([]);
   });
 
+  it('accepts an optional, bounded description on create', async () => {
+    const [described, none, tooLong] = await Promise.all([
+      validate(
+        plainToInstance(CreateProjectDto, { name: 'P', description: 'Acme' }),
+      ),
+      validate(
+        plainToInstance(CreateProjectDto, { name: 'P', description: null }),
+      ),
+      validate(
+        plainToInstance(CreateProjectDto, {
+          name: 'P',
+          description: 'x'.repeat(1001),
+        }),
+      ),
+    ]);
+
+    expect(described).toEqual([]);
+    expect(none).toEqual([]);
+    expect(tooLong).not.toEqual([]);
+  });
+
   it('accepts boolean archive flags and rejects null', async () => {
     for (const archived of [true, false]) {
       await expect(

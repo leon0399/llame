@@ -117,8 +117,8 @@ export const Archived: Story = {
 };
 
 /**
- * The "…" row menu opened — the lean project menu: pin, rename, and the
- * archive/delete lifecycle.
+ * The "…" row menu opened — the lean project menu: pin, edit details, and
+ * the archive/delete lifecycle. Edit details is its only edit action.
  *
  * @summary the project row menu open
  */
@@ -130,21 +130,20 @@ export const RowMenu: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /more/i }));
     const menu = await screen.findByRole("menu");
     await expect(
-      within(menu).getByRole("menuitem", { name: "Rename" }),
-    ).toBeInTheDocument();
-    await expect(
-      within(menu).getByRole("menuitem", { name: "Delete" }),
-    ).toBeInTheDocument();
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Pin", "Edit details", "Archive", "Delete"]);
   },
 };
 
 /**
- * The Settings entry beside Rename opens the project's settings dialog, with
- * the name and the description seeded from the project.
+ * Edit details opens the project's details dialog, with the name and the
+ * description seeded from the project.
  *
- * @summary Settings opens the name + description dialog
+ * @summary Edit details opens the name + description dialog
  */
-export const RowMenuSettings: Story = {
+export const RowMenuEditDetails: Story = {
   args: {
     project: { ...baseProject, description: "Everything about the relaunch" },
   },
@@ -155,11 +154,11 @@ export const RowMenuSettings: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /more/i }));
     const menu = await screen.findByRole("menu");
     await userEvent.click(
-      within(menu).getByRole("menuitem", { name: "Settings" }),
+      within(menu).getByRole("menuitem", { name: "Edit details" }),
     );
 
     const dialog = within(
-      await screen.findByRole("dialog", { name: "Project settings" }),
+      await screen.findByRole("dialog", { name: "Edit details" }),
     );
     await expect(dialog.getByLabelText("Name")).toHaveValue("Acme relaunch");
     await expect(dialog.getByLabelText("Description")).toHaveValue(

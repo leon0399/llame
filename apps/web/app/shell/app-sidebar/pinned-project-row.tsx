@@ -16,14 +16,14 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 import type { DragControls } from "framer-motion";
-import { ChevronRightIcon, FolderIcon } from "lucide-react";
+import { ChevronRightIcon, FolderIcon, PencilIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { ChatItem } from "@/app/(chat)/components/chat-list-sidebar/chat-item";
 import {
   DeleteProjectDialog,
-  RenameProjectDialog,
+  EditProjectDialog,
 } from "@/app/(chat)/components/chat-list-sidebar/project-dialogs";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
@@ -31,7 +31,7 @@ import { useChatsQuery } from "@/lib/services/chat/queries";
 import { useUnpinItem } from "@/lib/services/pins/mutations";
 import { chatListFilters } from "@/app/(chat)/components/chat-list-view";
 import type { PinnedItem } from "@/lib/services/pins/types";
-import { useProjects } from "@/lib/services/project/queries";
+import { useProjectQuery, useProjects } from "@/lib/services/project/queries";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
 
 import { PinDragHandle, PinRowMenu, PinRowSurface } from "./pinned-row-parts";
@@ -152,19 +152,23 @@ function PinnedProjectChats({ projectId }: { projectId: string }) {
 /** The row's mutations and dialog-open state — split out so
  *  `PinnedProjectRow` composes only markup. */
 function usePinnedProjectActions(pin: PinnedProject) {
-  const [renameOpen, setRenameOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetProjectArchive();
 
   return {
-    renameOpen,
-    setRenameOpen,
+    editOpen,
+    setEditOpen,
     deleteOpen,
     setDeleteOpen,
     unpin: () =>
       unpinMutation.mutate({ itemType: "project", itemId: pin.itemId }),
-    startRename: () => setTimeout(() => setRenameOpen(true), 0),
+    edit: {
+      label: "Edit details",
+      icon: <PencilIcon />,
+      onSelect: () => setTimeout(() => setEditOpen(true), 0),
+    },
     toggleArchive: () =>
       archiveMutation.mutate({
         id: pin.itemId,
@@ -174,6 +178,8 @@ function usePinnedProjectActions(pin: PinnedProject) {
   };
 }
 
+/** The rail holds only the pin's lean card, so Edit details reads the full
+ *  project (its description) when it opens, and shows once that lands. */
 function PinnedProjectDialogs({
   pin,
   actions,
@@ -181,14 +187,17 @@ function PinnedProjectDialogs({
   pin: PinnedProject;
   actions: ReturnType<typeof usePinnedProjectActions>;
 }) {
+  const { data: full } = useProjectQuery(pin.itemId, actions.editOpen);
   const project = { id: pin.itemId, name: pin.item.name };
   return (
     <>
-      <RenameProjectDialog
-        project={project}
-        open={actions.renameOpen}
-        onOpenChange={actions.setRenameOpen}
-      />
+      {full && (
+        <EditProjectDialog
+          project={full}
+          open={actions.editOpen}
+          onOpenChange={actions.setEditOpen}
+        />
+      )}
       <DeleteProjectDialog
         project={project}
         open={actions.deleteOpen}
@@ -239,7 +248,7 @@ export function PinnedProjectRow({
         <PinRowMenu
           isActive={isActive}
           onUnpin={actions.unpin}
-          onRename={actions.startRename}
+          edit={actions.edit}
           isArchived={isArchived}
           onToggleArchive={actions.toggleArchive}
           onDelete={actions.startDelete}

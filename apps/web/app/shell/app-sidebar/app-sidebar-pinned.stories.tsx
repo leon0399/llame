@@ -83,6 +83,19 @@ function routeFetch() {
         serverPins = [archivedProjectPin];
         return Promise.resolve(emptyResponse());
       }
+      if (key === "GET /api/v1/projects/p1") {
+        return Promise.resolve(
+          jsonResponse({
+            id: "p1",
+            ownerUserId: "u1",
+            name: "Acme relaunch",
+            description: "Everything about the relaunch",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            archivedAt: null,
+          }),
+        );
+      }
       throw new Error(`unrouted fetch in story: ${key}`);
     });
     return () => {
@@ -359,10 +372,10 @@ export const ChatDelete: Story = {
 };
 
 /**
- * The pinned project's menu carries the same Unpin, Rename, Archive and Delete
- * actions as the pinned chat's.
+ * The pinned project's menu carries Unpin, Edit details, Archive and Delete;
+ * Edit details is its only edit action.
  *
- * @summary pinned project menu: unpin, rename, archive, delete
+ * @summary pinned project menu: unpin, edit details, archive, delete
  */
 export const ProjectRowMenu: Story = {
   tags: ["ai-generated"],
@@ -372,7 +385,7 @@ export const ProjectRowMenu: Story = {
 
     await expect(
       menu.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["Unpin", "Rename", "Archive", "Delete"]);
+    ).toEqual(["Unpin", "Edit details", "Archive", "Delete"]);
   },
 };
 
@@ -419,5 +432,29 @@ export const ProjectArchive: Story = {
     await expect(sentBody("PATCH /api/v1/projects/p1")).resolves.toEqual({
       archived: true,
     });
+  },
+};
+
+/**
+ * The pin holds only the project's name, so Edit details reads the project
+ * when chosen and opens seeded with its name and description.
+ *
+ * @summary pinned project menu: Edit details reads the project and opens seeded
+ */
+export const ProjectEditDetails: Story = {
+  tags: ["ai-generated"],
+  parameters: { pins: [projectPin] },
+  play: async ({ canvasElement }) => {
+    await chooseFromRowMenu(canvasElement, "Edit details");
+
+    const dialog = await openedDialog("dialog", "Edit details");
+    await expect(dialog.getByLabelText("Name")).toHaveValue("Acme relaunch");
+    await expect(dialog.getByLabelText("Description")).toHaveValue(
+      "Everything about the relaunch",
+    );
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/projects/p1",
+    ]);
   },
 };

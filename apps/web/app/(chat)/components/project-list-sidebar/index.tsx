@@ -30,11 +30,10 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import {
   ArchiveIcon,
-  CogIcon,
   FolderIcon,
   FolderPlusIcon,
   MoreHorizontalIcon,
-  PenLineIcon,
+  PencilIcon,
   PinIcon,
   PinOffIcon,
   TrashIcon,
@@ -56,9 +55,8 @@ import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { topBarClasses } from "@/app/shell/top-bar";
 import {
   DeleteProjectDialog,
+  EditProjectDialog,
   NewProjectDialog,
-  RenameProjectDialog,
-  SettingsProjectDialog,
 } from "../chat-list-sidebar/project-dialogs";
 
 function useProjectItemPin(project: ProjectResponse, isPinned: boolean) {
@@ -82,8 +80,7 @@ type ProjectRowMenuItemsProps = {
   project: ProjectResponse;
   isPinned: boolean;
   onTogglePin: () => void;
-  onRename: () => void;
-  onSettings: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 };
 
@@ -119,13 +116,12 @@ function ProjectRowLifecycleItems({
 }
 
 // Grouped by action semantics with dividers, mirroring ChatItem's row menu:
-// pin toggle → rename, settings → lifecycle (archive, then delete).
+// pin toggle → edit details → lifecycle (archive, then delete).
 function ProjectRowMenuItems({
   project,
   isPinned,
   onTogglePin,
-  onRename,
-  onSettings,
+  onEdit,
   onDelete,
 }: ProjectRowMenuItemsProps) {
   return (
@@ -138,13 +134,9 @@ function ProjectRowMenuItems({
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
-        <DropdownMenuItem onSelect={onRename}>
-          <PenLineIcon />
-          <span>Rename</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onSettings}>
-          <CogIcon />
-          <span>Settings</span>
+        <DropdownMenuItem onSelect={onEdit}>
+          <PencilIcon />
+          <span>Edit details</span>
         </DropdownMenuItem>
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
@@ -154,22 +146,9 @@ function ProjectRowMenuItems({
 }
 
 function ProjectRowMenu({
-  project,
   isActive,
-  isPinned,
-  onTogglePin,
-  onRename,
-  onSettings,
-  onDelete,
-}: {
-  project: ProjectResponse;
-  isActive: boolean;
-  isPinned: boolean;
-  onTogglePin: () => void;
-  onRename: () => void;
-  onSettings: () => void;
-  onDelete: () => void;
-}) {
+  ...items
+}: ProjectRowMenuItemsProps & { isActive: boolean }) {
   return (
     <DropdownMenu modal={true}>
       <HoverReveal atRest={isActive}>
@@ -178,14 +157,7 @@ function ProjectRowMenu({
           <span className="sr-only">More</span>
         </DropdownMenuTrigger>
       </HoverReveal>
-      <ProjectRowMenuItems
-        project={project}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        onRename={onRename}
-        onSettings={onSettings}
-        onDelete={onDelete}
-      />
+      <ProjectRowMenuItems {...items} />
     </DropdownMenu>
   );
 }
@@ -227,7 +199,7 @@ function ProjectRowLabel({
 
 // One project row, mirroring ChatItem's shape: icon + name, a live pin
 // toggle (design D2/D5a — the unified /api/v1/pins resource, pins is the
-// sole source of pin state), and a "…" menu with Rename / Settings / Archive /
+// sole source of pin state), and a "…" menu with Edit details / Archive /
 // Delete.
 type ProjectItemProps = {
   project: ProjectResponse;
@@ -237,18 +209,14 @@ type ProjectItemProps = {
 };
 
 function useProjectItemDialogs() {
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   return {
-    renameOpen,
-    settingsOpen,
+    editOpen,
     deleteOpen,
-    setRenameOpen,
-    setSettingsOpen,
+    setEditOpen,
     setDeleteOpen,
-    openRename: () => setTimeout(() => setRenameOpen(true), 0),
-    openSettings: () => setTimeout(() => setSettingsOpen(true), 0),
+    openEdit: () => setTimeout(() => setEditOpen(true), 0),
     openDelete: () => setTimeout(() => setDeleteOpen(true), 0),
   };
 }
@@ -257,41 +225,26 @@ const projectRowClassName = cn(
   "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
 );
 
-/** The row's three dialogs, mounted with the row so each one's field state
+/** The row's two dialogs, mounted with the row so each one's field state
  *  re-seeds from the project on open (see project-dialogs.tsx). */
 function ProjectItemDialogs({
   project,
-  renameOpen,
-  onRenameOpenChange,
-  settingsOpen,
-  onSettingsOpenChange,
-  deleteOpen,
-  onDeleteOpenChange,
+  dialogs,
 }: {
   project: ProjectResponse;
-  renameOpen: boolean;
-  onRenameOpenChange: (open: boolean) => void;
-  settingsOpen: boolean;
-  onSettingsOpenChange: (open: boolean) => void;
-  deleteOpen: boolean;
-  onDeleteOpenChange: (open: boolean) => void;
+  dialogs: ReturnType<typeof useProjectItemDialogs>;
 }) {
   return (
     <>
-      <RenameProjectDialog
+      <EditProjectDialog
         project={project}
-        open={renameOpen}
-        onOpenChange={onRenameOpenChange}
-      />
-      <SettingsProjectDialog
-        project={project}
-        open={settingsOpen}
-        onOpenChange={onSettingsOpenChange}
+        open={dialogs.editOpen}
+        onOpenChange={dialogs.setEditOpen}
       />
       <DeleteProjectDialog
         project={project}
-        open={deleteOpen}
-        onOpenChange={onDeleteOpenChange}
+        open={dialogs.deleteOpen}
+        onOpenChange={dialogs.setDeleteOpen}
       />
     </>
   );
@@ -321,19 +274,10 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
           isActive={isActive}
           isPinned={isPinned}
           onTogglePin={togglePin}
-          onRename={dialogs.openRename}
-          onSettings={dialogs.openSettings}
+          onEdit={dialogs.openEdit}
           onDelete={dialogs.openDelete}
         />
-        <ProjectItemDialogs
-          project={project}
-          renameOpen={dialogs.renameOpen}
-          onRenameOpenChange={dialogs.setRenameOpen}
-          settingsOpen={dialogs.settingsOpen}
-          onSettingsOpenChange={dialogs.setSettingsOpen}
-          deleteOpen={dialogs.deleteOpen}
-          onDeleteOpenChange={dialogs.setDeleteOpen}
-        />
+        <ProjectItemDialogs project={project} dialogs={dialogs} />
       </div>
     </SidebarMenuItem>
   );

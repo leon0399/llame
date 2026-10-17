@@ -9,10 +9,10 @@ export class ProjectsService {
 
   async createProject(
     ownerUserId: string,
-    input: { name: string },
+    input: { name: string; description?: string | null },
   ): Promise<Project> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
-      new ProjectsRepository(tx).create({ ownerUserId, name: input.name }),
+      new ProjectsRepository(tx).create({ ownerUserId, ...input }),
     );
   }
 

@@ -67,14 +67,17 @@ describe("useCreateProject", () => {
     const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
     const { result } = renderHook(() => useCreateProject(), { wrapper });
 
-    result.current.mutate("Acme");
+    result.current.mutate({ name: "Acme", description: null });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toastErrorSpy).toHaveBeenCalledWith("Couldn't create the project.");
     const request = requestFromCall(fetchMock);
     expect(request.method).toBe("POST");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects");
-    await expect(request.clone().json()).resolves.toEqual({ name: "Acme" });
+    await expect(request.clone().json()).resolves.toEqual({
+      name: "Acme",
+      description: null,
+    });
   });
 
   it("invalidates the project list on success", async () => {
@@ -85,7 +88,7 @@ describe("useCreateProject", () => {
       wrapper: wrapperWithClient(queryClient),
     });
 
-    result.current.mutate("Acme");
+    result.current.mutate({ name: "Acme", description: null });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidateSpy).toHaveBeenCalledWith({
