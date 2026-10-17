@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-17
 
+- A ranged Markdown `read` that starts inside a table now also emits that
+  table's header row and delimiter row, after the ancestor headings and before
+  the requested window, so a window of body rows still shows which column each
+  cell belongs to (#1024). Only root-level GFM tables are recognized: a table
+  inside a blockquote or a list item gets no header, and a line CommonMark
+  decides is a setext heading's text stays heading text. The pair counts against
+  the same result budget as the ancestor chain and is the last unit dropped, so
+  an outer heading is dropped before the column names are. `:raw`, `:outline`,
+  and non-Markdown reads are unchanged.
+
 - The background job queues are now described by an AsyncAPI document,
   `apps/api/asyncapi.queues.yaml`: each queue's name, payload, and static
   pg-boss options. The API's queue payload guards, names, and options are
