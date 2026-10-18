@@ -38,6 +38,7 @@ argument: the selector in `path` carries all of that. See
 | ---------------------------------------------- | -------- | ------- | ---------------------------------------- |
 | [absolute host path](../locators/host-path.md) | yes      | yes     | the worker's filesystem; depth-2 listing |
 | [`file://`](../locators/host-path.md#form)     | yes      | yes     | the same path, decoded once              |
+| [`machine://`](../locators/machine.md)         | no       | yes     | a configured Machine, over SSH           |
 | [`kb://`](../locators/kb.md)                   | no       | yes     | the owner's Knowledge Space tree         |
 | [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only    |
 | [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process  |
@@ -70,10 +71,10 @@ A multi-range read reports the plural `requestedRanges` (the merged request) and
 
 ### Image result
 
-A host, `file://`, Workspace-relative, `kb://`, or `skill://` regular file whose
-leading bytes are a PNG, JPEG, GIF, or WebP image is not decoded as text: the
-worker decodes it with the same preparation as an upload, stores nothing, and
-the read returns an image result instead of `content`:
+A host, `file://`, `machine://`, Workspace-relative, `kb://`, or `skill://`
+regular file whose leading bytes are a PNG, JPEG, GIF, or WebP image is not
+decoded as text: the worker decodes it with the same preparation as an upload,
+stores nothing, and the read returns an image result instead of `content`:
 
 | Field       | Meaning                                                             |
 | ----------- | ------------------------------------------------------------------- |
@@ -116,9 +117,10 @@ turns.
 
 ### PDF result
 
-A host, `file://`, Workspace-relative, `kb://`, or `skill://` regular file
-starting with `%PDF-` returns `kind: "pdf"`, `mediaType: "application/pdf"`,
-`pages`, and `byteSize`, with the same source attribution as a text read.
+A host, `file://`, `machine://`, Workspace-relative, `kb://`, or `skill://`
+regular file starting with `%PDF-` returns `kind: "pdf"`, `mediaType:
+"application/pdf"`, `pages`, and `byteSize`, with the same source attribution as
+a text read.
 There is no `content`, line metadata, thumbnail, or embedded PDF data. The
 extension never decides: an HTML file named `.pdf` stays text.
 
@@ -145,9 +147,17 @@ open-ended `N-` and tail `-K` members), raw, and representation grammar is under
 [selectors](../selectors.md#line-selectors).
 
 A read never mutates its source. A read of a host path also triggers that
-directory's instruction chain, and a `kb://` read triggers its Space's chain; see
-[instruction files](../instruction-files.md). A `skill://`, `http(s)://`,
+directory's instruction chain, and a `kb://` read triggers its Space's chain; a
+read on a Machine triggers the chain inside the registered root containing it.
+See [instruction files](../instruction-files.md). A `skill://`, `http(s)://`,
 `media://`, or `bash` call never triggers a load.
+
+A `machine://` read returns the same contents, listing shape, selectors, and
+bounds as the local executor, with every reported path written as a Machine
+locator; a bare `machine://` lists the configured Machines with their status and
+`machine://<name>` that Machine's registered roots. The Machine's OS user runs
+it with no sandbox and no isolation between users who share the Machine; see
+[machine](../locators/machine.md#authority).
 
 A marker in a prompt (`@path`, `@"…"`, `@'…'`, ``@`…` ``, `@[label](path)`, or
 `[label](path "import")`) is read once for the owner before the first model
@@ -194,6 +204,10 @@ cannot be decoded, fails `unsupported_media_type`. Neither falls back to text.
 - [Personal Knowledge](../../operator/knowledge.md) configures the Knowledge root
   behind `kb://`.
 - [Skills](../../operator/skills.md) installs the packages `skill://` reads.
+
+`machine://` needs no local executor: the operator declares the Machines and
+pins their SSH host keys, and the feature is absent without that configuration;
+see [machine](../locators/machine.md).
 
 A read is gated by the `read` permission group, described in
 [tool-call permissions](../../operator/tool-call-permissions.md#matching). That

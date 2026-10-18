@@ -1,6 +1,7 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { chats } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { isMachineExecutorId } from '../machines/machine-locator';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { type WorkspaceDetachReason } from './workspace-binding';
 
@@ -40,6 +41,14 @@ export class WorkspaceBindingRepository {
     deliverySequence: number | undefined;
     executorId: string;
     root: string;
+    /**
+     * The executor this transition pins the Run to, if any. An absolute host
+     * path passes the local executor id, so the Run cannot later execute on
+     * another host. A `machine:<name>` binding passes nothing: the Run stays
+     * free to use `file:` aliases and other Machines, and no local executor is
+     * required to enter a Machine Workspace at all.
+     */
+    bindExecutorId?: string;
   }): Promise<
     | {
         status: 'bound' | 'switched' | 'unchanged';
@@ -48,7 +57,16 @@ export class WorkspaceBindingRepository {
       }
     | { status: 'fence_lost' }
   > {
-    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
+    if (
+      !(await this.fenceRun({
+        runId: input.runId,
+        ownerUserId: input.ownerUserId,
+        deliverySequence: input.deliverySequence,
+        bindExecutorId: input.bindExecutorId,
+      }))
+    ) {
+      return { status: 'fence_lost' };
+    }
     const current = await this.lockChat(input.chatId, input.ownerUserId);
     if (current === undefined) return { status: 'fence_lost' };
 
@@ -69,13 +87,23 @@ export class WorkspaceBindingRepository {
     ownerUserId: string;
     runId: string;
     deliverySequence: number;
-    executorId: string;
+    /** The executor this exit pins the Run to, if any; a Machine binding passes none. */
+    bindExecutorId?: string;
   }): Promise<
     | { status: 'cleared'; previousRoot: string; generation: number }
     | { status: 'unbound' }
     | { status: 'fence_lost' }
   > {
-    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
+    if (
+      !(await this.fenceRun({
+        runId: input.runId,
+        ownerUserId: input.ownerUserId,
+        deliverySequence: input.deliverySequence,
+        bindExecutorId: input.bindExecutorId,
+      }))
+    ) {
+      return { status: 'fence_lost' };
+    }
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
     if (current === undefined) return { status: 'fence_lost' };
@@ -119,6 +147,12 @@ export class WorkspaceBindingRepository {
     told: string | null;
     toldFrom: string | null;
     clearDetachReason: boolean;
+    /**
+     * The Machine availability narrated with this write: only a Notice that
+     * told the model and owner which way the bound Machine's availability went
+     * passes one, so an ordinary snapshot leaves the recorded state alone.
+     */
+    available?: boolean | null;
   }): Promise<void> {
     await this.db
       .update(chats)
@@ -126,6 +160,9 @@ export class WorkspaceBindingRepository {
         workspaceTold: input.told,
         workspaceToldFrom: input.toldFrom,
         ...(input.clearDetachReason && { workspaceDetachReason: null }),
+        ...(input.available !== undefined && {
+          workspaceToldAvailable: input.available,
+        }),
       })
       .where(
         and(
@@ -187,6 +224,13 @@ export class WorkspaceBindingRepository {
         workspaceExecutorId: input.executorId,
         workspaceGeneration: sql<number>`${chats.workspaceGeneration} + 1`,
         workspaceDetachReason: null,
+        // Entering a Machine Workspace proves it reachable — the entry's own
+        // `fs.stat` went through it — so the availability the next Run
+        // compares against is "available". A local binding narrates no
+        // availability at all and clears any earlier Machine state.
+        workspaceToldAvailable: isMachineExecutorId(input.executorId)
+          ? true
+          : null,
       })
       .where(
         and(
@@ -209,6 +253,9 @@ export class WorkspaceBindingRepository {
         workspaceExecutorId: null,
         workspaceGeneration: sql<number>`${chats.workspaceGeneration} + 1`,
         workspaceDetachReason: null,
+        // No binding narrates no availability; a later Machine Workspace
+        // starts from "nothing told" again.
+        workspaceToldAvailable: null,
       })
       .where(
         and(
@@ -233,6 +280,9 @@ export class WorkspaceBindingRepository {
         workspaceExecutorId: null,
         workspaceGeneration: sql<number>`${chats.workspaceGeneration} + 1`,
         workspaceDetachReason: input.reason,
+        // The detach notice is the whole narration of this transition; the
+        // binding it described is gone with it.
+        workspaceToldAvailable: null,
       })
       .where(
         and(
@@ -250,7 +300,8 @@ export class WorkspaceBindingRepository {
     runId: string;
     ownerUserId: string;
     deliverySequence: number | undefined;
-    executorId?: string;
+    /** The executor to pin the Run to; absent leaves the Run unbound. */
+    bindExecutorId?: string;
   }): Promise<boolean> {
     const native = new NativeFilesRepository(this.db);
     if (
@@ -262,8 +313,8 @@ export class WorkspaceBindingRepository {
     ) {
       return false;
     }
-    return input.executorId === undefined
+    return input.bindExecutorId === undefined
       ? true
-      : native.bind(input.runId, input.ownerUserId, input.executorId);
+      : native.bind(input.runId, input.ownerUserId, input.bindExecutorId);
   }
 }

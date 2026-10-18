@@ -49,6 +49,10 @@ import { RUNS_QUEUE, type RunJob } from './run-queues';
 import { RunsRepository } from './runs-repository';
 import { ScriptedModelsService } from './scripted-model-client';
 
+import { MachineConnector } from '../machines/machine-connector.service';
+import { MachinesService } from '../machines/machines.service';
+import { type MachinesConfig } from '../instance-config/llame-config';
+import { type MachineTransportFactory } from '../machines/machine-transport';
 // ---- Harness boot ----------------------------------------------------------
 
 export type WorkerHarness = {
@@ -72,6 +76,18 @@ type HarnessOverrides = {
   /** Operator-configured skill source directories, so `skill://` locators
    *  resolve in the worker exactly as they do in production. */
   skillDirectories?: ReadonlyArray<string>;
+  /**
+   * Operator-configured Machines, so `machine://` locators resolve in the
+   * worker exactly as they do in production. Absent leaves the feature off,
+   * and a `machine://` locator stays an unknown scheme.
+   */
+  machines?: MachinesConfig;
+  /**
+   * Test seam for Machine links (the in-process protocol peer), so a suite
+   * reaches a scripted daemon without SSH. Absent means real SSH links, which
+   * no suite exercises today.
+   */
+  machineTransportFactory?: MachineTransportFactory;
   runsConcurrency?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
@@ -101,6 +117,7 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
   }
   return {
     ...BUILT_IN_DEFAULTS,
+    ...(overrides?.machines !== undefined && { machines: overrides.machines }),
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: [...(overrides?.allowedTools ?? [])],
@@ -167,11 +184,36 @@ export async function bootWorkerHarness(
   const models = new ScriptedModelsService();
   const config = resolveHarnessConfig(overrides);
 
-  const builder = Test.createTestingModule({ imports: [WorkerModule] })
+  let builder = Test.createTestingModule({ imports: [WorkerModule] })
     .overrideProvider(ModelsService)
     .useValue(models)
     .overrideProvider(InstanceConfigService)
-    .useValue({ config })
+    .useValue({ config });
+  if (overrides?.machineTransportFactory !== undefined) {
+    // A Machine suite injects its scripted transport; the production module
+    // would otherwise open SSH to a configured destination. The connector is
+    // the only provider overridden, plus a status double that reads no
+    // database row: `machineStatus.list` is the `machine://` listing read,
+    // and the prepared Runs under test narrate availability themselves.
+    const machines = config.machines;
+    if (machines === undefined) {
+      throw new Error(
+        'bootWorkerHarness: machineTransportFactory requires machines config',
+      );
+    }
+    const connector = new MachineConnector({
+      machines,
+      hubVersion: 'llame-harness',
+      transportFactory: overrides.machineTransportFactory,
+      handshakeTimeoutMs: 2000,
+    });
+    builder = builder
+      .overrideProvider(MachineConnector)
+      .useValue(connector)
+      .overrideProvider(MachinesService)
+      .useValue({ list: async () => connector.names() });
+  }
+  builder = builder
     // Execution harnesses isolate the worker loop, not fleet-wide projection
     // admission; dedicated boot tests exercise the real coverage gate.
     .overrideProvider(CanonicalSearchCoverageService)

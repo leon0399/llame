@@ -2,6 +2,7 @@ import { InferSelectModel } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
+  boolean,
   check,
   foreignKey,
   index,
@@ -151,6 +152,13 @@ export const chats = pgTable(
     workspaceExecutorId: text('workspace_executor_id'),
     workspaceGeneration: integer('workspace_generation').notNull().default(0),
     workspaceTold: text('workspace_told'),
+    // The availability of the bound Machine Workspace the model and owner were
+    // last TOLD about: `true` for available, `false` for unavailable, NULL for
+    // nothing told yet or a local (or absent) binding. The unavailability and
+    // recovery transitions are each narrated once, compared against this — a
+    // second attempt while the state is unchanged narrates nothing, and a
+    // Machine the operator removed detaches and resets it with the binding.
+    workspaceToldAvailable: boolean('workspace_told_available'),
     // The checkpoint epoch in which the Workspace snapshot was last told.
     // Deliberately carries no foreign key, matching skillCatalogRebakedFrom:
     // a stale id fails closed and causes the next turn to re-tell the snapshot.

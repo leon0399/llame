@@ -18,6 +18,28 @@ const SKILL_DOCUMENT_FILENAME = 'SKILL.md';
 const LLAME_SIDECAR_PATH = path.join('agents', 'llame.yaml');
 const OPENAI_SIDECAR_PATH = path.join('agents', 'openai.yaml');
 
+/** A scheme with its authority separator, at the start of a source path. */
+const SCHEME_PREFIX = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//u;
+
+/**
+ * `path.join` for one catalog path, differing in exactly one way: a scheme's
+ * `//` survives. `path.join` collapses it, which would turn a Machine source
+ * into `machine:/…` — not a locator at all, so the read that followed would
+ * look on the hub instead of on the Machine (remote-machines "Machine
+ * Workspace skills come from the Machine"). A host path carries no scheme and
+ * is joined exactly as before.
+ */
+function joinCatalogPath(
+  base: string,
+  ...segments: ReadonlyArray<string>
+): string {
+  const scheme = SCHEME_PREFIX.exec(base)?.[0];
+  const joined = path.join(base, ...segments);
+  return scheme === undefined
+    ? joined
+    : `${scheme}${joined.slice(scheme.length - 1)}`;
+}
+
 /** One immediate source child, as the discovery scan needs it. */
 export type CatalogDirent = {
   readonly name: string;
@@ -222,7 +244,7 @@ export class SkillCatalog {
     }
 
     const document = this.readSkillDocument(
-      path.join(resolved.directory, SKILL_DOCUMENT_FILENAME),
+      joinCatalogPath(resolved.directory, SKILL_DOCUMENT_FILENAME),
     );
     if (document.status === 'missing') return undefined;
     if (document.status === 'unavailable') {
@@ -292,7 +314,7 @@ export class SkillCatalog {
     child: CatalogDirent,
     sourceDirectory: string,
   ): PackageDirectoryResolution {
-    const childPath = path.join(sourceDirectory, child.name);
+    const childPath = joinCatalogPath(sourceDirectory, child.name);
     if (!child.isSymbolicLink()) {
       return child.isDirectory()
         ? { status: 'package', directory: childPath }
@@ -346,7 +368,7 @@ export class SkillCatalog {
     frontmatter: UnknownRecord,
   ): boolean | 'invalid' {
     const llame = this.readSidecarControl(
-      path.join(packageDirectory, LLAME_SIDECAR_PATH),
+      joinCatalogPath(packageDirectory, LLAME_SIDECAR_PATH),
     );
     if (llame !== 'absent') return llame;
 
@@ -354,7 +376,7 @@ export class SkillCatalog {
     if (declared !== 'absent') return declared;
 
     const openai = this.readSidecarControl(
-      path.join(packageDirectory, OPENAI_SIDECAR_PATH),
+      joinCatalogPath(packageDirectory, OPENAI_SIDECAR_PATH),
     );
     return openai === 'absent' ? true : openai;
   }

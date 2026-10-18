@@ -20,7 +20,13 @@ import {
   withoutReadSelector,
 } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
-import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
+import {
+  canonicalMachineLocator,
+  isWorkspaceRelative,
+  mapToWorkspaceHost,
+  resolveWorkspacePath,
+} from './workspace-path';
+import { isMachineLocator } from '../machines/machine-locator';
 import { type PermissionDecision } from './permissions/types';
 
 const logger = new Logger('ToolRunner');
@@ -160,15 +166,29 @@ function projectWorkspaceArguments(
   args: SubmittedToolArguments,
   root: string | undefined,
 ): WorkspaceProjection {
-  if (root === undefined) return { args, changed: false };
   if (isNativeFileTool(tool) && isString(args.path)) {
-    if (!isWorkspaceRelative(args.path)) return { args, changed: false };
-    return {
-      args: { ...args, path: resolveWorkspacePath(root, args.path) },
-      changed: true,
-    };
+    if (root === undefined) return { args, changed: false };
+    if (isWorkspaceRelative(args.path)) {
+      return {
+        args: { ...args, path: resolveWorkspacePath(root, args.path) },
+        changed: true,
+      };
+    }
+    // A bare absolute path inside a Machine Workspace addresses the Machine,
+    // so policy must see the address the call will actually reach.
+    const mapped = mapToWorkspaceHost(root, args.path);
+    return mapped === args.path
+      ? { args, changed: false }
+      : { args: { ...args, path: mapped }, changed: true };
   }
   if (isBashTool(tool)) {
+    if (isString(args.cwd) && isMachineLocator(args.cwd)) {
+      const canonical = canonicalMachineLocator(args.cwd);
+      return canonical === args.cwd
+        ? { args, changed: false }
+        : { args: { ...args, cwd: canonical }, changed: true };
+    }
+    if (root === undefined) return { args, changed: false };
     if (args.cwd === undefined)
       return { args: { ...args, cwd: root }, changed: true };
     if (isString(args.cwd) && isWorkspaceRelative(args.cwd)) {
@@ -176,6 +196,12 @@ function projectWorkspaceArguments(
         args: { ...args, cwd: resolveWorkspacePath(root, args.cwd) },
         changed: true,
       };
+    }
+    if (isString(args.cwd)) {
+      const mapped = mapToWorkspaceHost(root, args.cwd);
+      return mapped === args.cwd
+        ? { args, changed: false }
+        : { args: { ...args, cwd: mapped }, changed: true };
     }
   }
   return { args, changed: false };

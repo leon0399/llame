@@ -129,6 +129,32 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
+  it('offers the native tools when Machines are configured without a local executor', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        machines: {
+          ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+          hosts: { devl: { destination: 'box' } },
+        },
+      },
+    });
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['read', 'edit', 'write', 'bash'],
+      codeOwnedTools: [
+        nativeReadTool,
+        nativeEditTool,
+        nativeWriteTool,
+        bashTool,
+      ],
+    });
+    expect(
+      candidates.map((candidate) =>
+        candidate.state === 'available' ? candidate.tool.id : candidate.id,
+      ),
+    ).toEqual(['read', 'edit', 'write', 'bash']);
+  });
+
   it('does not query the owner row when no Knowledge tool is allowlisted', async () => {
     const findForOwnerForBinding = vi.spyOn(
       KnowledgeSpaceRepository.prototype,

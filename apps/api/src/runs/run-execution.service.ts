@@ -3,6 +3,24 @@ import { realpath, stat } from 'node:fs/promises';
 import { isBashTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
+import { machineAttemptKey, machineEnvelope } from './machine-attempt';
+import { createMachineInstructionProbe } from '../instructions/machine-instruction-scope';
+import { readFsStatResult } from '../machines/machine-results';
+import {
+  MachineUnavailableError,
+  MachineConnector,
+} from '../machines/machine-connector.service';
+import {
+  formatMachineLocator,
+  parseMachineExecutorId,
+  parseMachineLocator,
+} from '../machines/machine-locator';
+import {
+  snapshotMachineSkillSources,
+  type MachineSkillRequest,
+} from '../skills/machine-skill-sources';
+import { machineWorkspaceRoot } from '../tools/workspace-path';
+import { type FsStatResult } from '@workspace/machine-protocol';
 import {
   serializeNativeModelOutput,
   statHostPath,
@@ -94,6 +112,7 @@ import {
 } from '../search/search-reindex-dispatch.service';
 import {
   createWorkspaceDetachNoticeItem,
+  createWorkspaceMachineAvailabilityItem,
   createWorkspaceSnapshotItem,
   createModelChangeItem,
   createRecencyDigestDeltaItem,
@@ -195,10 +214,12 @@ import {
 import { nativeReadTool } from '../tools/native-files';
 import {
   type KnowledgeToolResolver,
+  type MachineStatusReader,
   type Tool,
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
+import { MachinesService } from '../machines/machines.service';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import {
   formatKnowledgeLocator,
@@ -314,6 +335,14 @@ import {
 } from '../prompts/temporal-anchor';
 
 /**
+ * How many Machine Workspace skill catalogs one worker keeps. A catalog is a
+ * per-root snapshot, so a handful of concurrently running Chats on Machines
+ * covers every attempt that resolves a skill state; the oldest is dropped and
+ * then simply contributes no workspace skills.
+ */
+const MACHINE_SKILL_CATALOG_LIMIT = 8;
+
+/**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
  * state it establishes. Applied by the terminal transaction of the attempt that
  * completes the turn: the baseline lives only in the system prompt, so no
@@ -326,11 +355,35 @@ type WorkspaceWrites = {
   readonly told: Chat['workspaceTold'];
   readonly toldFrom: Chat['workspaceToldFrom'];
   readonly clearDetachReason: boolean;
+  /**
+   * The Machine availability this write narrated. Only the availability
+   * notice passes one, so an ordinary snapshot leaves the recorded state
+   * alone and the next attempt compares against what was actually told.
+   */
+  readonly available?: boolean;
 };
+
+/**
+ * What this attempt decided about the Machine a bound Workspace lives on
+ * (remote-machines "An unreachable Machine does not detach its Workspace").
+ */
+type WorkspaceMachineState = {
+  readonly name: string;
+  /** Whether the Machine answered during this attempt. */
+  readonly available: boolean;
+  /**
+   * The operator removed this Machine, so its binding was detached with
+   * `executor_absent` and the notice names the Machine that is gone.
+   */
+  readonly removed?: boolean;
+};
+
 type WorkspacePreparation = {
   readonly root: string | undefined;
   readonly chat: Chat | undefined;
   readonly detaching: boolean;
+  /** The bound Machine Workspace's Machine; absent for a local binding. */
+  readonly machine?: WorkspaceMachineState;
 };
 
 type PromptImportStep = {
@@ -366,6 +419,8 @@ type TurnInstructions = {
   readonly readPage: ReadPage | undefined;
   /** The Knowledge world; undefined without `read` and a Knowledge root. */
   readonly knowledge: InRunAttempt['knowledge'];
+  /** The Machine world; undefined without `read` and a configured Machine. */
+  readonly machines: InRunAttempt['machines'];
   /** Preview the read permission without recording an audit event. */
   readonly admitsRead: ((path: string) => boolean) | undefined;
   /**
@@ -749,6 +804,15 @@ export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
   private readonly toolPromptRenderer: ToolPromptRenderer;
 
+  /**
+   * The Machine Workspace skill catalogs taken this process last prepared,
+   * keyed by the canonical Machine root. A catalog is a snapshot of one
+   * Machine's skill sources at one attempt's preparation, so a later
+   * preparation for the same root replaces it; the bound keeps one worker's
+   * memory flat while several Chats run.
+   */
+  private readonly machineSkillCatalogs = new Map<string, SkillCatalogPort>();
+
   constructor(
     private readonly tenantDb: TenantDbService,
     @Inject(CompactionService)
@@ -796,6 +860,15 @@ export class RunExecutionService {
     @Optional()
     @Inject(IN_RUN_CONTEXT_PRODUCER)
     private readonly inRunProducer?: InRunContextProducer,
+    // The Machine surface tool execution reaches: the connector for every
+    // request, and the status read model a bare `machine://` listing shows.
+    // Both are absent when the operator configured no Machines.
+    @Optional()
+    @Inject(MachineConnector)
+    private readonly machineConnector?: MachineConnector,
+    @Optional()
+    @Inject(MachinesService)
+    private readonly machinesStatus?: MachineStatusReader,
   ) {
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
@@ -1244,7 +1317,7 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
-      skillCatalog: this.skillCatalog,
+      skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
       // A manual-only skill the user named stays readable for this Run's tool
       // calls, references and scripts included; a turn that did not name it
       // carries an empty set and refuses again.
@@ -1263,6 +1336,12 @@ export class RunExecutionService {
       webSearch: this.instanceConfig.config.webSearch,
       modelClients: this.models,
       permissionMode: effectivePermissionMode,
+      machines: this.machineConnector,
+      machineStatus: this.machinesStatus,
+      machineAttemptKey: machineAttemptKey(
+        input.runId,
+        claim.nativeDeliverySequence,
+      ),
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
@@ -2286,6 +2365,18 @@ export class RunExecutionService {
     if (executorId === null || generation === undefined) {
       return { root: undefined, chat, detaching: false };
     }
+    const machineName = parseMachineExecutorId(executorId);
+    if (machineName !== undefined) {
+      return this.prepareMachineWorkspace({
+        input,
+        nativeDeliverySequence,
+        chat,
+        root,
+        machineName,
+        generation,
+        effectivePermissionMode,
+      });
+    }
     const reason = await this.workspaceDetachReason(
       root,
       executorId,
@@ -2293,40 +2384,316 @@ export class RunExecutionService {
     );
     if (reason === undefined) return { root, chat, detaching: false };
 
-    const detached = await this.tenantDb.runAs(input.userId, (tx) =>
+    return this.detachWorkspace({
+      input,
+      nativeDeliverySequence,
+      chat,
+      generation,
+      reason,
+    });
+  }
+
+  /**
+   * The binding check for a Workspace on a Machine. An unreachable Machine is
+   * NOT a detached Workspace: the binding persists, every operation that
+   * addresses that Machine fails with `machine_unavailable`, and the attempt
+   * records the availability transition it tells. Only a Machine the operator
+   * removed detaches, narrated as a removed Machine.
+   */
+  private async prepareMachineWorkspace(params: {
+    input: ExecuteRunInput;
+    nativeDeliverySequence: number;
+    chat: Chat | undefined;
+    root: string;
+    machineName: string;
+    generation: number;
+    effectivePermissionMode: PermissionMode;
+  }): Promise<WorkspacePreparation> {
+    const { input, nativeDeliverySequence, chat, root, machineName } = params;
+    const connector = this.machineConnector;
+    if (
+      connector === undefined ||
+      !connector.enabled() ||
+      !connector.isConfigured(machineName)
+    ) {
+      return this.detachWorkspace({
+        input,
+        nativeDeliverySequence,
+        chat,
+        generation: params.generation,
+        reason: 'executor_absent',
+        removedMachine: machineName,
+      });
+    }
+
+    // Decided once per attempt: instructions, skills, MCP, and the tools all
+    // read the same verdict instead of each waiting out a handshake timeout.
+    const available = await connector.reachable(
+      machineName,
+      machineAttemptKey(input.runId, nativeDeliverySequence),
+    );
+    if (!available) {
+      return {
+        root,
+        chat,
+        detaching: false,
+        machine: { name: machineName, available: false },
+      };
+    }
+
+    const check = await this.machineRootCheck({
+      input,
+      nativeDeliverySequence,
+      connector,
+      machineName,
+      root,
+      effectivePermissionMode: params.effectivePermissionMode,
+    });
+    if (check.verdict === 'unavailable') {
+      // The session died between the verdict and the re-check: the binding is
+      // still the Machine's, and this attempt tells the unavailability.
+      return {
+        root,
+        chat,
+        detaching: false,
+        machine: { name: machineName, available: false },
+      };
+    }
+    if (check.verdict === 'detach') {
+      return this.detachWorkspace({
+        input,
+        nativeDeliverySequence,
+        chat,
+        generation: params.generation,
+        reason: check.reason,
+      });
+    }
+    await this.prepareMachineSkills({
+      input,
+      connector,
+      machineName,
+      root,
+    });
+    return {
+      root,
+      chat,
+      detaching: false,
+      machine: { name: machineName, available: true },
+    };
+  }
+
+  /**
+   * The Machine Workspace's skill sources, read from the Machine once per
+   * attempt (spec: Machine Workspace skills come from the Machine). The local
+   * catalog still does the discovery, the bounds, and the precedence; it is
+   * simply fed an in-memory filesystem built from a bounded Machine snapshot,
+   * so every later `skill://` read of a Machine package reads the Machine and
+   * the hub's own filesystem never sees a `machine://` path.
+   */
+  private async prepareMachineSkills(params: {
+    input: ExecuteRunInput;
+    connector: MachineConnector;
+    machineName: string;
+    root: string;
+  }): Promise<void> {
+    if (!this.instanceConfig.config.tools.allowed.includes('read')) return;
+    const parsed = machineWorkspaceRoot(params.root);
+    if (parsed === undefined || parsed.name !== params.machineName) return;
+    const machineRequest: MachineSkillRequest = (
+      method,
+      requestParams,
+      options,
+    ) =>
+      params.connector.request(
+        params.machineName,
+        method,
+        requestParams,
+        options,
+      );
+    const sources = await snapshotMachineSkillSources({
+      root: params.root,
+      request: machineRequest,
+      ...(params.input.abortSignal !== undefined && {
+        signal: params.input.abortSignal,
+      }),
+    });
+    if (sources === undefined) return;
+    this.machineSkillCatalogs.set(
+      params.root,
+      new SkillCatalog(
+        this.instanceConfig.config.skills.directories,
+        sources.fileSystem,
+      ),
+    );
+    while (this.machineSkillCatalogs.size > MACHINE_SKILL_CATALOG_LIMIT) {
+      const oldest = this.machineSkillCatalogs.keys().next().value;
+      if (oldest === undefined) break;
+      this.machineSkillCatalogs.delete(oldest);
+    }
+  }
+
+  /**
+   * The Machine counterpart of `workspaceDetachReason`, run only once the
+   * Machine answered: the registered root is re-probed through the Machine,
+   * its canonical form must still be the bound locator, and the operator gates
+   * apply exactly as they do locally.
+   */
+  private async machineRootCheck(params: {
+    input: ExecuteRunInput;
+    nativeDeliverySequence: number;
+    connector: MachineConnector;
+    machineName: string;
+    root: string;
+    effectivePermissionMode: PermissionMode;
+  }): Promise<
+    | { readonly verdict: 'keep' }
+    | { readonly verdict: 'unavailable' }
+    | { readonly verdict: 'detach'; readonly reason: WorkspaceDetachReason }
+  > {
+    const parsed = parseMachineLocator(params.root);
+    if (parsed.kind !== 'path') {
+      return { verdict: 'detach', reason: 'root_missing' };
+    }
+    const probe = await this.probeMachineRoot({
+      input: params.input,
+      nativeDeliverySequence: params.nativeDeliverySequence,
+      connector: params.connector,
+      machineName: params.machineName,
+      path: parsed.path,
+    });
+    if (probe.verdict !== 'probed') return probe;
+    if (probe.stat === undefined || probe.stat.kind !== 'directory') {
+      return { verdict: 'detach', reason: 'root_missing' };
+    }
+    const canonical =
+      probe.stat.realPath === undefined
+        ? undefined
+        : formatMachineLocator(params.machineName, probe.stat.realPath);
+    if (canonical === undefined || canonical !== params.root) {
+      return { verdict: 'detach', reason: 'root_moved' };
+    }
+
+    if (!this.instanceConfig.config.tools.allowed.includes('enter_workspace')) {
+      return { verdict: 'detach', reason: 'tool_not_allowed' };
+    }
+    // Deliberately mirrors admitPermission; the bound locator is already the
+    // canonical text every Machine rule matches.
+    if (params.effectivePermissionMode === 'bypass') return { verdict: 'keep' };
+    const decision = evaluatePermission(this.permissionPolicy, {
+      toolId: 'enter_workspace',
+      args: { path: params.root },
+    });
+    return decision.decision === 'allow'
+      ? { verdict: 'keep' }
+      : { verdict: 'detach', reason: 'permission_rejected' };
+  }
+
+  /**
+   * One `fs.stat` of a bound Machine root. A lost session is its own verdict,
+   * never a missing root: a Machine that went away must not detach a binding
+   * its Chat would still have on its return.
+   */
+  private async probeMachineRoot(params: {
+    input: ExecuteRunInput;
+    nativeDeliverySequence: number;
+    connector: MachineConnector;
+    machineName: string;
+    path: string;
+  }): Promise<
+    | { readonly verdict: 'probed'; readonly stat: FsStatResult | undefined }
+    | { readonly verdict: 'unavailable' }
+    | { readonly verdict: 'detach'; readonly reason: WorkspaceDetachReason }
+  > {
+    try {
+      return {
+        verdict: 'probed',
+        stat: readFsStatResult(
+          await params.connector.request(
+            params.machineName,
+            'fs.stat',
+            {
+              envelope: machineEnvelope({
+                runId: params.input.runId,
+                deliverySequence: params.nativeDeliverySequence,
+              }),
+              path: params.path,
+            },
+            { signal: params.input.abortSignal },
+          ),
+        ),
+      };
+    } catch (error) {
+      if (error instanceof MachineUnavailableError) {
+        return { verdict: 'unavailable' };
+      }
+      // A daemon refusal — the path is no longer registered, the budget ran
+      // out — leaves nothing this Chat can address, exactly as a root that is
+      // gone does.
+      this.logger.warn(
+        `Machine ${params.machineName} refused the Workspace root check for ${params.path}`,
+      );
+      return { verdict: 'detach', reason: 'root_missing' };
+    }
+  }
+
+  /**
+   * Detach the binding with its reason. The detached Chat row is the local
+   * copy the attempt reads its narration from, so the generation it reported
+   * and the reason it stores are applied together. A detached Machine binding
+   * keeps the Machine's name, which the row no longer holds, so the notice can
+   * name the Machine the operator removed.
+   */
+  private async detachWorkspace(params: {
+    input: ExecuteRunInput;
+    nativeDeliverySequence: number;
+    chat: Chat | undefined;
+    generation: number;
+    reason: WorkspaceDetachReason;
+    /** The Machine this detach removed from the binding, when it had one. */
+    removedMachine?: string;
+  }): Promise<WorkspacePreparation> {
+    const detached = await this.tenantDb.runAs(params.input.userId, (tx) =>
       new WorkspaceBindingRepository(tx).detach({
-        chatId: input.chatId,
-        ownerUserId: input.userId,
-        runId: input.runId,
-        deliverySequence: nativeDeliverySequence,
-        expectedGeneration: generation,
-        reason,
+        chatId: params.input.chatId,
+        ownerUserId: params.input.userId,
+        runId: params.input.runId,
+        deliverySequence: params.nativeDeliverySequence,
+        expectedGeneration: params.generation,
+        reason: params.reason,
       }),
     );
     if (detached === 'fence_lost') {
-      throw new RunNotRunnableError(input.runId);
+      throw new RunNotRunnableError(params.input.runId);
     }
     if (detached === 'detached') {
-      await this.workspaceMcp?.stopForChat(input.chatId);
+      await this.workspaceMcp?.stopForChat(params.input.chatId);
       return {
         root: undefined,
         chat:
-          chat === undefined
+          params.chat === undefined
             ? undefined
             : {
-                ...chat,
+                ...params.chat,
                 workspaceRoot: null,
                 workspaceExecutorId: null,
-                workspaceGeneration: generation + 1,
-                workspaceDetachReason: reason,
+                workspaceGeneration: params.generation + 1,
+                workspaceDetachReason: params.reason,
               },
         detaching: true,
+        ...(params.removedMachine !== undefined && {
+          machine: {
+            name: params.removedMachine,
+            available: false,
+            removed: true,
+          },
+        }),
       };
     }
     // A concurrent enter/exit won the generation compare-and-set. Do not
     // reuse the root that failed this attempt's checks.
-    return { root: undefined, chat, detaching: false };
+    return { root: undefined, chat: params.chat, detaching: false };
   }
+
   private async workspaceDetachReason(
     root: string,
     executorId: string,
@@ -2531,12 +2898,23 @@ export class RunExecutionService {
       workspaceRoot: step.workspaceRoot.current(),
       hostAvailable: this.hostInstructionsLoadable(),
       knowledgeAvailable: this.knowledgeInstructionsLoadable(),
+      machineAvailable: this.machineInstructionsLoadable(),
       admitsRead: (path) =>
         previewToolPermission(nativeReadTool, { path }, context),
       probeHost: async (path) => {
         const { kind } = await statHostPath(path);
         return kind === 'file' || kind === 'directory';
       },
+      probeMachine: (name, path) =>
+        this.probePromptMachine(
+          {
+            runId: input.runId,
+            deliverySequence: step.nativeDeliverySequence,
+            signal: context.abortSignal,
+          },
+          name,
+          path,
+        ),
       probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
       probeMedia: async (locator) => {
         const id = parseMediaLocator(locator);
@@ -2564,6 +2942,51 @@ export class RunExecutionService {
       },
       nowMs: () => Date.now(),
     };
+  }
+
+  /**
+   * The canonical Machine locator of an existing target on one Machine, or
+   * undefined when it is absent — or the Machine cannot answer, which is
+   * indistinguishable from a missing target here exactly as an unreadable host
+   * path is, so the marker stays prose and nothing is disclosed by the probe.
+   */
+  private async probePromptMachine(
+    identity: {
+      readonly runId: string;
+      readonly deliverySequence: number | undefined;
+      readonly signal: AbortSignal | undefined;
+    },
+    name: string,
+    path: string,
+  ): Promise<string | undefined> {
+    const connector = this.machineConnector;
+    if (
+      connector === undefined ||
+      !connector.enabled() ||
+      !connector.isConfigured(name)
+    ) {
+      return undefined;
+    }
+    try {
+      const answer = readFsStatResult(
+        await connector.request(
+          name,
+          'fs.stat',
+          {
+            envelope: machineEnvelope({
+              runId: identity.runId,
+              deliverySequence: identity.deliverySequence,
+            }),
+            path,
+          },
+          { signal: identity.signal },
+        ),
+      );
+      if (answer === undefined || answer.kind === 'missing') return undefined;
+      return formatMachineLocator(name, answer.realPath ?? path);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -2621,6 +3044,45 @@ export class RunExecutionService {
   }
 
   /**
+   * Whether MACHINE instruction files may load: the same `read` allowlist and
+   * at least one configured Machine. No local executor is needed — the chain
+   * is read through the Machine, and the page reader is the same `read` tool
+   * the model's own Machine reads use.
+   */
+  private machineInstructionsLoadable(): boolean {
+    return (
+      this.machineConnector?.enabled() === true &&
+      this.instanceConfig.config.tools.allowed.includes('read')
+    );
+  }
+
+  /**
+   * The Machine world one attempt may load Machine candidates in: absent
+   * without `read` and a configured Machine, else the same audited page reader
+   * every world uses and the registered-root probe of the targeted Machine.
+   */
+  private machineInstructionWorld(
+    input: ExecuteRunInput,
+    toolContext: ToolContext,
+    readPage: ReadPage,
+    enabled: boolean,
+  ): InRunAttempt['machines'] {
+    const connector = this.machineConnector;
+    if (!enabled || connector === undefined) return undefined;
+    return {
+      readPage,
+      probe: createMachineInstructionProbe({
+        connector,
+        envelope: machineEnvelope({
+          runId: input.runId,
+          deliverySequence: toolContext.nativeDeliverySequence,
+        }),
+        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+      }),
+    };
+  }
+
+  /**
    * The trusted context for a system-origin read (skill activation, the
    * accepted-turn instructions load): the same fields the model's own tool
    * context carries, built from the RUN's identity. Deliberately no
@@ -2645,12 +3107,15 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
-      skillCatalog: this.skillCatalog,
+      skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
       webSearch: this.instanceConfig.config.webSearch,
       modelClients: this.models,
       permissionMode: effectivePermissionMode,
+      machines: this.machineConnector,
+      machineStatus: this.machinesStatus,
+      machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
     };
   }
 
@@ -2674,9 +3139,10 @@ export class RunExecutionService {
     const gates = {
       host: this.hostInstructionsLoadable(),
       knowledge: this.knowledgeInstructionsLoadable(),
+      machine: this.machineInstructionsLoadable(),
     };
     const toolContext =
-      gates.host || gates.knowledge
+      gates.host || gates.knowledge || gates.machine
         ? this.buildSystemReadContext(
             input,
             nativeDeliverySequence,
@@ -2715,20 +3181,25 @@ export class RunExecutionService {
 
   /**
    * The worlds the accepted-turn load may read in, one audited reader for
-   * both: the host world only with a native executor, the Knowledge world
-   * only with a configured Knowledge root, so a trigger whose world this Run
-   * may not load is ignored before anything is probed.
+   * all: the host world only with a native executor, the Knowledge world
+   * only with a configured Knowledge root, and the Machine world only with a
+   * configured Machine, so a trigger whose world this Run may not load is
+   * ignored before anything is probed.
    */
   private turnInstructionWorlds(
     input: ExecuteRunInput,
     toolContext: ToolContext | undefined,
     gates: PromptImportTriggerGates,
     nextToolCallId: () => string,
-  ): Pick<TurnInstructions, 'readPage' | 'knowledge' | 'admitsRead'> {
+  ): Pick<
+    TurnInstructions,
+    'readPage' | 'knowledge' | 'machines' | 'admitsRead'
+  > {
     if (toolContext === undefined) {
       return {
         readPage: undefined,
         knowledge: undefined,
+        machines: undefined,
         admitsRead: undefined,
       };
     }
@@ -2746,6 +3217,12 @@ export class RunExecutionService {
     return {
       readPage: gates.host ? readPage : undefined,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
+      machines: this.machineInstructionWorld(
+        input,
+        toolContext,
+        readPage,
+        gates.machine,
+      ),
       admitsRead: (path) =>
         previewToolPermission(nativeReadTool, { path }, toolContext),
     };
@@ -2761,7 +3238,7 @@ export class RunExecutionService {
     gates: PromptImportTriggerGates,
   ): Promise<ReadonlyArray<PromptImportTrigger>> {
     if (this.inRunProducer?.prepareTurn === undefined) return [];
-    if (!gates.host && !gates.knowledge) return [];
+    if (!gates.host && !gates.knowledge && !gates.machine) return [];
     const stored = await this.tenantDb.runAs(input.userId, (tx) =>
       new PromptImportPartsRepository(tx).findForRun({
         id: input.userMessage.id,
@@ -3532,6 +4009,7 @@ export class RunExecutionService {
       readPage: this.hostInstructionsLoadable() ? readPage : undefined,
       admitsRead,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
+      machines: turn.machines,
       abortSignal: input.abortSignal,
     });
   }
@@ -3701,6 +4179,7 @@ export class RunExecutionService {
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
     afterPublication: boolean,
+    machine: WorkspaceMachineState | undefined,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -3711,6 +4190,7 @@ export class RunExecutionService {
         workspaceRoot,
         workspaceMcpKey,
         afterPublication,
+        machine,
       ),
     );
   }
@@ -3723,6 +4203,7 @@ export class RunExecutionService {
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
     afterPublication: boolean,
+    machine: WorkspaceMachineState | undefined,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -3788,6 +4269,7 @@ export class RunExecutionService {
       prompt,
       effectiveContext: catalog,
       afterPublication,
+      machine,
     });
     const built = await this.rebuildContextForChat(
       tx,
@@ -3848,6 +4330,7 @@ export class RunExecutionService {
       input.workspacePreparation.root,
       input.workspaceMcpKey,
       false,
+      input.workspacePreparation.machine,
     );
     const turnInstructions = await this.loadTurnInstructions(
       input.run,
@@ -3937,6 +4420,7 @@ export class RunExecutionService {
         input.workspacePreparation.root,
         input.workspaceMcpKey,
         true,
+        input.workspacePreparation.machine,
       );
       // The published history decides the accepted-turn bundle: the item the
       // estimate pass staged can no longer be what made its files seen.
@@ -4229,6 +4713,21 @@ export class RunExecutionService {
   }
 
   /**
+   * The skill catalog one attempt reads through: the operator catalog for a
+   * local (or unbound) Workspace root, and the Machine Workspace snapshot this
+   * attempt's preparation took for a Machine root, so a Machine package is
+   * discovered and read on the Machine. A Machine root this process never
+   * snapshotted (a code path that skipped preparation) falls back to the
+   * operator catalog, whose Machine extra sources are simply unreadable and
+   * contribute nothing — a Machine path is never read from the hub's own
+   * filesystem.
+   */
+  private skillCatalogFor(root: string | undefined): SkillCatalogPort {
+    if (root === undefined) return this.skillCatalog;
+    return this.machineSkillCatalogs.get(root) ?? this.skillCatalog;
+  }
+
+  /**
    * This epoch's skill-catalog decision, from the deps the attempt's own
    * resolution and a checkpoint publication share: a checkpoint re-bakes the
    * epoch the next attempt is about to start, so both must resolve it from the
@@ -4243,7 +4742,7 @@ export class RunExecutionService {
   }): SkillTurnState {
     return resolveTurnSkillState(
       {
-        skillCatalog: this.skillCatalog,
+        skillCatalog: this.skillCatalogFor(input.workspaceRoot),
         skillDirectories: this.instanceConfig.config.skills.directories,
         ...(input.workspaceRoot !== undefined && {
           extraSources: workspaceSkillSources(input.workspaceRoot),
@@ -4511,6 +5010,8 @@ export class RunExecutionService {
     prompt: AttemptPromptContext;
     effectiveContext: AttemptToolCatalog;
     afterPublication: boolean;
+    /** The bound Machine Workspace's availability as this attempt decided it. */
+    machine: WorkspaceMachineState | undefined;
   }): Promise<AttemptStagedContext> {
     const baseline = await this.resolveDisclosureBaseline(
       input.tx,
@@ -4543,6 +5044,7 @@ export class RunExecutionService {
       runId: input.input.runId,
       chat: input.prompt.chat,
       latestCheckpointId: input.prompt.checkpoint?.id ?? null,
+      machine: input.machine,
     });
     stagedParts.push(...workspaceContext.parts);
     const workspaceWrites = workspaceContext.writes;
@@ -4667,6 +5169,8 @@ export class RunExecutionService {
     runId: string;
     chat: Chat;
     latestCheckpointId: string | null;
+    /** The bound Machine Workspace's availability as this attempt decided it. */
+    machine: WorkspaceMachineState | undefined;
   }): WorkspaceStagedContext {
     const currentRoot = input.chat.workspaceRoot;
     const latestCheckpointId = input.latestCheckpointId;
@@ -4681,6 +5185,7 @@ export class RunExecutionService {
         : null;
     const parts: Array<MessagePart> = [];
     let writes: WorkspaceWrites | undefined;
+    let toldAvailable: boolean | undefined;
 
     if (
       currentRoot !== toldRoot &&
@@ -4698,11 +5203,35 @@ export class RunExecutionService {
         clearDetachReason: detachReason !== null,
       };
     }
+    // One narration per availability transition: the state the Chat was last
+    // told about against the one this attempt decided. A removed Machine is
+    // the detach notice's story, not this one.
+    const machine = input.machine;
+    if (
+      machine !== undefined &&
+      machine.removed !== true &&
+      input.chat.workspaceToldAvailable !== machine.available
+    ) {
+      parts.push(
+        createWorkspaceMachineAvailabilityItem({
+          runId: input.runId,
+          machine: machine.name,
+          available: machine.available,
+        }),
+      );
+      toldAvailable = machine.available;
+      writes ??= {
+        told: currentRoot,
+        toldFrom: latestCheckpointId,
+        clearDetachReason: false,
+      };
+    }
     if (detachReason !== null) {
       parts.push(
         createWorkspaceDetachNoticeItem({
           runId: input.runId,
           reason: detachReason,
+          ...(machine?.removed === true && { machine: machine.name }),
         }),
       );
       writes ??= {
@@ -4711,7 +5240,15 @@ export class RunExecutionService {
         clearDetachReason: true,
       };
     }
-    return { parts, ...(writes !== undefined && { writes }) };
+    return {
+      parts,
+      ...(writes !== undefined && {
+        writes: {
+          ...writes,
+          ...(toldAvailable !== undefined && { available: toldAvailable }),
+        },
+      }),
+    };
   }
 
   /**
@@ -4794,6 +5331,9 @@ export class RunExecutionService {
         told: context.workspaceWrites.told,
         toldFrom: context.workspaceWrites.toldFrom,
         clearDetachReason: context.workspaceWrites.clearDetachReason,
+        ...(context.workspaceWrites.available !== undefined && {
+          available: context.workspaceWrites.available,
+        }),
       });
     }
     // `model.requested` describes the target inference, not the summary

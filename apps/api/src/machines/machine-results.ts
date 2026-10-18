@@ -28,6 +28,7 @@ import {
   type NativeFileReadResult,
   type NativeMediaReadResult,
   type RootsListResult,
+  type SerializableRecord,
   type SerializableValue,
 } from '@workspace/machine-protocol';
 
@@ -210,21 +211,38 @@ export function readFsReadResult(value: JsonValue): FsReadResult | undefined {
   if (failure !== undefined) return failure;
   if (!isSerializableRecord(value) || value['status'] !== 'success')
     return undefined;
-  const { kind, path, realPath } = value;
+  const { kind, path } = value;
   if (!isText(path)) return undefined;
-  if (kind === 'image' || kind === 'pdf') {
-    const mediaType = value['mediaType'];
-    if (!isText(mediaType)) return undefined;
-    const media: NativeMediaReadResult = {
-      status: 'success',
-      kind,
-      mediaType,
-      path,
-    };
-    return isText(realPath) ? { ...media, realPath } : media;
-  }
+  if (kind === 'image' || kind === 'pdf')
+    return readMediaRead(value, kind, path);
   if (kind !== 'file' && kind !== 'directory') return undefined;
-  const { content, truncated, nextOffset } = value;
+  return readFileRead(value, kind, path);
+}
+
+/** The media branch: bytes travel through `fs.bytes`, so this is metadata. */
+function readMediaRead(
+  value: SerializableRecord,
+  kind: 'image' | 'pdf',
+  path: string,
+): NativeMediaReadResult | undefined {
+  const { mediaType, realPath } = value;
+  if (!isText(mediaType)) return undefined;
+  const media: NativeMediaReadResult = {
+    status: 'success',
+    kind,
+    mediaType,
+    path,
+  };
+  return isText(realPath) ? { ...media, realPath } : media;
+}
+
+/** The file/directory branch: content, truncation, and the next window. */
+function readFileRead(
+  value: SerializableRecord,
+  kind: 'file' | 'directory',
+  path: string,
+): NativeFileReadResult | undefined {
+  const { content, truncated, nextOffset, realPath } = value;
   if (!isText(content) || !isFlag(truncated)) return undefined;
   if (isText(realPath) && isCount(nextOffset))
     return {
@@ -240,14 +258,7 @@ export function readFsReadResult(value: JsonValue): FsReadResult | undefined {
     return { status: 'success', kind, path, content, truncated, realPath };
   if (isCount(nextOffset))
     return { status: 'success', kind, path, content, truncated, nextOffset };
-  const file: NativeFileReadResult = {
-    status: 'success',
-    kind,
-    path,
-    content,
-    truncated,
-  };
-  return file;
+  return { status: 'success', kind, path, content, truncated };
 }
 
 /** A `fs.bytes` answer: the byte length and media type, or a refusal. */

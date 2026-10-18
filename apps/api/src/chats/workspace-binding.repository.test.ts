@@ -127,6 +127,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toEqual({ status: 'fence_lost' });
@@ -171,6 +172,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/old',
       }),
     ).resolves.toMatchObject({
@@ -190,6 +192,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toMatchObject({
@@ -224,6 +227,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-b',
+        bindExecutorId: 'worker-b',
         root: '/work/old',
       }),
     ).resolves.toMatchObject({
@@ -250,6 +254,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toMatchObject({
@@ -269,7 +274,7 @@ describe('WorkspaceBindingRepository', () => {
         ownerUserId: 'owner-a',
         runId: 'run-1',
         deliverySequence: 7,
-        executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
       }),
     ).resolves.toMatchObject({
       status: 'cleared',

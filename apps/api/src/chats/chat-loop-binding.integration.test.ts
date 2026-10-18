@@ -268,6 +268,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       workspaceGeneration: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
+      workspaceToldAvailable: null,
       workspaceDetachReason: null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);

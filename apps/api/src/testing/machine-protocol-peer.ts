@@ -27,6 +27,7 @@ import {
   type Frame,
   type FrameMultiplexer,
   type Heartbeat,
+  type JsonRpcNotification,
   type JsonValue,
   type MachineChannel,
   type MachineErrorCode,
@@ -37,6 +38,12 @@ import type {
   MachineTransport,
   MachineTransportFactory,
 } from '../machines/machine-transport';
+
+/** One request the peer received, with the params its caller actually sent. */
+export type PeerCall = {
+  readonly method: string;
+  readonly params?: JsonValue;
+};
 
 /** What the peer answers one method with. */
 export type PeerAnswer =
@@ -56,6 +63,21 @@ export type ProtocolPeerOptions = {
   readonly heartbeatMisses?: number;
   readonly answers?: Readonly<Record<string, PeerAnswer>>;
   /**
+   * Answer one request from the request itself, taking precedence over
+   * `answers`. This is what a walk needs: the same method (`fs.stat`, `fs.list`)
+   * answers differently for each path, and `undefined` falls back to `answers`.
+   */
+  readonly answer?: (call: PeerCall) => PeerAnswer | undefined;
+  /**
+   * Observes the notifications the HUB sends on a request stream (for example
+   * `mcp.message` and `mcp.setProtocolVersion`), keyed by the method whose
+   * stream carries them. Purely additive: omitted, the peer behaves as before.
+   */
+  readonly onNotification?: (
+    method: string,
+    notification: JsonRpcNotification,
+  ) => void;
+  /**
    * When it returns a diagnostic, every `open` yields a link that failed the
    * way ssh would: an unreachable Machine. Returning undefined again makes the
    * Machine reachable, which is how one connector's per-attempt cache is
@@ -67,6 +89,8 @@ export type ProtocolPeerOptions = {
 export type PeerSession = {
   /** Request method names, in arrival order. */
   readonly requests: ReadonlyArray<string>;
+  /** Every request in arrival order, with the params it carried. */
+  readonly calls: ReadonlyArray<PeerCall>;
   /** Hub streams this peer has open right now. */
   readonly openStreams: number;
   /** The most hub streams this peer ever carried at once. */
@@ -104,6 +128,7 @@ const DEFAULT_ANSWER: PeerAnswer = { error: 'internal' };
 /** One peer-side session: its own multiplexer, framer, and heartbeat. */
 class PeerSessionImpl implements PeerSession {
   readonly requests: Array<string> = [];
+  readonly calls: Array<PeerCall> = [];
   readonly transport: MachineTransport;
   private readonly toHub = new PassThrough();
   private readonly fromHub = new PassThrough();
@@ -250,13 +275,25 @@ class PeerSessionImpl implements PeerSession {
     }
   }
 
-  private handle(channel: MachineChannel, request: { method: string }): void {
+  private handle(
+    channel: MachineChannel,
+    request: { method: string; params?: JsonValue },
+  ): void {
     if (channel.id === CONTROL_STREAM_ID) {
       this.handleHello(channel);
       return;
     }
-    const answer = this.options.answers?.[request.method] ?? DEFAULT_ANSWER;
+    const answer =
+      this.options.answer?.(request) ??
+      this.options.answers?.[request.method] ??
+      DEFAULT_ANSWER;
     this.requests.push(request.method);
+    this.calls.push({ method: request.method, params: request.params });
+    // Registered on the method's own stream, before the hub can send anything
+    // after its request: `onRequest` runs as the request frame is decoded.
+    channel.onNotification((notification) => {
+      this.options.onNotification?.(request.method, notification);
+    });
     this.notifyRequests();
     this.streamByMethod.set(request.method, channel);
     this.highWater = Math.max(this.highWater, this.multiplexer.openStreams);

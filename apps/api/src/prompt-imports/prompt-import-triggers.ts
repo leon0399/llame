@@ -15,18 +15,25 @@ import { parsePathScheme } from '@workspace/native-file-tools';
 import type { PromptImportsPayloadEntry } from '../chats/prompt-imports-item';
 import { spaceTarget } from '../instructions/instructions-producer';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
+import {
+  isMachineLocator,
+  parseMachineLocator,
+} from '../machines/machine-locator';
 import type { PromptImportTrigger } from '../runs/in-run-context-items';
 
 /** Which worlds the Run may load instruction files in. */
 export type PromptImportTriggerGates = {
   readonly host: boolean;
   readonly knowledge: boolean;
+  readonly machine: boolean;
 };
 
 /**
  * The stored `resolved` path never carries a selector — the item persists the
  * literal path or the selector-free one — so a `:`-suffixed name is a literal
- * file name and only needs normalizing.
+ * file name and only needs normalizing. A Machine target normalizes the same
+ * way, so a `.` or `..` segment cannot walk a directory the locator merely
+ * spells; its key is the absolute Machine path, never a locator.
  */
 function triggerOf(
   entry: PromptImportsPayloadEntry,
@@ -34,6 +41,16 @@ function triggerOf(
 ): PromptImportTrigger | undefined {
   const resolved = entry.resolved;
   if (resolved === undefined || entry.outcome === 'denied') return undefined;
+  if (isMachineLocator(resolved)) {
+    if (!gates.machine) return undefined;
+    const parsed = parseMachineLocator(resolved);
+    return parsed.kind === 'path'
+      ? {
+          key: posix.resolve(parsed.path),
+          machine: { name: parsed.name },
+        }
+      : undefined;
+  }
   const scheme = parsePathScheme(resolved);
   if (scheme === undefined) {
     return gates.host && resolved.startsWith('/')
@@ -47,9 +64,9 @@ function triggerOf(
 
 /**
  * The triggers of a persisted item's entries in entry order. A host trigger
- * needs the host gate and a Knowledge trigger the Knowledge gate; no Workspace
- * binding is involved, because every `resolved` path is absolute or canonical
- * and is never projected again.
+ * needs the host gate, a Knowledge trigger the Knowledge gate, and a Machine
+ * trigger the Machine gate; no Workspace binding is involved, because every
+ * `resolved` path is absolute or canonical and is never projected again.
  */
 export function derivePromptImportTriggers(
   entries: ReadonlyArray<PromptImportsPayloadEntry>,

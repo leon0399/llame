@@ -182,6 +182,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           workspaceGeneration: number;
           workspaceTold: string | null;
           workspaceToldFrom: string | null;
+          workspaceToldAvailable: boolean | null;
           workspaceDetachReason: string | null;
         }
       | undefined
@@ -215,6 +216,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );
@@ -249,6 +251,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );
@@ -283,6 +286,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );
@@ -321,6 +325,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );
@@ -354,6 +359,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );
@@ -385,6 +391,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );
@@ -418,6 +425,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );
@@ -716,6 +724,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       workspaceGeneration: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
+      workspaceToldAvailable: null,
       workspaceDetachReason: null,
     };
     const { db, queries } = makeMockDb();
@@ -756,6 +765,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       }),
     );

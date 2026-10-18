@@ -10,7 +10,27 @@ import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
 import { isWorkspaceTool } from './workspace';
 import { bashWorkingDirectory } from './env';
-import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
+import {
+  isWorkspaceRelative,
+  machineWorkspaceRoot,
+  mapToWorkspaceHost,
+  resolveWorkspacePath,
+} from './workspace-path';
+import {
+  formatMachineLocator,
+  isMachineLocator,
+  parseMachineLocator,
+} from '../machines/machine-locator';
+import {
+  MACHINE_BASH_BUDGET_MS,
+  machineBudgetMs,
+  machineConnector,
+  machineEnvelope,
+  machineNotFoundResult,
+  machineUnusableResult,
+  readProcBashResult,
+  runMachineMutation,
+} from './machine-call';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 
@@ -42,11 +62,75 @@ function managedContext(context: ToolContext): BashExecutorContext {
   };
 }
 
+/** A working directory resolved to one Machine, and its canonical locator. */
+type MachineWorkingDirectory = {
+  readonly name: string;
+  readonly path: string;
+  readonly locator: string;
+};
+
+function machineWorkingDirectory(
+  name: string,
+  path: string,
+): MachineWorkingDirectory | undefined {
+  const locator = formatMachineLocator(name, path);
+  return locator === undefined ? undefined : { name, path, locator };
+}
+
+/**
+ * Resolve the working directory for this call. A Machine locator runs on that
+ * Machine; inside a Machine Workspace an omitted or relative `cwd` resolves on
+ * the Machine, and a bare absolute one is that Machine's absolute path. A
+ * `file:` alias keeps addressing the local executor, so it is not a Machine
+ * cwd.
+ */
 function projectBashInput(
   context: ToolContext,
   input: BashInput,
 ): BashInput | ToolResult {
   const root = context.workspaceRoot?.current();
+  if (input.cwd !== undefined && isMachineLocator(input.cwd)) {
+    const target = parseMachineLocator(input.cwd);
+    const machine =
+      target.kind === 'path' && target.selector === undefined
+        ? machineWorkingDirectory(target.name, target.path)
+        : undefined;
+    return machine === undefined
+      ? {
+          status: 'error',
+          type: 'invalid_path',
+          message:
+            'A Machine working directory is one absolute Machine path without a selector.',
+        }
+      : { ...input, cwd: machine.locator };
+  }
+  const machineRoot = machineWorkspaceRoot(root);
+  if (machineRoot !== undefined && root !== undefined) {
+    if (input.cwd === undefined) {
+      const machine = machineWorkingDirectory(
+        machineRoot.name,
+        machineRoot.path,
+      );
+      return machine === undefined
+        ? {
+            status: 'error',
+            type: 'invalid_path',
+            message:
+              'The Machine Workspace root cannot be a working directory.',
+          }
+        : { ...input, cwd: machine.locator };
+    }
+    if (isWorkspaceRelative(input.cwd))
+      return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
+    if (input.cwd.startsWith('/'))
+      return { ...input, cwd: mapToWorkspaceHost(root, input.cwd) };
+    return {
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'The working directory must be a local absolute path or a machine:// locator.',
+    };
+  }
   if (
     root !== undefined &&
     input.cwd !== undefined &&
@@ -62,6 +146,52 @@ function projectBashInput(
   if (input.cwd === undefined) return { ...input, cwd: root };
   if (!isWorkspaceRelative(input.cwd)) return input;
   return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
+}
+
+/**
+ * Run on the Machine through its working directory: the command, the managed
+ * base environment, the shared bounds, and cancellation all travel to the
+ * daemon, and the durable attempt is the same unbound fence a Machine
+ * mutation uses.
+ */
+async function runMachineBash(
+  context: ToolContext,
+  input: BashInput,
+  machine: MachineWorkingDirectory,
+): Promise<ToolResult> {
+  const { name, path, locator } = machine;
+  const connector = machineConnector(context);
+  if (connector === undefined)
+    return {
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'Native host authority is unavailable.',
+    };
+  if (!connector.isConfigured(name)) return machineNotFoundResult(name);
+  return runMachineMutation(
+    context,
+    { name, operation: 'bash', locator },
+    async () => {
+      const raw = await connector.request(
+        name,
+        'proc.bash',
+        {
+          envelope: machineEnvelope(
+            context,
+            machineBudgetMs(context, MACHINE_BASH_BUDGET_MS),
+          ),
+          command: input.command,
+          cwd: path,
+          ...(input.env !== undefined && { env: input.env }),
+        },
+        { signal: context.abortSignal },
+      );
+      const result = readProcBashResult(raw);
+      return result === undefined
+        ? machineUnusableResult(name)
+        : toToolResult(result);
+    },
+  );
 }
 
 export function toToolResult(result: BashResult): ToolResult {
@@ -143,6 +273,23 @@ export const bashTool: Tool<BashInput> = {
   }),
   execute: async (context, input): Promise<ToolResult> => {
     const { runId, userId, nativeExecutorId, toolCallId } = context;
+    const projectedInput = projectBashInput(context, input);
+    if ('status' in projectedInput) return projectedInput;
+    const cwd = projectedInput.cwd;
+    if (cwd !== undefined && isMachineLocator(cwd)) {
+      const target = parseMachineLocator(cwd);
+      const machine =
+        target.kind === 'path'
+          ? machineWorkingDirectory(target.name, target.path)
+          : undefined;
+      if (machine === undefined)
+        return {
+          status: 'error',
+          type: 'invalid_path',
+          message: 'The working directory is not a Machine path.',
+        };
+      return runMachineBash(context, projectedInput, machine);
+    }
     if (!runId || !nativeExecutorId || !toolCallId) {
       return {
         status: 'error',
@@ -150,8 +297,6 @@ export const bashTool: Tool<BashInput> = {
         message: 'Native host authority is unavailable.',
       };
     }
-    const projectedInput = projectBashInput(context, input);
-    if ('status' in projectedInput) return projectedInput;
     // Always wrap in bash -c: the managed allowlist only admits basenames like
     // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
     const admitted = admitManagedBash(

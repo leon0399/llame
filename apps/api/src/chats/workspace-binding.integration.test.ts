@@ -140,6 +140,7 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
         runId,
         deliverySequence,
         executorId: 'executor-a',
+        bindExecutorId: 'executor-a',
         root,
       }),
     );
@@ -151,7 +152,7 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
         ownerUserId: owner,
         runId,
         deliverySequence,
-        executorId: 'executor-a',
+        bindExecutorId: 'executor-a',
       }),
     );
 

@@ -63,6 +63,7 @@ const chat: Chat = {
   workspaceGeneration: 0,
   workspaceTold: null,
   workspaceToldFrom: null,
+  workspaceToldAvailable: null,
   workspaceDetachReason: null,
 };
 

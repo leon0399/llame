@@ -49,6 +49,6 @@ import { MachinesStatusRepository } from './machines-status.repository';
     MachinesService,
     MachinesProbeService,
   ],
-  exports: [MachineConnector],
+  exports: [MachineConnector, MachinesService],
 })
 export class MachinesModule {}
