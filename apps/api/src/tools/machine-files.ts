@@ -38,7 +38,7 @@ import {
 } from './machine-call';
 import { type ToolContext, type ToolResult } from './types';
 import { NativeFileError, readMediaBytes } from '@workspace/native-file-tools';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isBoolean, isRecord, isString } from '@workspace/runtime-safety';
 
 /** The three native calls a Machine locator can address. */
 export type MachineFileCall =
@@ -115,7 +115,7 @@ function canonicalReportedPath(
   name: string,
   value: unknown,
 ): string | undefined {
-  if (typeof value !== 'string') return undefined;
+  if (!isString(value)) return undefined;
   const prefix = machinePrefix(name);
   if (!value.startsWith(prefix)) return undefined;
   return formatMachineLocator(name, value.slice(prefix.length)) ?? undefined;
@@ -143,8 +143,8 @@ function canonicalizeMachineResult(
   const reportedPath = canonical['path'];
   if (
     result['kind'] !== 'directory' ||
-    typeof content !== 'string' ||
-    typeof reportedPath !== 'string'
+    !isString(content) ||
+    !isString(reportedPath)
   )
     return canonical;
   const header = `${machinePrefix(machine.name)}${machine.path}`;

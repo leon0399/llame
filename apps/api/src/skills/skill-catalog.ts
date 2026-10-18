@@ -27,9 +27,11 @@ const SCHEME_PREFIX = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//u;
  * into `machine:/…` — not a locator at all, so the read that followed would
  * look on the hub instead of on the Machine (remote-machines "Machine
  * Workspace skills come from the Machine"). A host path carries no scheme and
- * is joined exactly as before.
+ * is joined exactly as before. Exported because a package's read paths are
+ * joined the same way, so a Machine package stays a locator all the way to the
+ * read.
  */
-function joinCatalogPath(
+export function joinCatalogPath(
   base: string,
   ...segments: ReadonlyArray<string>
 ): string {

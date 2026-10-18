@@ -1,8 +1,4 @@
-import {
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 
 /**
  * The scripted model client backing `worker-harness.ts`: a `ModelClient`
@@ -16,6 +12,8 @@ import {
 
 import type {
   LanguageModelV3CallOptions,
+  LanguageModelV3FunctionTool,
+  LanguageModelV3ProviderTool,
   LanguageModelV3StreamPart,
   LanguageModelV3ToolResultOutput,
 } from '@ai-sdk/provider';
@@ -57,7 +55,15 @@ function noop(): void {}
  * 'failed' with no retry. A plain throw propagates out of executeJob's try
  * block, which is exactly the queue-retries-it contract under test.
  */
-export type ScriptedBehavior =
+export type ScriptedBehavior = {
+  /**
+   * Whether this model's system prompt references the `skills` namespace, so
+   * `resolveTurnSkillState` bakes and renders the catalog baseline (a
+   * Machine Workspace's skill must be provably offered in the prompt). False
+   * unless a test opts in, matching every production model.
+   */
+  readonly referencesSkills?: boolean;
+} & (
   | { kind: 'complete'; text?: string; delayMs?: number }
   | { kind: 'provider-error'; message?: string }
   | { kind: 'infra-throw'; message?: string }
@@ -72,7 +78,8 @@ export type ScriptedBehavior =
       query: string;
       continueRead?: boolean;
       finalText?: string;
-    };
+    }
+);
 
 /** The subset `HarnessModelClient` actually streams; `infra-throw` never reaches it. */
 type HarnessBehavior = Exclude<ScriptedBehavior, { kind: 'infra-throw' }>;
@@ -450,22 +457,21 @@ export type ToolDeclarationRecord = {
 };
 
 /**
- * Every declaration the request carried, id and description, in the order the
- * record holds them. Declarations are not part of the provider prompt, so this
- * is the only way a test can see what a Run's model was offered — including a
- * dynamic declaration a Workspace MCP server contributed.
+ * Every declaration one provider request carried, id and description, in the
+ * order the request holds them. Declarations are not part of the provider
+ * prompt, so this is the only way a test can see what a Run's model was
+ * offered — including a dynamic declaration a Workspace MCP server contributed
+ * after the entry step.
  */
-function declaredTools(
-  tools: ModelStreamInput['tools'],
+function providerDeclarations(
+  tools:
+    | ReadonlyArray<LanguageModelV3FunctionTool | LanguageModelV3ProviderTool>
+    | undefined,
 ): ReadonlyArray<DeclarationRecord> {
-  const record: ReadonlyArray<DeclarationRecord> = Object.entries(
-    tools ?? {},
-  ).flatMap(([toolId, tool]) =>
-    isRecord(tool) && isString(tool['description'])
-      ? [{ toolId, description: tool['description'] }]
-      : [{ toolId, description: '' }],
-  );
-  return record;
+  return (tools ?? []).map((tool) => ({
+    toolId: tool.name,
+    description: tool.type === 'function' ? (tool.description ?? '') : '',
+  }));
 }
 
 class HarnessModelClient implements ModelClient {
@@ -493,10 +499,6 @@ class HarnessModelClient implements ModelClient {
       effort: input.effort,
       chat: input.chat,
     });
-    this.recorded.declarations.push({
-      modelId: this.model,
-      tools: declaredTools(input.tools),
-    });
     const behavior = this.behavior;
     const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
     const delayMs = behavior.kind === 'complete' ? behavior.delayMs : undefined;
@@ -505,8 +507,15 @@ class HarnessModelClient implements ModelClient {
     const model = new MockLanguageModelV3({
       provider: 'fake',
       modelId: this.model,
-      doStream: ({ abortSignal, prompt }) => {
+      doStream: ({ abortSignal, prompt, tools }) => {
         this.recorded.prompts.push(prompt);
+        // Per provider call, not per attempt: a Workspace MCP server's tools
+        // join the tool set after the entry step ran, so only the step that
+        // followed the call carries them.
+        this.recorded.declarations.push({
+          modelId: this.model,
+          tools: providerDeclarations(tools),
+        });
         if (behavior.kind === 'provider-error') {
           return Promise.reject(
             new Error(behavior.message ?? 'simulated provider failure'),
@@ -607,7 +616,7 @@ export class ScriptedModelsService implements ModelSelectionValidator {
       providerModelId: modelId,
       systemPromptTemplate: `Harness prompt for ${modelId}`,
       systemPromptSource: 'project_default' as const,
-      referencesSkills: false,
+      referencesSkills: this.behaviors.get(modelId)?.referencesSkills === true,
       ...(reasoning !== undefined && { reasoning }),
     };
   }

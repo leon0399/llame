@@ -76,6 +76,13 @@ export const MAX_MACHINE_SKILL_REQUESTS = 512;
 export const MAX_MACHINE_SKILL_BYTES = 1024 * 1024;
 
 const SKILL_DOCUMENT_FILENAME = 'SKILL.md';
+/**
+ * `fs.read` returns what a model would be shown, which for a text file is the
+ * numbered rendering. The snapshot parses frontmatter, so it asks for the
+ * bytes: the native `:raw` selector is the read that returns the file's own
+ * text.
+ */
+const RAW_READ_SELECTOR = 'raw';
 /** The sidecars the catalog consults for invocation control, in its order. */
 const SIDECAR_PATHS: ReadonlyArray<string> = [
   path.join('agents', 'llame.yaml'),
@@ -378,7 +385,13 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
           envelope: this.options.envelope,
           path: filePath,
           // An empty display prefix is refused; the report itself is unused.
-          options: { displayPrefix: this.options.displayPrefix },
+          // `:raw` is what makes the bytes readable as the document they are:
+          // the catalog parses frontmatter, so a numbered or otherwise
+          // rendered read (the model-facing default) is not text it can use.
+          options: {
+            displayPrefix: this.options.displayPrefix,
+            selector: RAW_READ_SELECTOR,
+          },
         },
         { signal: this.options.signal },
       ),

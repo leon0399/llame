@@ -172,9 +172,9 @@ describe('Machine Workspaces through the durable worker', () => {
       status: 'success',
       root: `machine://devl${shop}`,
       state: 'bound',
-      // The entry discloses the Machine's own authority, not a hub user's.
-      authority: expect.stringContaining("the Machine's own OS user"),
     });
+    // The entry discloses the Machine's own authority, not a hub user's.
+    expect(enterOutput['authority']).toContain("Machine's own OS user");
     expect(await chatRow(chatId, owner)).toMatchObject({
       workspaceRoot: `machine://devl${shop}`,
       workspaceExecutorId: 'machine:devl',
@@ -193,7 +193,9 @@ describe('Machine Workspaces through the durable worker', () => {
       status: 'success',
       kind: 'file',
       path: `machine://devl${shop}/README.md`,
-      content: '1: machine readme',
+      // Exactly what a local read of those bytes returns, trailing newline
+      // included.
+      content: '1: machine readme\n',
     });
     expect(devl.callsForPath(`${shop}/README.md`)).not.toHaveLength(0);
 
@@ -271,11 +273,12 @@ describe('Machine Workspaces through the durable worker', () => {
       calls: [{ id: 'skill', name: 'read', input: { path: 'skill://deploy' } }],
     });
 
-    expect(await completedOutput(read.runId, owner, 'skill')).toMatchObject({
+    const skillOutput = await completedOutput(read.runId, owner, 'skill');
+    expect(skillOutput).toMatchObject({
       status: 'success',
-      content: expect.stringContaining('# Machine deploy skill'),
       skillDirectory: `machine://devl${skillDirectory}`,
     });
+    expect(skillOutput['content']).toContain('# Machine deploy skill');
     expect(devl.callsForPath(`${skillDirectory}/SKILL.md`)).not.toHaveLength(0);
 
     const systemPrompt = await systemPromptOf(read.runId, owner);
@@ -526,8 +529,8 @@ describe('Machine Workspaces through the durable worker', () => {
       status: 'success',
       kind: 'directory',
       path: 'machine://devl',
-      content: expect.stringContaining(`machine://devl${shop}`),
     });
+    expect(output['content']).toContain(`machine://devl${shop}`);
     const text = JSON.stringify(output);
     // No SSH destination, jump host, identity, or pinned host-key file appears
     // in anything the model sees.
@@ -567,10 +570,14 @@ describe('Machine Workspaces through the durable worker', () => {
       ],
     });
 
+    // The detach reason is the notice's: the dispatch transaction that
+    // persisted the narration below cleared it in the same write
+    // (`workspace-entry` "Detach reason clears after completed narration"), so
+    // the removed Machine is named by the notice, not by the row.
     expect(await chatRow(chatId, owner)).toMatchObject({
       workspaceRoot: null,
       workspaceExecutorId: null,
-      workspaceDetachReason: 'executor_absent',
+      workspaceDetachReason: null,
     });
     const detach = (await workspaceItems(chatId, run.runId, owner)).find(
       (item) => item['form'] === 'notice',
@@ -621,6 +628,9 @@ describe('Machine Workspaces through the durable worker', () => {
       kind: 'tool-script',
       finalText: input.finalText ?? 'Done.',
       calls: input.calls,
+      // These Runs prove what a Machine Workspace offers, and the offered
+      // skills reach a model only through the skill-referencing system prompt.
+      referencesSkills: true,
     };
     harness.models.register(modelId, behavior);
     const promptsFrom = harness.models.prompts.length;
@@ -636,7 +646,7 @@ describe('Machine Workspaces through the durable worker', () => {
       chatId: input.chatId,
       promptText: harness.models.prompts
         .slice(promptsFrom)
-        .map((prompt) => JSON.stringify(prompt))
+        .map(promptTextOf)
         .join('\n'),
       declaredTools: harness.models.declarations
         .slice(declarationsFrom)
@@ -800,7 +810,14 @@ function createFakeMachine(input: {
       state.down
         ? 'ssh: connect to host box port 22: Connection refused'
         : undefined,
-    answer: (call) => answerMachineRequest(registered, call),
+    // A started server's channel outlives its `mcp.open` answer: the daemon
+    // returns the definition's protected values and then relays the server's
+    // own JSON-RPC on the same stream, so the peer holds it open.
+    answers: { 'mcp.open': { hold: true } },
+    answer: (call) => {
+      if (call.method === 'mcp.open') holdOpenChannel(peer, call);
+      return answerMachineRequest(registered, call);
+    },
     onNotification: (method, notification) => {
       if (method === 'mcp.open') relayMcpTraffic(peer, notification);
     },
@@ -857,11 +874,23 @@ function answerMachineRequest(
       return answerFileRequest(roots, call);
     case 'mcp.servers':
       return { value: { servers: resolvedServers(call) } };
-    case 'mcp.open':
-      return { value: { protectedValues: openedValues(call) } };
     default:
+      // `mcp.open` is held open by the peer's `answers`, not answered here.
       return undefined;
   }
+}
+
+/**
+ * Answer one `mcp.open` with the protected values of the definition the hub
+ * asked to start, and keep the stream open for the server's own traffic. The
+ * answer callback runs before the peer records the hold, so the release is
+ * deferred one microtask.
+ */
+function holdOpenChannel(peer: ProtocolPeer, call: PeerCall): void {
+  const session = peer.sessions.at(-1);
+  queueMicrotask(() =>
+    session?.release('mcp.open', { protectedValues: openedValues(call) }, true),
+  );
 }
 
 async function answerFileRequest(
@@ -905,11 +934,12 @@ async function answerFileRequest(
   }
   // The same reader the daemon reads with, so a Machine read returns exactly
   // what a local read of those bytes returns.
+  const selector = readSelector(paramsOf(call, 'selector', 'options'));
   const result = await readResolvedFile(guarded.canonical, {
-    displayPath: `${paramsOf(call, 'options', 'displayPrefix') ?? ''}${guarded.path}`,
+    displayPath: `${displayPrefixOf(call)}${guarded.path}`,
     followSymlinks: true,
     linkTargets: false,
-    ...(readSelector(paramsOf(call, 'options', 'selector')) ?? {}),
+    ...selector,
   });
   return {
     value:
@@ -918,7 +948,7 @@ async function answerFileRequest(
       guarded.canonical !== guarded.path
         ? {
             ...result,
-            realPath: `${paramsOf(call, 'options', 'displayPrefix') ?? ''}${guarded.canonical}`,
+            realPath: `${displayPrefixOf(call)}${guarded.canonical}`,
           }
         : (result satisfies FsReadResult),
   };
@@ -1131,14 +1161,16 @@ function jsonRpcCall(message: JsonValue | undefined): JsonRpcCall | undefined {
 /**
  * One field of one request's params, or of a nested params object. Values are
  * untrusted JSON: only a scalar is returned, and anything else reads as absent.
+ * `container` names the record the field lives in, when it is not `params`
+ * itself (`paramsOf(call, 'displayPrefix', 'options')`).
  */
 function paramsOf(
   call: PeerCall | undefined,
   key: string,
-  nested?: string,
+  container?: string,
 ): JsonValue | undefined {
-  const container = call?.params;
-  const source = nested === undefined ? container : field(container, nested);
+  const params = call?.params;
+  const source = container === undefined ? params : field(params, container);
   return field(source, key);
 }
 
@@ -1163,6 +1195,35 @@ function readSelector(
   selector: JsonValue | undefined,
 ): { readonly selector: string } | undefined {
   return isString(selector) ? { selector } : undefined;
+}
+
+/** The `machine://<name>` display prefix the hub asked a read to report under. */
+function displayPrefixOf(call: PeerCall | undefined): string {
+  const prefix = paramsOf(call, 'displayPrefix', 'options');
+  return isString(prefix) ? prefix : '';
+}
+
+/**
+ * The text a provider prompt carried, message by message. The prompt is the
+ * SDK's structured message list, so the bytes a model reads are its string
+ * content and its text parts — JSON-serializing the structure would escape the
+ * quotes the matching above asserts on.
+ */
+function promptTextOf(prompt: unknown): string {
+  if (!Array.isArray(prompt)) return '';
+  return prompt
+    .flatMap((message) => {
+      if (!isRecord(message)) return [];
+      const content = message['content'];
+      if (isString(content)) return [content];
+      if (!Array.isArray(content)) return [];
+      return content.flatMap((part) =>
+        isRecord(part) && part['type'] === 'text' && isString(part['text'])
+          ? [part['text']]
+          : [],
+      );
+    })
+    .join('\n');
 }
 
 /** One Workspace's `.mcp.json`: a server whose resolution carries its own tag. */

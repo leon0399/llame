@@ -8,7 +8,11 @@ import {
   parseSkillLocator,
   type ParsedSkillLocator,
 } from './skill-locator';
-import { type SkillCatalogEntry, type SkillCatalogPort } from './skill-catalog';
+import {
+  joinCatalogPath,
+  type SkillCatalogEntry,
+  type SkillCatalogPort,
+} from './skill-catalog';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 
 /**
@@ -135,12 +139,15 @@ async function resolveWithinPackage(
   skillDirectory: string,
 ): Promise<ResolvedSkillTarget | ToolResult> {
   const relativePath = parsed.relativePath;
+  // A Machine package's directory is a locator, so its document path is joined
+  // with the scheme intact — `path.join` would collapse `//` and the read
+  // would look on the hub.
   const targetPath =
     relativePath === undefined
       ? parsed.trailingSeparator === true
         ? skillDirectory
-        : path.join(skillDirectory, SKILL_DOCUMENT_FILENAME)
-      : path.join(skillDirectory, relativePath);
+        : joinCatalogPath(skillDirectory, SKILL_DOCUMENT_FILENAME)
+      : joinCatalogPath(skillDirectory, relativePath);
 
   // No containment step follows: an operator source is trusted by being
   // configured and a Workspace source by the Chat's successful entry, so the
