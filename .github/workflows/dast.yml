@@ -23,17 +23,38 @@ permissions:
 env:
   TURBO_TELEMETRY_DISABLED: "1"
 
+# Each scanner is its own job on its own stack, so one's fuzzed data never
+# shapes the other's findings, and either can be re-run alone.
 jobs:
-  api-scan:
-    name: API scan (${{ matrix.scanner }})
+  schemathesis:
+    name: Schemathesis
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Run Schemathesis
+        env:
+          DAST_SCANNERS: schemathesis
+          DAST_OUT_DIR: ${{ github.workspace }}/dast-report
+        run: scripts/dast/run-api-scan.sh
+
+      # Schemathesis has no native SARIF output; its findings stay here.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dast-report-schemathesis
+          path: dast-report/
+          retention-days: 14
+
+  zap:
+    name: ZAP
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Each scanner gets its own stack, so one's fuzzed data never shapes the
-    # other's findings, and either can be re-run alone.
-    strategy:
-      fail-fast: false
-      matrix:
-        scanner: [schemathesis, zap]
     permissions:
       contents: read
       # Upload of ZAP's SARIF to code scanning.
@@ -45,14 +66,13 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - name: Run scanners
+      - name: Run ZAP
         env:
-          DAST_SCANNERS: ${{ matrix.scanner }}
+          DAST_SCANNERS: zap
           DAST_OUT_DIR: ${{ github.workspace }}/dast-report
         run: scripts/dast/run-api-scan.sh
 
-      # Schemathesis has no native SARIF output, so only ZAP's is uploaded.
-      - if: ${{ !cancelled() && matrix.scanner == 'zap' && hashFiles('dast-report/zap/zap-report.sarif.json') != '' }}
+      - if: ${{ !cancelled() && hashFiles('dast-report/zap/zap-report.sarif.json') != '' }}
         uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: dast-report/zap/zap-report.sarif.json
@@ -61,6 +81,6 @@ jobs:
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dast-report-${{ matrix.scanner }}
+          name: dast-report-zap
           path: dast-report/
           retention-days: 14
