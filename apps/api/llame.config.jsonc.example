@@ -859,8 +859,10 @@
   // mode, no agent, no connection sharing, and connect/liveness timeouts. The
   // included configuration (configFile, defaulting to the llame user's
   // ~/.ssh/config) supplies aliases, jump hosts, users, ports, and identities.
-  // knownHostsFile is required whenever this section is present; it may point
-  // at an existing known_hosts file. These are literal paths: interpolation is
+  // The whole ssh block is optional: knownHostsFile defaults to the llame
+  // user's ~/.ssh/known_hosts and configFile to its ~/.ssh/config. Checking
+  // stays strict, so every hop must already be in the known_hosts file. These
+  // are literal paths: interpolation is
   // rejected, a relative path resolves against this file's directory, and "~/"
   // against the llame user's home. A destination is an SSH host alias or
   // [user@]host[:port], and rejects interpolation and option-shaped values.
@@ -868,7 +870,7 @@
   // See docs/product/operator/machines.md.
   // "machines": {
   //   "ssh": {
-  //     "knownHostsFile": "/etc/llame/machine_known_hosts",
+  //     "knownHostsFile": "~/.ssh/known_hosts",
   //     "identityFile": "/etc/llame/machine_ed25519",
   //     "configFile": "~/.ssh/config"
   //   },

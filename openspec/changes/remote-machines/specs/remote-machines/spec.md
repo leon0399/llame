@@ -23,7 +23,7 @@ The configuration SHALL accept an optional `machines` section under the closed p
 
 ### Requirement: Machine configuration is validated at startup
 
-`machines.hosts` SHALL map each Machine name to a `destination`: an SSH host alias or `[user@]host[:port]`, without a leading `-`, whitespace, `%`, or shell metacharacter, and without interpolation. `machines.ssh.knownHostsFile` SHALL name the pinned host keys; optional `machines.ssh.identityFile` and `machines.ssh.configFile` name a llame identity and the SSH configuration to include. Names SHALL match `[a-z0-9-]{1,63}`. An invalid field SHALL fail startup naming it.
+`machines.hosts` SHALL map each Machine name to a `destination`: an SSH host alias or `[user@]host[:port]`, without a leading `-`, whitespace, `%`, or shell metacharacter, and without interpolation. Optional `machines.ssh.knownHostsFile` (default the worker user's `~/.ssh/known_hosts`), `identityFile`, and `configFile` name the pinned host keys, a llame identity, and the SSH configuration to include. Names SHALL match `[a-z0-9-]{1,63}`. An invalid field SHALL fail startup naming it.
 
 #### Scenario: Invalid Machine name fails startup
 
@@ -35,10 +35,10 @@ The configuration SHALL accept an optional `machines` section under the closed p
 - **WHEN** a destination is `-oProxyCommand=sh`
 - **THEN** startup fails naming that Machine's `destination`
 
-#### Scenario: Missing pinned host keys fail startup
+#### Scenario: Omitted ssh settings use the worker user's SSH files
 
-- **WHEN** `machines.hosts` declares a Machine but `machines.ssh.knownHostsFile` is absent
-- **THEN** startup fails naming `machines.ssh.knownHostsFile`
+- **WHEN** `machines.hosts` declares a Machine and `machines.ssh` is absent
+- **THEN** host keys are checked strictly against the worker user's `~/.ssh/known_hosts` and the worker user's `~/.ssh/config` is included
 
 #### Scenario: Executor identity cannot impersonate a Machine
 

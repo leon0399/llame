@@ -253,9 +253,9 @@ servers, can edit the roots file, and the daemon loads it once per session.
 }
 ```
 
-`machines.ssh.knownHostsFile` is required (it may point at an existing
-`known_hosts` file); `identityFile` and `configFile` are optional, and
-`configFile` defaults to the worker user's `~/.ssh/config`. Relative files
+The whole `machines.ssh` block is optional: `knownHostsFile` defaults to the
+worker user's `~/.ssh/known_hosts`, `configFile` to `~/.ssh/config`, and
+`identityFile` is absent unless set. Relative files
 resolve from the config file. Destinations reject interpolation and
 option-shaped values. The published schema and `BUILT_IN_DEFAULTS` gain the
 section. The worker image or host needs an `ssh` client, the pinned file, and

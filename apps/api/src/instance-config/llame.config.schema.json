@@ -690,7 +690,7 @@
     "machines": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional operator-declared remote Machines (remote-machines, experimental). Absent means the feature does not exist: no Machine tool argument, route, status read, or UI surface, and a `machine://` locator is refused as an unknown scheme exactly as before. Declared Machines are operator-wide — every authenticated user whose Run passes tool eligibility and permissions may address them, and one OS user on the Machine represents them all. Presence of this section requires `ssh.knownHostsFile` (the pinned host keys are the point of the section), so an empty `machines: {}` fails startup naming that field. See docs/product/operator/machines.md.",
+      "description": "Optional operator-declared remote Machines (remote-machines, experimental). Absent means the feature does not exist: no Machine tool argument, route, status read, or UI surface, and a `machine://` locator is refused as an unknown scheme exactly as before. Declared Machines are operator-wide — every authenticated user whose Run passes tool eligibility and permissions may address them, and one OS user on the Machine represents them all. `ssh` may be omitted: the worker user's ~/.ssh/known_hosts and ~/.ssh/config then apply. See docs/product/operator/machines.md.",
       "properties": {
         "ssh": {
           "type": "object",
@@ -700,7 +700,7 @@
             "knownHostsFile": {
               "type": "string",
               "minLength": 1,
-              "description": "Pinned host-keys file checked for every hop. Required whenever the machines section is present; it may point at an existing known_hosts file. A literal host path: interpolation is rejected, a relative path resolves against this configuration file's directory, and a leading `~/` resolves against the operator process home. The loader never probes it — a missing file fails at connect time, not boot."
+              "description": "Pinned host-keys file checked for every hop, with strict checking (an unknown host key fails; nothing is learned on first use). Defaults to the worker user's ~/.ssh/known_hosts. A literal host path: interpolation is rejected, a relative path resolves against this configuration file's directory, and a leading `~/` resolves against the operator process home. The loader never probes it — a missing file fails at connect time, not boot."
             },
             "identityFile": {
               "type": "string",

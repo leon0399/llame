@@ -882,21 +882,20 @@ function resolveMachinesSection(
 }
 
 /**
- * `machines.ssh`: the pinned host-keys file every hop is checked against, plus
- * the optional llame identity and the SSH configuration to include after
- * llame's safety block. All three are literal absolute paths.
+ * `machines.ssh`: the pinned host-keys file every hop is checked against
+ * (default: the worker user's `~/.ssh/known_hosts`), plus the optional llame
+ * identity and the SSH configuration to include after llame's safety block.
+ * All three resolve to literal absolute paths.
  */
 function resolveMachineSsh(
   ssh: RawMachinesConfig['ssh'],
   configDirectory: string,
 ): MachinesConfig['ssh'] {
-  const { knownHostsFile, identityFile, configFile } = ssh ?? {};
-  if (knownHostsFile === undefined) {
-    throw new InstanceConfigError(
-      'machines.ssh.knownHostsFile: required when the machines section is present',
-    );
-  }
-
+  const {
+    knownHostsFile = '~/.ssh/known_hosts',
+    identityFile,
+    configFile,
+  } = ssh ?? {};
   return {
     knownHostsFile: resolveMachinePath(
       knownHostsFile,

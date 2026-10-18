@@ -112,18 +112,24 @@ describe('machines configuration', () => {
     );
   });
 
-  it('fails startup naming machines.ssh.knownHostsFile when a Machine is declared without pinned host keys', () => {
+  it("pins host keys against the worker user's ~/.ssh/known_hosts when ssh is omitted", () => {
     writeConfig({
       machines: { hosts: { devl: { destination: 'box' } } },
     });
 
-    expect(loadError()).toContain('machines.ssh.knownHostsFile');
+    expect(load().machines).toEqual({
+      ssh: { knownHostsFile: path.join(homedir(), '.ssh', 'known_hosts') },
+      hosts: { devl: { destination: 'box' } },
+    });
   });
 
-  it('fails startup naming machines.ssh.knownHostsFile for a present but empty section', () => {
+  it('accepts a present but empty section with no Machines', () => {
     writeConfig({ machines: {} });
 
-    expect(loadError()).toContain('machines.ssh.knownHostsFile');
+    expect(load().machines).toEqual({
+      ssh: { knownHostsFile: path.join(homedir(), '.ssh', 'known_hosts') },
+      hosts: {},
+    });
   });
 
   it('rejects interpolation syntax in a pinned path without printing the resolved value', () => {

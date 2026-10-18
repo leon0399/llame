@@ -31,30 +31,47 @@ whose Run passes `tools.allowed` and `tools.permissions` can address them.
 
 ## Configure
 
+The smallest configuration reuses the worker user's own SSH setup:
+
 ```jsonc
 {
   "machines": {
-    "ssh": {
-      // Required. Every hop's host key, jump hosts included, must be here.
-      "knownHostsFile": "/etc/llame/machine_known_hosts",
-      // Optional dedicated llame key, offered before the included config's keys.
-      "identityFile": "/etc/llame/machine_ed25519",
-      // Optional; defaults to the worker user's ~/.ssh/config.
-      "configFile": "/etc/llame/ssh_config",
-    },
     "hosts": {
-      "devl": { "destination": "box" },
+      "devl": { "destination": "box" }, // an alias from ~/.ssh/config
       "gpu": { "destination": "me@gpu.lan:2222" },
     },
   },
 }
 ```
 
+Without `ssh`, host keys are checked against the worker user's
+`~/.ssh/known_hosts` and `~/.ssh/config` is included, so existing aliases,
+bastions, and keys work as they do in your terminal. Checking stays strict:
+every hop, jump hosts included, must already be in that file (connect once by
+hand, or `ssh-keyscan` and verify), and nothing is learned on first use.
+Override any of the three files:
+
+```jsonc
+{
+  "machines": {
+    "ssh": {
+      // Default ~/.ssh/known_hosts. Every hop's host key must be here.
+      "knownHostsFile": "/etc/llame/machine_known_hosts",
+      // Optional dedicated llame key, offered before the included config's keys.
+      "identityFile": "/etc/llame/machine_ed25519",
+      // Default ~/.ssh/config.
+      "configFile": "/etc/llame/ssh_config",
+    },
+    "hosts": { "devl": { "destination": "box" } },
+  },
+}
+```
+
 A name matches `[a-z0-9-]{1,63}`. A destination is an alias from the included
 SSH configuration or `[user@]host[:port]`; interpolation and option-shaped
-values fail startup. Relative files resolve from the config file. Every API and
-worker process needs an `ssh` client, the pinned file, and whatever the included
-configuration references.
+values fail startup. Relative files resolve from the config file, and `~/` from
+the llame process user's home. Every API and worker process needs an `ssh`
+client, the pinned file, and whatever the included configuration references.
 
 ## How the hub connects
 
