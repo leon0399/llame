@@ -12,11 +12,6 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
-    inputs:
-      scanners:
-        description: Space-separated scanners to run
-        required: false
-        default: schemathesis zap
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,9 +25,19 @@ env:
 
 jobs:
   api-scan:
-    name: API scan
+    name: API scan (${{ matrix.scanner }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    # Each scanner gets its own stack, so one's fuzzed data never shapes the
+    # other's findings, and either can be re-run alone.
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [schemathesis, zap]
+    permissions:
+      contents: read
+      # Upload of ZAP's SARIF to code scanning.
+      security-events: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -42,13 +47,20 @@ jobs:
 
       - name: Run scanners
         env:
-          DAST_SCANNERS: ${{ inputs.scanners || 'schemathesis zap' }}
+          DAST_SCANNERS: ${{ matrix.scanner }}
           DAST_OUT_DIR: ${{ github.workspace }}/dast-report
         run: scripts/dast/run-api-scan.sh
+
+      # Schemathesis has no native SARIF output, so only ZAP's is uploaded.
+      - if: ${{ !cancelled() && matrix.scanner == 'zap' && hashFiles('dast-report/zap/zap-report.sarif.json') != '' }}
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: dast-report/zap/zap-report.sarif.json
+          category: dast-zap
 
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dast-report
+          name: dast-report-${{ matrix.scanner }}
           path: dast-report/
           retention-days: 14

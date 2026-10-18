@@ -50,6 +50,14 @@ jobs:
       reportDir: /zap/wrk/out
       reportFile: zap-report.json
 
+  # Uploaded to GitHub code scanning by the workflow. ZAP appends the
+  # template's .json extension, so this writes zap-report.sarif.json.
+  - type: report
+    parameters:
+      template: sarif-json
+      reportDir: /zap/wrk/out
+      reportFile: zap-report.sarif
+
   # Exit 1 on any High alert and 2 on Medium, so the run reports findings
   # through its exit code like Schemathesis does.
   - type: exitStatus
