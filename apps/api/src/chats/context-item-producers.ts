@@ -36,12 +36,15 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { ModelContextExecutionError } from '../runs/model-context-errors';
-import { MACHINE_NAME_PATTERN } from '../machines/machine-locator';
 import { machineWorkspaceRoot } from '../tools/workspace-path';
 import {
   createRenderedContextItem,
   isExactRecord,
 } from './context-item-shared';
+import {
+  isMachineName,
+  renderMachineWorkspaceSnapshot,
+} from './machine-context-item-producers';
 import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
@@ -71,10 +74,6 @@ export interface WorkspaceDetachPayload extends UnknownRecord {
    * the notice can say the Machine was removed rather than a local executor.
    */
   readonly machine?: string;
-}
-
-export interface WorkspaceMachinePayload extends UnknownRecord {
-  readonly machine: string;
 }
 
 function isWorkspaceRoot(value: unknown): value is string {
@@ -114,27 +113,7 @@ export function isWorkspaceDetachPayload(
   if (!WORKSPACE_DETACH_REASONS.some((reason) => reason === value['reason'])) {
     return false;
   }
-  return machine === undefined || isWorkspaceMachineName(machine);
-}
-
-export function isWorkspaceMachinePayload(
-  value: WorkspaceMachinePayload,
-): value is WorkspaceMachinePayload;
-export function isWorkspaceMachinePayload(
-  value: unknown,
-): value is WorkspaceMachinePayload;
-export function isWorkspaceMachinePayload(
-  value: unknown,
-): value is WorkspaceMachinePayload {
-  return (
-    isExactRecord(value, ['machine']) &&
-    isWorkspaceMachineName(value['machine'])
-  );
-}
-
-/** A Machine name is an operator configuration key, never free text. */
-function isWorkspaceMachineName(value: unknown): value is string {
-  return isString(value) && MACHINE_NAME_PATTERN.test(value);
+  return machine === undefined || isMachineName(machine);
 }
 
 const renderWorkspaceSnapshotTemplate = loadPackagedTemplate<{
@@ -142,34 +121,15 @@ const renderWorkspaceSnapshotTemplate = loadPackagedTemplate<{
   readonly root?: string;
 }>(__dirname, 'workspace-snapshot');
 
-const renderMachineWorkspaceSnapshotTemplate = loadPackagedTemplate<{
-  readonly root: string;
-  readonly machine: string;
-}>(__dirname, 'workspace-snapshot-machine');
-
 const renderWorkspaceDetachTemplate = loadPackagedTemplate<{
   readonly reason: WorkspaceDetachReason;
   readonly machine?: string;
 }>(__dirname, 'workspace-detach');
 
-const renderMachineUnavailableTemplate = loadPackagedTemplate<{
-  readonly machine: string;
-}>(__dirname, 'workspace-machine-unavailable');
-
-const renderMachineRecoveredTemplate = loadPackagedTemplate<{
-  readonly machine: string;
-}>(__dirname, 'workspace-machine-recovered');
-
 function renderWorkspaceSnapshot(root: string | null): string {
-  const machine = machineWorkspaceRoot(root ?? undefined);
-  if (root !== null && machine !== undefined) {
-    // A Machine root narrates the Machine's own authority, not the hub's: the
-    // commands run as that Machine's OS user, which hub users share.
-    return renderMachineWorkspaceSnapshotTemplate({
-      root,
-      machine: machine.name,
-    });
-  }
+  const machineSnapshot =
+    root === null ? undefined : renderMachineWorkspaceSnapshot(root);
+  if (machineSnapshot !== undefined) return machineSnapshot;
   return renderWorkspaceSnapshotTemplate({
     hasWorkspace: root !== null,
     ...(root !== null && { root }),
@@ -214,32 +174,6 @@ export function createWorkspaceDetachNoticeItem(input: {
       reason: input.reason,
       ...(input.machine !== undefined && { machine: input.machine }),
     }),
-  });
-}
-
-/**
- * One availability transition of the bound Machine, told exactly once: the
- * transition the Chat's recorded availability disagrees with. Both directions
- * are the same producer and form as the detach notice — a one-off statement
- * about the binding, not a snapshot that supersedes an earlier one.
- */
-export function createWorkspaceMachineAvailabilityItem(input: {
-  readonly runId: string;
-  readonly machine: string;
-  readonly available: boolean;
-}): AuthoredContextItemPart {
-  const payload: WorkspaceMachinePayload = { machine: input.machine };
-  if (!isWorkspaceMachinePayload(payload)) {
-    throw new TypeError('Invalid server-authored Workspace Machine metadata');
-  }
-  return createRenderedContextItem({
-    producer: 'workspace',
-    form: 'notice',
-    runId: input.runId,
-    payload,
-    body: input.available
-      ? renderMachineRecoveredTemplate({ machine: input.machine })
-      : renderMachineUnavailableTemplate({ machine: input.machine }),
   });
 }
 

@@ -211,7 +211,7 @@ export async function bootWorkerHarness(
       .overrideProvider(MachineConnector)
       .useValue(connector)
       .overrideProvider(MachinesService)
-      .useValue({ list: async () => connector.names() });
+      .useValue({ list: () => Promise.resolve(connector.names()) });
   }
   builder = builder
     // Execution harnesses isolate the worker loop, not fleet-wide projection

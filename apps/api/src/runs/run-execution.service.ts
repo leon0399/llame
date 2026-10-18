@@ -112,7 +112,6 @@ import {
 } from '../search/search-reindex-dispatch.service';
 import {
   createWorkspaceDetachNoticeItem,
-  createWorkspaceMachineAvailabilityItem,
   createWorkspaceSnapshotItem,
   createModelChangeItem,
   createRecencyDigestDeltaItem,
@@ -124,6 +123,7 @@ import {
   createCompactionCheckpointPart,
   toContextCheckpoint,
 } from '../chats/context-item-producers';
+import { createWorkspaceMachineAvailabilityItem } from '../chats/machine-context-item-producers';
 import {
   CONTEXT_ITEM_PRODUCERS,
   isContextItemPart,
