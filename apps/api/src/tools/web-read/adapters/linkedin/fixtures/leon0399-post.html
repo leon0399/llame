@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+  <head>
+    <script type="application/ld+json">
+      {
+        "@context": "http://schema.org",
+        "@type": "SocialMediaPosting",
+        "@id": "https://www.linkedin.com/posts/leon0399_aiagents-developertools-softwareengineering-activity-7513004945395130368-ESY6",
+        "datePublished": "2026-10-05T22:39:23.862Z",
+        "headline": "Last week at Madrid Tech Brunch, I was surprised by how many people asked me to share my AI tooling setup.",
+        "comment": [],
+        "commentCount": 0,
+        "image": [
+          {
+            "url": "https://media.licdn.com/dms/image/v2/D4E22AQH1xrpOnugrwg/feedshare-shrink_1280/B4EaEOOK9cJkAQ-/0/1791239958668?e=2147483647&v=beta&t=CPNmoIufId8WAJ71D7oxSiBMJSMdsgvChByL8RgbkFY",
+            "@type": "ImageObject",
+            "description": "omp.sh\nrobust and flexible CLI harness\n\nMulti-provider workflows\nModel roles\nUsage balancing\nLocal conversation compaction\nParallel skills \nTime travel",
+            "caption": "omp.sh\nrobust and flexible CLI harness\n\nMulti-provider workflows\nModel roles\nUsage balancing\nLocal conversation compaction\nParallel skills \nTime travel"
+          },
+          {
+            "url": "https://media.licdn.com/dms/image/v2/D4E22AQFZcOK5BnkLXQ/feedshare-shrink_1280/B4EaEOOK8GH0AM-/0/1791239958579?e=2147483647&v=beta&t=QwuVQ5vlcIkFb86GqP2LRPkd0Cs6B5cCnKUMTFpKLq8",
+            "@type": "ImageObject",
+            "description": "herdr.dev\nagent-first terminal multiplexer\n\nRemote agent development\nKeep agents running offline\nMulti-server agent management\nStatus visibility\nInput notifications",
+            "caption": "herdr.dev\nagent-first terminal multiplexer\n\nRemote agent development\nKeep agents running offline\nMulti-server agent management\nStatus visibility\nInput notifications"
+          },
+          {
+            "url": "https://media.licdn.com/dms/image/v2/D4E22AQFeQ4dywmnV3w/feedshare-image-high-res/B4EaEOOK.gKcAU-/0/1791239958734?e=2147483647&v=beta&t=doijX9A9K6vAKnvvnnpz8cDzqilmlMQ8HnKOwXHiL1A",
+            "@type": "ImageObject",
+            "description": "plannotator.ai\ncode-reviews in agentic era\n\nGuided PR reviews\nAI-generated review path\nHighlights risky changes\nWorks for human code too",
+            "caption": "plannotator.ai\ncode-reviews in agentic era\n\nGuided PR reviews\nAI-generated review path\nHighlights risky changes\nWorks for human code too"
+          },
+          {
+            "url": "https://media.licdn.com/dms/image/v2/D4E22AQEREZ7TX3NFfA/feedshare-image-high-res/B4EaEOOK.aIUAU-/0/1791239958832?e=2147483647&v=beta&t=om5zHp9jSUh5DyLvkt8fX9uSsnC0469hsMNsbL2ERgY",
+            "@type": "ImageObject",
+            "description": "openspec.dev\nspec-driven development for agentic development\n\nSpec before implementation\nSurface assumptions early\nBetter control over agent output\nGreat for larger projects",
+            "caption": "openspec.dev\nspec-driven development for agentic development\n\nSpec before implementation\nSurface assumptions early\nBetter control over agent output\nGreat for larger projects"
+          },
+          {
+            "url": "https://media.licdn.com/dms/image/v2/D4E22AQH6OIra5_mZcw/feedshare-image-high-res/B4EaEOOK_RHkAU-/0/1791239958790?e=2147483647&v=beta&t=kG0qPlr_pwYa0OsUzOO1bQf17oTPVJKS23QcQOQ5J9k",
+            "@type": "ImageObject",
+            "description": "gh.io/stacks\nsplit PRs into smaller chunks\n\nSplit huge changes by intent\nReview smaller PRs separately\nMerge them as one stack\nMuch easier for agent-generated code",
+            "caption": "gh.io/stacks\nsplit PRs into smaller chunks\n\nSplit huge changes by intent\nReview smaller PRs separately\nMerge them as one stack\nMuch easier for agent-generated code"
+          }
+        ],
+        "articleBody": "Last week at Madrid Tech Brunch, I was surprised by how many people asked me to share my AI tooling setup.\n\nSo here are the tools I actually use day to day:\n\nOMP — omp.sh\n\nHands-down the best CLI harness I’ve found for using different providers and models together.\n\nI use GPT-6 Astra / Sol for planning and specs, Opus 5.5 for implementation orchestration, and DeepSeek v4.1 Flash for subagents. OMP lets me use them all in one session instead of being locked to one vendor.\n\n→ Model roles + usage balancing\nIf I end the week with unused Codex allowance, OMP can shift some subagent work to GPT-5.6 Luna instead of wasting it.\n\n→ Local conversation compaction\nOnce an old session falls out of provider cache, recompacting a ~0.9M-token conversation remotely can make a painful dent in usage. I use local Qwen for old sessions and remote compaction only while the cache is hot.\n\n→ Parallel skills\nWorkflows like /orchestrate → /openspec-explore → /gh-stack can happen as one workflow instead of isolated commands.\n\n→ Local memory + time travel\nOMP can extract reusable learnings from sessions, and if an agent goes too far in the wrong direction, it can roll back while carrying forward a summary of what went wrong.\n\nHERDR — herdr.dev\n\nAn agent-first terminal multiplexer, especially useful for remote development.\n\nI increasingly run agents on remote workboxes: it saves battery, lets me leave without pausing work, and reduces the chance of a hallucinating AI doing something stupid to my disk 😅\n\nHerdr lets me manage agents across several servers from one window, keeps them running when I disconnect, and shows whether they’re working, stuck, done, or waiting for input.\n\nPLANNOTATOR — plannotator.ai\n\nProbably the best code/spec review UI I’ve used.\n\n→ Guided Review\nA small model analyzes the PR diff first and builds an interactive review path: where to look, what deserves attention, and what looks risky.\n\nI’m spoiled by it now — I even use it for human-written code.\n\nOPENSPEC — openspec.dev\n\nThis is where “vibecoding” starts turning into an actual agentic SDLC.\n\nInstead of letting the agent implement whatever it thinks you meant, OpenSpec makes it explore the feature and prepare a strict spec first. Combined with Matt Pocock’s /grilling skill, it helps surface wrong assumptions and ambiguities before implementation.\n\nSlower and more token-expensive, but extremely useful for larger work where you care about what actually ships.\n\nGITHUB PR STACKS — gh.io/stacks\n\nAgents can ship code faster than we can review it.\n\nStacked PRs split one horrifying 4,000-line change into smaller PRs by intent, reviewed individually and merged as a stack.\n\nMuch easier than giving up on reviewing one giant PR altogether.\n\n#AIAgents #DeveloperTools #SoftwareEngineering",
+        "author": {
+          "name": "Leonid Meleshin",
+          "image": {
+            "url": "https://media.licdn.com/dms/image/v2/C4D03AQFLboPbIZg8aw/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1658752246143?e=2147483647&v=beta&t=TWoge_Z6C-PuXKqSPwOHyHLloWKYij80KNwfWFMWhOk",
+            "@type": "ImageObject"
+          },
+          "url": "https://es.linkedin.com/in/leon0399",
+          "@type": "Person",
+          "interactionStatistic": {
+            "@type": "InteractionCounter",
+            "interactionType": "http://schema.org/FollowAction",
+            "userInteractionCount": 1281
+          }
+        },
+        "interactionStatistic": [
+          {
+            "@type": "InteractionCounter",
+            "interactionType": "http://schema.org/LikeAction",
+            "userInteractionCount": 6
+          },
+          {
+            "@type": "InteractionCounter",
+            "interactionType": "https://schema.org/CommentAction",
+            "userInteractionCount": 0
+          }
+        ],
+        "hasPart": {
+          "@type": "WebPageElement",
+          "isAccessibleForFree": false,
+          "cssSelector": ".details"
+        }
+      }
+    </script>
+  </head>
+  <body></body>
+</html>

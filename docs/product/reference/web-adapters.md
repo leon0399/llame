@@ -179,6 +179,52 @@ URL: https://luma.com/apawn7qt
 Join us for an evening of talks and networking…
 ```
 
+## LinkedIn adapter
+
+`linkedin.com/in/{name}`, `/posts/{slug}`, and
+`/feed/update/urn:li:{activity|ugcPost|share}:{id}` (including `www`, a
+two-letter country host, a trailing slash, and any query) render Markdown
+from the public JSON-LD.
+
+A profile is `# {name}`, then the lines the page leaves visible: `Headline`,
+`Location`, `Current`, `About`, and `URL`, then `## Experience` and
+`## Education`. A post is `# {author}`, then `Author`, `Date`, `Reactions`,
+`Comments`, `Hashtags`, and `URL`, then the full text, then `## Media`. A
+count of zero is shown. A field or role LinkedIn withholds (each word
+replaced with asterisks) is omitted. An about line keeps LinkedIn's ellipsis
+when the public text is truncated. An authwalled profile or post falls
+through.
+
+```text
+# Arkady S.
+
+Headline: myCouncil
+Location: Madrid, Community of Madrid, Spain
+Current: myCouncil
+About: I am a Founder of True Click Technologies, where we develop state-of-the-art AI-powered…
+URL: https://es.linkedin.com/in/asandler
+
+## Experience
+- myCouncil (https://www.linkedin.com/company/mycouncil-xyz)
+
+## Education
+- The Institute of Directors (https://uk.linkedin.com/school/institute-of-directors/) · 2021-05 – 2021-11
+```
+
+```text
+# Leonid Meleshin
+
+Author: Leonid Meleshin (https://es.linkedin.com/in/leon0399)
+Date: 2026-10-05T22:39:23.862Z
+Reactions: 6
+Comments: 0
+Hashtags: #AIAgents, #DeveloperTools, #SoftwareEngineering
+URL: https://www.linkedin.com/posts/leon0399_aiagents-developertools-softwareengineering-activity-7513004945395130368-ESY6
+
+Last week at Madrid Tech Brunch, I was surprised by how many people asked me to share my AI tooling setup.
+…
+```
+
 ## OSV adapter
 
 `# {id}: {summary}`, then `Withdrawn`, `Aliases`, `Severity`, `CWE`, dates,

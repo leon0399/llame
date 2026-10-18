@@ -3099,6 +3099,53 @@ identifier or a join URL the payload marks as inaccessible.
 - **THEN** the text includes the title and `Status: ended` for the ended event
 - **AND** a private visibility is labeled and still rendered
 
+### Requirement: LinkedIn native adapter reads public profiles and posts
+
+A configured `linkedin` adapter SHALL claim only HTTPS locators without a port
+on `linkedin.com`, `www.linkedin.com`, or a two-letter country host
+(`xx.linkedin.com`) whose decoded path is a public profile `/in/{vanity}`
+(optional trailing slash; vanity is 3–100 letters, numbers, and hyphens), a
+public post `/posts/{slug}` whose slug contains `-activity-`, `-ugcPost-`, or
+`-share-` and a numeric id of at least eight digits, or a feed update
+`/feed/update/urn:li:{activity|ugcPost|share}:{id}` with the same id rule.
+Every other host and path SHALL be unclaimed. The adapter SHALL send one
+unauthenticated `GET` of that URL with the query and fragment removed and
+`Accept: text/html`. It SHALL NOT send a cookie, credential, or token.
+
+A failed response, including HTTP 999, a final URL that left LinkedIn, and a
+final URL on an authwall or login path SHALL fall through. A body without the
+JSON-LD object for the claimed page SHALL fall through as `parse`.
+
+A profile SHALL render `# {name}`, then the lines present among `Headline`
+(the public title), `Location`, `Current` (each visible current role),
+`About`, and `URL`, then `## Experience` and `## Education` for the visible
+roles. A post SHALL render `# {author}`, then the lines present among
+`Author`, `Date`, `Reactions`, `Comments`, `Hashtags`, and `URL`, then the
+full text, then `## Media` with each public image URL and its caption. A
+count LinkedIn reports as zero SHALL be shown. A field whose words are only
+asterisks, the way LinkedIn withholds text from logged-out visitors, SHALL be
+omitted, and so SHALL a role whose organization name is withheld. The about
+text SHALL be the public text, including a trailing ellipsis when LinkedIn
+truncates it. The adapter SHALL NOT include a follower count.
+
+#### Scenario: A public post renders its text, media, and counts
+
+- **WHEN** the model reads `https://www.linkedin.com/posts/leon0399_aiagents-developertools-softwareengineering-ugcPost-7513004942043824128-IVu5/`
+- **THEN** the adapter requests that URL without a query
+- **AND** the text names Leonid Meleshin, the date `2026-10-05T22:39:23.862Z`, the full post text, the hashtags, five media images, `Reactions: 6`, and `Comments: 0`
+
+#### Scenario: A public profile renders the fields LinkedIn leaves visible
+
+- **WHEN** the model reads `https://www.linkedin.com/in/asandler`
+- **THEN** the text names Arkady S., the headline, Madrid, myCouncil, the public about text, and The Institute of Directors with its dates
+- **AND** the text does not include an asterisk-masked role or a follower count
+
+#### Scenario: An authwalled profile falls through
+
+- **WHEN** LinkedIn answers the profile request with HTTP 999 or redirects to an authwall
+- **THEN** the adapter falls through with `status`
+- **AND** the generic ladder may read the page
+
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
 A `rewrite` adapter entry SHALL be enabled only when an operator declares it.

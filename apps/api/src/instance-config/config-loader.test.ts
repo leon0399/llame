@@ -968,6 +968,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const telegram = { id: 'telegram', use: 'telegram' as const };
     const lobsters = { id: 'lobsters', use: 'lobsters' as const };
     const luma = { id: 'luma', use: 'luma' as const };
+    const linkedin = { id: 'linkedin', use: 'linkedin' as const };
     const forums = {
       id: 'forums',
       use: 'discourse' as const,
@@ -995,6 +996,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             telegram,
             lobsters,
             luma,
+            linkedin,
           ],
         },
       }),
@@ -1019,6 +1021,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       telegram,
       lobsters,
       luma,
+      linkedin,
     ]);
   });
 
