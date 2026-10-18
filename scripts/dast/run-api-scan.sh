@@ -134,9 +134,10 @@ if [[ " $scanners " == *" schemathesis "* ]]; then
 fi
 
 if [[ " $scanners " == *" zap "* ]]; then
-  # ZAP adds this header to every request it sends (core auth env vars).
+  # ZAP adds this header to its requests to the target host only.
   docker run --rm --add-host=host.docker.internal:host-gateway \
     -e ZAP_AUTH_HEADER=Authorization -e ZAP_AUTH_HEADER_VALUE="Bearer $alice_token" \
+    -e ZAP_AUTH_HEADER_SITE="$target_host" \
     -e DAST_TARGET_URL="$target_url" \
     -v "$repo_root/apps/api/openapi.json:/zap/wrk/openapi.json:ro" \
     -v "$dast_dir/zap-plan.yaml:/zap/wrk/zap-plan.yaml:ro" \

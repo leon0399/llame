@@ -83,7 +83,9 @@ jobs:
           dast-report/zap/zap-report.sarif.json
           > dast-report/zap/zap-report.code-scanning.sarif.json
 
-      - if: ${{ !cancelled() && steps.relocate.outcome == 'success' }}
+      # Fork pull requests get a read-only token, so the upload would fail the
+      # job; their findings stay in the report artifact.
+      - if: ${{ !cancelled() && steps.relocate.outcome == 'success' && github.event.pull_request.head.repo.fork != true }}
         uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: dast-report/zap/zap-report.code-scanning.sarif.json

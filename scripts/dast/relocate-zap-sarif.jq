@@ -31,14 +31,19 @@ def operations:
   | .ops;
 
 # ZAP fills path parameters with placeholder values, so a template matches any
-# segment where it has a {parameter}. Literal segments win over parameters.
+# segment where it has a {parameter}. A template declaring the request's method
+# wins first, then literal segments over parameters: PATCH .../memberships/me
+# is the {userId} operation, since the literal /me path declares only GET.
 def template_matches($path):
   ("^" + (gsub("\\."; "\\.") | gsub("\\{[^}]+\\}"; "[^/]+")) + "$") as $pattern
   | $path | test($pattern);
 
 def locate($ops; $method; $path):
   [$ops[] | select(.template | template_matches($path))]
-  | sort_by(.template | [scan("\\{")] | length)
+  | sort_by([
+      (if .method == $method then 0 else 1 end),
+      (.template | [scan("\\{")] | length)
+    ])
   | (.[0].template // null) as $template
   | if $template == null then {template: $path, line: 1}
     else (map(select(.template == $template)) | (map(select(.method == $method))[0] // .[0]))
@@ -46,11 +51,14 @@ def locate($ops; $method; $path):
 
 operations as $ops
 | .runs |= map(
-  # ZAP's template ships one fixed driver GUID, under which code scanning
-  # lists the tool as "ZAP Medium Issue" rather than the driver name.
+  # ZAP's template ships one fixed driver GUID. Uploaded with it, code
+  # scanning listed the tool as "ZAP Medium Issue"; without it, as the driver
+  # name "ZAP" (same driver name in both uploads, PR #1340).
   del(.tool.driver.guid)
   | .results |= (map(
-    (.locations[0].physicalLocation.artifactLocation.uri
+    # A result without a location falls back to line 1 instead of aborting
+    # the whole report.
+    ((.locations[0].physicalLocation.artifactLocation.uri // "")
       | sub("^[a-z]+://[^/]+"; "")) as $target
     | ($target | sub("\\?.*$"; "")) as $path
     | (.webRequest.method // "") as $method
