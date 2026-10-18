@@ -983,17 +983,35 @@ describe('Workspace host tools', () => {
     });
   });
 
-  it('returns the native authority error when exit identity is missing', async () => {
+  it('exits without a local executor, fencing on the delivery alone', async () => {
+    // A Machine Workspace's Chat may live on a worker with no local native
+    // executor, and exit must clear the binding while the Machine is offline,
+    // so the exit fence binds the delivered attempt and no executor id.
+    const exit = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'exit')
+      .mockResolvedValue({
+        status: 'cleared',
+        previousRoot: root,
+        generation: 2,
+      });
+
     const result = await exitWorkspaceTool.execute(
       context({ nativeExecutorId: undefined }),
       {},
     );
 
     expect(result).toEqual({
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
+      status: 'success',
+      root: null,
+      state: 'exited',
+      previousRoot: root,
     });
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(exit.mock.calls[0]?.[0]).toMatchObject({
+      runId: 'run-1',
+      deliverySequence: 4,
+    });
+    expect(exit.mock.calls[0]?.[0]).not.toHaveProperty('bindExecutorId');
   });
 
   it('does not commit a superseded entry attempt', async () => {

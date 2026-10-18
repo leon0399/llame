@@ -1,4 +1,9 @@
-import { type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
+
 /**
  * The scripted model client backing `worker-harness.ts`: a `ModelClient`
  * double whose behavior is chosen per run (immediate completion, a delay, a
@@ -432,6 +437,37 @@ interface StreamCallRecord {
   chat: ModelStreamInput['chat'];
 }
 
+/** One declaration the request carried: the id the model calls and its description. */
+export type DeclarationRecord = {
+  readonly toolId: string;
+  readonly description: string;
+};
+
+/** The declarations one request carried, keyed by the model that served it. */
+export type ToolDeclarationRecord = {
+  readonly modelId: string;
+  readonly tools: ReadonlyArray<DeclarationRecord>;
+};
+
+/**
+ * Every declaration the request carried, id and description, in the order the
+ * record holds them. Declarations are not part of the provider prompt, so this
+ * is the only way a test can see what a Run's model was offered — including a
+ * dynamic declaration a Workspace MCP server contributed.
+ */
+function declaredTools(
+  tools: ModelStreamInput['tools'],
+): ReadonlyArray<DeclarationRecord> {
+  const record: ReadonlyArray<DeclarationRecord> = Object.entries(
+    tools ?? {},
+  ).flatMap(([toolId, tool]) =>
+    isRecord(tool) && isString(tool['description'])
+      ? [{ toolId, description: tool['description'] }]
+      : [{ toolId, description: '' }],
+  );
+  return record;
+}
+
 class HarnessModelClient implements ModelClient {
   readonly provider = 'fake';
   readonly contextWindowTokens = 128_000;
@@ -446,6 +482,7 @@ class HarnessModelClient implements ModelClient {
     private readonly recorded: {
       streamCalls: Array<StreamCallRecord>;
       prompts: Array<LanguageModelV3CallOptions['prompt']>;
+      declarations: Array<ToolDeclarationRecord>;
     },
     readonly input: ReadonlyArray<ModelInput>,
   ) {}
@@ -455,6 +492,10 @@ class HarnessModelClient implements ModelClient {
       modelId: this.model,
       effort: input.effort,
       chat: input.chat,
+    });
+    this.recorded.declarations.push({
+      modelId: this.model,
+      tools: declaredTools(input.tools),
     });
     const behavior = this.behavior;
     const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
@@ -548,6 +589,13 @@ export class ScriptedModelsService implements ModelSelectionValidator {
   /** Every provider prompt the scripted clients sent, in order. */
   readonly prompts: Array<LanguageModelV3CallOptions['prompt']> = [];
 
+  /**
+   * Every declaration set a request carried, in order. Declarations travel
+   * beside the prompt, so a test that must see what one Run was offered (a
+   * Workspace MCP server's tools, for instance) reads them here.
+   */
+  readonly declarations: Array<ToolDeclarationRecord> = [];
+
   validateModelSelection(modelId: string) {
     const reasoning = this.reasoning.get(modelId);
     return {
@@ -601,7 +649,11 @@ export class ScriptedModelsService implements ModelSelectionValidator {
     return new HarnessModelClient(
       modelId,
       behavior,
-      { streamCalls: this.streamCalls, prompts: this.prompts },
+      {
+        streamCalls: this.streamCalls,
+        prompts: this.prompts,
+        declarations: this.declarations,
+      },
       this.inputs.get(modelId) ?? ['text'],
     );
   }

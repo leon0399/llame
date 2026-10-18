@@ -66,8 +66,13 @@ export type ProtocolPeerOptions = {
    * Answer one request from the request itself, taking precedence over
    * `answers`. This is what a walk needs: the same method (`fs.stat`, `fs.list`)
    * answers differently for each path, and `undefined` falls back to `answers`.
+   * A promise is allowed for a Machine whose answer is itself a round trip (a
+   * real filesystem, a real server); the hub's stream stays open exactly as it
+   * does until a daemon replies.
    */
-  readonly answer?: (call: PeerCall) => PeerAnswer | undefined;
+  readonly answer?: (
+    call: PeerCall,
+  ) => PeerAnswer | Promise<PeerAnswer> | undefined;
   /**
    * Observes the notifications the HUB sends on a request stream (for example
    * `mcp.message` and `mcp.setProtocolVersion`), keyed by the method whose
@@ -297,12 +302,31 @@ class PeerSessionImpl implements PeerSession {
     this.notifyRequests();
     this.streamByMethod.set(request.method, channel);
     this.highWater = Math.max(this.highWater, this.multiplexer.openStreams);
+    if (answer instanceof Promise) {
+      // The answer is a round trip; the stream stays open meanwhile, exactly
+      // as it does while a real daemon works.
+      void answer.then(
+        (resolved) => this.respond(channel, request.method, resolved),
+        () => this.respond(channel, request.method, { error: 'internal' }),
+      );
+      return;
+    }
+    this.respond(channel, request.method, answer);
+  }
+
+  /** Answer one request on its own stream: a value, a refusal, or a hold. */
+  private respond(
+    channel: MachineChannel,
+    method: string,
+    answer: PeerAnswer,
+  ): void {
+    if (this.halted) return;
     if ('hold' in answer) {
-      this.held.push({ method: request.method, channel });
+      this.held.push({ method, channel });
       return;
     }
     if ('error' in answer) {
-      channel.error(answer.error, `the peer refused ${request.method}`);
+      channel.error(answer.error, `the peer refused ${method}`);
     } else {
       channel.result(answer.value);
     }

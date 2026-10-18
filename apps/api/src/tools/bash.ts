@@ -24,8 +24,8 @@ import {
 import {
   MACHINE_BASH_BUDGET_MS,
   machineBudgetMs,
+  machineCallEnvelope,
   machineConnector,
-  machineEnvelope,
   machineNotFoundResult,
   machineUnusableResult,
   readProcBashResult,
@@ -176,7 +176,7 @@ async function runMachineBash(
         name,
         'proc.bash',
         {
-          envelope: machineEnvelope(
+          envelope: machineCallEnvelope(
             context,
             machineBudgetMs(context, MACHINE_BASH_BUDGET_MS),
           ),

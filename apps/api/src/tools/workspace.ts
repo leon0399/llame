@@ -19,10 +19,10 @@ import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   MACHINE_FILE_BUDGET_MS,
-  machineAttemptKey,
   machineBudgetMs,
+  machineCallAttemptKey,
+  machineCallEnvelope,
   machineConnector,
-  machineEnvelope,
   machineNotFoundResult,
   machineReadResult,
   machineUnavailableResult,
@@ -205,7 +205,7 @@ async function machineDirectory(
         machine.name,
         'fs.stat',
         {
-          envelope: machineEnvelope(
+          envelope: machineCallEnvelope(
             context,
             machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
           ),
@@ -399,7 +399,9 @@ async function enterMachineWorkspace(
 
   // The attempt's reachability verdict first: a hopeless Machine must not pay
   // a handshake timeout for an entry the attempt already knows will fail.
-  if (!(await connector.reachable(machine.name, machineAttemptKey(context)))) {
+  if (
+    !(await connector.reachable(machine.name, machineCallAttemptKey(context)))
+  ) {
     return machineUnavailableResult(machine.name);
   }
 

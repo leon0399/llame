@@ -28,8 +28,8 @@ import { boundMachineRoots } from '../machines/machines-status';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
+  machineCallEnvelope,
   machineConnector,
-  machineEnvelope,
   machineNotFoundResult,
   machineReadResult,
   machineUnusableResult,
@@ -198,7 +198,7 @@ function machineListing(
       name,
       'roots.list',
       {
-        envelope: machineEnvelope(
+        envelope: machineCallEnvelope(
           context,
           machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
         ),
@@ -269,7 +269,7 @@ async function readMachinePath(
   if (connector === undefined) return unknownSchemeResult();
   if (!connector.isConfigured(machine.name))
     return machineNotFoundResult(machine.name);
-  const envelope = machineEnvelope(
+  const envelope = machineCallEnvelope(
     context,
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
@@ -375,7 +375,7 @@ async function mutateMachinePath(
   if (connector === undefined) return unknownSchemeResult();
   if (!connector.isConfigured(machine.name))
     return machineNotFoundResult(machine.name);
-  const envelope = machineEnvelope(
+  const envelope = machineCallEnvelope(
     context,
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );

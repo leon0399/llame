@@ -28,7 +28,7 @@ import {
   type MachineConnector,
 } from '../machines/machine-connector.service';
 import {
-  machineEnvelope as buildMachineEnvelope,
+  machineEnvelope,
   machineAttemptKey as attemptKeyFor,
 } from '../runs/machine-attempt';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -53,12 +53,17 @@ export function machineBudgetMs(context: ToolContext, ceiling: number): number {
     : Math.max(1, Math.min(remaining, ceiling));
 }
 
-/** The durable identity and time budget every Machine request carries. */
-export function machineEnvelope(
+/**
+ * The durable identity and time budget every Machine request carries, taken
+ * from the live tool context. `runs/machine-attempt.ts` owns the request
+ * identity and the default budget; this is the one place a tool context is
+ * turned into them, so a tool never builds an envelope of its own.
+ */
+export function machineCallEnvelope(
   context: ToolContext,
   budgetMs: number,
 ): RequestEnvelope {
-  return buildMachineEnvelope({
+  return machineEnvelope({
     runId: context.runId,
     attemptId: context.machineAttemptKey,
     toolCallId: context.toolCallId,
@@ -73,7 +78,7 @@ export function machineEnvelope(
  * answer. A context that carries no attempt key falls back to the same formula
  * preparation uses, so a system-origin read shares the attempt's verdict.
  */
-export function machineAttemptKey(context: ToolContext): string {
+export function machineCallAttemptKey(context: ToolContext): string {
   return (
     context.machineAttemptKey ??
     attemptKeyFor(context.runId ?? '', context.nativeDeliverySequence)
@@ -225,7 +230,7 @@ export async function runMachineMutation(
     };
   if (!connector.isConfigured(target.name))
     return machineNotFoundResult(target.name);
-  if (!(await connector.reachable(target.name, machineAttemptKey(context))))
+  if (!(await connector.reachable(target.name, machineCallAttemptKey(context))))
     return machineUnavailableResult(target.name);
   return connector.serializeMutation(target.name, async () => {
     const prior = await context.tenantDb.runAs(userId, (db) =>

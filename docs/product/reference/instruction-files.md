@@ -4,6 +4,7 @@ read_when:
   - you need to know why an instruction file entered the context, or when one will
   - you need the injected shape of an instructions item, or how a marker inside one expands
   - you are reasoning about instruction-file precedence, dedupe, or disclosure
+  - you need to know which chain a target on a Machine loads
 spec: instruction-files
 configured_by:
   - ../operator/native-files.md
@@ -24,8 +25,8 @@ compaction absorbs it. A file whose canonical path is already named by an
 `instructions` item in effective history is omitted until that item is
 absorbed.
 
-An accepted-turn load (the bound Workspace root, and any admitted host or
-Knowledge prompt import) is stored on the triggering user message, ahead of
+An accepted-turn load (the bound Workspace root, and any admitted host, Machine,
+or Knowledge prompt import) is stored on the triggering user message, ahead of
 your text. On the first dispatch it precedes any `skill-catalog`,
 `skill-activation`, or `prompt-imports` item from that turn. A retry whose
 earlier attempt already dispatched keeps that stored bundle in place and
@@ -56,11 +57,13 @@ Each loaded file is one block:
 ```
 
 The `path` is the identifier at which the walk selected the file: an absolute
-host path, or a `kb://<knowledgeSpaceId>/<path>` locator. An imported block
-follows its importer and carries `imported-by` naming that importer. Host files
-come before Knowledge files. Within each group the broadest directory comes
-first, and a directory's base file comes before its local file. An import's own
-directory chain, then the blocks its own markers import, follow it depth-first.
+host path, a `machine://<name>/<path>` locator, or a
+`kb://<knowledgeSpaceId>/<path>` locator. An imported block follows its importer
+and carries `imported-by` naming that importer. Host files come first, then
+Knowledge files, then Machine files. Within each group the broadest directory
+comes first, and a directory's base file comes before its local file. An
+import's own directory chain, then the blocks its own markers import, follow it
+depth-first.
 Bodies have no line-number prefixes. Reserved delimiters inside a body are
 neutralized before the item is stored.
 
@@ -132,6 +135,38 @@ is bound; a bound-root load can also select it. An attempt that detaches the
 Workspace stages no import load. A retry keeps the accepted-turn bundle an
 earlier attempt stored and loads only files its effective history has not seen.
 
+## Machine triggers
+
+A target on a [Machine](locators/machine.md) is walked in that Machine's own
+instruction world. The chain is discovered from the registered root that
+contains the target down to the target itself, through the Machine: the Machine
+answers each candidate's `stat` and each directory's listing, and every page is
+read through the Run's audited `read` — a `read` rule matches the page's
+canonical `machine://` locator exactly as it matches the model's own read of it,
+which is why a Machine page is admitted or refused on that locator text. The
+chain names, ordering, first-match rule, dedupe, bounds, and disclosure are the
+host ones, and every label and canonical key is the `machine://<name>/<path>`
+locator of the file.
+
+Which directories are registered roots is the Machine's own answer, asked once
+per Machine per attempt and reused for every trigger of it. The most specific
+registered root that contains the target bounds the walk, so with
+`/home/me/shop` registered `/home/me/shop/AGENTS.md` is a candidate while
+`/home/me/AGENTS.md` is never probed, listed, or read. A target no registered
+root contains names no chain at all, so its triggers load nothing.
+
+Triggers are the host ones in their Machine spelling: entry loads the bound
+locator's chain when it establishes or switches the binding, a `read`, `edit`,
+or `write` whose target is a `machine://` locator loads its target directory's
+chain from the next model step whatever the call's own outcome, and an admitted
+prompt import whose target is on a Machine loads on its accepted turn.
+
+Loading a Machine chain needs `read` to be allowlisted and a Machine the
+operator configured; it binds no executor identity and needs no local executor.
+A Machine that is unconfigured or unreachable, or that answers an unusable
+result, contributes no files: this load is best-effort context and never an error
+the Run has to handle.
+
 ## Knowledge Space triggers
 
 A `kb://` `read`, `edit`, or `write` triggers the same way, inside its Space:
@@ -162,13 +197,13 @@ root; it binds no executor identity.
 
 A file is loaded at most once per compaction epoch. The seen set is the set of
 canonical paths recorded in the payload of `instructions` items in the Chat's
-effective history — a host `realpath`, or the `kb://` locator of a Space file —
-and is never stored in a Chat column; a forked Chat inherits it through its
-copied history. A candidate whose canonical path is already seen is omitted, so a
-symlink and its target are one file and an edit to a loaded file is not
-re-announced; denied, failed, and empty candidates are not seen. All triggers
-pending at one model step, or one accepted turn, resolve together into at most one
-item.
+effective history — a host `realpath`, the `kb://` locator of a Space file, or
+the canonical `machine://` locator of a Machine file — and is never stored in a
+Chat column; a forked Chat inherits it through its copied history. A candidate
+whose canonical path is already seen is omitted, so a symlink and its target are
+one file and an edit to a loaded file is not re-announced; denied, failed, and
+empty candidates are not seen. All triggers pending at one model step, or one
+accepted turn, resolve together into at most one item.
 
 After a compaction absorbs loaded items, the next accepted turn restages the
 bound root's chain and the chains of the turn's admitted prompt imports; any
@@ -208,11 +243,14 @@ The shapes, recognized outside fenced and inline code, are:
 | `[label](path "import")`    | Markdown link with the exact `import` title |
 
 The marker stays literal. Host imports resolve absolute paths as written or relative
-to the importing file's directory. `~/` and any schemed target stay literal. A
-Knowledge import resolves only a relative target within the importer's Space;
-absolute, escaping, `~/`, and schemed targets stay literal. A selector-bearing
-target stays literal and loads nothing, including when a file's name is exactly
-that string.
+to the importing file's directory. `~/` and any schemed target stay literal. An
+import inside a Machine file resolves inside that Machine: an absolute target as
+written, and a relative one against the importing file's Machine directory, with
+`..` resolving there too, and the block is named by the canonical Machine locator
+of the file the Machine read. A Knowledge import resolves only a relative target
+within the importer's Space; absolute, escaping, `~/`, and schemed targets stay
+literal. A selector-bearing target stays literal and loads nothing, including
+when a file's name is exactly that string.
 
 Each resolved target is silently pre-evaluated against the `read` group before
 probing. An admitted existing regular target is read as a separate system-origin
@@ -230,9 +268,9 @@ An imported file is a separate block immediately after its importer, marked
 chain is loaded before its own markers; chain files have no `imported-by` attribute and
 restart import hops at zero. Imports then continue depth-first in first-occurrence
 order for at most five hops from the nearest chain file. Repeated or cyclic
-canonical host paths and logical `kb://` locators are skipped by the epoch seen set
-and remain literal. A sixth hop remains literal. Each file, including imports, has
-its own 32 KiB cap; there is no aggregate cap.
+canonical host paths, logical `kb://` locators, and canonical Machine locators are
+skipped by the epoch seen set and remain literal. A sixth hop remains literal.
+Each file, including imports, has its own 32 KiB cap; there is no aggregate cap.
 
 The owner chip lists files in injection order, indents each imported file under its importer, and marks denied imports.
 
@@ -251,6 +289,9 @@ exports, and search projections expose neither the item's text nor its metadata.
   `read` entry that host triggers need.
 - [Personal Knowledge](../operator/knowledge.md) configures the Knowledge root
   behind `kb://` triggers.
+
+Machine triggers need the operator's Machines instead of the host executor; see
+[machine locators](locators/machine.md#configured-by).
 
 The `read` reject rule that excludes a path from every load is configured under
 [instruction files](../operator/native-files.md#instruction-files).
