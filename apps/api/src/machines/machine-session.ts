@@ -77,9 +77,6 @@ export type MachineCall<M extends MachineMethod = MachineMethod> = {
   readonly params: MachineMethodParams[M];
 };
 
-/** The envelope every call carries; `budgetMs` is measured on the Machine. */
-export type { RequestEnvelope as MachineRequestEnvelope_ } from '@workspace/machine-protocol';
-
 /** An open stream: the protocol channel, and the answer it is awaiting. */
 export type MachineChannelHandle = {
   readonly channel: MachineChannel;

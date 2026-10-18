@@ -67,9 +67,8 @@ describe("byte-buffer media reads", () => {
     );
     expect(fromBytes).toEqual(fromFile);
     expect(fromBytes).toEqual({ ...IMAGE, path });
-    expect(buffered.handed).toEqual([
-      { byteSize: PNG.length, bytes: expect.any(Buffer) },
-    ]);
+    expect(buffered.handed).toHaveLength(1);
+    expect(buffered.handed[0]?.byteSize).toBe(PNG.length);
     expect(buffered.handed[0]?.bytes.equals(PNG)).toBe(true);
   });
 
@@ -138,7 +137,7 @@ describe("byte-buffer media reads", () => {
         { path: "/a.png" },
         { media: hook, signal: controller.signal },
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow("This operation was aborted");
     expect(handed).toEqual([]);
   });
 });
