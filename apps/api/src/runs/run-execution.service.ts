@@ -4,6 +4,7 @@ import { isBashTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import { machineAttemptKey, machineEnvelope } from './machine-attempt';
+import { probeMachinePromptTarget } from './machine-prompt-probe';
 import { createMachineInstructionProbe } from '../instructions/machine-instruction-scope';
 import { readFsStatResult } from '../machines/machine-results';
 import {
@@ -2906,14 +2907,14 @@ export class RunExecutionService {
         return kind === 'file' || kind === 'directory';
       },
       probeMachine: (name, path) =>
-        this.probePromptMachine(
+        probeMachinePromptTarget(
+          this.machineConnector,
           {
             runId: input.runId,
             deliverySequence: step.nativeDeliverySequence,
             signal: context.abortSignal,
           },
-          name,
-          path,
+          { name, path },
         ),
       probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
       probeMedia: async (locator) => {
@@ -2942,51 +2943,6 @@ export class RunExecutionService {
       },
       nowMs: () => Date.now(),
     };
-  }
-
-  /**
-   * The canonical Machine locator of an existing target on one Machine, or
-   * undefined when it is absent — or the Machine cannot answer, which is
-   * indistinguishable from a missing target here exactly as an unreadable host
-   * path is, so the marker stays prose and nothing is disclosed by the probe.
-   */
-  private async probePromptMachine(
-    identity: {
-      readonly runId: string;
-      readonly deliverySequence: number | undefined;
-      readonly signal: AbortSignal | undefined;
-    },
-    name: string,
-    path: string,
-  ): Promise<string | undefined> {
-    const connector = this.machineConnector;
-    if (
-      connector === undefined ||
-      !connector.enabled() ||
-      !connector.isConfigured(name)
-    ) {
-      return undefined;
-    }
-    try {
-      const answer = readFsStatResult(
-        await connector.request(
-          name,
-          'fs.stat',
-          {
-            envelope: machineEnvelope({
-              runId: identity.runId,
-              deliverySequence: identity.deliverySequence,
-            }),
-            path,
-          },
-          { signal: identity.signal },
-        ),
-      );
-      if (answer === undefined || answer.kind === 'missing') return undefined;
-      return formatMachineLocator(name, answer.realPath ?? path);
-    } catch {
-      return undefined;
-    }
   }
 
   /**
