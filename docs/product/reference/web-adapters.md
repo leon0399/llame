@@ -147,6 +147,38 @@ Face card renders with `readme omitted: status`.
   the accepted answer and the rest by score, up to 100. Any answer link renders
   the whole thread.
 
+## Luma adapter
+
+`luma.com/{slug}` and `lu.ma/{slug}` (including `www`, a trailing slash, and
+any query) render `# {title}`, then the lines the event carries: `Status`
+(`ended` once `end_at` is past, otherwise `sold out` and `waitlist` when the
+payload says so), `Visibility` when it is not public, `Start` and `End` as a
+local time with its UTC offset and IANA timezone, `Location` (the public
+address, the city when the street is withheld, or `Online`, plus a join URL
+only when `has_access` is true), `Hosts`, `Organizer`, `Registration`,
+`Approval: required`, `Price`, a `Tickets` list, `Spots remaining`, `Guests`,
+`Cover`, and `URL` (`https://luma.com/{slug}`), then the description as
+Markdown. A private visibility still renders when the API returns the event.
+A calendar, place, or other non-event payload falls through.
+
+```text
+# Decision Intelligence - How AI Changed the Way We Make Decisions
+
+Visibility: private
+Start: 2026-11-04 18:00 UTC+01:00 (Europe/Madrid)
+End: 2026-11-04 22:00 UTC+01:00 (Europe/Madrid)
+Location: Mad Tech Campus, P.º de la Chopera, 14, Arganzuela, 28045 Madrid, Spain
+Hosts: Mikhail Gutnikov, Diana Agliamutdinova (https://luma.com/diapant), Ana
+…
+Price: €30.00–€60.00
+…
+URL: https://luma.com/apawn7qt
+
+# Decision Intelligence: How AI Is Changing the Way We Make Decisions
+
+Join us for an evening of talks and networking…
+```
+
 ## OSV adapter
 
 `# {id}: {summary}`, then `Withdrawn`, `Aliases`, `Severity`, `CWE`, dates,

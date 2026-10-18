@@ -42,6 +42,7 @@ falls through with `permission`, a refused secondary one adds
 | `wikipedia`     | `{lang}[.m].wikipedia.org/wiki/{title}`, no query, no namespace                                 | 1                                               | `{lang}.wikipedia.org`                                                   |
 | `telegram`      | `t.me`, `telegram.me`, `telegram.dog`: `/{name}`, `/s/{name}`, `/{name}/{id}`, `/s/{name}/{id}` | 1                                               | `t.me`                                                                   |
 | `lobsters`      | `lobste.rs/s/{id}[/{slug}]`                                                                     | 1                                               | `lobste.rs`                                                              |
+| `luma`          | `luma.com/{slug}`, `lu.ma/{slug}` (and `www`)                                                   | 1                                               | `api.lu.ma`                                                              |
 
 ## Rewrite
 
@@ -105,6 +106,17 @@ fall through as `address` before any request. A preview redirected off
 `/s/{name}` (a user, bot, group, or unknown name), or any response whose final
 URL left `https://t.me` after a redirect, falls through as `status`; a widget
 error ("Post not found") or service message falls through as `empty`.
+
+## Luma
+
+`{ id, use: "luma" }`. One request goes to
+`https://api.lu.ma/url?url={slug}` for a single-segment `luma.com` or `lu.ma`
+URL (either `www` host included). The response's `kind` selects the page:
+only `event` renders. A calendar, place, category, or any other kind falls
+through as `parse`, and an HTTP error — including an event the API will not
+show — falls through as `status`, so the generic ladder reads the page. A
+guests-only venue contributes its city, not a street address. A join URL is
+included only when `has_access` is true.
 
 ## Quotas
 

@@ -1,0 +1,578 @@
+{
+  "kind": "event",
+  "data": {
+    "api_id": "evt-i5EanUX4EgyxN2e",
+    "accepts_usdc_for_usd": false,
+    "calendar": {
+      "access_level": "public",
+      "api_id": "cal-Fakn3UXMo0muhe6",
+      "avatar_url": "https://images.lumacdn.com/uploads/j8/9fbce82a-f3f0-4cc8-a558-43916e14f7c8.jpg",
+      "coordinate": { "longitude": -3.7032905, "latitude": 40.416727900000005 },
+      "cover_image_url": "https://images.lumacdn.com/uploads/p2/271fb8be-8e71-4108-a31e-f7bb0926fb11.jpg",
+      "description_short": "A community of people who like building things, not just talking about them.\n\nTech, business, startups and great connections. 250+ of us, meeting offline in Madrid 🚀\n\nWant to be part of it?",
+      "end_date": null,
+      "event_submission_restriction": "open",
+      "google_measurement_id": null,
+      "instagram_handle": null,
+      "is_blocked": false,
+      "is_verified": false,
+      "launch_status": "launched",
+      "linkedin_handle": null,
+      "location": {
+        "city": "Madrid",
+        "region": "Community of Madrid",
+        "country": "Spain",
+        "place_id": "ChIJgTwKgJcpQg0RaSKMYcHeNsQ",
+        "timezone": "Europe/Madrid",
+        "localized": {
+          "es": {
+            "city": "Madrid",
+            "region": "Comunidad de Madrid",
+            "country": "España"
+          }
+        },
+        "country_code": "ES"
+      },
+      "luma_plan": "plus",
+      "luma_plus_active": true,
+      "meta_pixel_id": null,
+      "name": "IT & Business Community in Madrid",
+      "personal_user_api_id": null,
+      "refund_policy": null,
+      "sends_unlocked_at": "2026-05-28T00:27:22.956Z",
+      "slug": "it_business_madrid",
+      "social_image_url": "https://images.lumacdn.com/uploads/52/ef1c341c-453a-471d-aed0-4416201a1214.jpg",
+      "start_date": null,
+      "stripe_account_id": "acct_1SwixeRfUQa38U0K",
+      "tax_config": null,
+      "tiktok_handle": null,
+      "tint_color": "#fe7289",
+      "track_meta_ads_from_luma": false,
+      "twitter_handle": null,
+      "website": null,
+      "youtube_handle": null,
+      "is_personal": false,
+      "personal_user": null,
+      "timezone": "Europe/Madrid",
+      "charges_enabled": true,
+      "payment_methods": []
+    },
+    "meta_pixel_id": null,
+    "coupon": null,
+    "google_measurement_id": null,
+    "stripe_account_id": "acct_1SwixeRfUQa38U0K",
+    "payment_methods": [],
+    "tax_config": null,
+    "event": {
+      "api_id": "evt-i5EanUX4EgyxN2e",
+      "calendar_api_id": "cal-Fakn3UXMo0muhe6",
+      "cover_url": "https://images.lumacdn.com/uploads/lp/9e2de26d-beac-4e3d-850c-28044b3c5d42.png",
+      "end_at": "2026-11-04T21:00:00.000Z",
+      "event_type": "independent",
+      "hide_rsvp": false,
+      "location_type": "offline",
+      "name": "Decision Intelligence - How AI Changed the Way We Make Decisions",
+      "one_to_one": true,
+      "recurrence_id": null,
+      "show_guest_list": true,
+      "social_image_url": "https://images.lumacdn.com/event-social/ut/9111b118-df38-4ee4-b7dd-49dc77b5f5f6.png",
+      "start_at": "2026-11-04T17:00:00.000Z",
+      "timezone": "Europe/Madrid",
+      "url": "apawn7qt",
+      "user_api_id": "usr-iNIJGRH23rgbFSM",
+      "visibility": "private",
+      "virtual_info": { "has_access": false },
+      "geo_address_info": {
+        "city": "Madrid",
+        "type": "google",
+        "region": "Comunidad de Madrid",
+        "address": "Mad Tech Campus",
+        "country": "Spain",
+        "place_id": "ChIJfeCzi9DrEIoRA-D3g76rl6Q",
+        "localized": {
+          "es": {
+            "city": "Madrid",
+            "region": "Comunidad de Madrid",
+            "address": "Mad Tech Campus",
+            "country": "España",
+            "city_state": "Madrid, España",
+            "sublocality": "La Chopera",
+            "full_address": "Mad Tech Campus, P.º de la Chopera, 14, Arganzuela, 28045 Madrid, España",
+            "region_short": "MD",
+            "short_address": "P.º de la Chopera, 14, Madrid"
+          }
+        },
+        "city_state": "Madrid, Spain",
+        "description": "",
+        "sublocality": "La Chopera",
+        "country_code": "ES",
+        "full_address": "Mad Tech Campus, P.º de la Chopera, 14, Arganzuela, 28045 Madrid, Spain",
+        "region_short": "MD",
+        "short_address": "P.º de la Chopera, 14, Madrid",
+        "place_coordinate": {
+          "latitude": 40.392235899999996,
+          "longitude": -3.699101
+        },
+        "apple_maps_place_id": "I9C590B189E89A3FE",
+        "mode": "shown"
+      },
+      "geo_address_visibility": "public",
+      "coordinate": { "longitude": -3.699101, "latitude": 40.392235899999996 },
+      "waitlist_enabled": false,
+      "waitlist_status": "disabled"
+    },
+    "start_at": "2026-11-04T17:00:00.000Z",
+    "guest_data": {
+      "email": null,
+      "name": null,
+      "ticket_key": null,
+      "approval_status": null,
+      "proxy_key": null,
+      "event_tickets": [],
+      "payments": []
+    },
+    "featured_guests": [
+      {
+        "api_id": "usr-0IkNTA7phcgciLI",
+        "avatar_url": "https://cdn.lu.ma/avatars-default/avatar_27.png",
+        "bio_short": "JetBrains Campus Ambassador in Madrid",
+        "first_name": "Jelena",
+        "last_name": "Duric",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": "/in/jelenadjuric2001",
+        "name": "Jelena Duric",
+        "tiktok_handle": null,
+        "timezone": "Europe/Belgrade",
+        "twitter_handle": null,
+        "username": "jelenaduric",
+        "website": null,
+        "youtube_handle": ""
+      },
+      {
+        "api_id": "usr-5su6JwBf75HcnK4",
+        "avatar_url": "https://cdn.lu.ma/avatars-default/avatar_23.png",
+        "bio_short": null,
+        "first_name": "Ivan",
+        "last_name": "Menshchikov",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": null,
+        "name": "Ivan Menshchikov",
+        "tiktok_handle": null,
+        "timezone": "Europe/Madrid",
+        "twitter_handle": null,
+        "username": null,
+        "website": null,
+        "youtube_handle": null
+      },
+      {
+        "api_id": "usr-mHQhaAF8RQ8e6r8",
+        "avatar_url": "https://cdn.lu.ma/avatars-default/avatar_29.png",
+        "bio_short": null,
+        "first_name": "Mariia",
+        "last_name": "Lukianova",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": "/in/mariia-lukianova",
+        "name": "Mariia",
+        "tiktok_handle": null,
+        "timezone": "Europe/Madrid",
+        "twitter_handle": null,
+        "username": null,
+        "website": null,
+        "youtube_handle": null
+      },
+      {
+        "api_id": "usr-ZNB3xnjrW5yR0Vn",
+        "avatar_url": "https://cdn.lu.ma/avatars-default/avatar_25.png",
+        "bio_short": "",
+        "first_name": "Francesco",
+        "last_name": "Galletta",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": "/in/francescogalletta",
+        "name": "Francesco Galletta",
+        "tiktok_handle": null,
+        "timezone": "Europe/Madrid",
+        "twitter_handle": null,
+        "username": null,
+        "website": null,
+        "youtube_handle": null
+      }
+    ],
+    "has_available_ticket_types": true,
+    "refund_policy": null,
+    "guest_count": 4,
+    "ticket_count": 4,
+    "hosts": [
+      {
+        "api_id": "usr-iNIJGRH23rgbFSM",
+        "avatar_url": "https://images.lumacdn.com/avatars/te/73a57214-5f9f-4f7e-bb32-dd4aec7a96bc.jpg",
+        "bio_short": null,
+        "first_name": "Mikhail",
+        "last_name": "Gutnikov",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": "/in/mikhail-gutnikov-b662611b5",
+        "name": "Mikhail Gutnikov",
+        "tiktok_handle": null,
+        "timezone": "Europe/Madrid",
+        "twitter_handle": null,
+        "username": null,
+        "website": null,
+        "youtube_handle": null
+      },
+      {
+        "api_id": "usr-9af8zBD6e7u24C0",
+        "avatar_url": "https://images.lumacdn.com/avatars/lt/368de878-51c0-452d-ac81-7f6a5f335684.jpg",
+        "bio_short": null,
+        "first_name": "Diana",
+        "last_name": "Agliamutdinova",
+        "instagram_handle": "aglyamutdinova.d",
+        "is_verified": false,
+        "linkedin_handle": "/in/diana-agliamutdinova",
+        "name": "Diana Agliamutdinova",
+        "tiktok_handle": null,
+        "timezone": "Europe/Madrid",
+        "twitter_handle": null,
+        "username": "diapant",
+        "website": null,
+        "youtube_handle": ""
+      },
+      {
+        "api_id": "usr-p36GcGm7FlRJbR9",
+        "avatar_url": "https://cdn.lu.ma/avatars-default/avatar_28.png",
+        "bio_short": "",
+        "first_name": "Ana",
+        "last_name": "Chirpan",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": "/in/ana-olga-chirpan-170233388",
+        "name": "Ana",
+        "tiktok_handle": null,
+        "timezone": "Europe/Madrid",
+        "twitter_handle": "anachirpan",
+        "username": null,
+        "website": null,
+        "youtube_handle": null
+      }
+    ],
+    "referred_by": null,
+    "cover_image": {
+      "colors": ["#080301", "#7b411e", "#f4b46d", "#cecacf"],
+      "palette": {
+        "neutral": [
+          { "color": "#080301", "percentage": 28.9 },
+          { "color": "#cecacf", "percentage": 0.39 }
+        ],
+        "vibrant": [
+          { "color": "#7b411e", "percentage": 8.85 },
+          { "color": "#f4b46d", "percentage": 2.72 }
+        ]
+      }
+    },
+    "cover_video": null,
+    "social_image": {
+      "cdn_url": "https://images.lumacdn.com/event-social/ut/9111b118-df38-4ee4-b7dd-49dc77b5f5f6.png",
+      "width": 1200,
+      "height": 630,
+      "mime_type": "image/png"
+    },
+    "social_video": null,
+    "sessions": [],
+    "ticket_types": [
+      {
+        "api_id": "ttype-4vHNMnRmWCnc7Y1",
+        "cents": 3000,
+        "currency": "eur",
+        "description": "",
+        "ethereum_token_requirements": [],
+        "event_api_id": "evt-i5EanUX4EgyxN2e",
+        "is_flexible": false,
+        "is_hidden": false,
+        "max_capacity": null,
+        "max_per_guest": null,
+        "membership_restriction": null,
+        "min_cents": null,
+        "position": "8",
+        "name": "Early Bird",
+        "require_approval": false,
+        "tint_color": null,
+        "type": "fiat-price",
+        "valid_end_at": "2026-10-25T22:59:00.000Z",
+        "valid_start_at": null,
+        "num_tickets_registered": 4,
+        "num_guests": 4,
+        "spots_remaining": null,
+        "is_disabled": false
+      },
+      {
+        "api_id": "ttype-Am6M4baBGFEC0Oi",
+        "cents": 4500,
+        "currency": "eur",
+        "description": "",
+        "ethereum_token_requirements": [],
+        "event_api_id": "evt-i5EanUX4EgyxN2e",
+        "is_flexible": false,
+        "is_hidden": false,
+        "max_capacity": null,
+        "max_per_guest": null,
+        "membership_restriction": null,
+        "min_cents": null,
+        "position": "9",
+        "name": "Late Bird",
+        "require_approval": false,
+        "tint_color": null,
+        "type": "fiat-price",
+        "valid_end_at": "2026-11-01T22:59:00.000Z",
+        "valid_start_at": "2026-10-25T23:01:00.000Z",
+        "num_tickets_registered": 0,
+        "num_guests": 0,
+        "spots_remaining": null,
+        "is_disabled": false
+      },
+      {
+        "api_id": "ttype-R4lB9b0Z7aDRdrf",
+        "cents": 6000,
+        "currency": "eur",
+        "description": "",
+        "ethereum_token_requirements": [],
+        "event_api_id": "evt-i5EanUX4EgyxN2e",
+        "is_flexible": false,
+        "is_hidden": false,
+        "max_capacity": null,
+        "max_per_guest": null,
+        "membership_restriction": null,
+        "min_cents": null,
+        "position": "95",
+        "name": "Extremely Late Bird",
+        "require_approval": false,
+        "tint_color": null,
+        "type": "fiat-price",
+        "valid_end_at": "2026-11-04T16:59:00.000Z",
+        "valid_start_at": "2026-11-01T23:01:00.000Z",
+        "num_tickets_registered": 0,
+        "num_guests": 0,
+        "spots_remaining": null,
+        "is_disabled": false
+      }
+    ],
+    "featured_infos": [],
+    "categories": [
+      {
+        "api_id": "cat-ai",
+        "description": "Join a hackathon, learn about LLMs and prompt engineering, or connect with other AI practitioners.",
+        "event_count": 3802,
+        "hero_image_desktop_url": "https://images.lumacdn.com/uploads/42/5719a861-c421-4624-a9dc-8b8b73e3cf57.png",
+        "icon_url": "https://images.lumacdn.com/uploads/0z/c1143c0e-a2ab-4434-b82b-80b0ba3ec2f0.png",
+        "name": "AI",
+        "page_title": "AI Events",
+        "simple_icon_url": "https://images.lumacdn.com/uploads/2g/4121b0fa-bd9e-4a50-ad85-cf0000b6d919.png",
+        "slug": "ai",
+        "social_image_url": "https://images.lumacdn.com/uploads/c1/486065e1-2511-4577-a0e0-5eb683d38a3d.png",
+        "subscriber_count": 108087,
+        "tint_color": "#D96D9B"
+      }
+    ],
+    "ticket_info": {
+      "price": { "cents": 3000, "currency": "eur", "is_flexible": false },
+      "is_free": false,
+      "max_price": { "cents": 6000, "currency": "eur" },
+      "is_sold_out": false,
+      "spots_remaining": 96,
+      "is_near_capacity": false,
+      "require_approval": false
+    },
+    "registration_availability": "open",
+    "subscribed_to_calendar": false,
+    "event_invite": null,
+    "manager_info": null,
+    "guest_info": null,
+    "host_info": null,
+    "sold_out": false,
+    "locale": "en",
+    "theme_meta": { "theme": "starry" },
+    "ticket_transfer_enabled": false,
+    "tint_color": "#6d3b1d",
+    "can_register_for_multiple_tickets": false,
+    "font_title": "ivy-mode",
+    "description_mirror": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": { "level": 1 },
+          "content": [
+            {
+              "text": "Decision Intelligence: How AI Is Changing the Way We Make Decisions",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Join us for an evening of talks and networking with people building and applying AI in the real world!",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "We'll explore how AI helps us make better decisions - from business strategy and applied ML to deepfake detection, biometric security, and AI safety.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "text": "🎤 Our Speakers", "type": "text" }]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Arkady Sandler",
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": { "href": "https://www.linkedin.com/in/asandler/" }
+                },
+                { "type": "bold" }
+              ]
+            },
+            {
+              "text": " — AI/ML veteran, 5x founder and entrepreneur. Working on AI-powered decision-making and innovation.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Efim Boieru",
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": { "href": "https://www.linkedin.com/in/efimboieru/" }
+                },
+                { "type": "bold" }
+              ]
+            },
+            {
+              "text": " — Senior ML Engineering Manager at Incode, leading the development of deepfake detection, face liveness, and biometric security systems.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Alena Air",
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": { "href": "https://www.linkedin.com/in/alena-air/" }
+                },
+                { "type": "bold" }
+              ]
+            },
+            {
+              "text": " — AI Safety Research Scientist & Engineer, researching autonomous AI systems and their risks.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Daria Nikanorova",
+              "type": "text",
+              "marks": [
+                {
+                  "type": "link",
+                  "attrs": {
+                    "href": "https://www.linkedin.com/in/daria-nikanorova/"
+                  }
+                },
+                { "type": "bold" }
+              ]
+            },
+            {
+              "text": " — Machine Learning Team Lead, building ML models that deliver real business results.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "text": "Who's it for?", "type": "text" }]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "AI/ML engineers, founders, product managers, entrepreneurs, and anyone interested in practical AI.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "The meetup and all talks will be held in English.",
+              "type": "text",
+              "marks": [{ "type": "bold" }]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Come to learn something new, meet interesting people, and have some good conversations about AI.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "See you there! 🚀",
+              "type": "text",
+              "marks": [{ "type": "bold" }]
+            }
+          ]
+        }
+      ]
+    },
+    "eth_address_requirement": null,
+    "faqs": null,
+    "name_requirement": "full-name",
+    "phone_number_requirement": null,
+    "solana_address_requirement": null,
+    "registration_questions": [],
+    "prefilled_answers": {},
+    "is_flagged": false,
+    "is_managing_calendar_admin": false,
+    "show_unlock_code_option": false,
+    "has_multiple_ticket_types": true,
+    "membership_tiers": [],
+    "membership_info": null,
+    "waitlist_active": false,
+    "route": null,
+    "featured_city": null
+  }
+}

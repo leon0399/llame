@@ -1,0 +1,110 @@
+{
+  "kind": "calendar",
+  "data": {
+    "calendar": {
+      "access_level": "public",
+      "api_id": "cal-Fakn3UXMo0muhe6",
+      "avatar_url": "https://images.lumacdn.com/uploads/j8/9fbce82a-f3f0-4cc8-a558-43916e14f7c8.jpg",
+      "coordinate": { "longitude": -3.7032905, "latitude": 40.416727900000005 },
+      "cover_image_url": "https://images.lumacdn.com/uploads/p2/271fb8be-8e71-4108-a31e-f7bb0926fb11.jpg",
+      "description_short": "A community of people who like building things, not just talking about them.\n\nTech, business, startups and great connections. 250+ of us, meeting offline in Madrid 🚀\n\nWant to be part of it?",
+      "end_date": null,
+      "event_submission_restriction": "open",
+      "google_measurement_id": null,
+      "instagram_handle": null,
+      "is_blocked": false,
+      "is_verified": false,
+      "launch_status": "launched",
+      "linkedin_handle": null,
+      "location": {
+        "city": "Madrid",
+        "region": "Community of Madrid",
+        "country": "Spain",
+        "place_id": "ChIJgTwKgJcpQg0RaSKMYcHeNsQ",
+        "timezone": "Europe/Madrid",
+        "localized": {
+          "es": {
+            "city": "Madrid",
+            "region": "Comunidad de Madrid",
+            "country": "España"
+          }
+        },
+        "country_code": "ES"
+      },
+      "luma_plan": "plus",
+      "luma_plus_active": true,
+      "meta_pixel_id": null,
+      "name": "IT & Business Community in Madrid",
+      "personal_user_api_id": null,
+      "refund_policy": null,
+      "sends_unlocked_at": "2026-05-28T00:27:22.956Z",
+      "slug": "it_business_madrid",
+      "social_image_url": "https://images.lumacdn.com/uploads/52/ef1c341c-453a-471d-aed0-4416201a1214.jpg",
+      "start_date": null,
+      "stripe_account_id": "acct_1SwixeRfUQa38U0K",
+      "tax_config": null,
+      "tiktok_handle": null,
+      "tint_color": "#fe7289",
+      "track_meta_ads_from_luma": false,
+      "twitter_handle": null,
+      "website": null,
+      "youtube_handle": null,
+      "is_personal": false,
+      "personal_user": null,
+      "timezone": "Europe/Madrid"
+    },
+    "upcoming": { "entries": [], "has_more": false },
+    "featured_items": [],
+    "has_upcoming_events": false,
+    "has_access": true,
+    "is_admin": false,
+    "calendar_member": null,
+    "is_subscriber": false,
+    "tags": [
+      {
+        "api_id": "tag-cLP762g3cRBTAqN",
+        "name": "Business",
+        "color": "blue",
+        "upcoming_event_count": 0
+      },
+      {
+        "api_id": "tag-tfs9z4dWxCDpO4b",
+        "name": "Standup",
+        "color": "cranberry",
+        "upcoming_event_count": 0
+      }
+    ],
+    "event_start_ats": [],
+    "membership_tiers": [],
+    "categories": [],
+    "membership_info": null,
+    "avatar_palette": {
+      "neutral": [
+        { "color": "#060405", "percentage": 13.1 },
+        { "color": "#fffefe", "percentage": 21.33 }
+      ],
+      "vibrant": [
+        { "color": "#fe6f8d", "percentage": 21.32 },
+        { "color": "#b16ff2", "percentage": 7.84 },
+        { "color": "#f1bd86", "percentage": 5.09 },
+        { "color": "#d174cb", "percentage": 5.5 }
+      ]
+    },
+    "cover_image": {
+      "cdn_url": "https://images.lumacdn.com/uploads/p2/271fb8be-8e71-4108-a31e-f7bb0926fb11.jpg",
+      "width": 1280,
+      "height": 914,
+      "palette": {
+        "neutral": [
+          { "color": "#120e0c", "percentage": 16.92 },
+          { "color": "#998777", "percentage": 11.49 }
+        ],
+        "vibrant": [
+          { "color": "#ae6d52", "percentage": 5.31 },
+          { "color": "#dcb086", "percentage": 6.66 }
+        ]
+      }
+    },
+    "can_subscribe": true
+  }
+}

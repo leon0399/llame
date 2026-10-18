@@ -967,6 +967,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const wikipedia = { id: 'wikipedia', use: 'wikipedia' as const };
     const telegram = { id: 'telegram', use: 'telegram' as const };
     const lobsters = { id: 'lobsters', use: 'lobsters' as const };
+    const luma = { id: 'luma', use: 'luma' as const };
     const forums = {
       id: 'forums',
       use: 'discourse' as const,
@@ -993,6 +994,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             wikipedia,
             telegram,
             lobsters,
+            luma,
           ],
         },
       }),
@@ -1016,6 +1018,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       wikipedia,
       telegram,
       lobsters,
+      luma,
     ]);
   });
 
