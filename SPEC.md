@@ -32,7 +32,7 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 1.1 Distributed direction is not current architecture
 
-The future Surface, Node, Personal Realm, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. An entered Workspace is the current-runtime exception: it is an owner-scoped binding on the configured native executor only, represented by a canonical absolute root, executor identity, and generation. No Workspace registry, remote Workspace routing, cross-node execution placement or handoff, or foreign-authority mount ships.
+The future Surface, Node, Personal Realm, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. An entered Workspace is the current-runtime exception: it is an owner-scoped binding on the configured native executor or on an operator-configured remote Machine, represented by a canonical root (an absolute host path or a `machine://` locator), executor identity, and generation. Remote Machines are experimental: hub workers reach them over SSH and only tool execution crosses to them; the Run loop, credentials, and native effect fence stay on the hub (see [`remote-machines`](openspec/changes/remote-machines/specs/remote-machines/spec.md) and [docs/product/operator/machines.md](docs/product/operator/machines.md)). No Workspace registry, Node enrollment, cross-node execution placement or handoff, or foreign-authority mount ships.
 
 No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, or foreign-authority mount ships. The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
 
@@ -107,7 +107,7 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/product/operator/scaling.md](docs/product/operator/scaling.md).
 
-All current workers coordinate through the same installation's queue and database authority. No Node Protocol, user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
+All current workers coordinate through the same installation's queue and database authority. The experimental remote Machine path is a tool-execution transport: a worker starts the box's `llame-machine` daemon over SSH and keeps execution authority for the Run. No Node Protocol, Node enrollment, tunneled or dial-out executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
 
 ### 9.6 Queue delivery and recovery
 
@@ -196,7 +196,7 @@ mutations are serialized, including symlink aliases; other processes and
 external editors are outside that guarantee. A `file://` or minimal `file:` URL is decoded to its absolute host path before native dispatch; the decoded path is the canonical identity for permissions, executor binding, and result `path`. A
 `kb://<space-id>/<path>[:selector]` locator instead resolves through the
 trusted Run owner's current Knowledge Space access on every call, under RLS,
-never through `tools.nativeExecutorId`. The three tools are advertised when
+never through `tools.nativeExecutorId`. A `machine://<name><path>` locator resolves on an operator-configured remote Machine through its `llame-machine` daemon, also without `tools.nativeExecutorId` (see [docs/product/operator/machines.md](docs/product/operator/machines.md)). The three tools are advertised when
 the process has accepted native host authority or has a configured
 `knowledge.root`, and an absolute path on a process without accepted native
 authority fails closed with `executor_unavailable`. A `read` of a host,
