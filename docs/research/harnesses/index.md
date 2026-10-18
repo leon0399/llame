@@ -150,7 +150,7 @@ assessment.
 28. [Rowboat](./rowboat.md) — Per-person local agent behind a thin shared Space server, agent-authored Markdown memory, ACP peer executors, and classifier-based auto-approval
 29. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
 30. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
-31. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
+31. [DeepSeek Harness](./deepseek-harness.md) — Local Cordis harness with browser and stdio clients, append-only session projection, and fail-closed approvals
 32. [Hermes Agent](./hermes-agent.md) — Recall framing, memory-provider lifecycle, and TUI gateway transport and workspace cwd
 33. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
 34. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
@@ -226,4 +226,5 @@ even with a single laptop UI):
 **Single remote only** (optional one SSH/daemon host, not a multi-box registry):
 [super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
 [T3 Code](./t3-code.md), [CodeBuddy Code](./codebuddy.md) (daemon `--host`,
-docs only).
+docs only), [DeepSeek Harness](./deepseek-harness.md) (optional POSIX SSH
+providers; shipped profiles leave them unmounted).
