@@ -196,13 +196,13 @@ The README calls CodeBuddy Code Tencent Cloud's coding tool for the terminal, an
 
 [^sdk-package-json]: [Published SDK name, version 0.3.282, and MIT license](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/package.json#L2-L15)
 
-[^sdk-readme-permission]: [README `permissionMode` union is narrower than the type](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/README.md#L45)
+[^sdk-readme-permission]: [README permissionMode union is narrower than the type](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/README.md#L45)
 
 [^sdk-readme-correlation]: [Transcript uuid, request id, and ACP turn id](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/README.md#L66-L73)
 
 [^sdk-index-dts]: [Typings header names Genie and a different package](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/index.d.ts#L1-L6)
 
-[^sdk-version]: [`SDK_VERSION` constant is the string `0.3.28`](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/version.js#L7)
+[^sdk-version]: [SDK_VERSION constant is the string 0.3.28](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/version.js#L7)
 
 [^cli-package-json]: [CLI 2.168.2 bins, license field, and Genie export paths](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/package.json#L2-L49)
 
@@ -214,7 +214,7 @@ The README calls CodeBuddy Code Tencent Cloud's coding tool for the terminal, an
 
 [^process-transport-args]: [stream-json args, permission mode, session flags](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/transport/process-transport.js#L293-L353)
 
-[^process-transport-settings]: [SDK defaults setting sources to none and forwards `--add-dir`](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/transport/process-transport.js#L367-L384)
+[^process-transport-settings]: [SDK defaults setting sources to none and forwards add-dir](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/transport/process-transport.js#L367-L384)
 
 [^process-transport-spawn]: [Spawn cwd, inherited env, and auto-memory default off](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/transport/process-transport.js#L434-L502)
 
@@ -222,35 +222,35 @@ The README calls CodeBuddy Code Tencent Cloud's coding tool for the terminal, an
 
 [^process-transport-write]: [Stdin writes are JSON plus a newline](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/transport/process-transport.js#L879-L883)
 
-[^query-controller-permission]: [`can_use_tool` denies when no handler is set](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/_internal/query-controller.js#L56-L126)
+[^query-controller-permission]: [can_use_tool denies when no handler is set](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/_internal/query-controller.js#L56-L126)
 
-[^types-permission-mode]: [`PermissionMode` union and permission updates](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L18-L48)
+[^types-permission-mode]: [PermissionMode union and permission updates](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L18-L48)
 
-[^types-setting-source]: [`SettingSource` is user, project, or local](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L883)
+[^types-setting-source]: [SettingSource is user, project, or local](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L883)
 
-[^types-agent]: [`AgentDefinition` is description, tools, prompt, and model](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L302-L308)
+[^types-agent]: [AgentDefinition is description, tools, prompt, and model](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L302-L308)
 
-[^types-options-agents]: [`Options.agents` forwards custom subagent definitions](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L893-L894)
+[^types-options-agents]: [Options.agents forwards custom subagent definitions](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L893-L894)
 
 [^types-mcp-config]: [MCP configs are stdio, SSE, HTTP, or an in-SDK server](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L243-L268)
 
-[^types-mcp-option]: [`mcpServers` is a map or a file path](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L965-L966)
+[^types-mcp-option]: [mcpServers is a map or a file path](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L965-L966)
 
 [^types-system-init]: [Init message shapes for MCP servers, skills, and plugins](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/types.d.ts#L492-L513)
 
-[^sdk-mcp-server]: [`createSdkMcpServer` registers tool handlers in this process](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/mcp/create-sdk-mcp-server.js#L111-L138)
+[^sdk-mcp-server]: [createSdkMcpServer registers tool handlers in this process](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/mcp/create-sdk-mcp-server.js#L111-L138)
 
-[^plugin-header]: [Plugin helper header names `settings.json` and a Genie import](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/plugin.js#L1-L11)
+[^plugin-header]: [Plugin helper header names settings.json and a Genie import](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/plugin.js#L1-L11)
 
-[^plugin-home]: [Plugin settings path is the home directory `.codebuddy`](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/plugin.js#L68-L73)
+[^plugin-home]: [Plugin settings path is the home directory .codebuddy](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/plugin.js#L68-L73)
 
-[^plugin-install]: [`installPlugin` sets `enabledPlugins` in `settings.json`](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/plugin.js#L253-L271)
+[^plugin-install]: [installPlugin sets enabledPlugins in settings.json](https://unpkg.com/@tencent-ai/agent-sdk@0.3.282/lib/plugin.js#L253-L271)
 
-[^session-store-paths]: [JSONL paths under `~/.codebuddy/projects`](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/vendor/cbc-core/node/session/session-store.d.ts#L223-L232)
+[^session-store-paths]: [JSONL paths under ~/.codebuddy/projects](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/vendor/cbc-core/node/session/session-store.d.ts#L223-L232)
 
 [^session-controller]: [HTTP session list is scoped by cwd](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/session/session-controller.d.ts#L1-L52)
 
-[^memory-types]: [Four memory types, `MEMORY.md` caps, and a drift caveat](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/memory/memory-types.d.ts#L1-L49)
+[^memory-types]: [Four memory types, MEMORY.md caps, and a drift caveat](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/memory/memory-types.d.ts#L1-L49)
 
 [^memory-protocol]: [Instruction filenames and memory scopes](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/memory/memory-protocol.d.ts#L8-L39)
 
@@ -260,7 +260,7 @@ The README calls CodeBuddy Code Tencent Cloud's coding tool for the terminal, an
 
 [^shell-snapshot-home]: [Shell snapshot captures the user shell at CLI start](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/shell/shell-snapshot-protocol.d.ts#L1-L6)
 
-[^shell-snapshot-dir]: [Home is `CODEBUDDY_CONFIG_DIR` or `~/.codebuddy`](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/shell/shell-snapshot-protocol.d.ts#L66-L70)
+[^shell-snapshot-dir]: [Home is CODEBUDDY_CONFIG_DIR or ~/.codebuddy](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/shell/shell-snapshot-protocol.d.ts#L66-L70)
 
 [^mcp-output-paths]: [MCP tool results stored under the project session directory](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/mcp/mcp-output-storage.d.ts#L39-L40)
 
@@ -270,21 +270,21 @@ The README calls CodeBuddy Code Tencent Cloud's coding tool for the terminal, an
 
 [^usage-replay]: [WorkBuddy history uses CLI HTTP replay](https://unpkg.com/@tencent-ai/codebuddy-code@2.168.2/dist-server/types/node/acp/usage-update-builder.d.ts#L1-L8)
 
-[^cnb-listing]: [CNB tree at `62d939f` shows docs, samples, changelog, license, README, and an image](https://cnb.cool/codebuddy/codebuddy-code/-/tree/62d939f8840e436500a18ebe7382810ef0b79e8d)
+[^cnb-listing]: [CNB tree at 62d939f shows docs, samples, changelog, license, README, and an image](https://cnb.cool/codebuddy/codebuddy-code/-/tree/62d939f8840e436500a18ebe7382810ef0b79e8d)
 
-[^sdk-isolation]: [SDK doc: filesystem config stays unloaded unless `settingSources` is set](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/sdk.md#L6-L9)
+[^sdk-isolation]: [SDK doc: filesystem config stays unloaded unless settingSources is set](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/sdk.md#L6-L9)
 
-[^sdk-editions]: [SDK doc: edition API-key pages and `CODEBUDDY_INTERNET_ENVIRONMENT`](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/sdk.md#L109-L122)
+[^sdk-editions]: [SDK doc: edition API-key pages and CODEBUDDY_INTERNET_ENVIRONMENT](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/sdk.md#L109-L122)
 
 [^sdk-homes]: [SDK doc: MCP and subagent filesystem homes](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/sdk.md#L537-L538)
 
 [^cli-reference]: [CLI reference: permission modes, sandbox, worktree, serve, and ACP](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/cli-reference.md#L121-L142)
 
-[^daemon-worker]: [Daemon doc: a worker is a PID file under `~/.codebuddy/sessions`](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/daemon.md#L13)
+[^daemon-worker]: [Daemon doc: a worker is a PID file under ~/.codebuddy/sessions](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/daemon.md#L13)
 
 [^daemon-bind]: [Daemon doc: default mode and password on a non-local bind](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/daemon.md#L29-L40)
 
-[^daemon-bg]: [Daemon doc: `--bg` runs as `--print -y`](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/daemon.md#L66-L72)
+[^daemon-bg]: [Daemon doc: --bg runs as --print -y](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/daemon.md#L66-L72)
 
 [^daemon-transcript]: [Daemon doc: transcript JSONL and the PID registry](https://cnb.cool/codebuddy/codebuddy-code/-/git/raw/62d939f8840e436500a18ebe7382810ef0b79e8d/docs/daemon.md#L134-L141)
 

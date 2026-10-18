@@ -94,7 +94,7 @@ The China product page describes WorkBuddy as an office workbench that plans a t
 
 [^product-page]: [China product page: local files, tools, and a cloud assistant](https://cloud.tencent.com/product/workbuddy)
 
-[^home-os]: [Home page `operatingSystem` lists Windows and macOS](https://www.workbuddy.ai)
+[^home-os]: [Home page operatingSystem lists Windows and macOS](https://www.workbuddy.ai)
 
 [^overview]: [Docs intro: desktop workstation and local authorized files](https://www.workbuddy.ai/docs/zh/workbuddy/Overview)
 
