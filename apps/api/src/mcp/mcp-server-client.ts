@@ -2,6 +2,7 @@ import {
   createMCPClient,
   type ListToolsResult,
   type MCPClient,
+  type MCPTransport,
 } from '@ai-sdk/mcp';
 
 import { type ToolResult } from '../tools/types';
@@ -160,8 +161,62 @@ export type McpStdioServerClientConfig = McpStdioTransportConfig & {
   readonly signal?: AbortSignal;
 };
 
+/**
+ * A Workspace server of a Machine (remote-machines design D6). The hub holds
+ * no command, URL, or header for it: only which server to ask the Machine for.
+ * The Machine resolves the declaration against its own environment, so the
+ * hub learns nothing about it until `mcp.open` returns the protected values of
+ * the definition it actually started.
+ */
+export type McpMachineRuntimeDefinition = Readonly<{
+  transport: 'machine';
+  readonly machine: string;
+  /** The Workspace's absolute path on that Machine. */
+  readonly root: string;
+  /** The server's name in that Workspace's configuration. */
+  readonly server: string;
+  /** The transport the Machine resolved for the declaration; a stdio server
+   *  is a child process on the Machine, so it retries like a local one. */
+  readonly kind: 'stdio' | 'http';
+  readonly protectedValues?: ReadonlyArray<string>;
+}>;
+
+export type McpMachineServerClientConfig = McpMachineRuntimeDefinition & {
+  readonly serverId: string;
+  /** Where the Machine's relayed diagnostics go, as for a local stdio server. */
+  readonly onDiagnostic?: (text: string) => void;
+  readonly onDisconnect?: () => void;
+  readonly signal?: AbortSignal;
+};
+
+export type McpTransportServerClientConfig = {
+  readonly serverId: string;
+  /** The MCP transport the SDK client speaks over — a Machine channel. */
+  readonly transport: MCPTransport;
+  /**
+   * The transport's own protected values, read at every use: the Machine
+   * resolves the started definition's values at `start` and learns more later.
+   */
+  readonly protectedValues?: () => ReadonlyArray<string>;
+  /**
+   * Whether this transport is gone for good. A call that fails while it
+   * answers `true` failed because the other end is unavailable, not because
+   * the server refused the call.
+   */
+  readonly unavailable?: () => boolean;
+  readonly onDisconnect?: () => void;
+  readonly signal?: AbortSignal;
+};
+
 type ProtectedValueState = {
   sessionId?: string;
+  /**
+   * A transport's own protected values, read at every use — never cached: the
+   * Machine resolves the started definition's values at `start` and reports
+   * more later (an HTTP session id), and a value learned after discovery must
+   * still be redacted from the next declaration, result, or diagnostic.
+   */
+  live?: () => ReadonlyArray<string>;
 };
 
 type DiscoveryByteState = {
@@ -651,6 +706,9 @@ type ConnectionState = {
   readonly deadlineTimer: ReturnType<typeof setTimeout>;
   readonly initializationSignal: AbortSignal;
   readonly notifyDisconnect: () => void;
+  /** A transport's own verdict that it is gone for good; absent for the two
+   *  transports llame dials itself, whose failures already say so. */
+  readonly unavailable?: () => boolean;
 };
 
 /** The "notify at most once, buffering until connected" disconnect protocol
@@ -677,6 +735,7 @@ function createDisconnectNotifier(
 function beginConnection(config: {
   readonly signal?: AbortSignal;
   readonly onDisconnect?: () => void;
+  readonly unavailable?: () => boolean;
 }): ConnectionState {
   const protectedValueState: ProtectedValueState = {};
   const discoveryByteState: DiscoveryByteState = {};
@@ -708,6 +767,9 @@ function beginConnection(config: {
       disconnectState,
       config.onDisconnect,
     ),
+    ...(config.unavailable !== undefined && {
+      unavailable: config.unavailable,
+    }),
   };
 }
 
@@ -983,6 +1045,58 @@ async function assertSupportedStdioProtocolVersion(
   }
 }
 
+/**
+ * Create the MCP SDK client over an already-built relayed `transport`,
+ * translating a connect failure into the same taxonomy the other two
+ * factories use — closing the transport first, which is also how the Machine
+ * is told to put down the server it started for a session that never
+ * handshook.
+ */
+async function createTransportMcpClientOrThrow(
+  transport: MCPTransport,
+  connectionState: Pick<
+    ConnectionState,
+    'initializationSignal' | 'deadlineController' | 'deadlineTimer'
+  >,
+  callerSignal: AbortSignal | undefined,
+): Promise<MCPClient> {
+  const { initializationSignal, deadlineController, deadlineTimer } =
+    connectionState;
+  try {
+    return await createMCPClient({
+      transport,
+      maxRetries: 0,
+      initializationOptions: { signal: initializationSignal },
+      onUncaughtError: () => undefined,
+    });
+  } catch (error) {
+    await transport.close().catch(() => undefined);
+    if (deadlineController.signal.aborted) {
+      throw new McpServerOperationError('initialize', 'timeout');
+    }
+    throw safeOperationError('initialize', error, callerSignal);
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+}
+
+/**
+ * The pinned client accepts a broader revision set than llame does, so the
+ * gate is llame's own. `MCPTransport` declares `protocolVersion`, and the AI
+ * SDK client assigns it after the handshake completes, so it's genuinely
+ * present by the time a caller reaches this check.
+ */
+async function assertSupportedTransportProtocolVersion(
+  transport: MCPTransport,
+  client: MCPClient,
+): Promise<void> {
+  const negotiated = transport.protocolVersion;
+  if (negotiated !== undefined && !isSupportedMcpProtocolVersion(negotiated)) {
+    await client.close().catch(() => undefined);
+    throw new McpProtocolUnsupportedError();
+  }
+}
+
 export class McpServerClient {
   private closePromise: Promise<void> | undefined;
 
@@ -990,6 +1104,7 @@ export class McpServerClient {
   private readonly discoveryByteState: DiscoveryByteState;
   private readonly disconnectState: DisconnectState;
   private readonly closeController: AbortController;
+  private readonly unavailable: (() => boolean) | undefined;
 
   private constructor(
     private readonly serverId: string,
@@ -1000,6 +1115,7 @@ export class McpServerClient {
       | 'discoveryByteState'
       | 'disconnectState'
       | 'closeController'
+      | 'unavailable'
     >,
     private readonly client: MCPClient,
   ) {
@@ -1007,6 +1123,7 @@ export class McpServerClient {
     this.discoveryByteState = connectionState.discoveryByteState;
     this.disconnectState = connectionState.disconnectState;
     this.closeController = connectionState.closeController;
+    this.unavailable = connectionState.unavailable;
   }
 
   private static finishConnection(
@@ -1122,6 +1239,50 @@ export class McpServerClient {
       state,
       client,
     );
+  }
+
+  /**
+   * Connects to a Workspace MCP server that runs somewhere else — today, on a
+   * Machine, over one relayed `mcp.open` channel (design D6). The caller owns
+   * the transport: the hub never learns a command, a URL, or a header, only
+   * that the Machine agreed to start a server of that name.
+   *
+   * Only the transport and the failure surface differ from `connectStdio`:
+   * there is no child to bound here, so the byte caps and session tracking the
+   * HTTP path enforces live on the Machine, stderr arrives as relayed
+   * diagnostics, the negotiated revision is gated after the handshake, and a
+   * transport that is gone for good says so itself (`unavailable`), because
+   * the error the SDK raises for it is indistinguishable from any other
+   * disconnect.
+   */
+  static async connectTransport(
+    config: McpTransportServerClientConfig,
+  ): Promise<McpServerClient> {
+    const state = beginConnection(config);
+    const { notifyDisconnect, protectedValueState } = state;
+    if (config.protectedValues !== undefined) {
+      protectedValueState.live = config.protectedValues;
+    }
+
+    const client = await createTransportMcpClientOrThrow(
+      config.transport,
+      state,
+      config.signal,
+    );
+
+    await assertSupportedTransportProtocolVersion(config.transport, client);
+
+    // Chain, never replace, exactly as `connectStdio` does: the SDK client's
+    // own `onclose` rejects every in-flight request, and a lost Machine
+    // channel must do that rather than leave a tool call awaiting a server
+    // that is already gone.
+    const clientOnClose = config.transport.onclose;
+    config.transport.onclose = () => {
+      notifyDisconnect();
+      clientOnClose?.();
+    };
+
+    return McpServerClient.finishConnection(config.serverId, [], state, client);
   }
 
   async discover(
@@ -1422,6 +1583,7 @@ export class McpServerClient {
       ...(this.protectedValueState.sessionId === undefined
         ? []
         : [this.protectedValueState.sessionId]),
+      ...(this.protectedValueState.live?.() ?? []),
     ]);
   }
 
@@ -1475,6 +1637,17 @@ export class McpServerClient {
     error: unknown,
     abortSignal: AbortSignal | undefined,
   ): McpCallOutcome {
+    if (this.unavailable?.() === true) {
+      return {
+        disposition: 'reconnect',
+        result: {
+          status: 'error',
+          type: 'machine_unavailable',
+          message:
+            'The Machine hosting this tool is unavailable, so the call may not have run.',
+        },
+      };
+    }
     const kind = failureKind(error, abortSignal);
     const protectedValues = this.protectedValues();
     if (hasProtectedKeyInErrorData(error, protectedValues)) {

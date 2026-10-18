@@ -1,8 +1,10 @@
 import { Test } from '@nestjs/testing';
 import { MODULE_METADATA } from '@nestjs/common/constants';
+import { isRecord } from '@workspace/runtime-safety';
 
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from '../runs/snapshot-tool-execution';
 import {
@@ -93,7 +95,19 @@ describe('McpRuntimeModule', () => {
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
       useExisting: McpRuntimeService,
     });
-    expect(workerProviders).toContain(WorkspaceMcpClients);
+    // Built by factory so the Machine connector reaches it: a Workspace bound
+    // to a Machine resolves its MCP servers there.
+    const providers: ReadonlyArray<unknown> = Array.isArray(workerProviders)
+      ? workerProviders
+      : [];
+    const workspaceProvider = providers.find(
+      (provider) =>
+        isRecord(provider) && provider['provide'] === WorkspaceMcpClients,
+    );
+    expect(workspaceProvider).toMatchObject({
+      provide: WorkspaceMcpClients,
+      inject: [McpRuntimeService, MachineConnector],
+    });
   });
 
   it('creates one runtime per Nest application graph', async () => {

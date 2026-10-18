@@ -10,6 +10,8 @@ import {
   type McpCallOutcome,
   type McpDiscoveredTool,
   type McpDiscoveryResult,
+  type McpMachineRuntimeDefinition,
+  type McpMachineServerClientConfig,
   type McpServerClientConfig,
   type McpStdioServerClientConfig,
   type McpToolExecutor,
@@ -38,6 +40,7 @@ import {
 } from '@workspace/mcp-workspace';
 
 export { type McpRuntimeServerDefinition } from '@workspace/mcp-workspace';
+export type { McpMachineRuntimeDefinition } from './mcp-server-client';
 
 const REFRESH_BASE_MS = 60 * 60 * 1000;
 const REFRESH_JITTER_MS = REFRESH_BASE_MS * 0.2;
@@ -70,12 +73,27 @@ export type McpRuntimeServerState = Readonly<{
   reason?: ToolUnavailableReason;
 }>;
 
+/**
+ * Everything a runtime record may be built from: a local definition from the
+ * operator or Workspace configuration, or one that lives on a Machine.
+ */
+export type McpRuntimeDefinition =
+  | McpRuntimeServerDefinition
+  | McpMachineRuntimeDefinition;
+
 export type McpRuntimeClientFactory = (
-  config: McpServerClientConfig | McpStdioServerClientConfig,
+  config:
+    | McpServerClientConfig
+    | McpStdioServerClientConfig
+    | McpMachineServerClientConfig,
 ) => Promise<McpRuntimeClient>;
 
 export type McpRuntimeOptions = Readonly<{
   clientFactory?: McpRuntimeClientFactory;
+  /** How a Machine server's client is built; absent means no Machine support. */
+  machineClientFactory?: (
+    config: McpMachineServerClientConfig,
+  ) => Promise<McpRuntimeClient>;
   random?: () => number;
   now?: () => number;
 }>;
@@ -101,7 +119,7 @@ type RuntimeOperation = {
 
 type ServerRecord = {
   readonly serverId: string;
-  readonly definition: McpRuntimeServerDefinition;
+  readonly definition: McpRuntimeDefinition;
   generation: number;
   state: LifecycleState;
   unavailableReason: ToolUnavailableReason;
@@ -128,6 +146,60 @@ type ConnectionContext = Readonly<{
   client: McpRuntimeClient;
 }>;
 
+/** Whether this server is a child process — on this host, or on a Machine —
+ *  which is what the fast-retry budget below is sized for. */
+function restartsProcess(definition: McpRuntimeDefinition): boolean {
+  if (definition.transport === 'machine') return definition.kind === 'stdio';
+  return isStdio(definition);
+}
+
+/** Whether this server reports diagnostics the operator should see: a local
+ *  child's stderr, or anything the Machine relays for it. */
+function reportsDiagnostics(definition: McpRuntimeDefinition): boolean {
+  return definition.transport === 'machine' || isStdio(definition);
+}
+
+/** A Machine definition's own fields, frozen; every other definition is the
+ *  shared shape's to freeze. */
+function frozenDefinition(
+  definition: McpRuntimeDefinition,
+): McpRuntimeDefinition {
+  if (definition.transport !== 'machine') {
+    return frozenRuntimeDefinition(definition);
+  }
+  const frozen: McpMachineRuntimeDefinition = {
+    transport: 'machine',
+    machine: definition.machine,
+    root: definition.root,
+    server: definition.server,
+    kind: definition.kind,
+    ...(definition.protectedValues !== undefined && {
+      protectedValues: Object.freeze([...definition.protectedValues]),
+    }),
+  };
+  return Object.freeze(frozen);
+}
+
+function defaultClientFactory(
+  machineClientFactory: McpRuntimeOptions['machineClientFactory'],
+): McpRuntimeClientFactory {
+  return (config) => {
+    if ('machine' in config) {
+      if (machineClientFactory === undefined) {
+        return Promise.reject(
+          new Error(
+            'This MCP server runs on a Machine, which is not configured.',
+          ),
+        );
+      }
+      return machineClientFactory(config);
+    }
+    return 'command' in config
+      ? McpServerClient.connectStdio(config)
+      : McpServerClient.connect(config);
+  };
+}
+
 function clampRandom(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
   if (value >= 1) return 1;
@@ -153,20 +225,17 @@ export class McpRuntimeService
   private shutdownPromise: Promise<void> | undefined;
 
   constructor(
-    servers: Readonly<Record<string, McpRuntimeServerDefinition>>,
+    servers: Readonly<Record<string, McpRuntimeDefinition>>,
     options: McpRuntimeOptions = {},
   ) {
     this.clientFactory =
       options.clientFactory ??
-      ((config) =>
-        'command' in config
-          ? McpServerClient.connectStdio(config)
-          : McpServerClient.connect(config));
+      defaultClientFactory(options.machineClientFactory);
     this.random = options.random ?? Math.random;
     this.now = options.now ?? Date.now;
     this.records = Object.entries(servers).map(([serverId, definition]) => ({
       serverId,
-      definition: frozenRuntimeDefinition(definition),
+      definition: frozenDefinition(definition),
       generation: 0,
       state: 'connecting',
       unavailableReason: 'source_connecting',
@@ -322,10 +391,13 @@ export class McpRuntimeService
   ): Promise<McpRuntimeClient | undefined> {
     let callbackClient: McpRuntimeClient | undefined;
     let pendingDisconnect = false;
-    const config: McpServerClientConfig | McpStdioServerClientConfig = {
+    const config:
+      | McpServerClientConfig
+      | McpStdioServerClientConfig
+      | McpMachineServerClientConfig = {
       serverId: record.serverId,
       ...record.definition,
-      ...(isStdio(record.definition) && {
+      ...(reportsDiagnostics(record.definition) && {
         onDiagnostic: (text: string) =>
           this.logger.warn(`[${record.serverId}] ${text}`),
       }),
@@ -705,7 +777,7 @@ export class McpRuntimeService
     if (readyAt === undefined) return;
     // Remote is untouched by design (D5): reopening a socket is cheap, its
     // backoff is unbounded anyway, and any complete success refunds it.
-    if (!isStdio(record.definition)) {
+    if (!restartsProcess(record.definition)) {
       record.reconnectAttempt = 0;
       return;
     }
@@ -721,7 +793,7 @@ export class McpRuntimeService
     // rather than the exponential one: the fast budget is for a momentary
     // blip, and this path is for a condition that outlives it.
     const settled =
-      isStdio(record.definition) &&
+      restartsProcess(record.definition) &&
       record.reconnectAttempt >= STDIO_MAX_FAST_ATTEMPTS;
     const delay = settled
       ? this.refreshDelay()

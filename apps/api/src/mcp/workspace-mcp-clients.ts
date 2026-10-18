@@ -16,15 +16,22 @@ import {
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import { processEnvironment } from '../tools/env';
 import {
-  isStdio,
   parseMcpToolId,
   readWorkspaceMcpConfig,
-  type WorkspaceMcpServerConfig,
 } from '@workspace/mcp-workspace';
+import { type MachineConnector } from '../machines/machine-connector.service';
+import {
+  machineServerClientFactory,
+  machineWorkspaceTarget,
+  readMachineServerConfigs,
+  unavailableWorkspaceConfig,
+  type ConfiguredServerConfig,
+  type WorkspaceServerConfig,
+} from './machine-workspace-servers';
 import {
   McpRuntimeService,
   type McpRuntimeClientFactory,
-  type McpRuntimeServerDefinition,
+  type McpRuntimeDefinition,
   type McpRuntimeServerState,
 } from './mcp-runtime.service';
 
@@ -52,6 +59,12 @@ export type WorkspaceMcpClientsOptions = Readonly<{
   clientFactory?: McpRuntimeClientFactory;
   now?: () => number;
   readConfig?: typeof readWorkspaceMcpConfig;
+  /**
+   * The Machine connector, when this instance has Machines at all. Without it
+   * a Machine Workspace's servers are simply unreported, exactly as they are
+   * on an instance where the operator never configured that Machine.
+   */
+  connector?: MachineConnector;
 }>;
 
 export type OperatorRuntime = Pick<
@@ -61,7 +74,7 @@ export type OperatorRuntime = Pick<
 
 type ClientSet = {
   readonly key: WorkspaceMcpKey;
-  readonly configs: ReadonlyArray<WorkspaceMcpServerConfig>;
+  readonly configs: ReadonlyArray<WorkspaceServerConfig>;
   readonly runtime: McpRuntimeService;
   activeAttempts: number;
   lastUsed: number;
@@ -87,37 +100,25 @@ function unavailable(id: string, reason: string): WorkspaceMcpServerState {
   return { id, state: 'unavailable', reason };
 }
 function runtimeDefinition(
-  config: Extract<WorkspaceMcpServerConfig, { state: 'configured' }>,
-): McpRuntimeServerDefinition {
-  return isStdio(config.definition)
-    ? {
-        ...config.definition,
-        protectedValues: config.protectedValues,
-      }
-    : {
-        ...config.definition,
-        protectedValues: config.protectedValues,
-      };
+  config: ConfiguredServerConfig,
+): McpRuntimeDefinition {
+  return { ...config.definition, protectedValues: config.protectedValues };
 }
 
 function configuredEntries(
-  configs: ReadonlyArray<WorkspaceMcpServerConfig>,
+  configs: ReadonlyArray<WorkspaceServerConfig>,
   operatorIds: ReadonlyArray<string>,
-): ReadonlyArray<Extract<WorkspaceMcpServerConfig, { state: 'configured' }>> {
+): ReadonlyArray<ConfiguredServerConfig> {
   return configs.filter(
-    (
-      config,
-    ): config is Extract<WorkspaceMcpServerConfig, { state: 'configured' }> =>
+    (config): config is ConfiguredServerConfig =>
       config.state === 'configured' &&
       !isCaseOnlyCollision(config.id, operatorIds),
   );
 }
 
 function runtimeDefinitions(
-  configs: ReadonlyArray<
-    Extract<WorkspaceMcpServerConfig, { state: 'configured' }>
-  >,
-): Readonly<Record<string, McpRuntimeServerDefinition>> {
+  configs: ReadonlyArray<ConfiguredServerConfig>,
+): Readonly<Record<string, McpRuntimeDefinition>> {
   return Object.freeze(
     Object.fromEntries(
       configs.map((config) => [config.id, runtimeDefinition(config)]),
@@ -154,6 +155,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   private readonly activeHolds = new Map<string, string>();
   private readonly operator: OperatorRuntime;
   private readonly clientFactory: McpRuntimeClientFactory | undefined;
+  private readonly connector: MachineConnector | undefined;
   private readonly now: () => number;
   private readonly readConfig: typeof readWorkspaceMcpConfig;
   private readonly cleanupTimer: ReturnType<typeof setInterval>;
@@ -167,6 +169,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   ) {
     this.operator = operator;
     this.clientFactory = options.clientFactory;
+    this.connector = options.connector;
     this.now = options.now ?? Date.now;
     this.readConfig = options.readConfig ?? readWorkspaceMcpConfig;
     this.cleanupTimer = setInterval(
@@ -355,26 +358,37 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   }
 
   private async createClientSet(key: WorkspaceMcpKey): Promise<ClientSet> {
-    let configs: ReadonlyArray<WorkspaceMcpServerConfig>;
-    try {
-      configs = await this.readConfig(key.root, processEnvironment());
-    } catch {
-      configs = [
-        unavailableConfig(
-          'workspace',
-          'Workspace MCP configuration unavailable',
-        ),
-      ];
-    }
+    const target = machineWorkspaceTarget(key.root);
+    const configs =
+      target === undefined
+        ? await this.readLocalConfigs(key.root)
+        : await readMachineServerConfigs(this.connector, target);
     const operatorIds = this.operator.snapshotServerIds();
     const configured = configuredEntries(configs, operatorIds);
     const runtime = new McpRuntimeService(runtimeDefinitions(configured), {
       ...(this.clientFactory !== undefined && {
         clientFactory: this.clientFactory,
       }),
+      ...(target !== undefined && {
+        machineClientFactory: machineServerClientFactory(
+          this.connector,
+          target,
+        ),
+      }),
     });
     await runtime.start();
     return { key, configs, runtime, activeAttempts: 0, lastUsed: this.now() };
+  }
+
+  /** Every server the Workspace's own `.mcp.json` resolves to, here. */
+  private async readLocalConfigs(
+    root: string,
+  ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
+    try {
+      return await this.readConfig(root, processEnvironment());
+    } catch {
+      return [unavailableWorkspaceConfig()];
+    }
   }
 
   private async stopStaleForChat(key: WorkspaceMcpKey): Promise<void> {
@@ -466,11 +480,4 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     }
     return operatorResolver?.resolveDynamicTool(id) ?? { state: 'not_dynamic' };
   }
-}
-
-function unavailableConfig(
-  id: string,
-  reason: string,
-): WorkspaceMcpServerConfig {
-  return { id, state: 'unavailable', reason };
 }
