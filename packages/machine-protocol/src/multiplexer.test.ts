@@ -171,6 +171,24 @@ describe("request streams", () => {
     expect((await pending).error).toBeInstanceOf(StreamClosedError);
   });
 
+  it("rejects and closes a request whose signal is already aborted, sending nothing", async () => {
+    const { mux, sent } = build();
+    const channel = mux.open();
+    const before = sent.length;
+    const controller = new AbortController();
+    controller.abort();
+    const error = await channel
+      .request(
+        "roots.list",
+        { envelope: { budgetMs: 5 } },
+        { signal: controller.signal },
+      )
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(StreamClosedError);
+    expect(channel.closed).toBe(true);
+    expect(sent.length).toBe(before);
+  });
+
   it("fails a request whose own message is oversize", async () => {
     const { mux } = build({ encode: true });
     const channel = mux.open();

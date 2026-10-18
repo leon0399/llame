@@ -332,6 +332,10 @@ function requestOnStream<M extends MachineMethod>(
 ): Promise<JsonValue> {
   if (state.closed || session.closed)
     return Promise.reject(new StreamClosedError(state.id, "closed"));
+  if (call.options?.signal?.aborted === true) {
+    closeStream(session, state, "cancelled");
+    return Promise.reject(new StreamClosedError(state.id, "cancelled"));
+  }
   if (state.replyId !== undefined)
     return Promise.reject(
       new Error(`Stream ${state.id} already carries a request.`),

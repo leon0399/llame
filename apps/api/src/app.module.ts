@@ -17,6 +17,7 @@ import { MemoryModule } from './memory/memory.module';
 import { PersonalizationModule } from './personalization/personalization.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 import { KnowledgeModule } from './knowledge/knowledge.module';
+import { MachinesModule } from './machines/machines.module';
 import { LiveModule } from './live/live.module';
 import { SkillsModule } from './skills/skills.module';
 import { CanonicalSearchActivationService } from './search/canonical-search-activation.service';
@@ -65,6 +66,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
     PermissionModesModule,
     SkillsModule,
     LiveModule,
+    MachinesModule,
   ],
   controllers: [AppController],
   providers: [
