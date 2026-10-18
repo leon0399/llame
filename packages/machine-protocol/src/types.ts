@@ -216,7 +216,10 @@ export type McpTransportKind = "stdio" | "http";
 export type McpServerState = "available" | "unavailable";
 export type McpServerEntry = {
   readonly name: string;
-  readonly transport: McpTransportKind;
+  /** Absent when the entry never resolved far enough to name its transport:
+   *  the Machine read the declaration but, for example, an `{env:…}` token was
+   *  unset there, so only `state: "unavailable"` and its diagnostic are known. */
+  readonly transport?: McpTransportKind;
   readonly state: McpServerState;
   readonly diagnostic?: string;
 };

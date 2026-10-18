@@ -1,4 +1,5 @@
 import type {
+  JsonRpcNotification,
   JsonValue,
   MachineMethod,
   MachineMethodResults,
@@ -17,9 +18,20 @@ export type OperationContext = {
   readonly processes: BashProcesses;
   /** Aborts on cancellation or when the request's budget runs out. */
   readonly signal: AbortSignal;
+  /** Aborts when the hub cancels this stream or the session ends, and never
+   *  on the budget: an operation whose stream outlives its answer watches this
+   *  one, because the budget governs the answer alone. */
+  readonly streamSignal: AbortSignal;
   readonly toolCallId: string | undefined;
   /** A mid-stream notification on the request's own stream. */
   readonly notify: (method: string, params: JsonValue) => void;
+  /** A notification the hub sends on the request's own stream; `cancel` is
+   *  consumed by the session and never reaches a handler. */
+  readonly onNotification: (
+    handler: (message: JsonRpcNotification) => void,
+  ) => void;
+  /** Ends the request's own stream, for an operation that outlives its answer. */
+  readonly closeStream: () => void;
 };
 
 /** One handler per method, each typed with its own params and result. */

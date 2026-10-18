@@ -21,6 +21,10 @@ export default defineConfig({
         find: /^@workspace\/bash-executor$/,
         replacement: pkgSrc("bash-executor"),
       },
+      {
+        find: /^@workspace\/mcp-workspace$/,
+        replacement: pkgSrc("mcp-workspace"),
+      },
     ],
   },
   test: {

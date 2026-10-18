@@ -17,3 +17,14 @@ export function machineConfigDir(): string {
 export function rootsFileFor(configDir: string = machineConfigDir()): string {
   return join(configDir, "roots.json");
 }
+
+/**
+ * The environment a Workspace's MCP declarations interpolate against: this
+ * box's own variables, never the hub's, which is what keeps a hub-resolved
+ * secret from reaching the Machine and a Machine-resolved one from reaching
+ * the hub. Read at each `mcp.*` call rather than cached, so the answer follows
+ * the daemon's own environment.
+ */
+export function machineEnvironment(): NodeJS.ProcessEnv {
+  return process.env;
+}

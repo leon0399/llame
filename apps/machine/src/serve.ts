@@ -25,12 +25,13 @@ import {
   type RequestEnvelope,
 } from "@workspace/machine-protocol";
 import { readRoots } from "./roots";
+import { createSignal } from "./signal";
 import { rootsFileFor } from "./env";
 import { DAEMON_VERSION } from "./version";
 import { createRootGuard, type RootGuard } from "./guard";
 import { createBashProcesses, type BashProcesses } from "./processes";
 import { MachineRequestError } from "./errors";
-import { executeOperation, isOperation } from "./dispatch";
+import { executeOperation, isOperation, keepsStreamOpen } from "./dispatch";
 import type { Operation, OperationContext } from "./dispatch-types";
 import { readEnvelope, readHelloParams } from "./params";
 import { startRequestBudget, type RequestBudget } from "./budget";
@@ -173,7 +174,9 @@ function runOperation(
     )
     .finally(() => {
       budget.dispose();
-      channel.close();
+      // A stream-keeping operation (`mcp.open`) relays until the server dies
+      // or the hub cancels, and closes its own stream then.
+      if (!keepsStreamOpen(method)) channel.close();
     });
 }
 
@@ -188,9 +191,12 @@ function operationContext(
     guard: session.guard,
     processes: session.processes,
     signal: budget.signal,
+    streamSignal: channel.signal,
     toolCallId: envelope.toolCallId,
     notify: (notification: string, params: JsonValue) =>
       channel.notify(notification, params),
+    onNotification: (handler) => channel.onNotification(handler),
+    closeStream: () => channel.close(),
   };
 }
 
@@ -298,32 +304,13 @@ export function serveMachine(
   };
 }
 
-type DoneSignal = {
-  readonly done: Promise<SessionEndReason>;
-  readonly resolve: (reason: SessionEndReason) => void;
-};
-
-/** The session-end signal; nothing but the session end can resolve it. */
-function createDoneSignal(): DoneSignal {
-  let settle: ((reason: SessionEndReason) => void) | undefined;
-  const done = new Promise<SessionEndReason>((resolve) => {
-    settle = resolve;
-  });
-  return {
-    done,
-    resolve: (reason) => {
-      settle?.(reason);
-    },
-  };
-}
-
 function openSession(
   input: Readable,
   output: Writable,
   options: ServeMachineOptions,
 ): Session {
   const roots = options.roots ?? readRoots(rootsFileFor(options.configDir));
-  const signal = createDoneSignal();
+  const signal = createSignal<SessionEndReason>();
   const multiplexer = createFrameMultiplexer({
     send: (frame) => writeFrame(session, output, frame),
     onRequest: (channel, request) => handleRequest(session, channel, request),
@@ -345,7 +332,7 @@ function openSession(
     framer: createLineFramer(),
     helloed: false,
     ended: undefined,
-    done: signal.done,
+    done: signal.promise,
     resolveDone: signal.resolve,
     stop: (reason) => endSession(session, reason),
   };

@@ -3,5 +3,21 @@
   "extends": ["../../.oxlintrc.json"],
   "options": { "typeAware": true },
   "env": { "node": true, "vitest": true },
-  "ignorePatterns": ["dist/**"]
+  "ignorePatterns": ["dist/**"],
+  "overrides": [
+    {
+      // Plain JS child fixture the daemon spawns as a real process; it is
+      // outside the TypeScript program, so the type-aware rules that assume
+      // one do not apply, and it reads its own environment by design.
+      "files": ["src/testing/mcp-stdio-server-fixture.mjs"],
+      "rules": {
+        "anti-slop/forbid-process-env-outside-env-ts": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    }
+  ]
 }

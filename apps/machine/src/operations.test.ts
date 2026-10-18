@@ -524,18 +524,20 @@ describe("proc.bash", () => {
 });
 
 describe("Workspace MCP methods", () => {
-  it("registers the methods but reports them as not implemented yet", async () => {
-    for (const method of ["mcp.servers", "mcp.open"] as const) {
-      const outcome = await daemon.attempt(method, {
-        envelope: envelope(),
-        root: fixture.root,
-        server: "storybook",
-      });
-      expect(outcome.error).toMatchObject({
-        name: "MachineProtocolError",
-        code: "internal",
-        message: "not implemented yet",
-      });
-    }
+  it("serves the methods the daemon earlier stubbed", async () => {
+    await expect(
+      daemon.call("mcp.servers", { envelope: envelope(), root: fixture.root }),
+    ).resolves.toMatchObject({ servers: [] });
+
+    const outcome = await daemon.attempt("mcp.open", {
+      envelope: envelope(),
+      root: fixture.root,
+      server: "storybook",
+    });
+    expect(outcome.error).toMatchObject({
+      name: "MachineProtocolError",
+      code: "invalid_params",
+      message: "mcp.open: this Workspace declares no server named storybook",
+    });
   });
 });

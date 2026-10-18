@@ -6,7 +6,6 @@ import {
   type JsonValue,
   type SerializableValue,
 } from "@workspace/machine-protocol";
-import { MachineRequestError } from "./errors";
 import type {
   Operation,
   OperationContext,
@@ -20,6 +19,7 @@ import {
   statOperation,
   writeOperation,
 } from "./files";
+import { openOperation, serversOperation } from "./mcp";
 import { bashOperation } from "./proc";
 
 function rootsOperation(
@@ -27,13 +27,6 @@ function rootsOperation(
   context: OperationContext,
 ): Promise<{ readonly roots: ReadonlyArray<string> }> {
   return Promise.resolve({ roots: [...context.roots] });
-}
-
-/** Registered now, served by the Workspace MCP layer later. */
-function notImplemented(): Promise<never> {
-  return Promise.reject(
-    new MachineRequestError("internal", "not implemented yet"),
-  );
 }
 
 const OPERATIONS: OperationTable = {
@@ -45,9 +38,22 @@ const OPERATIONS: OperationTable = {
   "fs.write": writeOperation,
   "fs.bytes": bytesOperation,
   [PROC_BASH_METHOD]: bashOperation,
-  [MCP_SERVERS_METHOD]: notImplemented,
-  [MCP_OPEN_METHOD]: notImplemented,
+  [MCP_SERVERS_METHOD]: serversOperation,
+  [MCP_OPEN_METHOD]: openOperation,
 };
+
+const STREAM_KEEPING_OPERATIONS: Readonly<Partial<Record<Operation, true>>> = {
+  [MCP_OPEN_METHOD]: true,
+};
+
+/**
+ * Whether the operation's stream outlives its answer: `mcp.open` relays a
+ * running server until that server dies or the hub cancels, so it closes its
+ * own stream and the session must not close it on the answer.
+ */
+export function keepsStreamOpen(method: Operation): boolean {
+  return STREAM_KEEPING_OPERATIONS[method] === true;
+}
 
 export function isOperation(method: string): method is Operation {
   return Object.hasOwn(OPERATIONS, method);
