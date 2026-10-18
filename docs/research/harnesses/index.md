@@ -228,3 +228,7 @@ even with a single laptop UI):
 [T3 Code](./t3-code.md), [CodeBuddy Code](./codebuddy.md) (daemon `--host`,
 docs only), [DeepSeek Harness](./deepseek-harness.md) (optional POSIX SSH
 providers; shipped profiles leave them unmounted).
+
+The [multi-device placement study](../product-vision/2026-10-18-multi-device-execution-placement.md)
+compares these mechanisms with OpenClaw nodes, Home Assistant voice satellites,
+Coder, and hosted cloud environments, and maps them to llame's Node direction.
