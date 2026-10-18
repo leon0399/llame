@@ -43,7 +43,7 @@ import {
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { isContextItemPart } from '../chats/context-item';
-import { type MachinesConfig } from '../instance-config/llame-config';
+import { type MachinesConfig } from '../instance-config/machines-config';
 import { type MachineTransportFactory } from '../machines/machine-transport';
 import {
   createProtocolPeer,

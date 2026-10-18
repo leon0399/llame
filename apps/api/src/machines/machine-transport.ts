@@ -14,7 +14,7 @@
 import { spawn } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 
-import type { MachinesConfig } from '../instance-config/llame-config';
+import type { MachinesConfig } from '../instance-config/machines-config';
 
 import {
   createMachineSshConfigFile,

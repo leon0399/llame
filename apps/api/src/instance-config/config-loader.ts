@@ -17,9 +17,6 @@ import {
   type EmbeddingModelCatalogEntry,
   type LlameConfig,
   type KnowledgeConfig,
-  type MachineHostConfig,
-  type MachinesConfig,
-  type RawMachinesConfig,
   type SkillsConfig,
   type WebSearchConfig,
   type WebSearchEngineConfig,
@@ -41,6 +38,11 @@ import {
   type RawWebSearchEngineEntry,
   type WebAdapterConfig,
 } from './llame-config';
+import type {
+  MachineHostConfig,
+  MachinesConfig,
+  RawMachinesConfig,
+} from './machines-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';

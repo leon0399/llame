@@ -22,7 +22,7 @@ import {
   type MachineMethodParams,
 } from '@workspace/machine-protocol';
 
-import type { MachinesConfig } from '../instance-config/llame-config';
+import type { MachinesConfig } from '../instance-config/machines-config';
 
 import {
   MachineSession,

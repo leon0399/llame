@@ -12,6 +12,7 @@ import type { RequestHeaderTemplates } from '../models/request-headers';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
+import type { MachinesConfig, RawMachinesConfig } from './machines-config';
 
 /**
  * A configured provider connection: `type` selects the client
@@ -276,42 +277,6 @@ export type RawSkillsConfig = {
 /** Resolved operator-owned skill source settings: ordered, absolute directory paths. */
 export type SkillsConfig = {
   directories: ReadonlyArray<string>;
-};
-
-/**
- * Unresolved `machines` section (remote-machines D12). The `ssh` paths are
- * literal host paths on the hub box, like `tools.promptFiles` and
- * `skills.directories`: no `{env:...}`/`{path:...}` interpolation is applied —
- * the loader rejects token syntax before resolving — and relative entries
- * resolve against the configuration file's directory.
- */
-export type RawMachinesConfig = {
-  ssh?: {
-    knownHostsFile?: string;
-    identityFile?: string;
-    configFile?: string;
-  };
-  hosts?: Record<string, MachineHostConfig>;
-};
-
-/** One declared Machine: the SSH destination the hub connects to for it. */
-export type MachineHostConfig = { destination: string };
-
-/**
- * Resolved operator-owned remote Machine settings (remote-machines D12): `ssh`
- * paths are absolute (relative resolved against the configuration file's
- * directory, a leading `~/` against the operator process home). An absent
- * `identityFile`/`configFile` stays absent rather than materializing a default,
- * so the session manager applies its own. `hosts` is always present when the
- * section is, possibly empty.
- */
-export type MachinesConfig = {
-  ssh: {
-    knownHostsFile: string;
-    identityFile?: string;
-    configFile?: string;
-  };
-  hosts: Record<string, MachineHostConfig>;
 };
 
 /**

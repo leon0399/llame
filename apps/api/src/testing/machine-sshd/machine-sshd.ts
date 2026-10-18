@@ -38,7 +38,7 @@ import {
   type StartedTestContainer,
 } from 'testcontainers';
 
-import type { MachinesConfig } from '../../instance-config/llame-config';
+import type { MachinesConfig } from '../../instance-config/machines-config';
 import {
   createMachineSshConfigFile,
   type MachineSshConfigFile,

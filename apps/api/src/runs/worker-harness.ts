@@ -51,7 +51,7 @@ import { ScriptedModelsService } from './scripted-model-client';
 
 import { MachineConnector } from '../machines/machine-connector.service';
 import { MachinesService } from '../machines/machines.service';
-import { type MachinesConfig } from '../instance-config/llame-config';
+import { type MachinesConfig } from '../instance-config/machines-config';
 import { type MachineTransportFactory } from '../machines/machine-transport';
 // ---- Harness boot ----------------------------------------------------------
 
