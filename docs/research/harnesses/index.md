@@ -219,7 +219,6 @@ even with a single laptop UI):
 - [Hermes Agent](./hermes-agent.md) — seven terminal backends (local/Docker/SSH/Modal/…)
 - [Loki Agent](./loki.md) — same Hermes-derived terminal backend matrix (+ AgentVM)
 - [Conductor](./conductor.md) — optional Conductor Cloud (Vercel) sandboxes
-- [WorkBuddy](./workbuddy.md) — cloud assistant that keeps running after the client closes (site claim; app not run)
 - [nanoclaw](./nanoclaw.md) — per-session containers with host mailbox
 - [OpenDots](./opendots.md) — per-Dot authorized computer executors
 - [AX](./ax.md) — desired-state task sandboxes over Agent Substrate
