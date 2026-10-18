@@ -55,10 +55,21 @@ no issue tracks it because it ships as one experimental change.
 
 ### Modified Capabilities
 
-None. The `remote-machines` capability states explicitly where it extends
-argument forms that `workspace-entry`, `native-file-tools`, `bash-execution`,
-and `mcp-tools` otherwise restrict to the local host; their existing local
-behavior is unchanged.
+None as deltas, by the decision to keep this experiment in one spec. The
+`remote-machines` capability's last requirement states that it overrides, for
+Machine locators and `machine:` executors, canonical text that is otherwise
+local-only. Known canonical sentences it contradicts for Machines, to amend if
+the capability graduates:
+
+- `workspace-entry`: entry accepts only an absolute host path, and every
+  attempt re-checks that the native executor identity matches the binding.
+- `native-file-tools` and `bash-execution`: Workspace-relative paths resolve
+  with `path.posix.resolve` and the executor receives the projected absolute
+  string; tools are offered only with `tools.nativeExecutorId`.
+- `bash-execution`: the model does not select an executor.
+- `instruction-files`: the host chain walks from `/`.
+- `tool-calling`: host-capability tools are advertised only with a local
+  executor.
 
 ## Non-goals
 
@@ -76,10 +87,10 @@ behavior is unchanged.
 - The hub reaches each Machine's first hop over SSH with the host's own `ssh`
   client; a Machine without such a route is out of scope.
 - Workspace MCP configuration on a Machine follows the local trust model:
-  entering the Workspace is the trust decision. Registered roots are assumed
-  to be operator-validated.
-- The daemon inherits `bash-executor`'s existing process limit, so one shell
-  runs at a time per Machine.
+  entering the Workspace is the trust decision.
+- The daemon serves one shell at a time per SSH session, so a Machine runs at
+  most one shell per worker process.
+- The operator installs the daemon and its roots file as root on the box.
 
 ## Impact
 
@@ -88,10 +99,11 @@ behavior is unchanged.
   reads, Workspace MCP client composition, permission locator projection, a
   Machine status table and API, and an SSH session manager in workers.
 - New `apps/machine` daemon; shared packages extracted from `apps/api` for
-  Workspace MCP configuration, bounded stdio framing, and bounded fetch, used
-  by both sides. `packages/native-file-tools` and `packages/bash-executor` are
-  reused unchanged.
+  Workspace MCP configuration, bounded stdio framing, guarded HTTP fetch, and
+  bounded fetch, used by both sides. `packages/bash-executor` is reused
+  unchanged; `packages/native-file-tools` gains a byte-buffer media entry point.
 - `apps/web`: settings Machines list and Workspace indicator status.
-- Database: one migration for operator-wide Machine status.
+- Database: a new `machines_status` table and a nullable
+  `chats.workspace_told_available` column.
 - Docs: a new operator page and reference updates for the `machine://`
   locator and the tools that accept it.

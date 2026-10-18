@@ -7,25 +7,37 @@ See proposal.md for motivation. Current state that shapes the approach:
 - Native tools execute in the worker process. `executeNative` and
   `executeLocator` in `apps/api/src/tools/native-files.ts` are the only scheme
   table (`kb://`, `skill://`, `media://`, web); `executeNativeBound` records the
-  durable native attempt keyed by Run, executor, and tool call. `kb://`
-  mutations use an unbound fence, which is the model for Machine mutations.
-- `packages/native-file-tools` and `packages/bash-executor` have no NestJS or
-  database dependency. `bash-executor` spawns detached process groups and caps
-  concurrency with a module-level `maxProcesses: 1`.
+  durable native attempt and requires `tools.nativeExecutorId`. `kb://`
+  mutations use an unbound fence (`NativeFenceMode {bound:false}`), the model
+  for Machine mutations. `serializeMutation` runs every mutation in a worker one
+  at a time.
+- `packages/native-file-tools` (host-path entry points plus `statHostPath`) and
+  `packages/bash-executor` have no NestJS or database dependency.
+  `bash-executor` counts active processes per process; `apps/api/src/tools/bash.ts`
+  passes the bounds (32,000 output, 8,000 input, 300,000 ms, `maxProcesses: 1`)
+  and builds the managed base environment.
+- The tool candidate resolver offers `bash` only with `tools.nativeExecutorId`
+  and `edit`/`write` with it or a Knowledge root; `enter_workspace`,
+  `exit_workspace`, `bash`, and instruction loading also gate on it.
 - The Workspace binding is `chats.workspace_root`, `workspace_executor_id`,
-  `workspace_generation`, with six DB-checked detach reasons. Run preparation
-  compares the bound executor with `tools.nativeExecutorId`.
+  `workspace_generation`, `workspace_told`, with six DB-checked detach reasons.
+  Preparation compares the bound executor with `tools.nativeExecutorId` and
+  checks `stat` plus `realpath` of the root. `resolveWorkspacePath` is
+  `posix.resolve` and is called from native files, permission projection, the
+  runner's argument projection, `bash`, prompt imports, and the instructions
+  producer.
+- Instruction discovery uses `hostInstructionScope()` (root `/`, local
+  `statHostPath` and `readdir`); only page bodies go through `read`. The skill
+  catalog's `SkillCatalogFileSystem` and `getSnapshot` are synchronous.
 - Workspace MCP clients are keyed by `{chatId, root, generation}`.
-  `McpServerClient.connectStdio` calls `createStdioTransport` directly; the MCP
-  SDK `Transport` interface (`@modelcontextprotocol/sdk` 1.31.0) is
-  message-level and is the seam.
-- Instruction files read through the native `read` tool; the skill catalog
-  reads through a local `SkillCatalogFileSystem`.
-- Permission projection (`tools/permissions/locator-projection.ts`)
-  canonicalizes file, `kb://`, `skill://`, and web locators and passes other
-  schemes verbatim.
-- Live updates are owner-routed only. The one operator-wide, non-RLS table
-  precedent is `embedding_model_bindings`.
+  `McpServerClient` (private constructor, static factories) builds clients with
+  `@ai-sdk/mcp` `createMCPClient`, whose seam is `MCPTransport`;
+  `connectStdio` calls `createStdioTransport`. HTTP safeguards (session-id
+  change detection, `redirect: 'error'`, discovery byte totals) live in
+  `mcp-server-client.ts`.
+- `MEDIA_MAX_BYTES` is 20 MiB; the stdio message cap is 1 MiB.
+- pg-boss 12 cron fires at minute granularity.
+- Live updates are owner-routed only.
 
 Decision provenance is the grilling record behind the
 [multi-device placement study](../../../docs/research/product-vision/2026-10-18-multi-device-execution-placement.md).
@@ -34,147 +46,186 @@ Decision provenance is the grilling record behind the
 
 **Goals:**
 
-- One remote path that reuses the local tool implementations byte for byte.
-- No new listener, broker, or mailbox: workers dial Machines directly, so
-  co-located and split topologies behave the same.
-- Hub credentials never leave the hub; Machine credentials never leave the
-  Machine except as redaction inputs.
+- One remote path reusing the local tool implementations.
+- No new listener, broker, or mailbox: workers dial Machines directly.
+- Hub credentials never leave the hub; Machine-resolved secrets reach the hub
+  only as redaction inputs.
 
 **Non-Goals:**
 
 - A second authentication system: SSH authenticates both ends.
 - Durable delivery of tool calls, call re-attach, or a Machine-side ledger.
-- Generalizing locator dispatch into an adapter framework (#1011 owns that
-  question).
+- Isolation between hub users on a shared Machine.
+- Generalizing locator dispatch into an adapter framework (#1011).
 
 ## Decisions
 
-### D1. SSH is the only transport
+### D1. SSH with a generated, hub-owned client configuration
 
-Workers run `ssh -T -a -x -o BatchMode=yes -o StrictHostKeyChecking=yes
--o UserKnownHostsFile=<pinned> -o IdentitiesOnly=yes -i <identity>
-[-J jump1,jump2] <destination> llame-machine serve --stdio` and speak the
-protocol over the child's stdio. SSH supplies mutual authentication,
-encryption, and multi-hop routing; the operator restricts the hub key on the
-box with `restrict,command="llame-machine serve --stdio"` and on jump hosts
-with `restrict,port-forwarding,permitopen=...`.
+Jump hosts ignore command-line `-o`/`-i` options (ssh(1): command-line
+directives apply to the destination, not jump hosts), so the hub writes a
+private `ssh_config` per Machine route and runs
+`ssh -F <generated> -T -- <alias> llame-machine serve --stdio`. Every hop gets
+a `Host` block with `HostName`, `User`, `Port`, `IdentityFile`,
+`IdentitiesOnly yes`, `IdentityAgent none`, `UserKnownHostsFile <pinned>`,
+`GlobalKnownHostsFile none`, `StrictHostKeyChecking yes`, `BatchMode yes`,
+`ControlMaster no`, `ControlPath none`, `ClearAllForwardings yes`,
+`ForwardAgent no`, `ForwardX11 no`, `PermitLocalCommand no`,
+`UpdateHostKeys no`, `SendEnv` unset, `ConnectTimeout 10`,
+`ServerAliveInterval 15`, `ServerAliveCountMax 3`; the destination block sets
+`ProxyJump` to the hop aliases, and blocks without jumps set
+`ProxyCommand none`. `-F` replaces system and user configuration and is passed
+to jump connections. Route fields are validated and never interpolated.
 
-Alternatives: a dial-out WebSocket from the Machine (needs enrollment, mutual
-auth, relay design, and cross-process routing to the API holding the socket);
-workers accepting inbound Machine connections (adds ingress to workers). Both
-remain possible later as additional transports for the same protocol.
+Box setup: `restrict,command="/usr/local/bin/llame-machine serve --stdio"`
+for the hub key (absolute path), `restrict,port-forwarding,permitopen=...` on
+jump hosts, optional `from=`, and sshd `ClientAliveInterval` documented.
 
-### D2. Protocol: newline-delimited JSON frames with stream ids
+Alternatives: dial-out WebSocket (enrollment, relays, cross-process routing);
+inbound connections to workers (ingress). Both stay possible as additional
+transports.
 
-Frame: `{ "s": <stream>, "m": <JSON-RPC 2.0 message> }`. Stream 0 carries the
-handshake (`hello` with protocol version and daemon version) and session
-control; each tool call or MCP channel opens its own stream. Methods:
+### D2. Protocol: framed JSON with stream ids, credits, and chunks
 
-| Method                                                           | Purpose                                                              |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `roots.list`                                                     | registered roots                                                     |
-| `fs.read`, `fs.edit`, `fs.write`                                 | `native-file-tools` entry points with the same arguments and results |
-| `proc.bash`, `proc.cancel`                                       | `executeManagedBash` with Machine `cwd` and additive `env`           |
-| `mcp.servers`                                                    | Workspace MCP config read and resolved on the Machine                |
-| `mcp.open`, `mcp.message`, `mcp.close`, `mcp.setProtocolVersion` | relay one server's JSON-RPC messages                                 |
+Frame: `{ "s": <stream>, "m": <JSON-RPC 2.0 message> }`, newline-delimited.
+The 1 MiB cap applies to `m`; the wrapper is outside it. Stream ids are
+monotonic per session and never reused; frames for unknown or closed streams
+are dropped. Stream 0 carries the handshake (`hello` with protocol and daemon
+versions), a 15-second heartbeat (three misses end the session), and control.
+Per-stream credit windows and a per-session cap on open streams and buffered
+bytes keep one stream from starving the others.
 
-Every request carries `{runId, attemptId, toolCallId, deliverySeq, deadline}`.
-Message size caps reuse the bounded stdio framing (1 MiB). Types live in a
-shared protocol package so both sides compile against one definition.
+| Method                                                                         | Purpose                                                                    |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `roots.list`                                                                   | registered roots                                                           |
+| `fs.stat`                                                                      | kind, size, canonical locator, link flag, checked against roots            |
+| `fs.list`                                                                      | structured directory entries for discovery                                 |
+| `fs.read`, `fs.edit`, `fs.write`                                               | `native-file-tools` entry points; results with Machine locators            |
+| `fs.bytes`                                                                     | chunked file bytes up to `MEDIA_MAX_BYTES`, for media                      |
+| `proc.bash`, `proc.cancel`                                                     | `executeManagedBash`; cancel targets the stream                            |
+| `mcp.servers`                                                                  | Workspace MCP definitions resolved on the Machine                          |
+| `mcp.open`, `mcp.message`, `mcp.stderr`, `mcp.close`, `mcp.setProtocolVersion` | relay one server; `open` returns the started definition's protected values |
 
-Alternative: one SSH session per operation or channel (simpler framing; one
-SSH handshake per call over two jumps is hundreds of milliseconds).
+Every request carries `{runId, attemptId, toolCallId, deliverySeq, budgetMs}`;
+the daemon measures `budgetMs` from receipt on its monotonic clock, refuses an
+exhausted budget, and terminates in-flight work when it runs out. Shared
+constants (bash bounds, frame caps, media cap) live in the protocol package.
 
 ### D3. Session manager in each worker
 
 One SSH session per worker per Machine, opened on first use, kept while any
-stream is open, closed after five idle minutes. Session start, handshake
-result, and failures update Machine status. When the child exits, every open
-stream fails: tool calls settle by the native fence rules, MCP channels close.
-The daemon terminates every process group it started when its stdin closes,
-which implements caller-loss termination.
+stream is open, closed after five idle minutes. Reachability is decided once
+per attempt: a failed open marks the Machine unreachable for the rest of that
+attempt, so preparation, instructions, skills, and MCP do not each wait out a
+timeout. Session events write Machine status. When the session ends, every open
+stream fails: calls settle under D4, MCP channels close. The daemon terminates
+every process group it started when stdin closes or heartbeats stop.
 
-### D4. Locator and fence integration
+Mutations to a Machine serialize per Machine, not through the worker-wide
+`serializeMutation`, so a slow Machine never blocks local or `kb://` writes.
 
-`executeLocator` gains a `machine` branch that parses `machine://`, resolves
-the configured Machine, and dispatches through the session manager. Reads use
-no fence; `edit`, `write`, and Machine `bash` use the existing native attempt
-with an unbound fence, as `kb://` mutations do, so no local executor binding is
-created. Media bytes return from the daemon under the existing media size cap
-and enter the hub's existing preparation path.
+### D4. Locator, fence, and gates
 
-### D5. Workspace binding and offline state
+`executeLocator` gains a `machine` branch. Reads use no fence; `edit`, `write`,
+and Machine `bash` use the native attempt with an unbound fence. A failure to
+open the session before dispatch returns `machine_unavailable`; a session lost
+after the attempt row and before a result settles through the existing prior-
+outcome path as `outcome_unknown`. Machine media: the daemon returns metadata
+and streams bytes through `fs.bytes`; the hub prepares and stores media through
+a byte-buffer entry point added to `native-file-tools`, since `readFile`'s
+media hook assumes a local file.
 
-A Machine Workspace stores `workspace_root = machine://<name>/<canonical path>`
-and `workspace_executor_id = machine:<name>`. Preparation skips the local
-executor comparison for `machine:` executors and instead checks that the name
-is still configured (else detach `executor_absent`, an existing reason). When
-the Machine is unreachable, preparation keeps the binding and emits a
-`workspace` context transition marked unavailable; root checks run when the
-Machine is reachable and use the existing `root_missing` and `root_moved`
-reasons. No new detach reason, so no migration on `chats`.
+The candidate resolver offers `read`, `edit`, `write`, `bash`,
+`enter_workspace`, and `exit_workspace` when Machines are configured even
+without `tools.nativeExecutorId`; local host paths still return
+`executor_unavailable` there. Machine operations never call `native.bind`.
+
+### D5. Paths, Workspace binding, and offline state
+
+A Machine Workspace stores `workspace_root = machine://<name><canonical path>`
+and `workspace_executor_id = machine:<name>`; a binding is classified by the
+root's scheme and both columns must agree. `tools.nativeExecutorId` may not
+start with `machine:`. `resolveWorkspacePath` gains a Machine branch and throws
+on any non-absolute, non-Machine root, so an unmigrated call site fails closed;
+all six call sites are migrated. While bound to a Machine, bare absolute paths
+and absolute `bash` `cwd` return `invalid_path` naming the Machine form.
+
+Preparation for `machine:` executors checks the name is configured (else
+detach `executor_absent`, narrated as a removed Machine) and, when reachable,
+runs `fs.stat` for `root_missing` and `root_moved`. When unreachable it keeps
+the binding. New column `chats.workspace_told_available` (nullable boolean)
+records the availability last narrated, so unavailability and recovery are each
+told once; the context-injection producer compares it with the attempt's
+reachability.
 
 ### D6. Workspace MCP through a relayed transport
 
-`McpServerClient` gains a constructor path that accepts an SDK `Transport`
-instead of always calling `createStdioTransport`. `MachineTransport` implements
-`start`, `send`, `close`, `onmessage`, `onclose`, `onerror`, and
-`setProtocolVersion` over an `mcp.*` stream. On the Machine, the daemon builds
-the SDK's own `StdioClientTransport` or `StreamableHTTPClientTransport` from
-the config entry it read and pipes messages. `workspace-mcp-config.ts`, the
-bounded stdio framing, and `mcp-bounded-fetch.ts` move to shared packages so
-the daemon parses, interpolates, and bounds exactly as the hub does.
-`mcp.servers` returns server names, transport kinds, states, diagnostics, and
-the protected values the hub's redactor needs. The client key adds the executor
-id. SSE resumption tokens are not relayed; a lost channel ends the session.
+A new `McpServerClient` static factory accepts an `MCPTransport`.
+`MachineTransport` implements it over an `mcp.*` stream, including
+`protocolVersion` and `setProtocolVersion`, and the hub applies the stdio-style
+protocol-version check after the handshake. Hub-side discovery for a Machine
+Workspace calls `mcp.servers` instead of reading `.mcp.json`, builds runtime
+definitions from the returned names, kinds, states, and diagnostics, and feeds
+the unchanged admission, shadowing, and redaction path. `mcp.open` returns the
+protected values of the definition actually started and later-learned ones
+(HTTP session id), and the hub treats them as secrets on arrival. On the
+Machine the daemon uses the shared config resolver, the shared guarded fetch
+with `redirect: 'error'` and session tracking, and the MCP SDK stdio or
+Streamable HTTP transport. stderr flows as bounded `mcp.stderr` diagnostics.
+The client key adds the executor id. SSE resumption is not relayed.
 
-Alternative: run the MCP client on the Machine and expose discovered tools
-(duplicates discovery, admission, and redaction; the hub would trust
-Machine-reported declarations).
+Alternative: the MCP client on the Machine (two MCP stacks; the hub would
+trust Machine-reported declarations).
 
-### D7. Instruction files and skills through Machine ports
+### D7. Instruction files and skills through Machine scopes
 
-The instruction loader already reads through the native `read` tool, so it
-receives Machine locators for a Machine root. The skill catalog gets a
-`SkillCatalogFileSystem` implementation backed by `fs.read` listings and reads.
+A Machine `InstructionScope` uses the registered root containing the target as
+its root, `fs.stat` as `probe`, `fs.list` as `list`, and Machine locators as
+keys and labels; the instructions producer recognizes Machine targets as
+triggers, and prompt imports resolve Machine-relative targets. Skills:
+preparation fetches a bounded snapshot of the Machine Workspace's skill sources
+asynchronously and hands the synchronous catalog an in-memory
+`SkillCatalogFileSystem`; Machine skill file reads route through `fs.read`.
+The catalog interface stays synchronous.
 
 ### D8. Permission projection
 
-`projectNativeFilePath` and `withoutReadSelector` gain a `machine://` branch
-producing `machine://<lowercase name><submitted absolute path text>` with
-`.`/`..` and trailing separators preserved, matching the direct host-path
-rule. `bash` `cwd` and Workspace-relative projection emit the same canonical
-text when bound to a Machine.
+`projectNativeFilePath` and `withoutReadSelector` gain a Machine branch: split
+the selector, decode the path once, emit
+`machine://<lowercase name><decoded path>` with `.`, `..`, and trailing
+separators kept. Following the `file:` alias rule, a reject on either the
+submitted or canonical text refuses; the allow is decided on the canonical
+text. Machine skill reads are projected as Machine locators.
 
 ### D9. Status table, probe, and API
 
 Table `machines_status` (name primary key, first and last contact, last
-failure time, reason, failing hop, hub and daemon protocol versions, daemon
-version, roots, updated time), operator-wide with no RLS following
-`embedding_model_bindings`, written only by server processes and read under
-the public role. Rows for names no longer configured are ignored and pruned.
-A pg-boss scheduled job probes every configured Machine every 30 seconds
-(pg-boss elects one scheduler), and every session start or failure also
-writes status, so status needs no new long-lived loop. Status is derived at
-read time: online when last contact is within 90 seconds and after the last
-failure. The failing hop comes from recognized `ssh` stderr lines; otherwise
-it is null. `GET /api/v1/machines` serves the list to authenticated users.
+failure time, closed reason, failing hop position, hub and daemon protocol
+versions, daemon version, bounded roots list, updated time) with ENABLE and
+FORCE RLS and a SELECT policy requiring a non-empty current identity, written
+through a system path. Daemon-supplied strings are bounded. A pg-boss job
+scheduled every minute probes every configured Machine, declared in
+`asyncapi.queues.yaml`; session events also write status. Status is online when
+last contact is within 150 seconds and after the last failure. The failing hop
+position comes from recognized `ssh` stderr, otherwise null.
+`GET /api/v1/machines` serves the list to authenticated users.
 
 ### D10. Web
 
 A read-only Machines section in settings and a Machine state in
-`workspace-indicator.tsx`, both refreshed by polling the list endpoint every
-15 seconds while visible. Owner-routed live updates do not fit operator-wide
-rows, and a broadcast kind is not justified for an experimental surface.
+`workspace-indicator.tsx`, both refreshed with TanStack `refetchInterval` of 15
+seconds while visible.
 
-### D11. Daemon
+### D11. Daemon and packaging
 
-`apps/machine`, TypeScript on Node 22, built to `dist/` with a `bin` entry
-`llame-machine` (the repository's first). Commands: `serve --stdio`,
-`roots add <dir>`, `roots remove <dir>`, `roots list`. Roots are stored in
-`$XDG_CONFIG_HOME/llame-machine/roots.json` as canonical paths. Every path
-argument is realpath-resolved and checked against the roots before use.
-Installation is manual for the experiment.
+`apps/machine`, TypeScript on Node >= 22.19, bundled to a single file with a
+`bin` entry `llame-machine`. Install: copy the bundle to
+`/usr/local/bin/llame-machine` (root-owned) on the box. Roots live in
+`/etc/llame-machine/roots.json`, root-owned and not writable by the daemon
+user; `llame-machine roots add|remove|list` edits it with elevated privileges.
+`serve` refuses to start when the binary or roots file is writable by its own
+user (`daemon_misconfigured`), loads roots once per session, and refuses native
+mutations of its config, `~/.ssh`, and shell startup files inside roots.
 
 ### D12. Configuration
 
@@ -186,60 +237,76 @@ Installation is manual for the experiment.
       "knownHostsFile": "/etc/llame/machine_known_hosts",
     },
     "hosts": {
-      "devl": { "destination": "me@box", "proxyJump": ["laptop1", "laptop2"] },
+      "devl": {
+        "destination": "me@box.lan",
+        "proxyJump": ["me@laptop1.lan", "me@laptop2.lan:2222"],
+      },
     },
   },
 }
 ```
 
-Relative files resolve from the config file. String values accept the existing
-`{env:}` and `{path:}` interpolation. The published JSON schema and
-`BUILT_IN_DEFAULTS` gain the section.
+Relative files resolve from the config file. Route fields reject interpolation
+and option-shaped values. The published schema and `BUILT_IN_DEFAULTS` gain
+the section. The worker image or host needs an `ssh` client, the identity, and
+the pinned file.
 
 ## Threats
 
 - **T1. Model-addressed remote execution.** VISION says the model never
-  chooses native execution. Here the operator chooses which Machines exist and
-  which `machine://` text each permission group admits, and the daemon enforces
-  registered roots; the model picks only among operator-admitted addresses, the
-  same standing it has for absolute local paths today. This is a deliberate,
-  experimental extension and is disclosed in tool descriptions.
-- **T2. Shared Machine runs repository commands.** Operator-wide Machines plus
-  "entry is the trust decision" mean any user allowed to enter a Machine
-  Workspace starts that repository's MCP servers as the Machine user. The
-  operator page carries the audited-repository warning from the local
-  executor.
+  chooses native execution. Here the operator chooses Machines and which
+  `machine://` text each permission group admits, and the daemon enforces
+  roots; the model picks among admitted addresses, as with absolute local
+  paths. Disclosed in tool descriptions.
+- **T2. Shared Machine runs repository commands.** Operator-wide Machines and
+  entry-is-trust mean any user allowed to enter a Machine Workspace starts that
+  repository's MCP servers as the Machine user.
 - **T3. Hub key compromise.** Forced command and `restrict` limit the key to
-  starting the daemon and forwarding through jump hosts; registered roots bound
-  addresses but not what a started command can do.
-- **T4. Hub secrets exfiltration.** Interpolation runs on the Machine, and the
-  hub never sends commands, URLs, or headers for Workspace MCP.
-- **T5. Cross-owner leakage on a shared Machine.** Owner-scoped bindings,
-  clients, attempts, and results are unchanged; a negative test covers user B
-  against user A's Machine Workspace.
+  starting the daemon and forwarding through pinned hops.
+- **T4. Secret flows.** Hub to Machine: interpolation runs on the Machine and
+  the hub never sends commands, URLs, or headers. Machine to hub: protected
+  values arrive as secrets and are redacted.
+- **T5. No isolation between owners on a Machine.** All owners act as one OS
+  user; one owner can read or change another's files, instructions, or
+  `.mcp.json`. Hub-held state stays owner-scoped.
+- **T6. Ambient SSH configuration.** Neutralized by the generated `-F`
+  configuration (D1).
+- **T7. Agent widening its own bounds.** Root-owned roots file and binary,
+  protected-path refusals (D11).
+- **T8. Untrusted Machine input.** Every daemon-supplied field is bounded;
+  stream ids are never reused; host-key mismatch is reported as such.
+- **T9. Shared-box denial of service.** Per-stream credits and per-session caps
+  bound the pipe; process and memory exhaustion on the box remain the
+  operator's responsibility.
+- **T10. Whole-tool allows reach every Machine.** The recommended portable
+  policy allows `read`, `edit`, `write`, and `bash` for every path, so
+  configuring Machines exposes every registered root to every eligible user;
+  the operator page gives Machine-scoped allows and root-anchored reject
+  equivalents.
 
 ## Risks / Trade-offs
 
-- [No NAT traversal] → A Machine needs an SSH-reachable first hop; dial-out is
-  a later transport.
-- [One shell per Machine] → `bash-executor`'s limit serializes shells across
-  users; a second call returns the existing process-limit error.
+- [No NAT traversal] → A Machine needs an SSH-reachable first hop.
+- [Shells per worker session] → One shell per worker per Machine; M workers
+  allow M concurrent shells on one Machine.
 - [Long builds die on worker drain] → Accepted; matches local behavior.
-- [Failing-hop detection parses `ssh` stderr] → Best effort; unknown when not
+- [Failing-hop detection parses `ssh` stderr] → Best effort; null when not
   recognized.
-- [Polling status] → Up to 15 seconds stale in the UI.
-- [Size] → One implementation layer, estimated at roughly 6,000 to 7,000
-  authored lines, exceeds the 2,000-line layer budget; recorded as an explicit
-  exception for this experimental change by Leo's decision.
+- [Status freshness] → Up to about 2.5 minutes to report offline; 15 seconds
+  of UI staleness.
+- [Size] → One implementation layer, re-estimated at 9,000 to 12,000 authored
+  lines, against the about-2,000-line budget; an explicit exception by Leo's
+  decision. Moved packages and `apps/machine` fall outside the current mutation
+  matrix unless it is extended.
 
 ## Migration Plan
 
-Additive: one new table and an optional config section. Without `machines`,
-nothing changes. Rollback removes the section; the table is inert, and Chats
-bound to a Machine detach as `executor_absent` on their next Run.
+Additive: one new table, one nullable `chats` column, an optional config
+section. Without `machines`, nothing changes. Rollback removes the section;
+Chats bound to a Machine detach as `executor_absent` on their next Run.
 
 ## Open Questions
 
-- Exact probe and inactivity intervals, tuned during the experiment.
-- Whether `machines_status` later moves to the presence shape needed by a
-  dial-out transport; additive either way.
+- Probe and inactivity intervals, tuned during the experiment.
+- Whether `machines_status` moves to the presence shape a dial-out transport
+  needs; additive either way.
