@@ -1,0 +1,84 @@
+# The Nix dev shell (flake.nix) and CI install the toolchain from two different
+# pins: CI reads .node-version and package.json's packageManager, while the
+# dev shell takes whatever nixpkgs packages as nodejs_22 and pnpm_12 at the
+# flake.lock revision. Nothing else notices when the two drift apart, and a
+# drifted pnpm fails or silently runs as another version
+# (docs/development/runtime-and-package-manager.md). This workflow builds the
+# dev shell and fails when its toolchain disagrees with the repository pins.
+#
+# Path-filtered, so it runs only when a pin can move. A path-filtered workflow
+# cannot be a required check: on an unrelated pull request it never reports
+# and the requirement stays pending.
+#
+# Actions are pinned to commit SHAs (comment = the release tag they resolve to).
+
+name: Dev shell
+
+on:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - .envrc
+      - .node-version
+      - package.json
+      - .github/workflows/dev-shell.yml
+  push:
+    branches: [master]
+    paths:
+      - flake.nix
+      - flake.lock
+      - .envrc
+      - .node-version
+      - package.json
+      - .github/workflows/dev-shell.yml
+
+# Pull request runs supersede each other; each master run has its own group,
+# so none is cancelled or replaced while pending.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  toolchain:
+    name: Toolchain agreement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # No Nix store cache: the shell is two packages from cache.nixos.org.
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+
+      # Evaluates every flake output on every system it declares.
+      - run: nix flake check --all-systems
+
+      # pnpm must match packageManager exactly. Node must match .node-version's
+      # major only: nixpkgs ships one patch release per major, so an exact
+      # match would fail whenever nixpkgs and .node-version differ by a patch,
+      # and engines.node (>=22.19) promises only the major line.
+      - name: Compare dev shell toolchain with repository pins
+        run: |
+          nix develop --command bash -euo pipefail <<'EOF'
+          expected_pnpm=$(jq -r .packageManager package.json | cut -d@ -f2)
+          expected_node_major=$(tr -d '[:space:]' < .node-version | cut -d. -f1)
+          actual_pnpm=$(pnpm --version)
+          actual_node=$(node --version | sed 's/^v//')
+          echo "pnpm: dev shell $actual_pnpm, packageManager $expected_pnpm"
+          echo "node: dev shell $actual_node, .node-version major $expected_node_major"
+          status=0
+          if [ "$actual_pnpm" != "$expected_pnpm" ]; then
+            echo "::error file=flake.lock::dev shell pnpm $actual_pnpm does not match packageManager pnpm@$expected_pnpm"
+            status=1
+          fi
+          if [ "${actual_node%%.*}" != "$expected_node_major" ]; then
+            echo "::error file=flake.nix::dev shell node $actual_node is not on the .node-version major $expected_node_major"
+            status=1
+          fi
+          exit "$status"
+          EOF

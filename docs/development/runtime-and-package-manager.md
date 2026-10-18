@@ -44,7 +44,11 @@ in-place API migration.
   version does not know. Add a setting from a newer pnpm only in the change
   that bumps the Nix `pnpm_12` and `packageManager` to that version.
 - Run pnpm from the Nix dev shell (`.envrc` loads it through direnv, or
-  `nix develop`). A global pnpm 11 older than 11.28.4 cannot switch to the
+  `nix develop`). Non-interactive shells, such as scripts and agent tools, do
+  not run the direnv hook; wrap the command as `nix develop --command pnpm …`
+  or `direnv exec . pnpm …`. The `Dev shell` workflow fails when the shell's
+  pnpm differs from `packageManager` or its Node leaves the `.node-version`
+  major. A global pnpm 11 older than 11.28.4 cannot switch to the
   pnpm 12 pin and exits with `SyntaxError: Invalid or unexpected token`; with
   `pmOnFail: ignore` it runs as the old version instead, without warning.
 - pnpm 12 validates patch hunk positions that pnpm 11 ignored: each hunk's

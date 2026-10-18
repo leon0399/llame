@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-18
 
+- The Nix dev shell evaluates again on every system it declares: the flake
+  drops `flake-utils`, whose default systems still listed `x86_64-darwin`
+  after nixpkgs-unstable removed it, and declares x86_64/aarch64 Linux and
+  aarch64 macOS directly. A path-filtered `Dev shell` workflow runs
+  `nix flake check` and fails when the shell's pnpm differs from
+  `packageManager` or its Node leaves the `.node-version` major.
+
 - The native `luma` web adapter reads `luma.com/{slug}` and `lu.ma/{slug}`
   event links, which the generic converter leaves as a script-heavy page, as
   Markdown: title, start and end in the event's timezone, place or online
