@@ -24,7 +24,15 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { useRef } from "react";
-import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { ModelsResponse } from "@/lib/services/models/queries";
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
@@ -69,7 +77,8 @@ import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 
 import { ChatPage } from "./chat-page";
-import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
+import { setChatMarkdownRenderersForTests } from "./use-chat-markdown-ready";
+import { installStubChatMarkdownRenderers } from "@/lib/test-support/chat-markdown";
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 
@@ -125,9 +134,9 @@ function stubChatNetwork() {
   });
 }
 
-beforeAll(async () => {
-  // Warm Streamdown chunks so the transcript gate opens on the first paint.
-  await ensureChatMarkdownRenderersLoaded();
+beforeAll(() => {
+  // A warm renderer cache opens the transcript gate on the first paint.
+  installStubChatMarkdownRenderers();
   configure({ asyncUtilTimeout: 5000 });
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
@@ -143,6 +152,10 @@ beforeAll(async () => {
       },
     );
   }
+});
+
+afterAll(() => {
+  setChatMarkdownRenderersForTests(null);
 });
 
 beforeEach(() => {
