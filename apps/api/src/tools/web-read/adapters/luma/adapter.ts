@@ -292,8 +292,8 @@ function onlineLocation(event: EventRecord): string | undefined {
 }
 
 function joinUrl(info: EventRecord['virtual_info']): string | undefined {
-  // `has_access: false` is the anonymous payload; the join URL is not public.
-  if (info === null || info === undefined || info.has_access === false) {
+  // A missing grant is the anonymous payload. Only `has_access: true` is public.
+  if (info === null || info === undefined || info.has_access !== true) {
     return undefined;
   }
   return httpUrl(info.raw_join_url);

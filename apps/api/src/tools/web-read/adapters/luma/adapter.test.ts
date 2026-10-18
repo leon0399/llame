@@ -259,6 +259,44 @@ describe('Luma adapter read', () => {
     const content = rendered(closed.outcome);
     expect(content).toContain('Location: Online');
     expect(content).not.toContain('example.com/secret');
+
+    const omitted = await contentFor(
+      'online-omit',
+      eventDocument({
+        name: 'Online talk',
+        url: 'online-omit',
+        location_type: 'online',
+        virtual_info: { raw_join_url: 'https://example.com/omitted' },
+      }),
+    );
+    expect(omitted).toContain('Location: Online');
+    expect(omitted).not.toContain('example.com/omitted');
+
+    const missing = await contentFor(
+      'online-null',
+      eventDocument({
+        name: 'Online talk',
+        url: 'online-null',
+        location_type: 'online',
+        virtual_info: {
+          has_access: null,
+          raw_join_url: 'https://example.com/missing',
+        },
+      }),
+    );
+    expect(missing).toContain('Location: Online');
+    expect(missing).not.toContain('example.com/missing');
+
+    const absent = await contentFor(
+      'online-absent',
+      eventDocument({
+        name: 'Online talk',
+        url: 'online-absent',
+        location_type: 'online',
+        virtual_info: null,
+      }),
+    );
+    expect(absent).toContain('Location: Online');
   });
 
   it('omits fields the payload does not carry', async () => {
@@ -819,7 +857,7 @@ describe('Luma adapter read', () => {
     );
 
     expect(content).toContain(String.raw`~~***a\*b***~~`);
-    expect(content).toContain('`a\\`b`');
+    expect(content).toContain('``a`b``');
     expect(content).toContain('[**go**](https://example.com/real)');
     expect(content).not.toContain('example.com/bold');
     expect(content).toContain('- Line one  \n  line two  \n  line three');
@@ -838,6 +876,48 @@ describe('Luma adapter read', () => {
     expect(content).not.toContain('Stray');
     expect(content).not.toContain('Stryker');
     expect(content).not.toContain('\n\n\n');
+  });
+
+  it('renders code and marked whitespace as CommonMark', async () => {
+    const content = await contentFor(
+      'commonmark1',
+      eventDocument(
+        { name: 'CommonMark', url: 'commonmark1' },
+        { description_mirror: COMMONMARK_MIRROR },
+      ),
+    );
+    const rows = content.split('\n');
+
+    const fence = rows.indexOf('````');
+    expect(rows.slice(fence, fence + 5)).toEqual([
+      '````',
+      '  snake_case',
+      'a[0]',
+      '```',
+      '````',
+    ]);
+    expect(rows).not.toContain('`````');
+    expect(content).toContain('```\ncode\n```\n');
+    expect(content).not.toContain(String.raw`snake\_case`);
+    expect(content).not.toContain(String.raw`a\[0\]`);
+    expect(content).not.toContain('null');
+    expect(content).not.toContain('Hidden');
+    expect(rows).toContain('`code`');
+    expect(rows).toContain('``a`b``');
+    expect(rows).toContain('`` `a ``');
+    expect(rows).toContain('`` a` ``');
+    expect(rows).toContain('**About** next');
+    expect(rows).toContain('prior **About**');
+    expect(rows).toContain('x\t**About**\ty');
+    expect(rows).toContain('`code` next');
+    expect(rows).toContain('Go on');
+    expect(rows).toContain('A B');
+    expect(rows.filter((row) => row === '```')).toHaveLength(3);
+    expect(content).not.toContain('undefined');
+    expect(content).not.toContain('**About **');
+    expect(content).not.toContain('** **');
+    expect(content).not.toContain('****');
+    expect(content).not.toContain('``code``');
   });
 
   it('falls through for a calendar, a non-event kind, a bad body, or a response that left api.lu.ma', async () => {
@@ -932,6 +1012,91 @@ function mockTimeParts(
   }
   vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(zonedFormat);
 }
+
+const COMMONMARK_MIRROR: JsonObject = {
+  type: 'doc',
+  content: [
+    {
+      type: 'code_block',
+      content: [
+        { type: 'text', text: '  snake_case' },
+        { type: 'text', text: null },
+        { type: 'hard_break' },
+        { type: 'text', text: 'a[0]' },
+        { type: 'hard_break' },
+        {
+          type: 'mention',
+          text: 'Hidden',
+          content: [{ type: 'text', text: 'Hidden' }],
+        },
+        { type: 'text', text: '```' },
+      ],
+    },
+    { type: 'code_block', content: [{ type: 'text', text: 'code' }] },
+    {
+      type: 'paragraph',
+      content: [{ type: 'text', text: 'code', marks: [{ type: 'code' }] }],
+    },
+    {
+      type: 'paragraph',
+      content: [{ type: 'text', text: 'a`b', marks: [{ type: 'code' }] }],
+    },
+    {
+      type: 'paragraph',
+      content: [{ type: 'text', text: '`a', marks: [{ type: 'code' }] }],
+    },
+    {
+      type: 'paragraph',
+      content: [{ type: 'text', text: 'a`', marks: [{ type: 'code' }] }],
+    },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'About ', marks: [{ type: 'bold' }] },
+        { type: 'text', text: 'next' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'prior' },
+        { type: 'text', text: ' About', marks: [{ type: 'bold' }] },
+      ],
+    },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'x' },
+        { type: 'text', text: '\tAbout\t', marks: [{ type: 'bold' }] },
+        { type: 'text', text: 'y' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'code ', marks: [{ type: 'code' }] },
+        { type: 'text', text: 'next' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'Go' },
+        { type: 'text', text: ' ', marks: [{ type: 'bold' }] },
+        { type: 'text', text: 'on' },
+      ],
+    },
+    {
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: 'A' },
+        { type: 'text', text: ' ', marks: [{ type: 'code' }] },
+        { type: 'text', text: 'B' },
+      ],
+    },
+    { type: 'code_block' },
+  ],
+};
 
 const ATTRS_MIRROR: JsonObject = {
   type: 'doc',

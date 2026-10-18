@@ -116,7 +116,7 @@ only `event` renders. A calendar, place, category, or any other kind falls
 through as `parse`, and an HTTP error — including an event the API will not
 show — falls through as `status`, so the generic ladder reads the page. A
 guests-only venue contributes its city, not a street address. A join URL is
-included only when the payload grants access.
+included only when `has_access` is true.
 
 ## Quotas
 

@@ -3066,8 +3066,8 @@ The render SHALL be `# {name}`, then the lines present among `Status`
 or both, when the payload says so), `Visibility` when it is not `public`,
 `Start` and `End` as local times with their UTC offset and IANA timezone,
 `Location` (the public address when the venue is shown, the city when the
-street is withheld, or `Online`, with a join URL only when the payload grants
-access), `Hosts`, `Organizer`, `Registration`, `Approval: required` when
+street is withheld, or `Online`, with a join URL only when `has_access` is
+true), `Hosts`, `Organizer`, `Registration`, `Approval: required` when
 registration requires approval, `Price`, a `Tickets` list of the visible
 ticket types, `Spots remaining`, `Guests`, `Cover`, and `URL` as
 `https://luma.com/{slug}`, then the description converted from Luma's

@@ -155,7 +155,7 @@ any query) render `# {title}`, then the lines the event carries: `Status`
 payload says so), `Visibility` when it is not public, `Start` and `End` as a
 local time with its UTC offset and IANA timezone, `Location` (the public
 address, the city when the street is withheld, or `Online`, plus a join URL
-only when the payload grants it), `Hosts`, `Organizer`, `Registration`,
+only when `has_access` is true), `Hosts`, `Organizer`, `Registration`,
 `Approval: required`, `Price`, a `Tickets` list, `Spots remaining`, `Guests`,
 `Cover`, and `URL` (`https://luma.com/{slug}`), then the description as
 Markdown. A private visibility still renders when the API returns the event.
@@ -169,7 +169,9 @@ Start: 2026-11-04 18:00 UTC+01:00 (Europe/Madrid)
 End: 2026-11-04 22:00 UTC+01:00 (Europe/Madrid)
 Location: Mad Tech Campus, P.º de la Chopera, 14, Arganzuela, 28045 Madrid, Spain
 Hosts: Mikhail Gutnikov, Diana Agliamutdinova (https://luma.com/diapant), Ana
+…
 Price: €30.00–€60.00
+…
 URL: https://luma.com/apawn7qt
 
 # Decision Intelligence: How AI Is Changing the Way We Make Decisions

@@ -72,7 +72,7 @@ function renderBlock(node: MirrorNode): string {
     case 'blockquote':
       return quote(renderBlocks(node.content ?? []));
     case 'code_block':
-      return fence(inlineText(node));
+      return fence(codeBody(node));
     case 'horizontal_rule':
       return '---';
     case 'image':
@@ -141,8 +141,31 @@ function quote(text: string): string {
   return body === '' ? '' : prefixLines(body, '> ');
 }
 
+function codeBody(node: MirrorNode): string {
+  let text = '';
+  for (const child of node.content ?? []) text += codePiece(child);
+  return text;
+}
+
+/** Raw code text. Marks and escaping belong to prose, not a fenced body. */
+function codePiece(node: MirrorNode): string {
+  if (node.type === 'hard_break') return '\n';
+  if (node.type === 'text') return node.text ?? '';
+  return '';
+}
+
 function fence(text: string): string {
-  return text === '' ? '' : `\`\`\`\n${text}\n\`\`\``;
+  if (text === '') return '';
+  const marker = '`'.repeat(Math.max(3, longestBackticks(text) + 1));
+  return `${marker}\n${text}\n${marker}`;
+}
+
+function longestBackticks(text: string): number {
+  let longest = 0;
+  for (const run of text.matchAll(/`+/gu)) {
+    longest = Math.max(longest, run[0].length);
+  }
+  return longest;
 }
 
 function image(node: MirrorNode): string {
@@ -181,15 +204,32 @@ function applyMarks(text: string, marks: ReadonlyArray<MirrorMark>): string {
 }
 
 function codeSpan(text: string): string {
-  return `\`${text.replaceAll('`', '\\`')}\``;
+  const { leading, core, trailing } = edgeSplit(text);
+  if (core === '') return text;
+  const marker = '`'.repeat(longestBackticks(core) + 1);
+  const body = core.startsWith('`') || core.endsWith('`') ? ` ${core} ` : core;
+  return `${leading}${marker}${body}${marker}${trailing}`;
 }
 
 function emphasis(text: string, marks: ReadonlyArray<MirrorMark>): string {
-  let out = escapeInline(text);
+  const { leading, core, trailing } = edgeSplit(text);
+  if (core === '') return text;
+  let out = escapeInline(core);
   if (hasMark(marks, 'bold')) out = `**${out}**`;
   if (hasMark(marks, 'italic')) out = `*${out}*`;
   if (hasMark(marks, 'strike')) out = `~~${out}~~`;
-  return out;
+  return `${leading}${out}${trailing}`;
+}
+
+/** Leading and trailing whitespace stay outside markers so they can flank. */
+function edgeSplit(text: string) {
+  const coreStart = text.length - text.trimStart().length;
+  const coreEnd = text.trimEnd().length;
+  return {
+    leading: text.slice(0, coreStart),
+    core: text.slice(coreStart, coreEnd),
+    trailing: text.slice(coreEnd),
+  };
 }
 
 function escapeInline(text: string): string {
