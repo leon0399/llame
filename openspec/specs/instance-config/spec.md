@@ -1191,7 +1191,7 @@ A `providers[]` entry and a `models[]` entry MAY each declare an optional `billi
 The optional `tools.webAdapters` setting SHALL be an ordered array of unique
 entries. Each entry SHALL have the shape `{ id, use, ... }`, where `id` is a
 non-empty operator-chosen identifier and `use` is exactly `github`, `bluesky`,
-`npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, `substack`, `osv`, `wikipedia`, `telegram`, `lobsters`, `luma`, or `rewrite`. The array SHALL be an explicit replacement: absent SHALL mean
+`npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, `substack`, `osv`, `wikipedia`, `telegram`, `lobsters`, `luma`, `linkedin`, or `rewrite`. The array SHALL be an explicit replacement: absent SHALL mean
 `[]`, while present SHALL enable exactly the listed entries. A `github` entry
 SHALL have the shape `{ id, use: "github", token? }`; `token`, when present,
 SHALL be an `{env:...}` or `{path:...}` interpolation token. A `bluesky` entry
@@ -1204,8 +1204,9 @@ entry `{ id, use: "huggingface" }`, an `arxiv` entry
 `{ id, use: "doi" }`, a `devto` entry `{ id, use: "devto" }`, a `substack`
 entry `{ id, use: "substack" }`, an `osv` entry `{ id, use: "osv" }`, a
 `wikipedia` entry `{ id, use: "wikipedia" }`, a `telegram` entry
-`{ id, use: "telegram" }`, a `lobsters` entry `{ id, use: "lobsters" }`, and a
-`luma` entry `{ id, use: "luma" }`;
+`{ id, use: "telegram" }`, a `lobsters` entry `{ id, use: "lobsters" }`, a
+`luma` entry `{ id, use: "luma" }`, and a `linkedin` entry
+`{ id, use: "linkedin" }`;
 none accepts a credential. A `discourse` entry SHALL have
 the shape `{ id, use: "discourse", hosts }`, where `hosts` is a non-empty
 array of canonical lowercase hostnames without a port, validated like a

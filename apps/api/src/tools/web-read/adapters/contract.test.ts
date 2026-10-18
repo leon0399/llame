@@ -224,6 +224,16 @@ describe('createWebAdapters', () => {
     expect(adapter.match(new URL('https://luma.com/apawn7qt'))).toBe(true);
   });
 
+  it('creates a native LinkedIn adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'linkedin', use: 'linkedin' }]);
+    if (adapter === undefined) throw new Error('expected LinkedIn adapter');
+
+    expect(adapter).toMatchObject({ id: 'linkedin', route: 'native' });
+    expect(adapter.match(new URL('https://www.linkedin.com/in/asandler'))).toBe(
+      true,
+    );
+  });
+
   it('creates a native OSV adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'advisories', use: 'osv' }]);
     if (adapter === undefined) throw new Error('expected OSV adapter');

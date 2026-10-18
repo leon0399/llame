@@ -1202,6 +1202,25 @@
                     "description": "Adapter implementation for luma.com and lu.ma event URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native LinkedIn adapter. It reads a public profile or post from the keyless page LinkedIn serves logged-out visitors; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["linkedin"],
+                    "description": "Adapter implementation for public LinkedIn profile and post URLs."
+                  }
+                }
               }
             ]
           }

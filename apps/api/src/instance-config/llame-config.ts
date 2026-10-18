@@ -535,7 +535,8 @@ export type RawWebAdapterEntry =
         | 'wikipedia'
         | 'telegram'
         | 'lobsters'
-        | 'luma';
+        | 'luma'
+        | 'linkedin';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -617,6 +618,7 @@ export type WikipediaWebAdapterConfig = FieldlessWebAdapterConfig<'wikipedia'>;
 export type TelegramWebAdapterConfig = FieldlessWebAdapterConfig<'telegram'>;
 export type LobstersWebAdapterConfig = FieldlessWebAdapterConfig<'lobsters'>;
 export type LumaWebAdapterConfig = FieldlessWebAdapterConfig<'luma'>;
+export type LinkedInWebAdapterConfig = FieldlessWebAdapterConfig<'linkedin'>;
 
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
@@ -636,7 +638,8 @@ export type WebAdapterConfig =
   | WikipediaWebAdapterConfig
   | TelegramWebAdapterConfig
   | LobstersWebAdapterConfig
-  | LumaWebAdapterConfig;
+  | LumaWebAdapterConfig
+  | LinkedInWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

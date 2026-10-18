@@ -613,6 +613,7 @@
       { "id": "telegram", "use": "telegram" },
       { "id": "lobsters", "use": "lobsters" },
       { "id": "luma", "use": "luma" },
+      { "id": "linkedin", "use": "linkedin" },
       {
         "id": "x",
         "use": "rewrite",
