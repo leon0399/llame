@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-18
 
+- The native `luma` web adapter reads `luma.com/{slug}` and `lu.ma/{slug}`
+  event links, which the generic converter leaves as a script-heavy page, as
+  Markdown: title, start and end in the event's timezone, place or online
+  location, hosts, tickets, cover image, and description. It uses Luma's
+  keyless `api.lu.ma` URL lookup. Calendars, places, and other non-event
+  pages fall through to the generic reader.
+
 - **Experimental:** remote Machines. An operator lists boxes under `machines`
   in the instance configuration, and a Run reaches them over SSH using the
   operator's own aliases, bastions, and keys under a safety block that pins

@@ -562,7 +562,14 @@ export type RawWebAdapterEntry =
     }
   | {
       id: string;
-      use: 'devto' | 'substack' | 'osv' | 'wikipedia' | 'telegram' | 'lobsters';
+      use:
+        | 'devto'
+        | 'substack'
+        | 'osv'
+        | 'wikipedia'
+        | 'telegram'
+        | 'lobsters'
+        | 'luma';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -642,6 +649,7 @@ export type OsvWebAdapterConfig = FieldlessWebAdapterConfig<'osv'>;
 export type WikipediaWebAdapterConfig = FieldlessWebAdapterConfig<'wikipedia'>;
 export type TelegramWebAdapterConfig = FieldlessWebAdapterConfig<'telegram'>;
 export type LobstersWebAdapterConfig = FieldlessWebAdapterConfig<'lobsters'>;
+export type LumaWebAdapterConfig = FieldlessWebAdapterConfig<'luma'>;
 
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
@@ -660,7 +668,8 @@ export type WebAdapterConfig =
   | OsvWebAdapterConfig
   | WikipediaWebAdapterConfig
   | TelegramWebAdapterConfig
-  | LobstersWebAdapterConfig;
+  | LobstersWebAdapterConfig
+  | LumaWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

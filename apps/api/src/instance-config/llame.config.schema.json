@@ -1156,6 +1156,25 @@
                     "description": "Adapter implementation for lobste.rs story URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native Luma adapter. It reads a public event from the keyless api.lu.ma URL lookup; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["luma"],
+                    "description": "Adapter implementation for luma.com and lu.ma event URLs."
+                  }
+                }
               }
             ]
           }

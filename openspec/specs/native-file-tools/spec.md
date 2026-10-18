@@ -3048,6 +3048,57 @@ entries SHALL be separated by a `---` line between blank lines.
 - **THEN** the adapter requests only `https://lobste.rs/s/o0ixth.json`
 - **AND** the text has one `Post` entry followed by one `Reply` entry per comment in the response's order, each with `Source:` and `Date:` lines
 
+### Requirement: Luma native adapter reads event pages
+
+A configured `luma` adapter SHALL claim only HTTPS locators without a port on
+`luma.com`, `www.luma.com`, `lu.ma`, or `www.lu.ma` whose path is one slug
+segment, with or without a trailing slash, where the decoded slug matches
+`[A-Za-z0-9][A-Za-z0-9._-]{0,80}`. Every other host and path SHALL be
+unclaimed. The adapter SHALL send one unauthenticated `GET` to
+`https://api.lu.ma/url?url={slug}` with the slug percent-encoded, ignoring
+the locator's query. A failed response, a response whose final URL left
+`https://api.lu.ma`, or a body that is not an event SHALL fall through. A
+calendar, place, category, or other non-event payload SHALL fall through as
+`parse`, so the generic ladder may read the page.
+
+The render SHALL be `# {name}`, then the lines present among `Status`
+(`ended` when `end_at` is before the read; otherwise `sold out`, `waitlist`,
+or both, when the payload says so), `Visibility` when it is not `public`,
+`Start` and `End` as local times with their UTC offset and IANA timezone,
+`Location` (the public address when the venue is shown, the city when the
+street is withheld, or `Online`, with a join URL only when `has_access` is
+true), `Hosts`, `Organizer`, `Registration`, `Approval: required` when
+registration requires approval, `Price`, a `Tickets` list of the visible
+ticket types, `Spots remaining`, `Guests`, `Cover`, and `URL` as
+`https://luma.com/{slug}`, then the description converted from Luma's
+document to Markdown. A field the payload omits SHALL be omitted. An event
+the API returns, including one whose visibility is `private` and one that has
+ended, SHALL render. The adapter SHALL NOT include a payment-account
+identifier or a join URL the payload marks as inaccessible.
+
+#### Scenario: An event URL renders the public event
+
+- **WHEN** the model reads `https://luma.com/apawn7qt` or `https://lu.ma/apawn7qt`
+- **THEN** the adapter requests only `https://api.lu.ma/url?url=apawn7qt`
+- **AND** the text has the title, start and end with `Europe/Madrid`, the venue address, the hosts, the ticket prices, the cover image URL, `URL: https://luma.com/apawn7qt`, and the description as Markdown
+
+#### Scenario: A non-event Luma page falls through
+
+- **WHEN** the model reads a single-segment Luma slug whose payload kind is not `event`, such as a calendar or a place
+- **THEN** the adapter falls through with `parse`
+- **AND** the generic ladder may read the page
+
+#### Scenario: A guests-only venue omits the street address
+
+- **WHEN** the event's address mode is obfuscated
+- **THEN** the text names the city and does not include a street address
+
+#### Scenario: An ended or private event still renders
+
+- **WHEN** the API returns an event whose `end_at` is before the read, or whose visibility is `private`
+- **THEN** the text includes the title and `Status: ended` for the ended event
+- **AND** a private visibility is labeled and still rendered
+
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
 A `rewrite` adapter entry SHALL be enabled only when an operator declares it.

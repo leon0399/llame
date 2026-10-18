@@ -216,6 +216,14 @@ describe('createWebAdapters', () => {
     expect(adapter.match(new URL('https://lobste.rs/s/o0ixth'))).toBe(true);
   });
 
+  it('creates a native Luma adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'luma', use: 'luma' }]);
+    if (adapter === undefined) throw new Error('expected Luma adapter');
+
+    expect(adapter).toMatchObject({ id: 'luma', route: 'native' });
+    expect(adapter.match(new URL('https://luma.com/apawn7qt'))).toBe(true);
+  });
+
   it('creates a native OSV adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'advisories', use: 'osv' }]);
     if (adapter === undefined) throw new Error('expected OSV adapter');

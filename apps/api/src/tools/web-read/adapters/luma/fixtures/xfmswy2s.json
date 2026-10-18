@@ -1,0 +1,347 @@
+{
+  "kind": "event",
+  "data": {
+    "api_id": "evt-9ZOFg6Wix4lKXVg",
+    "accepts_usdc_for_usd": false,
+    "calendar": {
+      "access_level": "public",
+      "api_id": "cal-E4Dym7nEo1R9cUr",
+      "avatar_url": "https://images.lumacdn.com/uploads/nz/3c77f806-b34e-47f4-883a-2cafdf3dc2f2.webp",
+      "coordinate": null,
+      "cover_image_url": "https://images.lumacdn.com/uploads/cu/a5231e87-e906-4a69-847f-76b8ef34698b.png",
+      "description_short": "Maxima is the first agentic system of work for accounting, purpose built for enterprise teams to audit-ready, real-time and efficient accounting without uprooting their ERPs",
+      "end_date": null,
+      "event_submission_restriction": "open",
+      "google_measurement_id": null,
+      "instagram_handle": null,
+      "is_blocked": false,
+      "is_verified": false,
+      "launch_status": "launched",
+      "linkedin_handle": "/company/maxima.ai",
+      "location": null,
+      "luma_plan": "free",
+      "luma_plus_active": false,
+      "meta_pixel_id": null,
+      "name": "Maxima AI",
+      "personal_user_api_id": null,
+      "refund_policy": null,
+      "sends_unlocked_at": "2026-09-01T05:16:50.430Z",
+      "slug": "maxima.ai",
+      "social_image_url": "https://images.lumacdn.com/uploads/8x/5f356bbc-e83d-456a-8ee6-4c6542cdd62e.jpg",
+      "start_date": null,
+      "stripe_account_id": null,
+      "tax_config": null,
+      "tiktok_handle": null,
+      "tint_color": "#146AEB",
+      "track_meta_ads_from_luma": false,
+      "twitter_handle": null,
+      "website": "https://www.maxima.ai/",
+      "youtube_handle": null,
+      "is_personal": false,
+      "personal_user": null,
+      "timezone": null,
+      "charges_enabled": null,
+      "payment_methods": []
+    },
+    "meta_pixel_id": null,
+    "coupon": null,
+    "google_measurement_id": null,
+    "stripe_account_id": null,
+    "payment_methods": [],
+    "tax_config": null,
+    "event": {
+      "api_id": "evt-9ZOFg6Wix4lKXVg",
+      "calendar_api_id": "cal-E4Dym7nEo1R9cUr",
+      "cover_url": "https://images.lumacdn.com/uploads/6x/0195ad81-34a9-4993-94b8-cfce7e52e203.png",
+      "end_at": "2026-10-18T18:00:00.000Z",
+      "event_type": "independent",
+      "hide_rsvp": false,
+      "location_type": "offline",
+      "name": "Solidcore x Maxima: Pilates Pop-up",
+      "one_to_one": true,
+      "recurrence_id": null,
+      "show_guest_list": false,
+      "social_image_url": "https://images.lumacdn.com/event-social/gx/84efc8ef-4af5-4324-8b04-7f967c297a8a.png",
+      "start_at": "2026-10-18T17:00:00.000Z",
+      "timezone": "America/Los_Angeles",
+      "url": "xfmswy2s",
+      "user_api_id": "usr-TywglqbaaOE5OqY",
+      "visibility": "public",
+      "virtual_info": { "has_access": false },
+      "geo_address_info": {
+        "mode": "obfuscated",
+        "city": "Mountain View",
+        "city_state": "Mountain View, CA",
+        "sublocality": null,
+        "country": "United States",
+        "country_code": "US",
+        "region": "California",
+        "region_short": "CA"
+      },
+      "geo_address_visibility": "guests-only",
+      "coordinate": {
+        "latitude": 37.421728667750195,
+        "longitude": -122.08454596720102
+      },
+      "waitlist_enabled": true,
+      "waitlist_status": "enabled"
+    },
+    "start_at": "2026-10-18T17:00:00.000Z",
+    "guest_data": {
+      "email": null,
+      "name": null,
+      "ticket_key": null,
+      "approval_status": null,
+      "proxy_key": null,
+      "event_tickets": [],
+      "payments": []
+    },
+    "featured_guests": [],
+    "has_available_ticket_types": true,
+    "refund_policy": null,
+    "guest_count": 0,
+    "ticket_count": 0,
+    "hosts": [
+      {
+        "api_id": "usr-TywglqbaaOE5OqY",
+        "avatar_url": "https://images.lumacdn.com/uploads/s8/13766f97-e848-4344-9b04-b0d46ccba70f.jpg",
+        "bio_short": "",
+        "first_name": "Juliana",
+        "last_name": "Ko",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": "/in/julianako",
+        "name": "Juliana Ko",
+        "tiktok_handle": null,
+        "timezone": "America/Los_Angeles",
+        "twitter_handle": null,
+        "username": "julianako",
+        "website": null,
+        "youtube_handle": null
+      },
+      {
+        "api_id": "usr-0Y97pMxyimOXrcD",
+        "avatar_url": "https://images.lumacdn.com/uploads/3p/e92186b8-31be-41be-829c-6bc3a3252105.jpg",
+        "bio_short": "I love hosting fun events for accounting and finance professionals.",
+        "first_name": "Sohini",
+        "last_name": "Chowdhury",
+        "instagram_handle": "sohineh",
+        "is_verified": false,
+        "linkedin_handle": "/in/sohinichowdhury1",
+        "name": "Sohini Chowdhury",
+        "tiktok_handle": null,
+        "timezone": "America/Los_Angeles",
+        "twitter_handle": null,
+        "username": "sohini",
+        "website": null,
+        "youtube_handle": null
+      }
+    ],
+    "referred_by": null,
+    "cover_image": {
+      "colors": ["#777938", "#fbfbfb", "#363123", "#514a3a"],
+      "palette": {
+        "neutral": [
+          { "color": "#363123", "percentage": 11.4 },
+          { "color": "#fbfbfb", "percentage": 13.41 },
+          { "color": "#514a3a", "percentage": 11.21 }
+        ],
+        "vibrant": [
+          { "color": "#777938", "percentage": 13.41 },
+          { "color": "#764f40", "percentage": 5.77 }
+        ]
+      }
+    },
+    "cover_video": null,
+    "social_image": {
+      "cdn_url": "https://images.lumacdn.com/event-social/gx/84efc8ef-4af5-4324-8b04-7f967c297a8a.png",
+      "width": 1200,
+      "height": 630,
+      "mime_type": "image/png"
+    },
+    "social_video": null,
+    "sessions": [],
+    "ticket_types": [
+      {
+        "api_id": "ttype-7P5SvGRXn9FgYqw",
+        "cents": null,
+        "currency": null,
+        "description": "",
+        "ethereum_token_requirements": [],
+        "event_api_id": "evt-9ZOFg6Wix4lKXVg",
+        "is_flexible": false,
+        "is_hidden": false,
+        "max_capacity": null,
+        "max_per_guest": null,
+        "membership_restriction": null,
+        "min_cents": null,
+        "position": "8",
+        "name": "Standard",
+        "require_approval": true,
+        "tint_color": null,
+        "type": "free",
+        "valid_end_at": null,
+        "valid_start_at": null,
+        "num_tickets_registered": 19,
+        "num_guests": 19,
+        "spots_remaining": null,
+        "is_disabled": false
+      }
+    ],
+    "featured_infos": [
+      {
+        "type": "discover",
+        "avatar_url": "https://images.lumacdn.com/discovery/sf-icon.png",
+        "tint_color": "#ff6519",
+        "name": "San Francisco",
+        "api_id": "discplace-BDj7GNbGlsF7Cka",
+        "name_raw": "San Francisco",
+        "path": "/sf"
+      }
+    ],
+    "categories": [
+      {
+        "api_id": "cat-0Km9ZnuBjFAjwFl",
+        "description": "From running clubs to pickleball tournaments, take part in a fitness event to challenge yourself and connect with old and new friends.",
+        "event_count": 1462,
+        "hero_image_desktop_url": "https://images.lumacdn.com/uploads/dk/86ee3654-c460-40b2-9bf6-37e93f43c434.png",
+        "icon_url": "https://images.lumacdn.com/uploads/7b/f3930d36-b2f2-4df3-8db6-798df9b0897f.png",
+        "name": "Fitness",
+        "page_title": "Fitness Events",
+        "simple_icon_url": "https://images.lumacdn.com/uploads/w4/5281e210-fc19-4d94-9885-9ec1f9e5c579.png",
+        "slug": "fitness",
+        "social_image_url": "https://images.lumacdn.com/uploads/fm/30c63ffc-b3b4-4b0e-abda-d280f51efd3c.png",
+        "subscriber_count": 21345,
+        "tint_color": "#5DA3C9"
+      },
+      {
+        "api_id": "cat-C1VaNLnt25w9t6c",
+        "description": "Discover wellness events around you. Come for a walk, yoga or meditation, learn about nutrition and longevity, and connect with other health-conscious people.",
+        "event_count": 968,
+        "hero_image_desktop_url": "https://images.lumacdn.com/uploads/m4/a01e1e0d-17dd-40a7-ba23-db7bd120c7f3.png",
+        "icon_url": "https://images.lumacdn.com/uploads/y5/4f225f49-0c10-4bba-b1cb-77ae216268ac.png",
+        "name": "Wellness",
+        "page_title": "Wellness Events",
+        "simple_icon_url": "https://images.lumacdn.com/uploads/3n/1854fdc7-af9d-4a63-a174-a9bd8dedbee2.png",
+        "slug": "wellness",
+        "social_image_url": "https://images.lumacdn.com/uploads/h4/dbbd8345-1419-4dc0-beb6-1a691ddae4fc.png",
+        "subscriber_count": 20994,
+        "tint_color": "#73AFBB"
+      }
+    ],
+    "ticket_info": {
+      "price": null,
+      "is_free": true,
+      "max_price": null,
+      "is_sold_out": false,
+      "spots_remaining": 1,
+      "is_near_capacity": true,
+      "require_approval": true
+    },
+    "registration_availability": "open",
+    "subscribed_to_calendar": false,
+    "event_invite": null,
+    "manager_info": null,
+    "guest_info": null,
+    "host_info": null,
+    "sold_out": false,
+    "locale": "en",
+    "theme_meta": { "theme": "legacy" },
+    "ticket_transfer_enabled": false,
+    "tint_color": "#e6e4e0",
+    "can_register_for_multiple_tickets": false,
+    "font_title": null,
+    "description_mirror": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Maxima is partnering with [Solidcore] for a Sunday morning mat Pilates class in Mountain View, made for the women who keep finance and accounting teams running.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Come move, meet other women in the field, and start your Sunday feeling good. We’ll have a matcha bar too, so grab a drink before or after class!",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "text": "Sunday, 10/18", "type": "text" }]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "text": "10:00 to 11:00am", "type": "text" }]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "text": "Mountain View, CA", "type": "text" }]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "All levels welcome, no Pilates experience needed, and BYOM(Bring Your Own Mat!).",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "We’re keeping it exclusive with just 20 spots, so request your spot early.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [{ "text": "See you there!", "type": "text" }]
+        }
+      ]
+    },
+    "eth_address_requirement": null,
+    "faqs": null,
+    "name_requirement": "full-name",
+    "phone_number_requirement": null,
+    "solana_address_requirement": null,
+    "registration_questions": [
+      {
+        "id": "pxt84zh8",
+        "label": "What company do you work for?",
+        "required": true,
+        "question_type": "company",
+        "job_title_label": "What is your job title?",
+        "collect_job_title": true
+      },
+      {
+        "id": "016c7rr0",
+        "label": "What is your LinkedIn profile?",
+        "required": false,
+        "question_type": "linkedin"
+      }
+    ],
+    "prefilled_answers": {},
+    "is_flagged": false,
+    "is_managing_calendar_admin": false,
+    "show_unlock_code_option": false,
+    "has_multiple_ticket_types": false,
+    "membership_tiers": [],
+    "membership_info": null,
+    "waitlist_active": false,
+    "route": null,
+    "featured_city": {
+      "api_id": "discplace-BDj7GNbGlsF7Cka",
+      "slug": "sf",
+      "name": "San Francisco"
+    }
+  }
+}
