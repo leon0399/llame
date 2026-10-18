@@ -32,6 +32,7 @@ import {
   NO_SKILL_SELECTION,
   isSkillCatalogResult,
   resolveSkillLocator,
+  type ResolvedSkillTarget,
 } from '../skills/skill-target';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import {
@@ -226,29 +227,38 @@ async function executeSkill(
     if ('status' in window) return window;
     return skillCatalogEnvelope(resolved.entries, window);
   }
-  const envelope = skillResultEnvelope(resolved);
-  if (isMachineLocator(resolved.hostPath)) {
-    const machineResult = await readMachineSkillFile(
-      context,
-      resolved.hostPath,
-      resolved.selector,
-    );
+  return readResolvedSkillTarget(context, resolved);
+}
+
+/**
+ * The bytes of one resolved package file. A Machine Workspace's skill files
+ * live on the Machine and are read there; every other target is read locally
+ * under the ordinary host symbolic-link semantics. The skill envelope supplies
+ * the package attribution either way.
+ */
+async function readResolvedSkillTarget(
+  context: ToolContext,
+  target: ResolvedSkillTarget,
+): Promise<ToolResult> {
+  const envelope = skillResultEnvelope(target);
+  if (isMachineLocator(target.hostPath)) {
+    const machineResult = await readMachineSkillFile(context, target);
     return machineResult.status === 'success'
       ? { ...machineResult, ...envelope }
       : machineResult;
   }
   const options: NativeReadOptions = {
-    displayPath: resolved.locator,
+    displayPath: target.locator,
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
     followSymlinks: true,
     signal: context.abortSignal,
-    media: context.media?.readMedia(resolved.locator, context.toolCallId),
+    media: context.media?.readMedia(target.locator, context.toolCallId),
   };
   const result = await readResolvedFile(
-    resolved.hostPath,
-    resolved.selector === undefined
+    target.hostPath,
+    target.selector === undefined
       ? options
-      : { ...options, selector: resolved.selector },
+      : { ...options, selector: target.selector },
   );
   return result.status === 'success' ? { ...result, ...envelope } : result;
 }
@@ -261,17 +271,13 @@ async function executeSkill(
  */
 function readMachineSkillFile(
   context: ToolContext,
-  hostPath: string,
-  selector: string | undefined,
+  target: ResolvedSkillTarget,
 ): Promise<ToolResult> {
-  const target = parseMachineLocator(hostPath);
-  if (target.kind !== 'path')
+  const parsed = parseMachineLocator(target.hostPath);
+  if (parsed.kind !== 'path')
     return Promise.resolve(skillCatalogUnavailableResult());
-  const locator = formatMachineLocator(
-    target.name,
-    target.path,
-    selector ?? target.selector,
-  );
+  const selector = target.selector ?? parsed.selector;
+  const locator = formatMachineLocator(parsed.name, parsed.path, selector);
   if (locator === undefined)
     return Promise.resolve(skillCatalogUnavailableResult());
   return executeMachineNative(

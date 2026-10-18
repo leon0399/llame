@@ -24,7 +24,9 @@ import {
   readNativeFailure,
   readRootsListResult,
 } from '../machines/machine-results';
+import { type MachineConnector } from '../machines/machine-connector.service';
 import { boundMachineRoots } from '../machines/machines-status';
+import { type ToolMediaStore } from '../media/tool-media-store';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
@@ -317,8 +319,77 @@ async function readMachineMedia(
   envelope: RequestEnvelope,
 ): Promise<ToolResult | undefined> {
   const connector = machineConnector(context);
-  const media = context.media;
-  if (connector === undefined || media === undefined) return undefined;
+  const store = context.media;
+  if (connector === undefined || store === undefined) return undefined;
+  const { raw, bytes } = await readMachineBytes(
+    context,
+    connector,
+    machine,
+    envelope,
+  );
+  const meta = readFsBytesResult(raw);
+  if (meta === undefined) return machineUnusableResult(machine.name);
+  if ('status' in meta) return meta;
+  if (bytes.byteLength !== meta.size)
+    return machineUnusableResult(machine.name);
+  const locator = formatMachineLocator(machine.name, machine.path);
+  if (locator === undefined) return machineUnusableResult(machine.name);
+  return handMachineBytes(context, store, {
+    bytes,
+    locator,
+    selector: machine.selector,
+    submitted,
+  });
+}
+
+/** The bytes of one Machine media read, as the shared media store takes them. */
+type MachineMediaBytes = {
+  readonly bytes: Buffer;
+  readonly locator: string;
+  readonly selector: string | undefined;
+  readonly submitted: string;
+};
+
+/**
+ * Hand the streamed bytes to the shared byte-buffer preparation. A refusal the
+ * preparation itself makes (an unsupported media type, an over-large image) is
+ * this read's result, exactly as it would be for the same local file.
+ */
+async function handMachineBytes(
+  context: ToolContext,
+  store: ToolMediaStore,
+  media: MachineMediaBytes,
+): Promise<ToolResult | undefined> {
+  try {
+    return await readMediaBytes(
+      media.bytes,
+      {
+        path: media.locator,
+        ...(media.selector !== undefined && { selector: media.selector }),
+      },
+      {
+        media: store.readMedia(media.submitted, context.toolCallId),
+        signal: context.abortSignal,
+      },
+    );
+  } catch (error) {
+    if (error instanceof NativeFileError)
+      return { status: 'error', type: error.type, message: error.message };
+    throw error;
+  }
+}
+
+/**
+ * One `fs.bytes` exchange: the streamed chunks and the result the daemon
+ * answered with. The channel is closed as soon as the result settles, whatever
+ * it is, so a failed read never leaves a stream open.
+ */
+async function readMachineBytes(
+  context: ToolContext,
+  connector: MachineConnector,
+  machine: MachinePath,
+  envelope: RequestEnvelope,
+): Promise<{ readonly raw: JsonValue; readonly bytes: Buffer }> {
   const handle = await connector.openChannel(
     machine.name,
     'fs.bytes',
@@ -337,33 +408,7 @@ async function readMachineMedia(
   } finally {
     handle.channel.close();
   }
-  const meta = readFsBytesResult(raw);
-  if (meta === undefined) return machineUnusableResult(machine.name);
-  if ('status' in meta) return meta;
-  const bytes = Buffer.concat(chunks);
-  if (bytes.byteLength !== meta.size)
-    return machineUnusableResult(machine.name);
-  const locator = formatMachineLocator(machine.name, machine.path);
-  if (locator === undefined) return machineUnusableResult(machine.name);
-  try {
-    return await readMediaBytes(
-      bytes,
-      {
-        path: locator,
-        ...(machine.selector !== undefined && {
-          selector: machine.selector,
-        }),
-      },
-      {
-        media: media.readMedia(submitted, context.toolCallId),
-        signal: context.abortSignal,
-      },
-    );
-  } catch (error) {
-    if (error instanceof NativeFileError)
-      return { status: 'error', type: error.type, message: error.message };
-    throw error;
-  }
+  return { raw, bytes: Buffer.concat(chunks) };
 }
 
 async function mutateMachinePath(
@@ -379,7 +424,6 @@ async function mutateMachinePath(
     context,
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
-  const options = { displayPrefix: machinePrefix(machine.name) };
   return runMachineMutation(
     context,
     {
@@ -388,38 +432,58 @@ async function mutateMachinePath(
       locator: machinePathLocator(machine),
     },
     async () => {
-      const raw =
-        call.operation === 'edit'
-          ? await connector.request(
-              machine.name,
-              'fs.edit',
-              {
-                envelope,
-                path: machine.path,
-                options,
-                oldText: call.input.oldText,
-                newText: call.input.newText,
-              },
-              { signal: context.abortSignal },
-            )
-          : await connector.request(
-              machine.name,
-              'fs.write',
-              {
-                envelope,
-                path: machine.path,
-                options,
-                content: call.input.content,
-                ...(call.input.replace === true && { replace: true }),
-              },
-              { signal: context.abortSignal },
-            );
+      const raw = await requestMachineMutation(context, connector, call, {
+        machine,
+        envelope,
+      });
       const result = readFsMutateResult(raw);
       return result === undefined
         ? machineUnusableResult(machine.name)
         : canonicalizeMachineResult(machine, result);
     },
   );
+}
+
+/** The addressing and budget one Machine mutation request carries. */
+type MachineMutationRequest = {
+  readonly machine: MachinePath;
+  readonly envelope: RequestEnvelope;
+};
+
+/** One `fs.edit` or `fs.write` request, whichever the machine call asked for. */
+function requestMachineMutation(
+  context: ToolContext,
+  connector: MachineConnector,
+  call: Exclude<MachineFileCall, { operation: 'read' }>,
+  request: MachineMutationRequest,
+): Promise<JsonValue> {
+  const { machine, envelope } = request;
+  const options = { displayPrefix: machinePrefix(machine.name) };
+  return call.operation === 'edit'
+    ? connector.request(
+        machine.name,
+        'fs.edit',
+        {
+          envelope,
+          path: machine.path,
+          options,
+          oldText: call.input.oldText,
+          newText: call.input.newText,
+        },
+        { signal: context.abortSignal },
+      )
+    : connector.request(
+        machine.name,
+        'fs.write',
+        {
+          envelope,
+          path: machine.path,
+          options,
+          content: call.input.content,
+          ...(call.input.replace === true && { replace: true }),
+        },
+        { signal: context.abortSignal },
+      );
 }
 
 function readFsMutateResult(value: JsonValue): ToolResult | undefined {
@@ -432,7 +496,7 @@ function readFsMutateResult(value: JsonValue): ToolResult | undefined {
     !isString(path) ||
     !isString(diff) ||
     !isString(content) ||
-    typeof truncated !== 'boolean'
+    !isBoolean(truncated)
   )
     return undefined;
   const result: NativeMutationResult = {

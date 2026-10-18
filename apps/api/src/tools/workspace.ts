@@ -347,20 +347,13 @@ async function bindCanonicalRoot(
     }),
   );
   if (result.status === 'fence_lost') return executorUnavailable();
-  if (result.status === 'switched') {
-    context.toolAdditions?.disableAll();
-    await context.workspaceMcp?.stopForChat(context.chatId);
-  }
-  if (result.status !== 'unchanged') {
-    context.workspaceRoot?.commit(canonical);
-  }
+  await applyBindingTransition(context, canonical, result.status);
   const mcpServers = await workspaceMcpServers(
     context,
     canonical,
     result.generation,
     result.status !== 'unchanged',
   );
-
   return {
     status: 'success',
     root: canonical,
@@ -369,6 +362,25 @@ async function bindCanonicalRoot(
     ...workspaceSkillResult(context.skillCatalog, canonical),
     mcpServers,
   };
+}
+
+/**
+ * The local effects of a binding that changed: a switch drops the previous
+ * root's MCP servers and declarations, and any other outcome commits the new
+ * root to the Run's Workspace cell.
+ */
+async function applyBindingTransition(
+  context: ToolContext,
+  canonical: string,
+  state: 'bound' | 'switched' | 'unchanged',
+): Promise<void> {
+  if (state === 'switched') {
+    context.toolAdditions?.disableAll();
+    await context.workspaceMcp?.stopForChat(context.chatId);
+  }
+  if (state !== 'unchanged') {
+    context.workspaceRoot?.commit(canonical);
+  }
 }
 
 /**
@@ -440,6 +452,25 @@ function machineEntry(
     : machineNotFoundResult(parsed.name);
 }
 
+/**
+ * The Machine branch of `enter_workspace`: without a `machines` section the
+ * feature does not exist and the scheme stays unknown, exactly as it was
+ * before this change; a refused locator is its own result; a configured
+ * Machine is entered.
+ */
+function enterMachineEntry(
+  context: ToolContext,
+  path: string,
+): ToolResult | Promise<ToolResult> {
+  const connector = machineConnector(context);
+  if (connector === undefined)
+    return invalidWorkspacePath('This path scheme is not available.');
+  const machine = machineEntry(connector, path);
+  return 'status' in machine
+    ? machine
+    : enterMachineWorkspace(context, connector, path, machine);
+}
+
 export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
   id: 'enter_workspace',
   classification: 'execute_code',
@@ -451,18 +482,8 @@ export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
         'Workspace path must be absolute and contain no NUL bytes.',
       );
     }
-    if (isMachineLocator(input.path)) {
-      // The feature does not exist without a `machines` section: the scheme
-      // stays unknown, exactly as it was before this change.
-      const connector = machineConnector(context);
-      if (connector === undefined) {
-        return invalidWorkspacePath('This path scheme is not available.');
-      }
-      const machine = machineEntry(connector, input.path);
-      return 'status' in machine
-        ? machine
-        : enterMachineWorkspace(context, connector, input.path, machine);
-    }
+    if (isMachineLocator(input.path))
+      return enterMachineEntry(context, input.path);
 
     const authority = localAuthority(context);
     if ('status' in authority) return authority;

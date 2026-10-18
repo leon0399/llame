@@ -20,7 +20,9 @@ import {
   type JsonValue,
   type ProcBashResult,
   type RequestEnvelope,
+  type SerializableRecord,
 } from '@workspace/machine-protocol';
+import { isBoolean, isString } from '@workspace/runtime-safety';
 
 import type { MachineFailureReason } from '../machines/machines-status';
 import {
@@ -232,31 +234,65 @@ export async function runMachineMutation(
     return machineNotFoundResult(target.name);
   if (!(await connector.reachable(target.name, machineCallAttemptKey(context))))
     return machineUnavailableResult(target.name);
-  return connector.serializeMutation(target.name, async () => {
-    const prior = await context.tenantDb.runAs(userId, (db) =>
-      new NativeFilesRepository(db).begin({
-        runId,
-        userId,
-        fence: { bound: false },
-        deliverySequence: context.nativeDeliverySequence,
-        toolCallId,
-        operation: target.operation,
-        path: target.locator,
-      }),
-    );
-    if (prior) return prior;
-    context.abortSignal?.throwIfAborted();
-    const settled = await machineCallResult(target.name, perform, {
-      unknownOnSent: true,
-    });
-    await context.tenantDb.runAs(userId, async (db) => {
-      await new RunEventsRepository(db).append(runId, 'native.result', {
-        toolCallId,
-        result: settled,
-      });
-    });
-    return settled;
+  return connector.serializeMutation(target.name, () =>
+    fencedMachineMutation(context, target, perform, {
+      runId,
+      userId,
+      toolCallId,
+    }),
+  );
+}
+
+/** The Run identity a Machine attempt's fence and result event are recorded under. */
+type MachineAttemptIdentity = {
+  readonly runId: string;
+  readonly userId: string;
+  readonly toolCallId: string;
+};
+
+/**
+ * The fenced body of one Machine mutation: the unbound attempt is durable
+ * before the request, its result follows exactly once, and a failure already
+ * recorded by a retry replays instead of running again.
+ */
+async function fencedMachineMutation(
+  context: ToolContext,
+  target: MachineMutationTarget,
+  perform: () => Promise<ToolResult>,
+  identity: MachineAttemptIdentity,
+): Promise<ToolResult> {
+  const prior = await beginMachineAttempt(context, target, identity);
+  if (prior) return prior;
+  context.abortSignal?.throwIfAborted();
+  const settled = await machineCallResult(target.name, perform, {
+    unknownOnSent: true,
   });
+  await context.tenantDb.runAs(identity.userId, async (db) => {
+    await new RunEventsRepository(db).append(identity.runId, 'native.result', {
+      toolCallId: identity.toolCallId,
+      result: settled,
+    });
+  });
+  return settled;
+}
+
+/** The durable unbound attempt, or the settled outcome a retry replays. */
+function beginMachineAttempt(
+  context: ToolContext,
+  target: MachineMutationTarget,
+  identity: MachineAttemptIdentity,
+): Promise<ToolResult | undefined> {
+  return context.tenantDb.runAs(identity.userId, (db) =>
+    new NativeFilesRepository(db).begin({
+      runId: identity.runId,
+      userId: identity.userId,
+      fence: { bound: false },
+      deliverySequence: context.nativeDeliverySequence,
+      toolCallId: identity.toolCallId,
+      operation: target.operation,
+      path: target.locator,
+    }),
+  );
 }
 
 /** One `bytes` notification's payload, as the chunk buffer it carries. */
@@ -265,15 +301,17 @@ export function readBytesChunk(
 ): Buffer | undefined {
   if (!isSerializableRecord(params)) return undefined;
   const data = params['data'];
-  return typeof data === 'string' ? Buffer.from(data, 'base64') : undefined;
+  return isString(data) ? Buffer.from(data, 'base64') : undefined;
 }
 
-function isText(value: unknown): value is string {
-  return typeof value === 'string';
+/** Whether the value is a whole number, as an exit code or a duration is. */
+function isInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value);
 }
 
+/** Whether the value is a whole, non-negative count. */
 function isCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  return isInteger(value) && value >= 0;
 }
 
 /**
@@ -288,66 +326,88 @@ export function readProcBashResult(
   const status = value['status'];
   if (status !== 'success' && status !== 'error') return undefined;
   const type = value['type'];
-  if (type === undefined) {
-    const exitCode = value['exitCode'];
-    const stdout = value['stdout'];
-    const stderr = value['stderr'];
-    const truncated = value['truncated'];
-    if (
-      value['operation'] !== 'bash' ||
-      value['executor'] !== 'managed' ||
-      typeof exitCode !== 'number' ||
-      !Number.isInteger(exitCode) ||
-      !isText(stdout) ||
-      !isText(stderr) ||
-      typeof truncated !== 'boolean'
-    )
-      return undefined;
-    return {
-      status,
-      operation: 'bash',
-      executor: 'managed',
-      exitCode,
-      stdout,
-      stderr,
-      truncated,
-    };
-  }
+  if (type === undefined) return readManagedBashResult(value, status);
   if (status !== 'error') return undefined;
-  if (type === 'timed_out') {
-    const durationMs = value['durationMs'];
-    const stdout = value['stdout'];
-    const stderr = value['stderr'];
-    const truncated = value['truncated'];
-    if (
-      !isCount(durationMs) ||
-      !isText(stdout) ||
-      !isText(stderr) ||
-      typeof truncated !== 'boolean'
-    )
-      return undefined;
-    return {
-      status: 'error',
-      type: 'timed_out',
-      durationMs,
-      stdout,
-      stderr,
-      truncated,
-    };
-  }
-  if (type === 'outcome_unknown') {
-    const attemptId = value['attemptId'];
-    const message = value['message'];
-    if (!isText(attemptId) || !isText(message)) return undefined;
-    return { status: 'error', type: 'outcome_unknown', attemptId, message };
-  }
+  if (type === 'timed_out') return readTimedOutBashResult(value);
+  if (type === 'outcome_unknown') return readUnknownBashResult(value);
+  return readRefusedBashResult(value);
+}
+
+/** The managed-bash answer, whose operation and executor name the local shape. */
+function readManagedBashResult(
+  value: SerializableRecord,
+  status: 'success' | 'error',
+): ProcBashResult | undefined {
+  const exitCode = value['exitCode'];
+  const stdout = value['stdout'];
+  const stderr = value['stderr'];
+  const truncated = value['truncated'];
   if (
-    type === 'unavailable' ||
-    type === 'boundary_missing' ||
-    type === 'cancelled'
-  ) {
-    const message = value['message'];
-    return isText(message) ? { status: 'error', type, message } : undefined;
-  }
-  return undefined;
+    value['operation'] !== 'bash' ||
+    value['executor'] !== 'managed' ||
+    !isInteger(exitCode) ||
+    !isString(stdout) ||
+    !isString(stderr) ||
+    !isBoolean(truncated)
+  )
+    return undefined;
+  return {
+    status,
+    operation: 'bash',
+    executor: 'managed',
+    exitCode,
+    stdout,
+    stderr,
+    truncated,
+  };
+}
+
+/** The daemon's own deadline refusal, with the output captured before it. */
+function readTimedOutBashResult(
+  value: SerializableRecord,
+): ProcBashResult | undefined {
+  const durationMs = value['durationMs'];
+  const stdout = value['stdout'];
+  const stderr = value['stderr'];
+  const truncated = value['truncated'];
+  if (
+    !isCount(durationMs) ||
+    !isString(stdout) ||
+    !isString(stderr) ||
+    !isBoolean(truncated)
+  )
+    return undefined;
+  return {
+    status: 'error',
+    type: 'timed_out',
+    durationMs,
+    stdout,
+    stderr,
+    truncated,
+  };
+}
+
+/** A command the daemon dispatched but could not attribute an outcome to. */
+function readUnknownBashResult(
+  value: SerializableRecord,
+): ProcBashResult | undefined {
+  const attemptId = value['attemptId'];
+  const message = value['message'];
+  if (!isString(attemptId) || !isString(message)) return undefined;
+  return { status: 'error', type: 'outcome_unknown', attemptId, message };
+}
+
+/** The daemon's refusals that carry no result beyond their own message. */
+function readRefusedBashResult(
+  value: SerializableRecord,
+): ProcBashResult | undefined {
+  const type = value['type'];
+  if (
+    type !== 'unavailable' &&
+    type !== 'boundary_missing' &&
+    type !== 'cancelled'
+  )
+    return undefined;
+  const message = value['message'];
+  return isString(message) ? { status: 'error', type, message } : undefined;
 }

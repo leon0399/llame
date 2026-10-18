@@ -137,16 +137,25 @@ export function projectNativeFilePath(
     if ('type' in parsed) return projected;
     return withSelector(formatSkillLocator(parsed), parsed.selector);
   }
-  if (scheme.scheme in WEB_LOCATOR_SCHEMES) {
-    const parsed = parseWebLocator(projected);
-    if ('type' in parsed) return projected;
-    const fragmentFree = stripFragment(projected);
-    const split = splitWebSelector(fragmentFree);
-    return split.selector === undefined
-      ? parsed.url
-      : `${parsed.url}${fragmentFree.slice(split.url.length)}`;
-  }
+  if (scheme.scheme in WEB_LOCATOR_SCHEMES) return projectWebLocator(projected);
   return projected;
+}
+
+/**
+ * A web locator's canonical text: the URL the read tool's own parser yields,
+ * plus the selector exactly as it trails it in the submitted text, so a
+ * fragment the request drops cannot smuggle clause-matching text past an
+ * allow. A locator with no path keeps the slash its request carries, and a
+ * malformed one is matched as the model wrote it.
+ */
+function projectWebLocator(projected: string): string {
+  const parsed = parseWebLocator(projected);
+  if ('type' in parsed) return projected;
+  const fragmentFree = stripFragment(projected);
+  const split = splitWebSelector(fragmentFree);
+  return split.selector === undefined
+    ? parsed.url
+    : `${parsed.url}${fragmentFree.slice(split.url.length)}`;
 }
 
 function withSelector(canonical: string, selector: string | undefined): string {

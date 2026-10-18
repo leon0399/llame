@@ -27,7 +27,7 @@ import {
 import { runTool } from './runner';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { type MachineStatusReader, type ToolContext } from './types';
+import { type ToolContext } from './types';
 import { type ToolMediaStore } from '../media/tool-media-store';
 import { createWorkspaceRootCell } from './workspace-path';
 
@@ -91,11 +91,11 @@ function context(
     toolCallId: 'call',
     permissionPolicy: compileTestPermissionPolicy(),
     tenantDb: {
-      runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
     },
     machines: connector,
-    machineStatus: { list: async () => STATUS },
+    machineStatus: { list: () => Promise.resolve(STATUS) },
     machineAttemptKey: 'attempt-1',
     ...overrides,
   };
@@ -137,7 +137,7 @@ function mediaStore(result: 'image' | 'not-media' = 'image') {
               height: 20,
             };
       },
-    findMedia: async () => undefined,
+    findMedia: () => Promise.resolve(undefined),
   };
   return { store, handed };
 }
@@ -285,18 +285,20 @@ describe('Machine native reads', () => {
     const { connector } = fixture({
       openFailure: () => 'ssh: connect to host box port 22: Connection refused',
     });
-    await expect(
-      runTool(
-        nativeReadTool,
-        { path: 'machine://devl/srv/app/a.ts' },
-        context(connector),
-        5,
-      ),
-    ).resolves.toMatchObject({
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/app/a.ts' },
+      context(connector),
+      5,
+    );
+    expect(result).toMatchObject({
       status: 'error',
       type: 'machine_unavailable',
-      message: expect.stringContaining('could not be reached'),
     });
+    expect(result).toHaveProperty(
+      'message',
+      expect.stringContaining('could not be reached'),
+    );
   });
 
   it('maps a bare absolute path inside a Machine Workspace', async () => {
@@ -823,10 +825,11 @@ describe('Machine mutations', () => {
     expect(append).toHaveBeenCalledWith(
       'run',
       'native.result',
-      expect.objectContaining({
-        result: expect.objectContaining({ type: 'outcome_unknown' }),
-      }),
+      expect.objectContaining({ toolCallId: 'call' }),
     );
+    expect(append.mock.calls[0]?.[2]).toMatchObject({
+      result: { type: 'outcome_unknown' },
+    });
     expect(session.requests).toEqual(['fs.edit']);
   });
 
@@ -872,7 +875,7 @@ describe('Machine mutations', () => {
     };
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(prior);
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
-    const { peer, connector } = fixture();
+    const { connector } = fixture();
     await expect(
       runTool(
         nativeEditTool,
@@ -930,7 +933,7 @@ describe('Machine bash', () => {
     expect(session.calls.at(-1)?.params).toMatchObject({
       command: 'pwd',
       cwd: '/srv/app',
-      envelope: expect.objectContaining({ budgetMs: 5000 }),
+      envelope: { budgetMs: 5000 },
     });
   });
 

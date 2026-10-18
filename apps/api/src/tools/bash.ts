@@ -89,48 +89,70 @@ function projectBashInput(
   input: BashInput,
 ): BashInput | ToolResult {
   const root = context.workspaceRoot?.current();
-  if (input.cwd !== undefined && isMachineLocator(input.cwd)) {
-    const target = parseMachineLocator(input.cwd);
-    const machine =
-      target.kind === 'path' && target.selector === undefined
-        ? machineWorkingDirectory(target.name, target.path)
-        : undefined;
+  if (input.cwd !== undefined && isMachineLocator(input.cwd))
+    return projectMachineCwd(input, input.cwd);
+  const machineRoot = machineWorkspaceRoot(root);
+  if (machineRoot !== undefined && root !== undefined)
+    return projectMachineWorkspaceCwd(input, root, machineRoot);
+  return projectLocalCwd(input, root);
+}
+
+/** A submitted `machine://` cwd, canonicalized to the locator the call runs in. */
+function projectMachineCwd(
+  input: BashInput,
+  cwd: string,
+): BashInput | ToolResult {
+  const target = parseMachineLocator(cwd);
+  const machine =
+    target.kind === 'path' && target.selector === undefined
+      ? machineWorkingDirectory(target.name, target.path)
+      : undefined;
+  return machine === undefined
+    ? {
+        status: 'error',
+        type: 'invalid_path',
+        message:
+          'A Machine working directory is one absolute Machine path without a selector.',
+      }
+    : { ...input, cwd: machine.locator };
+}
+
+/**
+ * A cwd inside a Machine Workspace: the root itself, a path relative to it, or
+ * a bare absolute one, which addresses that Machine rather than the host.
+ */
+function projectMachineWorkspaceCwd(
+  input: BashInput,
+  root: string,
+  machineRoot: { readonly name: string; readonly path: string },
+): BashInput | ToolResult {
+  if (input.cwd === undefined) {
+    const machine = machineWorkingDirectory(machineRoot.name, machineRoot.path);
     return machine === undefined
       ? {
           status: 'error',
           type: 'invalid_path',
-          message:
-            'A Machine working directory is one absolute Machine path without a selector.',
+          message: 'The Machine Workspace root cannot be a working directory.',
         }
       : { ...input, cwd: machine.locator };
   }
-  const machineRoot = machineWorkspaceRoot(root);
-  if (machineRoot !== undefined && root !== undefined) {
-    if (input.cwd === undefined) {
-      const machine = machineWorkingDirectory(
-        machineRoot.name,
-        machineRoot.path,
-      );
-      return machine === undefined
-        ? {
-            status: 'error',
-            type: 'invalid_path',
-            message:
-              'The Machine Workspace root cannot be a working directory.',
-          }
-        : { ...input, cwd: machine.locator };
-    }
-    if (isWorkspaceRelative(input.cwd))
-      return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
-    if (input.cwd.startsWith('/'))
-      return { ...input, cwd: mapToWorkspaceHost(root, input.cwd) };
-    return {
-      status: 'error',
-      type: 'invalid_path',
-      message:
-        'The working directory must be a local absolute path or a machine:// locator.',
-    };
-  }
+  if (isWorkspaceRelative(input.cwd))
+    return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
+  if (input.cwd.startsWith('/'))
+    return { ...input, cwd: mapToWorkspaceHost(root, input.cwd) };
+  return {
+    status: 'error',
+    type: 'invalid_path',
+    message:
+      'The working directory must be a local absolute path or a machine:// locator.',
+  };
+}
+
+/** A cwd with no Machine in play: an absolute host path, or the Workspace root. */
+function projectLocalCwd(
+  input: BashInput,
+  root: string | undefined,
+): BashInput | ToolResult {
   if (
     root !== undefined &&
     input.cwd !== undefined &&
@@ -192,6 +214,30 @@ async function runMachineBash(
         : toToolResult(result);
     },
   );
+}
+
+/**
+ * The Machine branch of `bash`: a projected cwd that is a Machine locator runs
+ * on that Machine, and `undefined` means this call has no Machine in it.
+ */
+function machineBashExecution(
+  context: ToolContext,
+  input: BashInput,
+): ToolResult | Promise<ToolResult> | undefined {
+  const cwd = input.cwd;
+  if (cwd === undefined || !isMachineLocator(cwd)) return undefined;
+  const target = parseMachineLocator(cwd);
+  const machine =
+    target.kind === 'path'
+      ? machineWorkingDirectory(target.name, target.path)
+      : undefined;
+  if (machine === undefined)
+    return {
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The working directory is not a Machine path.',
+    };
+  return runMachineBash(context, input, machine);
 }
 
 export function toToolResult(result: BashResult): ToolResult {
@@ -275,21 +321,8 @@ export const bashTool: Tool<BashInput> = {
     const { runId, userId, nativeExecutorId, toolCallId } = context;
     const projectedInput = projectBashInput(context, input);
     if ('status' in projectedInput) return projectedInput;
-    const cwd = projectedInput.cwd;
-    if (cwd !== undefined && isMachineLocator(cwd)) {
-      const target = parseMachineLocator(cwd);
-      const machine =
-        target.kind === 'path'
-          ? machineWorkingDirectory(target.name, target.path)
-          : undefined;
-      if (machine === undefined)
-        return {
-          status: 'error',
-          type: 'invalid_path',
-          message: 'The working directory is not a Machine path.',
-        };
-      return runMachineBash(context, projectedInput, machine);
-    }
+    const machineExecution = machineBashExecution(context, projectedInput);
+    if (machineExecution !== undefined) return machineExecution;
     if (!runId || !nativeExecutorId || !toolCallId) {
       return {
         status: 'error',
