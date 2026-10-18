@@ -1,0 +1,455 @@
+{
+  "kind": "event",
+  "data": {
+    "api_id": "evt-55g8vvkP6gGnHkb",
+    "accepts_usdc_for_usd": false,
+    "calendar": {
+      "access_level": "public",
+      "api_id": "cal-ofXMwxW9NLr0RDU",
+      "avatar_url": "https://images.lumacdn.com/calendars/x3/79d5d855-dad6-4962-aeb6-1a6db6143988.png",
+      "coordinate": null,
+      "cover_image_url": "https://images.lumacdn.com/calendar-cover-images/i2/08b89e46-10e6-4cfb-b49d-b7613b55beed.png",
+      "description_short": "",
+      "end_date": null,
+      "event_submission_restriction": "open",
+      "google_measurement_id": null,
+      "instagram_handle": null,
+      "is_blocked": false,
+      "is_verified": false,
+      "launch_status": "launched",
+      "linkedin_handle": "/company/meetgranola",
+      "location": null,
+      "luma_plan": "plus",
+      "luma_plus_active": true,
+      "meta_pixel_id": null,
+      "name": "Granola",
+      "personal_user_api_id": null,
+      "refund_policy": null,
+      "sends_unlocked_at": "2025-07-28T15:48:43.146Z",
+      "slug": "granola",
+      "social_image_url": "https://images.lumacdn.com/calendar-cover-images/co/6047ccc6-767b-475c-a912-498255d6192e.png",
+      "start_date": null,
+      "stripe_account_id": null,
+      "tax_config": null,
+      "tiktok_handle": null,
+      "tint_color": "#b1c347",
+      "track_meta_ads_from_luma": false,
+      "twitter_handle": "meetgranola",
+      "website": "https://granola.ai",
+      "youtube_handle": null,
+      "is_personal": false,
+      "personal_user": null,
+      "timezone": null,
+      "charges_enabled": null,
+      "payment_methods": []
+    },
+    "meta_pixel_id": null,
+    "coupon": null,
+    "google_measurement_id": null,
+    "stripe_account_id": null,
+    "payment_methods": [],
+    "tax_config": null,
+    "event": {
+      "api_id": "evt-55g8vvkP6gGnHkb",
+      "calendar_api_id": "cal-ofXMwxW9NLr0RDU",
+      "cover_url": "https://images.lumacdn.com/uploads/le/4fe4643a-e39f-4a68-bfaf-04528d13bf6a.png",
+      "end_at": "2026-10-21T03:30:00.000Z",
+      "event_type": "independent",
+      "hide_rsvp": false,
+      "location_type": "offline",
+      "name": "GTM & Marketing Hackathon by Granola x Anthropic",
+      "one_to_one": true,
+      "recurrence_id": null,
+      "show_guest_list": false,
+      "social_image_url": "https://images.lumacdn.com/event-social/w2/69ecf4bd-6644-46a4-9fbe-5934fcecfac2.png",
+      "start_at": "2026-10-21T00:30:00.000Z",
+      "timezone": "America/Los_Angeles",
+      "url": "granola-gtm-hackathon",
+      "user_api_id": "usr-nlUpeGWsGa76A1K",
+      "visibility": "public",
+      "virtual_info": { "has_access": false },
+      "geo_address_info": {
+        "mode": "obfuscated",
+        "city": "San Francisco",
+        "city_state": "San Francisco, CA",
+        "sublocality": "Yerba Buena",
+        "country": "United States",
+        "country_code": "US",
+        "region": "California",
+        "region_short": "CA"
+      },
+      "geo_address_visibility": "guests-only",
+      "coordinate": {
+        "latitude": 37.78076522442323,
+        "longitude": -122.40030847671842
+      },
+      "waitlist_enabled": true,
+      "waitlist_status": "active"
+    },
+    "start_at": "2026-10-21T00:30:00.000Z",
+    "guest_data": {
+      "email": null,
+      "name": null,
+      "ticket_key": null,
+      "approval_status": null,
+      "proxy_key": null,
+      "event_tickets": [],
+      "payments": []
+    },
+    "featured_guests": [],
+    "has_available_ticket_types": true,
+    "refund_policy": null,
+    "guest_count": 0,
+    "ticket_count": 0,
+    "hosts": [
+      {
+        "api_id": "usr-dszIjBAwu0atjuD",
+        "avatar_url": "https://images.lumacdn.com/uploads/xi/a53465a8-fb8e-47fe-b0c6-2b677faa9535.png",
+        "bio_short": null,
+        "first_name": "Bryan",
+        "last_name": "Spears",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": null,
+        "name": "Bryan",
+        "tiktok_handle": null,
+        "timezone": "America/Los_Angeles",
+        "twitter_handle": null,
+        "username": null,
+        "website": null,
+        "youtube_handle": null
+      },
+      {
+        "api_id": "usr-9hhoSRhNm6BKXGk",
+        "avatar_url": "https://cdn.lu.ma/avatars-default/avatar_41.png",
+        "bio_short": null,
+        "first_name": "Sam",
+        "last_name": "Arnold",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": null,
+        "name": "Sam Arnold",
+        "tiktok_handle": null,
+        "timezone": "America/Los_Angeles",
+        "twitter_handle": null,
+        "username": null,
+        "website": null,
+        "youtube_handle": null
+      },
+      {
+        "api_id": "usr-BA8xtEmrnB26Ylp",
+        "avatar_url": "https://cdn.lu.ma/avatars/1k/bb2cc2e1-5802-4105-a92c-641680d4f5e2",
+        "bio_short": "Granola",
+        "first_name": "Shreman",
+        "last_name": "Shrestha",
+        "instagram_handle": null,
+        "is_verified": false,
+        "linkedin_handle": "/in/shreman",
+        "name": "Shreman Shrestha",
+        "tiktok_handle": null,
+        "timezone": "America/Los_Angeles",
+        "twitter_handle": "theshre",
+        "username": "shre",
+        "website": null,
+        "youtube_handle": null
+      }
+    ],
+    "referred_by": null,
+    "cover_image": {
+      "colors": ["#ebebe4", "#1e1e1e", "#c2824d"],
+      "palette": {
+        "neutral": [
+          { "color": "#1e1e1e", "percentage": 3.55 },
+          { "color": "#ebebe4", "percentage": 79.51 }
+        ],
+        "vibrant": [{ "color": "#c2824d", "percentage": 1.51 }]
+      }
+    },
+    "cover_video": null,
+    "social_image": {
+      "cdn_url": "https://images.lumacdn.com/event-social/w2/69ecf4bd-6644-46a4-9fbe-5934fcecfac2.png",
+      "width": 1200,
+      "height": 630,
+      "mime_type": "image/png"
+    },
+    "social_video": null,
+    "sessions": [],
+    "ticket_types": [
+      {
+        "api_id": "ttype-YMzYr3FgU0lr00h",
+        "cents": null,
+        "currency": null,
+        "description": null,
+        "ethereum_token_requirements": [],
+        "event_api_id": "evt-55g8vvkP6gGnHkb",
+        "is_flexible": false,
+        "is_hidden": false,
+        "max_capacity": null,
+        "max_per_guest": null,
+        "membership_restriction": null,
+        "min_cents": null,
+        "position": "5",
+        "name": "Standard",
+        "require_approval": true,
+        "tint_color": null,
+        "type": "free",
+        "valid_end_at": null,
+        "valid_start_at": null,
+        "num_tickets_registered": 64,
+        "num_guests": 64,
+        "spots_remaining": null,
+        "is_disabled": false
+      }
+    ],
+    "featured_infos": [
+      {
+        "type": "discover",
+        "avatar_url": "https://images.lumacdn.com/discovery/sf-icon.png",
+        "tint_color": "#ff6519",
+        "name": "San Francisco",
+        "api_id": "discplace-BDj7GNbGlsF7Cka",
+        "name_raw": "San Francisco",
+        "path": "/sf"
+      }
+    ],
+    "categories": [
+      {
+        "api_id": "cat-ai",
+        "description": "Join a hackathon, learn about LLMs and prompt engineering, or connect with other AI practitioners.",
+        "event_count": 3802,
+        "hero_image_desktop_url": "https://images.lumacdn.com/uploads/42/5719a861-c421-4624-a9dc-8b8b73e3cf57.png",
+        "icon_url": "https://images.lumacdn.com/uploads/0z/c1143c0e-a2ab-4434-b82b-80b0ba3ec2f0.png",
+        "name": "AI",
+        "page_title": "AI Events",
+        "simple_icon_url": "https://images.lumacdn.com/uploads/2g/4121b0fa-bd9e-4a50-ad85-cf0000b6d919.png",
+        "slug": "ai",
+        "social_image_url": "https://images.lumacdn.com/uploads/c1/486065e1-2511-4577-a0e0-5eb683d38a3d.png",
+        "subscriber_count": 108087,
+        "tint_color": "#D96D9B"
+      }
+    ],
+    "ticket_info": {
+      "price": null,
+      "is_free": true,
+      "max_price": null,
+      "is_sold_out": true,
+      "spots_remaining": 0,
+      "is_near_capacity": false,
+      "require_approval": true
+    },
+    "registration_availability": "waitlist",
+    "subscribed_to_calendar": false,
+    "event_invite": null,
+    "manager_info": null,
+    "guest_info": null,
+    "host_info": null,
+    "sold_out": true,
+    "locale": "en",
+    "theme_meta": { "theme": "legacy" },
+    "ticket_transfer_enabled": false,
+    "tint_color": "#ebebe3",
+    "can_register_for_multiple_tickets": false,
+    "font_title": "ivy-mode",
+    "description_mirror": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "What would you build if you had a dedicated evening to experiment with Claude and Granola?",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Join us at Granola SF for a hackathon for ",
+              "type": "text"
+            },
+            {
+              "text": "GTM and Marketing operators",
+              "type": "text",
+              "marks": [{ "type": "bold" }]
+            },
+            { "text": "!", "type": "text" }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "No technical background needed. We’re bringing together a curated group of GTM and Marketing leaders to use your Granola context with our MCP, build with Claude, and explore how AI can change the way we work and build something useful along the way.",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "You’ll get Claude API credits to build with on the night, before sharing what you’ve made and putting it to our judges. Come with an idea, a problem you want to solve or just some curiosity.",
+              "type": "text"
+            }
+          ]
+        },
+        { "type": "horizontal_rule" },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Schedule",
+              "type": "text",
+              "marks": [{ "type": "bold" }]
+            }
+          ]
+        },
+        {
+          "type": "bullet_list",
+          "content": [
+            {
+              "type": "list_item",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    { "text": "Doors open at ", "type": "text" },
+                    {
+                      "text": "5.30pm",
+                      "type": "text",
+                      "marks": [{ "type": "bold" }]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "list_item",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    { "text": "Arrive by ", "type": "text" },
+                    {
+                      "text": "6pm",
+                      "type": "text",
+                      "marks": [{ "type": "bold" }]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "list_item",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    { "text": "Demos by ", "type": "text" },
+                    {
+                      "text": "8pm",
+                      "type": "text",
+                      "marks": [{ "type": "bold" }]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "list_item",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    { "text": "Wrap up by ", "type": "text" },
+                    {
+                      "text": "8.30pm!",
+                      "type": "text",
+                      "marks": [{ "type": "bold" }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "text": "Places are limited and we expect this to be heavily oversubscribed, so apply early if you'd like to join us.",
+              "type": "text",
+              "marks": [{ "type": "italic" }]
+            }
+          ]
+        }
+      ]
+    },
+    "eth_address_requirement": null,
+    "faqs": null,
+    "name_requirement": "full-name",
+    "phone_number_requirement": null,
+    "solana_address_requirement": null,
+    "registration_questions": [
+      {
+        "id": "b3eqvtqz",
+        "label": "Company",
+        "required": true,
+        "question_type": "text"
+      },
+      {
+        "id": "z46y96xu",
+        "label": "How would you best describe your title or role?",
+        "required": true,
+        "question_type": "text"
+      },
+      {
+        "id": "398dw1c1",
+        "label": "LinkedIn",
+        "required": true,
+        "question_type": "text"
+      },
+      {
+        "id": "f4a5r9qs",
+        "label": "What would you like to build with Granola and Claude?",
+        "required": false,
+        "question_type": "long-text"
+      },
+      {
+        "id": "brnbludx",
+        "label": "How did you hear about this event?",
+        "required": false,
+        "question_type": "text"
+      },
+      {
+        "id": "gudk70tm",
+        "label": "Would you like your profile shared with Granola? A recruiter may reach out.",
+        "options": ["Yes", "No"],
+        "required": true,
+        "question_type": "dropdown"
+      },
+      {
+        "id": "k2nch545",
+        "label": "I confirm I can attend this event in-person in SF. (Pending approval)",
+        "required": true,
+        "question_type": "agree-check"
+      }
+    ],
+    "prefilled_answers": {},
+    "is_flagged": false,
+    "is_managing_calendar_admin": false,
+    "show_unlock_code_option": false,
+    "has_multiple_ticket_types": false,
+    "membership_tiers": [],
+    "membership_info": null,
+    "waitlist_active": true,
+    "route": null,
+    "featured_city": {
+      "api_id": "discplace-BDj7GNbGlsF7Cka",
+      "slug": "sf",
+      "name": "San Francisco"
+    }
+  }
+}

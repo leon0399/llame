@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-18
 
+- The native `luma` web adapter reads `luma.com/{slug}` and `lu.ma/{slug}`
+  event links, which the generic converter leaves as a script-heavy page, as
+  Markdown: title, start and end in the event's timezone, place or online
+  location, hosts, tickets, cover image, and description. It uses Luma's
+  keyless `api.lu.ma` URL lookup. Calendars, places, and other non-event
+  pages fall through to the generic reader.
+
 - Archived chats and projects are reachable again. The chats rail, the
   projects rail, and a project's page each have a view menu for **Active**,
   **Archived**, or **All**, with a chip to clear a non-default view; the

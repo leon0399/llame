@@ -22,6 +22,7 @@ import { createGithubAdapter } from './github/adapter';
 import { createHackernewsAdapter } from './hackernews/adapter';
 import { createHuggingfaceAdapter } from './huggingface/adapter';
 import { createLobstersAdapter } from './lobsters/adapter';
+import { createLumaAdapter } from './luma/adapter';
 import { createNpmAdapter } from './npm/adapter';
 import { createOsvAdapter } from './osv/adapter';
 import { createRewriteAdapter } from './rewrite';
@@ -355,6 +356,8 @@ function createAdapter(config: WebAdapterConfig): WebAdapter {
       return createTelegramAdapter(config);
     case 'lobsters':
       return createLobstersAdapter(config);
+    case 'luma':
+      return createLumaAdapter(config);
     case 'rewrite':
       return createRewriteAdapter(config);
   }
