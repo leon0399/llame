@@ -139,8 +139,10 @@ and rate limits are lifted for the same reason as in Playwright. The
 `API DAST (experimental)` workflow runs it nightly, on demand, and on pull
 requests that change the scan itself, as one job per scanner, each on its own
 stack. It is not a required check. ZAP's native SARIF report is uploaded to
-code scanning; Schemathesis has no SARIF output, so its findings stay in the
-job's report artifact. Findings have no baseline yet, so the run fails until
+code scanning after `scripts/dast/relocate-zap-sarif.jq` anchors each result
+to `apps/api/openapi.json`, since code scanning rejects ZAP's URL locations;
+the scanned method and path stay in the message. Schemathesis has no SARIF
+output, so its findings stay in the job's report artifact. Findings have no baseline yet, so the run fails until
 they are triaged.
 
 ## CI mapping

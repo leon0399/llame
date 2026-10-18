@@ -72,10 +72,20 @@ jobs:
           DAST_OUT_DIR: ${{ github.workspace }}/dast-report
         run: scripts/dast/run-api-scan.sh
 
-      - if: ${{ !cancelled() && hashFiles('dast-report/zap/zap-report.sarif.json') != '' }}
+      # Code scanning rejects ZAP's http:// locations, so results are anchored
+      # to the OpenAPI document; see the filter for the fingerprint it sets.
+      - name: Relocate SARIF to the OpenAPI document
+        id: relocate
+        if: ${{ !cancelled() && hashFiles('dast-report/zap/zap-report.sarif.json') != '' }}
+        run: >-
+          jq -f scripts/dast/relocate-zap-sarif.jq
+          dast-report/zap/zap-report.sarif.json
+          > dast-report/zap/zap-report.code-scanning.sarif.json
+
+      - if: ${{ !cancelled() && steps.relocate.outcome == 'success' }}
         uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
-          sarif_file: dast-report/zap/zap-report.sarif.json
+          sarif_file: dast-report/zap/zap-report.code-scanning.sarif.json
           category: dast-zap
 
       - if: ${{ !cancelled() }}
