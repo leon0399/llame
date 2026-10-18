@@ -45,7 +45,11 @@ def locate($ops; $method; $path):
     end;
 
 operations as $ops
-| .runs |= map(.results |= map(
+| .runs |= map(
+  # ZAP's template ships one fixed driver GUID, under which code scanning
+  # lists the tool as "ZAP Medium Issue" rather than the driver name.
+  del(.tool.driver.guid)
+  | .results |= (map(
     (.locations[0].physicalLocation.artifactLocation.uri
       | sub("^[a-z]+://[^/]+"; "")) as $target
     | ($target | sub("\\?.*$"; "")) as $path
@@ -61,4 +65,8 @@ operations as $ops
         artifactLocation: {uri: "apps/api/openapi.json"},
         region: {startLine: $operation.line}
       }}]
-  ))
+  )
+  # ZAP reports an issue once per instance; code scanning would file each as
+  # its own alert, so one result per rule and operation is kept. The report
+  # artifact keeps every instance.
+  | unique_by(.partialFingerprints.primaryLocationLineHash)))
