@@ -13,8 +13,15 @@
     // Never cached: these run against live external state (a real Postgres,
     // a real model endpoint) that turbo's hash cannot see — a stale cached
     // PASS would look identical to a real, current result.
+    // The Machine SSH integration suite copies the built llame-machine bundle
+    // into its sshd container, so the integration-bearing tasks build it first.
     "test:integration": {
-      "cache": false
+      "cache": false,
+      "dependsOn": ["machine#build"]
+    },
+    "test:coverage": {
+      "cache": false,
+      "dependsOn": ["machine#build"]
     },
     "test:evals": {
       "cache": false

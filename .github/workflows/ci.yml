@@ -197,7 +197,10 @@ jobs:
   mutation:
     name: Mutation testing (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The experimental remote-Machines change is one large layer (about 3,700
+    # API mutants, roughly 95 minutes); revert to 45 when it is split into
+    # reviewable layers before shipping.
+    timeout-minutes: ${{ matrix.timeout || 45 }}
     needs: [typecheck]
     strategy:
       fail-fast: false
@@ -205,6 +208,7 @@ jobs:
         include:
           - name: API
             workspace: apps/api
+            timeout: 150
           - name: config-interpolation
             workspace: packages/config-interpolation
           - name: runtime-safety
