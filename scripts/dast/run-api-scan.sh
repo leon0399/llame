@@ -23,6 +23,13 @@ db_ready_port="${DAST_DB_READY_PORT:-4402}"
 model_port="${DAST_MODEL_PORT:-4403}"
 mcp_port="${DAST_MCP_PORT:-4404}"
 target_host="${DAST_TARGET_HOST:-host.docker.internal}"
+# ZAP sends its auth header only where the request's hostname contains
+# ZAP_AUTH_HEADER_SITE, so a scheme or port here would silently scan
+# unauthenticated. The port belongs in DAST_API_PORT.
+if [[ "$target_host" == *[:/]* ]]; then
+  echo "DAST_TARGET_HOST must be a bare hostname, got: $target_host" >&2
+  exit 2
+fi
 target_url="http://$target_host:$api_port"
 local_url="http://localhost:$api_port"
 

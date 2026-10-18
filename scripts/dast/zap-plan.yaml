@@ -1,6 +1,7 @@
 # ZAP Automation Framework plan for the experimental API DAST run
 # (scripts/dast/run-api-scan.sh). The Authorization header comes from the
-# ZAP_AUTH_HEADER* environment variables, which ZAP adds to every request.
+# ZAP_AUTH_HEADER* environment variables, which ZAP adds to every request to
+# the target host (ZAP_AUTH_HEADER_SITE).
 env:
   contexts:
     - name: llame-api
