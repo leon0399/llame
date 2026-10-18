@@ -113,6 +113,10 @@ cat >"$secrets_dir/auth.wfc.json" <<EOF
   {"name": "bob", "fixedHeaders": [{"name": "Authorization", "value": "Bearer $bob_token"}]}
 ]}
 EOF
+# The Schemathesis image runs as its own user, which cannot read mktemp's
+# 0700 directory on a Linux host. The tokens belong to throwaway accounts.
+chmod a+rx "$secrets_dir"
+chmod a+r "$secrets_dir/auth.wfc.json"
 
 status=0
 
