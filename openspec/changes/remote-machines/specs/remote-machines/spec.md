@@ -23,7 +23,7 @@ The configuration SHALL accept an optional `machines` section under the closed p
 
 ### Requirement: Machine configuration is validated at startup
 
-`machines.ssh.identityFile` and `machines.ssh.knownHostsFile` SHALL name the dedicated hub SSH identity and pinned host keys. `machines.hosts` SHALL map each Machine name to a `destination` and optional ordered `proxyJump` list, each in `[user@]host[:port]` form without a leading `-`, whitespace, comma, `%`, or shell metacharacter, and without interpolation. Names SHALL match `[a-z0-9-]{1,63}`. An invalid field SHALL fail startup naming it.
+`machines.hosts` SHALL map each Machine name to a `destination`: an SSH host alias or `[user@]host[:port]`, without a leading `-`, whitespace, `%`, or shell metacharacter, and without interpolation. `machines.ssh.knownHostsFile` SHALL name the pinned host keys; optional `machines.ssh.identityFile` and `machines.ssh.configFile` name a llame identity and the SSH configuration to include. Names SHALL match `[a-z0-9-]{1,63}`. An invalid field SHALL fail startup naming it.
 
 #### Scenario: Invalid Machine name fails startup
 
@@ -45,19 +45,24 @@ The configuration SHALL accept an optional `machines` section under the closed p
 - **WHEN** `tools.nativeExecutorId` begins with `machine:`
 - **THEN** startup fails naming `tools.nativeExecutorId`
 
-### Requirement: Every SSH hop is pinned and isolated from ambient configuration
+### Requirement: llame's SSH safety options override the included SSH configuration
 
-Every hop, jump hosts included, SHALL authenticate only with the configured identity, without an agent, and SHALL accept only host keys in the pinned file with strict checking and batch mode. System and user SSH configuration, global known-hosts files, connection sharing, proxy commands, forwardings, and environment forwarding SHALL NOT affect the connection. Connect and liveness timeouts SHALL bound it.
+The hub SHALL connect with a generated SSH configuration that sets its safety options first and then includes the configured SSH configuration, defaulting to the worker user's. For every hop the safety options SHALL win: host keys only from the pinned file with strict checking, no global known-hosts file, batch mode, no agent, no connection sharing, and connect and liveness timeouts. Aliases, jump hosts, users, ports, and identities SHALL come from the included configuration.
 
 #### Scenario: Unpinned jump-host key is refused
 
-- **WHEN** `devl` routes through `laptop1` and `laptop1`'s host key is not in the pinned file
+- **WHEN** the included configuration routes `devl` through `bastion` and `bastion`'s host key is not in the pinned file
 - **THEN** the connection fails with reason `host_key_mismatch` and no request is sent
 
-#### Scenario: Ambient SSH configuration has no effect
+#### Scenario: Included configuration cannot weaken host-key checking
 
-- **WHEN** the worker user's SSH configuration sets a proxy command, connection sharing, or extra identities for `devl`
-- **THEN** the connection to `devl` uses none of them
+- **WHEN** the included configuration sets `StrictHostKeyChecking accept-new` and `ControlMaster auto` for `devl`
+- **THEN** the connection still requires a pinned host key and shares no connection
+
+#### Scenario: Alias and bastion come from the included configuration
+
+- **WHEN** `devl`'s destination is the alias `box`, which the included configuration resolves through a bastion with its own identity
+- **THEN** the hub reaches `devl` through that bastion
 
 #### Scenario: Black-holed hop fails within the bound
 
@@ -86,7 +91,7 @@ Each session SHALL begin with a handshake exchanging protocol versions; an incom
 
 ### Requirement: Registered roots bound every Machine address
 
-The daemon SHALL accept a path only when it lies within a registered root, checked lexically before any probe and again on the canonical form of the path or its nearest existing ancestor, and re-verified after opening. A refusal SHALL return `path_not_registered` with fixed text, whether or not the target exists. Listings SHALL hide link targets outside the roots. Roots bound addresses, not processes.
+The daemon SHALL accept a path only when it lies within a root registered in the daemon's configuration on that Machine, checked lexically before any probe and again on the canonical form of the path or its nearest existing ancestor, and re-verified after opening. A refusal SHALL return `path_not_registered` with fixed text, whether or not the target exists. Listings SHALL hide link targets outside the roots. Roots bound addressing only: they are not a security boundary.
 
 #### Scenario: Path outside the roots is refused even when policy allows it
 
@@ -102,20 +107,6 @@ The daemon SHALL accept a path only when it lies within a registered root, check
 
 - **WHEN** the model reads an absent path and an existing path, both outside the roots
 - **THEN** both return the identical `path_not_registered` result
-
-### Requirement: The Machine's trust anchors are outside agent reach
-
-The roots file and the daemon binary SHALL NOT be writable by the Machine user that runs the daemon, and the daemon SHALL refuse to serve when they are. The hub SHALL have no operation that changes registered roots. The daemon SHALL refuse native mutations of its own configuration, the user's SSH directory, and shell startup files even inside a root.
-
-#### Scenario: Writable roots file stops the daemon
-
-- **WHEN** the roots file is writable by the daemon's user
-- **THEN** the handshake fails, the Machine reports `daemon_misconfigured`, and no operation runs
-
-#### Scenario: Writing authorized keys is refused inside a home root
-
-- **WHEN** `/home/me` is a registered root and the model writes `machine://devl/home/me/.ssh/authorized_keys`
-- **THEN** the write returns `path_not_registered` and the file is unchanged
 
 ### Requirement: Machine locators name a configured Machine and an absolute path
 
@@ -138,17 +129,22 @@ A Machine locator SHALL have the form `machine://<name><absolute path>[:selector
 
 ### Requirement: Machine results report Machine locators, not host paths
 
-Every path a Machine operation returns, including real paths, listing headers, link targets, mutation paths, and error messages, SHALL be a canonical Machine locator. While a Chat is bound to a Machine Workspace, a bare absolute path or absolute `bash` `cwd` SHALL return `invalid_path` naming the Machine form; a `file:` alias still addresses the local executor.
+Every path a Machine operation returns, including real paths, listing headers, link targets, mutation paths, and error messages, SHALL be a canonical Machine locator. While a Chat is bound to a Machine Workspace, a bare absolute path or absolute `bash` `cwd` SHALL be mapped to that Machine's locator before permission evaluation and execution; a `file:` alias still addresses the local executor.
 
 #### Scenario: Listing shows Machine locators
 
 - **WHEN** the model lists `machine://devl/home/me/shop/`
 - **THEN** the header and every link target inside the roots are Machine locators
 
-#### Scenario: Bare absolute path is refused in a Machine Workspace
+#### Scenario: Bare absolute path maps to the Machine Workspace
 
 - **WHEN** the Chat is bound to `machine://devl/home/me/shop` and the model reads `/home/me/shop/README.md`
-- **THEN** the tool returns `invalid_path` naming `machine://devl/home/me/shop/README.md` and nothing is read on either host
+- **THEN** the call is evaluated and executed as `machine://devl/home/me/shop/README.md`
+
+#### Scenario: Local rule cannot admit a mapped path
+
+- **WHEN** the only `read` allow is `^/home/me/`, the Chat is bound to a `devl` Workspace, and the model reads `/home/me/notes.md`
+- **THEN** the call is denied as having no applicable allow for `machine://devl/home/me/notes.md`
 
 ### Requirement: Native file tools behave identically on a Machine
 
@@ -328,12 +324,12 @@ When the bound Machine is unreachable, the binding SHALL persist and only operat
 
 ### Requirement: Machine status is derived from contact and visible
 
-The hub SHALL record per Machine the first and last successful contact, the last failure with a reason from `unreachable`, `host_key_mismatch`, `auth_failed`, `incompatible_version`, `daemon_misconfigured`, or `session_lost`, the failing hop's position, versions, and registered roots. Status SHALL be online when last contact is within the inactivity window and after the last failure. The hub SHALL retry in the background.
+The hub SHALL record per Machine the first and last successful contact, the last failure with a reason from `unreachable`, `host_key_mismatch`, `auth_failed`, `incompatible_version`, or `session_lost`, versions, and registered roots. Status SHALL be online when last contact is within the inactivity window and after the last failure. The hub SHALL retry in the background.
 
-#### Scenario: Offline Machine names its failing hop position
+#### Scenario: Offline Machine shows its failure reason
 
-- **WHEN** the second of three hops in `devl`'s route is unreachable
-- **THEN** the Machines list shows `devl` offline with failing hop 2 of 3 and its last-seen time
+- **WHEN** `devl`'s host key no longer matches the pinned file
+- **THEN** the Machines list shows `devl` offline with reason `host_key_mismatch` and its last-seen time
 
 #### Scenario: Crashed holder does not leave a Machine online
 
@@ -342,7 +338,7 @@ The hub SHALL record per Machine the first and last successful contact, the last
 
 ### Requirement: Authenticated users can see Machines and their Workspace's Machine status
 
-Authenticated users SHALL see a read-only Machines list with each Machine's name, status, last seen, failure reason, failing hop position, versions, and registered roots. A Chat bound to a Machine Workspace SHALL show the Machine name and online or offline state in its Workspace indicator. SSH destinations, jump hosts, and identities SHALL NOT appear in any user- or model-facing surface. Requests without an authenticated identity SHALL NOT read Machine status.
+Authenticated users SHALL see a read-only Machines list with each Machine's name, status, last seen, failure reason, versions, and registered roots. A Chat bound to a Machine Workspace SHALL show the Machine name and online or offline state in its Workspace indicator. SSH destinations, jump hosts, and identities SHALL NOT appear in any user- or model-facing surface. Requests without an authenticated identity SHALL NOT read Machine status.
 
 #### Scenario: Workspace indicator shows offline Machine
 
@@ -370,7 +366,7 @@ A `read` of bare `machine://` SHALL list configured Machines with their status. 
 
 ### Requirement: Machine execution is disclosed as remote host authority
 
-Tool descriptions and Machine Workspace narration SHALL state that Machine operations run as the Machine's OS user without sandboxing, that registered roots bound addressing only, and that a shared Machine provides no isolation between hub users.
+Tool descriptions and Machine Workspace narration SHALL state that Machine operations run as the Machine's OS user without sandboxing, that registered roots bound addressing only and can be changed by that user, and that a shared Machine provides no isolation between hub users.
 
 #### Scenario: Narration states host authority
 

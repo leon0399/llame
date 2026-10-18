@@ -19,29 +19,36 @@ no issue tracks it because it ships as one experimental change.
 ## What Changes
 
 - New operator configuration section `machines`. Each entry names a Machine
-  and its SSH route (destination plus optional ordered jump hosts), and the
-  section names the dedicated hub SSH identity and the pinned `known_hosts`
-  file. Without the section, no Machine surface exists.
-- A Machine runs a llame daemon (`llame-machine`), installed by the operator.
-  Hub workers start it over SSH as `llame-machine serve --stdio` and speak a
-  versioned, multiplexed request protocol over that stream. The daemon refuses
-  any path outside the roots registered on the box itself.
+  and its SSH destination (an alias or `user@host[:port]`); the section names
+  the pinned `known_hosts` file, an optional llame identity, and the SSH
+  configuration to include, so existing aliases, bastions, and credentials
+  work. Without the section, no Machine surface exists.
+- Hub workers connect through a generated SSH configuration whose safety
+  options (pinned host keys on every hop, batch mode, no agent, no connection
+  sharing) override the included one, and start the operator-installed daemon
+  `llame-machine serve --stdio`, speaking a versioned, multiplexed request
+  protocol. The daemon refuses paths outside the roots registered on the box,
+  an addressing bound rather than a security boundary.
 - New locator `machine://<name>/<absolute path>` accepted by `read`, `edit`,
   `write`, the `bash` `cwd` argument, and `enter_workspace`. Bare `machine://`
-  lists configured Machines with status; `machine://<name>/` lists that
-  Machine's registered roots.
+  lists configured Machines with status; `machine://<name>` lists that
+  Machine's registered roots. Inside a Machine Workspace, bare absolute paths
+  map to that Machine's locator.
 - Entering a Machine Workspace gives local-Workspace parity: relative paths,
-  instruction files, Workspace skills, and Workspace MCP servers resolve on
-  the Machine. The Machine starts stdio servers and opens HTTP servers itself,
-  so `localhost` means the Machine; the MCP protocol client stays on the hub.
-- Permission rules match the canonical `machine://` text for every Machine
-  operation, so local path rules never admit remote paths.
+  instruction files, Workspace skills, media, and Workspace MCP servers
+  resolve on the Machine. The Machine starts stdio servers and opens HTTP
+  servers itself, so `localhost` means the Machine; the MCP protocol client
+  stays on the hub.
+- Machines and the hub's local executor are independent: either, both, or
+  neither may be configured.
+- Permission rules match the canonical, decoded `machine://` text for every
+  Machine operation, so local path rules never admit remote paths.
 - A Machine that is unreachable keeps its Workspace binding. Only operations
   targeting that Machine fail with `machine_unavailable`; the Chat and every
-  other tool keep working.
-- Connection status (online or offline, last seen, failing hop, daemon
-  version, registered roots) is visible in a read-only settings list and in the
-  Chat's Workspace indicator, and the hub keeps reconnecting in the background.
+  other tool keep working, and the change is narrated once each way.
+- Connection status (online or offline, last seen, failure reason, versions,
+  registered roots) is visible in a read-only settings list and in the Chat's
+  Workspace indicator, and the hub keeps reconnecting in the background.
 - Operator documentation and a dated CHANGELOG entry marked experimental.
 
 ## Capabilities
@@ -90,7 +97,8 @@ the capability graduates:
   entering the Workspace is the trust decision.
 - The daemon serves one shell at a time per SSH session, so a Machine runs at
   most one shell per worker process.
-- The operator installs the daemon and its roots file as root on the box.
+- The operator installs the daemon and registers roots on the box; roots are
+  editable by the Machine user, so they bound addressing only.
 
 ## Impact
 

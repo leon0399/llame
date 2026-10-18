@@ -60,26 +60,34 @@ Decision provenance is the grilling record behind the
 
 ## Decisions
 
-### D1. SSH with a generated, hub-owned client configuration
+### D1. SSH through a generated safety block plus the operator's SSH config
 
 Jump hosts ignore command-line `-o`/`-i` options (ssh(1): command-line
 directives apply to the destination, not jump hosts), so the hub writes a
-private `ssh_config` per Machine route and runs
-`ssh -F <generated> -T -- <alias> llame-machine serve --stdio`. Every hop gets
-a `Host` block with `HostName`, `User`, `Port`, `IdentityFile`,
-`IdentitiesOnly yes`, `IdentityAgent none`, `UserKnownHostsFile <pinned>`,
+private configuration file and runs
+`ssh -F <absolute generated path> -T -- <destination> llame-machine serve --stdio`.
+The file starts with a `Host *` safety block and then
+`Include <machines.ssh.configFile or ~/.ssh/config>`. ssh keeps the first
+value it obtains, so the block wins for every hop while the included file
+supplies aliases, `HostName`, `User`, `Port`, `ProxyJump` or `ProxyCommand`
+chains, and identities. Safety block: `UserKnownHostsFile <pinned>`,
 `GlobalKnownHostsFile none`, `StrictHostKeyChecking yes`, `BatchMode yes`,
-`ControlMaster no`, `ControlPath none`, `ClearAllForwardings yes`,
-`ForwardAgent no`, `ForwardX11 no`, `PermitLocalCommand no`,
-`UpdateHostKeys no`, `SendEnv` unset, `ConnectTimeout 10`,
-`ServerAliveInterval 15`, `ServerAliveCountMax 3`; the destination block sets
-`ProxyJump` to the hop aliases, and blocks without jumps set
-`ProxyCommand none`. `-F` replaces system and user configuration and is passed
-to jump connections. Route fields are validated and never interpolated.
+`IdentityAgent none`, `ForwardAgent no`, `ForwardX11 no`, `ControlMaster no`,
+`ControlPath none`, `PermitLocalCommand no`, `UpdateHostKeys no`,
+`ConnectTimeout 10`, `ServerAliveInterval 15`, `ServerAliveCountMax 3`, and
+the optional llame `IdentityFile`. Verified with OpenSSH 8.9: `ssh -G` resolves
+the included alias, `ProxyJump`, and identities while the block's host-key,
+batch, agent, and connection-sharing values win, and `-v` shows the implicit
+jump command carries `-F`. Identities accumulate, so the included
+configuration's keys are also offered. `SendEnv` accumulates and cannot be
+cleared from the block; the operator page warns about it.
+
+A pinned-only mode that omits the `Include` and generates route blocks from
+llame configuration is a later, additive option.
 
 Box setup: `restrict,command="/usr/local/bin/llame-machine serve --stdio"`
-for the hub key (absolute path), `restrict,port-forwarding,permitopen=...` on
-jump hosts, optional `from=`, and sshd `ClientAliveInterval` documented.
+for the hub key (absolute path), optional `from=`, and sshd
+`ClientAliveInterval` documented.
 
 Alternatives: dial-out WebSocket (enrollment, relays, cross-process routing);
 inbound connections to workers (ingress). Both stay possible as additional
@@ -148,7 +156,9 @@ root's scheme and both columns must agree. `tools.nativeExecutorId` may not
 start with `machine:`. `resolveWorkspacePath` gains a Machine branch and throws
 on any non-absolute, non-Machine root, so an unmigrated call site fails closed;
 all six call sites are migrated. While bound to a Machine, bare absolute paths
-and absolute `bash` `cwd` return `invalid_path` naming the Machine form.
+and absolute `bash` `cwd` are rewritten to that Machine's locator before
+permission projection and execution; `file:` aliases keep addressing the local
+executor.
 
 Preparation for `machine:` executors checks the name is configured (else
 detach `executor_absent`, narrated as a removed Machine) and, when reachable,
@@ -200,15 +210,15 @@ text. Machine skill reads are projected as Machine locators.
 ### D9. Status table, probe, and API
 
 Table `machines_status` (name primary key, first and last contact, last
-failure time, closed reason, failing hop position, hub and daemon protocol
-versions, daemon version, bounded roots list, updated time) with ENABLE and
-FORCE RLS and a SELECT policy requiring a non-empty current identity, written
-through a system path. Daemon-supplied strings are bounded. A pg-boss job
-scheduled every minute probes every configured Machine, declared in
-`asyncapi.queues.yaml`; session events also write status. Status is online when
-last contact is within 150 seconds and after the last failure. The failing hop
-position comes from recognized `ssh` stderr, otherwise null.
-`GET /api/v1/machines` serves the list to authenticated users.
+failure time, closed reason, hub and daemon protocol versions, daemon version,
+bounded roots list, updated time) with ENABLE and FORCE RLS and a SELECT policy
+requiring a non-empty current identity, written through a system path.
+Daemon-supplied strings are bounded. A pg-boss job scheduled every minute
+probes every configured Machine, declared in `asyncapi.queues.yaml`; session
+events also write status. Status is online when last contact is within 150
+seconds and after the last failure. The reason comes from the handshake or
+from recognized `ssh` exit status and stderr. `GET /api/v1/machines` serves
+the list to authenticated users.
 
 ### D10. Web
 
@@ -219,13 +229,12 @@ seconds while visible.
 ### D11. Daemon and packaging
 
 `apps/machine`, TypeScript on Node >= 22.19, bundled to a single file with a
-`bin` entry `llame-machine`. Install: copy the bundle to
-`/usr/local/bin/llame-machine` (root-owned) on the box. Roots live in
-`/etc/llame-machine/roots.json`, root-owned and not writable by the daemon
-user; `llame-machine roots add|remove|list` edits it with elevated privileges.
-`serve` refuses to start when the binary or roots file is writable by its own
-user (`daemon_misconfigured`), loads roots once per session, and refuses native
-mutations of its config, `~/.ssh`, and shell startup files inside roots.
+`bin` entry `llame-machine`, installed by copying it onto the box (for example
+`/usr/local/bin/llame-machine`). Roots live in the daemon user's
+`$XDG_CONFIG_HOME/llame-machine/roots.json`, edited with
+`llame-machine roots add|remove|list`. Roots bound addressing only: anything
+running as the Machine user, including Machine `bash` and Workspace MCP
+servers, can edit the roots file, and the daemon loads it once per session.
 
 ### D12. Configuration
 
@@ -237,19 +246,20 @@ mutations of its config, `~/.ssh`, and shell startup files inside roots.
       "knownHostsFile": "/etc/llame/machine_known_hosts",
     },
     "hosts": {
-      "devl": {
-        "destination": "me@box.lan",
-        "proxyJump": ["me@laptop1.lan", "me@laptop2.lan:2222"],
-      },
+      "devl": { "destination": "box" },
+      "gpu": { "destination": "me@gpu.lan:2222" },
     },
   },
 }
 ```
 
-Relative files resolve from the config file. Route fields reject interpolation
-and option-shaped values. The published schema and `BUILT_IN_DEFAULTS` gain
-the section. The worker image or host needs an `ssh` client, the identity, and
-the pinned file.
+`machines.ssh.knownHostsFile` is required (it may point at an existing
+`known_hosts` file); `identityFile` and `configFile` are optional, and
+`configFile` defaults to the worker user's `~/.ssh/config`. Relative files
+resolve from the config file. Destinations reject interpolation and
+option-shaped values. The published schema and `BUILT_IN_DEFAULTS` gain the
+section. The worker image or host needs an `ssh` client, the pinned file, and
+whatever the included SSH configuration references.
 
 ## Threats
 
@@ -261,18 +271,21 @@ the pinned file.
 - **T2. Shared Machine runs repository commands.** Operator-wide Machines and
   entry-is-trust mean any user allowed to enter a Machine Workspace starts that
   repository's MCP servers as the Machine user.
-- **T3. Hub key compromise.** Forced command and `restrict` limit the key to
-  starting the daemon and forwarding through pinned hops.
+- **T3. Hub key compromise.** Forced command and `restrict` limit a dedicated
+  llame key to starting the daemon; identities supplied by the included SSH
+  configuration carry whatever authority the operator gave them.
 - **T4. Secret flows.** Hub to Machine: interpolation runs on the Machine and
   the hub never sends commands, URLs, or headers. Machine to hub: protected
   values arrive as secrets and are redacted.
 - **T5. No isolation between owners on a Machine.** All owners act as one OS
   user; one owner can read or change another's files, instructions, or
   `.mcp.json`. Hub-held state stays owner-scoped.
-- **T6. Ambient SSH configuration.** Neutralized by the generated `-F`
-  configuration (D1).
-- **T7. Agent widening its own bounds.** Root-owned roots file and binary,
-  protected-path refusals (D11).
+- **T6. Included SSH configuration.** The safety block fixes host-key
+  checking, batch mode, agent, and connection sharing for every hop; the
+  included file's `ProxyCommand`, identities, and `SendEnv` apply as written.
+- **T7. Agent widening its own bounds.** Accepted for the experiment: roots
+  are an addressing convenience the Machine user can change; disclosed to the
+  model and the operator.
 - **T8. Untrusted Machine input.** Every daemon-supplied field is bounded;
   stream ids are never reused; host-key mismatch is reported as such.
 - **T9. Shared-box denial of service.** Per-stream credits and per-session caps
@@ -290,14 +303,15 @@ the pinned file.
 - [Shells per worker session] → One shell per worker per Machine; M workers
   allow M concurrent shells on one Machine.
 - [Long builds die on worker drain] → Accepted; matches local behavior.
-- [Failing-hop detection parses `ssh` stderr] → Best effort; null when not
-  recognized.
+- [No hop-level diagnosis] → Jump chains live in the included SSH
+  configuration, so status reports a reason, not which hop failed.
 - [Status freshness] → Up to about 2.5 minutes to report offline; 15 seconds
   of UI staleness.
 - [Size] → One implementation layer, re-estimated at 9,000 to 12,000 authored
   lines, against the about-2,000-line budget; an explicit exception by Leo's
-  decision. Moved packages and `apps/machine` fall outside the current mutation
-  matrix unless it is extended.
+  decision, to be split into reviewable layers before shipping. Moved packages
+  and `apps/machine` fall outside the current mutation matrix unless it is
+  extended.
 
 ## Migration Plan
 
