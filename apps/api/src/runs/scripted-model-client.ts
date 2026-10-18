@@ -12,14 +12,10 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 
 import type {
   LanguageModelV3CallOptions,
-  LanguageModelV3FunctionTool,
-  LanguageModelV3ProviderTool,
   LanguageModelV3StreamPart,
-  LanguageModelV3ToolResultOutput,
 } from '@ai-sdk/provider';
 import { stepCountIs, streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
-import { z } from 'zod';
 
 import type { ModelInput, ModelReasoning } from '../models/model-catalog';
 import { installStepPreparation } from '../models/step-composer';
@@ -34,6 +30,13 @@ import {
 } from '../testing/fake-streaming-model-client';
 import type { ModelClient, ModelStreamInput } from '../models/model-client';
 import { scriptedStreamHandlers } from './scripted-model-stream-options';
+import { conversationRecallParts } from './scripted-model-recall';
+import {
+  providerDeclarations,
+  type ScriptedModelRecords,
+  type StreamCallRecord,
+  type ToolDeclarationRecord,
+} from './scripted-model-records';
 
 const PROVIDER_ZERO_USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -87,166 +90,6 @@ type ConversationRecallBehavior = Extract<
   ScriptedBehavior,
   { kind: 'conversation-recall' }
 >;
-
-type ConversationCoordinates = {
-  chatId: string;
-  messageSeq: number;
-  offset: number;
-  limit: number;
-};
-
-const conversationSearchOutputSchema = z.object({
-  status: z.literal('success'),
-  results: z.array(
-    z.object({
-      kind: z.literal('content'),
-      chatId: z.guid(),
-      messageSeq: z.number().int().positive(),
-      offset: z.number().int().nonnegative(),
-      limit: z.number().int().positive().max(2000),
-    }),
-  ),
-});
-const conversationReadOutputSchema = z.object({
-  status: z.literal('success'),
-  nextOffset: z.number().int().nonnegative().optional(),
-});
-
-function parseJsonText<T>(value: string, schema: z.ZodType<T>): T | undefined {
-  try {
-    const decoded: unknown = JSON.parse(value);
-    const parsed = schema.safeParse(decoded);
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Parses a `tool-result` content's output — JSON already, or JSON-as-text — against `schema`. */
-function parseToolOutput<T>(
-  output: LanguageModelV3ToolResultOutput,
-  schema: z.ZodType<T>,
-): T | undefined {
-  if (output.type === 'json') {
-    const parsed = schema.safeParse(output.value);
-    return parsed.success ? parsed.data : undefined;
-  }
-  if (output.type === 'text') {
-    return parseJsonText(output.value, schema);
-  }
-  return undefined;
-}
-
-function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
-  const outputs: Array<z.output<typeof conversationSearchOutputSchema>> = [];
-  for (const message of prompt) {
-    if (message.role !== 'tool') continue;
-    for (const content of message.content) {
-      if (
-        content.type !== 'tool-result' ||
-        content.toolName !== 'search_conversations'
-      )
-        continue;
-      const parsed = parseToolOutput(
-        content.output,
-        conversationSearchOutputSchema,
-      );
-      if (parsed !== undefined) outputs.push(parsed);
-    }
-  }
-  return outputs;
-}
-
-function findReadOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
-  const outputs: Array<z.output<typeof conversationReadOutputSchema>> = [];
-  for (const message of prompt) {
-    if (message.role !== 'tool') continue;
-    for (const content of message.content) {
-      if (
-        content.type !== 'tool-result' ||
-        content.toolName !== 'conversation_read'
-      )
-        continue;
-      const parsed = parseToolOutput(
-        content.output,
-        conversationReadOutputSchema,
-      );
-      if (parsed !== undefined) outputs.push(parsed);
-    }
-  }
-  return outputs;
-}
-
-/** The canned text-only completion for a conversation-recall script's final turn. */
-function finalRecallAnswerParts(
-  text: string,
-): Array<LanguageModelV3StreamPart> {
-  return [
-    { type: 'text-start', id: 'answer' },
-    { type: 'text-delta', id: 'answer', delta: text },
-    { type: 'text-end', id: 'answer' },
-  ];
-}
-
-function conversationRecallParts(
-  prompt: LanguageModelV3CallOptions['prompt'],
-  behavior: ConversationRecallBehavior,
-): Array<LanguageModelV3StreamPart> {
-  const searchOutputs = findSearchOutputs(prompt);
-  if (searchOutputs.length === 0) {
-    return [
-      {
-        type: 'tool-call',
-        toolCallId: 'conversation-search',
-        toolName: 'search_conversations',
-        input: JSON.stringify({
-          mode: 'content',
-          query: behavior.query,
-          limit: 5,
-        }),
-      },
-    ];
-  }
-
-  const readOutputs = findReadOutputs(prompt);
-  const result = searchOutputs[0]?.results[0];
-  const coordinates: ConversationCoordinates | undefined =
-    result === undefined
-      ? undefined
-      : {
-          chatId: result.chatId,
-          messageSeq: result.messageSeq,
-          offset: result.offset,
-          limit: result.limit,
-        };
-  if (coordinates !== undefined && readOutputs.length === 0) {
-    return [
-      {
-        type: 'tool-call',
-        toolCallId: 'conversation-read-1',
-        toolName: 'conversation_read',
-        input: JSON.stringify(coordinates),
-      },
-    ];
-  }
-
-  const offset =
-    behavior.continueRead && readOutputs.length === 1
-      ? readOutputs[0]?.nextOffset
-      : undefined;
-  if (coordinates !== undefined && offset !== undefined) {
-    return [
-      {
-        type: 'tool-call',
-        toolCallId: 'conversation-read-2',
-        toolName: 'conversation_read',
-        input: JSON.stringify({ ...coordinates, offset, limit: 2 }),
-      },
-    ];
-  }
-
-  return finalRecallAnswerParts(behavior.finalText ?? 'The source was read.');
-}
 
 interface CancelableDelay {
   promise: Promise<void>;
@@ -434,46 +277,6 @@ function createScriptedStream(options: {
   });
 }
 
-/**
- * One recorded stream call: the model that served it, plus the two input facts
- * a test asserts on — the effort sent and the Chat identity the run derived.
- */
-interface StreamCallRecord {
-  modelId: string;
-  effort: ModelStreamInput['effort'];
-  chat: ModelStreamInput['chat'];
-}
-
-/** One declaration the request carried: the id the model calls and its description. */
-export type DeclarationRecord = {
-  readonly toolId: string;
-  readonly description: string;
-};
-
-/** The declarations one request carried, keyed by the model that served it. */
-export type ToolDeclarationRecord = {
-  readonly modelId: string;
-  readonly tools: ReadonlyArray<DeclarationRecord>;
-};
-
-/**
- * Every declaration one provider request carried, id and description, in the
- * order the request holds them. Declarations are not part of the provider
- * prompt, so this is the only way a test can see what a Run's model was
- * offered — including a dynamic declaration a Workspace MCP server contributed
- * after the entry step.
- */
-function providerDeclarations(
-  tools:
-    | ReadonlyArray<LanguageModelV3FunctionTool | LanguageModelV3ProviderTool>
-    | undefined,
-): ReadonlyArray<DeclarationRecord> {
-  return (tools ?? []).map((tool) => ({
-    toolId: tool.name,
-    description: tool.type === 'function' ? (tool.description ?? '') : '',
-  }));
-}
-
 class HarnessModelClient implements ModelClient {
   readonly provider = 'fake';
   readonly contextWindowTokens = 128_000;
@@ -485,11 +288,7 @@ class HarnessModelClient implements ModelClient {
      * Shared with the owning ScriptedModelsService so a test can assert what
      * execution actually requested and which provider prompts it sent.
      */
-    private readonly recorded: {
-      streamCalls: Array<StreamCallRecord>;
-      prompts: Array<LanguageModelV3CallOptions['prompt']>;
-      declarations: Array<ToolDeclarationRecord>;
-    },
+    private readonly recorded: ScriptedModelRecords,
     readonly input: ReadonlyArray<ModelInput>,
   ) {}
 
@@ -552,11 +351,37 @@ class HarnessModelClient implements ModelClient {
       ...scriptedStreamHandlers(input, settlement),
     };
     applyRequestUsageCallback(streamOptions, input);
+    // The exact record the request streams with is the one the executor's
+    // additions mutate in place (`AttemptToolAdditions.bindToolRecord`), which
+    // is what every production client binds through
+    // `applyToolCallingOptions`: without it, a tool a Workspace MCP server
+    // adopts after the entry step is never declared on the next step.
+    if (input.tools !== undefined) {
+      input.onToolSet?.(input.tools);
+    }
     // The same step preparation every production client installs: the
     // composer on every step, `onStepStart` and the cap only with tools.
     installStepPreparation(streamOptions, input, this);
     return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
   }
+}
+
+/**
+ * The system-prompt template a scripted catalog entry carries: the harness
+ * identity, and — for a behavior that declares `referencesSkills` — the
+ * skill-catalog section a skill-referencing template has, so the model is
+ * provably offered the catalog `resolveTurnSkillState` froze for it (a Machine
+ * Workspace's skill among them). A production entry derives the flag FROM its
+ * template; here the declared behavior is the source of both.
+ */
+function harnessSystemPromptTemplate(
+  modelId: string,
+  referencesSkills: boolean,
+): string {
+  const identity = `Harness prompt for ${modelId}`;
+  return referencesSkills
+    ? `${identity}\n{{#if skills}}{{#each skills.entries}}<skill name="{{name}}">{{description}}</skill>{{/each}}{{/if}}`
+    : identity;
 }
 
 /**
@@ -607,6 +432,8 @@ export class ScriptedModelsService implements ModelSelectionValidator {
 
   validateModelSelection(modelId: string) {
     const reasoning = this.reasoning.get(modelId);
+    const referencesSkills =
+      this.behaviors.get(modelId)?.referencesSkills === true;
     return {
       id: modelId,
       source: 'system' as const,
@@ -614,9 +441,12 @@ export class ScriptedModelsService implements ModelSelectionValidator {
       input: this.inputs.get(modelId) ?? (['text'] as const),
       provider: 'openai',
       providerModelId: modelId,
-      systemPromptTemplate: `Harness prompt for ${modelId}`,
+      systemPromptTemplate: harnessSystemPromptTemplate(
+        modelId,
+        referencesSkills,
+      ),
       systemPromptSource: 'project_default' as const,
-      referencesSkills: this.behaviors.get(modelId)?.referencesSkills === true,
+      referencesSkills,
       ...(reasoning !== undefined && { reasoning }),
     };
   }

@@ -52,10 +52,8 @@ import {
   type ProtocolPeer,
 } from '../testing/machine-protocol-peer';
 import { waitFor } from '../testing/support';
-import {
-  type DeclarationRecord,
-  type ScriptedBehavior,
-} from './scripted-model-client';
+import { type ScriptedBehavior } from './scripted-model-client';
+import { type DeclarationRecord } from './scripted-model-records';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 /**
