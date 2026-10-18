@@ -21,11 +21,6 @@ import {
   type McpDeclarationRefusalReason,
 } from './declaration-admission';
 import {
-  McpBodyLimitError,
-  McpRequestLimitError,
-  createMcpBoundedFetch,
-} from './mcp-bounded-fetch';
-import {
   classifyMcpFailure,
   type McpFailureDisposition,
   type McpFailureKind,
@@ -33,12 +28,17 @@ import {
 } from './mcp-failure-policy';
 
 import {
-  type BoundedStdioTransport,
   DiagnosticBuffer,
+  McpBodyLimitError,
+  McpRequestLimitError,
+  McpSessionChangedError,
+  createMcpGuardedFetch,
+  createMcpToolId,
   createStdioTransport,
+  type BoundedStdioTransport,
+  type McpFetch,
   type McpStdioTransportConfig,
-} from './mcp-stdio-transport';
-import { createMcpToolId } from './tool-id';
+} from '@workspace/mcp-workspace';
 
 const ONE_MIB = 1024 * 1024;
 const MAX_TOOLS_PER_PAGE = 256;
@@ -174,13 +174,6 @@ type DisconnectState = {
   notified: boolean;
   pending: boolean;
 };
-
-class McpSessionChangedError extends Error {
-  constructor() {
-    super('The MCP server changed its active session id.');
-    this.name = 'McpSessionChangedError';
-  }
-}
 
 class McpMatchingResponseError extends Error {
   constructor() {
@@ -799,37 +792,28 @@ async function normalizeRpcResponse(
 }
 
 /**
- * Wraps `boundedFetch` with the MCP transport protocol's own concerns: a
- * DELETE's close-signal, mcp-session-id tracking/mismatch detection, GET's
- * SSE-listen-stream handling, and POST/JSON-RPC response normalization.
- * Split out of `connect` below purely to give this closure its own line
- * budget — behavior, including every closed-over reference, unchanged.
+ * Wraps the shared guarded fetch with the MCP transport protocol's own
+ * concerns: a DELETE's close-signal, GET's SSE-listen-stream handling, and
+ * POST/JSON-RPC response normalization. Byte bounds, `redirect: 'error'`, and
+ * session-id tracking live in `createMcpGuardedFetch`, shared with the Machine
+ * daemon that opens the same servers on a remote box. Split out of `connect`
+ * below purely to give this closure its own line budget — behavior, including
+ * every closed-over reference, unchanged.
  */
 function createProtocolGuardedFetch(
-  boundedFetch: ReturnType<typeof createMcpBoundedFetch>,
+  guardedFetch: McpFetch,
   closeController: AbortController,
-  protectedValueState: ProtectedValueState,
   notifyDisconnect: () => void,
-): typeof boundedFetch {
+): McpFetch {
   return async (request, init) => {
     const boundedInit = withCloseAbortSignal(init, closeController);
     const method = init?.method?.toUpperCase();
     let response: Response;
     try {
-      response = await boundedFetch(request, boundedInit);
+      response = await guardedFetch(request, boundedInit);
     } catch (error) {
       if (method === 'GET') notifyDisconnect();
       throw error;
-    }
-    const sessionId = response.headers.get('mcp-session-id');
-    if (sessionId !== null && sessionId.length > 0) {
-      if (protectedValueState.sessionId === undefined) {
-        protectedValueState.sessionId = sessionId;
-      } else if (protectedValueState.sessionId !== sessionId) {
-        if (method === 'GET') notifyDisconnect();
-        await response.body?.cancel().catch(() => undefined);
-        throw new McpSessionChangedError();
-      }
     }
     if (method === 'GET')
       return handleGetProtocolResponse(response, notifyDisconnect);
@@ -859,15 +843,21 @@ function resolveTransportHeaders(config: McpServerClientConfig) {
   }
 }
 
-/** The bounded fetch used for discovery: same byte caps as every MCP
- *  request, plus a running total of `tools/list` response bytes across the
- *  WHOLE (possibly paginated) discovery pass — `discoverCompleteCatalog`
- *  owns resetting `discoveryByteState.active` per pass. */
-function createDiscoveryBoundedFetch(
+/**
+ * The guarded fetch every request on this connection goes through: the shared
+ * byte caps, `redirect: 'error'`, and session tracking, plus a running total of
+ * `tools/list` response bytes across the WHOLE (possibly paginated) discovery
+ * pass — `discoverCompleteCatalog` owns resetting `discoveryByteState.active`
+ * per pass. The first session id the server issues is recorded here as a
+ * protected value, exactly like a resolved header, because it travels in
+ * traffic a tool result can echo.
+ */
+function createGuardedFetch(
   config: McpServerClientConfig,
   discoveryByteState: DiscoveryByteState,
-) {
-  return createMcpBoundedFetch({
+  protectedValueState: ProtectedValueState,
+): McpFetch {
+  return createMcpGuardedFetch({
     fetch: config.fetch ?? globalThis.fetch,
     maxRequestBytes: ONE_MIB,
     maxResponseBytes: ONE_MIB,
@@ -878,6 +868,9 @@ function createDiscoveryBoundedFetch(
       if (active.bytes > MAX_DISCOVERY_RESPONSE_BYTES) {
         throw new McpDiscoveryLimitError('response_bytes');
       }
+    },
+    onSessionId: (sessionId) => {
+      protectedValueState.sessionId = sessionId;
     },
   });
 }
@@ -1042,14 +1035,14 @@ export class McpServerClient {
       resolveTransportHeaders(config);
     const state = beginConnection(config);
     const { protectedValueState, discoveryByteState, closeController } = state;
-    const boundedFetch = createDiscoveryBoundedFetch(
+    const guardedFetch = createGuardedFetch(
       config,
       discoveryByteState,
+      protectedValueState,
     );
     const protocolGuardedFetch = createProtocolGuardedFetch(
-      boundedFetch,
+      guardedFetch,
       closeController,
-      protectedValueState,
       state.notifyDisconnect,
     );
     const httpTransport: Parameters<typeof createMCPClient>[0]['transport'] = {

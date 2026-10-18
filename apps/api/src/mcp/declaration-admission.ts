@@ -13,7 +13,7 @@ import {
 import {
   createMcpToolId,
   findAsciiCaseFoldedCollisionIndexes,
-} from './tool-id';
+} from '@workspace/mcp-workspace';
 
 export const MCP_REDACTION_MARKER = PROTECTED_VALUE_REDACTION_MARKER;
 

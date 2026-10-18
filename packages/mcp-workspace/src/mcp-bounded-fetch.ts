@@ -19,7 +19,7 @@ export type McpFetchRequestContext = {
   readonly rpcMethod: string | null;
 };
 
-type McpFetch = (
+export type McpFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;

@@ -279,6 +279,42 @@ export type SkillsConfig = {
 };
 
 /**
+ * Unresolved `machines` section (remote-machines D12). The `ssh` paths are
+ * literal host paths on the hub box, like `tools.promptFiles` and
+ * `skills.directories`: no `{env:...}`/`{path:...}` interpolation is applied —
+ * the loader rejects token syntax before resolving — and relative entries
+ * resolve against the configuration file's directory.
+ */
+export type RawMachinesConfig = {
+  ssh?: {
+    knownHostsFile?: string;
+    identityFile?: string;
+    configFile?: string;
+  };
+  hosts?: Record<string, MachineHostConfig>;
+};
+
+/** One declared Machine: the SSH destination the hub connects to for it. */
+export type MachineHostConfig = { destination: string };
+
+/**
+ * Resolved operator-owned remote Machine settings (remote-machines D12): `ssh`
+ * paths are absolute (relative resolved against the configuration file's
+ * directory, a leading `~/` against the operator process home). An absent
+ * `identityFile`/`configFile` stays absent rather than materializing a default,
+ * so the session manager applies its own. `hosts` is always present when the
+ * section is, possibly empty.
+ */
+export type MachinesConfig = {
+  ssh: {
+    knownHostsFile: string;
+    identityFile?: string;
+    configFile?: string;
+  };
+  hosts: Record<string, MachineHostConfig>;
+};
+
+/**
  * The still-uninterpolated `mcpServers` entry shape once the published JSON
  * Schema has validated it (config-loader.ts's `assertValidRaw`) — scalar
  * fields still need `{env:}`/`{path:}` resolution before they become a
@@ -548,6 +584,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   mcpServers?: Record<string, RawMcpServerEntry>;
   knowledge?: RawKnowledgeConfig;
   skills?: RawSkillsConfig;
+  machines?: RawMachinesConfig;
   workers?: Record<string, WorkerProfile>;
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
@@ -716,6 +753,14 @@ export type LlameConfig = {
    * literal public filesystem paths — no interpolation is applied or allowed.
    */
   skills: SkillsConfig;
+  /**
+   * Operator-declared remote Machines (remote-machines D12). Absent means the
+   * feature does not exist: no Machine tool argument, route, status read, or
+   * UI surface, and a `machine://` locator stays an unknown scheme. Present
+   * Machines are operator-wide — every authenticated user whose Run passes
+   * tool eligibility and permissions may address them.
+   */
+  machines?: MachinesConfig;
   /**
    * Worker profiles (durable-run-workers D2/D4): profile name → the groups it
    * consumes and each one's concurrency. Selected at boot by

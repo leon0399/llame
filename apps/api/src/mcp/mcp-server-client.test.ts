@@ -8,7 +8,10 @@ import {
   type McpCallOutcome,
   type McpDiscoveredTool,
 } from './mcp-server-client';
-import { McpBodyLimitError, McpRequestLimitError } from './mcp-bounded-fetch';
+import {
+  McpBodyLimitError,
+  McpRequestLimitError,
+} from '@workspace/mcp-workspace';
 import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,

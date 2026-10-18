@@ -75,6 +75,14 @@ export default defineConfig({
         find: /^@workspace\/bash-executor$/,
         replacement: pkgSrc('bash-executor'),
       },
+      {
+        find: /^@workspace\/mcp-workspace$/,
+        replacement: pkgSrc('mcp-workspace'),
+      },
+      {
+        find: /^@workspace\/machine-protocol$/,
+        replacement: pkgSrc('machine-protocol'),
+      },
     ],
   },
   // NestJS DI resolves constructor parameters from reflect-metadata's

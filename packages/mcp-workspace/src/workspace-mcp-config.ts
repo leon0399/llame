@@ -12,8 +12,6 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 
-import { processEnvironment } from '../tools/env';
-
 import { createMcpToolId } from './tool-id';
 import {
   type McpRuntimeRemoteDefinition,
@@ -74,9 +72,21 @@ const TRANSPORT_OWNED_HEADERS = {
   'last-event-id': true,
 } satisfies Readonly<Record<string, true>>;
 
+/**
+ * Resolves every Workspace MCP server declared under `root` (`.mcp.json`,
+ * overlaid by `.llame/mcp.json`) against `env` and the filesystem: each entry
+ * is either a startable definition plus the protected values its `{env:…}` /
+ * `{path:…}` tokens resolved to, or an unavailability reason.
+ *
+ * `env` is a parameter rather than the ambient process environment because the
+ * caller decides which environment interpolation reads: the hub passes its own
+ * process environment, while the Machine daemon passes the environment of the
+ * box the server will actually run on — a Machine-resolved secret never
+ * crosses the wire, and the hub never resolves a value the Machine lacks.
+ */
 export async function readWorkspaceMcpConfig(
   root: string,
-  env: NodeJS.ProcessEnv = processEnvironment(),
+  env: NodeJS.ProcessEnv,
 ): Promise<ReadonlyArray<WorkspaceMcpServerConfig>> {
   const sources: ReadonlyArray<FileSource> = [
     { label: '.mcp.json', file: path.join(root, '.mcp.json') },
@@ -392,7 +402,7 @@ async function resolveHeaders(
         `header names collide: ${prior} and ${name}`,
       );
     }
-    if (TRANSPORT_OWNED_HEADERS[lower] === true) {
+    if (Object.hasOwn(TRANSPORT_OWNED_HEADERS, lower)) {
       throw new WorkspaceConfigError(`transport-owned header ${name}`);
     }
     if (!isString(value))

@@ -9,7 +9,7 @@ import {
   McpRuntimeService,
   type McpRuntimeServerDefinition,
 } from './mcp-runtime.service';
-import { type MutableStdioDefinition } from './mcp-runtime-definition';
+import { type MutableStdioDefinition } from '@workspace/mcp-workspace';
 
 export const MCP_RUNTIME_SERVER_DEFINITIONS = Symbol(
   'MCP_RUNTIME_SERVER_DEFINITIONS',

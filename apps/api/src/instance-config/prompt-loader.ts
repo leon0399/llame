@@ -21,7 +21,7 @@ import {
   type PromptFileAccess,
   type PromptSafeValue,
 } from '../prompts/template-engine';
-import { parseMcpToolId } from '../mcp/tool-id';
+import { parseMcpToolId } from '@workspace/mcp-workspace';
 import { isToolId } from '../tools/tool-id';
 import type {
   PromptChatDigestEntry,

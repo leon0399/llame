@@ -14,7 +14,7 @@ import {
   type McpStdioServerClientConfig,
   type McpToolExecutor,
 } from './mcp-server-client';
-import { parseMcpToolId } from './tool-id';
+import { parseMcpToolId } from '@workspace/mcp-workspace';
 import {
   type DynamicToolExecutorResolver,
   type DynamicToolResolution,
@@ -35,9 +35,9 @@ import {
   frozenRuntimeDefinition,
   isStdio,
   type McpRuntimeServerDefinition,
-} from './mcp-runtime-definition';
+} from '@workspace/mcp-workspace';
 
-export { type McpRuntimeServerDefinition } from './mcp-runtime-definition';
+export { type McpRuntimeServerDefinition } from '@workspace/mcp-workspace';
 
 const REFRESH_BASE_MS = 60 * 60 * 1000;
 const REFRESH_JITTER_MS = REFRESH_BASE_MS * 0.2;
