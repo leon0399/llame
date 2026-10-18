@@ -1,0 +1,54 @@
+name: API DAST (experimental)
+
+# Advisory dynamic scan of the API: Schemathesis (contract, auth and
+# object-level authorization checks) and the OWASP ZAP API scan, both driven
+# by apps/api/openapi.json against a throwaway stack. Nightly, on demand, and
+# on pull requests that change the scan itself; it is not a required check.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/dast.yml
+      - scripts/dast/**
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      scanners:
+        description: Space-separated scanners to run
+        required: false
+        default: schemathesis zap
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  api-scan:
+    name: API scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Run scanners
+        env:
+          DAST_SCANNERS: ${{ inputs.scanners || 'schemathesis zap' }}
+          DAST_OUT_DIR: ${{ github.workspace }}/dast-report
+        run: scripts/dast/run-api-scan.sh
+
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dast-report
+          path: dast-report/
+          retention-days: 14

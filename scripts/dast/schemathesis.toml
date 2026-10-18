@@ -1,0 +1,45 @@
+# Schemathesis configuration for the experimental API DAST run
+# (scripts/dast/run-api-scan.sh). The schema path, base URL, seed and report
+# options are passed on the command line.
+
+# Every check, including the auth ones: ignored_auth (operations that answer
+# without or with invalid credentials) and object_level_authorization (bob
+# reading an object alice created).
+checks.enabled = true
+workers = 2
+request-timeout = 10
+max-time = 900
+max-failures = 200
+
+[auth]
+auto-signup = false
+
+[auth.wfc]
+path = "/secrets/auth.wfc.json"
+user = "alice"
+peers = ["alice", "bob"]
+
+[phases.fuzzing]
+generation.max-examples = 50
+
+# Server-sent event streams never end on their own.
+[[operations]]
+include-operation-id = "resumeChatStream"
+enabled = false
+
+[[operations]]
+include-operation-id = "streamRunEvents"
+enabled = false
+
+# Revoking or ending a session would sign the scanner out mid-run.
+[[operations]]
+include-operation-id = "revokeSessions"
+enabled = false
+
+[[operations]]
+include-operation-id = "revokeSession"
+enabled = false
+
+[[operations]]
+include-operation-id = "logoutUser"
+enabled = false

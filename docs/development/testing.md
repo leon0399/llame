@@ -121,6 +121,25 @@ execution. Direct `test:mutation` runs report MSI over the whole corpus without
 enforcing a threshold. See the [measurements and
 alternatives](../research/development-pipeline.md).
 
+## API DAST (experimental)
+
+`scripts/dast/run-api-scan.sh` boots a throwaway stack from the e2e fixtures
+(Postgres, mock model, mock MCP, production-built API) and scans it from
+`apps/api/openapi.json` with two Dockerized scanners, pinned by digest:
+
+- Schemathesis (`scripts/dast/schemathesis.toml`): every check, including
+  `ignored_auth` and `object_level_authorization`, which replays one
+  registered user's reads as a second user.
+- ZAP's API scan (`scripts/dast/zap-plan.yaml`): OWASP passive and active
+  rules, authenticated as the first user.
+
+Reports land in `dast-report/` (`DAST_OUT_DIR`); `DAST_SCANNERS` selects a
+single scanner. Server-sent event streams and session revocation are excluded,
+and rate limits are lifted for the same reason as in Playwright. The
+`API DAST (experimental)` workflow runs it nightly, on demand, and on pull
+requests that change the scan itself. It is not a required check. Findings have no baseline
+yet, so the run fails until they are triaged.
+
 ## CI mapping
 
 ```text
