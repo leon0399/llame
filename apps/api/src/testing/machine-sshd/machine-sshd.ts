@@ -91,7 +91,8 @@ export const MACHINE_SSHD_NOTES_CONTENT = readFileSync(
 /** How an `ssh` child of this process names the daemon it was told to run. */
 export const MACHINE_SSHD_REMOTE_COMMAND = 'llame-machine serve --stdio';
 
-export type ConnectionVariant = {
+/** Which of the four file pairs the suite selects between. */
+type ConnectionVariant = {
   /** Keep the jump host's key in the pinned file (the default). */
   readonly pinBastion?: boolean;
   /** Include the configuration that tries to weaken checking and share a
