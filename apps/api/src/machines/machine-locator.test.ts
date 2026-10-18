@@ -25,12 +25,16 @@ describe('parseMachineLocator', () => {
   });
 
   it('reads a path, decoding percent-escapes exactly once', () => {
-    expect(parseMachineLocator('machine://devl/home/me/shop/README.md')).toEqual({
+    expect(
+      parseMachineLocator('machine://devl/home/me/shop/README.md'),
+    ).toEqual({
       kind: 'path',
       name: 'devl',
       path: '/home/me/shop/README.md',
     });
-    expect(parseMachineLocator('MACHINE://DEVL/home/me/a%23b%3Fc%2525')).toEqual({
+    expect(
+      parseMachineLocator('MACHINE://DEVL/home/me/a%23b%3Fc%2525'),
+    ).toEqual({
       kind: 'path',
       name: 'devl',
       path: '/home/me/a#b?c%25',
@@ -124,7 +128,9 @@ describe('parseMachineLocator', () => {
   });
 
   it('keeps a suffix the shared grammar does not treat as a selector on the path', () => {
-    expect(parseMachineLocator('machine://devl/home/me/notes:draft:raw')).toEqual({
+    expect(
+      parseMachineLocator('machine://devl/home/me/notes:draft:raw'),
+    ).toEqual({
       kind: 'path',
       name: 'devl',
       path: '/home/me/notes:draft',
@@ -163,9 +169,9 @@ describe('formatMachineLocator', () => {
   });
 
   it('appends a selector as written', () => {
-    expect(
-      formatMachineLocator('devl', '/home/me/shop/README.md', '1-5'),
-    ).toBe('machine://devl/home/me/shop/README.md:1-5');
+    expect(formatMachineLocator('devl', '/home/me/shop/README.md', '1-5')).toBe(
+      'machine://devl/home/me/shop/README.md:1-5',
+    );
   });
 
   it.each([

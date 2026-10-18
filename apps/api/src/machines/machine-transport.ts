@@ -107,7 +107,9 @@ function collectDiagnostic(stderr: Readable): () => string {
 }
 
 /** Wrap a spawned link process as a transport. */
-export function createProcessTransport(link: MachineLinkProcess): MachineTransport {
+export function createProcessTransport(
+  link: MachineLinkProcess,
+): MachineTransport {
   const diagnostic = collectDiagnostic(link.stderr);
   let closedByHub = false;
   const ended = new Promise<MachineLinkEnd>((resolve) => {
@@ -116,7 +118,12 @@ export function createProcessTransport(link: MachineLinkProcess): MachineTranspo
     );
     link.onError((error) => {
       // A link that never started (no ssh, no permission) ends here.
-      resolve({ code: null, signal: null, diagnostic: error.message, closedByHub });
+      resolve({
+        code: null,
+        signal: null,
+        diagnostic: error.message,
+        closedByHub,
+      });
     });
   });
   return {

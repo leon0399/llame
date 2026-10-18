@@ -177,14 +177,13 @@ describe("request streams", () => {
     const before = sent.length;
     const controller = new AbortController();
     controller.abort();
-    const error = await channel
-      .request(
+    await expect(
+      channel.request(
         "roots.list",
         { envelope: { budgetMs: 5 } },
         { signal: controller.signal },
-      )
-      .catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(StreamClosedError);
+      ),
+    ).rejects.toBeInstanceOf(StreamClosedError);
     expect(channel.closed).toBe(true);
     expect(sent.length).toBe(before);
   });

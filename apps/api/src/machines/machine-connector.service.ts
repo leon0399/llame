@@ -243,10 +243,13 @@ export class MachineConnector {
         'This Machine is not configured.',
       );
     const existing = this.sessions.get(name);
-    if (existing !== undefined && existing.session.isReady) return existing.session;
+    if (existing !== undefined && existing.session.isReady)
+      return existing.session;
     const opening = this.opening.get(name);
     if (opening !== undefined) return opening;
-    const started = this.startSession(name).finally(() => this.opening.delete(name));
+    const started = this.startSession(name).finally(() =>
+      this.opening.delete(name),
+    );
     this.opening.set(name, started);
     return started;
   }
@@ -279,7 +282,11 @@ export class MachineConnector {
     return session;
   }
 
-  private onEnded(name: string, session: MachineSession, end: MachineSessionEnd): void {
+  private onEnded(
+    name: string,
+    session: MachineSession,
+    end: MachineSessionEnd,
+  ): void {
     const entry = this.sessions.get(name);
     if (entry?.session === session) {
       clearTimeout(entry.idleTimer);
@@ -287,13 +294,23 @@ export class MachineConnector {
     }
     // A clean close is llame's own doing, not a failure to report.
     if (end.reason === 'closed') return;
-    this.recordContact(name, { hubProtocolVersion: PROTOCOL_VERSION, failure: end.reason });
+    this.recordContact(name, {
+      hubProtocolVersion: PROTOCOL_VERSION,
+      failure: end.reason,
+    });
   }
 
-  private recordContact(name: string, contact: Omit<MachineContact, 'name' | 'at'>): void {
+  private recordContact(
+    name: string,
+    contact: Omit<MachineContact, 'name' | 'at'>,
+  ): void {
     const sink = this.onContact;
     if (sink === undefined) return;
-    void this.writeContact(sink, { name, at: new Date(this.now()), ...contact });
+    void this.writeContact(sink, {
+      name,
+      at: new Date(this.now()),
+      ...contact,
+    });
   }
 
   private async writeContact(

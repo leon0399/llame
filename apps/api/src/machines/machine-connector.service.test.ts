@@ -1,6 +1,9 @@
 import { MachineProtocolError } from '@workspace/machine-protocol';
 
-import { createProtocolPeer, type ProtocolPeerOptions } from '../testing/machine-protocol-peer';
+import {
+  createProtocolPeer,
+  type ProtocolPeerOptions,
+} from '../testing/machine-protocol-peer';
 
 import { MachineConnector } from './machine-connector.service';
 import { MachineUnavailableError } from './machine-session';
@@ -11,7 +14,10 @@ const ENVELOPE = { budgetMs: 30_000 };
 
 const MACHINES = {
   ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
-  hosts: { devl: { destination: 'box' }, gpu: { destination: 'me@gpu.lan:2222' } },
+  hosts: {
+    devl: { destination: 'box' },
+    gpu: { destination: 'me@gpu.lan:2222' },
+  },
 };
 
 type Fixture = {
@@ -76,13 +82,16 @@ function refusal(error: unknown): MachineUnavailableError {
 
 describe('MachineConnector configuration surface', () => {
   it('is absent without a machines section', async () => {
-    const connector = new MachineConnector({ machines: undefined, hubVersion: '1' });
+    const connector = new MachineConnector({
+      machines: undefined,
+      hubVersion: '1',
+    });
     expect(connector.enabled()).toBe(false);
     expect(connector.names()).toEqual([]);
     expect(connector.isConfigured('devl')).toBe(false);
-    await expect(connector.request('devl', 'roots.list', { envelope: ENVELOPE })).rejects.toThrow(
-      MachineUnavailableError,
-    );
+    await expect(
+      connector.request('devl', 'roots.list', { envelope: ENVELOPE }),
+    ).rejects.toThrow(MachineUnavailableError);
   });
 
   it('lists the configured Machines in configuration order', () => {
@@ -97,7 +106,9 @@ describe('MachineConnector configuration surface', () => {
   it('refuses an unconfigured Machine without opening a link', async () => {
     const { connector, sessionCount } = fixture();
     const error = refusal(
-      await connector.request('nope', 'roots.list', { envelope: ENVELOPE }).catch((error: unknown) => rejection(error)),
+      await connector
+        .request('nope', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
     );
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
@@ -113,7 +124,12 @@ describe('MachineConnector session lifecycle', () => {
       answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
     });
     await expect(
-      connector.request('devl', 'roots.list', { envelope: ENVELOPE }, { budgetMs: 500 }),
+      connector.request(
+        'devl',
+        'roots.list',
+        { envelope: ENVELOPE },
+        { budgetMs: 500 },
+      ),
     ).resolves.toEqual({ roots: ['/srv/app'] });
     expect(sessionCount()).toBe(1);
     expect(peer.sessions[0]?.requests).toEqual(['roots.list']);
@@ -145,8 +161,12 @@ describe('MachineConnector session lifecycle', () => {
     const { connector, peer, sessionCount } = fixture({
       answers: { 'roots.list': { hold: true } },
     });
-    const first = connector.request('devl', 'roots.list', { envelope: ENVELOPE });
-    const second = connector.request('devl', 'roots.list', { envelope: ENVELOPE });
+    const first = connector.request('devl', 'roots.list', {
+      envelope: ENVELOPE,
+    });
+    const second = connector.request('devl', 'roots.list', {
+      envelope: ENVELOPE,
+    });
     const session = await peer.session(0);
     await session.awaitRequests(2);
     expect(sessionCount()).toBe(1);
@@ -203,7 +223,9 @@ describe('MachineConnector session lifecycle', () => {
       });
       const session = await peer.session(0);
       session.release('mcp.open', { protectedValues: ['token'] }, true);
-      await expect(handle.result).resolves.toEqual({ protectedValues: ['token'] });
+      await expect(handle.result).resolves.toEqual({
+        protectedValues: ['token'],
+      });
       await vi.advanceTimersByTimeAsync(100);
       expect(session.stopped).toBe(false);
       handle.channel.close();
@@ -235,7 +257,10 @@ describe('MachineConnector failure classification', () => {
     expect(error.reason).toBe('session_lost');
     expect(error.sent).toBe(true);
     await awaitContacts(2);
-    expect(contacts.at(-1)).toMatchObject({ name: 'devl', failure: 'session_lost' });
+    expect(contacts.at(-1)).toMatchObject({
+      name: 'devl',
+      failure: 'session_lost',
+    });
   });
 
   it('reports a failed open as unsent and unreachable', async () => {
@@ -243,7 +268,9 @@ describe('MachineConnector failure classification', () => {
       openFailure: () => 'ssh: connect to host box port 22: Connection refused',
     });
     const error = refusal(
-      await connector.request('devl', 'roots.list', { envelope: ENVELOPE }).catch((error: unknown) => rejection(error)),
+      await connector
+        .request('devl', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
     );
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
@@ -255,8 +282,12 @@ describe('MachineConnector failure classification', () => {
     ['me@box: Permission denied (publickey).', 'auth_failed'],
     ['ssh: connect to host box port 22: No route to host', 'unreachable'],
   ])('maps %s to %s before the handshake', async (diagnostic, reason) => {
-    const { connector, peer, contacts, awaitContacts } = fixture({ silentHello: true });
-    const call = connector.request('devl', 'roots.list', { envelope: ENVELOPE });
+    const { connector, peer, contacts, awaitContacts } = fixture({
+      silentHello: true,
+    });
+    const call = connector.request('devl', 'roots.list', {
+      envelope: ENVELOPE,
+    });
     const outcome = call.catch((error: unknown) => rejection(error));
     const session = await peer.session(0);
     session.drop({ diagnostic });
@@ -273,7 +304,9 @@ describe('MachineConnector failure classification', () => {
       handshakeTimeoutMs: 500,
     });
     const error = refusal(
-      await connector.request('devl', 'roots.list', { envelope: ENVELOPE }).catch((error: unknown) => rejection(error)),
+      await connector
+        .request('devl', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
     );
     expect(error.reason).toBe('incompatible_version');
     expect(error.sent).toBe(false);
@@ -284,7 +317,10 @@ describe('MachineConnector failure classification', () => {
   it('reports a silent Machine as unreachable when the handshake times out', async () => {
     vi.useFakeTimers();
     try {
-      const { connector } = fixture({ silentHello: true, handshakeTimeoutMs: 20 });
+      const { connector } = fixture({
+        silentHello: true,
+        handshakeTimeoutMs: 20,
+      });
       const outcome = connector
         .request('devl', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error));
@@ -298,17 +334,22 @@ describe('MachineConnector failure classification', () => {
   });
 
   it('passes a Machine refusal through as the protocol error it is', async () => {
-    const { connector } = fixture({ answers: { 'fs.stat': { error: 'budget_exhausted' } } });
+    const { connector } = fixture({
+      answers: { 'fs.stat': { error: 'budget_exhausted' } },
+    });
     const error = await connector
       .request('devl', 'fs.stat', { path: '/srv/app/a', envelope: ENVELOPE })
       .catch((error: unknown) => rejection(error));
     expect(error).toBeInstanceOf(MachineProtocolError);
-    if (!(error instanceof MachineProtocolError)) throw new Error('not the protocol error');
+    if (!(error instanceof MachineProtocolError))
+      throw new Error('not the protocol error');
     expect(error.code).toBe('budget_exhausted');
   });
 
   it('treats a caller cancellation as a cancellation, not a Machine failure', async () => {
-    const { connector, peer } = fixture({ answers: { 'fs.edit': { hold: true } } });
+    const { connector, peer } = fixture({
+      answers: { 'fs.edit': { hold: true } },
+    });
     const controller = new AbortController();
     const call = connector.request(
       'devl',
@@ -337,7 +378,12 @@ describe('MachineConnector failure classification', () => {
     const controller = new AbortController();
     controller.abort();
     await expect(
-      connector.request('devl', 'roots.list', { envelope: ENVELOPE }, { signal: controller.signal }),
+      connector.request(
+        'devl',
+        'roots.list',
+        { envelope: ENVELOPE },
+        { signal: controller.signal },
+      ),
     ).rejects.toThrow(/abort/iu);
     expect(sessionCount()).toBe(0);
   });
@@ -348,7 +394,9 @@ describe('MachineConnector reachability', () => {
     let offline = true;
     const { connector, sessionCount } = fixture({
       openFailure: () =>
-        offline ? 'ssh: connect to host box port 22: Connection refused' : undefined,
+        offline
+          ? 'ssh: connect to host box port 22: Connection refused'
+          : undefined,
     });
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(false);
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(false);
@@ -364,7 +412,10 @@ describe('MachineConnector reachability', () => {
   it('does not probe an unconfigured or absent Machine', async () => {
     const { connector } = fixture();
     await expect(connector.reachable('nope', 'attempt-1')).resolves.toBe(false);
-    const absent = new MachineConnector({ machines: undefined, hubVersion: '1' });
+    const absent = new MachineConnector({
+      machines: undefined,
+      hubVersion: '1',
+    });
     await expect(absent.reachable('devl', 'attempt-1')).resolves.toBe(false);
   });
 
@@ -427,7 +478,9 @@ describe('MachineConnector mutation serialization', () => {
 
 describe('MachineConnector channels', () => {
   it('delivers notifications and closes when the caller stops the channel', async () => {
-    const { connector, peer } = fixture({ answers: { 'mcp.open': { hold: true } } });
+    const { connector, peer } = fixture({
+      answers: { 'mcp.open': { hold: true } },
+    });
     const handle = await connector.openChannel('devl', 'mcp.open', {
       root: '/srv/app',
       server: 'repo',
@@ -435,7 +488,9 @@ describe('MachineConnector channels', () => {
     });
     const session = await peer.session(0);
     session.release('mcp.open', { protectedValues: ['token'] }, true);
-    await expect(handle.result).resolves.toEqual({ protectedValues: ['token'] });
+    await expect(handle.result).resolves.toEqual({
+      protectedValues: ['token'],
+    });
     const seen: Array<string> = [];
     const notified = Promise.withResolvers<void>();
     handle.channel.onNotification((message) => {
@@ -452,7 +507,9 @@ describe('MachineConnector channels', () => {
   });
 
   it('reports a channel lost with the session as sent', async () => {
-    const { connector, peer } = fixture({ answers: { 'mcp.open': { hold: true } } });
+    const { connector, peer } = fixture({
+      answers: { 'mcp.open': { hold: true } },
+    });
     const handle = await connector.openChannel('devl', 'mcp.open', {
       root: '/srv/app',
       server: 'repo',

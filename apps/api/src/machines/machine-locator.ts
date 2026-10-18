@@ -19,7 +19,10 @@
  * formatter re-encodes exactly the characters the grammar requires.
  */
 
-import { isSelectorSuffix, splitSelectorSuffix } from '@workspace/native-file-tools';
+import {
+  isSelectorSuffix,
+  splitSelectorSuffix,
+} from '@workspace/native-file-tools';
 
 import { decodeFileAlias } from '../tools/permissions/file-alias';
 
@@ -68,11 +71,16 @@ export function isMachineLocator(value: string): boolean {
 export function parseMachineLocator(value: string): MachineLocator {
   const match = LOCATOR_PREFIX.exec(value);
   if (match === null)
-    return { kind: 'invalid', message: 'This path is not a machine:// locator.' };
+    return {
+      kind: 'invalid',
+      message: 'This path is not a machine:// locator.',
+    };
   const rest = value.slice(match[0].length);
   if (rest === '') return { kind: 'list' };
   const separator = rest.indexOf(NAME_SEPARATOR);
-  const name = (separator === -1 ? rest : rest.slice(0, separator)).toLowerCase();
+  const name = (
+    separator === -1 ? rest : rest.slice(0, separator)
+  ).toLowerCase();
   if (!MACHINE_NAME_PATTERN.test(name))
     return { kind: 'invalid', message: BAD_NAME };
   if (separator === -1) return { kind: 'roots', name };
@@ -92,7 +100,9 @@ function parseMachinePath(name: string, rawPath: string): MachineLocator {
     split.selector !== undefined && isSelectorSuffix(split.selector)
       ? split.selector
       : undefined;
-  const decoded = decodeMachinePath(selector === undefined ? rawPath : split.path);
+  const decoded = decodeMachinePath(
+    selector === undefined ? rawPath : split.path,
+  );
   if (!decoded.ok) return { kind: 'invalid', message: decoded.message };
   return selector === undefined
     ? { kind: 'path', name, path: decoded.path }
@@ -100,12 +110,16 @@ function parseMachinePath(name: string, rawPath: string): MachineLocator {
 }
 
 /** Decode one layer of `%XX` escapes through the shared `file:` alias decoder. */
-function decodeMachinePath(rawPath: string): { ok: true; path: string } | { ok: false; message: string } {
+function decodeMachinePath(
+  rawPath: string,
+): { ok: true; path: string } | { ok: false; message: string } {
   // The `file://localhost` authority keeps the shared decoder's own grammar
   // (`//` authority handling, literal-query/fragment/backslash refusals, and
   // the `%2F`/`%00` guards) while this module keeps the Machine wording.
   const decoded = decodeFileAlias(`file://localhost${rawPath}`);
-  return decoded.ok ? { ok: true, path: decoded.hostPath } : { ok: false, message: BAD_PATH };
+  return decoded.ok
+    ? { ok: true, path: decoded.hostPath }
+    : { ok: false, message: BAD_PATH };
 }
 
 /**
@@ -132,23 +146,31 @@ export function formatMachineLocator(
 }
 
 function encodeMachinePath(path: string): string | undefined {
-  if (!path.startsWith(NAME_SEPARATOR) || path.includes('\u0000')) return undefined;
+  if (!path.startsWith(NAME_SEPARATOR) || path.includes('\u0000'))
+    return undefined;
   const lastSeparator = path.lastIndexOf(NAME_SEPARATOR);
   let encoded = '';
   for (let index = 0; index < path.length; index += 1) {
-    encoded += encodePathCharacter(path.charCodeAt(index), index > lastSeparator);
+    encoded += encodePathCharacter(
+      path.charCodeAt(index),
+      index > lastSeparator,
+    );
   }
   return encoded;
 }
 
 /** One character of a path, escaped only where the grammar requires it. */
-function encodePathCharacter(code: number, afterLastSeparator: boolean): string {
+function encodePathCharacter(
+  code: number,
+  afterLastSeparator: boolean,
+): string {
   if (code === 0x25) return '%25';
   if (code === 0x23) return '%23';
   if (code === 0x3f) return '%3F';
   if (code === 0x5c) return '%5C';
   if (code === 0x3a && afterLastSeparator) return '%3A';
-  if (code <= 0x1f || code === 0x7f) return `%${code.toString(16).padStart(2, '0').toUpperCase()}`;
+  if (code <= 0x1f || code === 0x7f)
+    return `%${code.toString(16).padStart(2, '0').toUpperCase()}`;
   return String.fromCharCode(code);
 }
 
@@ -164,7 +186,8 @@ export function isMachineExecutorId(value: string): boolean {
 
 /** The Machine a `machine:<name>` executor id names, or undefined. */
 export function parseMachineExecutorId(value: string): string | undefined {
-  if (!value.toLowerCase().startsWith(MACHINE_EXECUTOR_PREFIX)) return undefined;
+  if (!value.toLowerCase().startsWith(MACHINE_EXECUTOR_PREFIX))
+    return undefined;
   const name = value.slice(MACHINE_EXECUTOR_PREFIX.length).toLowerCase();
   return MACHINE_NAME_PATTERN.test(name) ? name : undefined;
 }

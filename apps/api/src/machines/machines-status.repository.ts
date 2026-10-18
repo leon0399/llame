@@ -32,7 +32,9 @@ import {
 const SYSTEM_MARKER = sql`select set_config('app.machines_system', '1', true)`;
 
 /** The row one contact produces, with every daemon-supplied value bounded. */
-function contactRow(contact: MachineContact): typeof machinesStatus.$inferInsert {
+function contactRow(
+  contact: MachineContact,
+): typeof machinesStatus.$inferInsert {
   const success = contact.failure === undefined;
   return {
     name: contact.name,
@@ -94,10 +96,13 @@ export class MachinesStatusRepository {
     const row = contactRow(contact);
     await this.db.transaction(async (tx) => {
       await tx.execute(SYSTEM_MARKER);
-      await tx.insert(machinesStatus).values(row).onConflictDoUpdate({
-        target: machinesStatus.name,
-        set: contactUpdate(contact, row),
-      });
+      await tx
+        .insert(machinesStatus)
+        .values(row)
+        .onConflictDoUpdate({
+          target: machinesStatus.name,
+          set: contactUpdate(contact, row),
+        });
     });
   }
 

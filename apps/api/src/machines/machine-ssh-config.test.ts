@@ -47,7 +47,10 @@ describe('renderMachineSshConfig', () => {
   it('adds the llame identity only when configured', () => {
     expect(renderMachineSshConfig(base)).not.toContain('IdentityFile');
     expect(
-      renderMachineSshConfig({ ...base, identityFile: '/etc/llame/machine_ed25519' }),
+      renderMachineSshConfig({
+        ...base,
+        identityFile: '/etc/llame/machine_ed25519',
+      }),
     ).toContain('  IdentityFile "/etc/llame/machine_ed25519"');
   });
 
@@ -56,7 +59,9 @@ describe('renderMachineSshConfig', () => {
       knownHostsFile: '/srv/llame keys/pinned"x',
       includeFile: '/home/me/my config',
     });
-    expect(text).toContain(String.raw`UserKnownHostsFile "/srv/llame keys/pinned\"x"`);
+    expect(text).toContain(
+      String.raw`UserKnownHostsFile "/srv/llame keys/pinned\"x"`,
+    );
     expect(text).toContain('Include "/home/me/my config"');
   });
 
@@ -69,7 +74,9 @@ describe('renderMachineSshConfig', () => {
 
 describe('defaultMachineSshConfigFile', () => {
   it('names the worker user own configuration', () => {
-    expect(defaultMachineSshConfigFile()).toBe(join(homedir(), '.ssh', 'config'));
+    expect(defaultMachineSshConfigFile()).toBe(
+      join(homedir(), '.ssh', 'config'),
+    );
   });
 });
 
@@ -81,7 +88,9 @@ describe('createMachineSshConfigFile', () => {
     });
     try {
       expect(statSync(file.path).mode & 0o777).toBe(0o600);
-      expect(statSync(file.path.slice(0, file.path.lastIndexOf('/'))).mode & 0o777).toBe(0o700);
+      expect(
+        statSync(file.path.slice(0, file.path.lastIndexOf('/'))).mode & 0o777,
+      ).toBe(0o700);
       expect(readFileSync(file.path, 'utf8')).toBe(file.text);
     } finally {
       file.dispose();

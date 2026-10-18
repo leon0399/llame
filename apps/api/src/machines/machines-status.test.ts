@@ -65,9 +65,15 @@ describe('deriveMachineStatus', () => {
 
   it('is offline once the window passed', () => {
     expect(
-      deriveMachineStatus(new Date(NOW - MACHINE_ONLINE_WINDOW_MS - 1), null, NOW),
+      deriveMachineStatus(
+        new Date(NOW - MACHINE_ONLINE_WINDOW_MS - 1),
+        null,
+        NOW,
+      ),
     ).toBe('offline');
-    expect(deriveMachineStatus(new Date(NOW - 10 * 60_000), null, NOW)).toBe('offline');
+    expect(deriveMachineStatus(new Date(NOW - 10 * 60_000), null, NOW)).toBe(
+      'offline',
+    );
   });
 
   it('is offline when the last failure came after the last contact', () => {
@@ -77,13 +83,15 @@ describe('deriveMachineStatus', () => {
   });
 
   it('is online again once a later contact succeeded', () => {
-    expect(deriveMachineStatus(new Date(NOW - 500), new Date(NOW - 1000), NOW)).toBe(
-      'online',
-    );
+    expect(
+      deriveMachineStatus(new Date(NOW - 500), new Date(NOW - 1000), NOW),
+    ).toBe('online');
   });
 
   it('reads a tie as offline', () => {
-    expect(deriveMachineStatus(new Date(NOW), new Date(NOW), NOW)).toBe('offline');
+    expect(deriveMachineStatus(new Date(NOW), new Date(NOW), NOW)).toBe(
+      'offline',
+    );
   });
 });
 
@@ -102,7 +110,10 @@ describe('boundMachineRoots', () => {
   });
 
   it('bounds the count and each entry length', () => {
-    const many = Array.from({ length: MACHINE_ROOTS_LIMIT + 5 }, (_, i) => `/r/${i}`);
+    const many = Array.from(
+      { length: MACHINE_ROOTS_LIMIT + 5 },
+      (_, i) => `/r/${i}`,
+    );
     expect(boundMachineRoots(many)).toHaveLength(MACHINE_ROOTS_LIMIT);
     const long = `/${'x'.repeat(MACHINE_ROOT_MAX_LENGTH * 2)}`;
     expect(boundMachineRoots([long])).toEqual([
@@ -121,9 +132,9 @@ describe('boundMachineVersion', () => {
   });
 
   it('bounds the length', () => {
-    expect(boundMachineVersion('v'.repeat(MACHINE_VERSION_MAX_LENGTH * 2))).toHaveLength(
-      MACHINE_VERSION_MAX_LENGTH,
-    );
+    expect(
+      boundMachineVersion('v'.repeat(MACHINE_VERSION_MAX_LENGTH * 2)),
+    ).toHaveLength(MACHINE_VERSION_MAX_LENGTH);
   });
 });
 

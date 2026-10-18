@@ -154,7 +154,8 @@ export class MachineSession {
     this.output = options.transport.output;
     this.transport = options.transport;
     this.hubVersion = options.hubVersion;
-    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
+    this.handshakeTimeoutMs =
+      options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
     this.multiplexer = createFrameMultiplexer({
       send: (frame) => this.writeFrame(frame),
     });
@@ -315,7 +316,9 @@ export class MachineSession {
     this.endSignal.resolve(this.end);
   }
 
-  private classify(input: EndInput & { end?: MachineLinkEnd }): MachineSessionEndReason {
+  private classify(
+    input: EndInput & { end?: MachineLinkEnd },
+  ): MachineSessionEndReason {
     if (input.kind === 'failure') return input.reason;
     if (input.kind === 'closed') return 'closed';
     const end = input.end;
@@ -340,7 +343,9 @@ export class MachineSession {
         this.name,
         'session_lost',
         false,
-        error instanceof Error ? error.message : 'The Machine session is closed.',
+        error instanceof Error
+          ? error.message
+          : 'The Machine session is closed.',
       );
     }
   }
@@ -393,15 +398,26 @@ export class MachineSession {
   }
 
   /** Convert any failure into the error vocabulary callers act on. */
-  private failure(error: unknown, sent: boolean, signal: AbortSignal | undefined): Error {
+  private failure(
+    error: unknown,
+    sent: boolean,
+    signal: AbortSignal | undefined,
+  ): Error {
     if (error instanceof MachineProtocolError) return error;
     if (error instanceof MachineUnavailableError) return error;
     // A caller's own cancellation is not a Machine failure.
     if (signal?.aborted === true) return toError(error);
     const end = this.end;
     const reason =
-      end !== undefined && end.reason !== 'closed' ? end.reason : 'session_lost';
-    return new MachineUnavailableError(this.name, reason, sent, describe(error));
+      end !== undefined && end.reason !== 'closed'
+        ? end.reason
+        : 'session_lost';
+    return new MachineUnavailableError(
+      this.name,
+      reason,
+      sent,
+      describe(error),
+    );
   }
 
   private reclassify(

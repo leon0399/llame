@@ -49,9 +49,10 @@ export const machinesStatus = pgTable(
     daemonProtocolVersion: integer('daemon_protocol_version'),
     daemonVersion: text('daemon_version'),
     /** The Machine's registered roots, bounded (count and length). */
-    roots: jsonb('roots').$type<ReadonlyArray<string>>().notNull().default(
-      sql`'[]'::jsonb`,
-    ),
+    roots: jsonb('roots')
+      .$type<ReadonlyArray<string>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [

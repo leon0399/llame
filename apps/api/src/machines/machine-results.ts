@@ -76,11 +76,15 @@ function isFsListEntryKind(value: SerializableValue): value is FsListEntryKind {
   return isText(value) && Object.hasOwn(FS_LIST_ENTRY_KINDS, value);
 }
 
-function isNativeFailureType(value: SerializableValue): value is NativeFailureType {
+function isNativeFailureType(
+  value: SerializableValue,
+): value is NativeFailureType {
   return isText(value) && Object.hasOwn(NATIVE_FAILURE_TYPES, value);
 }
 
-function isMcpTransportKind(value: SerializableValue): value is McpTransportKind {
+function isMcpTransportKind(
+  value: SerializableValue,
+): value is McpTransportKind {
   return isText(value) && Object.hasOwn(MCP_TRANSPORTS, value);
 }
 
@@ -106,13 +110,18 @@ function isTextList(value: SerializableValue): value is ReadonlyArray<string> {
 }
 
 /** An untrusted JSON array, typed for element-wise validation. */
-function isUntrustedList(value: JsonValue): value is ReadonlyArray<SerializableValue> {
+function isUntrustedList(
+  value: JsonValue,
+): value is ReadonlyArray<SerializableValue> {
   return Array.isArray(value);
 }
 
 /** The refusal branch shared by every native method result. */
-export function readNativeFailure(value: JsonValue): NativeFailureResult | undefined {
-  if (!isSerializableRecord(value) || value['status'] !== 'error') return undefined;
+export function readNativeFailure(
+  value: JsonValue,
+): NativeFailureResult | undefined {
+  if (!isSerializableRecord(value) || value['status'] !== 'error')
+    return undefined;
   const { type, message, count } = value;
   if (!isText(message) || !isNativeFailureType(type)) return undefined;
   if (isCount(count)) return { status: 'error', type, message, count };
@@ -120,7 +129,9 @@ export function readNativeFailure(value: JsonValue): NativeFailureResult | undef
 }
 
 /** Does this result carry a refusal rather than a value? */
-export function isNativeFailure(value: JsonValue): value is NativeFailureResult {
+export function isNativeFailure(
+  value: JsonValue,
+): value is NativeFailureResult {
   return readNativeFailure(value) !== undefined;
 }
 
@@ -133,7 +144,9 @@ export function readHelloResult(value: JsonValue): HelloResult | undefined {
   return { protocolVersion, daemonVersion, roots: [...roots] };
 }
 
-export function readRootsListResult(value: JsonValue): RootsListResult | undefined {
+export function readRootsListResult(
+  value: JsonValue,
+): RootsListResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { roots } = value;
   return isTextList(roots) ? { roots: [...roots] } : undefined;
@@ -159,7 +172,9 @@ function readFsListEntry(value: SerializableValue): FsListEntry | undefined {
   return { name, kind };
 }
 
-function readFsListEntries(value: JsonValue): ReadonlyArray<FsListEntry> | undefined {
+function readFsListEntries(
+  value: JsonValue,
+): ReadonlyArray<FsListEntry> | undefined {
   if (!isUntrustedList(value)) return undefined;
   const entries: Array<FsListEntry> = [];
   for (const entry of value) {
@@ -184,7 +199,8 @@ export function readFsListResult(value: JsonValue): FsListResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { totalCount, truncated } = value;
   const list = readFsListEntries(fieldOf(value, 'entries') ?? null);
-  if (list === undefined || !isCount(totalCount) || !isFlag(truncated)) return undefined;
+  if (list === undefined || !isCount(totalCount) || !isFlag(truncated))
+    return undefined;
   return { entries: list, totalCount, truncated };
 }
 
@@ -192,25 +208,45 @@ export function readFsListResult(value: JsonValue): FsListResult | undefined {
 export function readFsReadResult(value: JsonValue): FsReadResult | undefined {
   const failure = readNativeFailure(value);
   if (failure !== undefined) return failure;
-  if (!isSerializableRecord(value) || value['status'] !== 'success') return undefined;
+  if (!isSerializableRecord(value) || value['status'] !== 'success')
+    return undefined;
   const { kind, path, realPath } = value;
   if (!isText(path)) return undefined;
   if (kind === 'image' || kind === 'pdf') {
     const mediaType = value['mediaType'];
     if (!isText(mediaType)) return undefined;
-    const media: NativeMediaReadResult = { status: 'success', kind, mediaType, path };
+    const media: NativeMediaReadResult = {
+      status: 'success',
+      kind,
+      mediaType,
+      path,
+    };
     return isText(realPath) ? { ...media, realPath } : media;
   }
   if (kind !== 'file' && kind !== 'directory') return undefined;
   const { content, truncated, nextOffset } = value;
   if (!isText(content) || !isFlag(truncated)) return undefined;
   if (isText(realPath) && isCount(nextOffset))
-    return { status: 'success', kind, path, content, truncated, realPath, nextOffset };
+    return {
+      status: 'success',
+      kind,
+      path,
+      content,
+      truncated,
+      realPath,
+      nextOffset,
+    };
   if (isText(realPath))
     return { status: 'success', kind, path, content, truncated, realPath };
   if (isCount(nextOffset))
     return { status: 'success', kind, path, content, truncated, nextOffset };
-  const file: NativeFileReadResult = { status: 'success', kind, path, content, truncated };
+  const file: NativeFileReadResult = {
+    status: 'success',
+    kind,
+    path,
+    content,
+    truncated,
+  };
   return file;
 }
 
@@ -223,12 +259,15 @@ export function readFsBytesResult(value: JsonValue): FsBytesResult | undefined {
   return isCount(size) && isText(mediaType) ? { size, mediaType } : undefined;
 }
 
-function readMcpServerEntry(value: SerializableValue): McpServerEntry | undefined {
+function readMcpServerEntry(
+  value: SerializableValue,
+): McpServerEntry | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { name, state, transport, diagnostic } = value;
   if (!isText(name) || !isMcpServerState(state)) return undefined;
   const entry: McpServerEntry = { name, state };
-  if (isMcpTransportKind(transport)) return withDiagnostic({ ...entry, transport }, diagnostic);
+  if (isMcpTransportKind(transport))
+    return withDiagnostic({ ...entry, transport }, diagnostic);
   return withDiagnostic(entry, diagnostic);
 }
 
@@ -239,7 +278,9 @@ function withDiagnostic(
   return isText(diagnostic) ? { ...entry, diagnostic } : entry;
 }
 
-function readMcpServerEntries(value: JsonValue): ReadonlyArray<McpServerEntry> | undefined {
+function readMcpServerEntries(
+  value: JsonValue,
+): ReadonlyArray<McpServerEntry> | undefined {
   if (!isUntrustedList(value)) return undefined;
   const servers: Array<McpServerEntry> = [];
   for (const entry of value) {
@@ -250,7 +291,9 @@ function readMcpServerEntries(value: JsonValue): ReadonlyArray<McpServerEntry> |
   return servers;
 }
 
-export function readMcpServersResult(value: JsonValue): McpServersResult | undefined {
+export function readMcpServersResult(
+  value: JsonValue,
+): McpServersResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const entries = readMcpServerEntries(fieldOf(value, 'servers') ?? null);
   return entries === undefined ? undefined : { servers: entries };
@@ -260,5 +303,7 @@ export function readMcpServersResult(value: JsonValue): McpServersResult | undef
 export function readMcpOpenResult(value: JsonValue): McpOpenResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { protectedValues } = value;
-  return isTextList(protectedValues) ? { protectedValues: [...protectedValues] } : undefined;
+  return isTextList(protectedValues)
+    ? { protectedValues: [...protectedValues] }
+    : undefined;
 }

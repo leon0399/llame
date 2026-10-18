@@ -321,6 +321,23 @@ function abortLink(
   return () => signal.removeEventListener("abort", onAbort);
 }
 
+/** Why a stream cannot carry this request, closing it when the caller already gave up. */
+function refuseRequest(
+  session: StreamSession,
+  state: StreamState,
+  signal: AbortSignal | undefined,
+): Error | undefined {
+  if (state.closed || session.closed)
+    return new StreamClosedError(state.id, "closed");
+  if (signal?.aborted === true) {
+    closeStream(session, state, "cancelled");
+    return new StreamClosedError(state.id, "cancelled");
+  }
+  if (state.replyId !== undefined)
+    return new Error(`Stream ${state.id} already carries a request.`);
+  return undefined;
+}
+
 function requestOnStream<M extends MachineMethod>(
   session: StreamSession,
   state: StreamState,
@@ -330,16 +347,8 @@ function requestOnStream<M extends MachineMethod>(
     readonly options?: ChannelRequestOptions;
   },
 ): Promise<JsonValue> {
-  if (state.closed || session.closed)
-    return Promise.reject(new StreamClosedError(state.id, "closed"));
-  if (call.options?.signal?.aborted === true) {
-    closeStream(session, state, "cancelled");
-    return Promise.reject(new StreamClosedError(state.id, "cancelled"));
-  }
-  if (state.replyId !== undefined)
-    return Promise.reject(
-      new Error(`Stream ${state.id} already carries a request.`),
-    );
+  const refusal = refuseRequest(session, state, call.options?.signal);
+  if (refusal !== undefined) return Promise.reject(refusal);
   state.replyId = state.id;
   return new Promise<JsonValue>((resolve, reject) => {
     const detach = abortLink(call.options?.signal, () => {

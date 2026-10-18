@@ -20,9 +20,12 @@ export const MACHINE_FAILURE_REASONS = [
 
 export type MachineFailureReason = (typeof MACHINE_FAILURE_REASONS)[number];
 
-export function isMachineFailureReason(value: unknown): value is MachineFailureReason {
+export function isMachineFailureReason(
+  value: unknown,
+): value is MachineFailureReason {
   return (
-    typeof value === 'string' && MACHINE_FAILURE_REASONS.some((reason) => reason === value)
+    typeof value === 'string' &&
+    MACHINE_FAILURE_REASONS.some((reason) => reason === value)
   );
 }
 
@@ -83,8 +86,12 @@ export function deriveMachineStatus(
   now: number,
 ): MachineStatus {
   if (lastContactAt === null) return 'offline';
-  if (now - lastContactAt.getTime() > MACHINE_ONLINE_WINDOW_MS) return 'offline';
-  if (lastFailureAt !== null && lastFailureAt.getTime() >= lastContactAt.getTime())
+  if (now - lastContactAt.getTime() > MACHINE_ONLINE_WINDOW_MS)
+    return 'offline';
+  if (
+    lastFailureAt !== null &&
+    lastFailureAt.getTime() >= lastContactAt.getTime()
+  )
     return 'offline';
   return 'online';
 }
@@ -111,7 +118,9 @@ export function boundMachineRoots(
 }
 
 /** A daemon-reported version, or undefined when it is empty or unusable. */
-export function boundMachineVersion(version: string | undefined): string | undefined {
+export function boundMachineVersion(
+  version: string | undefined,
+): string | undefined {
   if (version === undefined) return undefined;
   const text = version.slice(0, MACHINE_VERSION_MAX_LENGTH).trim();
   return text === '' ? undefined : text;

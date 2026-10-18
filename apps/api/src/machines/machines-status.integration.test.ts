@@ -20,7 +20,10 @@ import { CoreInfraModule } from '../core-infra.module';
 import * as schema from '../db/schema';
 import { machinesStatus } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { BUILT_IN_DEFAULTS, type LlameConfig } from '../instance-config/llame-config';
+import {
+  BUILT_IN_DEFAULTS,
+  type LlameConfig,
+} from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 
 import { MachinesController } from './machines.controller';
@@ -131,8 +134,12 @@ d('machines_status RLS and GET /api/v1/machines', () => {
       ORDER BY polname
     `;
     expect(policies.length).toBe(2);
-    expect(policies[0]).toMatchObject({ polname: 'machines_status_authenticated_select' });
-    expect(policies[1]).toMatchObject({ polname: 'machines_status_system_write' });
+    expect(policies[0]).toMatchObject({
+      polname: 'machines_status_authenticated_select',
+    });
+    expect(policies[1]).toMatchObject({
+      polname: 'machines_status_system_write',
+    });
   });
 
   it('writes status from the identity-less system context', async () => {
@@ -147,8 +154,12 @@ d('machines_status RLS and GET /api/v1/machines', () => {
       roots: ['/srv/app'],
       lastFailureReason: null,
     });
-    expect(rows[0]?.firstContactAt?.toISOString()).toBe('2026-10-18T12:00:00.000Z');
-    expect(rows[0]?.lastContactAt?.toISOString()).toBe('2026-10-18T12:00:00.000Z');
+    expect(rows[0]?.firstContactAt?.toISOString()).toBe(
+      '2026-10-18T12:00:00.000Z',
+    );
+    expect(rows[0]?.lastContactAt?.toISOString()).toBe(
+      '2026-10-18T12:00:00.000Z',
+    );
   });
 
   it('keeps the last contact through a later failure, and records a failure-only Machine', async () => {
@@ -163,7 +174,11 @@ d('machines_status RLS and GET /api/v1/machines', () => {
       }),
     );
     await repository.recordContact(
-      contact({ name: 'gpu', at: new Date('2026-10-18T12:03:00.000Z'), failure: 'auth_failed' }),
+      contact({
+        name: 'gpu',
+        at: new Date('2026-10-18T12:03:00.000Z'),
+        failure: 'auth_failed',
+      }),
     );
     const rows = await repository.listForUser(userId, ['devl', 'gpu']);
     const byName = new Map(rows.map((row) => [row.name, row]));
@@ -182,7 +197,8 @@ d('machines_status RLS and GET /api/v1/machines', () => {
 
   it('refuses a read without an identity, even for the table owner', async () => {
     await repository.recordContact(contact());
-    const [count] = await sql`SELECT count(*)::int AS count FROM machines_status`;
+    const [count] =
+      await sql`SELECT count(*)::int AS count FROM machines_status`;
     expect(count.count).toBe(0);
     // A plain identity-less WRITE is refused too: only the marked system
     // transaction (the repository) may write.
@@ -200,7 +216,9 @@ d('machines_status RLS and GET /api/v1/machines', () => {
         lastContactAt: new Date(),
       });
     };
-    const refused = await tenantDb.runAs(userId, insert).catch((error: unknown) => error);
+    const refused = await tenantDb
+      .runAs(userId, insert)
+      .catch((error: unknown) => error);
     // Drizzle wraps the driver error, so the SQLSTATE is the stable evidence.
     expect(pgErrorCode(refused)).toBe('42501');
     // Nothing was written by the refused attempt.
@@ -232,13 +250,22 @@ d('machines_status RLS and GET /api/v1/machines', () => {
     });
     expect(body[0]?.lastSeenAt).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/u);
     const serialized = JSON.stringify(body);
-    for (const secret of [DESTINATION, KNOWN_HOSTS_FILE, IDENTITY_FILE, '/etc/llame'])
+    for (const secret of [
+      DESTINATION,
+      KNOWN_HOSTS_FILE,
+      IDENTITY_FILE,
+      '/etc/llame',
+    ])
       expect(serialized).not.toContain(secret);
   });
 
   it('reports an offline Machine with its reason and no last-seen time', async () => {
     await repository.recordContact(
-      contact({ at: new Date(), failure: 'unreachable', daemonProtocolVersion: undefined }),
+      contact({
+        at: new Date(),
+        failure: 'unreachable',
+        daemonProtocolVersion: undefined,
+      }),
     );
     const body = await controller.list(userId);
     expect(body[0]).toMatchObject({

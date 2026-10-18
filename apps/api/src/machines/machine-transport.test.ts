@@ -11,7 +11,11 @@ import {
 
 type FakeLink = {
   readonly process: MachineLinkProcess;
-  readonly pairs: { readonly stdout: PassThrough; readonly stdin: PassThrough; readonly stderr: PassThrough };
+  readonly pairs: {
+    readonly stdout: PassThrough;
+    readonly stdin: PassThrough;
+    readonly stderr: PassThrough;
+  };
   close(code: number | null, signal: string | null): void;
   fail(error: Error): void;
   readonly killCount: () => number;
@@ -21,7 +25,9 @@ function fakeLink(): FakeLink {
   const stdout = new PassThrough();
   const stdin = new PassThrough();
   const stderr = new PassThrough();
-  let onClose: ((code: number | null, signal: string | null) => void) | undefined;
+  let onClose:
+    | ((code: number | null, signal: string | null) => void)
+    | undefined;
   let onError: ((error: Error) => void) | undefined;
   let kills = 0;
   return {
@@ -54,9 +60,12 @@ describe('classifyLinkFailure', () => {
     expect(
       classifyLinkFailure(false, 'me@box: Permission denied (publickey).'),
     ).toBe('auth_failed');
-    expect(classifyLinkFailure(false, 'ssh: connect to host box port 22: Connection timed out')).toBe(
-      'unreachable',
-    );
+    expect(
+      classifyLinkFailure(
+        false,
+        'ssh: connect to host box port 22: Connection timed out',
+      ),
+    ).toBe('unreachable');
     expect(classifyLinkFailure(false, 'llame-machine: command not found')).toBe(
       'unreachable',
     );
@@ -64,12 +73,15 @@ describe('classifyLinkFailure', () => {
   });
 
   it('reads an end after the handshake as a lost session', () => {
-    expect(
-      classifyLinkFailure(true, 'Host key verification failed.'),
-    ).toBe('session_lost');
-    expect(classifyLinkFailure(true, 'kex_exchange_identification: read: Connection reset by peer')).toBe(
+    expect(classifyLinkFailure(true, 'Host key verification failed.')).toBe(
       'session_lost',
     );
+    expect(
+      classifyLinkFailure(
+        true,
+        'kex_exchange_identification: read: Connection reset by peer',
+      ),
+    ).toBe('session_lost');
   });
 });
 
@@ -186,7 +198,9 @@ describe('createMachineSshTransportFactory', () => {
       expect(created.sshConfigText()).toBe(text);
       expect(text).toContain('Host *');
       expect(text).toContain('StrictHostKeyChecking yes');
-      expect(text).toContain('UserKnownHostsFile "/etc/llame/machine_known_hosts"');
+      expect(text).toContain(
+        'UserKnownHostsFile "/etc/llame/machine_known_hosts"',
+      );
       expect(text).toContain('IdentityFile "/etc/llame/machine_ed25519"');
       expect(text.trimEnd().endsWith('Include')).toBe(false);
       expect(text).toContain('Include "');

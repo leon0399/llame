@@ -168,7 +168,13 @@ describe('readFsListResult', () => {
   it.each([
     [{ entries: [] }],
     [{ entries: [], totalCount: 0 }],
-    [{ entries: [{ name: 'a', kind: 'nope' }], totalCount: 1, truncated: false }],
+    [
+      {
+        entries: [{ name: 'a', kind: 'nope' }],
+        totalCount: 1,
+        truncated: false,
+      },
+    ],
     [{ entries: [{ name: 'a' }], totalCount: 1, truncated: false }],
     [{ entries: ['a'], totalCount: 1, truncated: false }],
     [{ entries: [], totalCount: 1.5, truncated: false }],
@@ -225,16 +231,37 @@ describe('readFsReadResult', () => {
 
   it.each([
     [{ status: 'success', kind: 'file', path: 'p' }],
-    [{ status: 'success', kind: 'file', path: 'p', content: 'x', truncated: 'no' }],
+    [
+      {
+        status: 'success',
+        kind: 'file',
+        path: 'p',
+        content: 'x',
+        truncated: 'no',
+      },
+    ],
     [{ status: 'success', kind: 'pdf', path: 'p' }],
-    [{ status: 'success', kind: 'socket', path: 'p', content: 'x', truncated: false }],
+    [
+      {
+        status: 'success',
+        kind: 'socket',
+        path: 'p',
+        content: 'x',
+        truncated: false,
+      },
+    ],
   ])('refuses %j', (value) => {
     expect(readFsReadResult(value)).toBeUndefined();
   });
 
   it('returns a refusal carried alongside extra fields', () => {
     expect(
-      readFsReadResult({ status: 'error', type: 'not_found', message: 'no', path: 'p' }),
+      readFsReadResult({
+        status: 'error',
+        type: 'not_found',
+        message: 'no',
+        path: 'p',
+      }),
     ).toEqual({ status: 'error', type: 'not_found', message: 'no' });
   });
 });
@@ -246,16 +273,21 @@ describe('readFsBytesResult', () => {
       mediaType: 'image/png',
     });
     expect(
-      readFsBytesResult({ status: 'error', type: 'media_too_large', message: 'big' }),
+      readFsBytesResult({
+        status: 'error',
+        type: 'media_too_large',
+        message: 'big',
+      }),
     ).toEqual({ status: 'error', type: 'media_too_large', message: 'big' });
   });
 
-  it.each([[{ size: 5 }], [{ mediaType: 'image/png' }], [{ size: -5, mediaType: 'x' }]])(
-    'refuses %j',
-    (value) => {
-      expect(readFsBytesResult(value)).toBeUndefined();
-    },
-  );
+  it.each([
+    [{ size: 5 }],
+    [{ mediaType: 'image/png' }],
+    [{ size: -5, mediaType: 'x' }],
+  ])('refuses %j', (value) => {
+    expect(readFsBytesResult(value)).toBeUndefined();
+  });
 });
 
 describe('readMcpServersResult', () => {
@@ -298,7 +330,9 @@ describe('readMcpOpenResult', () => {
     expect(readMcpOpenResult({ protectedValues: ['token'] })).toEqual({
       protectedValues: ['token'],
     });
-    expect(readMcpOpenResult({ protectedValues: [] })).toEqual({ protectedValues: [] });
+    expect(readMcpOpenResult({ protectedValues: [] })).toEqual({
+      protectedValues: [],
+    });
   });
 
   it.each([[{}], [{ protectedValues: 'token' }], [{ protectedValues: [1] }]])(

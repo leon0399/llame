@@ -80,12 +80,16 @@ const ESCAPED_QUOTE = '\u005c"';
 
 /** Quote an ssh_config argument so a path containing spaces survives. */
 function quote(value: string): string {
-  const escaped = value.replaceAll(BACKSLASH, ESCAPED_BACKSLASH).replaceAll('"', ESCAPED_QUOTE);
+  const escaped = value
+    .replaceAll(BACKSLASH, ESCAPED_BACKSLASH)
+    .replaceAll('"', ESCAPED_QUOTE);
   return `"${escaped}"`;
 }
 
 /** The exact text of the generated configuration. */
-export function renderMachineSshConfig(options: MachineSshSafetyOptions): string {
+export function renderMachineSshConfig(
+  options: MachineSshSafetyOptions,
+): string {
   return [
     ...HEADER,
     ...safetyBlock(options),
@@ -111,7 +115,11 @@ export function createMachineSshConfigFile(
     const path = join(directory, 'ssh_config');
     const text = renderMachineSshConfig(options);
     writeFileSync(path, text, { encoding: 'utf8', mode: 0o600 });
-    return { path, text, dispose: () => rmSync(directory, { recursive: true, force: true }) };
+    return {
+      path,
+      text,
+      dispose: () => rmSync(directory, { recursive: true, force: true }),
+    };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;

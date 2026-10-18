@@ -76,7 +76,10 @@ export type PeerSession = {
   /** Send a notification on the newest stream that carried `method`. */
   notify(method: string, notification: string, params?: JsonValue): void;
   /** End the peer's side abruptly, as a lost link, with ssh-like stderr. */
-  drop(options?: { readonly code?: number | null; readonly diagnostic?: string }): void;
+  drop(options?: {
+    readonly code?: number | null;
+    readonly diagnostic?: string;
+  }): void;
   /** Stop pinging, so the hub's own liveness check ends the session. */
   stopHeartbeat(): void;
   /** Waits until this peer has received `count` requests. */
@@ -108,7 +111,8 @@ class PeerSessionImpl implements PeerSession {
   private readonly framer = createLineFramer();
   private readonly heartbeat: Heartbeat;
   private readonly end = Promise.withResolvers<MachineLinkEnd>();
-  private readonly held: Array<{ method: string; channel: MachineChannel }> = [];
+  private readonly held: Array<{ method: string; channel: MachineChannel }> =
+    [];
   private readonly streamByMethod = new Map<string, MachineChannel>();
   private readonly requestWaiters: Array<{
     readonly count: number;
@@ -168,7 +172,8 @@ class PeerSessionImpl implements PeerSession {
   release(method: string, value: JsonValue, keepOpen = false): void {
     const index = this.held.findIndex((entry) => entry.method === method);
     const entry = this.held[index];
-    if (entry === undefined) throw new Error(`The peer holds no ${method} request.`);
+    if (entry === undefined)
+      throw new Error(`The peer holds no ${method} request.`);
     this.held.splice(index, 1);
     entry.channel.result(value);
     if (!keepOpen) entry.channel.close();
@@ -176,11 +181,17 @@ class PeerSessionImpl implements PeerSession {
 
   notify(method: string, notification: string, params?: JsonValue): void {
     const channel = this.streamByMethod.get(method);
-    if (channel === undefined) throw new Error(`The peer saw no ${method} stream.`);
+    if (channel === undefined)
+      throw new Error(`The peer saw no ${method} stream.`);
     channel.notify(notification, params);
   }
 
-  drop(options: { readonly code?: number | null; readonly diagnostic?: string } = {}): void {
+  drop(
+    options: {
+      readonly code?: number | null;
+      readonly diagnostic?: string;
+    } = {},
+  ): void {
     this.end.resolve({
       code: options.code === undefined ? 255 : options.code,
       signal: null,
@@ -283,7 +294,9 @@ class PeerSessionImpl implements PeerSession {
  * A peer factory: every `open` is one fresh session, exactly as an SSH
  * connection per session is in production.
  */
-export function createProtocolPeer(options: ProtocolPeerOptions = {}): ProtocolPeer {
+export function createProtocolPeer(
+  options: ProtocolPeerOptions = {},
+): ProtocolPeer {
   const sessions: Array<PeerSession> = [];
   const waiters: Array<() => void> = [];
   const peer: ProtocolPeer = {
@@ -305,7 +318,8 @@ export function createProtocolPeer(options: ProtocolPeerOptions = {}): ProtocolP
         await promise;
       }
       const session = sessions[index];
-      if (session === undefined) throw new Error('the peer has no such session');
+      if (session === undefined)
+        throw new Error('the peer has no such session');
       return session;
     },
   };
@@ -323,6 +337,11 @@ function createFailedTransport(diagnostic: string): MachineTransport {
     input,
     output,
     close: () => input.destroy(),
-    ended: Promise.resolve({ code: 255, signal: null, diagnostic, closedByHub: false }),
+    ended: Promise.resolve({
+      code: 255,
+      signal: null,
+      diagnostic,
+      closedByHub: false,
+    }),
   };
 }
