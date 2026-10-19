@@ -4,22 +4,32 @@
   description = "llame dev shell";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
 
   outputs =
-    { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          packages = [
-            pkgs.nodejs_22
-            pkgs.pnpm_12
-          ];
-        };
-      }
-    );
+    { self, nixpkgs }:
+    let
+      # The systems nixpkgs-unstable still supports; it dropped x86_64-darwin
+      # in 26.11.
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ];
+    in
+    {
+      devShells = nixpkgs.lib.genAttrs systems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              pkgs.nodejs_22
+              pkgs.pnpm_12
+            ];
+          };
+        }
+      );
+    };
 }
