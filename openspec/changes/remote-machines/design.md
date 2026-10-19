@@ -286,8 +286,9 @@ whatever the included SSH configuration references.
   user; one owner can read or change another's files, instructions, or
   `.mcp.json`. Hub-held state stays owner-scoped.
 - **T6. Included SSH configuration.** The safety block fixes host-key
-  checking, batch mode, agent, and connection sharing for every hop; the
-  included file's `ProxyCommand`, identities, and `SendEnv` apply as written.
+  checking, batch mode, agent, and connection sharing for every hop ssh itself
+  opens; the included file's `ProxyCommand`, identities, and `SendEnv` apply as
+  written, and a hop a `ProxyCommand` opens is outside the block.
 - **T7. Agent widening its own bounds.** Accepted for the experiment: roots
   are an addressing convenience the Machine user can change; disclosed to the
   model and the operator.

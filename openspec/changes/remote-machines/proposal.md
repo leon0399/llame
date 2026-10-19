@@ -24,7 +24,7 @@ no issue tracks it because it ships as one experimental change.
   configuration to include, so existing aliases, bastions, and credentials
   work. Without the section, no Machine surface exists.
 - Hub workers connect through a generated SSH configuration whose safety
-  options (pinned host keys on every hop, batch mode, no agent, no connection
+  options (pinned host keys on every hop ssh itself opens, batch mode, no agent, no connection
   sharing) override the included one, and start the operator-installed daemon
   `llame-machine serve --stdio`, speaking a versioned, multiplexed request
   protocol. The daemon refuses paths outside the roots registered on the box,

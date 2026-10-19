@@ -81,7 +81,7 @@ The hub SHALL connect with a generated SSH configuration that sets its safety op
 
 ### Requirement: The Machine session is versioned and multiplexed
 
-Each session SHALL begin with a handshake exchanging protocol versions; an incompatible version SHALL end it with reason `incompatible_version`. One session SHALL carry concurrent operations and Workspace MCP channels as independent streams. Stream identifiers SHALL never be reused within a session, and frames for unknown or closed streams SHALL be dropped. A missed liveness heartbeat SHALL end the session on both sides.
+Each session SHALL begin with a handshake exchanging protocol versions; an incompatible version SHALL end it with reason `incompatible_version`. One session SHALL carry concurrent operations and Workspace MCP channels as independent streams. Stream identifiers SHALL never be reused within a session, and frames for unknown or closed streams SHALL be dropped. Losing liveness for three consecutive heartbeat intervals SHALL end the session on both sides.
 
 #### Scenario: Incompatible daemon is reported, not used
 

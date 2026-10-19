@@ -7,7 +7,9 @@ master <- remote-machines/proposal <- remote-machines/implementation <- remote-m
 ```
 
 - `remote-machines/proposal` (parent `master`): owns only `proposal.md`,
-  `design.md`, the `remote-machines` spec, and this file. No issue: the
+  `design.md`, the `remote-machines` spec, this file, and the supporting
+  research note `docs/research/product-vision/2026-10-18-multi-device-execution-placement.md`
+  with its index entries. No issue: the
   feature ships as one experimental change by Leo's decision.
 - `remote-machines/implementation` (parent `remote-machines/proposal`): owns
   the whole experimental feature in one layer, re-estimated at 9,000 to 12,000
