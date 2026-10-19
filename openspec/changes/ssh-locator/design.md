@@ -2,8 +2,10 @@
 
 ## Context
 
-See proposal.md for motivation. Facts at the inspected base
-(`remote-machines-stack/status-bar`, `c258d586`) that shape the approach:
+See proposal.md for motivation. Facts were inspected at
+`remote-machines-stack/status-bar` `c258d586`; after that stack's restack to
+`e0b286bc`, citations into `machine-ssh-config.ts` and `config-loader.ts`
+shift by up to three lines. Facts that shape the approach:
 
 - Locator dispatch: `executeNative` decodes a `file:` alias, then
   `parsePathScheme` routes any `scheme://` to `executeLocator`
