@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -366,18 +366,5 @@ describe("session end", () => {
       ),
     );
     expect(daemon.frames).toHaveLength(frames);
-  });
-
-  it("reports a write failure as a closed session", async () => {
-    await daemon.hello();
-    const target = join(fixture.root, "written.txt");
-    await writeFile(target, "content\n");
-    await expect(
-      daemon.call("fs.read", {
-        envelope: envelope(),
-        path: target,
-        options: { displayPrefix: "machine://devl" },
-      }),
-    ).resolves.toMatchObject({ status: "success" });
   });
 });

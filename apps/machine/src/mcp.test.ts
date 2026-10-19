@@ -515,12 +515,10 @@ describe("mcp.open with an HTTP server", () => {
     expect(await awaitRelayed(opened, 2)).toMatchObject({
       result: { tools: [{ name: "ping" }] },
     });
-    const protectedNotifications = notificationsOf(
-      opened,
-      MCP_PROTECTED_NOTIFICATION,
+    await waitFor(
+      () => notificationsOf(opened, MCP_PROTECTED_NOTIFICATION).length > 0,
     );
-    await waitFor(() => protectedNotifications.length > 0);
-    expect(protectedNotifications).toMatchObject([
+    expect(notificationsOf(opened, MCP_PROTECTED_NOTIFICATION)).toMatchObject([
       { values: ["machine-fixture-session"] },
     ]);
     expect(
