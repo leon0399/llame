@@ -66,6 +66,20 @@ describe('loadPackagedToolDescription', () => {
     }
   });
 
+  it('discloses Machine locators and remote host authority on the host tools', () => {
+    for (const id of ['read', 'edit', 'write', 'bash'] as const) {
+      expect(loadPackagedToolDescription(id)).toContain('machine://');
+    }
+    // The disclosure is on every host tool: no sandbox, roots address only,
+    // and no isolation between users who share a Machine.
+    for (const id of ['read', 'edit', 'write', 'bash'] as const) {
+      const description = loadPackagedToolDescription(id);
+      expect(description).toMatch(/OS user/u);
+      expect(description).toMatch(/roots? bound addressing only/u);
+      expect(description).toMatch(/shared between users|shared Machine/u);
+    }
+  });
+
   it('normalizes CRLF and trailing whitespace out of a Windows-authored asset', () => {
     fsMocks.readFileSync.mockReturnValueOnce('line one\r\nline two   \r\n\r\n');
 

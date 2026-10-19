@@ -77,6 +77,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     workspaceGeneration: 0,
     workspaceTold: null,
     workspaceToldFrom: null,
+    workspaceToldAvailable: null,
     workspaceDetachReason: null,
   };
 
@@ -231,6 +232,7 @@ describe('ChatsService message windows, updates and forks', () => {
     workspaceGeneration: 0,
     workspaceTold: null,
     workspaceToldFrom: null,
+    workspaceToldAvailable: null,
     workspaceDetachReason: null,
   };
 

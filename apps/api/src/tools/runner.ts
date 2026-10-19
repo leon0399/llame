@@ -20,7 +20,13 @@ import {
   withoutReadSelector,
 } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
-import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
+import {
+  canonicalMachineLocator,
+  isWorkspaceRelative,
+  mapToWorkspaceHost,
+  resolveWorkspacePath,
+} from './workspace-path';
+import { isMachineLocator } from '../machines/machine-locator';
 import { type PermissionDecision } from './permissions/types';
 
 const logger = new Logger('ToolRunner');
@@ -160,25 +166,64 @@ function projectWorkspaceArguments(
   args: SubmittedToolArguments,
   root: string | undefined,
 ): WorkspaceProjection {
-  if (root === undefined) return { args, changed: false };
-  if (isNativeFileTool(tool) && isString(args.path)) {
-    if (!isWorkspaceRelative(args.path)) return { args, changed: false };
-    return {
-      args: { ...args, path: resolveWorkspacePath(root, args.path) },
-      changed: true,
-    };
-  }
-  if (isBashTool(tool)) {
-    if (args.cwd === undefined)
-      return { args: { ...args, cwd: root }, changed: true };
-    if (isString(args.cwd) && isWorkspaceRelative(args.cwd)) {
-      return {
-        args: { ...args, cwd: resolveWorkspacePath(root, args.cwd) },
-        changed: true,
-      };
-    }
-  }
+  if (isNativeFileTool(tool)) return projectNativeFileArguments(args, root);
+  if (isBashTool(tool)) return projectBashArguments(args, root);
   return { args, changed: false };
+}
+
+/** The same arguments with one field replaced; the caller decided it differs. */
+function projectedField(
+  args: SubmittedToolArguments,
+  field: 'path' | 'cwd',
+  value: string,
+): WorkspaceProjection {
+  return { args: { ...args, [field]: value }, changed: true };
+}
+
+/**
+ * A native read's `path`: a Workspace-relative one resolves under the root,
+ * and a bare absolute one inside a Machine Workspace addresses the Machine, so
+ * policy must see the address the call will actually reach.
+ */
+function projectNativeFileArguments(
+  args: SubmittedToolArguments,
+  root: string | undefined,
+): WorkspaceProjection {
+  const path = args.path;
+  if (!isString(path) || root === undefined) return { args, changed: false };
+  if (isWorkspaceRelative(path))
+    return projectedField(args, 'path', resolveWorkspacePath(root, path));
+  const mapped = mapToWorkspaceHost(root, path);
+  return mapped === path
+    ? { args, changed: false }
+    : projectedField(args, 'path', mapped);
+}
+
+/**
+ * `bash`'s `cwd`: a `machine://` locator is canonicalized as written, an
+ * omitted one defaults to the Workspace root, and a Workspace-relative or bare
+ * absolute one resolves the way a native path does.
+ */
+function projectBashArguments(
+  args: SubmittedToolArguments,
+  root: string | undefined,
+): WorkspaceProjection {
+  const cwd = args.cwd;
+  if (isString(cwd) && isMachineLocator(cwd)) {
+    const canonical = canonicalMachineLocator(cwd);
+    return canonical === cwd
+      ? { args, changed: false }
+      : projectedField(args, 'cwd', canonical);
+  }
+  if (root === undefined) return { args, changed: false };
+  if (cwd === undefined) return projectedField(args, 'cwd', root);
+  if (isString(cwd) && isWorkspaceRelative(cwd))
+    return projectedField(args, 'cwd', resolveWorkspacePath(root, cwd));
+  if (!isString(cwd)) return { args, changed: false };
+  const mapped = mapToWorkspaceHost(root, cwd);
+  return mapped === cwd
+    ? { args, changed: false }
+    : projectedField(args, 'cwd', mapped);
 }
 
 function evaluateCanonicalReadPermission(

@@ -73,6 +73,13 @@ function isImageSignature(head: Buffer): boolean {
   );
 }
 
+/** The media kind a file's leading bytes name, or undefined for the text path. */
+function mediaKindOf(head: Buffer): "image" | "pdf" | undefined {
+  const isPdf = head.toString("latin1", 0, 5) === "%PDF-";
+  if (isPdf) return "pdf";
+  return isImageSignature(head) ? "image" : undefined;
+}
+
 /**
  * The media read of an opened regular file, or undefined when the source has
  * no media hook or the file's leading bytes match no media signature, and the
@@ -93,10 +100,8 @@ export async function readMedia(
   if (media === undefined) return undefined;
   const head = Buffer.alloc(SIGNATURE_BYTES);
   const { bytesRead } = await file.read(head, 0, SIGNATURE_BYTES, 0);
-  const signature = head.subarray(0, bytesRead);
-  const isPdf = signature.toString("latin1", 0, 5) === "%PDF-";
-  if (!isPdf && !isImageSignature(signature)) return undefined;
-  const kind = isPdf ? "pdf" : "image";
+  const kind = mediaKindOf(head.subarray(0, bytesRead));
+  if (kind === undefined) return undefined;
   // pending a line count, leaves the target off its no-selector defaults.
   if (
     target.raw ||
@@ -111,6 +116,52 @@ export async function readMedia(
     kind,
     byteSize,
     readBytes: () => file.readFile({ signal }),
+    signal,
+  });
+  if (decoded.status === "error") return decoded;
+  return {
+    ...decoded,
+    path: target.path,
+    ...(target.realPath !== undefined && { realPath: target.realPath }),
+  };
+}
+
+/** What a byte-buffer media read reports: the display path and its canonical
+ *  form, exactly as `readMedia` takes them from a read target. */
+export type MediaBufferTarget = {
+  readonly path: string;
+  readonly realPath?: string;
+  /** The read selector the caller split off; a media read takes none. */
+  readonly selector?: string;
+};
+
+/**
+ * The media read of bytes already in memory, for a source that cannot hand
+ * this package a local file handle (a Machine streams `fs.bytes`, and the hub
+ * prepares what it receives exactly as a local read would). Same signature
+ * probe, hook contract, selector refusal, and result shape as `readMedia`;
+ * `undefined` means the bytes are not an image or PDF and the text path
+ * applies.
+ */
+export async function readMediaBytes(
+  bytes: Buffer,
+  target: MediaBufferTarget,
+  source: {
+    media?: MediaReadHook | undefined;
+    signal?: AbortSignal | undefined;
+  },
+): Promise<MediaReadSuccess | FileFailure | undefined> {
+  const { media, signal } = source;
+  if (media === undefined) return undefined;
+  const kind = mediaKindOf(bytes.subarray(0, SIGNATURE_BYTES));
+  if (kind === undefined) return undefined;
+  if (target.selector !== undefined)
+    throw new NativeFileError("invalid_selector", MEDIA_SELECTOR_MESSAGE);
+  signal?.throwIfAborted();
+  const decoded = await media({
+    kind,
+    byteSize: bytes.byteLength,
+    readBytes: () => Promise.resolve(bytes),
     signal,
   });
   if (decoded.status === "error") return decoded;

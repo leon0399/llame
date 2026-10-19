@@ -500,7 +500,7 @@ describe('Workspace MCP production integration', () => {
               ownerUserId: userId,
               runId: crypto.randomUUID(),
               deliverySequence: 0,
-              executorId: 'integration-worker',
+              bindExecutorId: 'integration-worker',
             })
             .catch(() => undefined),
         )

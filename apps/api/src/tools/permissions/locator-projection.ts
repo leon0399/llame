@@ -14,7 +14,13 @@ import {
   parseSkillLocator,
   SKILL_LOCATOR_SCHEME,
 } from '../../skills/skill-locator';
-import { isWorkspaceRelative, resolveWorkspacePath } from '../workspace-path';
+import { MACHINE_SCHEME } from '../../machines/machine-locator';
+import {
+  canonicalMachineLocator,
+  isWorkspaceRelative,
+  mapToWorkspaceHost,
+  resolveWorkspacePath,
+} from '../workspace-path';
 import {
   parseWebLocator,
   splitWebSelector,
@@ -89,7 +95,10 @@ function withoutFileAliasSelector(value: string): string {
  * Workspace root when one is supplied; absolute host locators and invalid
  * locators are otherwise returned unchanged. Nothing touches the filesystem,
  * and the resolved host path is never substituted for Knowledge, skill, or
- * direct host locators.
+ * direct host locators. A Machine locator is re-encoded to its canonical text
+ * with the path decoded once; while a Machine Workspace is entered, a bare
+ * absolute path is mapped to that Machine's locator first, so a rule written
+ * against the local filesystem cannot admit a remote address.
  */
 export function projectNativeFilePath(
   value: string,
@@ -101,11 +110,20 @@ export function projectNativeFilePath(
     return alias.hostPath;
   }
   const projected =
-    workspaceRoot !== undefined && isWorkspaceRelative(value)
-      ? resolveWorkspacePath(workspaceRoot, value)
-      : value;
+    workspaceRoot === undefined
+      ? value
+      : isWorkspaceRelative(value)
+        ? resolveWorkspacePath(workspaceRoot, value)
+        : mapToWorkspaceHost(workspaceRoot, value);
   const scheme = parsePathScheme(projected);
   if (scheme === undefined) return projected;
+  if (scheme.scheme === MACHINE_SCHEME) {
+    // The Machine grammar decodes the path once before this text is matched,
+    // so a `%2E` spelling cannot miss a reject written against the decoded
+    // address. `.`, `..`, and trailing separators stay as written, and a
+    // listing or malformed locator is matched as the model wrote it.
+    return canonicalMachineLocator(projected);
+  }
   if (scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
     const parsed = parseKnowledgeLocator(scheme.rest);
     // A refused selector and a malformed part are the same unmatched text to
@@ -119,16 +137,25 @@ export function projectNativeFilePath(
     if ('type' in parsed) return projected;
     return withSelector(formatSkillLocator(parsed), parsed.selector);
   }
-  if (scheme.scheme in WEB_LOCATOR_SCHEMES) {
-    const parsed = parseWebLocator(projected);
-    if ('type' in parsed) return projected;
-    const fragmentFree = stripFragment(projected);
-    const split = splitWebSelector(fragmentFree);
-    return split.selector === undefined
-      ? parsed.url
-      : `${parsed.url}${fragmentFree.slice(split.url.length)}`;
-  }
+  if (scheme.scheme in WEB_LOCATOR_SCHEMES) return projectWebLocator(projected);
   return projected;
+}
+
+/**
+ * A web locator's canonical text: the URL the read tool's own parser yields,
+ * plus the selector exactly as it trails it in the submitted text, so a
+ * fragment the request drops cannot smuggle clause-matching text past an
+ * allow. A locator with no path keeps the slash its request carries, and a
+ * malformed one is matched as the model wrote it.
+ */
+function projectWebLocator(projected: string): string {
+  const parsed = parseWebLocator(projected);
+  if ('type' in parsed) return projected;
+  const fragmentFree = stripFragment(projected);
+  const split = splitWebSelector(fragmentFree);
+  return split.selector === undefined
+    ? parsed.url
+    : `${parsed.url}${fragmentFree.slice(split.url.length)}`;
 }
 
 function withSelector(canonical: string, selector: string | undefined): string {

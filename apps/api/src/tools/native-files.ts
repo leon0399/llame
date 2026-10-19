@@ -32,13 +32,25 @@ import {
   NO_SKILL_SELECTION,
   isSkillCatalogResult,
   resolveSkillLocator,
+  type ResolvedSkillTarget,
 } from '../skills/skill-target';
 import { type Tool, type ToolContext, type ToolResult } from './types';
-import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
+import {
+  isWorkspaceRelative,
+  mapToWorkspaceHost,
+  resolveWorkspacePath,
+} from './workspace-path';
 import { executeWebRead } from './web-read/execute';
 import { isFileAlias, decodeFileAlias } from './permissions/file-alias';
 import { executeMediaRead } from './media-read';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
+import { executeMachineNative } from './machine-files';
+import {
+  formatMachineLocator,
+  isMachineLocator,
+  MACHINE_SCHEME,
+  parseMachineLocator,
+} from '../machines/machine-locator';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -67,7 +79,9 @@ let nativeMutations: Promise<void> = Promise.resolve();
  * through the Run owner's current Knowledge access on every call and never
  * binds the Run to an executor. `http://` and `https://` are fetched by the
  * API process's own outbound HTTP and bind no executor either, and `media://`
- * reads the Run owner's stored media. An unimplemented scheme fails closed.
+ * reads the Run owner's stored media. `machine://` runs on an operator-
+ * configured Machine and never binds the local executor. An unimplemented
+ * scheme fails closed.
  */
 function executeNative(
   context: ToolContext,
@@ -87,6 +101,10 @@ function executeNative(
     const scheme = parsePathScheme(call.input.path);
     if (scheme !== undefined) return executeLocator(context, call, scheme);
     hostCall = projectNativeCall(context, call);
+    // A Machine Workspace maps relative and absolute paths to the Machine's
+    // own locator, so they take the Machine branch like a written one.
+    if (isMachineLocator(hostCall.input.path))
+      return executeMachineNative(context, hostCall, call.input.path);
   }
   // A media placeholder names the path as submitted, not the host path.
   if (hostCall.operation === 'read')
@@ -101,6 +119,9 @@ function executeLocator(
   call: NativeCall,
   { scheme, rest }: { scheme: string; rest: string },
 ): Promise<ToolResult> {
+  if (scheme === MACHINE_SCHEME) {
+    return executeMachineNative(context, call, call.input.path);
+  }
   if (scheme === KNOWLEDGE_LOCATOR_SCHEME) {
     return executeKnowledge(context, call, rest);
   }
@@ -125,8 +146,11 @@ function executeLocator(
 
 function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {
   const root = context.workspaceRoot?.current();
-  if (root === undefined || !isWorkspaceRelative(call.input.path)) return call;
-  return rewritePath(call, resolveWorkspacePath(root, call.input.path));
+  if (root === undefined) return call;
+  if (isWorkspaceRelative(call.input.path))
+    return rewritePath(call, resolveWorkspacePath(root, call.input.path));
+  const mapped = mapToWorkspaceHost(root, call.input.path);
+  return mapped === call.input.path ? call : rewritePath(call, mapped);
 }
 
 function rewritePath(call: NativeCall, path: string): NativeCall {
@@ -203,21 +227,64 @@ async function executeSkill(
     if ('status' in window) return window;
     return skillCatalogEnvelope(resolved.entries, window);
   }
-  const envelope = skillResultEnvelope(resolved);
+  return readResolvedSkillTarget(context, resolved);
+}
+
+/**
+ * The bytes of one resolved package file. A Machine Workspace's skill files
+ * live on the Machine and are read there; every other target is read locally
+ * under the ordinary host symbolic-link semantics. The skill envelope supplies
+ * the package attribution either way.
+ */
+async function readResolvedSkillTarget(
+  context: ToolContext,
+  target: ResolvedSkillTarget,
+): Promise<ToolResult> {
+  const envelope = skillResultEnvelope(target);
+  if (isMachineLocator(target.hostPath)) {
+    const machineResult = await readMachineSkillFile(context, target);
+    return machineResult.status === 'success'
+      ? { ...machineResult, ...envelope }
+      : machineResult;
+  }
   const options: NativeReadOptions = {
-    displayPath: resolved.locator,
+    displayPath: target.locator,
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
     followSymlinks: true,
     signal: context.abortSignal,
-    media: context.media?.readMedia(resolved.locator, context.toolCallId),
+    media: context.media?.readMedia(target.locator, context.toolCallId),
   };
   const result = await readResolvedFile(
-    resolved.hostPath,
-    resolved.selector === undefined
+    target.hostPath,
+    target.selector === undefined
       ? options
-      : { ...options, selector: resolved.selector },
+      : { ...options, selector: target.selector },
   );
   return result.status === 'success' ? { ...result, ...envelope } : result;
+}
+
+/**
+ * A Machine Workspace's skill files live on the Machine, so the catalog
+ * resolves them to Machine locators and this branch reads them there. The
+ * read's reported path is a Machine locator; the skill envelope supplies the
+ * package attribution as it does for a local package.
+ */
+function readMachineSkillFile(
+  context: ToolContext,
+  target: ResolvedSkillTarget,
+): Promise<ToolResult> {
+  const parsed = parseMachineLocator(target.hostPath);
+  if (parsed.kind !== 'path')
+    return Promise.resolve(skillCatalogUnavailableResult());
+  const selector = target.selector ?? parsed.selector;
+  const locator = formatMachineLocator(parsed.name, parsed.path, selector);
+  if (locator === undefined)
+    return Promise.resolve(skillCatalogUnavailableResult());
+  return executeMachineNative(
+    context,
+    { operation: 'read', input: { path: locator } },
+    locator,
+  );
 }
 
 /**

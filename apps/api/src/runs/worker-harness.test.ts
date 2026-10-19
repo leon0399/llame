@@ -328,6 +328,7 @@ describe('seedRun', () => {
         workspaceGeneration: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
+        workspaceToldAvailable: null,
         workspaceDetachReason: null,
       });
     const createMessage = vi
@@ -446,6 +447,7 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       workspaceGeneration: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
+      workspaceToldAvailable: null,
       workspaceDetachReason: null,
     });
     vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(message);
