@@ -44,7 +44,8 @@ import {
   stubFetch,
 } from "@/lib/test-support/fetch-stub";
 import { ChatHeader } from "./chat-header";
-import { ChatContextPanelProvider } from "./chat-context-panel/panel-state";
+import { SessionDetailsProvider } from "./session-details/details-state";
+import { SessionDetails } from "./session-details";
 import { ChatPage } from "./chat-page";
 import {
   setChatMarkdownLoadForTests,
@@ -2067,16 +2068,18 @@ function serveChatCard(listed: boolean) {
   });
 }
 
-/** The page under the chat header, stacked as the chat layout stacks them. */
+/** The page under the chat header with session details beside it, stacked
+ *  as the chat layout stacks them. */
 function ChatUnderHeader(props: ComponentProps<typeof ChatPage>) {
   return (
     <SidebarProvider className="min-h-0 flex-1">
-      <ChatContextPanelProvider defaultOpen={false}>
+      <SessionDetailsProvider defaultOpen>
         <SidebarInset className="flex flex-col overflow-hidden">
           <ChatHeader />
           <ChatPage {...props} />
         </SidebarInset>
-      </ChatContextPanelProvider>
+        <SessionDetails />
+      </SessionDetailsProvider>
     </SidebarProvider>
   );
 }
@@ -2087,11 +2090,11 @@ const HEADED_CHAT = {
   nextjs: { navigation: { pathname: `/chat/${CHAT_ID}` } },
 };
 
-/** Waits until the chat header shows the chat bound to `root`. */
-async function headerShows(canvasElement: HTMLElement, root: string) {
+/** Waits until session details show the chat bound to `root`. */
+async function panelShows(canvasElement: HTMLElement, root: string) {
   await waitFor(() =>
     expect(
-      within(canvasElement).getByLabelText(`Workspace: ${root}`),
+      within(canvasElement).getByRole("button", { name: root }),
     ).toBeVisible(),
   );
 }
@@ -2100,11 +2103,12 @@ async function headerShows(canvasElement: HTMLElement, root: string) {
 let endFirstReply: () => void = () => {};
 
 /**
- * The start of every streamed reply refreshes the chat's card, so the header
- * shows the Workspace the api prepared for that run while it still streams —
- * here for an archived chat the header reads only through GET /chats/:id.
+ * The start of every streamed reply refreshes the chat's card, so session
+ * details show the Workspace the api prepared for that run while it still
+ * streams — here for an archived chat the card reads only through
+ * GET /chats/:id.
  *
- * @summary each reply's start refreshes the header's Workspace
+ * @summary each reply's start refreshes the session details' Workspace
  */
 export const WorkspaceRefreshesEachRun: Story = {
   tags: ["ai-generated"],
@@ -2132,11 +2136,11 @@ export const WorkspaceRefreshesEachRun: Story = {
       within(canvasElement).getByRole("button", { name: "Stop generation" });
     const refresh = [LIST_ROUTE, LIST_ROUTE, DETAIL_ROUTE];
     await settledChat(canvasElement);
-    await headerShows(canvasElement, LLAME_ROOT);
+    await panelShows(canvasElement, LLAME_ROOT);
 
     boundRoot = NEXT_ROOT;
     await sendFollowUp(canvasElement);
-    await headerShows(canvasElement, NEXT_ROOT);
+    await panelShows(canvasElement, NEXT_ROOT);
     await expect(stop()).toBeVisible();
     await expect(sentRoutes()).toEqual([
       ...OPEN_CHAT_ROUTES,
@@ -2157,7 +2161,7 @@ export const WorkspaceRefreshesEachRun: Story = {
 
     boundRoot = DOCS_ROOT;
     await sendFollowUp(canvasElement);
-    await headerShows(canvasElement, DOCS_ROOT);
+    await panelShows(canvasElement, DOCS_ROOT);
     await expect(stop()).toBeVisible();
     await expect(sentRoutes()).toEqual([...firstRun, SEND_ROUTE, ...refresh]);
   },
@@ -2199,11 +2203,11 @@ function workspaceEntryReply(root: string, entered: Promise<void>) {
 let enterWorkspace: () => void = () => {};
 
 /**
- * When the agent enters a Workspace mid-reply, the header picks up the new
- * binding as soon as the entry succeeds — once, not again for the text that
- * follows it.
+ * When the agent enters a Workspace mid-reply, session details pick up the
+ * new binding as soon as the entry succeeds — once, not again for the text
+ * that follows it.
  *
- * @summary a live Workspace entry refreshes the header once
+ * @summary a live Workspace entry refreshes session details once
  */
 export const WorkspaceRefreshesOnEntry: Story = {
   tags: ["ai-generated"],
@@ -2225,12 +2229,12 @@ export const WorkspaceRefreshesOnEntry: Story = {
     // The reply's start refreshes the card before the entry rebinds the chat.
     const started = [...OPEN_CHAT_ROUTES, SEND_ROUTE, LIST_ROUTE, LIST_ROUTE];
     await waitFor(() => expect(sentRoutes()).toEqual(started));
-    await headerShows(canvasElement, LLAME_ROOT);
+    await panelShows(canvasElement, LLAME_ROOT);
 
     boundRoot = NEXT_ROOT;
     enterWorkspace();
 
-    await headerShows(canvasElement, NEXT_ROOT);
+    await panelShows(canvasElement, NEXT_ROOT);
     await transcriptShows(canvasElement, "Workspace is ready.");
     await expect(sentRoutes()).toEqual([...started, LIST_ROUTE, LIST_ROUTE]);
   },
@@ -2238,9 +2242,9 @@ export const WorkspaceRefreshesOnEntry: Story = {
 
 /**
  * Reopening a chat whose history already entered a Workspace leaves the
- * header on the cached card: a past entry refreshes nothing.
+ * session details on the cached card: a past entry refreshes nothing.
  *
- * @summary a past Workspace entry does not refresh the header on open
+ * @summary a past Workspace entry does not refresh the card on open
  */
 export const PastWorkspaceEntryKeepsCard: Story = {
   tags: ["ai-generated"],
@@ -2273,7 +2277,7 @@ export const PastWorkspaceEntryKeepsCard: Story = {
   },
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Entered the project.");
-    await headerShows(canvasElement, LLAME_ROOT);
+    await panelShows(canvasElement, LLAME_ROOT);
     await expect(sentRoutes()).toEqual(OPEN_CHAT_ROUTES);
   },
 };

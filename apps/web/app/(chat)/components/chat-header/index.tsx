@@ -2,18 +2,16 @@
 
 import { useEffect } from "react";
 
-import { SidebarTrigger, useSidebar } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 import { usePathname } from "next/navigation";
 
+import { MainRailTrigger } from "@/app/shell/main-rail";
 import { topBarClasses } from "@/app/shell/top-bar";
 import { useTypewriter } from "@/components/use-typewriter";
-import { WorkspaceIndicator } from "@/components/workspace-indicator";
 
 import { useOpenChat } from "@/lib/services/chat/queries";
 
-import { ChatContextPanelTrigger, useOpenChatId } from "../chat-context-panel";
-import { useChatContextPanel } from "../chat-context-panel/panel-state";
+import { SessionDetailsTrigger, useOpenChatId } from "../session-details";
 
 export interface ChatHeaderProps {
   className?: string;
@@ -35,17 +33,14 @@ function isResolvedTitle(title: string | null | undefined): title is string {
  * fetch for chats those caches drop (see `useOpenChat`). */
 function useResolvedChat(
   chatId: string | undefined,
-): { title: string; workspaceRoot: string | null } | null | undefined {
+): { title: string } | null | undefined {
   const chat = useOpenChat(chatId);
 
   return !chatId
     ? null
     : chat === undefined
       ? undefined
-      : {
-          title: chat.title ?? UNTITLED_CHAT_LABEL,
-          workspaceRoot: chat.workspaceRoot,
-        };
+      : { title: chat.title ?? UNTITLED_CHAT_LABEL };
 }
 
 /** Keeps the tab title in sync with the resolved chat title, and restores the
@@ -85,8 +80,6 @@ export function ChatHeader({ className }: ChatHeaderProps) {
   const chatId = useOpenChatId();
   const resolvedChat = useResolvedChat(chatId);
   const settledTitle = resolvedChat === null ? null : resolvedChat?.title;
-  const { isMobile } = useSidebar();
-  const panel = useChatContextPanel();
 
   useDocumentTitleSync(settledTitle);
 
@@ -101,18 +94,13 @@ export function ChatHeader({ className }: ChatHeaderProps) {
       className={cn(topBarClasses, "bg-background gap-2 px-2", className)}
     >
       {/* Mobile-only: opens the sidebar sheet; the desktop rail has its own toggle. */}
-      <SidebarTrigger className="md:hidden" />
+      <MainRailTrigger />
 
       {chatId && resolvedChat ? (
         <>
           <ChatHeaderTitle key={chatId} title={resolvedChat.title} />
-          <WorkspaceIndicator
-            workspaceRoot={resolvedChat.workspaceRoot}
-            expanded={isMobile ? panel.openMobile : panel.open}
-            onActivate={() => panel.toggle(isMobile)}
-          />
           <span className="ml-auto">
-            <ChatContextPanelTrigger />
+            <SessionDetailsTrigger />
           </span>
         </>
       ) : null}

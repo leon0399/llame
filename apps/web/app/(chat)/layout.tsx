@@ -14,19 +14,18 @@ import { ChatListSidebar } from "./components/chat-list-sidebar";
 import { ProjectListSidebar } from "./components/project-list-sidebar";
 import { ChatHeader } from "./components/chat-header";
 import { ChatListShowProvider } from "./components/chat-list-view";
-import { ChatContextPanel } from "./components/chat-context-panel";
-import { CHAT_CONTEXT_PANEL_COOKIE } from "./components/chat-context-panel/panel-cookie";
-import { ChatContextPanelProvider } from "./components/chat-context-panel/panel-state";
+import { SessionDetails } from "./components/session-details";
+import { SESSION_DETAILS_COOKIE } from "./components/session-details/details-cookie";
+import { SessionDetailsProvider } from "./components/session-details/details-state";
 
 /** The shell's remembered open states: the main rail starts collapsed (icon
- *  mode) until a user expands it; the context panel starts open until a user
- *  closes it. */
+ *  mode) until a user expands it; session details start open until a user
+ *  hides them. */
 async function readShellState() {
   const cookieStore = await cookies();
   return {
     railOpen: cookieStore.get("sidebar_state")?.value === "true",
-    contextPanelOpen:
-      cookieStore.get(CHAT_CONTEXT_PANEL_COOKIE)?.value !== "false",
+    detailsOpen: cookieStore.get(SESSION_DETAILS_COOKIE)?.value !== "false",
   };
 }
 
@@ -35,7 +34,7 @@ export default async function Layout({
 }: {
   children: React.ReactNode;
 }) {
-  const { railOpen, contextPanelOpen } = await readShellState();
+  const { railOpen, detailsOpen } = await readShellState();
 
   return (
     <>
@@ -46,26 +45,26 @@ export default async function Layout({
             <ChatProvider>
               <CommandPaletteProvider>
                 <ChatListShowProvider>
-                  <ChatContextPanelProvider defaultOpen={contextPanelOpen}>
-                    {/* Chat-specific header actions + the mobile chat-list fallback are
+                  {/* Chat-specific header actions + the mobile chat-list fallback are
                   injected into the shared shell here — AppSidebar itself has no
                   dependency on ChatProvider/CommandPaletteProvider (D1). */}
-                    <AppSidebar topActions={<AppSidebarActions />}>
-                      <ChatList />
-                    </AppSidebar>
+                  <AppSidebar topActions={<AppSidebarActions />}>
+                    <ChatList />
+                  </AppSidebar>
 
-                    {/* Route-scoped second rails: each renders null off its route. */}
-                    <ChatListSidebar />
-                    <ProjectListSidebar />
+                  {/* Route-scoped second rails: each renders null off its route. */}
+                  <ChatListSidebar />
+                  <ProjectListSidebar />
 
+                  <SessionDetailsProvider defaultOpen={detailsOpen}>
                     <SidebarInset className="flex h-full flex-col overflow-hidden">
                       <ChatHeader className="sticky top-0" />
 
                       {children}
                     </SidebarInset>
 
-                    <ChatContextPanel />
-                  </ChatContextPanelProvider>
+                    <SessionDetails />
+                  </SessionDetailsProvider>
                 </ChatListShowProvider>
               </CommandPaletteProvider>
             </ChatProvider>
