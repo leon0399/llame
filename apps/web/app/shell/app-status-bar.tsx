@@ -77,7 +77,11 @@ function MachinesOverview() {
           aria-label={`${machine.name}, ${machine.status}`}
         >
           <MachineDot status={machine.status} />
-          {machine.name}
+          {/* Names run to 63 characters; three of them must not crowd out
+              the online count. */}
+          <span className="max-w-32 truncate" title={machine.name}>
+            {machine.name}
+          </span>
         </StatusBarItem>
       ))}
       <Tooltip>

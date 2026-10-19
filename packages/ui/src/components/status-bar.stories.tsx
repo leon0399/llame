@@ -24,12 +24,12 @@ type Story = StoryObj<typeof meta>;
  *
  * @summary the bar under an app shell, with plain and linked items
  */
-export const InFrame: Story = {
+export const Basic: Story = {
   tags: ["ai-generated"],
-  render: () => (
+  render: (args) => (
     <StatusBarFrame className="h-64">
       <div className="flex-1 p-4 text-sm">Content</div>
-      <StatusBar>
+      <StatusBar {...args}>
         <StatusBarGroup>
           <StatusBarItem>58% 5h · 41% wk</StatusBarItem>
         </StatusBarGroup>
