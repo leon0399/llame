@@ -399,4 +399,46 @@ describe("errors and control", () => {
       .catch(() => {});
     expect(sent.map(({ frame }) => frame.s)).toEqual([0, 0]);
   });
+
+  it("keeps the control stream open when a control request is cancelled", async () => {
+    const { mux, sent } = build();
+    const controller = new AbortController();
+    const hello = settle(
+      mux.control.request(
+        "hello",
+        { protocolVersion: 1, hubVersion: "1" },
+        { signal: controller.signal },
+      ),
+    );
+    controller.abort();
+    expect((await hello).error).toBeInstanceOf(StreamClosedError);
+    mux.handle({ s: 0, m: { jsonrpc: "2.0", method: "cancel", params: {} } });
+    expect(mux.control.closed).toBe(false);
+    void mux.control
+      .request("roots.list", { envelope: { budgetMs: 5 } })
+      .catch(() => {});
+    expect(sent.at(-1)?.frame).toMatchObject({
+      s: 0,
+      m: { method: "roots.list" },
+    });
+  });
+
+  it("sends one reply per control request", () => {
+    const { mux, sent, opened } = build();
+    mux.handle({
+      s: 0,
+      m: {
+        jsonrpc: "2.0",
+        id: 0,
+        method: "roots.list",
+        params: { envelope: { budgetMs: 5 } },
+      },
+    });
+    const { channel } = opened[0];
+    channel.result({ roots: [] });
+    channel.error("internal", "late");
+    expect(sent.map(({ frame }) => frame.m)).toEqual([
+      { jsonrpc: "2.0", id: 0, result: { roots: [] } },
+    ]);
+  });
 });

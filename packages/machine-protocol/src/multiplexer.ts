@@ -193,6 +193,25 @@ function closeStream(
   state.closes.forEach((handler) => handler());
 }
 
+/**
+ * A cancellation ends the in-flight request. A numbered stream exists for that
+ * one request, so it closes; the control stream outlives every request on it
+ * and only drops the cancelled one.
+ */
+function cancelStream(session: StreamSession, state: StreamState): void {
+  if (!state.control) {
+    closeStream(session, state, "cancelled");
+    return;
+  }
+  state.replyId = undefined;
+  const pending = state.pending;
+  state.pending = undefined;
+  if (pending !== undefined) {
+    pending.detach();
+    pending.reject(new StreamClosedError(state.id, "cancelled"));
+  }
+}
+
 function settleStream(state: StreamState, message: JsonRpcMessage): void {
   const pending = state.pending;
   const id = "id" in message ? message.id : undefined;
@@ -213,7 +232,7 @@ function receiveMessage(
 ): void {
   if ("method" in message) {
     if (message.method === CANCEL_NOTIFICATION) {
-      closeStream(session, state, "cancelled");
+      cancelStream(session, state);
       return;
     }
     if (!("id" in message)) {
@@ -308,6 +327,9 @@ function respondOnStream(
 ): void {
   const id = state.replyId;
   if (id === undefined) return;
+  // A control request gets exactly one reply: its id is always 0, so a second
+  // one would settle whatever control request the peer sends next.
+  if (state.control) state.replyId = undefined;
   sendOnStream(session, state, build(id));
 }
 
@@ -333,7 +355,7 @@ function refuseRequest(
   if (state.closed || session.closed)
     return new StreamClosedError(state.id, "closed");
   if (signal?.aborted === true) {
-    closeStream(session, state, "cancelled");
+    cancelStream(session, state);
     return new StreamClosedError(state.id, "cancelled");
   }
   if (state.replyId !== undefined)
@@ -356,7 +378,7 @@ function requestOnStream<M extends MachineMethod>(
   return new Promise<JsonValue>((resolve, reject) => {
     const detach = abortLink(call.options?.signal, () => {
       notifyOnStream(session, state, CANCEL_NOTIFICATION);
-      closeStream(session, state, "cancelled");
+      cancelStream(session, state);
     });
     state.pending = { id: state.id, resolve, reject, detach };
     try {
