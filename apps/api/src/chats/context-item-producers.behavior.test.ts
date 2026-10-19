@@ -596,6 +596,79 @@ describe('workspace producer', () => {
     expect(item.data.text).not.toContain('working root');
   });
 
+  it('renders and validates a Machine-root snapshot through the Machine body', () => {
+    const root = 'machine://build-1/home/operator/app';
+    expect(isWorkspaceSnapshotPayload({ root })).toBe(true);
+
+    const item = createWorkspaceSnapshotItem({ runId: RUN_ID, root });
+
+    expect(item.data.payload).toEqual({ root });
+    expect(item.data.form).toBe('snapshot');
+    expect(item.data.text).toContain(
+      'The active Workspace working root is `machine://build-1/home/operator/app`, on Machine `build-1`.',
+    );
+    expect(item.data.text).toContain('one OS user');
+    expect(item.data.text).not.toContain('does not confine host authority');
+  });
+
+  it('gates a detach payload on record-ness, exact keys, and the Machine name', () => {
+    for (const value of [null, 'root_missing', [], 42]) {
+      expect(isWorkspaceDetachPayload(value)).toBe(false);
+    }
+    expect(
+      isWorkspaceDetachPayload({
+        reason: 'executor_absent',
+        machine: 'build-1',
+      }),
+    ).toBe(true);
+    expect(
+      isWorkspaceDetachPayload({
+        reason: 'executor_absent',
+        machine: 'Build 1',
+      }),
+    ).toBe(false);
+    expect(
+      isWorkspaceDetachPayload({ reason: 'executor_absent', machine: 7 }),
+    ).toBe(false);
+    expect(
+      isWorkspaceDetachPayload({
+        reason: 'executor_absent',
+        machine: 'build-1',
+        extra: true,
+      }),
+    ).toBe(false);
+    expect(
+      isWorkspaceDetachPayload({
+        reason: 'executor_absent',
+        machine: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it('names the removed Machine in the detach notice body', () => {
+    const item = createWorkspaceDetachNoticeItem({
+      runId: RUN_ID,
+      reason: 'executor_absent',
+      machine: 'build-1',
+    });
+
+    expect(item.data.payload).toEqual({
+      reason: 'executor_absent',
+      machine: 'build-1',
+    });
+    expect(item.data.text).toBe(
+      [
+        '<system-reminder producer="workspace" form="notice">',
+        'Inserted by llame; not written by the user.',
+        'The Workspace was detached before this turn because Machine `build-1` is no longer configured on this instance.',
+        'The Workspace is not active; enter a Workspace again to restore it.',
+        '',
+        '</system-reminder>',
+      ].join('\n'),
+    );
+    expect(item.data.text).not.toContain('binding check failed');
+  });
+
   it('rejects malformed Workspace payloads and constructor inputs', () => {
     expect(isWorkspaceSnapshotPayload({ root: 'relative/path' })).toBe(false);
     expect(isWorkspaceSnapshotPayload({ root: '/tmp', extra: true })).toBe(

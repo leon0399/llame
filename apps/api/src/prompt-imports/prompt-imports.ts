@@ -17,6 +17,11 @@ import {
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { importTargets } from '../import-markers/import-markers';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
+import {
+  formatMachineLocator,
+  isMachineLocator,
+  parseMachineLocator,
+} from '../machines/machine-locator';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
@@ -53,9 +58,21 @@ export type PromptImportRequest = {
   readonly workspaceRoot: string | undefined;
   readonly hostAvailable: boolean;
   readonly knowledgeAvailable: boolean;
+  /** Whether the Run may reach the configured Machines at all. */
+  readonly machineAvailable: boolean;
   /** Silent `read`-group pre-evaluation of the exact string the read submits. */
   readonly admitsRead: (path: string) => boolean;
   readonly probeHost: (absolutePathWithoutSelector: string) => Promise<boolean>;
+  /**
+   * The canonical Machine locator when `path` exists on `name`, and undefined
+   * when it does not or the Machine is unreachable alike. `path` is the
+   * locator's absolute Machine path, without its read selector — the same
+   * selector-free path a local probe confirms.
+   */
+  readonly probeMachine: (
+    name: string,
+    path: string,
+  ) => Promise<string | undefined>;
   /** The canonical `kb://` locator when the resource exists for the owner. */
   readonly probeKnowledge: (
     locatorWithoutSelector: string,
@@ -98,6 +115,14 @@ type ImportPlan =
       readonly readPath: string;
       /** Decoded absolute host path, selector still attached. */
       readonly hostPath: string;
+    }
+  | {
+      readonly kind: 'machine';
+      /** The configured Machine the locator names. */
+      readonly name: string;
+      /** Decoded absolute Machine path, without the read selector. */
+      readonly machinePath: string;
+      readonly readPath: string;
     }
   | { readonly kind: 'knowledge'; readonly readPath: string }
   | { readonly kind: 'media'; readonly readPath: string };
@@ -151,15 +176,47 @@ function planTarget(
 ): ImportPlan | undefined {
   if (target.startsWith('~/')) return undefined;
   if (isFileAlias(target)) return planFileAlias(request, target);
+  if (isMachineLocator(target)) return planMachineTarget(request, target);
   const scheme = parsePathScheme(target);
   if (scheme !== undefined) return planScheme(request, scheme.scheme, target);
-  if (!request.hostAvailable) return undefined;
+  // A bare absolute marker is never re-mapped here: while a Chat is bound to a
+  // Machine Workspace the caller projects it, and otherwise it is a host path.
   if (target.startsWith('/')) {
+    if (!request.hostAvailable) return undefined;
     return { kind: 'host', readPath: target, hostPath: target };
   }
-  if (request.workspaceRoot === undefined) return undefined;
-  const projected = resolveWorkspacePath(request.workspaceRoot, target);
+  const root = request.workspaceRoot;
+  if (root === undefined) return undefined;
+  // A Machine Workspace root resolves without the local native executor: the
+  // relative marker becomes a Machine locator, not a host path.
+  if (!request.hostAvailable && !isMachineLocator(root)) return undefined;
+  const projected = resolveWorkspacePath(root, target);
+  if (isMachineLocator(projected)) return planMachineTarget(request, projected);
   return { kind: 'host', readPath: projected, hostPath: projected };
+}
+
+/**
+ * A Machine locator plans like a host path: the same admission pre-evaluation
+ * over the canonical locator the read submits, then a probe of the absolute
+ * Machine path. Only a locator that names a Machine path can plan — the
+ * listing forms and the refusals stay prose — and no Machine is probed unless
+ * the Run may reach the configured Machines.
+ */
+function planMachineTarget(
+  request: PromptImportRequest,
+  locator: string,
+): ImportPlan | undefined {
+  if (!request.machineAvailable) return undefined;
+  const parsed = parseMachineLocator(locator);
+  if (parsed.kind !== 'path') return undefined;
+  return {
+    kind: 'machine',
+    name: parsed.name,
+    machinePath: parsed.path,
+    readPath:
+      formatMachineLocator(parsed.name, parsed.path, parsed.selector) ??
+      locator,
+  };
 }
 
 function planFileAlias(
@@ -199,8 +256,8 @@ async function handleTarget(
   if (plan.kind === 'direct') {
     return attemptRead(run, { target, ordinal, readPath: plan.readPath });
   }
-  // A local target not yet probed may be prose, so an expired work bound drops
-  // it without a trace.
+  // A target behind a probe may be prose, so an expired work bound drops it
+  // without a trace.
   if (workExpired(run)) return;
   if (!run.request.admitsRead(plan.readPath)) {
     // The audited denial runs without a probe, so existence never shows.
@@ -224,13 +281,18 @@ async function handleTarget(
 
 /**
  * Host paths probe the whole literal first, as `read` does, then the path
- * with its selector split off. Knowledge and media locators have no literal
- * colon, so only the selector-free locator is probed.
+ * with its selector split off. A Machine locator is probed once, over the
+ * absolute path the locator names (its selector is never a path character).
+ * Knowledge and media locators have no literal colon, so only the
+ * selector-free locator is probed.
  */
 async function probePlan(
   request: PromptImportRequest,
   plan: Exclude<ImportPlan, { kind: 'direct' }>,
 ): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
+  if (plan.kind === 'machine') {
+    return request.probeMachine(plan.name, plan.machinePath);
+  }
   if (plan.kind === 'media') {
     return request.probeMedia(
       withoutSelector(plan.readPath, `${MEDIA_LOCATOR_SCHEME}://`),

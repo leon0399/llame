@@ -13,8 +13,11 @@ type HarnessOptions = {
   readonly workspaceRoot?: string | undefined;
   readonly hostAvailable?: boolean;
   readonly knowledgeAvailable?: boolean;
+  readonly machineAvailable?: boolean;
   /** Host paths a probe finds. */
   readonly existing?: ReadonlyArray<string>;
+  /** Machine targets a probe finds, keyed `<name>` + absolute Machine path. */
+  readonly machine?: Readonly<Record<string, string>>;
   /** Selector-free `kb://` locators a probe finds, with their canonical form. */
   readonly knowledge?: Readonly<Record<string, string>>;
   /** Selector-free `media://` locators the owner stores. */
@@ -32,6 +35,11 @@ type HarnessOptions = {
   readonly onProbe?: (controller: AbortController) => void;
   /** Overrides the Knowledge probe for cancellation and failure cases. */
   readonly probeKnowledge?: (locator: string) => Promise<string | undefined>;
+  /** Overrides the Machine probe for an unreachable Machine. */
+  readonly probeMachine?: (
+    name: string,
+    path: string,
+  ) => Promise<string | undefined>;
 };
 
 const OK: ToolResult = { status: 'success', truncated: false };
@@ -41,6 +49,7 @@ function createHarness(options: HarnessOptions = {}) {
   const calls = {
     admits: new Array<string>(),
     hostProbes: new Array<string>(),
+    machineProbes: new Array<{ name: string; path: string }>(),
     knowledgeProbes: new Array<string>(),
     mediaProbes: new Array<string>(),
     reads: new Array<{ path: string; ordinal: number }>(),
@@ -56,6 +65,7 @@ function createHarness(options: HarnessOptions = {}) {
       workspaceRoot: '/repo',
       hostAvailable: true,
       knowledgeAvailable: true,
+      machineAvailable: true,
       ...options,
       admitsRead: (path) => {
         calls.admits.push(path);
@@ -66,6 +76,14 @@ function createHarness(options: HarnessOptions = {}) {
         now += options.probeCostMs ?? 0;
         options.onProbe?.(controller);
         return Promise.resolve(existing.has(path));
+      },
+      probeMachine: (name, path) => {
+        calls.machineProbes.push({ name, path });
+        now += options.probeCostMs ?? 0;
+        return (
+          options.probeMachine?.(name, path) ??
+          Promise.resolve(options.machine?.[`${name}${path}`])
+        );
       },
       probeKnowledge: (locator) => {
         calls.knowledgeProbes.push(locator);
@@ -356,6 +374,194 @@ describe('resolvePromptImports resolution', () => {
 
     expect(calls.reads).toHaveLength(1);
     expect(calls.hostProbes).toEqual(['/repo/a.md']);
+  });
+});
+
+describe('resolvePromptImports Machine targets', () => {
+  const MACHINE = 'machine://dev/notes/a.md';
+
+  it('probes the Machine once and reads the canonical locator', async () => {
+    const { calls, run } = createHarness({
+      machine: { 'dev/notes/a.md': MACHINE },
+    });
+
+    const result = await run(`read @${MACHINE}`);
+
+    expect(calls.admits).toEqual([MACHINE]);
+    expect(calls.machineProbes).toEqual([{ name: 'dev', path: '/notes/a.md' }]);
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.knowledgeProbes).toEqual([]);
+    expect(calls.reads).toEqual([{ path: MACHINE, ordinal: 0 }]);
+    expect(calls.readLocators).toEqual([MACHINE]);
+    expect(result).toEqual({
+      outcomes: [
+        {
+          locator: MACHINE,
+          resolved: MACHINE,
+          outcome: 'imported',
+          body: `body of ${MACHINE}`,
+        },
+      ],
+      omitted: [],
+    });
+  });
+
+  it('canonicalizes an uppercase and percent-encoded locator for the read', async () => {
+    const canonical = 'machine://dev/notes/a b.md';
+    const { calls, run } = createHarness({
+      machine: { 'dev/notes/a b.md': canonical },
+    });
+
+    const result = await run('@Machine://Dev/notes/a%20b.md');
+
+    expect(calls.admits).toEqual([canonical]);
+    expect(calls.machineProbes).toEqual([
+      { name: 'dev', path: '/notes/a b.md' },
+    ]);
+    expect(calls.reads).toEqual([{ path: canonical, ordinal: 0 }]);
+    expect(calls.readLocators).toEqual(['Machine://Dev/notes/a%20b.md']);
+    expect(result.outcomes).toEqual([
+      {
+        locator: 'Machine://Dev/notes/a%20b.md',
+        resolved: canonical,
+        outcome: 'imported',
+        body: `body of ${canonical}`,
+      },
+    ]);
+  });
+
+  it('probes the selector-free Machine path and reads the selector-bearing locator', async () => {
+    const { calls, run } = createHarness({
+      machine: { 'dev/notes/a.md': MACHINE },
+    });
+
+    const result = await run(`@${MACHINE}:10-12`);
+
+    expect(calls.admits).toEqual([`${MACHINE}:10-12`]);
+    expect(calls.machineProbes).toEqual([{ name: 'dev', path: '/notes/a.md' }]);
+    expect(calls.reads).toEqual([{ path: `${MACHINE}:10-12`, ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      {
+        locator: `${MACHINE}:10-12`,
+        resolved: MACHINE,
+        outcome: 'imported',
+        body: `body of ${MACHINE}:10-12`,
+      },
+    ]);
+  });
+
+  it('projects a relative marker through a Machine Workspace root', async () => {
+    const target = 'machine://dev/work/repo/notes/a.md';
+    const { calls, run } = createHarness({
+      workspaceRoot: 'machine://dev/work/repo',
+      hostAvailable: false,
+      machine: { 'dev/work/repo/notes/a.md': target },
+    });
+
+    const result = await run('see @notes/a.md');
+
+    expect(calls.admits).toEqual([target]);
+    expect(calls.machineProbes).toEqual([
+      { name: 'dev', path: '/work/repo/notes/a.md' },
+    ]);
+    expect(calls.reads).toEqual([{ path: target, ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      {
+        locator: 'notes/a.md',
+        resolved: target,
+        outcome: 'imported',
+        body: `body of ${target}`,
+      },
+    ]);
+  });
+
+  it('leaves a bare absolute marker on the host while the root is a Machine', async () => {
+    const { calls, run } = createHarness({
+      workspaceRoot: 'machine://dev/work/repo',
+      existing: ['/etc/notes.md'],
+    });
+
+    await run('@/etc/notes.md');
+
+    expect(calls.admits).toEqual(['/etc/notes.md']);
+    expect(calls.hostProbes).toEqual(['/etc/notes.md']);
+    expect(calls.machineProbes).toEqual([]);
+  });
+
+  it('imports a Machine marker without the local native executor', async () => {
+    const { calls, run } = createHarness({
+      hostAvailable: false,
+      machine: { 'dev/notes/a.md': MACHINE },
+    });
+
+    const result = await run(`@${MACHINE}`);
+
+    expect(calls.reads).toEqual([{ path: MACHINE, ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      {
+        locator: MACHINE,
+        resolved: MACHINE,
+        outcome: 'imported',
+        body: `body of ${MACHINE}`,
+      },
+    ]);
+  });
+
+  it('keeps a target on an unreachable Machine prose', async () => {
+    const { calls, run } = createHarness({
+      probeMachine: () => Promise.resolve(undefined),
+    });
+
+    const result = await run(`@${MACHINE} @machine://dev/notes/missing.md`);
+
+    expect(calls.admits).toEqual([MACHINE, 'machine://dev/notes/missing.md']);
+    expect(calls.machineProbes).toEqual([
+      { name: 'dev', path: '/notes/a.md' },
+      { name: 'dev', path: '/notes/missing.md' },
+    ]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it('keeps a Machine marker prose when no Machine world is available', async () => {
+    const { calls, run } = createHarness({
+      machineAvailable: false,
+      machine: { 'dev/notes/a.md': MACHINE },
+      workspaceRoot: 'machine://dev/work/repo',
+    });
+
+    const result = await run(`@${MACHINE} @notes/a.md`);
+
+    expect(calls.admits).toEqual([]);
+    expect(calls.machineProbes).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it('keeps the Machine listing forms and refusals prose', async () => {
+    const { calls, run } = createHarness({
+      machine: { 'dev/notes/a.md': MACHINE },
+    });
+
+    const result = await run('@machine:// @machine://dev @machine://Dev!/x');
+
+    expect(calls.admits).toEqual([]);
+    expect(calls.machineProbes).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it('records a denied Machine target without probing it', async () => {
+    const { calls, run } = createHarness({
+      machine: { 'dev/notes/a.md': MACHINE },
+      reject: (path) => path === MACHINE,
+    });
+
+    const result = await run(`@${MACHINE}`);
+
+    expect(calls.machineProbes).toEqual([]);
+    expect(calls.reads).toEqual([{ path: MACHINE, ordinal: 0 }]);
+    expect(result.outcomes).toEqual([{ locator: MACHINE, outcome: 'denied' }]);
   });
 });
 

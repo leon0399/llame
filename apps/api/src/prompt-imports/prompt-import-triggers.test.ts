@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { derivePromptImportTriggers } from './prompt-import-triggers';
 
 const SPACE_ID = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
-const BOTH = { host: true, knowledge: true };
+const MACHINE = 'machine://dev/notes/a.md';
+const BOTH = { host: true, knowledge: true, machine: true };
 
 describe('derivePromptImportTriggers', () => {
   it('triggers on imported and failed entries, never on denied ones', () => {
@@ -105,13 +106,85 @@ describe('derivePromptImportTriggers', () => {
         resolved: `kb://${SPACE_ID}/a.md`,
         outcome: 'imported',
       },
+      { locator: 'm', resolved: MACHINE, outcome: 'imported' },
     ] as const;
 
     expect(
-      derivePromptImportTriggers(entries, { host: true, knowledge: false }),
+      derivePromptImportTriggers(entries, {
+        host: true,
+        knowledge: false,
+        machine: false,
+      }),
     ).toEqual([{ key: '/nowhere/a.md' }]);
     expect(
-      derivePromptImportTriggers(entries, { host: false, knowledge: true }),
+      derivePromptImportTriggers(entries, {
+        host: false,
+        knowledge: true,
+        machine: false,
+      }),
     ).toEqual([{ space: { id: SPACE_ID }, key: 'a.md' }]);
+    expect(
+      derivePromptImportTriggers(entries, {
+        host: false,
+        knowledge: false,
+        machine: true,
+      }),
+    ).toEqual([{ key: '/notes/a.md', machine: { name: 'dev' } }]);
+  });
+
+  it('names a Machine trigger for an admitted Machine entry', () => {
+    const triggers = derivePromptImportTriggers(
+      [
+        { locator: MACHINE, resolved: MACHINE, outcome: 'imported' },
+        {
+          locator: `${MACHINE}:10-12`,
+          resolved: MACHINE,
+          outcome: 'failed',
+        },
+        { locator: 'gone', resolved: MACHINE, outcome: 'denied' },
+      ],
+      BOTH,
+    );
+
+    expect(triggers).toEqual([
+      { key: '/notes/a.md', machine: { name: 'dev' } },
+      { key: '/notes/a.md', machine: { name: 'dev' } },
+    ]);
+  });
+
+  it('canonicalizes the Machine name, decodes the path, and normalizes its segments', () => {
+    const triggers = derivePromptImportTriggers(
+      [
+        {
+          locator: 'a',
+          resolved: 'machine://Dev/notes/a%20b.md',
+          outcome: 'imported',
+        },
+        {
+          locator: 'b',
+          resolved: 'machine://dev/notes/../a.md:1-2',
+          outcome: 'imported',
+        },
+      ],
+      BOTH,
+    );
+
+    expect(triggers).toEqual([
+      { key: '/notes/a b.md', machine: { name: 'dev' } },
+      { key: '/a.md', machine: { name: 'dev' } },
+    ]);
+  });
+
+  it('names no Machine trigger for a listing form or a refusal', () => {
+    expect(
+      derivePromptImportTriggers(
+        [
+          { locator: 'list', resolved: 'machine://', outcome: 'imported' },
+          { locator: 'roots', resolved: 'machine://dev', outcome: 'imported' },
+          { locator: 'bad', resolved: 'machine://Dev!/x', outcome: 'imported' },
+        ],
+        BOTH,
+      ),
+    ).toEqual([]);
   });
 });
