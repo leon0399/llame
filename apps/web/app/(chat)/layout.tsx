@@ -8,6 +8,7 @@ import {
   SidebarProvider,
   AppSidebar,
 } from "@/app/shell/app-sidebar";
+import { AppShellFrame } from "@/app/shell/app-shell-frame";
 import { AppSidebarActions } from "./components/app-sidebar/app-sidebar-actions";
 import { ChatList } from "./components/chat-list-sidebar/chat-list";
 import { ChatListSidebar } from "./components/chat-list-sidebar";
@@ -44,9 +45,9 @@ export default async function Layout({
   const { railOpen, detailsOpen, detailsLayout } = await readShellState();
 
   return (
-    <>
-      {/* h-svh anchors the shell row's height once — the sidebars and inset all fill it. */}
-      <SidebarProvider defaultOpen={railOpen} className="h-svh">
+    <AppShellFrame>
+      {/* The shell row fills the height above the status bar; the sidebars and inset all fill it. */}
+      <SidebarProvider defaultOpen={railOpen} className="min-h-0 flex-1">
         <LiveUpdatesProvider>
           <ActiveRunsProvider>
             <ChatProvider>
@@ -78,6 +79,6 @@ export default async function Layout({
           </ActiveRunsProvider>
         </LiveUpdatesProvider>
       </SidebarProvider>
-    </>
+    </AppShellFrame>
   );
 }
