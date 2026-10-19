@@ -332,8 +332,7 @@ function respondOnStream(
 ): void {
   const id = state.replyId;
   if (id === undefined) return;
-  // A control request gets exactly one reply: its id is always 0, so a second
-  // one would settle whatever control request the peer sends next.
+  // A control request gets exactly one reply; a second one is dropped.
   if (state.control) state.replyId = undefined;
   sendOnStream(session, state, build(id));
 }
