@@ -148,7 +148,10 @@ export async function decideMachineWorkspace(
   }
 
   const checked = await checkBoundMachine({ ...params, connector });
-  if (checked.kind !== 'bound') return checked;
+  if (checked.kind !== 'bound') {
+    params.skillCatalogs.delete(params.root);
+    return checked;
+  }
   await prepareMachineSkills(params.skillCatalogs, {
     connector,
     machineName,
@@ -333,7 +336,12 @@ export async function prepareMachineSkills(
     request,
     signal: params.signal,
   });
-  if (sources === undefined) return;
+  // A snapshot this attempt could not take must not leave an earlier
+  // attempt's catalog standing in for the Machine.
+  if (sources === undefined) {
+    catalogs.delete(params.root);
+    return;
+  }
   catalogs.set(
     params.root,
     new SkillCatalog(params.skillDirectories, sources.fileSystem),

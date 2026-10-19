@@ -184,6 +184,20 @@ describe('decideMachineWorkspace', () => {
     expect(machine.calls).toEqual([]);
   });
 
+  it('drops the skill snapshot of an earlier attempt when the Machine does not answer', async () => {
+    const reachable = fakeConnector();
+    const input = decisionInput(reachable.connector);
+    await decideMachineWorkspace(input);
+    expect(input.skillCatalogs.has(MACHINE_ROOT)).toBe(true);
+
+    const unreachable = fakeConnector({ reachable: false });
+    await decideMachineWorkspace({
+      ...input,
+      connector: unreachable.connector,
+    });
+    expect(input.skillCatalogs.has(MACHINE_ROOT)).toBe(false);
+  });
+
   it('keeps the binding with the Machine available when its root still checks out', async () => {
     const machine = fakeConnector();
     const input = decisionInput(machine.connector);
