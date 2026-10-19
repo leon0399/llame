@@ -221,11 +221,17 @@ export class MachineTransport implements MCPTransport {
     }
   }
 
-  /** The Machine ended the channel: a crashed server from here on. */
+  /** The channel is unusable from here on: a crashed server. A channel the
+   *  Machine still holds open is cancelled, so the server it started stops. */
   private fail(error: Error): void {
     if (this.halted || this.shutdown) return;
     this.halted = true;
+    const channel = this.channel;
     this.channel = undefined;
+    if (channel !== undefined && !channel.closed) {
+      channel.notify(CANCEL_NOTIFICATION, {});
+      channel.close();
+    }
     this.diagnostics?.flush();
     this.onerror?.(error);
     this.onclose?.();

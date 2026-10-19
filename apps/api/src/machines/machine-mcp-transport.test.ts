@@ -236,6 +236,8 @@ describe('MachineTransport', () => {
       }),
     );
     expect(closed).toHaveBeenCalledOnce();
+    // The Machine is told to put down the server it started for the channel.
+    await vi.waitFor(() => expect(openedTransport.session.openStreams).toBe(0));
   });
 
   it('ignores a notification the Machine relays under an unknown method', async () => {
