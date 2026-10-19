@@ -336,12 +336,7 @@ export async function prepareMachineSkills(
     request,
     signal: params.signal,
   });
-  // A snapshot this attempt could not take must not leave an earlier
-  // attempt's catalog standing in for the Machine.
-  if (sources === undefined) {
-    catalogs.delete(params.root);
-    return;
-  }
+  if (sources === undefined) return;
   catalogs.set(
     params.root,
     new SkillCatalog(params.skillDirectories, sources.fileSystem),
