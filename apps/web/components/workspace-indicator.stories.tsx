@@ -125,6 +125,24 @@ export const MachineOnline: Story = {
   },
 };
 
+/** A Workspace at a Machine's `/` reads as the root, not the Machine's name
+ *  twice. */
+export const MachineRoot: Story = {
+  tags: ["ai-generated"],
+  args: { workspaceRoot: "machine://devl/" },
+  beforeEach: () => {
+    useMachinesQuery.mockReturnValue({
+      data: [onlineDevl],
+      isPending: false,
+      isError: false,
+      refetch: refetchMachines,
+    });
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("devl · /")).toBeVisible();
+  },
+};
+
 /**
  * The spec's indicator scenario: a Chat bound to a `devl` Workspace while the
  * Machine is offline keeps its binding and says so in text.

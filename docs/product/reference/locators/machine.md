@@ -4,6 +4,7 @@ read_when:
   - you are passing a machine:// locator to a native tool or as a bash cwd
   - you need to know what a Machine result reports or why a Machine call failed
 spec: native-file-tools
+configured_by: ../../operator/machines.md
 ---
 
 # Machine locators

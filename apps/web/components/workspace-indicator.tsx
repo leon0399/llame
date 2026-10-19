@@ -6,6 +6,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import {
   findMachineByName,
   machineNameFromRoot,
+  machinePathFromRoot,
 } from "@/lib/services/machines/locator";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 import type { MachineResponse } from "@/lib/services/machines/queries";
@@ -77,7 +78,10 @@ export function WorkspaceIndicator({
   if (workspaceRoot === null) return null;
 
   const status = findMachineByName(machines, machineName)?.status;
-  const segment = lastPathSegment(workspaceRoot);
+  // A Machine root's own path, so `machine://devl/` reads as `/`, not `devl`.
+  const segment = lastPathSegment(
+    machinePathFromRoot(workspaceRoot) ?? workspaceRoot,
+  );
   // Offline is spelled out, not left to the dot's color alone.
   const text =
     machineName === undefined

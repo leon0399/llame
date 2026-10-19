@@ -163,8 +163,8 @@ the W1/W2 rejects in [Native file tools](native-files.md#workspace-entry), or
 write-capable operator or Workspace MCP tools — is equivalent to
 `execute_code` and host-secret exfiltration. Workspace MCP calls still require
 their normal `tools.allowed` eligibility and `tools.permissions` authorization.
-
-rejected by a permission rule before execution, so they never reach the server.
+A call rejected by a permission rule fails before execution, so it never
+reaches the server.
 
 ### Lifetime and isolation
 
