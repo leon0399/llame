@@ -18,6 +18,25 @@ export function machineNameFromRoot(workspaceRoot: string): string | undefined {
   return match[1];
 }
 
+/**
+ * The path on the Machine itself, as a shell there would take it: the
+ * locator's path with its one layer of `%XX` escapes (`%`, `#`, `?`, `\`, and
+ * control characters) decoded. Undefined for a root that is not a Machine
+ * locator.
+ */
+export function machinePathFromRoot(workspaceRoot: string): string | undefined {
+  const match = MACHINE_ROOT.exec(workspaceRoot);
+  if (match === null) return undefined;
+  const encoded = match[0].endsWith("/")
+    ? workspaceRoot.slice(match[0].length - 1)
+    : "/";
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
 /** The status entry for a Machine name, matched case-insensitively. */
 export function findMachineByName<T extends { name: string }>(
   machines: ReadonlyArray<T> | undefined,

@@ -86,7 +86,7 @@ function MachineHeader({ machine }: { machine: MachineResponse }) {
           aria-hidden="true"
           className={cn(
             "size-2 shrink-0 rounded-full",
-            online ? "bg-foreground" : "bg-destructive",
+            online ? "bg-success" : "bg-destructive",
           )}
         />
         <span className="truncate text-sm font-medium">{machine.name}</span>

@@ -70,13 +70,22 @@ export const MachineOnline: Story = {
       "/projects/11111111-1111-4111-8111-111111111111",
     );
     await expect(canvas.getByText(/^Online · seen/)).toBeVisible();
+    await expect(canvas.getByText("Path on devbox")).toBeVisible();
+    await expect(canvas.getByText("/home/box/work/shop")).toBeVisible();
     await expect(canvas.getByText(DEVBOX_ROOT)).toBeVisible();
 
+    // The Machine-local path, for a terminal on the box.
     await userEvent.click(
       canvas.getByRole("button", { name: "Copy Workspace path" }),
     );
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("/home/box/work/shop"),
+    );
+    // The canonical locator, for a prompt.
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Copy Workspace locator" }),
+    );
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(DEVBOX_ROOT));
-    await expect(canvas.getByRole("status")).toHaveTextContent("Copied");
   },
 };
 
@@ -107,7 +116,7 @@ export const MachineUnknown: Story = {
   },
 };
 
-/** A local Workspace runs on this host. */
+/** A local Workspace runs on this host and has one path, no locator. */
 export const LocalWorkspace: Story = {
   tags: ["ai-generated"],
   args: {
@@ -119,10 +128,16 @@ export const LocalWorkspace: Story = {
   play: async ({ canvas }) => {
     await expect(canvas.getByText("This host")).toBeVisible();
     await expect(canvas.getByText("None")).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Copy Workspace path" }),
+    ).toBeVisible();
+    await expect(
+      canvas.queryByRole("button", { name: "Copy Workspace locator" }),
+    ).toBeNull();
   },
 };
 
-/** An unbound Chat has no Workspace row and nothing to copy. */
+/** An unbound Chat says it has no Workspace and claims no location. */
 export const NoWorkspace: Story = {
   tags: ["ai-generated"],
   args: {
@@ -132,7 +147,9 @@ export const NoWorkspace: Story = {
     project: null,
   },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("No Workspace")).toBeVisible();
+    await expect(canvas.queryByText("Runs on")).toBeNull();
+    await expect(canvas.getByText("Workspace")).toBeVisible();
+    await expect(canvas.getAllByText("None")).toHaveLength(2);
     await expect(
       canvas.queryByRole("button", { name: "Copy Workspace path" }),
     ).toBeNull();

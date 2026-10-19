@@ -10,6 +10,7 @@ import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { copyText } from "@/lib/clipboard";
+import { machinePathFromRoot } from "@/lib/services/machines/locator";
 import type { MachineResponse } from "@/lib/services/machines/queries";
 
 const FAILURE_LABELS: Record<
@@ -79,13 +80,9 @@ function machineDetail(machine: MachineResponse): string {
 
 /** Where the Chat's tools run: this host, or a Machine and its state. */
 function LocationValue({
-  workspaceRoot,
   machineName,
   machine,
-}: Pick<EnvironmentSectionProps, "workspaceRoot" | "machineName" | "machine">) {
-  if (workspaceRoot === null) {
-    return <span className="text-muted-foreground">No Workspace</span>;
-  }
+}: Pick<EnvironmentSectionProps, "machineName" | "machine">) {
   if (machineName === undefined) return <span>This host</span>;
 
   return (
@@ -98,7 +95,7 @@ function LocationValue({
             machine === undefined
               ? "bg-muted-foreground"
               : machine.status === "online"
-                ? "bg-foreground"
+                ? "bg-success"
                 : "bg-destructive",
           )}
         />
@@ -111,11 +108,11 @@ function LocationValue({
   );
 }
 
-function CopyPathButton({ path }: { path: string }) {
+function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    if (await copyText(path)) {
+    if (await copyText(text)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     }
@@ -127,7 +124,7 @@ function CopyPathButton({ path }: { path: string }) {
         type="button"
         variant="ghost"
         size="icon-xs"
-        aria-label="Copy Workspace path"
+        aria-label={label}
         onClick={() => void copy()}
       >
         {copied ? (
@@ -141,11 +138,69 @@ function CopyPathButton({ path }: { path: string }) {
   );
 }
 
+/** A path in full beside its copy button. The code's line box matches the
+ *  button's height, so a one-line path sits level with it and a wrapped one
+ *  keeps its first line there. */
+function CopyablePath({
+  path,
+  copyLabel,
+}: {
+  path: string;
+  copyLabel: string;
+}) {
+  return (
+    <span className="flex items-start gap-1">
+      <code className="min-w-0 flex-1 py-1 font-mono text-xs leading-4 break-all">
+        {path}
+      </code>
+      <CopyButton text={path} label={copyLabel} />
+    </span>
+  );
+}
+
+/** Where a bound Chat runs and its root: for a Machine, the path a terminal
+ *  on that Machine takes (to `cd` there) and the locator the tools take. */
+function BoundFacts({
+  workspaceRoot,
+  machineName,
+  machine,
+}: Omit<EnvironmentSectionProps, "project" | "workspaceRoot"> & {
+  workspaceRoot: string;
+}) {
+  const machinePath = machinePathFromRoot(workspaceRoot);
+
+  return (
+    <>
+      <Fact label="Runs on">
+        <LocationValue machineName={machineName} machine={machine} />
+      </Fact>
+      <Fact
+        label={
+          machineName === undefined ? "Workspace" : `Path on ${machineName}`
+        }
+      >
+        <CopyablePath
+          path={machinePath ?? workspaceRoot}
+          copyLabel="Copy Workspace path"
+        />
+      </Fact>
+      {machinePath === undefined ? null : (
+        <Fact label="Locator">
+          <CopyablePath
+            path={workspaceRoot}
+            copyLabel="Copy Workspace locator"
+          />
+        </Fact>
+      )}
+    </>
+  );
+}
+
 /**
  * The Chat's environment: its Project, where its tools run, and the Workspace
- * root, shown in full and copyable. The root is the canonical locator the
- * tools use, so a copied `machine://` value pastes straight back into a
- * prompt.
+ * root, shown in full and copyable. A Machine root offers both the path on
+ * the Machine, for a terminal there, and the canonical `machine://` locator,
+ * which pastes straight back into a prompt.
  */
 export function EnvironmentSection({
   workspaceRoot,
@@ -162,22 +217,16 @@ export function EnvironmentSection({
         <Fact label="Project">
           <ProjectValue project={project} />
         </Fact>
-        <Fact label="Runs on">
-          <LocationValue
+        {workspaceRoot === null ? (
+          <Fact label="Workspace">
+            <span className="text-muted-foreground">None</span>
+          </Fact>
+        ) : (
+          <BoundFacts
             workspaceRoot={workspaceRoot}
             machineName={machineName}
             machine={machine}
           />
-        </Fact>
-        {workspaceRoot === null ? null : (
-          <Fact label="Workspace">
-            <span className="flex items-start gap-1">
-              <code className="min-w-0 flex-1 font-mono text-xs break-all">
-                {workspaceRoot}
-              </code>
-              <CopyPathButton path={workspaceRoot} />
-            </span>
-          </Fact>
         )}
       </dl>
     </section>

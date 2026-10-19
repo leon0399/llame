@@ -44,7 +44,7 @@ function MachineStatusDot({ status }: { status: MachineStatus | undefined }) {
       aria-hidden="true"
       className={cn(
         "size-1.5 shrink-0 rounded-full",
-        status === "online" ? "bg-foreground" : "bg-destructive",
+        status === "online" ? "bg-success" : "bg-destructive",
       )}
     />
   );

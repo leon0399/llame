@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { machineNameFromRoot } from "./locator";
+import { machineNameFromRoot, machinePathFromRoot } from "./locator";
 
 describe("machineNameFromRoot", () => {
   it("reads the Machine from a locator root", () => {
@@ -31,5 +31,29 @@ describe("machineNameFromRoot", () => {
     expect(
       machineNameFromRoot(`machine://${"a".repeat(64)}/tmp`),
     ).toBeUndefined();
+  });
+});
+
+describe("machinePathFromRoot", () => {
+  it("gives the path a shell on the Machine would take", () => {
+    expect(machinePathFromRoot("machine://devl/home/leo/projects")).toBe(
+      "/home/leo/projects",
+    );
+    expect(machinePathFromRoot("machine://devl")).toBe("/");
+    expect(machinePathFromRoot("machine://devl/")).toBe("/");
+  });
+
+  it("decodes the locator's one layer of escapes", () => {
+    expect(machinePathFromRoot("machine://devl/tmp/50%25%20off%23a")).toBe(
+      "/tmp/50% off#a",
+    );
+  });
+
+  it("keeps a malformed escape as written", () => {
+    expect(machinePathFromRoot("machine://devl/tmp/%zz")).toBe("/tmp/%zz");
+  });
+
+  it("is undefined for a local root", () => {
+    expect(machinePathFromRoot("/home/operator/projects")).toBeUndefined();
   });
 });
