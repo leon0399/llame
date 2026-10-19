@@ -35,8 +35,8 @@ sb.mock(import("../../web/lib/services/memory/mutations.ts"));
 // - media/uploads: keeps composer attachment uploads off the network; stories
 //   resolve, reject, or hold `uploadAttachment` to show each upload state.
 sb.mock(import("../../web/lib/services/media/uploads.ts"));
-// - machines/queries: stubs the polled Machine status list so the settings
-//   section and the Workspace indicator can show online/offline/absent
+// - machines/queries: stubs the Machine status list so the settings section
+//   and the chat's session details sidebar can show online/offline/absent
 //   Machines without an SSH-backed backend.
 sb.mock(import("../../web/lib/services/machines/queries.ts"));
 

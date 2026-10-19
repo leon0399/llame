@@ -7,6 +7,7 @@ import {
   type ChatResponse,
 } from "../chat/queries";
 import type { ChatSearchResult } from "../chat/search";
+import { machinesQueryKeys } from "../machines/queries";
 import { pinQueryKeys } from "../pins/queries";
 import type { PinnedItem } from "../pins/types";
 import {
@@ -17,6 +18,7 @@ import type { ProjectResponse } from "../project/types";
 import type {
   ChatListItemResponse,
   LiveMessage,
+  MachineResponse,
 } from "../../api/live-generated/live-protocol";
 
 /**
@@ -29,7 +31,10 @@ import type {
  *   pinned-only lists, which keep pin order;
  * - pinned-item cards and search results take the new title or name;
  * - a deletion removes the record everywhere;
- * - `pins.replaced` replaces the pin list.
+ * - `pins.replaced` replaces the pin list;
+ * - `machine.upserted` replaces the Machine with that name in the Machines
+ *   list, or appends it when the list does not have it yet; `machine.deleted`
+ *   drops it.
  *
  * A list whose membership depends on pin state the client does not have, and
  * any pin-filtered list after the pin set changes, is invalidated instead:
@@ -45,6 +50,10 @@ export function applyLiveMessage(
       return applyChat(queryClient, message.chat);
     case "chat.deleted":
       return removeChat(queryClient, message.chatId);
+    case "machine.upserted":
+      return applyMachine(queryClient, message.machine);
+    case "machine.deleted":
+      return removeMachine(queryClient, message.name);
     case "project.upserted":
       return applyProject(queryClient, message.project);
     case "project.deleted":
@@ -59,12 +68,15 @@ export function applyLiveMessage(
   }
 }
 
-/** Every owner-level list a missed message could have changed. */
+/** Every list a missed message could have changed: the owner's, and Machines. */
 export function invalidateOwnerLists(queryClient: QueryClient): void {
   // `chatQueryKeys.all` covers lists and every chat's detail and messages:
   // a Run that finished while disconnected changed the open transcript too.
+  // `machinesQueryKeys.list()` is instance-wide and shares this refetch on
+  // reconnect, since a Machine's derived status moves with time as well.
   for (const queryKey of [
     chatQueryKeys.all,
+    machinesQueryKeys.list(),
     pinQueryKeys.list(),
     projectQueryKeys.lists(),
     activeRunsQueryKeys.all,
@@ -243,6 +255,37 @@ function applyPins(queryClient: QueryClient, items: Array<PinnedItem>): void {
       (chatListFiltersFromKey(queryKey) ?? projectListFiltersFromKey(queryKey))
         ?.pinned !== undefined,
   });
+}
+
+function applyMachine(
+  queryClient: QueryClient,
+  machine: MachineResponse,
+): void {
+  const key = machinesQueryKeys.list();
+  const machines = queryClient.getQueryData<Array<MachineResponse>>(key);
+  // An unfetched list stays unfetched: its first read already has this
+  // record, and seeding it here would show a list missing its siblings.
+  if (!machines) return;
+  // The API's list is in configuration order, which the client cannot know,
+  // so a known Machine keeps its place and a new one is appended.
+  queryClient.setQueryData(
+    key,
+    machines.some((current) => current.name === machine.name)
+      ? machines.map((current) =>
+          current.name === machine.name ? machine : current,
+        )
+      : [...machines, machine],
+  );
+}
+
+function removeMachine(queryClient: QueryClient, name: string): void {
+  const key = machinesQueryKeys.list();
+  const machines = queryClient.getQueryData<Array<MachineResponse>>(key);
+  if (!machines) return;
+  queryClient.setQueryData(
+    key,
+    machines.filter((machine) => machine.name !== name),
+  );
 }
 
 function updateSearchResults(

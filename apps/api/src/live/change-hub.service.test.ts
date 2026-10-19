@@ -6,9 +6,11 @@ import type { LiveMessage } from './live-messages';
 import type { LiveRecordLoader } from './live-record-loader';
 import {
   LIVE_CHAT_ID,
+  LIVE_MACHINE_NAME,
   LIVE_OWNER,
   LIVE_RUN_ID,
   liveChatRecord,
+  liveMachineRecord,
   livePinRecords,
   liveRunRecord,
 } from '../testing/live-records';
@@ -31,6 +33,7 @@ function makeListener() {
 function makeLoader(overrides: Partial<LiveRecordLoader> = {}) {
   return {
     chat: vi.fn(() => Promise.resolve(liveChatRecord())),
+    machine: vi.fn(() => Promise.resolve(liveMachineRecord())),
     project: vi.fn(() => Promise.resolve(undefined)),
     pins: vi.fn(() => Promise.resolve(livePinRecords())),
     run: vi.fn(() => Promise.resolve(liveRunRecord())),
@@ -54,6 +57,27 @@ function connect(hub: ChangeHubService, owner = LIVE_OWNER) {
   });
   return { received, frames, unsubscribe };
 }
+
+function connectInstance(hub: ChangeHubService) {
+  const received: Array<LiveMessage> = [];
+  const unsubscribe = hub.subscribeInstance((frame) => {
+    const parsed: unknown = JSON.parse(frame);
+    received.push(liveMessageSchema.parse(parsed));
+  });
+  return { received, unsubscribe };
+}
+
+const machineUpdate = JSON.stringify({
+  k: 'machine',
+  machine: LIVE_MACHINE_NAME,
+  deleted: false,
+});
+
+const machineRemoval = JSON.stringify({
+  k: 'machine',
+  machine: LIVE_MACHINE_NAME,
+  deleted: true,
+});
 
 describe('ChangeHubService', () => {
   it('reads a changed record as its owner and sends it in wire form', async () => {
@@ -212,6 +236,76 @@ describe('ChangeHubService', () => {
 
     expect(received).toEqual([]);
     expect(loader.chat).not.toHaveBeenCalled();
+  });
+
+  it('sends an instance-wide Machine record to every instance subscriber', async () => {
+    const loader = makeLoader();
+    const hub = new ChangeHubService(makeListener(), loader);
+    const first = connect(hub);
+    const second = connect(hub, 'user-b');
+    const instances = [connectInstance(hub), connectInstance(hub)];
+
+    hub.dispatch(machineUpdate);
+
+    await vi.waitFor(() =>
+      expect(instances.map(({ received }) => received.length)).toEqual([1, 1]),
+    );
+    expect(loader.machine).toHaveBeenCalledWith(LIVE_MACHINE_NAME);
+    expect(instances[0]?.received[0]).toEqual({
+      type: 'machine.upserted',
+      machine: {
+        name: LIVE_MACHINE_NAME,
+        status: 'online',
+        lastSeenAt: '2026-10-16T12:00:00.000Z',
+        failureReason: null,
+        hubProtocolVersion: 1,
+        daemonProtocolVersion: 1,
+        daemonVersion: '0.4.0',
+        roots: ['/srv/projects'],
+      },
+    });
+    // A Machine is not owner-scoped: no owner stream carries it.
+    expect(first.received).toEqual([]);
+    expect(second.received).toEqual([]);
+  });
+
+  it('announces a removed Machine to every instance subscriber without a read', async () => {
+    const loader = makeLoader();
+    const hub = new ChangeHubService(makeListener(), loader);
+    const instance = connectInstance(hub);
+
+    hub.dispatch(machineRemoval);
+
+    await vi.waitFor(() => expect(instance.received).toHaveLength(1));
+    expect(instance.received[0]).toEqual({
+      type: 'machine.deleted',
+      name: LIVE_MACHINE_NAME,
+    });
+    expect(loader.machine).not.toHaveBeenCalled();
+  });
+
+  it('reads nothing for an instance record without instance subscribers', async () => {
+    const loader = makeLoader();
+    const hub = new ChangeHubService(makeListener(), loader);
+    connect(hub);
+
+    hub.dispatch(machineUpdate);
+    await Promise.resolve();
+
+    expect(loader.machine).not.toHaveBeenCalled();
+  });
+
+  it('stops delivering instance records after unsubscribe', async () => {
+    const loader = makeLoader();
+    const hub = new ChangeHubService(makeListener(), loader);
+    const instance = connectInstance(hub);
+
+    instance.unsubscribe();
+    hub.dispatch(machineUpdate);
+    await Promise.resolve();
+
+    expect(instance.received).toEqual([]);
+    expect(loader.machine).not.toHaveBeenCalled();
   });
 
   it('serializes a message once and sends the same frame to every socket', async () => {

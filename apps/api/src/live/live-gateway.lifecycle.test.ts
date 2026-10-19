@@ -23,6 +23,7 @@ type Subscriber = (frame: string) => void;
 
 class FakeHub {
   readonly subscribers = new Map<string, Set<Subscriber>>();
+  readonly instanceSubscribers = new Set<Subscriber>();
   unsubscribed = 0;
 
   subscribe(owner: string, subscriber: Subscriber): () => void {
@@ -35,10 +36,22 @@ class FakeHub {
     };
   }
 
+  subscribeInstance(subscriber: Subscriber): () => void {
+    this.instanceSubscribers.add(subscriber);
+    return () => {
+      this.instanceSubscribers.delete(subscriber);
+      this.unsubscribed += 1;
+    };
+  }
+
   emit(owner: string, frame: string): void {
     for (const subscriber of this.subscribers.get(owner) ?? []) {
       subscriber(frame);
     }
+  }
+
+  emitInstance(frame: string): void {
+    for (const subscriber of this.instanceSubscribers) subscriber(frame);
   }
 }
 
@@ -118,8 +131,15 @@ describe('LiveGatewayService lifecycle', () => {
 
     expect(hub.subscribers.get('user-a')?.size).toBe(1);
     hub.emit('user-a', '{"type":"resync"}');
+    hub.emitInstance('{"type":"machine.upserted"}');
 
-    await vi.waitFor(() => expect(a.frames).toEqual(['{"type":"resync"}']));
+    await vi.waitFor(() =>
+      expect(a.frames).toEqual([
+        '{"type":"resync"}',
+        '{"type":"machine.upserted"}',
+      ]),
+    );
+    expect(hub.instanceSubscribers.size).toBe(1);
   });
 
   it('refuses an invalid session before the upgrade', async () => {
@@ -144,7 +164,8 @@ describe('LiveGatewayService lifecycle', () => {
 
     a.client.close();
     await a.closed;
-    await vi.waitFor(() => expect(hub.unsubscribed).toBe(1));
+    // Both streams are torn down: the owner's, and the instance-wide one.
+    await vi.waitFor(() => expect(hub.unsubscribed).toBe(2));
     expect(() => subscriber?.('{"type":"resync"}')).not.toThrow();
   });
 
@@ -215,7 +236,8 @@ describe('LiveGatewayService lifecycle', () => {
 
     expect(await a.closed).toBe(1001);
     // The server's own close event can follow the client's.
-    await vi.waitFor(() => expect(hub.unsubscribed).toBe(1));
+    await vi.waitFor(() => expect(hub.unsubscribed).toBe(2));
+    expect(hub.instanceSubscribers.size).toBe(0);
     expect(server.listenerCount('upgrade')).toBe(0);
   });
 

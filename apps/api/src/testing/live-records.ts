@@ -5,6 +5,7 @@
  */
 
 import type { ChatListItemResponse } from '../chats/dto/chats.dto';
+import type { MachineResponse } from '../machines/dto/machines.dto';
 import type {
   ChatPinnedItemResponse,
   ProjectPinnedItemResponse,
@@ -16,6 +17,7 @@ export const LIVE_OWNER = 'user-a';
 export const LIVE_CHAT_ID = '11111111-1111-4111-8111-111111111111';
 export const LIVE_RUN_ID = '22222222-2222-4222-8222-222222222222';
 export const LIVE_PROJECT_ID = '33333333-3333-4333-8333-333333333333';
+export const LIVE_MACHINE_NAME = 'devl';
 
 const at = new Date('2026-10-16T12:00:00.000Z');
 
@@ -66,6 +68,23 @@ export function liveRunRecord(
     createdAt: at,
     startedAt: at,
     finishedAt: null,
+    ...overrides,
+  };
+}
+
+/** The Machine as `GET /api/v1/machines` lists it, serialized-ready. */
+export function liveMachineRecord(
+  overrides: Partial<MachineResponse> = {},
+): MachineResponse {
+  return {
+    name: LIVE_MACHINE_NAME,
+    status: 'online',
+    lastSeenAt: '2026-10-16T12:00:00.000Z',
+    failureReason: null,
+    hubProtocolVersion: 1,
+    daemonProtocolVersion: 1,
+    daemonVersion: '0.4.0',
+    roots: ['/srv/projects'],
     ...overrides,
   };
 }

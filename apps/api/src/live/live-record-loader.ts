@@ -2,7 +2,8 @@
  * Reads the records a live update carries, as their owner and through the
  * same repositories and response mappers as the HTTP API, so a record pushed
  * over the socket is exactly what the matching HTTP endpoint returns and is
- * subject to the same row-level security.
+ * subject to the same row-level security. The one instance-wide record, a
+ * Machine, is read the way its own endpoint reads it, without an owner.
  */
 
 import { Inject, Injectable } from '@nestjs/common';
@@ -14,6 +15,12 @@ import {
 } from '../chats/dto/chats.dto';
 import { MessagesRepository } from '../chats/messages-repository';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
+import {
+  toMachineResponse,
+  type MachineResponse,
+} from '../machines/dto/machines.dto';
+import { machineStatusView } from '../machines/machines-status';
+import { MachinesStatusRepository } from '../machines/machines-status.repository';
 import {
   toPinnedItemResponse,
   type PinnedItemResponse,
@@ -33,6 +40,7 @@ export type LiveRecordLoader = {
     owner: string,
     chatId: string,
   ): Promise<ChatListItemResponse | undefined>;
+  machine(name: string): Promise<MachineResponse | undefined>;
   project(
     owner: string,
     projectId: string,
@@ -48,6 +56,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
   constructor(
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
+    private readonly machines: MachinesStatusRepository,
   ) {}
 
   chat(owner: string, chatId: string) {
@@ -58,6 +67,12 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
       ]);
       return chat ? toChatListItemResponse(chat, lastMessage) : undefined;
     });
+  }
+
+  /** The row the trigger named, in the same shape `GET /api/v1/machines` uses. */
+  async machine(name: string): Promise<MachineResponse | undefined> {
+    const row = await this.machines.findForLive(name);
+    return row && toMachineResponse(machineStatusView(name, row, Date.now()));
   }
 
   project(owner: string, projectId: string) {

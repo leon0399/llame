@@ -223,13 +223,17 @@ probes every configured Machine, declared in `asyncapi.queues.yaml`; session
 events also write status. Status is online when last contact is within 150
 seconds and after the last failure. The reason comes from the handshake or
 from recognized `ssh` exit status and stderr. `GET /api/v1/machines` serves
-the list to authenticated users.
+the list to authenticated users. A trigger on `machines_status` notifies the
+live hub of every insert and update, and the hub pushes `machine.upserted`
+(the same row as the endpoint) to every connection, since the record is
+instance-wide.
 
 ### D10. Web
 
-A read-only Machines section in settings and a Machine state in
-`workspace-indicator.tsx`, both refreshed with TanStack `refetchInterval` of 15
-seconds while visible.
+A read-only Machines section in settings and a Machine state in the chat's
+session details sidebar. Both read `GET /api/v1/machines` once and apply
+`machine.upserted` messages to that cached list; a socket reconnect or
+`resync` refetches it. Neither polls.
 
 ### D11. Daemon and packaging
 

@@ -1,12 +1,13 @@
 /**
  * Live update protocol, server side: database change notifications in,
- * owner-scoped messages out. Pure functions only; the hub and gateway own
- * I/O.
+ * owner-scoped messages out — plus the instance-wide Machine record.
+ * Pure functions only; the hub and gateway own I/O.
  *
  * A notification is a pointer. The hub turns it into a record job, reads the
  * record as its owner through `LiveRecordLoader`, and sends the record in the
- * shape the HTTP API returns. Run progress needs no read: it is folded from
- * run event types alone.
+ * shape the HTTP API returns. A Machine has no owner (every authenticated user
+ * may read the Machines list), so its read takes no identity. Run progress
+ * needs no read: it is folded from run event types alone.
  */
 
 import {
@@ -18,6 +19,7 @@ import {
 
 import type { ChatListItemResponse } from '../chats/dto/chats.dto';
 import { runStatus, type RunStatus } from '../db/schema/chats';
+import type { MachineResponse } from '../machines/dto/machines.dto';
 import type { PinnedItemResponse } from '../pins/dto/pins.dto';
 import type { ProjectResponse } from '../projects/dto/projects.dto';
 import type { RunResponse } from '../runs/dto/runs.dto';
@@ -37,6 +39,8 @@ export type RunPhase = RunProgressMessage['phase'];
 export type ServerLiveMessage =
   | { type: 'chat.upserted'; chat: ChatListItemResponse }
   | { type: 'chat.deleted'; chatId: string }
+  | { type: 'machine.upserted'; machine: MachineResponse }
+  | { type: 'machine.deleted'; name: string }
   | { type: 'project.upserted'; project: ProjectResponse }
   | { type: 'project.deleted'; projectId: string }
   | { type: 'pins.replaced'; items: Array<PinnedItemResponse> }
@@ -44,11 +48,12 @@ export type ServerLiveMessage =
   | RunProgressMessage
   | { type: 'resync' };
 
-/** The NOTIFY channel `llame_notify_change` writes to. */
+/** The NOTIFY channel the live change triggers write to. */
 export const LIVE_CHANGES_CHANNEL = 'llame_changes';
 
 export type ChangeNotification =
   | { k: 'chat'; owner: string; chat: string; deleted: boolean }
+  | { k: 'machine'; machine: string; deleted: boolean }
   | { k: 'project'; owner: string; project: string; deleted: boolean }
   | { k: 'pin'; owner: string }
   | { k: 'run'; owner: string; run: string; status: RunStatus }
@@ -68,7 +73,8 @@ function str(record: UnknownRecord, key: string): string | undefined {
 
 /**
  * Parse one NOTIFY payload. Returns `undefined` for anything malformed or
- * ownerless, so a bad notification is dropped rather than broadcast.
+ * ownerless, so a bad notification is dropped rather than broadcast. A Machine
+ * notification is instance-wide and valid without an owner.
  */
 export function parseChangeNotification(
   raw: string,
@@ -80,6 +86,13 @@ export function parseChangeNotification(
     return undefined;
   }
   if (!isRecord(parsed)) return undefined;
+  if (parsed['k'] === 'machine') {
+    const machine = str(parsed, 'machine');
+    const deleted = parsed['deleted'];
+    return machine && isBoolean(deleted)
+      ? { k: 'machine', machine, deleted }
+      : undefined;
+  }
   const owner = str(parsed, 'owner');
   return owner ? parseKind(parsed, owner) : undefined;
 }
@@ -220,6 +233,10 @@ export function recordJobFor(n: ChangeNotification): RecordJob | undefined {
       return n.deleted
         ? ready({ type: 'chat.deleted', chatId: n.chat })
         : chatJob(n.owner, n.chat);
+    case 'machine':
+      return n.deleted
+        ? ready({ type: 'machine.deleted', name: n.machine })
+        : machineJob(n.machine);
     case 'project':
       return n.deleted
         ? ready({ type: 'project.deleted', projectId: n.project })
@@ -245,6 +262,16 @@ function chatJob(owner: string, chatId: string): RecordJob {
     load: async (loader) => {
       const chat = await loader.chat(owner, chatId);
       return chat && { type: 'chat.upserted', chat };
+    },
+  };
+}
+
+function machineJob(name: string): RecordJob {
+  return {
+    key: `machine:${name}`,
+    load: async (loader) => {
+      const machine = await loader.machine(name);
+      return machine && { type: 'machine.upserted', machine };
     },
   };
 }

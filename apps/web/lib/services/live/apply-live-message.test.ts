@@ -3,11 +3,13 @@ import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 
 import type {
   ChatListItemResponse,
+  MachineResponse,
   ProjectResponse,
 } from "../../api/live-generated/live-protocol";
 import { activeRunsQueryKeys } from "../chat/active-runs";
 import { chatQueryKeys, type ChatResponse } from "../chat/queries";
 import type { ChatSearchResult } from "../chat/search";
+import { machinesQueryKeys } from "../machines/queries";
 import { pinQueryKeys } from "../pins/queries";
 import type { PinnedItem } from "../pins/types";
 import { projectQueryKeys } from "../project/queries";
@@ -75,6 +77,22 @@ const pin = (itemId: string, title: string): PinnedItem => ({
   pinnedAt: "2026-10-01T00:00:00.000Z",
   item: { id: itemId, title, archivedAt: null },
 });
+
+function machine(
+  name: string,
+  status: MachineResponse["status"] = "online",
+): MachineResponse {
+  return {
+    name,
+    status,
+    lastSeenAt: "2026-10-19T09:12:04.118Z",
+    failureReason: null,
+    hubProtocolVersion: 1,
+    daemonProtocolVersion: 1,
+    daemonVersion: "0.4.0",
+    roots: ["/srv/projects"],
+  };
+}
 
 describe("matchesListFilters", () => {
   const active = { id: ID.a, archivedAt: null };
@@ -377,6 +395,46 @@ describe("applyLiveMessage", () => {
     expect(refetched).toEqual([JSON.stringify(pinnedKey)]);
   });
 
+  it("replaces a Machine in place, appends a new one, and leaves an unfetched list alone", () => {
+    const client = new QueryClient();
+    const unfetched = new QueryClient();
+
+    applyLiveMessage(unfetched, {
+      type: "machine.upserted",
+      machine: machine("devl"),
+    });
+    expect(unfetched.getQueryData(machinesQueryKeys.list())).toBeUndefined();
+
+    client.setQueryData(machinesQueryKeys.list(), [
+      machine("devl"),
+      machine("staging", "offline"),
+    ]);
+    applyLiveMessage(client, {
+      type: "machine.upserted",
+      machine: { ...machine("devl", "offline"), lastSeenAt: null },
+    });
+    applyLiveMessage(client, {
+      type: "machine.upserted",
+      machine: machine("box"),
+    });
+
+    const names = client
+      .getQueryData<Array<MachineResponse>>(machinesQueryKeys.list())
+      ?.map((current) => current.name);
+    expect(names).toEqual(["devl", "staging", "box"]);
+    expect(
+      client.getQueryData<Array<MachineResponse>>(machinesQueryKeys.list())?.[0]
+        ?.status,
+    ).toBe("offline");
+
+    applyLiveMessage(client, { type: "machine.deleted", name: "staging" });
+    expect(
+      client
+        .getQueryData<Array<MachineResponse>>(machinesQueryKeys.list())
+        ?.map((current) => current.name),
+    ).toEqual(["devl", "box"]);
+  });
+
   it("refetches every owner list on resync and ignores run messages", () => {
     const client = new QueryClient();
     const invalidate = vi.spyOn(client, "invalidateQueries");
@@ -393,6 +451,7 @@ describe("applyLiveMessage", () => {
     applyLiveMessage(client, { type: "resync" });
     expect(invalidate.mock.calls.map(([f]) => f?.queryKey)).toEqual([
       chatQueryKeys.all,
+      machinesQueryKeys.list(),
       pinQueryKeys.list(),
       projectQueryKeys.lists(),
       activeRunsQueryKeys.all,

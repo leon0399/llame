@@ -12,6 +12,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import type { ChatListItemResponse as ChatDto } from '../chats/dto/chats.dto';
+import type { MachineResponse as MachineDto } from '../machines/dto/machines.dto';
 import type { ProjectResponse as ProjectDto } from '../projects/dto/projects.dto';
 import type { RunResponse as RunDto } from '../runs/dto/runs.dto';
 import {
@@ -20,6 +21,7 @@ import {
   LIVE_PROJECT_ID,
   LIVE_RUN_ID,
   liveChatRecord,
+  liveMachineRecord,
   livePinRecords,
   liveProjectRecord,
   liveRunRecord,
@@ -28,6 +30,7 @@ import { toWireMessage } from './change-hub.service';
 import {
   type ChatListItemResponse as ChatWire,
   liveMessageSchema,
+  type MachineResponse as MachineWire,
   type ProjectUpsertedMessage,
   type RunResponse as RunWire,
 } from './generated/live-protocol';
@@ -81,6 +84,19 @@ describe('live protocol contract', () => {
       { type: 'chat.deleted', chatId: LIVE_CHAT_ID },
       { type: 'project.upserted', project: liveProjectRecord() },
       { type: 'project.deleted', projectId: LIVE_PROJECT_ID },
+      { type: 'machine.upserted', machine: liveMachineRecord() },
+      { type: 'machine.deleted', name: 'devl' },
+      {
+        type: 'machine.upserted',
+        machine: liveMachineRecord({
+          status: 'offline',
+          lastSeenAt: null,
+          failureReason: 'unreachable',
+          daemonProtocolVersion: null,
+          daemonVersion: null,
+          roots: [],
+        }),
+      },
       { type: 'pins.replaced', items: livePinRecords() },
       { type: 'pins.replaced', items: [] },
       { type: 'run.updated', run: liveRunRecord() },
@@ -146,11 +162,21 @@ describe('live protocol contract', () => {
     const projectComplete: ProjectUpsertedMessage['project'] extends Serialized<ProjectDto>
       ? true
       : false = true;
+    // A Machine is the only record the socket shares with every user; its
+    // shape must match `GET /api/v1/machines` in both directions too.
+    const machineCompatible: Serialized<MachineDto> extends MachineWire
+      ? true
+      : false = true;
+    const machineComplete: MachineWire extends Serialized<MachineDto>
+      ? true
+      : false = true;
     expect([
       chatCompatible,
       runCompatible,
       projectCompatible,
       projectComplete,
-    ]).toEqual([true, true, true, true]);
+      machineCompatible,
+      machineComplete,
+    ]).toEqual([true, true, true, true, true, true]);
   });
 });
