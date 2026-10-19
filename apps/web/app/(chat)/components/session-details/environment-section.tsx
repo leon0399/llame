@@ -147,6 +147,7 @@ function MachineRow({
     machine?.status === "offline" && machine.failureReason !== null
       ? FAILURE_LABELS[machine.failureReason]
       : undefined;
+  const state = machineState(machine);
 
   return (
     <SidebarMenuItem>
@@ -154,6 +155,9 @@ function MachineRow({
         <TooltipTrigger
           render={
             <SidebarMenuButton
+              // The state is part of the link's name, not only the badge
+              // beside it, so a screen reader hears "devl, Offline".
+              aria-label={`${machineName}, ${state}`}
               render={<Link href="/settings" prefetch={false} />}
             />
           }
@@ -165,7 +169,7 @@ function MachineRow({
           <LastSeen machine={machine} />
         </TooltipContent>
       </Tooltip>
-      <MachineStatusBadge state={machineState(machine)} />
+      <MachineStatusBadge state={state} />
       {failure === undefined ? null : (
         <p className="px-2 pb-1 pl-8 text-xs text-destructive">{failure}</p>
       )}

@@ -20,7 +20,9 @@ export function RelativeTime({ date }: { date: string }) {
   }, []);
 
   return (
-    <time dateTime={date}>
+    // Server and browser compute "now" a moment apart; the tick corrects the
+    // text, so a differing first render is expected rather than a bug.
+    <time dateTime={date} suppressHydrationWarning>
       {formatDistanceStrict(new Date(date), now, { addSuffix: true })}
     </time>
   );

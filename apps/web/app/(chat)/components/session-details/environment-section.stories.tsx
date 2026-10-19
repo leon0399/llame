@@ -94,7 +94,9 @@ export const MachineOnline: Story = {
       "href",
       "/projects/11111111-1111-4111-8111-111111111111",
     );
-    await expect(canvas.getByRole("link", { name: "devbox" })).toBeVisible();
+    await expect(
+      canvas.getByRole("link", { name: "devbox, Online" }),
+    ).toBeVisible();
     await expect(canvas.getByText("Online")).toBeVisible();
 
     await userEvent.click(
@@ -137,7 +139,7 @@ export const LastSeenTicks: Story = {
   tags: ["ai-generated"],
   render: (args) => <SeenMomentsAgo {...args} />,
   play: async ({ canvas, userEvent }) => {
-    await userEvent.hover(canvas.getByRole("link", { name: "devbox" }));
+    await userEvent.hover(canvas.getByRole("link", { name: "devbox, Online" }));
     const tooltip = await waitFor(() => {
       const content = document.querySelector<HTMLElement>(
         "[data-slot='tooltip-content']",
