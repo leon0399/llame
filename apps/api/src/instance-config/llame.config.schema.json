@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llame.dev/schema/llame.config.schema.json",
   "title": "llame instance configuration",
-  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, {path:LOCATION}, and {path:LOCATION|json:POINTER} interpolation tokens (RFC 6901; POINTER must select a JSON string), resolved once at boot, except models[].systemPromptFile, which is always a literal host path handled by the dedicated prompt loader, skills.directories, whose intentionally public source paths reject interpolation syntax outright, and models[].providerOptions, whose string values reject interpolation syntax at any depth. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
+  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, {path:LOCATION}, and {path:LOCATION|json:POINTER} interpolation tokens (RFC 6901; POINTER must select a JSON string), resolved once at boot, except models[].systemPromptFile, which is always a literal host path handled by the dedicated prompt loader, skills.directories, whose intentionally public source paths reject interpolation syntax outright, machines.ssh.* file paths and machines.hosts.*.destination, which are literal (no interpolation) by construction, and models[].providerOptions, whose string values reject interpolation syntax at any depth. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
@@ -537,6 +537,19 @@
         "modelPage": { "type": "string" },
         "releasedAt": { "type": "string" }
       }
+    },
+    "machineHostEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One declared remote Machine: how the hub reaches it over SSH.",
+      "required": ["destination"],
+      "properties": {
+        "destination": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An SSH host alias, or [user@]host[:port], resolved through the included SSH configuration (which supplies aliases, jump hosts, users, ports, and identities). It must not begin with `-` and must not contain whitespace, `%`, or a shell metacharacter; the loader rejects any such value at startup, and rejects interpolation tokens outright. The value reaches an `ssh` argv, never a shell."
+        }
+      }
     }
   },
   "properties": {
@@ -674,6 +687,40 @@
         }
       }
     },
+    "machines": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional operator-declared remote Machines (remote-machines, experimental). Absent means the feature does not exist: no Machine tool argument, route, status read, or UI surface, and a `machine://` locator is refused as an unknown scheme exactly as before. Declared Machines are operator-wide — every authenticated user whose Run passes tool eligibility and permissions may address them, and one OS user on the Machine represents them all. `ssh` may be omitted: the worker user's ~/.ssh/known_hosts and ~/.ssh/config then apply. See docs/product/operator/machines.md.",
+      "properties": {
+        "ssh": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "SSH transport for every declared Machine. llame generates its own SSH configuration: its safety options come first (host keys only from the pinned file with strict checking, no global known-hosts file, batch mode, no agent, no connection sharing, connect and liveness timeouts) and then the included configuration follows, so the included file can supply aliases, jump hosts, users, ports, and identities but can never weaken the pinned host-key check — for any hop, including jump hosts.",
+          "properties": {
+            "knownHostsFile": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Pinned host-keys file checked for every hop, with strict checking (an unknown host key fails; nothing is learned on first use). Defaults to the worker user's ~/.ssh/known_hosts. A literal host path: interpolation is rejected, a relative path resolves against this configuration file's directory, and a leading `~/` resolves against the operator process home. The loader never probes it — a missing file fails at connect time, not boot."
+            },
+            "identityFile": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional private key identifying the hub to every Machine (the dedicated llame key, restricted by a forced command on the Machine). A literal host path resolved like knownHostsFile. Omitted means the included SSH configuration's own identities apply."
+            },
+            "configFile": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional SSH configuration to include after llame's safety block. A literal host path resolved like knownHostsFile; omitted means the worker user's ~/.ssh/config. Aliases, jump hosts, users, ports, ProxyCommand, and SendEnv come from here, and it is included for every hop."
+            }
+          }
+        },
+        "hosts": {
+          "type": "object",
+          "description": "Machine name → destination. The name is the user-facing name in `machine://<name>/<absolute path>` locators and must match [a-z0-9-]{1,63}; any other name fails startup naming the key. Declaring a Machine here is a trust decision: a Run that may enter one runs that repository's Workspace MCP servers as the Machine's OS user.",
+          "additionalProperties": { "$ref": "#/$defs/machineHostEntry" }
+        }
+      }
+    },
     "runs": {
       "type": "object",
       "additionalProperties": false,
@@ -723,7 +770,7 @@
         "nativeExecutorId": {
           "type": "string",
           "minLength": 1,
-          "description": "Stable operator-owned identity of this alpha native host. Setting it accepts host OS file authority for allowlisted read/edit/write tools. Use a distinct identity on each host."
+          "description": "Stable operator-owned identity of this alpha native host. Setting it accepts host OS file authority for allowlisted read/edit/write tools. Use a distinct identity on each host. It must not begin with `machine:` — that prefix names a Machine Workspace binding (`workspace_executor_id = machine:<name>`), and the loader fails startup naming this field for any value (interpolated or literal) that does."
         },
         "allowed": {
           "type": "array",

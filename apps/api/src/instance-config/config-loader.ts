@@ -38,6 +38,11 @@ import {
   type RawWebSearchEngineEntry,
   type WebAdapterConfig,
 } from './llame-config';
+import type {
+  MachineHostConfig,
+  MachinesConfig,
+  RawMachinesConfig,
+} from './machines-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
@@ -213,6 +218,16 @@ function resolveToolsConfig(
     ...readLeaf(raw, 'tools', 'nativeExecutorId'),
     env,
   });
+  // A Machine Workspace binds `workspace_executor_id = machine:<name>` (D5), so
+  // a local executor identity wearing that prefix would be indistinguishable
+  // from a Machine binding — the two columns could agree while naming
+  // different things. Checked on the RESOLVED value, so a token cannot smuggle
+  // the prefix in either.
+  if (nativeExecutorId?.startsWith('machine:')) {
+    throw new InstanceConfigError(
+      'tools.nativeExecutorId: must not begin with "machine:" — that prefix names a Machine Workspace binding',
+    );
+  }
   const tools: LlameConfig['tools'] = {
     allowed: resolveToolAllowlist({
       configPath: 'tools.allowed',
@@ -455,7 +470,6 @@ export function loadInstanceConfig(
   const promptLoader = createModelPromptLoader({ configPath });
   const models = resolveModels(raw, env, providersById, promptLoader);
   promptLoader.validateProjectDefault();
-  const modelIds = new Set(models.map((m) => m.id));
   const mcpServers = resolveMcpServers(raw, env);
   const { embeddingModels, search, webSearch, tools } = resolveSearchSettings(
     raw,
@@ -465,7 +479,7 @@ export function loadInstanceConfig(
   );
 
   return {
-    defaults: resolveDefaults(raw, env, modelIds),
+    defaults: resolveDefaults(raw, env, new Set(models.map((m) => m.id))),
     runs: resolveRunsConfig(raw, env),
     http: resolveHttpConfig(raw, env),
     db: resolveDbConfig(raw, env),
@@ -473,6 +487,7 @@ export function loadInstanceConfig(
     mcpServers,
     knowledge: resolveKnowledge(raw, env),
     skills: resolveSkillsConfig(raw, configPath),
+    ...resolveMachinesSection(raw, configPath),
     workers: resolveWorkerProfiles(raw),
     providers,
     models,
@@ -821,6 +836,157 @@ function resolveSkillDirectory(
   const expanded = entry.startsWith('~/')
     ? path.join(homedir(), entry.slice(2))
     : entry;
+  return path.resolve(configDirectory, expanded);
+}
+
+// ---- Remote Machines (remote-machines D12) ----------------------------
+
+/** A Machine name: the user-facing name in `machine://<name>/...` locators. */
+const MACHINE_NAME_PATTERN = /^[a-z0-9-]{1,63}$/;
+
+/**
+ * An SSH destination: a host alias, or `[user@]host[:port]`. Excludes a
+ * leading `-` (checked separately for a message that names the option shape),
+ * whitespace, `%` (ssh's own percent-expansion), and every shell
+ * metacharacter — the destination reaches an `ssh` argv, never a shell.
+ */
+const MACHINE_DESTINATION_PATTERN = /^[A-Za-z0-9._@:-]+$/;
+
+/**
+ * Resolve the optional `machines` section (remote-machines D12) into the
+ * fragment the config spreads: `{}` when the section is absent (so no
+ * `machines` key exists at all and no Machine argument, route, status read, or
+ * UI surface is offered, and a `machine://` locator stays an unknown scheme),
+ * or `{ machines }` when it is present.
+ *
+ * A PRESENT section must name its pinned host keys: the whole point of the
+ * section is a host-key-checked SSH transport, so every declared Machine
+ * without one is misconfiguration, not a default.
+ */
+function resolveMachinesSection(
+  raw: RawInstanceConfig | undefined,
+  configPath: string,
+): Pick<LlameConfig, 'machines'> {
+  const section = raw?.machines;
+  if (section === undefined) {
+    return {};
+  }
+
+  const configDirectory = path.dirname(configPath);
+  return {
+    machines: {
+      ssh: resolveMachineSsh(section.ssh, configDirectory),
+      hosts: resolveMachineHosts(section.hosts),
+    },
+  };
+}
+
+/**
+ * `machines.ssh`: the pinned host-keys file every hop is checked against
+ * (default: the worker user's `~/.ssh/known_hosts`), plus the optional llame
+ * identity and the SSH configuration to include after llame's safety block.
+ * All three resolve to literal absolute paths.
+ */
+function resolveMachineSsh(
+  ssh: RawMachinesConfig['ssh'],
+  configDirectory: string,
+): MachinesConfig['ssh'] {
+  const {
+    knownHostsFile = '~/.ssh/known_hosts',
+    identityFile,
+    configFile,
+  } = ssh ?? {};
+  return {
+    knownHostsFile: resolveMachinePath(
+      knownHostsFile,
+      'machines.ssh.knownHostsFile',
+      configDirectory,
+    ),
+    ...(identityFile !== undefined && {
+      identityFile: resolveMachinePath(
+        identityFile,
+        'machines.ssh.identityFile',
+        configDirectory,
+      ),
+    }),
+    ...(configFile !== undefined && {
+      configFile: resolveMachinePath(
+        configFile,
+        'machines.ssh.configFile',
+        configDirectory,
+      ),
+    }),
+  };
+}
+
+/**
+ * `machines.hosts`: name → destination. The published schema already fixes the
+ * entry shape (an object whose `destination` is a non-empty string); the name
+ * grammar and the destination's own rules are checked here, at startup, so the
+ * failure names the operator's exact key.
+ */
+function resolveMachineHosts(
+  hosts: Record<string, MachineHostConfig> | undefined,
+) {
+  const resolved: Record<string, MachineHostConfig> = {};
+  for (const [name, host] of Object.entries(hosts ?? {})) {
+    if (!MACHINE_NAME_PATTERN.test(name)) {
+      throw new InstanceConfigError(
+        `machines.hosts.${name}: machine names must match [a-z0-9-]{1,63}`,
+      );
+    }
+    resolved[name] = {
+      destination: resolveMachineDestination(name, host.destination),
+    };
+  }
+  return resolved;
+}
+
+function resolveMachineDestination(name: string, destination: string): string {
+  const configPath = `machines.hosts.${name}.destination`;
+  if (INTERPOLATION_TOKEN_SYNTAX.test(destination)) {
+    throw new InstanceConfigError(
+      `${configPath}: must not contain interpolation`,
+    );
+  }
+  if (destination.startsWith('-')) {
+    throw new InstanceConfigError(`${configPath}: must not begin with "-"`);
+  }
+  if (!MACHINE_DESTINATION_PATTERN.test(destination)) {
+    throw new InstanceConfigError(
+      `${configPath}: must be an ssh host alias or [user@]host[:port]`,
+    );
+  }
+  return destination;
+}
+
+/**
+ * An `machines.ssh` file path. Like the `tools.promptFiles` and
+ * `skills.directories` paths these are literal host paths on the hub box: any
+ * token syntax is rejected before resolution, so a `{env:...}`/`{path:...}`
+ * token cannot smuggle a different file in, and `~/` expands only because the
+ * operator wrote it. The loader never probes the filesystem — an unmounted
+ * pinned file is the session manager's connect-time failure, not a boot error.
+ */
+function resolveMachinePath(
+  value: string,
+  configPath: string,
+  configDirectory: string,
+): string {
+  if (INTERPOLATION_TOKEN_SYNTAX.test(value)) {
+    throw new InstanceConfigError(
+      `${configPath}: machine file paths are literal and do not support interpolation`,
+    );
+  }
+  if (value.includes('\0')) {
+    throw new InstanceConfigError(
+      `${configPath}: must not contain a NUL character`,
+    );
+  }
+
+  const expanded = value.startsWith('~/')
+    ? path.join(homedir(), value.slice(2))
+    : value;
   return path.resolve(configDirectory, expanded);
 }
 

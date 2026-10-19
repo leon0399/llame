@@ -448,6 +448,9 @@ importers:
       '@workspace/config-interpolation':
         specifier: workspace:*
         version: link:../../packages/config-interpolation
+      '@workspace/machine-protocol':
+        specifier: workspace:*
+        version: link:../../packages/machine-protocol
       '@workspace/mcp-workspace':
         specifier: workspace:*
         version: link:../../packages/mcp-workspace
