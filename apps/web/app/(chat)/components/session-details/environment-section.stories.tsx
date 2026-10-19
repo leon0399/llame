@@ -154,7 +154,11 @@ export const LastSeenTicks: Story = {
   },
 };
 
-/** An offline Machine keeps the binding; the reason is spelled out. */
+/**
+ * An offline Machine keeps the binding; the reason is spelled out.
+ *
+ * @summary Machine Workspace, offline, with its failure reason
+ */
 export const MachineOffline: Story = {
   tags: ["ai-generated"],
   args: {
@@ -170,7 +174,11 @@ export const MachineOffline: Story = {
   },
 };
 
-/** A Machine the operator removed: named, with no state claimed. */
+/**
+ * A Machine the operator removed: named, with no state claimed.
+ *
+ * @summary Machine Workspace whose Machine is no longer configured
+ */
 export const MachineUnknown: Story = {
   tags: ["ai-generated"],
   args: { machine: undefined },
@@ -179,7 +187,11 @@ export const MachineUnknown: Story = {
   },
 };
 
-/** A local Workspace on this host: one copy action, no locator. */
+/**
+ * A local Workspace on this host: one copy action, no locator.
+ *
+ * @summary local Workspace with a copy-path action
+ */
 export const LocalWorkspace: Story = {
   tags: ["ai-generated"],
   args: {
@@ -202,7 +214,11 @@ export const LocalWorkspace: Story = {
   },
 };
 
-/** An unbound Chat with no Project is one quiet row. */
+/**
+ * An unbound Chat with no Project is one quiet row.
+ *
+ * @summary Chat with no Workspace and no Project
+ */
 export const NoWorkspace: Story = {
   tags: ["ai-generated"],
   args: {
