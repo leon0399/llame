@@ -449,7 +449,9 @@ describe('bash durable admission', () => {
         bashTool,
         { command: 'printf next' },
         { ...context, toolCallId: 'call-2' },
-        0.05,
+        // A generous deadline for the follow-up: proof that the executor admits
+        // the next call must not depend on the machine's wall-clock load.
+        5,
       );
       expect(next).toMatchObject({
         status: 'success',

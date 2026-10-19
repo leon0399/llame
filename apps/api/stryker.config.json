@@ -4,7 +4,9 @@
     "src/**/*.ts",
     "!src/**/*.test.ts",
     "!src/testing/**",
-    "!src/mcp/mcp-runtime.module.ts"
+    "!src/mcp/mcp-runtime.module.ts",
+    "!src/runs/worker-harness.ts",
+    "!src/runs/scripted-model-*.ts"
   ],
   "testRunner": "vitest",
   "checkers": ["typescript"],

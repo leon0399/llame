@@ -2,7 +2,6 @@ import path from 'node:path';
 
 import {
   formatMachineLocator,
-  isMachineLocator,
   parseMachineLocator,
 } from '../machines/machine-locator';
 
@@ -57,7 +56,6 @@ export function workspaceSkillSources(root: string): ReadonlyArray<string> {
 export function machineWorkspaceSkillSources(
   root: string,
 ): ReadonlyArray<MachineSkillSource> | undefined {
-  if (!isMachineLocator(root)) return undefined;
   const parsed = parseMachineLocator(root);
   if (parsed.kind !== 'path') return undefined;
   return SKILL_SOURCE_SEGMENTS.map((segments) => {

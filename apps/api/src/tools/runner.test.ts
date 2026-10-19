@@ -1563,3 +1563,90 @@ describe('runTool permission gate', () => {
     });
   });
 });
+
+describe('Workspace argument projection for permissions', () => {
+  it('maps a bare absolute read path in a Machine Workspace before a reject can match it', () => {
+    const context: ToolContext = {
+      ...fakeContext(),
+      permissionPolicy: compileToolPermissionMap(
+        {
+          read: {
+            allow: true,
+            reject: [{ field: 'path', regex: '^/srv/app/' }],
+          },
+        },
+        'projection-policy',
+      ),
+      workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
+    };
+
+    expect(
+      previewToolPermission(
+        nativeReadTool,
+        { path: '/srv/app/notes.md' },
+        context,
+      ),
+    ).toBe(true);
+  });
+
+  it('matches a reject against the submitted spelling of a scheme path', () => {
+    const context: ToolContext = {
+      ...fakeContext(),
+      permissionPolicy: compileToolPermissionMap(
+        { read: { allow: true, reject: [{ field: 'path', regex: '^KB://' }] } },
+        'projection-policy',
+      ),
+      workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
+    };
+
+    expect(
+      previewToolPermission(
+        nativeReadTool,
+        { path: 'KB://Notes/a.md' },
+        context,
+      ),
+    ).toBe(false);
+  });
+
+  it('matches a reject against the submitted spelling without a root', () => {
+    const context: ToolContext = {
+      ...fakeContext(),
+      permissionPolicy: compileToolPermissionMap(
+        { read: { allow: true, reject: [{ field: 'path', regex: '^KB://' }] } },
+        'projection-policy',
+      ),
+    };
+
+    expect(
+      previewToolPermission(
+        nativeReadTool,
+        { path: 'KB://Notes/a.md' },
+        context,
+      ),
+    ).toBe(false);
+  });
+
+  it('maps a bash cwd in a Machine Workspace before a reject can match it', () => {
+    const context: ToolContext = {
+      ...fakeContext(),
+      permissionPolicy: compileToolPermissionMap(
+        {
+          bash: {
+            allow: true,
+            reject: [{ field: 'cwd', regex: '^/srv/app/' }],
+          },
+        },
+        'projection-policy',
+      ),
+      workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
+    };
+
+    expect(
+      previewToolPermission(
+        bashTool,
+        { command: 'pwd', cwd: '/srv/app/src' },
+        context,
+      ),
+    ).toBe(true);
+  });
+});

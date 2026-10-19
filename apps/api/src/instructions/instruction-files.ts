@@ -114,12 +114,15 @@ export function walkFrom(root: string, key: string): Array<string> {
   return directories;
 }
 
-/** One key as the path it spells inside `root`'s own key space. */
+/**
+ * One key as the path it spells inside `root`'s own key space. A root with no
+ * directory of its own — the host filesystem, or a Space's own directory —
+ * carries no prefix to cut: a key that opens with a separator loses it here,
+ * which names the same directories, because the walk below drops the empty
+ * segment it leaves behind.
+ */
 function relativeKey(root: string, key: string): string {
   if (key === root) return '';
-  // The host root is the whole filesystem, so its keys are already relative
-  // paths inside it, and a Space's keys always are.
-  if (root === '' || root === '/') return key;
   const prefix = `${root}/`;
   return key.startsWith(prefix) ? key.slice(prefix.length) : key;
 }

@@ -40,9 +40,13 @@ export async function probeMachinePromptTarget(
   ) {
     return undefined;
   }
-  try {
-    const answer = readFsStatResult(
-      await connector.request(
+  // Every way a Machine can fail to answer — a refused request, an unreachable
+  // session, an answer the protocol does not promise — reads the same here,
+  // exactly as an unreadable host path does. `resolve().then` turns a connector
+  // that throws where it should reject into the rejection the chain catches.
+  const answer = await Promise.resolve()
+    .then(() =>
+      connector.request(
         target.name,
         'fs.stat',
         {
@@ -54,10 +58,9 @@ export async function probeMachinePromptTarget(
         },
         { signal: identity.signal },
       ),
-    );
-    if (answer === undefined || answer.kind === 'missing') return undefined;
-    return formatMachineLocator(target.name, answer.realPath ?? target.path);
-  } catch {
-    return undefined;
-  }
+    )
+    .then(readFsStatResult)
+    .catch(() => undefined);
+  if (answer === undefined || answer.kind === 'missing') return undefined;
+  return formatMachineLocator(target.name, answer.realPath ?? target.path);
 }

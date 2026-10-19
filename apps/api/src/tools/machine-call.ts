@@ -306,7 +306,9 @@ export function readBytesChunk(
 
 /** Whether the value is a whole number, as an exit code or a duration is. */
 function isInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value);
+  // `Number.isInteger` already answers `false` for every non-number, so the
+  // type predicate is honest without a redundant `typeof` guard.
+  return Number.isInteger(value);
 }
 
 /** Whether the value is a whole, non-negative count. */

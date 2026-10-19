@@ -90,6 +90,30 @@ describe('workspace path projection', () => {
     ).toBe('machine://devl/srv/app/src/app.ts:10-20');
   });
 
+  it('keeps an absolute Machine path as written rather than re-resolving it', () => {
+    expect(
+      resolveWorkspacePath('machine://devl/srv/app', '/srv/app/../x'),
+    ).toBe('machine://devl/srv/app/../x');
+  });
+
+  it('never doubles the separator when a Machine path resolves to the root', () => {
+    expect(resolveWorkspacePath('machine://devl/srv/app', '../../..')).toBe(
+      'machine://devl/',
+    );
+  });
+
+  it('refuses a Machine Workspace path that cannot be a locator', () => {
+    expect(() =>
+      resolveWorkspacePath('machine://devl/srv/app', 'a\u0000b'),
+    ).toThrow('The Machine Workspace path cannot be a locator.');
+  });
+
+  it('leaves a suffix that is not a read selector on the Machine path', () => {
+    expect(
+      mapToWorkspaceHost('machine://devl/srv/app', '/srv/app/notes:draft'),
+    ).toBe('machine://devl/srv/app/notes%3Adraft');
+  });
+
   it('maps a bare absolute path to the Machine bound to the Workspace', () => {
     const root = 'machine://devl/home/me/shop';
     expect(mapToWorkspaceHost(root, '/home/me/notes.md')).toBe(

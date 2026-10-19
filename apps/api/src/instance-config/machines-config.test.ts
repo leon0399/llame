@@ -161,6 +161,41 @@ describe('machines configuration', () => {
     expect(message).toContain('NUL');
   });
 
+  it('rejects interpolation syntax in a pinned identity file, naming its key', () => {
+    writeConfig({
+      machines: {
+        ssh: {
+          knownHostsFile: '/etc/llame/known_hosts',
+          identityFile: '{env:MACHINE_IDENTITY_FILE}',
+        },
+      },
+    });
+
+    const message = loadError({
+      MACHINE_IDENTITY_FILE: '/run/secrets/id_ed25519',
+    });
+
+    expect(message).toContain('machines.ssh.identityFile');
+    expect(message).toContain('literal');
+    expect(message).not.toContain('/run/secrets/id_ed25519');
+  });
+
+  it('rejects a NUL character in a pinned ssh config file, naming its key', () => {
+    writeConfig({
+      machines: {
+        ssh: {
+          knownHostsFile: '/etc/llame/known_hosts',
+          configFile: '/etc/llame/ssh\u0000config',
+        },
+      },
+    });
+
+    const message = loadError();
+
+    expect(message).toContain('machines.ssh.configFile');
+    expect(message).toContain('NUL');
+  });
+
   it('fails startup naming the offending key for an invalid Machine name', () => {
     writeConfig({
       machines: {

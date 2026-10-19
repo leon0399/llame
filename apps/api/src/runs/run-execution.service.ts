@@ -3,25 +3,18 @@ import { realpath, stat } from 'node:fs/promises';
 import { isBashTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
-import { machineAttemptKey, machineEnvelope } from './machine-attempt';
+import { machineAttemptKey } from './machine-attempt';
 import { probeMachinePromptTarget } from './machine-prompt-probe';
-import { createMachineInstructionProbe } from '../instructions/machine-instruction-scope';
-import { readFsStatResult } from '../machines/machine-results';
 import {
-  MachineUnavailableError,
-  MachineConnector,
-} from '../machines/machine-connector.service';
-import {
-  formatMachineLocator,
-  parseMachineExecutorId,
-  parseMachineLocator,
-} from '../machines/machine-locator';
-import {
-  snapshotMachineSkillSources,
-  type MachineSkillRequest,
-} from '../skills/machine-skill-sources';
-import { machineWorkspaceRoot } from '../tools/workspace-path';
-import { type FsStatResult } from '@workspace/machine-protocol';
+  decideMachineWorkspace,
+  detachedBinding,
+  machineAvailabilityNarration,
+  machineInstructionAvailability,
+  machineInstructionWorld,
+  type MachineWorkspaceState,
+} from './machine-workspace';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { parseMachineExecutorId } from '../machines/machine-locator';
 import {
   serializeNativeModelOutput,
   statHostPath,
@@ -124,7 +117,6 @@ import {
   createCompactionCheckpointPart,
   toContextCheckpoint,
 } from '../chats/context-item-producers';
-import { createWorkspaceMachineAvailabilityItem } from '../chats/machine-context-item-producers';
 import {
   CONTEXT_ITEM_PRODUCERS,
   isContextItemPart,
@@ -336,14 +328,6 @@ import {
 } from '../prompts/temporal-anchor';
 
 /**
- * How many Machine Workspace skill catalogs one worker keeps. A catalog is a
- * per-root snapshot, so a handful of concurrently running Chats on Machines
- * covers every attempt that resolves a skill state; the oldest is dropped and
- * then simply contributes no workspace skills.
- */
-const MACHINE_SKILL_CATALOG_LIMIT = 8;
-
-/**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
  * state it establishes. Applied by the terminal transaction of the attempt that
  * completes the turn: the baseline lives only in the system prompt, so no
@@ -364,27 +348,12 @@ type WorkspaceWrites = {
   readonly available?: boolean;
 };
 
-/**
- * What this attempt decided about the Machine a bound Workspace lives on
- * (remote-machines "An unreachable Machine does not detach its Workspace").
- */
-type WorkspaceMachineState = {
-  readonly name: string;
-  /** Whether the Machine answered during this attempt. */
-  readonly available: boolean;
-  /**
-   * The operator removed this Machine, so its binding was detached with
-   * `executor_absent` and the notice names the Machine that is gone.
-   */
-  readonly removed?: boolean;
-};
-
 type WorkspacePreparation = {
   readonly root: string | undefined;
   readonly chat: Chat | undefined;
   readonly detaching: boolean;
   /** The bound Machine Workspace's Machine; absent for a local binding. */
-  readonly machine?: WorkspaceMachineState;
+  readonly machine?: MachineWorkspaceState;
 };
 
 type PromptImportStep = {
@@ -2410,231 +2379,38 @@ export class RunExecutionService {
     generation: number;
     effectivePermissionMode: PermissionMode;
   }): Promise<WorkspacePreparation> {
-    const { input, nativeDeliverySequence, chat, root, machineName } = params;
-    const connector = this.machineConnector;
-    if (
-      connector === undefined ||
-      !connector.enabled() ||
-      !connector.isConfigured(machineName)
-    ) {
-      return this.detachWorkspace({
-        input,
-        nativeDeliverySequence,
-        chat,
-        generation: params.generation,
-        reason: 'executor_absent',
-        removedMachine: machineName,
-      });
-    }
-
-    // Decided once per attempt: instructions, skills, MCP, and the tools all
-    // read the same verdict instead of each waiting out a handshake timeout.
-    const available = await connector.reachable(
-      machineName,
-      machineAttemptKey(input.runId, nativeDeliverySequence),
-    );
-    if (!available) {
-      return {
-        root,
-        chat,
-        detaching: false,
-        machine: { name: machineName, available: false },
-      };
-    }
-
-    const check = await this.machineRootCheck({
-      input,
-      nativeDeliverySequence,
-      connector,
-      machineName,
-      root,
-      effectivePermissionMode: params.effectivePermissionMode,
-    });
-    if (check.verdict === 'unavailable') {
-      // The session died between the verdict and the re-check: the binding is
-      // still the Machine's, and this attempt tells the unavailability.
-      return {
-        root,
-        chat,
-        detaching: false,
-        machine: { name: machineName, available: false },
-      };
-    }
-    if (check.verdict === 'detach') {
-      return this.detachWorkspace({
-        input,
-        nativeDeliverySequence,
-        chat,
-        generation: params.generation,
-        reason: check.reason,
-      });
-    }
-    await this.prepareMachineSkills({
-      input,
-      connector,
-      machineName,
-      root,
-    });
-    return {
-      root,
-      chat,
-      detaching: false,
-      machine: { name: machineName, available: true },
-    };
-  }
-
-  /**
-   * The Machine Workspace's skill sources, read from the Machine once per
-   * attempt (spec: Machine Workspace skills come from the Machine). The local
-   * catalog still does the discovery, the bounds, and the precedence; it is
-   * simply fed an in-memory filesystem built from a bounded Machine snapshot,
-   * so every later `skill://` read of a Machine package reads the Machine and
-   * the hub's own filesystem never sees a `machine://` path.
-   */
-  private async prepareMachineSkills(params: {
-    input: ExecuteRunInput;
-    connector: MachineConnector;
-    machineName: string;
-    root: string;
-  }): Promise<void> {
-    if (!this.instanceConfig.config.tools.allowed.includes('read')) return;
-    const parsed = machineWorkspaceRoot(params.root);
-    if (parsed === undefined || parsed.name !== params.machineName) return;
-    const machineRequest: MachineSkillRequest = (
-      method,
-      requestParams,
-      options,
-    ) =>
-      params.connector.request(
-        params.machineName,
-        method,
-        requestParams,
-        options,
-      );
-    const sources = await snapshotMachineSkillSources({
-      root: params.root,
-      request: machineRequest,
-      ...(params.input.abortSignal !== undefined && {
-        signal: params.input.abortSignal,
-      }),
-    });
-    if (sources === undefined) return;
-    this.machineSkillCatalogs.set(
-      params.root,
-      new SkillCatalog(
-        this.instanceConfig.config.skills.directories,
-        sources.fileSystem,
-      ),
-    );
-    while (this.machineSkillCatalogs.size > MACHINE_SKILL_CATALOG_LIMIT) {
-      const oldest = this.machineSkillCatalogs.keys().next().value;
-      if (oldest === undefined) break;
-      this.machineSkillCatalogs.delete(oldest);
-    }
-  }
-
-  /**
-   * The Machine counterpart of `workspaceDetachReason`, run only once the
-   * Machine answered: the registered root is re-probed through the Machine,
-   * its canonical form must still be the bound locator, and the operator gates
-   * apply exactly as they do locally.
-   */
-  private async machineRootCheck(params: {
-    input: ExecuteRunInput;
-    nativeDeliverySequence: number;
-    connector: MachineConnector;
-    machineName: string;
-    root: string;
-    effectivePermissionMode: PermissionMode;
-  }): Promise<
-    | { readonly verdict: 'keep' }
-    | { readonly verdict: 'unavailable' }
-    | { readonly verdict: 'detach'; readonly reason: WorkspaceDetachReason }
-  > {
-    const parsed = parseMachineLocator(params.root);
-    if (parsed.kind !== 'path') {
-      return { verdict: 'detach', reason: 'root_missing' };
-    }
-    const probe = await this.probeMachineRoot({
-      input: params.input,
-      nativeDeliverySequence: params.nativeDeliverySequence,
-      connector: params.connector,
+    const decision = await decideMachineWorkspace({
+      connector: this.machineConnector,
       machineName: params.machineName,
-      path: parsed.path,
+      root: params.root,
+      effectivePermissionMode: params.effectivePermissionMode,
+      toolAllowlist: this.instanceConfig.config.tools.allowed,
+      permissionPolicy: this.permissionPolicy,
+      identity: {
+        runId: params.input.runId,
+        deliverySequence: params.nativeDeliverySequence,
+        signal: params.input.abortSignal,
+      },
+      skillCatalogs: this.machineSkillCatalogs,
+      skillDirectories: this.instanceConfig.config.skills.directories,
+      warn: (message) => this.logger.warn(message),
     });
-    if (probe.verdict !== 'probed') return probe;
-    if (probe.stat === undefined || probe.stat.kind !== 'directory') {
-      return { verdict: 'detach', reason: 'root_missing' };
+    if (decision.kind === 'detach') {
+      return this.detachWorkspace({
+        input: params.input,
+        nativeDeliverySequence: params.nativeDeliverySequence,
+        chat: params.chat,
+        generation: params.generation,
+        reason: decision.reason,
+        removedMachine: decision.removedMachine,
+      });
     }
-    const canonical =
-      probe.stat.realPath === undefined
-        ? undefined
-        : formatMachineLocator(params.machineName, probe.stat.realPath);
-    if (canonical === undefined || canonical !== params.root) {
-      return { verdict: 'detach', reason: 'root_moved' };
-    }
-
-    if (!this.instanceConfig.config.tools.allowed.includes('enter_workspace')) {
-      return { verdict: 'detach', reason: 'tool_not_allowed' };
-    }
-    // Deliberately mirrors admitPermission; the bound locator is already the
-    // canonical text every Machine rule matches.
-    if (params.effectivePermissionMode === 'bypass') return { verdict: 'keep' };
-    const decision = evaluatePermission(this.permissionPolicy, {
-      toolId: 'enter_workspace',
-      args: { path: params.root },
-    });
-    return decision.decision === 'allow'
-      ? { verdict: 'keep' }
-      : { verdict: 'detach', reason: 'permission_rejected' };
-  }
-
-  /**
-   * One `fs.stat` of a bound Machine root. A lost session is its own verdict,
-   * never a missing root: a Machine that went away must not detach a binding
-   * its Chat would still have on its return.
-   */
-  private async probeMachineRoot(params: {
-    input: ExecuteRunInput;
-    nativeDeliverySequence: number;
-    connector: MachineConnector;
-    machineName: string;
-    path: string;
-  }): Promise<
-    | { readonly verdict: 'probed'; readonly stat: FsStatResult | undefined }
-    | { readonly verdict: 'unavailable' }
-    | { readonly verdict: 'detach'; readonly reason: WorkspaceDetachReason }
-  > {
-    try {
-      return {
-        verdict: 'probed',
-        stat: readFsStatResult(
-          await params.connector.request(
-            params.machineName,
-            'fs.stat',
-            {
-              envelope: machineEnvelope({
-                runId: params.input.runId,
-                deliverySequence: params.nativeDeliverySequence,
-              }),
-              path: params.path,
-            },
-            { signal: params.input.abortSignal },
-          ),
-        ),
-      };
-    } catch (error) {
-      if (error instanceof MachineUnavailableError) {
-        return { verdict: 'unavailable' };
-      }
-      // A daemon refusal — the path is no longer registered, the budget ran
-      // out — leaves nothing this Chat can address, exactly as a root that is
-      // gone does.
-      this.logger.warn(
-        `Machine ${params.machineName} refused the Workspace root check for ${params.path}`,
-      );
-      return { verdict: 'detach', reason: 'root_missing' };
-    }
+    return {
+      root: params.root,
+      chat: params.chat,
+      detaching: false,
+      machine: decision.machine,
+    };
   }
 
   /**
@@ -2670,23 +2446,12 @@ export class RunExecutionService {
       await this.workspaceMcp?.stopForChat(params.input.chatId);
       return {
         root: undefined,
-        chat:
-          params.chat === undefined
-            ? undefined
-            : {
-                ...params.chat,
-                workspaceRoot: null,
-                workspaceExecutorId: null,
-                workspaceGeneration: params.generation + 1,
-                workspaceDetachReason: params.reason,
-              },
         detaching: true,
-        ...(params.removedMachine !== undefined && {
-          machine: {
-            name: params.removedMachine,
-            available: false,
-            removed: true,
-          },
+        ...detachedBinding({
+          chat: params.chat,
+          generation: params.generation,
+          reason: params.reason,
+          removedMachine: params.removedMachine,
         }),
       };
     }
@@ -2899,7 +2664,10 @@ export class RunExecutionService {
       workspaceRoot: step.workspaceRoot.current(),
       hostAvailable: this.hostInstructionsLoadable(),
       knowledgeAvailable: this.knowledgeInstructionsLoadable(),
-      machineAvailable: this.machineInstructionsLoadable(),
+      machineAvailable: machineInstructionAvailability({
+        connector: this.machineConnector,
+        toolAllowlist: this.instanceConfig.config.tools.allowed,
+      }),
       admitsRead: (path) =>
         previewToolPermission(nativeReadTool, { path }, context),
       probeHost: async (path) => {
@@ -3000,45 +2768,6 @@ export class RunExecutionService {
   }
 
   /**
-   * Whether MACHINE instruction files may load: the same `read` allowlist and
-   * at least one configured Machine. No local executor is needed — the chain
-   * is read through the Machine, and the page reader is the same `read` tool
-   * the model's own Machine reads use.
-   */
-  private machineInstructionsLoadable(): boolean {
-    return (
-      this.machineConnector?.enabled() === true &&
-      this.instanceConfig.config.tools.allowed.includes('read')
-    );
-  }
-
-  /**
-   * The Machine world one attempt may load Machine candidates in: absent
-   * without `read` and a configured Machine, else the same audited page reader
-   * every world uses and the registered-root probe of the targeted Machine.
-   */
-  private machineInstructionWorld(
-    input: ExecuteRunInput,
-    toolContext: ToolContext,
-    readPage: ReadPage,
-    enabled: boolean,
-  ): InRunAttempt['machines'] {
-    const connector = this.machineConnector;
-    if (!enabled || connector === undefined) return undefined;
-    return {
-      readPage,
-      probe: createMachineInstructionProbe({
-        connector,
-        envelope: machineEnvelope({
-          runId: input.runId,
-          deliverySequence: toolContext.nativeDeliverySequence,
-        }),
-        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
-      }),
-    };
-  }
-
-  /**
    * The trusted context for a system-origin read (skill activation, the
    * accepted-turn instructions load): the same fields the model's own tool
    * context carries, built from the RUN's identity. Deliberately no
@@ -3095,7 +2824,10 @@ export class RunExecutionService {
     const gates = {
       host: this.hostInstructionsLoadable(),
       knowledge: this.knowledgeInstructionsLoadable(),
-      machine: this.machineInstructionsLoadable(),
+      machine: machineInstructionAvailability({
+        connector: this.machineConnector,
+        toolAllowlist: this.instanceConfig.config.tools.allowed,
+      }),
     };
     const toolContext =
       gates.host || gates.knowledge || gates.machine
@@ -3173,12 +2905,16 @@ export class RunExecutionService {
     return {
       readPage: gates.host ? readPage : undefined,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
-      machines: this.machineInstructionWorld(
-        input,
-        toolContext,
+      machines: machineInstructionWorld({
+        enabled: gates.machine,
+        connector: this.machineConnector,
         readPage,
-        gates.machine,
-      ),
+        identity: {
+          runId: input.runId,
+          deliverySequence: toolContext.nativeDeliverySequence,
+          signal: input.abortSignal,
+        },
+      }),
       admitsRead: (path) =>
         previewToolPermission(nativeReadTool, { path }, toolContext),
     };
@@ -4135,7 +3871,7 @@ export class RunExecutionService {
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
     afterPublication: boolean,
-    machine: WorkspaceMachineState | undefined,
+    machine: MachineWorkspaceState | undefined,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -4159,7 +3895,7 @@ export class RunExecutionService {
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
     afterPublication: boolean,
-    machine: WorkspaceMachineState | undefined,
+    machine: MachineWorkspaceState | undefined,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -4967,7 +4703,7 @@ export class RunExecutionService {
     effectiveContext: AttemptToolCatalog;
     afterPublication: boolean;
     /** The bound Machine Workspace's availability as this attempt decided it. */
-    machine: WorkspaceMachineState | undefined;
+    machine: MachineWorkspaceState | undefined;
   }): Promise<AttemptStagedContext> {
     const baseline = await this.resolveDisclosureBaseline(
       input.tx,
@@ -5126,7 +4862,7 @@ export class RunExecutionService {
     chat: Chat;
     latestCheckpointId: string | null;
     /** The bound Machine Workspace's availability as this attempt decided it. */
-    machine: WorkspaceMachineState | undefined;
+    machine: MachineWorkspaceState | undefined;
   }): WorkspaceStagedContext {
     const currentRoot = input.chat.workspaceRoot;
     const latestCheckpointId = input.latestCheckpointId;
@@ -5163,19 +4899,14 @@ export class RunExecutionService {
     // told about against the one this attempt decided. A removed Machine is
     // the detach notice's story, not this one.
     const machine = input.machine;
-    if (
-      machine !== undefined &&
-      machine.removed !== true &&
-      input.chat.workspaceToldAvailable !== machine.available
-    ) {
-      parts.push(
-        createWorkspaceMachineAvailabilityItem({
-          runId: input.runId,
-          machine: machine.name,
-          available: machine.available,
-        }),
-      );
-      toldAvailable = machine.available;
+    const narration = machineAvailabilityNarration({
+      runId: input.runId,
+      machine,
+      toldAvailable: input.chat.workspaceToldAvailable,
+    });
+    if (narration !== undefined) {
+      parts.push(narration.part);
+      toldAvailable = narration.available;
       writes ??= {
         told: currentRoot,
         toldFrom: latestCheckpointId,

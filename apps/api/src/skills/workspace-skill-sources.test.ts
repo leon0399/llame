@@ -54,4 +54,19 @@ describe('workspaceSkillSources', () => {
     expect(machineWorkspaceSkillSources('machine://devl')).toBeUndefined();
     expect(machineWorkspaceSkillSources('machine://')).toBeUndefined();
   });
+
+  it('treats every root the locator grammar refuses as a host root', () => {
+    for (const root of [
+      '/work/project',
+      'machine:/devl/home/me/shop',
+      'machine://BAD NAME/home/me/shop',
+    ]) {
+      expect(machineWorkspaceSkillSources(root)).toBeUndefined();
+      expect(workspaceSkillSources(root)).toEqual([
+        path.join(root, '.claude', 'skills'),
+        path.join(root, '.agents', 'skills'),
+        path.join(root, '.llame', 'skills'),
+      ]);
+    }
+  });
 });

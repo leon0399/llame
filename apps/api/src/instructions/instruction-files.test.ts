@@ -110,6 +110,14 @@ describe('walkFrom', () => {
     expect(walkFrom('', 'notes/lore')).toEqual(['', 'notes', 'notes/lore']);
     expect(walkFrom('', '')).toEqual(['']);
   });
+
+  it('reads a key that opens with a separator in the root own key space', () => {
+    // A key carrying a separator its root does not have adds no directory: the
+    // empty segment it opens is nothing to walk, so the chain below the root
+    // is the same one the unprefixed spelling names.
+    expect(walkFrom('', '/notes/lore')).toEqual(['', 'notes', 'notes/lore']);
+    expect(walkFrom('/', '//a/b')).toEqual(['/', '/a', '/a/b']);
+  });
 });
 
 describe('touchedPath', () => {

@@ -21,6 +21,8 @@ import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import {
   type CompiledPolicy,
@@ -242,6 +244,9 @@ const messageId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const testAttemptId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const now = new Date('2026-09-01T00:00:00.000Z');
 
+/** A Workspace root bound on the Machine the machine cases configure. */
+const machineRoot = 'machine://devl/srv/app';
+
 const chat: Chat = {
   id: chatId,
   ownerUserId: userId,
@@ -409,6 +414,8 @@ type ExecutionServiceOptions = {
   toolPromptFiles?: Readonly<Record<string, string | null>>;
   workspaceMcp?: WorkspaceMcpClients;
   inRunProducer?: InRunContextProducer;
+  /** The Machine connector a Machine-bound Workspace is prepared through. */
+  machineConnector?: MachineConnector;
   permissionModes?: InstanceConfigReader['config']['tools']['permissionModes'];
   knowledgeRoot?: string;
   knowledgeResolver?: KnowledgeToolResolver;
@@ -515,6 +522,7 @@ function makeExecutionService(
     dynamicToolResolver,
     options.workspaceMcp,
     options.inRunProducer,
+    options.machineConnector,
   );
   return {
     service,
@@ -3138,6 +3146,121 @@ describe('RunExecutionService executeRun', () => {
     expect(touch.mock.invocationCallOrder[0]).toBeGreaterThan(
       updateAssistantReply.mock.invocationCallOrder[0] ?? Infinity,
     );
+  });
+
+  it('narrates a Machine that came back and records the availability it told', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const peer = createProtocolPeer({
+      roots: ['/srv'],
+      answer: (call) =>
+        call.method === 'fs.stat' && call.params?.['path'] === '/srv/app'
+          ? {
+              value: { kind: 'directory', isLink: false, realPath: '/srv/app' },
+            }
+          : undefined,
+    });
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: machineRoot,
+      workspaceExecutorId: 'machine:devl',
+      workspaceGeneration: 4,
+      workspaceTold: machineRoot,
+      workspaceToldFrom: null,
+      workspaceToldAvailable: false,
+    });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        allowed: ['enter_workspace'],
+        // A real connector over the in-process daemon peer: the Machine answers
+        // what the peer scripts, so this attempt's Machine path runs end to end.
+        machineConnector: new MachineConnector({
+          machines: {
+            ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+            hosts: { devl: { destination: 'box' } },
+          },
+          hubVersion: '9.9.9',
+          transportFactory: peer.factory,
+        }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    // The binding held, so the only Workspace narration is the transition the
+    // Chat's recorded availability disagreed with.
+    const workspaceItems = stagedItemsOf(
+      repositories.storeAtDispatch,
+      'workspace',
+    );
+    expect(workspaceItems.map((item) => item.data.form)).toEqual(['notice']);
+    expect(workspaceItems[0]?.data.payload).toEqual({ machine: 'devl' });
+    expect(repositories.setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: machineRoot,
+      toldFrom: null,
+      clearDetachReason: false,
+      available: true,
+    });
+  });
+
+  it('detaches a Workspace whose Machine the operator removed, naming the Machine', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const detach = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+      .mockResolvedValue('detached');
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: machineRoot,
+      workspaceExecutorId: 'machine:devl',
+      workspaceGeneration: 4,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceToldAvailable: true,
+    });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      { allowed: ['enter_workspace'] },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(detach).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'executor_absent',
+        expectedGeneration: 4,
+      }),
+    );
+    const workspaceItems = stagedItemsOf(
+      repositories.storeAtDispatch,
+      'workspace',
+    );
+    expect(workspaceItems.map((item) => item.data.form)).toEqual(['notice']);
+    expect(workspaceItems[0]?.data.payload).toEqual({
+      reason: 'executor_absent',
+      machine: 'devl',
+    });
+    // No availability was narrated, so the told state records none.
+    expect(
+      Object.keys(repositories.setTold.mock.calls[0]?.[0] ?? {}).sort(),
+    ).toEqual([
+      'chatId',
+      'clearDetachReason',
+      'ownerUserId',
+      'told',
+      'toldFrom',
+    ]);
   });
 });
 

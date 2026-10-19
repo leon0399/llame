@@ -1,12 +1,18 @@
-import { readFileSync, statSync } from 'node:fs';
+import * as fs from 'node:fs';
+import { readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import {
   createMachineSshConfigFile,
   defaultMachineSshConfigFile,
   renderMachineSshConfig,
 } from './machine-ssh-config';
+
+// The generated file's own cleanup path only runs when a write or a mkdir
+// fails, so the write is the one seam a test has to move. Everything else in
+// the module keeps its real implementation.
+vi.mock('node:fs', { spy: true });
 
 describe('renderMachineSshConfig', () => {
   const base = {
@@ -70,6 +76,12 @@ describe('renderMachineSshConfig', () => {
     expect(text).toContain('# llame Machines');
     expect(text).toContain('it cannot weaken these options');
   });
+
+  it('ends with the include line and one final newline', () => {
+    const text = renderMachineSshConfig(base);
+    expect(text.endsWith('Include "/home/llame/.ssh/config"\n')).toBe(true);
+    expect(text.split('\n').at(-1)).toBe('');
+  });
 });
 
 describe('defaultMachineSshConfigFile', () => {
@@ -108,8 +120,49 @@ describe('createMachineSshConfigFile', () => {
       second.dispose();
     }
   });
+
+  it('disposes twice: a repeat cleanup is already done', () => {
+    const file = createMachineSshConfigFile(base());
+    file.dispose();
+    expect(() => file.dispose()).not.toThrow();
+  });
+
+  it('removes the private directory and rethrows the failure a write hit', () => {
+    const written: Array<string> = [];
+    vi.mocked(fs.writeFileSync).mockImplementationOnce((path) => {
+      written.push(String(path));
+      throw new Error('EIO: the private directory is full');
+    });
+    expect(() => createMachineSshConfigFile(base())).toThrow(
+      new Error('EIO: the private directory is full'),
+    );
+    expect(() => statSync(dirname(only(written)))).toThrow(/ENOENT/u);
+  });
+
+  it('rethrows its own failure and cleans up a directory that is already gone', () => {
+    const written: Array<string> = [];
+    vi.mocked(fs.writeFileSync).mockImplementationOnce((path) => {
+      written.push(String(path));
+      // A reaper can empty the temp directory between the write and the
+      // cleanup; the cleanup must not turn that into its own ENOENT.
+      rmSync(dirname(String(path)), { recursive: true, force: true });
+      throw new Error('EIO: the private directory was reaped');
+    });
+    expect(() => createMachineSshConfigFile(base())).toThrow(
+      new Error('EIO: the private directory was reaped'),
+    );
+    expect(written).toHaveLength(1);
+  });
 });
 
 function base() {
   return { knownHostsFile: '/tmp/pinned', includeFile: '/tmp/operator-config' };
+}
+
+/** The one path a write mock saw, with a clear failure instead of a cast. */
+function only(written: ReadonlyArray<string>): string {
+  const [first] = written;
+  if (first === undefined)
+    throw new Error('the generated file was never written');
+  return first;
 }

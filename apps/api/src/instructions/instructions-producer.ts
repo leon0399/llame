@@ -177,7 +177,6 @@ function hostTarget(selectorPath: string): PromptImportTrigger {
 export function machineTarget(
   locator: string,
 ): PromptImportTrigger | undefined {
-  if (!isMachineLocator(locator)) return undefined;
   const parsed = parseMachineLocator(locator);
   if (parsed.kind !== 'path') return undefined;
   const path = posix.resolve(parsed.path);

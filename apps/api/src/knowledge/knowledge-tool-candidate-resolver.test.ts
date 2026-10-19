@@ -155,6 +155,28 @@ describe('KnowledgeToolCandidateResolver', () => {
     ).toEqual(['read', 'edit', 'write', 'bash']);
   });
 
+  it('admits bash on a local native executor with no Machines configured', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+      },
+    });
+
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['bash'],
+      codeOwnedTools: [bashTool],
+    });
+
+    expect(candidates).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: bashTool,
+      },
+    ]);
+  });
+
   it('does not query the owner row when no Knowledge tool is allowlisted', async () => {
     const findForOwnerForBinding = vi.spyOn(
       KnowledgeSpaceRepository.prototype,

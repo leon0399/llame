@@ -1,11 +1,15 @@
 import { MachineProtocolError } from '@workspace/machine-protocol';
 
+import type { MachinesConfig } from '../instance-config/machines-config';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
 
-import { MachineConnector } from './machine-connector.service';
+import {
+  MachineConnector,
+  REACHABILITY_CACHE_LIMIT,
+} from './machine-connector.service';
 import { MachineUnavailableError } from './machine-session';
 import type { MachineContact } from './machines-status';
 
@@ -104,15 +108,71 @@ describe('MachineConnector configuration surface', () => {
   });
 
   it('refuses an unconfigured Machine without opening a link', async () => {
-    const { connector, sessionCount } = fixture();
+    const { connector, contacts, sessionCount } = fixture();
     const error = refusal(
       await connector
         .request('nope', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error)),
     );
+    expect(error.machine).toBe('nope');
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
+    expect(error.message).toBe('This Machine is not configured.');
+    expect(contacts).toHaveLength(0);
     expect(sessionCount()).toBe(0);
+  });
+
+  it('refuses a declared host that names no destination', async () => {
+    const peer = createProtocolPeer({
+      answers: { 'roots.list': { value: { roots: [] } } },
+    });
+    // `null` is what a bare YAML `devl:` (or JSON `"devl": null`) yields. The
+    // operator loader's schema rejects that shape before a connector is built,
+    // so this guard is the connector's own last line of defence.
+    const machines: MachinesConfig = {
+      ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+      hosts: { devl: { destination: 'box' } },
+    };
+    Object.defineProperty(machines.hosts, 'devl', {
+      value: null,
+      enumerable: true,
+    });
+    const connector = new MachineConnector({
+      machines,
+      hubVersion: '9.9.9',
+      transportFactory: peer.factory,
+    });
+    const error = refusal(
+      await connector
+        .request('devl', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
+    );
+    expect(error.machine).toBe('devl');
+    expect(error.reason).toBe('unreachable');
+    expect(error.sent).toBe(false);
+    expect(error.message).toBe('This Machine is not configured.');
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('refuses a Machines section that carries no SSH settings', async () => {
+    const machines: MachinesConfig = {
+      ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+      hosts: { devl: { destination: 'box' } },
+    };
+    // The loader always resolves `ssh` (defaulting the pinned known-hosts
+    // file); drop it so the factory's own guard is the only thing left with no
+    // transport injected.
+    Reflect.deleteProperty(machines, 'ssh');
+    const connector = new MachineConnector({ machines, hubVersion: '9.9.9' });
+    const error = refusal(
+      await connector
+        .request('devl', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
+    );
+    expect(error.machine).toBe('machine');
+    expect(error.reason).toBe('unreachable');
+    expect(error.sent).toBe(false);
+    expect(error.message).toBe('No Machine SSH settings are configured.');
   });
 });
 
@@ -204,6 +264,27 @@ describe('MachineConnector session lifecycle', () => {
       expect(contacts).toHaveLength(1);
       await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
       expect(sessionCount()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('defers the idle close on every request', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connector, peer } = fixture({
+        idleCloseMs: 20,
+        answers: { 'roots.list': { value: { roots: [] } } },
+      });
+      await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
+      const session = await peer.session(0);
+      await vi.advanceTimersByTimeAsync(10);
+      // The open armed the close; this request must push it out again.
+      await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
+      await vi.advanceTimersByTimeAsync(15);
+      expect(session.stopped).toBe(false);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(session.stopped).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -430,6 +511,102 @@ describe('MachineConnector reachability', () => {
     ]);
     expect(verdicts).toEqual([true, true, true]);
     expect(sessionCount()).toBe(1);
+  });
+
+  it('records one contact for the handshake a probe performed', async () => {
+    const { connector, contacts, sessionCount } = fixture({
+      answers: { 'roots.list': { value: { roots: [] } } },
+    });
+    await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(true);
+    expect(sessionCount()).toBe(1);
+    expect(contacts).toHaveLength(1);
+  });
+
+  it('re-stamps the contact when the Machine already answered', async () => {
+    const { connector, contacts } = fixture({
+      roots: ['/srv/app'],
+      daemonVersion: '1.2.3',
+      answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
+    });
+    await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
+    expect(contacts).toHaveLength(1);
+    // The session is already live, so probing it re-stamps liveness rather
+    // than handshaking again: the status writer sees a fresh contact.
+    await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(true);
+    expect(contacts.at(1)).toEqual({
+      name: 'devl',
+      at: new Date(1_700_000_000_000),
+      hubProtocolVersion: 1,
+      daemonProtocolVersion: 1,
+      daemonVersion: '1.2.3',
+      roots: ['/srv/app'],
+    });
+    expect(contacts).toHaveLength(2);
+  });
+
+  it('keeps every verdict while the cache is still at its bound', async () => {
+    let offline = true;
+    const { connector, sessionCount } = fixture({
+      openFailure: () =>
+        offline
+          ? 'ssh: connect to host box port 22: Connection refused'
+          : undefined,
+    });
+    for (let index = 0; index < REACHABILITY_CACHE_LIMIT; index += 1) {
+      await expect(
+        connector.reachable('devl', `attempt-${index}`),
+      ).resolves.toBe(false);
+    }
+    offline = false;
+    // A full cache evicts nothing yet, so the oldest verdict still stands.
+    await expect(connector.reachable('devl', 'attempt-0')).resolves.toBe(false);
+    expect(sessionCount()).toBe(0);
+  });
+
+  it('forgets the oldest verdict once the cache is over its bound', async () => {
+    let offline = true;
+    const { connector, sessionCount } = fixture({
+      openFailure: () =>
+        offline
+          ? 'ssh: connect to host box port 22: Connection refused'
+          : undefined,
+    });
+    for (let index = 0; index <= REACHABILITY_CACHE_LIMIT; index += 1) {
+      await expect(
+        connector.reachable('devl', `attempt-${index}`),
+      ).resolves.toBe(false);
+    }
+    offline = false;
+    // One attempt past the bound pushed `attempt-0` out, so it probes afresh.
+    await expect(connector.reachable('devl', 'attempt-0')).resolves.toBe(true);
+    expect(sessionCount()).toBe(1);
+  });
+});
+
+describe('MachineConnector contact reporting', () => {
+  it('logs a contact sink that fails without failing the call', async () => {
+    const peer = createProtocolPeer({
+      answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
+    });
+    const logged = vi.fn();
+    const connector = new MachineConnector({
+      machines: MACHINES,
+      hubVersion: '9.9.9',
+      transportFactory: peer.factory,
+      onContact: () => {
+        throw new Error('the status store is down');
+      },
+      logger: { error: logged },
+    });
+    await expect(
+      connector.request('devl', 'roots.list', { envelope: ENVELOPE }),
+    ).resolves.toEqual({ roots: ['/srv/app'] });
+    await vi.waitFor(() => {
+      expect(logged).toHaveBeenCalledWith(
+        'Recording the contact with Machine devl failed',
+        expect.stringContaining('the status store is down'),
+      );
+    });
   });
 });
 

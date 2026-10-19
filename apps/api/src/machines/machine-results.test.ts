@@ -159,6 +159,26 @@ describe('readFsListResult', () => {
     });
   });
 
+  it('reads the entries field whatever position the daemon wrote it in', () => {
+    expect(
+      readFsListResult({
+        totalCount: 2,
+        truncated: false,
+        entries: [
+          { name: 'a', kind: 'file' },
+          { name: 'b', kind: 'directory' },
+        ],
+      }),
+    ).toEqual({
+      entries: [
+        { name: 'a', kind: 'file' },
+        { name: 'b', kind: 'directory' },
+      ],
+      totalCount: 2,
+      truncated: false,
+    });
+  });
+
   it('returns a native failure result unchanged in meaning', () => {
     expect(
       readFsListResult({ status: 'error', type: 'not_found', message: 'no' }),
@@ -252,6 +272,34 @@ describe('readFsReadResult', () => {
     ],
   ])('refuses %j', (value) => {
     expect(readFsReadResult(value)).toBeUndefined();
+  });
+
+  it('reads a pdf read as media, like an image', () => {
+    expect(
+      readFsReadResult({
+        status: 'success',
+        kind: 'pdf',
+        mediaType: 'application/pdf',
+        path: 'machine://devl/a.pdf',
+      }),
+    ).toEqual({
+      status: 'success',
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      path: 'machine://devl/a.pdf',
+    });
+  });
+
+  it('refuses an envelope that is neither a success nor a refusal', () => {
+    expect(
+      readFsReadResult({
+        status: 'pending',
+        kind: 'file',
+        path: 'machine://devl/a',
+        content: 'hello',
+        truncated: false,
+      }),
+    ).toBeUndefined();
   });
 
   it('returns a refusal carried alongside extra fields', () => {

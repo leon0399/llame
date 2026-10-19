@@ -252,4 +252,11 @@ describe('Machine executor ids', () => {
     expect(isMachineExecutorId('machine:devl')).toBe(true);
     expect(isMachineExecutorId('machine:dev_l')).toBe(false);
   });
+
+  it('requires the prefix itself, not a name that starts at its length', () => {
+    // 'aaaaaaaadevl' slices to 'devl', so a reader that skipped the prefix
+    // check would claim a Machine here.
+    expect(parseMachineExecutorId('aaaaaaaadevl')).toBeUndefined();
+    expect(isMachineExecutorId('aaaaaaaadevl')).toBe(false);
+  });
 });

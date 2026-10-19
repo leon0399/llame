@@ -16,7 +16,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Db, TenantRunner } from '../db/tenant-db.service';
+import { PATH_NOT_REGISTERED_MESSAGE } from '@workspace/machine-protocol';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import { MachineConnector } from '../machines/machine-connector.service';
+import {
+  createProtocolPeer,
+  type ProtocolPeerOptions,
+} from '../testing/machine-protocol-peer';
 import { SkillCatalog } from '../skills/skill-catalog';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
@@ -31,6 +37,7 @@ import type { ToolContext } from './types';
 import {
   enterWorkspaceTool,
   exitWorkspaceTool,
+  MACHINE_WORKSPACE_AUTHORITY,
   WORKSPACE_AUTHORITY,
 } from './workspace';
 import { createWorkspaceRootCell } from './workspace-path';
@@ -1173,6 +1180,331 @@ describe('Workspace host tools', () => {
       switchFixture.record,
       switchFixture.id,
       switchContext,
+    );
+  });
+});
+
+const MACHINE_HOSTS = {
+  ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+  hosts: { devl: { destination: 'box' } },
+};
+
+function machineConnectorFor(options: ProtocolPeerOptions = {}) {
+  const peer = createProtocolPeer(options);
+  return {
+    peer,
+    connector: new MachineConnector({
+      machines: MACHINE_HOSTS,
+      hubVersion: '9.9.9',
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 2000,
+    }),
+  };
+}
+
+describe('Machine Workspace entry', () => {
+  beforeEach(() => {
+    vi.spyOn(
+      WorkspaceBindingRepository.prototype,
+      'isCurrentDelivery',
+    ).mockResolvedValue(true);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const STAT_DIRECTORY = {
+    value: { kind: 'directory', isLink: false, realPath: '/srv/app' },
+  };
+
+  it('binds the directory the daemon resolved and leaves the Run unpinned', async () => {
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+    const { connector } = machineConnectorFor({
+      answers: { 'fs.stat': STAT_DIRECTORY },
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'success',
+      root: 'machine://devl/srv/app',
+      state: 'bound',
+      authority: MACHINE_WORKSPACE_AUTHORITY,
+      skills: [],
+      skillsOmitted: 0,
+      mcpServers: [],
+    });
+
+    const input = enter.mock.calls[0]?.[0];
+    expect(input).toMatchObject({
+      chatId: 'chat-1',
+      ownerUserId: 'owner-1',
+      executorId: 'machine:devl',
+      root: 'machine://devl/srv/app',
+      runId: 'run-1',
+      deliverySequence: 4,
+    });
+    expect(Object.hasOwn(input ?? {}, 'bindExecutorId')).toBe(false);
+  });
+
+  it('carries the call deadline to the stat and refuses a missing directory', async () => {
+    const request = vi.spyOn(MachineConnector.prototype, 'request');
+    const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    const { connector } = machineConnectorFor({
+      answers: { 'fs.stat': { value: { kind: 'missing', isLink: false } } },
+    });
+    const controller = new AbortController();
+
+    await expect(
+      enterWorkspaceTool.execute(
+        context({ machines: connector, abortSignal: controller.signal }),
+        { path: 'machine://devl/srv/app' },
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'The Workspace directory was not found.',
+    });
+    expect(request).toHaveBeenCalledWith('devl', 'fs.stat', expect.anything(), {
+      signal: controller.signal,
+    });
+    expect(enter).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Machine path that is not a directory', async () => {
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    const { connector } = machineConnectorFor({
+      answers: { 'fs.stat': { value: { kind: 'file', isLink: false } } },
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app/a.ts',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'not_directory',
+      message: 'The Workspace path is not a directory.',
+    });
+  });
+
+  it('refuses a directory stat that reports no real path', async () => {
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    const { connector } = machineConnectorFor({
+      answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'not_directory',
+      message: 'The Workspace path is not a directory.',
+    });
+  });
+
+  it('refuses a stat whose real path cannot be a locator', async () => {
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    const { connector } = machineConnectorFor({
+      answers: {
+        'fs.stat': {
+          value: {
+            kind: 'directory',
+            isLink: false,
+            realPath: '/srv/nu\u0000ll',
+          },
+        },
+      },
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'machine_protocol_error',
+      message: 'The Machine "devl" answered an unusable result.',
+    });
+  });
+
+  it('reports the Machine refusal of the stat as its own result', async () => {
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    const { connector } = machineConnectorFor({
+      answers: { 'fs.stat': { error: 'path_not_registered' } },
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'path_not_registered',
+      message: PATH_NOT_REGISTERED_MESSAGE,
+    });
+  });
+
+  it('refuses a Machine entry without a Run identity', async () => {
+    const { connector } = machineConnectorFor();
+
+    await expect(
+      enterWorkspaceTool.execute(
+        context({ machines: connector, runId: undefined }),
+        { path: 'machine://devl/srv/app' },
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'This Run cannot bind a Workspace.',
+    });
+  });
+
+  it('refuses an unconfigured Machine without opening a link', async () => {
+    const { peer, connector } = machineConnectorFor();
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://nope/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'machine_not_found',
+      message: 'No Machine named "nope" is configured.',
+    });
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('requires a Machine locator that names an absolute directory', async () => {
+    const { peer, connector } = machineConnectorFor();
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'A Workspace Machine locator must name a Machine and an absolute directory path.',
+    });
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('keeps the machine scheme unknown without a machines section', async () => {
+    await expect(
+      enterWorkspaceTool.execute(context(), { path: 'machine://devl/srv/app' }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
+    });
+  });
+
+  it('refuses a Machine entry this delivery may not bind', async () => {
+    vi.spyOn(
+      WorkspaceBindingRepository.prototype,
+      'isCurrentDelivery',
+    ).mockResolvedValue(false);
+    const { peer, connector } = machineConnectorFor();
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'This Run cannot use this native executor.',
+    });
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('refuses an unreachable Machine', async () => {
+    const { connector } = machineConnectorFor({
+      openFailure: () => 'ssh: connect to host box port 22: Connection refused',
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'machine_unavailable',
+      message: 'The Machine "devl" is unavailable.',
+    });
+  });
+
+  it('allows one Workspace transition per model step', async () => {
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+    const { connector } = machineConnectorFor({
+      answers: { 'fs.stat': STAT_DIRECTORY },
+    });
+    const entering = context({
+      machines: connector,
+      workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(entering, { path: 'machine://devl/srv/app' }),
+    ).resolves.toMatchObject({ status: 'success' });
+    await expect(
+      enterWorkspaceTool.execute(entering, { path: 'machine://devl/srv/app' }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'workspace_transition_conflict',
+      message: 'Only one Workspace transition may run in a model step.',
+    });
+  });
+
+  it('pins the local executor on a local entry', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'workspace-pin-'));
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+    try {
+      await enterWorkspaceTool.execute(context(), { path: directory });
+      expect(enter).toHaveBeenCalledWith(
+        expect.objectContaining({
+          executorId: 'worker-1',
+          bindExecutorId: 'worker-1',
+        }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('pins the local executor on exit when the Run has one', async () => {
+    const exit = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'exit')
+      .mockResolvedValue({ status: 'unbound' });
+
+    await expect(exitWorkspaceTool.execute(context(), {})).resolves.toEqual({
+      status: 'success',
+      root: null,
+      state: 'unbound',
+    });
+    expect(exit).toHaveBeenCalledWith(
+      expect.objectContaining({ bindExecutorId: 'worker-1', runId: 'run-1' }),
     );
   });
 });

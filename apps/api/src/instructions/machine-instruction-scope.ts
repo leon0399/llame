@@ -241,19 +241,16 @@ function machineLabel(name: string, root: string, key: string): string {
  * One scope key as the absolute Machine path it addresses. A Machine world's
  * keys are absolute Machine paths — every trigger it is walked from carries
  * one — while the empty key names the registered root itself, exactly as a
- * Space's empty key names the Space. A trailing separator names the same
- * directory as its absence, so it is dropped and one entry cannot be addressed
- * two ways.
+ * Space's empty key names the Space: it joins the root as a directory with
+ * nothing after its separator. A trailing separator names the same directory
+ * as its absence, so it is dropped and one entry cannot be addressed two ways.
  */
 function absoluteKey(root: string, key: string): string {
-  const absolute =
-    key === ''
-      ? root
-      : key.startsWith('/')
-        ? key
-        : root.endsWith('/')
-          ? `${root}${key}`
-          : `${root}/${key}`;
+  const absolute = key.startsWith('/')
+    ? key
+    : root.endsWith('/')
+      ? `${root}${key}`
+      : `${root}/${key}`;
   return absolute.length > 1 && absolute.endsWith('/')
     ? absolute.slice(0, -1)
     : absolute;

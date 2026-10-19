@@ -2,8 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { JsonValue, NativeFailureType } from '@workspace/machine-protocol';
+import type {
+  JsonValue,
+  NativeFailureType,
+  RequestEnvelope,
+} from '@workspace/machine-protocol';
 
+import { MACHINE_PREPARATION_BUDGET_MS } from '../runs/machine-attempt';
 import {
   MAX_MACHINE_SKILL_BYTES,
   MAX_MACHINE_SKILL_REQUESTS,
@@ -56,6 +61,8 @@ class FakeMachine {
     readonly method: MachineSkillMethod;
     readonly path: string;
     readonly displayPrefix: string | undefined;
+    readonly envelope: RequestEnvelope;
+    readonly signal: AbortSignal | undefined;
   }> = [];
   private readonly root: FakeNode;
   private readonly config: FakeMachineConfig;
@@ -67,13 +74,17 @@ class FakeMachine {
 
   readonly request: MachineSkillRequest = async (method, params, options) => {
     const signal = options?.signal;
-    if (signal?.aborted) throw signal.reason;
+    // Record before answering: a request the snapshot should never have sent is
+    // still one the Machine was asked to answer.
     this.calls.push({
       method,
       path: params.path,
       displayPrefix:
         'options' in params ? params.options.displayPrefix : undefined,
+      envelope: params.envelope,
+      signal,
     });
+    if (signal?.aborted) throw signal.reason;
     if (this.config.hang === true && signal !== undefined) {
       return new Promise<JsonValue>((_resolve, reject) => {
         signal.addEventListener('abort', () =>
@@ -278,16 +289,20 @@ describe('snapshotMachineSkillSources', () => {
       sourceDirectory: `${MACHINE_ROOT}/.agents/skills`,
       skillDirectory: `${MACHINE_ROOT}/.agents/skills/deploy`,
     });
-    expect(machine.calls).toContainEqual({
-      method: 'fs.list',
-      path: '/home/me/shop/.agents/skills',
-      displayPrefix: undefined,
-    });
-    expect(machine.calls).toContainEqual({
-      method: 'fs.read',
-      path: '/home/me/shop/.agents/skills/deploy/SKILL.md',
-      displayPrefix: 'machine://devl',
-    });
+    expect(machine.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'fs.list',
+        path: '/home/me/shop/.agents/skills',
+        displayPrefix: undefined,
+      }),
+    );
+    expect(machine.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'fs.read',
+        path: '/home/me/shop/.agents/skills/deploy/SKILL.md',
+        displayPrefix: 'machine://devl',
+      }),
+    );
   });
 
   it('lets the highest-precedence Machine source win', async () => {
@@ -348,6 +363,24 @@ describe('snapshotMachineSkillSources', () => {
         `The package symlink ${MACHINE_ROOT}/.agents/skills/notes resolves to a regular file, not a directory.`,
       ],
     });
+    // Only the three link children are resolved, and a link that is not a
+    // directory is never read as a package.
+    expect(
+      machine.calls
+        .filter((call) => call.method === 'fs.stat')
+        .map((call) => call.path),
+    ).toEqual([
+      '/home/me/shop/.agents/skills/linked',
+      '/home/me/shop/.agents/skills/notes',
+      '/home/me/shop/.agents/skills/broken',
+    ]);
+    for (const child of ['notes', 'broken']) {
+      expect(
+        machine.calls.filter((call) =>
+          call.path.startsWith(`/home/me/shop/.agents/skills/${child}/`),
+        ),
+      ).toEqual([]);
+    }
   });
 
   it('reads invocation control from the sidecars on the Machine', async () => {
@@ -765,10 +798,321 @@ describe('snapshotMachineSkillSources', () => {
       expect(namesIn(snapshot)).toEqual(['deploy']);
       expect(snapshot.entries[0].available).toBe(true);
     }
-    expect(machine.calls).toContainEqual({
-      method: 'fs.read',
-      path: '/home/me/my shop/.agents/skills/deploy/SKILL.md',
-      displayPrefix: 'machine://devl',
+    expect(machine.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'fs.read',
+        path: '/home/me/my shop/.agents/skills/deploy/SKILL.md',
+        displayPrefix: 'machine://devl',
+      }),
+    );
+  });
+
+  it('bounds every request with the budget the snapshot was given', async () => {
+    const defaulted = new FakeMachine(
+      agentsSkills({ deploy: packageNode('deploy') }),
+    );
+
+    await snapshotSkills(defaulted);
+
+    expect(defaulted.calls.length).toBeGreaterThan(0);
+    expect(defaulted.calls.map((call) => call.envelope.budgetMs)).toEqual(
+      defaulted.calls.map(() => MACHINE_PREPARATION_BUDGET_MS),
+    );
+
+    const bounded = new FakeMachine(
+      agentsSkills({ deploy: packageNode('deploy') }),
+    );
+
+    await snapshotSkills(bounded, MACHINE_ROOT, { budgetMs: 1234 });
+
+    expect(bounded.calls.length).toBeGreaterThan(0);
+    expect(bounded.calls.map((call) => call.envelope.budgetMs)).toEqual(
+      bounded.calls.map(() => 1234),
+    );
+  });
+
+  it('carries the caller signal on every request it sends', async () => {
+    const machine = new FakeMachine(
+      agentsSkills({
+        deploy: packageNode('deploy'),
+        linked: link(packageNode('linked')),
+      }),
+    );
+    const controller = new AbortController();
+
+    const sources = await snapshotSkills(machine, MACHINE_ROOT, {
+      signal: controller.signal,
     });
+
+    expect(sources.diagnostics).toEqual([]);
+    expect(machine.calls.map((call) => call.method)).toEqual(
+      expect.arrayContaining(['fs.list', 'fs.read', 'fs.stat']),
+    );
+    for (const call of machine.calls) {
+      expect(call.signal).toBeDefined();
+      expect(call.signal?.aborted).toBe(false);
+    }
+
+    // What the daemon measures is the caller's abort, so the signal each
+    // request carried stops being usable the moment the caller aborts.
+    controller.abort();
+
+    for (const call of machine.calls) {
+      expect(call.signal?.aborted).toBe(true);
+    }
+  });
+
+  it('reports a failure that is not an Error instance as an unknown one', async () => {
+    // A rejection reason only has to look like an Error to be typed as one:
+    // the snapshot's own check is `instanceof`, which this value fails.
+    const notAnError: Error = {
+      name: 'Error',
+      message: 'The Machine devl is unreachable.',
+    };
+    expect(notAnError).not.toBeInstanceOf(Error);
+
+    const machine = new FakeMachine(
+      agentsSkills({ deploy: packageNode('deploy') }),
+      { failure: notAnError },
+    );
+
+    const sources = await snapshotSkills(machine);
+
+    expect(sources.diagnostics).toEqual([
+      'The Machine skill snapshot failed: an unknown failure',
+    ]);
+    expect(
+      new SkillCatalog([], sources.fileSystem).getSnapshot(
+        workspaceSkillSources(MACHINE_ROOT),
+      ),
+    ).toMatchObject({ available: true, entries: [] });
+  });
+
+  it('skips a source the Machine reports as absent or not a directory, silently', async () => {
+    const machine = new FakeMachine(shop({}), {
+      refusals: {
+        '/home/me/shop/.claude/skills': refusal(
+          'not_found',
+          'No such directory.',
+        ),
+        '/home/me/shop/.agents/skills': refusal(
+          'not_regular_file',
+          'The path is not a directory.',
+        ),
+      },
+    });
+
+    const sources = await snapshotSkills(machine);
+
+    expect(sources.diagnostics).toEqual([]);
+    expect(
+      machine.calls
+        .filter((call) => call.method === 'fs.list')
+        .map((call) => call.path),
+    ).toEqual([
+      '/home/me/shop/.claude/skills',
+      '/home/me/shop/.agents/skills',
+      '/home/me/shop/.llame/skills',
+    ]);
+    expect(
+      new SkillCatalog([], sources.fileSystem).getSnapshot(
+        workspaceSkillSources(MACHINE_ROOT),
+      ),
+    ).toMatchObject({ available: true, entries: [] });
+  });
+
+  it('reads no document for a file child and resolves no link where there is none', async () => {
+    const machine = new FakeMachine(
+      agentsSkills({
+        deploy: packageNode('deploy'),
+        'README.md': file('Not a package.'),
+      }),
+    );
+
+    const sources = await snapshotSkills(machine);
+
+    expect(sources.diagnostics).toEqual([]);
+    expect(machine.calls.filter((call) => call.method === 'fs.stat')).toEqual(
+      [],
+    );
+    expect(
+      machine.calls.filter((call) =>
+        call.path.startsWith('/home/me/shop/.agents/skills/README.md'),
+      ),
+    ).toEqual([]);
+    expect(
+      sources.fileSystem
+        .readDirectory(`${MACHINE_ROOT}/.agents/skills`)
+        .map((dirent) => dirent.name),
+    ).toEqual(['deploy', 'README.md']);
+    expect(
+      sources.fileSystem.fileKind(`${MACHINE_ROOT}/.agents/skills/README.md`),
+    ).toBe('unavailable');
+  });
+
+  it('does not read the sidecars of a package whose document is not readable text', async () => {
+    const machine = new FakeMachine(
+      agentsSkills({
+        truncated: directory({
+          'SKILL.md': file(skillDocument('truncated'), true),
+        }),
+        plain: packageNode('plain'),
+      }),
+    );
+
+    const sources = await snapshotSkills(machine);
+
+    expect(sources.diagnostics).toEqual([]);
+    expect(
+      machine.calls.filter((call) =>
+        call.path.startsWith('/home/me/shop/.agents/skills/truncated/agents/'),
+      ),
+    ).toEqual([]);
+    // A package that did read as text still gets both sidecars, in order.
+    expect(
+      machine.calls
+        .filter((call) =>
+          call.path.startsWith('/home/me/shop/.agents/skills/plain/agents/'),
+        )
+        .map((call) => call.path),
+    ).toEqual([
+      '/home/me/shop/.agents/skills/plain/agents/llame.yaml',
+      '/home/me/shop/.agents/skills/plain/agents/openai.yaml',
+    ]);
+    expect(
+      sources.fileSystem.fileKind(
+        `${MACHINE_ROOT}/.agents/skills/truncated/SKILL.md`,
+      ),
+    ).toBe('file');
+    expect(() =>
+      sources.fileSystem.readTextFile(
+        `${MACHINE_ROOT}/.agents/skills/truncated/SKILL.md`,
+      ),
+    ).toThrow('The Machine skill snapshot holds no text');
+  });
+
+  it('kinds a document read that answers a directory, and reads no sidecars for it', async () => {
+    const machine = new FakeMachine(
+      agentsSkills({ odd: directory({ 'SKILL.md': directory({}) }) }),
+    );
+
+    const sources = await snapshotSkills(machine);
+
+    expect(
+      sources.fileSystem.fileKind(
+        `${MACHINE_ROOT}/.agents/skills/odd/SKILL.md`,
+      ),
+    ).toBe('directory');
+    expect(
+      machine.calls.filter((call) =>
+        call.path.startsWith('/home/me/shop/.agents/skills/odd/agents/'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('kinds a refused document read by what the refusal proves', async () => {
+    const machine = new FakeMachine(
+      agentsSkills({
+        gone: packageNode('gone'),
+        odd: packageNode('odd'),
+        opaque: packageNode('opaque'),
+      }),
+      {
+        refusals: {
+          '/home/me/shop/.agents/skills/gone/SKILL.md': refusal(
+            'not_found',
+            'No such file.',
+          ),
+          '/home/me/shop/.agents/skills/odd/SKILL.md': refusal(
+            'not_regular_file',
+            'The path is not a regular file.',
+          ),
+          '/home/me/shop/.agents/skills/opaque/SKILL.md': refusal(
+            'invalid_utf8',
+            'The file is not valid UTF-8.',
+          ),
+        },
+      },
+    );
+
+    const sources = await snapshotSkills(machine);
+
+    expect(sources.diagnostics).toEqual([]);
+    expect(
+      sources.fileSystem.fileKind(
+        `${MACHINE_ROOT}/.agents/skills/gone/SKILL.md`,
+      ),
+    ).toBe('missing');
+    expect(
+      sources.fileSystem.fileKind(
+        `${MACHINE_ROOT}/.agents/skills/odd/SKILL.md`,
+      ),
+    ).toBe('unavailable');
+    expect(
+      sources.fileSystem.fileKind(
+        `${MACHINE_ROOT}/.agents/skills/opaque/SKILL.md`,
+      ),
+    ).toBe('file');
+  });
+
+  it('drops a source whose sidecar read stops the snapshot', async () => {
+    const machine = new FakeMachine(
+      agentsSkills({
+        deploy: directory({
+          'SKILL.md': file(skillDocument('deploy')),
+          agents: directory({
+            'llame.yaml': file('policy:\n  allow_implicit_invocation: false\n'),
+          }),
+        }),
+      }),
+      {
+        payloads: {
+          '/home/me/shop/.agents/skills/deploy/agents/openai.yaml': 7,
+        },
+      },
+    );
+
+    const sources = await snapshotSkills(machine);
+
+    expect(sources.diagnostics).toEqual([
+      `The Machine skill snapshot read an unreadable result at ${MACHINE_ROOT}/.agents/skills/deploy/agents/openai.yaml`,
+    ]);
+    expect(() =>
+      sources.fileSystem.readDirectory(`${MACHINE_ROOT}/.agents/skills`),
+    ).toThrow('The Machine skill source');
+    expect(
+      sources.fileSystem.fileKind(
+        `${MACHINE_ROOT}/.agents/skills/deploy/SKILL.md`,
+      ),
+    ).toBe('unavailable');
+    expect(
+      new SkillCatalog([], sources.fileSystem).getSnapshot(
+        workspaceSkillSources(MACHINE_ROOT),
+      ),
+    ).toMatchObject({ available: true, entries: [] });
+  });
+
+  it('stops at the byte bound a package reaches exactly', async () => {
+    const document = skillDocument('huge');
+    const machine = new FakeMachine(
+      agentsSkills({
+        huge: directory({
+          'SKILL.md': file(
+            `${document}${'x'.repeat(MAX_MACHINE_SKILL_BYTES - document.length)}`,
+          ),
+        }),
+      }),
+    );
+
+    const sources = await snapshotSkills(machine);
+
+    expect(machine.calls.map((call) => call.path)).toEqual([
+      '/home/me/shop/.claude/skills',
+      '/home/me/shop/.agents/skills',
+      '/home/me/shop/.agents/skills/huge/SKILL.md',
+    ]);
+    expect(sources.diagnostics).toEqual([
+      `The Machine skill snapshot reached its ${MAX_MACHINE_SKILL_BYTES}-byte bound; the rest of the Machine Workspace's skills were skipped.`,
+    ]);
   });
 });

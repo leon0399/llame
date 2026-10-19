@@ -32,6 +32,7 @@ import {
   MachineUnavailableError,
 } from '../machines/machine-connector.service';
 import { parseMachineLocator } from '../machines/machine-locator';
+import type { MachineRequestOptions } from '../machines/machine-session';
 import { machineEnvelope } from '../runs/machine-attempt';
 import type { InRunToolCall } from '../runs/in-run-context-items';
 import { type InstructionScope, type ReadPage } from './instruction-files';
@@ -92,6 +93,8 @@ type RecordedRequest = {
   /** The absolute Machine path the request named, when it named one. */
   readonly path: string | undefined;
   readonly envelope: RecordedEnvelope | undefined;
+  /** The call's own cancellation, as the caller passed it. */
+  readonly signal: AbortSignal | undefined;
 };
 
 /** The absolute Machine path one request's params name, narrowed untrusted. */
@@ -124,6 +127,8 @@ function requestEnvelope(params: unknown): RecordedEnvelope | undefined {
  */
 class MachinePeer extends MachineConnector {
   readonly recorded: Array<RecordedRequest> = [];
+  /** The attempt key each reachability verdict was asked under, in order. */
+  readonly attemptKeys: Array<string> = [];
   private readonly tree: MachineTree;
 
   constructor(tree: MachineTree = {}) {
@@ -131,7 +136,8 @@ class MachinePeer extends MachineConnector {
     this.tree = tree;
   }
 
-  override reachable(): Promise<boolean> {
+  override reachable(_name: string, attemptKey: string): Promise<boolean> {
+    this.attemptKeys.push(attemptKey);
     return Promise.resolve(this.tree.answers ?? true);
   }
 
@@ -139,10 +145,17 @@ class MachinePeer extends MachineConnector {
     name: string,
     method: M,
     params: MachineMethodParams[M],
+    options: MachineRequestOptions = {},
   ): Promise<JsonValue> {
     const path = requestPath(params);
     const envelope = requestEnvelope(params);
-    this.recorded.push({ name, method, path, envelope });
+    this.recorded.push({
+      name,
+      method,
+      path,
+      envelope,
+      signal: options.signal,
+    });
     return Promise.resolve(this.answer(name, method, path));
   }
 
@@ -531,6 +544,22 @@ describe('Machine instruction scope', () => {
     );
   });
 
+  it('keeps the narrowest root whatever order the Machine lists them in', async () => {
+    const nested = `${ROOT}/packages`;
+    const { scope } = await scopeOf(
+      {
+        // The narrow root first: the broad one that follows contains the same
+        // target and must not take the bound from it.
+        roots: [nested, ROOT],
+        files: { [`${nested}/AGENTS.md`]: 'package rules\n' },
+      },
+      `${nested}/AGENTS.md`,
+    );
+
+    expect(scope?.root).toBe(nested);
+    expect(scope?.label('')).toBe(locator(nested));
+  });
+
   it('answers no scope for a target no registered root contains', async () => {
     const above = await scopeOf(tree, '/home/me/AGENTS.md');
     const beside = await scopeOf(tree, `${ROOT}x/AGENTS.md`);
@@ -544,6 +573,55 @@ describe('Machine instruction scope', () => {
         ROOTS_LIST_METHOD,
       ]);
     }
+  });
+
+  it('answers no scope for a target spelled relative to nothing', async () => {
+    // Machine keys are absolute Machine paths, so a relative target names no
+    // path at all — not even one the whole filesystem contains, and not one
+    // that only looks absolute once a trailing separator is resolved.
+    const bare = await scopeOf({ roots: ['/'] }, 'src/app.ts');
+    const trailing = await scopeOf({ roots: ['/'] }, 'src/');
+
+    expect(bare.scope).toBeUndefined();
+    expect(trailing.scope).toBeUndefined();
+    for (const { connector } of [bare, trailing]) {
+      expect(connector.recorded.map((request) => request.method)).toEqual([
+        ROOTS_LIST_METHOD,
+      ]);
+    }
+  });
+
+  it('ignores a registered root that is not an absolute path', async () => {
+    const { scope, connector } = await scopeOf(
+      { roots: ['relative/root'] },
+      'relative/root/AGENTS.md',
+    );
+
+    // A registered root is a canonical realpath: a relative one names no
+    // directory a chain may start at, however well it prefixes the target.
+    expect(scope).toBeUndefined();
+    expect(connector.recorded.map((request) => request.method)).toEqual([
+      ROOTS_LIST_METHOD,
+    ]);
+  });
+
+  it('keys the reachability verdict by the envelope it was built with', async () => {
+    const unnamed = new MachinePeer({ roots: [ROOT] });
+    await createMachineInstructionProbe({
+      connector: unnamed,
+      // An envelope that names no Run is keyed by the empty run id, never by a
+      // placeholder: a holder of the verdict can rebuild the same key.
+      envelope: machineEnvelope({ deliverySequence: 1 }),
+    })({ name: MACHINE, path: `${ROOT}/AGENTS.md` });
+
+    const named = new MachinePeer({ roots: [ROOT] });
+    await createMachineInstructionProbe({
+      connector: named,
+      envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 3 }),
+    })({ name: MACHINE, path: `${ROOT}/AGENTS.md` });
+
+    expect(unnamed.attemptKeys).toEqual(['\u00001']);
+    expect(named.attemptKeys).toEqual([`${RUN_ID}\u00003`]);
   });
 
   it('answers no scope for an unknown, an unreachable, or a non-answering Machine', async () => {
@@ -580,6 +658,9 @@ describe('Machine instruction scope', () => {
 
     expect(scope?.root).toBe('/');
     expect(scope?.label('')).toBe(`machine://${MACHINE}/`);
+    // A key relative to a root that ends in a separator joins it directly, so
+    // the whole filesystem's own key space is the one the loader names.
+    expect(scope?.label('etc/hosts')).toBe(`machine://${MACHINE}/etc/hosts`);
     await expect(scope?.probe('/etc/hosts')).resolves.toEqual({
       kind: 'file',
       size: 4,
@@ -657,6 +738,35 @@ describe('Machine instruction scope', () => {
       { runId: RUN_ID, deliverySeq: 1, budgetMs: 30_000 },
       { runId: RUN_ID, deliverySeq: 1, budgetMs: 30_000 },
       { runId: RUN_ID, deliverySeq: 1, budgetMs: 30_000 },
+    ]);
+  });
+
+  it("carries the caller's own cancellation into every request it makes", async () => {
+    const controller = new AbortController();
+    const connector = new MachinePeer(tree);
+    const probe = createMachineInstructionProbe({
+      connector,
+      envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
+      signal: controller.signal,
+    });
+
+    const scope = await probe({ name: MACHINE, path: `${ROOT}/src/app.ts` });
+    await scope?.probe('src');
+    await scope?.list('src');
+
+    // The root list, the stat, and the listing are all one Run's work: every
+    // one of them is cancellable by the signal the Run handed the probe.
+    expect(connector.recorded.map((request) => request.signal)).toEqual([
+      controller.signal,
+      controller.signal,
+      controller.signal,
+    ]);
+
+    const bare = await scopeOf(tree, `${ROOT}/src/app.ts`);
+    await bare.scope?.probe('src');
+    expect(bare.connector.recorded.map((request) => request.signal)).toEqual([
+      undefined,
+      undefined,
     ]);
   });
 });
@@ -740,6 +850,36 @@ describe('instructions producer Machine world', () => {
       locator(`${other}/AGENTS.md`),
     ]);
     expect(world.probed).toEqual([{ name: MACHINE, path: `${other}/x.ts` }]);
+  });
+
+  it("groups one Machine's touches by the root each was resolved in", async () => {
+    const other = '/srv/app';
+    const world = machineWorld({
+      roots: [ROOT, other],
+      files: {
+        [`${ROOT}/AGENTS.md`]: 'shop rules\n',
+        [`${ROOT}/src/app.ts`]: 'app\n',
+        [`${other}/AGENTS.md`]: 'service rules\n',
+        [`${other}/x.ts`]: 'x\n',
+      },
+    });
+    const { producer, staged, prepare } = attemptOf({ machines: world });
+
+    producer.observeToolCall?.(machineCall(locator(`${ROOT}/src/app.ts`)));
+    producer.observeToolCall?.(machineCall(locator(`${other}/x.ts`)));
+    await prepare();
+
+    // Two roots are two worlds: the build order of every directory each one
+    // walks follows the root it was resolved in.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      locator(`${ROOT}/AGENTS.md`),
+      locator(`${other}/AGENTS.md`),
+    ]);
+    expect(listed(world.connector.recorded)).toEqual([
+      ROOT,
+      `${ROOT}/src`,
+      other,
+    ]);
   });
 
   it('resolves two Machine touches in one step into one bundle', async () => {
