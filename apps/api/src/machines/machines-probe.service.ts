@@ -52,9 +52,14 @@ export class MachinesProbeService implements OnApplicationBootstrap {
   private async probe(): Promise<void> {
     const names = this.connector.names();
     // One attempt key per tick, so a Machine that just recovered is retried on
-    // the NEXT tick rather than repeatedly inside this one.
+    // the NEXT tick rather than repeatedly inside this one. Machines are
+    // probed together: an unreachable one spends its whole connect timeout,
+    // and probing in turn would let a few of them push a healthy Machine's
+    // contact past the online window.
     const attemptKey = `probe:${Date.now()}`;
-    for (const name of names) await this.connector.reachable(name, attemptKey);
+    await Promise.all(
+      names.map((name) => this.connector.reachable(name, attemptKey)),
+    );
     const pruned = await this.status.pruneExcept(names);
     if (pruned > 0)
       this.logger.log(`Pruned ${pruned} status row(s) of removed Machine(s)`);

@@ -95,9 +95,11 @@ d('machines_status RLS and GET /api/v1/machines', () => {
   });
 
   afterAll(async () => {
+    // Through the repository, as in beforeEach: a plain identity-less DELETE
+    // is filtered to nothing by the system policy.
+    if (repository !== undefined) await repository.pruneExcept([]);
     if (closeModule !== undefined) await closeModule();
     if (sql) {
-      await sql`DELETE FROM machines_status`;
       await sql`DELETE FROM users WHERE id = ${userId}`;
       await sql.end();
     }
