@@ -378,4 +378,25 @@ describe("errors and control", () => {
     expect(mux.control.closed).toBe(false);
     expect(opened).toHaveLength(0);
   });
+
+  it("keeps the control stream open for a request after the handshake settles", async () => {
+    const { mux, sent } = build();
+    const hello = mux.control.request("hello", {
+      protocolVersion: 1,
+      hubVersion: "1",
+    });
+    mux.handle({
+      s: 0,
+      m: {
+        jsonrpc: "2.0",
+        id: 0,
+        result: { protocolVersion: 1, daemonVersion: "1", roots: [] },
+      },
+    });
+    await hello;
+    void mux.control
+      .request("roots.list", { envelope: { budgetMs: 5 } })
+      .catch(() => {});
+    expect(sent.map(({ frame }) => frame.s)).toEqual([0, 0]);
+  });
 });

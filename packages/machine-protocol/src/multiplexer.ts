@@ -198,6 +198,9 @@ function settleStream(state: StreamState, message: JsonRpcMessage): void {
   const id = "id" in message ? message.id : undefined;
   if (pending === undefined || id !== pending.id) return;
   state.pending = undefined;
+  // The control stream carries one request after another; a numbered stream
+  // stays spent after its single request.
+  if (state.control) state.replyId = undefined;
   pending.detach();
   if ("result" in message) pending.resolve(message.result);
   else if ("error" in message) pending.reject(protocolError(message));
