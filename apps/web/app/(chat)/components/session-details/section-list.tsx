@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 
@@ -100,13 +100,22 @@ interface ReorderingState {
   end: () => void;
 }
 
-/** True from a drag's start until the dropped section has settled. */
+/** True from a drag's start until the dropped section has settled. A new drag
+ *  cancels the previous one's pending settle, and so does unmounting. */
 function useReordering(): ReorderingState {
   const [active, setActive] = useState(false);
+  const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(settle.current), []);
   return {
     active,
-    start: () => setActive(true),
-    end: () => setTimeout(() => setActive(false), SETTLE_MS),
+    start: () => {
+      clearTimeout(settle.current);
+      setActive(true);
+    },
+    end: () => {
+      clearTimeout(settle.current);
+      settle.current = setTimeout(() => setActive(false), SETTLE_MS);
+    },
   };
 }
 
