@@ -72,16 +72,15 @@ function MachinesOverview() {
   return (
     <StatusBarGroup>
       {machines.slice(0, NAMED_MACHINES).map((machine) => (
-        <StatusBarItem
-          key={machine.name}
-          aria-label={`${machine.name}, ${machine.status}`}
-        >
+        <StatusBarItem key={machine.name}>
           <MachineDot status={machine.status} />
           {/* Names run to 63 characters; three of them must not crowd out
               the online count. */}
           <span className="max-w-32 truncate" title={machine.name}>
             {machine.name}
           </span>
+          {/* The dot is decorative; the state is text a screen reader reads. */}
+          <span className="sr-only">, {machine.status}</span>
         </StatusBarItem>
       ))}
       <Tooltip>

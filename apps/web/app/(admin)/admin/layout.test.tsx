@@ -78,7 +78,7 @@ describe("AdminLayout", () => {
     });
 
     const element = await renderShell();
-    const [, nav] = childrenOf(element);
+    const [, nav] = childrenOf(childrenOf(element)[0]);
     if (!isValidElement<{ host: string }>(nav)) {
       throw new Error("expected AdminSectionNav element");
     }
@@ -88,7 +88,7 @@ describe("AdminLayout", () => {
 
   it("falls back to 'instance' when the host header is absent", async () => {
     const element = await renderShell();
-    const [, nav] = childrenOf(element);
+    const [, nav] = childrenOf(childrenOf(element)[0]);
     if (!isValidElement<{ host: string }>(nav)) {
       throw new Error("expected AdminSectionNav element");
     }
