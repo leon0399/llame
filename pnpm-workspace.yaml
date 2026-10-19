@@ -60,12 +60,13 @@ catalog:
   "@base-ui/react": ^1.6.0
   "@hookform/resolvers": ^5.1.1
   "@radix-ui/react-use-controllable-state": 1.2.3
-  # Pinned exact, alongside `@ai-sdk/mcp`: apps/api pairs the AI SDK's MCP
-  # client with this package's `StdioClientTransport`, so the two move
-  # together. Only the stdio transport is used from here — the HTTP path
-  # stays on `@ai-sdk/mcp`'s own transport. 1.31.0 clears the GHSA-6qxp
-  # advisory; it is the newest release whose transport surface apps/api uses
-  # unchanged.
+  # Pinned exact, alongside `@ai-sdk/mcp`: the hub pairs the AI SDK's MCP
+  # client with this package's `StdioClientTransport` (through
+  # packages/mcp-workspace), so the two move together. The hub's HTTP path
+  # stays on `@ai-sdk/mcp`'s own transport; the Machine daemon (apps/machine)
+  # also uses this package's `StreamableHTTPClientTransport` for Workspace MCP
+  # servers it opens on the box. 1.31.0 clears the GHSA-6qxp advisory; it is
+  # the newest release whose transport surface both uses unchanged.
   "@modelcontextprotocol/sdk": 1.31.0
   # `@playwright/test` and `playwright` are separate packages that MUST move
   # together: they share a `playwright-core`, and `playwright install` only
