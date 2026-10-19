@@ -68,3 +68,9 @@ export const sessionsCleanupChannel = {
   address: 'sessions.cleanup',
   payload: cronTickSchema,
 } as const;
+
+export const machinesProbeChannel = {
+  address: 'machines.probe',
+  options: { policy: 'stately' },
+  payload: cronTickSchema,
+} as const;

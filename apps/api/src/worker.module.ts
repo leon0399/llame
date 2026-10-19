@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from './auth/auth.module';
 import { CoreInfraModule } from './core-infra.module';
+import { MachinesModule } from './machines/machines.module';
 import { RunWorkerModule } from './runs/run-worker.module';
 import { SearchModule } from './search/search.module';
 
@@ -37,6 +38,12 @@ import { SearchModule } from './search/search.module';
  * something this module decides.
  */
 @Module({
-  imports: [CoreInfraModule, RunWorkerModule, SearchModule, AuthModule],
+  imports: [
+    CoreInfraModule,
+    RunWorkerModule,
+    SearchModule,
+    AuthModule,
+    MachinesModule,
+  ],
 })
 export class WorkerModule {}
