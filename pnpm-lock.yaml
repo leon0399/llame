@@ -418,9 +418,6 @@ importers:
       '@knaadh/nestjs-drizzle-postgres':
         specifier: ^1.2.0
         version: 1.2.0(@nestjs/common@11.1.29(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.1)(supports-color@8.1.1))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(pg@8.22.0)(postgres@3.4.7))(postgres@3.4.7)
-      '@modelcontextprotocol/sdk':
-        specifier: 'catalog:'
-        version: 1.31.0(supports-color@8.1.1)(zod@4.6.5)
       '@mozilla/readability':
         specifier: 0.6.0
         version: 0.6.0
@@ -451,6 +448,9 @@ importers:
       '@workspace/config-interpolation':
         specifier: workspace:*
         version: link:../../packages/config-interpolation
+      '@workspace/mcp-workspace':
+        specifier: workspace:*
+        version: link:../../packages/mcp-workspace
       '@workspace/native-file-tools':
         specifier: workspace:*
         version: link:../../packages/native-file-tools
@@ -942,6 +942,43 @@ importers:
   packages/config-typescript: {}
 
   packages/machine-protocol:
+    devDependencies:
+      '@barney-media/crap-typescript':
+        specifier: 'catalog:'
+        version: 0.5.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.16.5
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(vitest@4.1.11)
+      '@workspace/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.82.0(oxlint-tsgolint@7.0.2001)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 7.0.2001
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(patch_hash=cc6da1c5844bfb9366199bed1cd753753c948f216f55e8f06590c73ac75b8817)(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/mcp-workspace:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.31.0(supports-color@8.1.1)(zod@4.6.5)
+      '@workspace/config-interpolation':
+        specifier: workspace:*
+        version: link:../config-interpolation
+      '@workspace/runtime-safety':
+        specifier: workspace:*
+        version: link:../runtime-safety
     devDependencies:
       '@barney-media/crap-typescript':
         specifier: 'catalog:'

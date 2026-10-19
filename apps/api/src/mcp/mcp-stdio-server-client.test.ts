@@ -12,7 +12,7 @@ import {
   MAX_DIAGNOSTIC_CHARS,
   MAX_STDIO_MESSAGE_BYTES,
   McpStdioMessageLimitError,
-} from './mcp-stdio-transport';
+} from '@workspace/mcp-workspace';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 const FIXTURE = join(__dirname, 'mcp-stdio-test-fixture.mjs');

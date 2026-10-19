@@ -99,6 +99,8 @@ jobs:
             dir: packages/config-interpolation
           - flag: machine-protocol
             dir: packages/machine-protocol
+          - flag: mcp-workspace
+            dir: packages/mcp-workspace
           - flag: native-file-tools
             dir: packages/native-file-tools
           - flag: oxlint-plugin-anti-slop

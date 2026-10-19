@@ -14,18 +14,19 @@ import {
   type AttemptToolAdditionResult,
 } from '../tools/attempt-tool-additions';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
-import { parseMcpToolId } from './tool-id';
+import { processEnvironment } from '../tools/env';
+import {
+  isStdio,
+  parseMcpToolId,
+  readWorkspaceMcpConfig,
+  type WorkspaceMcpServerConfig,
+} from '@workspace/mcp-workspace';
 import {
   McpRuntimeService,
   type McpRuntimeClientFactory,
   type McpRuntimeServerDefinition,
   type McpRuntimeServerState,
 } from './mcp-runtime.service';
-import {
-  readWorkspaceMcpConfig,
-  type WorkspaceMcpServerConfig,
-} from './workspace-mcp-config';
-import { isStdio } from './mcp-runtime-definition';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -356,7 +357,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   private async createClientSet(key: WorkspaceMcpKey): Promise<ClientSet> {
     let configs: ReadonlyArray<WorkspaceMcpServerConfig>;
     try {
-      configs = await this.readConfig(key.root);
+      configs = await this.readConfig(key.root, processEnvironment());
     } catch {
       configs = [
         unavailableConfig(

@@ -63,7 +63,7 @@ import {
   PERMISSION_MODES,
   type PermissionMode,
 } from '../tools/permissions/permission-mode';
-import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
+import { createMcpToolId, parseMcpToolId } from '@workspace/mcp-workspace';
 import {
   resolveBillingMode,
   type EffortLevel,

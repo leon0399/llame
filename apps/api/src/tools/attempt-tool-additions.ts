@@ -10,7 +10,7 @@ import {
 } from './turn-tool-catalog';
 import { unavailableExecutor } from '../runs/snapshot-tool-execution';
 import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
-import { parseMcpToolId } from '../mcp/tool-id';
+import { parseMcpToolId } from '@workspace/mcp-workspace';
 import { type Tool } from './types';
 
 export type AttemptToolBinding = {

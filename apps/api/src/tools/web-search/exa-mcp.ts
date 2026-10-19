@@ -1,7 +1,7 @@
 import { createMCPClient, type MCPClient } from '@ai-sdk/mcp';
 import { type Tool } from '@ai-sdk/provider-utils';
 import { z } from 'zod';
-import { createMcpBoundedFetch } from '../../mcp/mcp-bounded-fetch';
+import { createMcpBoundedFetch } from '@workspace/mcp-workspace';
 import {
   EngineFailure,
   type Engine,
