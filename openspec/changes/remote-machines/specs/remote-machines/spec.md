@@ -35,6 +35,11 @@ The configuration SHALL accept an optional `machines` section under the closed p
 - **WHEN** a destination is `-oProxyCommand=sh`
 - **THEN** startup fails naming that Machine's `destination`
 
+#### Scenario: A destination's port is the port connected to
+
+- **WHEN** `gpu`'s destination is `me@gpu.lan:2222`
+- **THEN** the hub connects as `me` to `gpu.lan` on port 2222
+
 #### Scenario: Omitted ssh settings use the worker user's SSH files
 
 - **WHEN** `machines.hosts` declares a Machine and `machines.ssh` is absent
@@ -47,7 +52,7 @@ The configuration SHALL accept an optional `machines` section under the closed p
 
 ### Requirement: llame's SSH safety options override the included SSH configuration
 
-The hub SHALL connect with a generated SSH configuration that sets its safety options first and then includes the configured SSH configuration, defaulting to the worker user's. For every hop the safety options SHALL win: host keys only from the pinned file with strict checking, no global known-hosts file, batch mode, no agent, no connection sharing, and connect and liveness timeouts. Aliases, jump hosts, users, ports, and identities SHALL come from the included configuration.
+The hub SHALL connect with a generated SSH configuration that sets its safety options first and then includes the configured SSH configuration, defaulting to the worker user's. For every hop ssh itself opens the safety options SHALL win: host keys only from the pinned file with strict checking, no global known-hosts file, batch mode, no agent, no connection sharing, and connect and liveness timeouts. Aliases, jump hosts, users, ports, and identities SHALL come from the included configuration.
 
 #### Scenario: Unpinned jump-host key is refused
 
@@ -68,6 +73,11 @@ The hub SHALL connect with a generated SSH configuration that sets its safety op
 
 - **WHEN** a hop silently drops packets
 - **THEN** the connection attempt fails within the configured connect timeout with reason `unreachable`
+
+#### Scenario: A ProxyCommand hop is outside the guarantees
+
+- **WHEN** the included configuration reaches `devl` through `ProxyCommand ssh gateway -W %h:%p`
+- **THEN** that command runs as written, and the safety options govern only the connection ssh makes to `devl` through it
 
 ### Requirement: The Machine session is versioned and multiplexed
 

@@ -46,7 +46,7 @@ sources:
     resource: "https://github.com/openclaw/openclaw/blob/d9fc2556e8f1aff06bbf6f65b2e8f933e8fda09f/docs/nodes/voicewake.md"
     title: "OpenClaw Gateway-owned wake-word list with on-device detection"
   - id: wyoming-readme
-    resource: "https://github.com/OHF-Voice/wyoming/blob/master/README.md"
+    resource: "https://github.com/OHF-Voice/wyoming/blob/08a0c258df83fea6e1643bcfe67e86243f01cf31/README.md"
     title: "Wyoming protocol: JSONL plus PCM, unauthenticated by design, info/describe capability schema (accessed 2026-10-18)"
   - id: ha-wake-word
     resource: "https://www.home-assistant.io/voice_control/about_wake_word"
@@ -61,7 +61,7 @@ sources:
     resource: "https://coder.com/docs/ai-coder/agents/architecture"
     title: "Coder agents: control-plane loop, workspace has zero AI awareness (accessed 2026-10-18)"
   - id: coder-prebuilds
-    resource: "https://github.com/coder/coder/blob/main/docs/admin/templates/extending-templates/prebuilt-workspaces.md"
+    resource: "https://github.com/coder/coder/blob/121393842cc1ee2ca8cb769e400c4b3d17a49a82/docs/admin/templates/extending-templates/prebuilt-workspaces.md"
     title: "Coder prebuild pools and claim-time ownership transfer (accessed 2026-10-18)"
   - id: tailscale-auth-keys
     resource: "https://tailscale.com/docs/features/access-control/auth-keys"
@@ -76,10 +76,10 @@ sources:
     resource: "https://learn.chatgpt.com/docs/environments/cloud-environment"
     title: "Codex cloud environments: secrets removed before the agent phase, 12 h cache (accessed 2026-10-18)"
   - id: devcontainer-reference
-    resource: "https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-reference.md"
+    resource: "https://github.com/devcontainers/spec/blob/c95ffeed1d059abfe9ffbe79762dc2fa4e7c2421/docs/specs/devcontainer-reference.md"
     title: "Dev Container reference: source mounted outside the container, metadata merge rules (accessed 2026-10-18)"
   - id: tasker-mcp
-    resource: "https://github.com/pmaxhogan/tasker-mcp/blob/main/docs/architecture.md"
+    resource: "https://github.com/pmaxhogan/tasker-mcp/blob/ccdfcae0708bce7e5b5bc1c18f52e12294689fb2/docs/architecture.md"
     title: "tasker-mcp: phone serves a narrow dispatcher, desktop half validates, per-task tool subset (accessed 2026-10-18)"
 ---
 
@@ -567,7 +567,7 @@ llame enrollment, and the reverse must hold too.
 
 [^oc-computer-use]: [OpenClaw computer use provider descriptor](https://github.com/openclaw/openclaw/blob/d9fc2556e8f1aff06bbf6f65b2e8f933e8fda09f/docs/nodes/computer-use.md)
 
-[^wyoming-readme]: [Wyoming protocol README](https://github.com/OHF-Voice/wyoming/blob/master/README.md)
+[^wyoming-readme]: [Wyoming protocol README](https://github.com/OHF-Voice/wyoming/blob/08a0c258df83fea6e1643bcfe67e86243f01cf31/README.md)
 
 [^ha-wake-word]: [Home Assistant: about wake words](https://www.home-assistant.io/voice_control/about_wake_word)
 
@@ -577,7 +577,7 @@ llame enrollment, and the reverse must hold too.
 
 [^coder-agents-architecture]: [Coder agents architecture](https://coder.com/docs/ai-coder/agents/architecture)
 
-[^coder-prebuilds]: [Coder prebuilt workspaces](https://github.com/coder/coder/blob/main/docs/admin/templates/extending-templates/prebuilt-workspaces.md)
+[^coder-prebuilds]: [Coder prebuilt workspaces](https://github.com/coder/coder/blob/121393842cc1ee2ca8cb769e400c4b3d17a49a82/docs/admin/templates/extending-templates/prebuilt-workspaces.md)
 
 [^tailscale-auth-keys]: [Tailscale auth keys](https://tailscale.com/docs/features/access-control/auth-keys)
 
@@ -587,9 +587,9 @@ llame enrollment, and the reverse must hold too.
 
 [^codex-cloud]: [Codex cloud environments](https://learn.chatgpt.com/docs/environments/cloud-environment)
 
-[^devcontainer-reference]: [Dev Container reference](https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-reference.md)
+[^devcontainer-reference]: [Dev Container reference](https://github.com/devcontainers/spec/blob/c95ffeed1d059abfe9ffbe79762dc2fa4e7c2421/docs/specs/devcontainer-reference.md)
 
-[^tasker-mcp]: [tasker-mcp architecture](https://github.com/pmaxhogan/tasker-mcp/blob/main/docs/architecture.md)
+[^tasker-mcp]: [tasker-mcp architecture](https://github.com/pmaxhogan/tasker-mcp/blob/ccdfcae0708bce7e5b5bc1c18f52e12294689fb2/docs/architecture.md)
 
 [^oc-node-exec]: [OpenClaw node exec and streaming invoke progress](https://github.com/openclaw/openclaw/blob/d9fc2556e8f1aff06bbf6f65b2e8f933e8fda09f/docs/nodes/node-exec.md)
 

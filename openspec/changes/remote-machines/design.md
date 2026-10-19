@@ -65,12 +65,17 @@ Decision provenance is the grilling record behind the
 Jump hosts ignore command-line `-o`/`-i` options (ssh(1): command-line
 directives apply to the destination, not jump hosts), so the hub writes a
 private configuration file and runs
-`ssh -F <absolute generated path> -T -- <destination> llame-machine serve --stdio`.
+`ssh -F <absolute generated path> -T -- <destination> llame-machine serve --stdio`,
+passing a `[user@]host:port` destination as `ssh://[user@]host:port`, since
+OpenSSH reads a bare `host:port` as a host name.
 The file starts with a `Host *` safety block and then
 `Include <machines.ssh.configFile or ~/.ssh/config>`. ssh keeps the first
-value it obtains, so the block wins for every hop while the included file
-supplies aliases, `HostName`, `User`, `Port`, `ProxyJump` or `ProxyCommand`
-chains, and identities. Safety block: `UserKnownHostsFile <pinned>`,
+value it obtains, so the block wins for the destination and every `ProxyJump`
+hop while the included file supplies aliases, `HostName`, `User`, `Port`,
+`ProxyJump` chains, and identities. A `ProxyCommand` is an arbitrary command
+that does not read the generated file, so a hop it opens is outside the
+block's guarantees; the operator page tells operators to keep it out of the
+hosts llame uses. Safety block: `UserKnownHostsFile <pinned>`,
 `GlobalKnownHostsFile none`, `StrictHostKeyChecking yes`, `BatchMode yes`,
 `IdentityAgent none`, `ForwardAgent no`, `ForwardX11 no`, `ControlMaster no`,
 `ControlPath none`, `PermitLocalCommand no`, `UpdateHostKeys no`,
