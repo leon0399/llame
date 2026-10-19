@@ -423,6 +423,26 @@ describe("errors and control", () => {
     });
   });
 
+  it("does not settle a control request with the late answer to a cancelled one", async () => {
+    const { mux } = build();
+    const controller = new AbortController();
+    const hello = settle(
+      mux.control.request(
+        "hello",
+        { protocolVersion: 1, hubVersion: "1" },
+        { signal: controller.signal },
+      ),
+    );
+    controller.abort();
+    await hello;
+    const roots = mux.control.request("roots.list", {
+      envelope: { budgetMs: 5 },
+    });
+    mux.handle({ s: 0, m: { jsonrpc: "2.0", id: 0, result: { stale: true } } });
+    mux.handle({ s: 0, m: { jsonrpc: "2.0", id: 1, result: { roots: [] } } });
+    await expect(roots).resolves.toEqual({ roots: [] });
+  });
+
   it("sends one reply per control request", () => {
     const { mux, sent, opened } = build();
     mux.handle({

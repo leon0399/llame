@@ -53,7 +53,8 @@ export type ChannelRequestOptions = { readonly signal?: AbortSignal };
 export type MachineChannel = {
   readonly id: number;
   readonly closed: boolean;
-  /** Aborts when the peer cancels this stream or the session ends. */
+  /** Aborts when the session ends, and on a numbered stream also when the
+   *  peer cancels it; a cancel on the control stream ends only its request. */
   readonly signal: AbortSignal;
   request<M extends MachineMethod>(
     method: M,
@@ -116,6 +117,9 @@ type StreamState = {
   /** The id a response must echo; unset while the stream carries no request. */
   replyId: JsonRpcId | undefined;
   pending: PendingRequest | undefined;
+  /** Requests sent so far; numbers each control request, so a late answer to
+   *  a cancelled one cannot settle the next. */
+  requests: number;
 };
 
 type StreamSession = {
@@ -140,6 +144,7 @@ function newState(id: number, control: boolean): StreamState {
     closed: false,
     replyId: undefined,
     pending: undefined,
+    requests: 0,
   };
 }
 
@@ -374,17 +379,21 @@ function requestOnStream<M extends MachineMethod>(
 ): Promise<JsonValue> {
   const refusal = refuseRequest(session, state, call.options?.signal);
   if (refusal !== undefined) return Promise.reject(refusal);
-  state.replyId = state.id;
+  // A numbered stream carries one request, under its own id; the control
+  // stream carries many, each under a fresh id.
+  const id = state.control ? state.requests : state.id;
+  state.requests += 1;
+  state.replyId = id;
   return new Promise<JsonValue>((resolve, reject) => {
     const detach = abortLink(call.options?.signal, () => {
       notifyOnStream(session, state, CANCEL_NOTIFICATION);
       cancelStream(session, state);
     });
-    state.pending = { id: state.id, resolve, reject, detach };
+    state.pending = { id, resolve, reject, detach };
     try {
       sendOnStream(session, state, {
         jsonrpc: "2.0",
-        id: state.id,
+        id,
         method: call.method,
         params: call.params,
       });
