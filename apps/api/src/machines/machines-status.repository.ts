@@ -15,6 +15,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { inArray, notInArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 import * as schema from '../db/schema';
 import { machinesStatus } from '../db/schema';
@@ -54,15 +55,20 @@ function contactRow(
  * What a repeat contact changes. A success re-stamps the contact and the
  * daemon's report, keeping the last failure (the derivation compares the two);
  * a failure touches only the failure fields, so an unreachable Machine never
- * looks seen.
+ * looks seen. Probe and session writers can commit out of order, so each
+ * timestamp keeps the later of the stored and the new value, and a failure
+ * reason changes only with the failure time it belongs to. The first
+ * successful contact is set by the first success, which need not be the
+ * row's first observation.
  */
 function contactUpdate(
   contact: MachineContact,
   row: typeof machinesStatus.$inferInsert,
-): Partial<typeof machinesStatus.$inferInsert> {
+): PgUpdateSetSource<typeof machinesStatus> {
   if (contact.failure === undefined)
     return {
-      lastContactAt: row.lastContactAt,
+      firstContactAt: sql`coalesce(${machinesStatus.firstContactAt}, excluded.first_contact_at)`,
+      lastContactAt: sql`greatest(${machinesStatus.lastContactAt}, excluded.last_contact_at)`,
       hubProtocolVersion: row.hubProtocolVersion,
       daemonProtocolVersion: row.daemonProtocolVersion,
       daemonVersion: row.daemonVersion,
@@ -70,8 +76,8 @@ function contactUpdate(
       updatedAt: row.updatedAt,
     };
   return {
-    lastFailureAt: row.lastFailureAt,
-    lastFailureReason: row.lastFailureReason,
+    lastFailureReason: sql`case when ${machinesStatus.lastFailureAt} is null or excluded.last_failure_at >= ${machinesStatus.lastFailureAt} then excluded.last_failure_reason else ${machinesStatus.lastFailureReason} end`,
+    lastFailureAt: sql`greatest(${machinesStatus.lastFailureAt}, excluded.last_failure_at)`,
     hubProtocolVersion: row.hubProtocolVersion,
     updatedAt: row.updatedAt,
   };
@@ -87,7 +93,7 @@ export class MachinesStatusRepository {
 
   /**
    * Record one observed contact. A successful contact sets the contact
-   * timestamps (and first_contact_at only on insert); a failure sets only the
+   * timestamps (first_contact_at at the first success); a failure sets only the
    * failure fields, so an unreachable Machine never looks seen. The last
    * failure is deliberately kept through a later success: the derivation needs
    * it to decide whether the contact came after it.
@@ -130,8 +136,7 @@ export class MachinesStatusRepository {
 
   /**
    * Drop the status of Machines no longer configured. Returns how many rows
-   * went, from the statement's own row count: `RETURNING` would be filtered by
-   * the select policy, which the identity-less writer deliberately fails.
+   * went, from the statement's own row count; no row has to come back.
    */
   async pruneExcept(names: ReadonlyArray<string>): Promise<number> {
     return this.db.transaction(async (tx) => {

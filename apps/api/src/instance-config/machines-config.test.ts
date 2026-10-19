@@ -245,6 +245,9 @@ describe('machines configuration', () => {
     ['a shell metacharacter', 'box;rm -rf /'],
     ['a command substitution', '$(hostname)'],
     ['a path separator', 'box/etc'],
+    ['a doubled user delimiter', 'me@@gpu'],
+    ['an empty user', '@gpu'],
+    ['a non-numeric port', 'gpu:not-a-port'],
   ])('fails startup naming the destination for %s', (_label, destination) => {
     writeConfig({
       machines: {
@@ -297,6 +300,12 @@ describe('tools.nativeExecutorId cannot impersonate a Machine', () => {
 
     expect(message).toContain('tools.nativeExecutorId');
     expect(message).toContain('machine:');
+  });
+
+  it('fails startup for the prefix in another case', () => {
+    writeConfig({ tools: { nativeExecutorId: 'MACHINE:devl' } });
+
+    expect(loadError()).toContain('tools.nativeExecutorId');
   });
 
   it('fails startup naming tools.nativeExecutorId when an interpolation resolves to a machine: identity', () => {

@@ -200,34 +200,42 @@ describe('MachinesStatusRepository.recordContact', () => {
     });
 
     expect(fake.selects).toEqual([]);
-    expect(fake.inserts).toEqual([
-      {
-        table: machinesStatus,
-        values: {
-          name: 'build-box',
-          firstContactAt: AT,
-          lastContactAt: AT,
-          lastFailureAt: null,
-          lastFailureReason: null,
-          hubProtocolVersion: 4,
-          daemonProtocolVersion: 3,
-          daemonVersion: '1.4.0',
-          roots: ['/srv/repo', '/srv/work'],
-          updatedAt: AT,
-        },
-        target: machinesStatus.name,
-        // A repeat success re-stamps the contact and the daemon report and
-        // deliberately does NOT clear the previous failure.
-        set: {
-          lastContactAt: AT,
-          hubProtocolVersion: 4,
-          daemonProtocolVersion: 3,
-          daemonVersion: '1.4.0',
-          roots: ['/srv/repo', '/srv/work'],
-          updatedAt: AT,
-        },
-      },
+    expect(fake.inserts).toHaveLength(1);
+    const [insert] = fake.inserts;
+    expect(insert.table).toBe(machinesStatus);
+    expect(insert.target).toBe(machinesStatus.name);
+    expect(insert.values).toEqual({
+      name: 'build-box',
+      firstContactAt: AT,
+      lastContactAt: AT,
+      lastFailureAt: null,
+      lastFailureReason: null,
+      hubProtocolVersion: 4,
+      daemonProtocolVersion: 3,
+      daemonVersion: '1.4.0',
+      roots: ['/srv/repo', '/srv/work'],
+      updatedAt: AT,
+    });
+    // A repeat success re-stamps the contact and the daemon report and
+    // deliberately does NOT touch the previous failure. The contact stamps
+    // keep the later value (asserted against Postgres in the status
+    // integration suite).
+    expect(Object.keys(insert.set).sort()).toEqual([
+      'daemonProtocolVersion',
+      'daemonVersion',
+      'firstContactAt',
+      'hubProtocolVersion',
+      'lastContactAt',
+      'roots',
+      'updatedAt',
     ]);
+    expect(insert.set).toMatchObject({
+      hubProtocolVersion: 4,
+      daemonProtocolVersion: 3,
+      daemonVersion: '1.4.0',
+      roots: ['/srv/repo', '/srv/work'],
+      updatedAt: AT,
+    });
   });
 
   it('records a failed contact as a failure only, with no contact stamp', async () => {
@@ -246,32 +254,29 @@ describe('MachinesStatusRepository.recordContact', () => {
     await expect(repository.recordContact(contact)).resolves.toBeUndefined();
 
     expect(fake.events).toEqual(['execute', 'insert']);
-    expect(fake.inserts).toEqual([
-      {
-        table: machinesStatus,
-        values: {
-          name: 'build-box',
-          firstContactAt: null,
-          lastContactAt: null,
-          lastFailureAt: AT,
-          lastFailureReason: 'host_key_mismatch',
-          hubProtocolVersion: 4,
-          daemonProtocolVersion: null,
-          daemonVersion: null,
-          roots: [],
-          updatedAt: AT,
-        },
-        target: machinesStatus.name,
-        // Only the failure fields move: the contact stamps of an earlier
-        // success survive, and nothing claims the Machine was just seen.
-        set: {
-          lastFailureAt: AT,
-          lastFailureReason: 'host_key_mismatch',
-          hubProtocolVersion: 4,
-          updatedAt: AT,
-        },
-      },
+    expect(fake.inserts).toHaveLength(1);
+    const [insert] = fake.inserts;
+    expect(insert.values).toEqual({
+      name: 'build-box',
+      firstContactAt: null,
+      lastContactAt: null,
+      lastFailureAt: AT,
+      lastFailureReason: 'host_key_mismatch',
+      hubProtocolVersion: 4,
+      daemonProtocolVersion: null,
+      daemonVersion: null,
+      roots: [],
+      updatedAt: AT,
+    });
+    // Only the failure fields move: the contact stamps of an earlier success
+    // survive, and nothing claims the Machine was just seen.
+    expect(Object.keys(insert.set).sort()).toEqual([
+      'hubProtocolVersion',
+      'lastFailureAt',
+      'lastFailureReason',
+      'updatedAt',
     ]);
+    expect(insert.set).toMatchObject({ hubProtocolVersion: 4, updatedAt: AT });
   });
 });
 

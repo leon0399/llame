@@ -223,7 +223,8 @@ function resolveToolsConfig(
   // from a Machine binding — the two columns could agree while naming
   // different things. Checked on the RESOLVED value, so a token cannot smuggle
   // the prefix in either.
-  if (nativeExecutorId?.startsWith('machine:')) {
+  // Case-insensitively, as the Machine executor parser reads the prefix.
+  if (nativeExecutorId?.toLowerCase().startsWith('machine:')) {
     throw new InstanceConfigError(
       'tools.nativeExecutorId: must not begin with "machine:" — that prefix names a Machine Workspace binding',
     );
@@ -848,9 +849,11 @@ const MACHINE_NAME_PATTERN = /^[a-z0-9-]{1,63}$/;
  * An SSH destination: a host alias, or `[user@]host[:port]`. Excludes a
  * leading `-` (checked separately for a message that names the option shape),
  * whitespace, `%` (ssh's own percent-expansion), and every shell
- * metacharacter — the destination reaches an `ssh` argv, never a shell.
+ * metacharacter — the destination reaches an `ssh` argv, never a shell. An
+ * optional user before a single `@`, a host, and an optional numeric port.
  */
-const MACHINE_DESTINATION_PATTERN = /^[A-Za-z0-9._@:-]+$/;
+const MACHINE_DESTINATION_PATTERN =
+  /^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+(?::[0-9]{1,5})?$/;
 
 /**
  * Resolve the optional `machines` section (remote-machines D12) into the
@@ -859,9 +862,8 @@ const MACHINE_DESTINATION_PATTERN = /^[A-Za-z0-9._@:-]+$/;
  * UI surface is offered, and a `machine://` locator stays an unknown scheme),
  * or `{ machines }` when it is present.
  *
- * A PRESENT section must name its pinned host keys: the whole point of the
- * section is a host-key-checked SSH transport, so every declared Machine
- * without one is misconfiguration, not a default.
+ * Host keys are always checked strictly, against `machines.ssh.knownHostsFile`
+ * or, when it is omitted, the worker user's `~/.ssh/known_hosts`.
  */
 function resolveMachinesSection(
   raw: RawInstanceConfig | undefined,
