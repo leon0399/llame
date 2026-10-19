@@ -1,0 +1,41 @@
+# sshd for the Machine SSH integration suite (remote-machines task 4.2): key
+# authentication only, one ed25519 host key (the one the suite pins), and no
+# forwarding except what the `authorized_keys` options grant per key.
+
+Port 22
+ListenAddress 0.0.0.0
+
+# The only host key in the image, so the pinned known_hosts file the suite
+# writes is the complete set of keys either hop may present.
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+PidFile /run/sshd.pid
+LogLevel VERBOSE
+
+# No passwords, no PAM, no root: the hub key is the only credential, and the
+# `restrict` options on its `authorized_keys` lines are what bound it.
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+UsePAM no
+StrictModes yes
+
+# A jump host needs forwarding for `ssh -W box:22`; the authorized_keys
+# `restrict` plus `permitopen` is what narrows that to the one destination.
+AllowTcpForwarding yes
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+
+PrintMotd no
+UseDNS no
+Subsystem sftp internal-sftp
+
+# The liveness sshd side of the connection: the daemon's own heartbeat keeps
+# the link busy well inside this window, and a hub that goes silent without
+# closing the link is disconnected (the operator page documents the same).
+ClientAliveInterval 15
+ClientAliveCountMax 3
