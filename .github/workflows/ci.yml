@@ -97,14 +97,14 @@ jobs:
             dir: packages/bash-executor
           - flag: config-interpolation
             dir: packages/config-interpolation
+          - flag: native-file-tools
+            dir: packages/native-file-tools
           - flag: machine
             dir: apps/machine
           - flag: machine-protocol
             dir: packages/machine-protocol
           - flag: mcp-workspace
             dir: packages/mcp-workspace
-          - flag: native-file-tools
-            dir: packages/native-file-tools
           - flag: oxlint-plugin-anti-slop
             dir: packages/oxlint-plugin-anti-slop
           - flag: runtime-safety

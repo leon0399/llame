@@ -34,6 +34,7 @@ import {
   InterfaceFontSwitcher,
   CodeFontSwitcher,
 } from "@/components/font-switcher";
+import { MachinesSection } from "./components/machines-section";
 import { MemorySection } from "./components/memory-section";
 import { PersonalizationSection } from "./components/personalization-section";
 
@@ -215,6 +216,9 @@ export default function SettingsPage() {
       <AppearanceSection />
       <PersonalizationSection />
       <MemorySection />
+      {/* Read-only and operator-owned: renders nothing on an instance whose
+          operator configured no Machines, so it can sit permanently last. */}
+      <MachinesSection />
     </div>
   );
 }

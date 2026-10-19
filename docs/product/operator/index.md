@@ -19,6 +19,8 @@ below state additional ordering where a change needs it.
 
 - [Native files](native-files.md): host executor identity, `read`, `edit`,
   `write`, `bash`, Workspace entry, and permission modes.
+- [Remote Machines](machines.md): experimental SSH-reached Machines, the
+  `llame-machine` daemon, registered roots, permissions, and status.
 - [Web reads](web-read.md): `http(s)://` reads, address pinning, and the web
   threat model.
 - [Web adapters](web-adapters.md): each `tools.webAdapters` entry, the URLs it

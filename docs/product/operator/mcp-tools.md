@@ -164,6 +164,8 @@ write-capable operator or Workspace MCP tools — is equivalent to
 `execute_code` and host-secret exfiltration. Workspace MCP calls still require
 their normal `tools.allowed` eligibility and `tools.permissions` authorization.
 
+rejected by a permission rule before execution, so they never reach the server.
+
 ### Lifetime and isolation
 
 Workspace clients are separate from the process-wide operator MCP runtime.
@@ -205,6 +207,29 @@ tools, and leaves the operator server unchanged. A successfully admitted
 non-shadowing Workspace tool can be added to the entering Run and called on
 the next model step. A later Run composes currently admitted Workspace tools
 from its start, so the normal tool-availability announcement reports them.
+
+### Machine Workspaces
+
+A Workspace whose root is a [`machine://`](../reference/locators/machine.md)
+locator resolves and runs its MCP servers on that Machine. The hub sends only
+a server's name: the Machine reads `<root>/.mcp.json` and
+`<root>/.llame/mcp.json`, reapplying the same overlay and entry rules above,
+interpolates against its own environment and filesystem, and starts stdio
+servers or opens HTTP servers with the hub's own HTTP safeguards. A
+`localhost` URL therefore means the Machine, not the hub, and a variable only
+the hub defines leaves that server unavailable with the unset-variable
+diagnostic — its value never travels to the Machine.
+
+Declarations, admission, shadowing, permissions, redaction, lifetime, and
+isolation are unchanged. Starting a server returns the protected values of the
+definition the Machine actually started, and the hub treats them as secrets
+from arrival, including values the Machine learns later such as an HTTP
+session id. The Machine's stderr arrives as bounded, redacted diagnostics. A
+client set's executor dimension is the Machine its root locator names, so one
+Chat never shares declarations or call state across executors. Stopping a
+client cancels its channel, which terminates the server on the Machine. A lost
+channel is a crashed server: calls in that Run fail, and the server returns on
+a later start once the Machine is reachable again.
 
 ## Protocol and IDs
 
