@@ -46,6 +46,9 @@ import type { MachineFailureReason } from './machines-status';
 /** How long a handshake may take before the session gives up on the Machine. */
 export const HANDSHAKE_TIMEOUT_MS = 30_000;
 
+/** The budget a caller names when it has no Run timeout of its own to pass. */
+export const DEFAULT_REQUEST_BUDGET_MS = 30_000;
+
 /** The durable identity and time budget a Machine request carries. */
 export type MachineRequestEnvelope = {
   readonly runId?: string;
