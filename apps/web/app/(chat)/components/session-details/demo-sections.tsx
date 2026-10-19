@@ -67,7 +67,8 @@ export function DemoChangesSection() {
     <>
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton>
+          {/* Placeholder data with no action: not a button until one exists. */}
+          <SidebarMenuButton render={<div />}>
             <GitPullRequestIcon />
             <span>feat(machines): experimental remote Machines</span>
           </SidebarMenuButton>
