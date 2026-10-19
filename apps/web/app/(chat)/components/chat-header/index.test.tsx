@@ -32,7 +32,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { ChatHeader } from "./index";
-import { ChatContextPanelProvider } from "../chat-context-panel/panel-state";
+import { SessionDetailsProvider } from "../session-details/details-state";
 
 function chatRow(
   overrides: Partial<ChatListItemResponse> & Pick<ChatListItemResponse, "id">,
@@ -98,9 +98,9 @@ function renderHeader(
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SidebarProvider>
-        <ChatContextPanelProvider defaultOpen={false}>
+        <SessionDetailsProvider defaultOpen={false}>
           <ChatHeader />
-        </ChatContextPanelProvider>
+        </SessionDetailsProvider>
       </SidebarProvider>
     </QueryClientProvider>,
   );
@@ -154,23 +154,12 @@ describe("ChatHeader", () => {
     usePathnameMock.mockReturnValue("/chat/chat-1");
     const { fetchMock } = renderHeader(
       {
-        all: [
-          chatRow({
-            id: "chat-1",
-            title: "Existing chat",
-            workspaceRoot: "/home/operator/projects/llame",
-          }),
-        ],
+        all: [chatRow({ id: "chat-1", title: "Existing chat" })],
       },
       { seedAllCache: true },
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("Existing chat")).toBeTruthy();
-      expect(
-        screen.getByLabelText("Workspace: /home/operator/projects/llame"),
-      ).toBeTruthy();
-    });
+    await waitFor(() => expect(screen.getByText("Existing chat")).toBeTruthy());
     expect(document.title).toBe("Existing chat");
     const requestedPaths = fetchMock.mock.calls.map(
       (_, index) => new URL(requestFromCall(fetchMock, index).url).pathname,
@@ -181,22 +170,10 @@ describe("ChatHeader", () => {
   it("falls back to GET /chats/:id for a chat absent from both list caches (archived-unpinned)", async () => {
     usePathnameMock.mockReturnValue("/chat/chat-2");
     renderHeader({
-      detail: (id) =>
-        jsonResponse(
-          chatRow({
-            id,
-            title: "Archived chat",
-            workspaceRoot: "/home/operator/projects/archive",
-          }),
-        ),
+      detail: (id) => jsonResponse(chatRow({ id, title: "Archived chat" })),
     });
 
-    await waitFor(() => {
-      expect(screen.getByText("Archived chat")).toBeTruthy();
-      expect(
-        screen.getByLabelText("Workspace: /home/operator/projects/archive"),
-      ).toBeTruthy();
-    });
+    await waitFor(() => expect(screen.getByText("Archived chat")).toBeTruthy());
     expect(document.title).toBe("Archived chat");
   });
 
@@ -207,101 +184,6 @@ describe("ChatHeader", () => {
     });
 
     await waitFor(() => expect(screen.getByText("New chat")).toBeTruthy());
-  });
-
-  it("omits the workspace indicator for an unbound chat", async () => {
-    usePathnameMock.mockReturnValue("/chat/chat-4");
-    renderHeader({
-      all: [chatRow({ id: "chat-4", title: "Unbound chat" })],
-    });
-
-    await waitFor(() => expect(screen.getByText("Unbound chat")).toBeTruthy());
-    expect(screen.queryByLabelText(/^Workspace:/)).toBeNull();
-  });
-
-  it("updates the indicator when the cached binding root changes", async () => {
-    usePathnameMock.mockReturnValue("/chat/chat-5");
-    const { queryClient } = renderHeader(
-      {
-        all: [
-          chatRow({
-            id: "chat-5",
-            title: "Bound chat",
-            workspaceRoot: "/home/operator/projects/old-root",
-          }),
-        ],
-      },
-      { seedAllCache: true },
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.getByLabelText("Workspace: /home/operator/projects/old-root"),
-      ).toBeTruthy(),
-    );
-
-    queryClient.setQueryData(chatQueryKeys.infinite({ pinned: "exclude" }), {
-      pages: [
-        [
-          chatRow({
-            id: "chat-5",
-            title: "Bound chat",
-            workspaceRoot: "/home/operator/projects/new-root",
-          }),
-        ],
-      ],
-      pageParams: [undefined],
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.getByLabelText("Workspace: /home/operator/projects/new-root"),
-      ).toBeTruthy();
-      expect(
-        screen.queryByLabelText("Workspace: /home/operator/projects/old-root"),
-      ).toBeNull();
-    });
-  });
-
-  it("removes the indicator when the cached binding is cleared", async () => {
-    usePathnameMock.mockReturnValue("/chat/chat-6");
-    const { queryClient } = renderHeader(
-      {
-        all: [
-          chatRow({
-            id: "chat-6",
-            title: "Exited chat",
-            workspaceRoot: "/home/operator/projects/llame",
-          }),
-        ],
-      },
-      { seedAllCache: true },
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.getByLabelText("Workspace: /home/operator/projects/llame"),
-      ).toBeTruthy(),
-    );
-
-    queryClient.setQueryData(chatQueryKeys.infinite({ pinned: "exclude" }), {
-      pages: [
-        [
-          chatRow({
-            id: "chat-6",
-            title: "Exited chat",
-            workspaceRoot: null,
-          }),
-        ],
-      ],
-      pageParams: [undefined],
-    });
-
-    await waitFor(() =>
-      expect(
-        screen.queryByLabelText("Workspace: /home/operator/projects/llame"),
-      ).toBeNull(),
-    );
   });
 
   it("restores the default document title when the header unmounts", async () => {
@@ -342,9 +224,9 @@ describe("ChatHeader", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <SidebarProvider>
-          <ChatContextPanelProvider defaultOpen={false}>
+          <SessionDetailsProvider defaultOpen={false}>
             <ChatHeader />
-          </ChatContextPanelProvider>
+          </SessionDetailsProvider>
         </SidebarProvider>
       </QueryClientProvider>,
     );
