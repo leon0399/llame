@@ -17,3 +17,13 @@ export function machineNameFromRoot(workspaceRoot: string): string | undefined {
   if (match === null) return undefined;
   return match[1];
 }
+
+/** The status entry for a Machine name, matched case-insensitively. */
+export function findMachineByName<T extends { name: string }>(
+  machines: ReadonlyArray<T> | undefined,
+  machineName: string | undefined,
+): T | undefined {
+  if (machineName === undefined) return undefined;
+  const wanted = machineName.toLowerCase();
+  return machines?.find((entry) => entry.name.toLowerCase() === wanted);
+}

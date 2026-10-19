@@ -17,9 +17,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Workspace loads its instruction files, skills, and Workspace MCP servers
   from the box, so a server on the box's `localhost` works. The box runs the
   `llame-machine` daemon, which serves only registered roots. An unreachable
-  Machine keeps the Chat's Workspace and fails only the calls aimed at it, and
-  settings and the Workspace indicator show each Machine's state. See
-  [remote Machines](docs/product/operator/machines.md).
+  Machine keeps the Chat's Workspace and fails only the calls aimed at it.
+  Settings show each Machine's state, and a chat's Details panel, opened from
+  the header, shows its Project, where it runs, and the full Workspace root
+  with a copy button. See [remote Machines](docs/product/operator/machines.md).
 
 - Archived chats and projects are reachable again. The chats rail, the
   projects rail, and a project's page each have a view menu for **Active**,

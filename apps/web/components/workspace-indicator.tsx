@@ -1,14 +1,12 @@
 import { FolderIcon, ServerIcon } from "lucide-react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { machineNameFromRoot } from "@/lib/services/machines/locator";
+import {
+  findMachineByName,
+  machineNameFromRoot,
+} from "@/lib/services/machines/locator";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 import type { MachineResponse } from "@/lib/services/machines/queries";
 
@@ -21,10 +19,6 @@ function lastPathSegment(workspaceRoot: string): string {
   return withoutTrailingSeparators.slice(
     withoutTrailingSeparators.lastIndexOf("/") + 1,
   );
-}
-
-function machineStatusWord(status: MachineStatus): string {
-  return status === "online" ? "Online" : "Offline";
 }
 
 /**
@@ -56,79 +50,23 @@ function MachineStatusDot({ status }: { status: MachineStatus | undefined }) {
   );
 }
 
-function WorkspaceBadgeContents({
-  workspaceRoot,
-  machineName,
-  status,
-}: {
-  workspaceRoot: string;
-  machineName: string | undefined;
-  status: MachineStatus | undefined;
-}) {
-  const text =
-    machineName === undefined
-      ? lastPathSegment(workspaceRoot)
-      : status === undefined
-        ? machineName
-        : `${machineName} · ${machineStatusWord(status)}`;
-
-  return (
-    <>
-      {machineName === undefined ? <FolderIcon /> : <ServerIcon />}
-      <MachineStatusDot status={status} />
-      <span className="truncate">{text}</span>
-    </>
-  );
-}
-
-function WorkspaceTooltip({
-  workspaceRoot,
-  machineName,
-  status,
-}: {
-  workspaceRoot: string;
-  machineName: string | undefined;
-  status: MachineStatus | undefined;
-}) {
-  return (
-    <TooltipContent>
-      <div>
-        <div>{workspaceRoot}</div>
-        {machineName === undefined || status === undefined ? null : (
-          <div>
-            {machineName} is {status}
-          </div>
-        )}
-      </div>
-    </TooltipContent>
-  );
-}
-
-function findMachine(
-  machines: ReadonlyArray<MachineResponse> | undefined,
-  machineName: string | undefined,
-): MachineResponse | undefined {
-  if (machineName === undefined) return undefined;
-  return machines?.find(
-    (entry) => entry.name.toLowerCase() === machineName.toLowerCase(),
-  );
-}
-
 /**
- * Shows the current Chat Workspace root as compact header metadata. The final
- * path segment keeps the header readable while the tooltip exposes the
- * complete canonical path for inspection.
+ * Compact header summary of the Chat Workspace: the Machine and its state for
+ * a `machine://` root, else the root's final segment. It opens the context
+ * panel, which shows the complete root with a copy action.
  *
- * A `machine://<name>/...` root names a remote Machine instead of a local
- * directory, so the indicator labels the Machine and marks whether it is
- * reachable: the same polled status list the settings page reads, looked up by
- * name. An unreachable Machine does not unbound the Workspace — the Chat keeps
- * its binding — so the badge reports the state rather than disappearing.
+ * An unreachable Machine does not unbind the Workspace — the Chat keeps its
+ * binding — so the badge reports the state rather than disappearing.
  */
 export function WorkspaceIndicator({
   workspaceRoot,
+  expanded,
+  onActivate,
 }: {
   workspaceRoot: string | null;
+  /** Whether the context panel this badge opens is showing. */
+  expanded: boolean;
+  onActivate: () => void;
 }) {
   const machineName =
     workspaceRoot === null ? undefined : machineNameFromRoot(workspaceRoot);
@@ -138,32 +76,29 @@ export function WorkspaceIndicator({
 
   if (workspaceRoot === null) return null;
 
-  const machine = findMachine(machines, machineName);
-  const status = machine?.status;
-
+  const status = findMachineByName(machines, machineName)?.status;
+  const segment = lastPathSegment(workspaceRoot);
+  // Offline is spelled out, not left to the dot's color alone.
+  const text =
+    machineName === undefined
+      ? segment
+      : `${machineName} · ${segment}${status === "offline" ? " · Offline" : ""}`;
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Badge
-            className="max-w-48"
-            variant="outline"
-            aria-label={workspaceAriaLabel(workspaceRoot, machineName, status)}
-            tabIndex={0}
-          />
-        }
-      >
-        <WorkspaceBadgeContents
-          workspaceRoot={workspaceRoot}
-          machineName={machineName}
-          status={status}
+    <Badge
+      className="max-w-56"
+      variant="outline"
+      render={
+        <button
+          type="button"
+          aria-label={workspaceAriaLabel(workspaceRoot, machineName, status)}
+          aria-expanded={expanded}
+          onClick={onActivate}
         />
-      </TooltipTrigger>
-      <WorkspaceTooltip
-        workspaceRoot={workspaceRoot}
-        machineName={machineName}
-        status={status}
-      />
-    </Tooltip>
+      }
+    >
+      {machineName === undefined ? <FolderIcon /> : <ServerIcon />}
+      <MachineStatusDot status={status} />
+      <span className="truncate">{text}</span>
+    </Badge>
   );
 }

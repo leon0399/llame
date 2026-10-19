@@ -1,8 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 import { vi } from "vitest";
-
-import { TooltipProvider } from "@workspace/ui/components/tooltip";
 
 import * as machinesQueries from "@/lib/services/machines/queries";
 import { refetchMachines } from "@/lib/services/machines/__mocks__/queries";
@@ -39,39 +37,40 @@ const meta = {
       refetch: refetchMachines,
     });
   },
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <Story />
-      </TooltipProvider>
-    ),
-  ],
+  args: { expanded: false, onActivate: fn() },
 } satisfies Meta<typeof WorkspaceIndicator>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The compact final-segment label shown for a bound Chat Workspace. */
+/** The compact final-segment label shown for a bound Chat Workspace; it
+ *  opens the context panel. */
 export const Bound: Story = {
   tags: ["ai-generated"],
   args: { workspaceRoot: "/home/operator/projects/llame" },
-  play: async ({ canvas, userEvent }) => {
-    const trigger = canvas.getByLabelText(
-      "Workspace: /home/operator/projects/llame",
-    );
-
-    await userEvent.hover(trigger);
-    const tooltip = await waitFor(() => {
-      const content = document.querySelector<HTMLElement>(
-        "[data-slot='tooltip-content']",
-      );
-      expect(content).toBeVisible();
-      return content;
+  play: async ({ args, canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", {
+      name: "Workspace: /home/operator/projects/llame",
     });
-    await expect(tooltip).toHaveTextContent("/home/operator/projects/llame");
+    await expect(trigger).toHaveTextContent("llame");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.click(trigger);
+    await expect(args.onActivate).toHaveBeenCalledOnce();
     // A local Workspace is not a Machine: the Machines list is queried
     // disabled, so nothing about a Machine can appear or cause a request.
     await expect(useMachinesQuery.mock.calls.at(-1)?.[0]).toBe(false);
+  },
+};
+
+/** While the panel is showing, the badge reports itself expanded. */
+export const PanelOpen: Story = {
+  tags: ["ai-generated"],
+  args: { workspaceRoot: "/home/operator/projects/llame", expanded: true },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("button", { name: /^Workspace:/ }),
+    ).toHaveAttribute("aria-expanded", "true");
   },
 };
 
@@ -100,9 +99,8 @@ export const LongPath: Story = {
 };
 
 /**
- * A Workspace on a reachable Machine names the Machine and says it is online.
- * The header shows the name, not the path: a Machine path is only meaningful
- * with the Machine it is on.
+ * A Workspace on a reachable Machine names the Machine and the root's final
+ * segment; the state is in the accessible name and the dot.
  *
  * @summary Machine Workspace with a reachable Machine
  */
@@ -117,29 +115,19 @@ export const MachineOnline: Story = {
       refetch: refetchMachines,
     });
   },
-  play: async ({ canvas, userEvent }) => {
-    await expect(canvas.getByText("devl · Online")).toBeVisible();
-    // The status is in the accessible name, not only in the dot's color.
-    const trigger = canvas.getByLabelText(
-      `Workspace: ${DEVL_ROOT} (devl, online)`,
-    );
-
-    await userEvent.hover(trigger);
-    const tooltip = await waitFor(() => {
-      const content = document.querySelector<HTMLElement>(
-        "[data-slot='tooltip-content']",
-      );
-      expect(content).toBeVisible();
-      return content;
-    });
-    await expect(tooltip).toHaveTextContent(DEVL_ROOT);
-    await expect(tooltip).toHaveTextContent("devl is online");
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("devl · llame")).toBeVisible();
+    await expect(
+      canvas.getByRole("button", {
+        name: `Workspace: ${DEVL_ROOT} (devl, online)`,
+      }),
+    ).toBeVisible();
   },
 };
 
 /**
  * The spec's indicator scenario: a Chat bound to a `devl` Workspace while the
- * Machine is offline keeps its binding and reports the state.
+ * Machine is offline keeps its binding and says so in text.
  *
  * @summary Machine Workspace with an offline Machine
  */
@@ -160,30 +148,19 @@ export const MachineOffline: Story = {
       refetch: refetchMachines,
     });
   },
-  play: async ({ canvas, userEvent }) => {
-    await expect(canvas.getByText("devl · Offline")).toBeVisible();
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("devl · llame · Offline")).toBeVisible();
     await expect(
-      canvas.getByLabelText(`Workspace: ${DEVL_ROOT} (devl, offline)`),
+      canvas.getByRole("button", {
+        name: `Workspace: ${DEVL_ROOT} (devl, offline)`,
+      }),
     ).toBeVisible();
-
-    await userEvent.hover(
-      canvas.getByLabelText(`Workspace: ${DEVL_ROOT} (devl, offline)`),
-    );
-    const tooltip = await waitFor(() => {
-      const content = document.querySelector<HTMLElement>(
-        "[data-slot='tooltip-content']",
-      );
-      expect(content).toBeVisible();
-      return content;
-    });
-    await expect(tooltip).toHaveTextContent("devl is offline");
   },
 };
 
 /**
  * A Workspace whose Machine is no longer in the configured list — the operator
- * removed it — still names the Machine it is bound to. The indicator cannot
- * claim a status it cannot read, so it claims none.
+ * removed it — still names the Machine it is bound to, and claims no state.
  *
  * @summary Machine Workspace with no status known
  */
@@ -198,22 +175,10 @@ export const MachineUnknown: Story = {
       refetch: refetchMachines,
     });
   },
-  play: async ({ canvas, userEvent }) => {
-    await expect(canvas.getByText("devl")).toBeVisible();
-    await expect(canvas.queryByText(/Online|Offline/)).toBeNull();
-
-    // The name is still announced; the state has no readable source, so the
-    // label claims none.
-    await userEvent.hover(
-      canvas.getByLabelText(`Workspace: ${DEVL_ROOT} (devl)`),
-    );
-    const tooltip = await waitFor(() => {
-      const content = document.querySelector<HTMLElement>(
-        "[data-slot='tooltip-content']",
-      );
-      expect(content).toBeVisible();
-      return content;
-    });
-    await expect(tooltip).not.toHaveTextContent("devl is");
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("devl · llame")).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: `Workspace: ${DEVL_ROOT} (devl)` }),
+    ).toBeVisible();
   },
 };

@@ -44,6 +44,7 @@ import {
   stubFetch,
 } from "@/lib/test-support/fetch-stub";
 import { ChatHeader } from "./chat-header";
+import { ChatContextPanelProvider } from "./chat-context-panel/panel-state";
 import { ChatPage } from "./chat-page";
 import {
   setChatMarkdownLoadForTests,
@@ -2070,10 +2071,12 @@ function serveChatCard(listed: boolean) {
 function ChatUnderHeader(props: ComponentProps<typeof ChatPage>) {
   return (
     <SidebarProvider className="min-h-0 flex-1">
-      <SidebarInset className="flex flex-col overflow-hidden">
-        <ChatHeader />
-        <ChatPage {...props} />
-      </SidebarInset>
+      <ChatContextPanelProvider defaultOpen={false}>
+        <SidebarInset className="flex flex-col overflow-hidden">
+          <ChatHeader />
+          <ChatPage {...props} />
+        </SidebarInset>
+      </ChatContextPanelProvider>
     </SidebarProvider>
   );
 }
