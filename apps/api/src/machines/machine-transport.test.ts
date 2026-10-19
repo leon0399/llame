@@ -201,7 +201,8 @@ describe('createMachineSshTransportFactory', () => {
       });
       // One generated configuration per process, reused by every Machine.
       expect(of(calls[1]).args[1]).toBe(of(calls[0]).args[1]);
-      expect(of(calls[1]).args[4]).toBe('me@gpu.lan:2222');
+      // A configured port reaches ssh in the URI form it parses.
+      expect(of(calls[1]).args[4]).toBe('ssh://me@gpu.lan:2222');
     } finally {
       created.dispose();
     }

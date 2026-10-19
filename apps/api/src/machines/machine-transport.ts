@@ -168,6 +168,16 @@ export type MachineSshTransportFactory = MachineTransportFactory & {
 };
 
 /**
+ * The destination as ssh's argv takes it. OpenSSH reads a bare
+ * `[user@]host:port` as a host name containing a colon, so a configured port
+ * is passed in the URI form `ssh://[user@]host:port` that ssh does parse; an
+ * alias or a portless host is passed as written.
+ */
+function sshDestination(destination: string): string {
+  return destination.includes(':') ? `ssh://${destination}` : destination;
+}
+
+/**
  * The production factory: one generated SSH configuration per process, written
  * on first use, and one `ssh` process per session.
  */
@@ -195,7 +205,7 @@ export function createMachineSshTransportFactory(
           path(),
           '-T',
           '--',
-          request.destination,
+          sshDestination(request.destination),
           'llame-machine',
           'serve',
           '--stdio',
