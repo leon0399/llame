@@ -27,15 +27,21 @@ nothing installed on the far side.
   mode, no agent, no connection sharing, timeouts) override the included
   configuration. One `ssh` process per operation.
 - Permission rules match the resolved locator
-  `ssh://<user>@<hostname>:<port><path>`, obtained from local SSH
-  configuration evaluation without connecting. A reject matching the submitted
-  or the resolved text refuses; the allow is decided on the resolved text.
+  `ssh://<user>@<hostname>:<port><path>`, obtained from bounded local SSH
+  configuration evaluation without connecting. Rejects run on the submitted
+  text first and on the resolved text after; the allow is decided on the
+  resolved text, and the connection uses exactly the resolved user, host, and
+  port.
+- Remote scripts travel on stdin and frame their output with per-call
+  markers, so login-shell noise, interrupted transfers, and remote exit
+  statuses are told apart.
 - `read` returns UTF-8 text files up to 1 MiB, applying selectors on the hub,
-  and bounded one-level directory listings. Larger, binary, and special files
-  fail with typed errors.
+  and one-level directory listings of at most 1,000 entries in the local
+  listing format. Larger, invalid-UTF-8, and special files fail with typed
+  errors.
 - `bash` with an `ssh://` `cwd` runs the command through `bash` on that host,
-  with `env` delivered outside argv and the local output, input, and duration
-  bounds. A timeout or cancellation after the command starts reports
+  with `env` keys restricted to identifier names and values delivered outside
+  argv, and the local output, input, and duration bounds. A timeout or cancellation after the command starts reports
   `outcome_unknown`.
 - Missing prerequisites (no POSIX `sh`, no `bash`) and connection failures
   (host key, authentication, unreachable) are typed refusals naming the cause.
@@ -81,13 +87,20 @@ Follow from those decisions but were never asked:
   without `tools.nativeExecutorId`, as Machines do.
 - Remote `env` keys may not replace the managed base names (`PATH`, `LANG`,
   `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`), matching the local rule even
-  though the remote base is the login environment.
+  though the remote base is the login environment, and must be identifier
+  names, because they are written into the remote script.
+- Resolution also runs in `bypass` mode, because execution binds the
+  connection to its result; rejected submitted text is never resolved.
 - Results report the submitted locator, re-encoded canonically; the resolved
   text is only for permissions.
-- A directory listing stops at 1,000 entries and says more exist.
-- Error types: `ssh_unavailable` (with a reason) and `ssh_unsupported_host`
-  are new; `file_too_large` is new; `not_found`, `not_regular_file`,
-  `invalid_utf8`, `invalid_path`, and `unsupported_operation` are reused.
+- A directory listing is one level deep, stops at 1,000 entries and says more
+  exist, and marks links without targets; otherwise it follows the local
+  listing format.
+- Error types: `ssh_unavailable` (reason `host_key_mismatch`, `auth_failed`,
+  `unreachable`, `config`, `client_missing`, or `session_lost`),
+  `ssh_unsupported_host`, and `file_too_large` are new; `not_found`,
+  `not_regular_file`, `invalid_utf8`, `invalid_path`, `executor_unavailable`,
+  and `unsupported_operation` are reused.
 
 ## Capabilities
 
@@ -99,10 +112,24 @@ Follow from those decisions but were never asked:
 
 ### Modified Capabilities
 
-None. Like `remote-machines`, the new capability states how `ssh://`
-locators extend local-only argument forms in `native-file-tools`,
-`bash-execution`, `tool-call-permissions`, `workspace-entry`, and
-`tool-calling`; their requirement text is unchanged.
+- `bash-execution`: an ADDED requirement that the `bash` description directs
+  working-directory use through `cwd`, for local, Machine, and `ssh://` calls.
+
+As in `remote-machines`, the `ssh-locator` capability's last requirement
+states that it overrides, for `ssh://` locators, canonical text that is
+otherwise local-only. Known canonical sentences it contradicts for `ssh://`,
+to amend if the capability graduates:
+
+- `native-file-tools`: native tools operate on absolute local regular files;
+  directory reads are two levels deep with a 10,000-entry budget and link
+  targets.
+- `bash-execution`: `bash` is available only with `tools.nativeExecutorId`;
+  the host runs `bash -c`; the model does not select an executor.
+- `tool-call-permissions`: only the defined native Workspace and locator
+  projections apply, and projection is the tool's own text parser; `ssh://`
+  resolution evaluates the SSH configuration in a process.
+- `workspace-entry` and `tool-calling`: host-capability tools are offered only
+  with a local executor.
 
 ## Impact
 
@@ -112,15 +139,18 @@ locators extend local-only argument forms in `native-file-tools`,
   the generated configuration, spawn seam, and failure classification move to
   a shared SSH module used by both schemes.
 - `apps/api/src/tools/native-files.ts` (`executeLocator` gains an `ssh`
-  branch), `apps/api/src/tools/bash.ts`, `apps/api/src/tools/runner.ts` and
-  `permissions/locator-projection.ts` (resolved projection),
+  branch), `apps/api/src/tools/bash.ts`, `apps/api/src/tools/runner.ts`
+  (asynchronous resolution before evaluation, a two-pass `ssh://` branch) and
+  `permissions/locator-projection.ts`, `packages/bash-executor` (exports the
+  base-variable check and output sanitizer),
   `apps/api/src/knowledge/knowledge-tool-candidate-resolver.ts` (offer
   `bash`), `apps/api/src/tools/workspace.ts` (refuse entry).
 - `apps/api/src/prompts/tools/read.md` (replace the commented OMP bullet) and
   `bash.md`.
-- Tests: unit tests for grammar, projection, and script output parsing;
+- Tests: unit tests for grammar, projection, and marker parsing;
   Testcontainers integration tests using the remote-Machines sshd fixture with
-  a plain-login key.
+  a plain-login key (also accepted by the bastion), plus a second container
+  variant whose account has only `/bin/sh`.
 - Docs: `docs/product/operator/ssh.md`, `docs/product/reference/locators/ssh.md`
   and the locator index, `docs/product/reference/tools/read.md` and `bash.md`,
   `docs/product/operator/native-files.md`, `SPEC.md` §13.7, `CHANGELOG.md`.

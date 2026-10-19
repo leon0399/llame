@@ -65,8 +65,42 @@ Prior art (research notes in `docs/research`, cited in the #936 thread):
 | Orca rung D      | `ssh2` + system `ssh`       | SFTP                               | relay process sweep | known_hosts + trust store |
 | Ansible `smart`  | system `ssh`, ControlMaster | sftp → scp → `dd`                  | n/a                 | OpenSSH                   |
 
-Verified locally (OpenSSH 8.9): `ssh -G` evaluates `Match exec` blocks while
-resolving a destination, without connecting.
+More facts that constrain resolution and scripts:
+
+- `evaluateToolPermission` and `previewToolPermission` are synchronous and
+  run before the per-call timeout wrapper (`tools/runner.ts:360-398`);
+  preview is called synchronously from `runs/run-execution.service.ts:1562,
+2672, 2919`, and prompt imports never plan an unknown scheme
+  (`prompt-imports.ts:238-247`). `bypass` mode evaluates no group
+  (`permissions/admit.ts:10`). When Workspace projection changed an argument,
+  `runner.ts:299` evaluates only the projected text.
+- The evaluator never visits object keys (`permissions/value-selection.ts:43-46`),
+  and `bash` accepts any `env` key (`tools/bash.ts:318`); local spawn passes
+  keys as data. `admitManagedBash` holds the base-env refusal, input bound,
+  process slot, and redaction, and stats the local `cwd`
+  (`packages/bash-executor/src/execute.ts:67-136`); `managedEnvironmentCollision`
+  and `watchManagedChild` are not exported.
+- `classifyLinkFailure` keeps an 8 KiB UTF-8 stderr head and matches
+  `/permission denied/i` (`machines/machine-transport.ts:77-105`); its
+  `sshDestination` wraps any destination containing `:` as `ssh://…`
+  (`:176-178`).
+- A local unreadable file or directory fails as `executor_unavailable`
+  "File could not be read." (`packages/native-file-tools/src/read.ts:216-240`).
+
+`ssh -G` on OpenSSH 8.9 (throwaway configs, verified in review round 1):
+
+| Case                                          | Result                                              |
+| --------------------------------------------- | --------------------------------------------------- |
+| alias with `User`/`Port`/`ProxyJump`          | printed as configured                               |
+| no `User` / no `Port`                         | worker's local user name / `22`                     |
+| host case, `%h` in `HostName`                 | lowercased, expanded                                |
+| `Match exec`                                  | runs for every destination, including invented ones |
+| unknown alias                                 | exit 0, resolved as a literal host name             |
+| missing `Include`                             | ignored                                             |
+| invalid option                                | exit 255                                            |
+| `CanonicalizeHostname yes`, unresolvable host | DNS lookup, exit 255                                |
+| `ssh://[v6]:p` or `u@[v6]` destination        | usage error, or brackets kept in `hostname`         |
+| `-l u -p p -- 2001:db8::1`                    | correct user, host, port                            |
 
 ## Goals / Non-Goals
 
@@ -74,7 +108,7 @@ resolving a destination, without connecting.
 
 - One SSH safety configuration for both remote schemes.
 - Nothing installed on the remote host.
-- Permission decisions on the address ssh will actually connect to.
+- Permission decisions on the address the connection actually uses.
 
 **Non-Goals:**
 
@@ -85,148 +119,195 @@ resolving a destination, without connecting.
 
 ### D1: Shared SSH module, separate `ssh` config section
 
-Move the safety-block renderer, temporary-file lifecycle, spawn seam,
-destination formatting, and stderr classification out of `apps/api/src/machines`
-into a shared SSH module that both Machines and `ssh://` call. The Machine
-command tail stays in the Machine connector. A top-level `ssh` section with
-the same three keys and defaults as `machines.ssh` enables the locator; it is
-validated by the same loader functions.
+Move the safety-block renderer, generated-file lifecycle, spawn seam, and
+stderr classification out of `apps/api/src/machines` into a shared SSH module
+that both Machines and `ssh://` call; Machine behavior is unchanged. The
+Machine command tail and `sshDestination` stay in the Machine connector. The
+module adds a one-shot runner for `ssh://`: byte-exact stdout up to a caller
+bound, bounded stderr, marker handling (D4), deadline, and abort. Its
+classifier extends the shared one with `config`, `client_missing`,
+`session_lost`, and missing-interpreter branches, and matches authentication
+failure as `Permission denied (` so remote error text cannot pose as it.
+
+A top-level `ssh` section with the same three keys and defaults as
+`machines.ssh` enables the locator, validated by the same loader functions.
 
 Alternatives: read `machines.ssh` (couples enabling `ssh://` to declaring
-Machines); a standalone copy of the transport (two host-key policies drift).
+Machines); a standalone transport copy (two host-key policies drift).
 
 ### D2: Authority and path grammar
 
-`ssh://[user@]host[:port]/<path>`: host is a DNS name or IPv4 literal of
-`[A-Za-z0-9._-]` not starting with `-`, or a bracketed IPv6 literal of hex
-digits, `:`, and `.`; user is `[A-Za-z0-9._-]` not starting with `-`; port is
-1 to 65535. A password, an empty user or port, or any other character is
-`invalid_path` before any process starts. The strict set keeps model text
-out of `%h`/`%u` expansions in operator `Match exec` and `ProxyCommand`
-(CVE-2023-51385 class) regardless of the worker's OpenSSH version. The path
-follows the `machine://` path rules: absolute, `%XX` decoded once to UTF-8,
-no literal `?`, `#`, backslash, or control character, no encoded `/` or NUL;
-a `read` selector splits off as for local paths. Bare `ssh://` (or
-`ssh:///`) returns a fixed explanation and starts nothing.
+`ssh://[user@]host[:port]/<path>`, scheme case-insensitive. Host: a name or
+IPv4 literal of `[A-Za-z0-9._-]` not starting with `-`, or a bracketed IPv6
+literal of hex digits, `:`, and `.` with no zone. User: `[A-Za-z0-9._-]` not
+starting with `-`. Port 1 to 65535. A password, `%`, an empty user or port, or
+any other character is `invalid_path` before any process starts. The strict
+set keeps model text out of `%h`/`%u` expansions in operator `Match exec` and
+`ProxyCommand` (CVE-2023-51385 class) whatever OpenSSH the worker has. The
+path follows the `machine://` rules (absolute, `%XX` decoded once to UTF-8,
+no literal `?`, `#`, backslash, or control character, no encoded `/` or NUL);
+a `read` selector splits off as for local paths. `ssh://` and `ssh:///` return
+a fixed explanation and start nothing.
 
-Alternative: OMP's leading-`-` check only; it leaves injection safety to the
-OpenSSH version.
+Every ssh invocation passes the destination as the bare host (IPv6
+unbracketed) after `--`, with `-l <user>` and `-p <port>` only when written;
+`sshDestination` is not reused, because OpenSSH rejects `ssh://[v6]:p` and
+keeps brackets in `u@[v6]`.
 
-### D3: Resolution for permissions through `ssh -G`
+### D3: Resolution, admission order, and binding
 
-Before permission evaluation, the hub runs `ssh -F <generated> -G -- <destination>`
-and reads `user`, `hostname`, and `port`. The resolved locator is
-`ssh://<user>@<hostname lowercased>:<port><decoded path>`, IPv6 bracketed.
-`read` rules see it without the selector; `bash` rules see it as the `cwd`.
-The reject-either/allow-resolved rule of `runner.ts:283-330` applies. A
-failed resolution is `ssh_unavailable` (reason `config`) and no connection is
-made. Execution connects with the submitted destination so the included
-configuration's `ProxyJump` and identities apply.
+`runTool` gains an asynchronous step before `evaluateToolPermission`:
 
-This is the first projection that spawns a process. It is local evaluation,
-but it runs operator `Match exec` commands and may perform DNS lookups when
-the included configuration enables `CanonicalizeHostname`; the operator page
-states both.
+1. Parse the locator (`read` path or `bash` `cwd`). Grammar errors stop here.
+2. Evaluate rejects on the submitted text (selector removed). A match
+   refuses; nothing is resolved, so a rejected locator runs no `Match exec`.
+3. Run `ssh -F <generated> -G [-l u] [-p p] -- <host>` with a 5 s deadline,
+   the call's abort signal, and a 64 KiB output bound. Read `user`,
+   `hostname`, `port`. Failure or deadline is `ssh_unavailable` reason
+   `config`; abort is the cancelled result. Resolution also runs in `bypass`
+   mode, because execution binds to it.
+4. Evaluate the group on the resolved locator
+   `ssh://<user>@<hostname>:<port><decoded path>` (IPv6 bracketed, `.`, `..`,
+   and trailing separators kept), so rejects and the allow both see it,
+   including all-fields rejects. `ssh://` gets its own two-pass branch and
+   does not go through Workspace projection, so `runner.ts:299` does not skip
+   the submitted text.
+5. Execution connects with `-o HostName=<hostname> -o Port=<port>
+-o User=<user> -- <submitted host>`, so the checked address is the address
+   used, while `Host`-scoped `ProxyJump` and identities from the included
+   configuration still match the submitted name.
+
+The synchronous preview path treats `ssh://` as refused; no current preview
+caller can produce one.
 
 Alternatives: lexical matching of the submitted text (an alias bypasses an
-address reject); connecting to the resolved address (drops `Host`-scoped
-`ProxyJump` and identities from the included configuration).
+address reject); connecting to the resolved address as the destination (drops
+`Host`-scoped settings); re-resolving at connect time (`Match exec` conditions
+can change the answer).
 
-### D4: Remote scripts on stdin, with a start marker
+### D4: Remote scripts on stdin with markers
 
-Every operation is `ssh -F <generated> -T -- <destination> sh -s`
-(reads) or `... bash -s` (`bash`), with a fixed script and its arguments
-written to stdin, then stdin closed. Paths and values are single-quoted by one
-helper; no model text reaches the remote argv. The script prints a fixed start
-marker on stderr before doing anything else; the hub strips it. No marker:
-the operation never started, and the failure is classified from stderr and
-exit status as a typed refusal. Marker seen: the remote work started, and the
-result follows D5 or D6.
+Every operation runs `ssh ... -T -- <host> sh -s` (reads) or `... bash -s`
+(`bash`) and writes a fixed script and its single-quoted arguments to stdin,
+then closes it; no model text reaches the remote argv. The whole script is one
+`{ ...; }` group, so the shell parses it before running anything. Each call
+draws a random nonce:
 
-- `sh` missing (exit 127 with the login shell's "not found") or Windows
-  shell output → `ssh_unsupported_host` naming a POSIX shell.
-- `bash` missing → `ssh_unsupported_host` naming `bash`.
-- `host_key_mismatch`, `auth_failed`, `unreachable` from the shared
-  classifier, and a missing `ssh` client → `ssh_unavailable` with that reason.
+- The script prints `<nonce>:start` on stdout and stderr once its
+  preconditions hold. The hub discards everything before it, so login-shell
+  startup output is neither content nor counted against a bound.
+- On exit it prints `<nonce>:end:<status>` on stderr. A result is complete only
+  with that trailer; its status is authoritative, so a remote `exit 255` is
+  not mistaken for an ssh failure.
+- A failed precondition prints `<nonce>:refuse:<kind>` instead of the start
+  marker (D5, D6).
 
-Alternative: a separate probe with a cached capability record (OMP). It costs
+Without a start marker, classification is from the client: spawn `ENOENT`
+(`client_missing`), host-key failure, `Permission denied (`, connect
+failure or timeout, exit 127 with the login shell's "not found" for `sh` or
+`bash`, or Windows shell text, each a typed refusal. Any other pre-marker
+failure is `ssh_unsupported_host` ("the remote account ran no llame script"),
+covering forced commands and `nologin`. A start marker without a trailer is
+`session_lost` for `read` and `outcome_unknown` for `bash`.
+
+Alternative: a separate probe with a cached capability record (OMP); it costs
 an extra connection per host per worker and needs invalidation.
 
 ### D5: Reads
 
-The read script classifies the path with `test -d`/`test -f`/`test -e`,
-then streams `head -c 1048577` for a regular file or a bounded one-level
-listing for a directory. The hub refuses more than 1,048,576 bytes with
-`file_too_large`, a NUL byte or invalid UTF-8 with `invalid_utf8`, a special
-file with `not_regular_file`, and a missing path with `not_found`. Selectors
-apply on the hub to the text in hand through the existing in-memory line
-source, so numbering, windows, and result bounds match local reads. A
-directory lists names sorted in the C locale with a `/` marker for
-directories, at most 1,000 entries, then a line stating more exist. Reads
-record no native attempt.
+Preconditions, before the start marker: `test -e || test -L` (else refuse
+`not_found`), then for a directory `test -r && test -x` (else refuse
+`unreadable`), for a non-regular file refuse `not_regular_file` without
+opening it, for an unreadable file refuse `unreadable`. `unreadable` maps to
+the local `executor_unavailable` "could not be read" result.
 
-Alternative: `cat` and size checks on the hub (unbounded transfer).
+- Regular file: `head -c 1048577`. More than 1 MiB is `file_too_large`;
+  invalid UTF-8 is `invalid_utf8` (NUL is valid, as locally). Selectors apply
+  on the hub through the existing in-memory line source, so numbering,
+  windows, and bounds match local reads.
+- Directory: a glob loop over `*`, `.[!.]*`, `..?*` prints each existing entry
+  as a type letter (`d`, `l`, `f`) and its name, NUL-terminated, stopping
+  after 1,001 entries. The hub sorts and renders them with the local listing
+  formatter and slicing, one level deep, links marked without targets (the
+  `kb://` listing precedent), then a "more entries exist" line past 1,000.
+  NUL termination keeps newline-bearing names one entry.
+
+Reads record no native attempt.
+
+Alternatives: `ls -1Ap | head` (exit 141 on a large directory, empty success
+on an unreadable one, newline names split); a two-level listing matching the
+local budget (unbounded remote traversal for the first iteration).
 
 ### D6: `bash`
 
-`cwd` must be one `ssh://` path without a selector. The script runs
-`cd -- <cwd> || exit`, exports each `env` entry, then evaluates the command
-text. `env` keys that name a managed base variable are refused as locally.
-The command's stdin is the closed script stream. The hub applies the local
-output and input bounds, the 300 s budget, and the one-process admission
-bound. The call records an unbound native attempt before the spawn, as
-Machine `bash` does. Exit status is the command's. A timeout, cancellation,
-or ssh exit after the start marker ends the local `ssh` and returns
-`outcome_unknown`; a proven stop is #1369.
+`cwd` must be one `ssh://` path without a selector. `env` keys must match
+`[A-Za-z_][A-Za-z0-9_]*`, must not name a managed base variable, and keys and
+values must hold no NUL; violations are refused before any process. The
+script runs `cd -- <cwd>` as a precondition (failure prints
+`<nonce>:refuse:cwd`, mapped to the local unusable-working-directory result
+with no command run), exports each entry as `KEY=<single-quoted value>`, prints
+the start marker, then runs `( eval <single-quoted command> ) </dev/null`.
 
-### D7: Offer, Workspaces, and disclosure
+`packages/bash-executor` exports the base-variable check and the output
+sanitizer for reuse; the process slot is the same one local `bash` uses, so a
+worker runs one `bash` at a time whatever its target. The local output and
+input bounds and the 300 s budget apply. The call records an unbound native
+attempt before spawning SSH, as Machine `bash` does; its branch sits before
+the local executor gate in `tools/bash.ts`, including inside a Machine
+Workspace, where an explicit `ssh://` `cwd` is no longer `invalid_path`.
+
+A timeout or cancellation once SSH runs ends the local `ssh`: `outcome_unknown`
+unless a typed pre-session failure is already classified. Proven remote stop
+is #1369.
+
+### D7: Offer, Workspaces, and descriptions
 
 The candidate resolver offers `bash` when the `ssh` section is present.
-`enter_workspace` refuses `ssh://` with `invalid_path`; Workspace projection
-never produces it, and inside a Machine Workspace an explicit `ssh://`
-locator is unaffected. `edit` and `write` return `unsupported_operation`.
-`read.md` and `bash.md` state, unconditionally as for Machines, that
-`ssh://` reaches a remote host as its login user with the instance's SSH
-identity and no isolation between llame users. `bash.md` also gains the `cwd`
-guidance: inside a Workspace omit `cwd` or pass a relative one; outside,
-pass an absolute `cwd`; never `cd` inside `command`.
+`enter_workspace` refuses `ssh://` with `invalid_path`, and Workspace
+projection never produces it. `edit` and `write` return
+`unsupported_operation`. `read.md` and `bash.md` state, unconditionally as for
+Machines, that `ssh://` runs as the remote login user with the instance's SSH
+identity and no isolation between llame users. `bash.md` gains the
+working-directory guidance required by the `bash-execution` delta.
 
 ## Threats
 
 - **T1. Model-chosen destinations.** Any destination the instance's keys
-  authenticate to is addressable; the permission rules and the pinned
-  `known_hosts` are the gates. The recommended portable policy
-  (`read: allow: true`) admits every pinned host; the operator page gives
-  host-scoped allows.
-- **T2. Injection through the authority.** D2's character set and the `--`
-  separator keep model text out of ssh options and `%h`/`%u` expansions.
-- **T3. Operator configuration side effects.** `ssh -G` runs `Match exec`
-  commands for every attempted locator, including ones a rule later rejects.
-- **T4. Remote orphans.** A timed-out command can keep running on the remote
-  host until it next writes or exits; reported as `outcome_unknown`.
-- **T5. No isolation between users.** All users act with one SSH identity.
-  Hub-held native attempts stay owner-scoped.
-- **T6. Included configuration.** As for Machines: `ProxyCommand`, identities,
+  authenticate to is addressable; permission rules and the pinned
+  `known_hosts` are the gates. A whole-tool `read: allow: true` admits every
+  pinned host; the operator page gives host-scoped allows.
+- **T2. Injection.** D2's character set, `--`, `-l`/`-p`, single-quoted
+  arguments on stdin, and D6's key grammar keep model text out of ssh options,
+  `%h`/`%u` expansions, and remote shell syntax outside `command`.
+- **T3. Operator configuration side effects.** Resolution runs `Match exec`
+  commands and may resolve DNS for every locator that passes the
+  submitted-text rejects, including ones the resolved text then rejects.
+- **T4. Remote orphans.** A timed-out command can keep running remotely until
+  it next writes or exits; reported as `outcome_unknown`.
+- **T5. No isolation between users.** All users act with one SSH identity;
+  hub-held native attempts stay owner-scoped.
+- **T6. Included configuration.** As for Machines, `ProxyCommand`, identities,
   and `SendEnv` from the included file apply as written.
 
 ## Risks / Trade-offs
 
 - [Handshake per operation] → Accepted; measured before #1366.
-- [1 MiB cap below local behavior] → Error names `bash` as the path for large
-  files; #1364 lifts it.
-- [Alias resolved twice, config edited between] → The included file is
-  operator-owned; accepted and documented.
-- [Size] → Three implementation layers, each estimated near the budget;
-  re-estimated at each boundary.
+- [1 MiB cap below local behavior] → The error names `bash`; #1364 lifts it.
+- [Listing differs from local: one level, 1,000 entries, no link targets] →
+  Stated in the spec and the locator reference.
+- [`..` kept in the resolved text admits `/var/log/../../etc/shadow` under a
+  `/var/log/` allow] → Same as local and Machine projection; the operator page
+  shows the anchored reject.
+- [Size] → Five implementation layers, each estimated near the budget from the
+  Machine layers' measured size; re-estimated at each boundary.
 
 ## Migration Plan
 
-Additive. Without the `ssh` section nothing changes. The Machines refactor in
-D1 moves code without changing behavior; the Machine integration suite is its
+Additive. Without the `ssh` section nothing changes. D1's move keeps Machine
+behavior; the Machine suites, with import-path changes only, are its
 regression evidence. Rollback removes the section.
 
 ## Open Questions
 
-- Whether Debian's and Alpine's "command not found" texts suffice for D4's
-  `sh`/`bash` classification, or the marker exit code alone is enough; settled
-  by the integration fixture.
+- Exact Windows and Alpine "not found" texts for D4's pre-marker
+  classification; settled by fixtures without changing the contract.
