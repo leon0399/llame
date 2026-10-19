@@ -21,7 +21,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Settings show each Machine's state, updated live over the app's WebSocket,
   and a chat's **Session details** sidebar, opened from the header, shows its
   Project, where it runs, and its Workspace path, copyable as the path on the
-  Machine or as its locator. See
+  Machine or as its locator. A status bar along the bottom of every signed-in
+  page lists the Machines with their state and how many are online. See
   [remote Machines](docs/product/operator/machines.md).
 
 - Archived chats and projects are reachable again. The chats rail, the

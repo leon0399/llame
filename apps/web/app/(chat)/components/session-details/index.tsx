@@ -112,12 +112,14 @@ function SessionDetailsBody({
             summary: environmentSummary(environment),
             content: <EnvironmentSection {...environment} />,
           },
+          // TODO(#1355): replace the demo with the chat's real context usage.
           context: {
             title: "Context",
             badge: <DemoChip />,
             summary: <DemoContextSummary />,
             content: <DemoContextSection />,
           },
+          // TODO(#1356): replace the demo with the chat's real changes.
           changes: {
             title: "Changes",
             badge: <DemoChip />,

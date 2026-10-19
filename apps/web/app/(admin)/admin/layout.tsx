@@ -5,6 +5,7 @@ import {
   SidebarProvider,
   AppSidebar,
 } from "@/app/shell/app-sidebar";
+import { AppShellFrame } from "@/app/shell/app-shell-frame";
 
 import { AdminHeader } from "./components/admin-header";
 import { AdminSectionNav } from "./components/admin-section-nav";
@@ -33,16 +34,18 @@ export default async function AdminLayout({
   const host = headerStore.get("host") ?? "instance";
 
   return (
-    <SidebarProvider defaultOpen={defaultOpen} className="h-svh">
-      <AppSidebar />
+    <AppShellFrame>
+      <SidebarProvider defaultOpen={defaultOpen} className="min-h-0 flex-1">
+        <AppSidebar />
 
-      <AdminSectionNav host={host} />
+        <AdminSectionNav host={host} />
 
-      <SidebarInset className="flex h-full flex-col overflow-hidden">
-        <AdminHeader />
+        <SidebarInset className="flex h-full flex-col overflow-hidden">
+          <AdminHeader />
 
-        {children}
-      </SidebarInset>
-    </SidebarProvider>
+          {children}
+        </SidebarInset>
+      </SidebarProvider>
+    </AppShellFrame>
   );
 }

@@ -25,6 +25,7 @@ vi.mock("next/headers", () => ({ cookies: cookiesMock, headers: headersMock }));
 import AdminLayout from "./layout";
 import { SidebarProvider } from "@/app/shell/app-sidebar";
 import { AdminSectionNav } from "./components/admin-section-nav";
+import { AppShellFrame } from "@/app/shell/app-shell-frame";
 
 function childrenOf(element: ReactNode): ReadonlyArray<ReactNode> {
   if (!isValidElement<{ children: ReactNode }>(element)) {
@@ -32,6 +33,13 @@ function childrenOf(element: ReactNode): ReadonlyArray<ReactNode> {
   }
   const kids = element.props.children;
   return Array.isArray(kids) ? kids : [kids];
+}
+
+/** The layout's SidebarProvider, inside the status-bar shell frame. */
+async function renderShell(): Promise<ReactNode> {
+  const frame = await AdminLayout({ children: "content" });
+  expect(isValidElement(frame) && frame.type).toBe(AppShellFrame);
+  return childrenOf(frame)[0];
 }
 
 beforeEach(() => {
@@ -43,7 +51,7 @@ beforeEach(() => {
 
 describe("AdminLayout", () => {
   it("defaults the sidebar collapsed when no cookie is stored", async () => {
-    const element = await AdminLayout({ children: "content" });
+    const element = await renderShell();
 
     expect(isValidElement<{ defaultOpen: boolean }>(element)).toBe(true);
     if (!isValidElement<{ defaultOpen: boolean }>(element)) return;
@@ -57,7 +65,7 @@ describe("AdminLayout", () => {
         name === "sidebar_state" ? { value: "true" } : undefined,
     });
 
-    const element = await AdminLayout({ children: "content" });
+    const element = await renderShell();
     if (!isValidElement<{ defaultOpen: boolean }>(element)) {
       throw new Error("expected SidebarProvider element");
     }
@@ -69,7 +77,7 @@ describe("AdminLayout", () => {
       get: (name: string) => (name === "host" ? "admin.example.com" : null),
     });
 
-    const element = await AdminLayout({ children: "content" });
+    const element = await renderShell();
     const [, nav] = childrenOf(element);
     if (!isValidElement<{ host: string }>(nav)) {
       throw new Error("expected AdminSectionNav element");
@@ -79,7 +87,7 @@ describe("AdminLayout", () => {
   });
 
   it("falls back to 'instance' when the host header is absent", async () => {
-    const element = await AdminLayout({ children: "content" });
+    const element = await renderShell();
     const [, nav] = childrenOf(element);
     if (!isValidElement<{ host: string }>(nav)) {
       throw new Error("expected AdminSectionNav element");
