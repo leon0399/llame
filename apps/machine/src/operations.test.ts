@@ -306,6 +306,21 @@ describe("fs.edit and fs.write", () => {
     await expect(readFile(target, "utf8")).resolves.toBe("hello\n");
   });
 
+  it("creates two files under the same new directory chain at once", async () => {
+    const write = (name: string) =>
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: join(fixture.root, "shared", "deep", name),
+        options: { displayPrefix: PREFIX },
+        content: `${name}\n`,
+      });
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_unused, index) => write(`f${index}.txt`)),
+    );
+    for (const result of results)
+      expect(result).toMatchObject({ status: "success" });
+  });
+
   it("replaces an existing file only when asked", async () => {
     await expect(
       daemon.call("fs.write", {

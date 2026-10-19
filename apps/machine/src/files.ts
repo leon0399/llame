@@ -221,7 +221,13 @@ async function createParentDirectories(
     current = dirname(current);
   }
   for (const directory of missing.reverse()) {
-    await mkdir(directory);
+    // A parallel write may have created it since the existence check.
+    await mkdir(directory).catch((error: unknown) => {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      )
+        throw error;
+    });
     await guard.resolvePath(directory);
   }
 }
