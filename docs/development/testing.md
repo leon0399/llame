@@ -169,6 +169,13 @@ typecheck ----> mutation
 - Each test leg uploads its report to Codecov as its own flag;
   `.github/codecov.yml` also groups paths into components by SPEC area.
   Codecov reports trends and pull request deltas; the thresholds stay the gate.
+- Each leg's `test:coverage` also writes JUnit to `coverage/junit.xml`, and the
+  leg uploads it to Codecov Test Analytics split by the [layers](#layers)
+  above: `scripts/split-junit-by-layer.mjs` sorts suites by file name, so an
+  upload carries the leg's flag plus `unit`, `integration`, or `component`.
+  Product E2E uploads Playwright's JUnit as `e2e`, and the
+  [API DAST](#api-dast) Schemathesis job uploads as `dast`, apart
+  from the layers. Test Analytics only reports; no gate reads it.
 - Evals never run in CI. The [compaction eval](compaction-eval.md) is a
   provider-backed script rather than a Vitest test and remains explicitly
   opt-in.

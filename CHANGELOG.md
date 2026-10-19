@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-21
 
+- CI uploads every suite's JUnit results to Codecov Test Analytics, flagged by
+  workspace and by the test layers in
+  [testing](docs/development/testing.md#layers): unit, integration, and
+  component per workspace, plus Playwright as `e2e` and the Schemathesis API
+  scan as `dast`.
+
 - CI scans the API dynamically from its OpenAPI document with Schemathesis and
   the ZAP API scan against a throwaway stack. Both jobs reuse the API that the
   Build job compiled; they run on every push to master, nightly, and on pull

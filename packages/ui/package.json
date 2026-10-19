@@ -7,7 +7,7 @@
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run --project unit",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml",
     "test:stories": "vitest run --project stories",
     "test:watch": "vitest --project unit",
     "typecheck": "tsgo --noEmit"
