@@ -63,8 +63,11 @@ async function canonicalTarget(target: string, depth: number): Promise<string> {
   if (depth > MAX_LINK_DEPTH) refuse();
   try {
     return await realpath(target);
-  } catch {
-    // Missing, dangling, or unresolvable here; the steps below decide.
+  } catch (error) {
+    // Only an absent entry is resolved by the walk below. Anything else —
+    // a name too long, a loop, no permission — is a path this guard cannot
+    // place, and a read of it might still reach outside the roots.
+    if (!isAbsentEntry(error)) refuse();
   }
   const parent = dirname(target);
   if (parent === target) return target;
@@ -72,12 +75,23 @@ async function canonicalTarget(target: string, depth: number): Promise<string> {
   if (entry !== undefined && entry.isSymbolicLink()) {
     const hop = await readlink(target).catch(() => undefined);
     if (hop === undefined) refuse();
+    // A relative link resolves from the directory the link really is in,
+    // not the lexical parent, which may itself have been reached through a
+    // link; `..` in the link text climbs from there.
     return canonicalTarget(
-      isAbsolute(hop) ? hop : join(parent, hop),
+      isAbsolute(hop) ? hop : join(await canonicalTarget(parent, depth), hop),
       depth + 1,
     );
   }
   return join(await canonicalTarget(parent, depth), basename(target));
+}
+
+function isAbsentEntry(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error.code === "ENOENT" || error.code === "ENOTDIR")
+  );
 }
 
 export function createRootGuard(roots: ReadonlyArray<string>): RootGuard {

@@ -311,7 +311,8 @@ export async function bytesOperation(
   const bytes = await readFile(guarded.path);
   // The size probe and the read are two syscalls; the bytes themselves decide.
   if (bytes.byteLength > MEDIA_MAX_BYTES) return tooLarge;
-  sendChunks(context, bytes);
+  // Re-verify before any byte leaves, as `read` and `list` do.
   await verifyUnchanged(context.guard, path, guarded);
+  sendChunks(context, bytes);
   return { size: bytes.byteLength, mediaType: mediaTypeOf(bytes) };
 }

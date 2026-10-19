@@ -93,6 +93,8 @@ export function optionalEnvironment(
   return environment;
 }
 
+/** The longest delay `setTimeout` honours (2^31 − 1 ms, about 24.8 days). */
+const MAX_TIMER_MS = 2_147_483_647;
 export function readEnvelope(
   value: SerializableValue,
   method: string,
@@ -108,7 +110,9 @@ export function readEnvelope(
       "the envelope budget must be whole milliseconds",
     );
   return {
-    budgetMs,
+    // Node's timers overflow past 2^31-1 ms and fire at once; a longer
+    // budget is held to the longest timer Node can set.
+    budgetMs: Math.min(budgetMs, MAX_TIMER_MS),
     runId: optionalString(envelope, "runId", method),
     attemptId: optionalString(envelope, "attemptId", method),
     toolCallId: optionalString(envelope, "toolCallId", method),

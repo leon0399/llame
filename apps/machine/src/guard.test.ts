@@ -1,4 +1,4 @@
-import { lstat, rename, symlink, unlink } from "node:fs/promises";
+import { lstat, mkdir, rename, symlink, unlink } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PATH_NOT_REGISTERED_MESSAGE } from "@workspace/machine-protocol";
 import { createRootGuard, type RootGuard } from "./guard";
@@ -133,5 +133,18 @@ describe("root enforcement", () => {
     const guarded = await guard.resolvePath(renamed);
     expect(guarded.canonical).toBe(renamed);
     await rename(renamed, fixture.notes);
+  });
+
+  it("resolves a relative link from the link's real directory, not the path it was reached through", async () => {
+    // root/a/b/up -> root, and root/out -> ../outside/new.txt (absent). Read
+    // through `root/a/b/up/out`, the link text climbs out of `root`, where
+    // the link really is, even though the lexical parent lies deep inside.
+    const deep = `${fixture.root}/a/b`;
+    await mkdir(deep, { recursive: true });
+    await symlink(fixture.root, `${deep}/up`);
+    await symlink("../outside/new.txt", `${fixture.root}/out`);
+    await expect(guard.resolvePath(`${deep}/up/out`)).rejects.toMatchObject(
+      refusal(),
+    );
   });
 });
