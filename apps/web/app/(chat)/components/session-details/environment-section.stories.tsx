@@ -42,9 +42,11 @@ const meta = {
     ),
   ],
   args: {
+    chatLoaded: true,
     workspaceRoot: DEVBOX_ROOT,
     machineName: "devbox",
     machine: onlineDevbox,
+    machineLoading: false,
     project: { id: "11111111-1111-4111-8111-111111111111", name: "llame" },
   },
 } satisfies Meta<typeof EnvironmentSection>;
@@ -212,5 +214,37 @@ export const NoWorkspace: Story = {
   play: async ({ canvas }) => {
     await expect(canvas.getByText("No Workspace")).toBeVisible();
     await expect(canvas.queryByRole("button")).toBeNull();
+  },
+};
+
+/** Before the Chat's card arrives, the section is skeleton rows, not a
+ *  claim that the Chat has no Workspace. */
+export const LoadingChat: Story = {
+  tags: ["ai-generated"],
+  args: { chatLoaded: false },
+  play: async ({ canvasElement }) => {
+    await expect(
+      canvasElement.querySelectorAll("[data-sidebar=menu-skeleton]"),
+    ).toHaveLength(2);
+    await expect(canvasElement).not.toHaveTextContent("No Workspace");
+  },
+};
+
+/** While the Project and the Machine status load, their slots are
+ *  skeletons; the Workspace path, already known, is shown. */
+export const LoadingDetails: Story = {
+  tags: ["ai-generated"],
+  args: { project: undefined, machine: undefined, machineLoading: true },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(
+      canvasElement.querySelector("[data-sidebar=menu-skeleton]"),
+    ).not.toBeNull();
+    await expect(
+      canvasElement.querySelector("[data-slot=skeleton]"),
+    ).not.toBeNull();
+    await expect(canvas.queryByText("Unknown")).toBeNull();
+    await expect(
+      canvas.getByRole("button", { name: "/home/box/work/shop" }),
+    ).toBeVisible();
   },
 };

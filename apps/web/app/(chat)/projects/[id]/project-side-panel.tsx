@@ -9,8 +9,11 @@ import {
 import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { IconButtonTooltip } from "@/components/icon-button-tooltip";
+import { DemoChip } from "@/app/shell/soon-chip";
 
-/** One titled section of the panel, with its single action on the right. */
+/** One titled section of the panel, with its single action on the right.
+ *  Every section here is still a sample-data preview, so each carries the
+ *  demo chip. */
 function PanelSection({
   title,
   action,
@@ -23,7 +26,10 @@ function PanelSection({
   return (
     <section className="space-y-2 p-4" aria-label={title}>
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          {title}
+          <DemoChip />
+        </h2>
         {action}
       </div>
       {children}

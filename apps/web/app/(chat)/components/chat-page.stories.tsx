@@ -46,6 +46,7 @@ import {
 import { ChatHeader } from "./chat-header";
 import { SessionDetailsProvider } from "./session-details/details-state";
 import { SessionDetails } from "./session-details";
+import { parseSessionDetailsLayout } from "./session-details/details-cookie";
 import { ChatPage } from "./chat-page";
 import {
   setChatMarkdownLoadForTests,
@@ -2078,7 +2079,7 @@ function ChatUnderHeader(props: ComponentProps<typeof ChatPage>) {
           <ChatHeader />
           <ChatPage {...props} />
         </SidebarInset>
-        <SessionDetails />
+        <SessionDetails layout={parseSessionDetailsLayout(undefined)} />
       </SessionDetailsProvider>
     </SidebarProvider>
   );

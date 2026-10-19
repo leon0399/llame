@@ -11,6 +11,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 
 import { topBarClasses } from "@/app/shell/top-bar";
+import { DemoChip } from "@/app/shell/soon-chip";
 import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { useOpenChat } from "@/lib/services/chat/queries";
 import {
@@ -20,7 +21,18 @@ import {
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 import { useProjectById } from "@/lib/services/project/queries";
 
-import { EnvironmentSection } from "./environment-section";
+import {
+  DemoChangesSection,
+  DemoContextSection,
+  DemoContextSummary,
+} from "./demo-sections";
+import type { SessionDetailsLayout } from "./details-cookie";
+import {
+  EnvironmentSection,
+  environmentSummary,
+  type EnvironmentSectionProps,
+} from "./environment-section";
+import { SectionList } from "./section-list";
 
 const DETAILS_TITLE = "Session details";
 const SHOW_LABEL = "Show session details";
@@ -59,26 +71,60 @@ function useChatProject(projectId: string | undefined, chatLoaded: boolean) {
   return project === undefined ? null : { id: project.id, name: project.name };
 }
 
-/** The sections for one Chat. The header already loads the Chat, so this
- *  only observes its caches. */
-function SessionDetailsBody({ chatId }: { chatId: string }) {
+/** The Chat's environment, read from the caches the header already loads. */
+function useEnvironment(chatId: string): EnvironmentSectionProps {
   const chat = useOpenChat(chatId, { fetch: false });
   const workspaceRoot = chat?.workspaceRoot ?? null;
   const machineName =
     workspaceRoot === null ? undefined : machineNameFromRoot(workspaceRoot);
-  const { data: machines } = useMachinesQuery(machineName !== undefined);
+  const machinesQuery = useMachinesQuery(machineName !== undefined);
   const project = useChatProject(
     chat?.projectId ?? undefined,
     chat !== undefined,
   );
+  return {
+    chatLoaded: chat !== undefined,
+    workspaceRoot,
+    machineName,
+    machine: findMachineByName(machinesQuery.data, machineName),
+    // A disabled query also reads as pending, so only a Machine root waits.
+    machineLoading: machineName !== undefined && machinesQuery.isPending,
+    project,
+  };
+}
+
+function SessionDetailsBody({
+  chatId,
+  layout,
+}: {
+  chatId: string;
+  layout: SessionDetailsLayout;
+}) {
+  const environment = useEnvironment(chatId);
 
   return (
     <SidebarContent>
-      <EnvironmentSection
-        workspaceRoot={workspaceRoot}
-        machineName={machineName}
-        machine={findMachineByName(machines, machineName)}
-        project={project}
+      <SectionList
+        initialLayout={layout}
+        sections={{
+          environment: {
+            title: "Environment",
+            summary: environmentSummary(environment),
+            content: <EnvironmentSection {...environment} />,
+          },
+          context: {
+            title: "Context",
+            badge: <DemoChip />,
+            summary: <DemoContextSummary />,
+            content: <DemoContextSection />,
+          },
+          changes: {
+            title: "Changes",
+            badge: <DemoChip />,
+            summary: "1 pull request",
+            content: <DemoChangesSection />,
+          },
+        }}
       />
     </SidebarContent>
   );
@@ -89,7 +135,7 @@ function SessionDetailsBody({ chatId }: { chatId: string }) {
  * offcanvas on desktop and a sheet on mobile. Only a `/chat/:id` route has
  * one.
  */
-export function SessionDetails() {
+export function SessionDetails({ layout }: { layout: SessionDetailsLayout }) {
   const chatId = useOpenChatId();
   const { toggleSidebar } = useSidebar();
 
@@ -109,7 +155,7 @@ export function SessionDetails() {
           <XIcon aria-hidden="true" />
         </IconButtonTooltip>
       </div>
-      <SessionDetailsBody chatId={chatId} />
+      <SessionDetailsBody chatId={chatId} layout={layout} />
     </Sidebar>
   );
 }

@@ -15,17 +15,24 @@ import { ProjectListSidebar } from "./components/project-list-sidebar";
 import { ChatHeader } from "./components/chat-header";
 import { ChatListShowProvider } from "./components/chat-list-view";
 import { SessionDetails } from "./components/session-details";
-import { SESSION_DETAILS_COOKIE } from "./components/session-details/details-cookie";
+import {
+  SESSION_DETAILS_COOKIE,
+  SESSION_DETAILS_LAYOUT_COOKIE,
+  parseSessionDetailsLayout,
+} from "./components/session-details/details-cookie";
 import { SessionDetailsProvider } from "./components/session-details/details-state";
 
-/** The shell's remembered open states: the main rail starts collapsed (icon
- *  mode) until a user expands it; session details start open until a user
- *  hides them. */
+/** The shell's remembered state: the main rail starts collapsed (icon mode)
+ *  until a user expands it; session details start open until a user hides
+ *  them, with their sections as the user arranged them. */
 async function readShellState() {
   const cookieStore = await cookies();
   return {
     railOpen: cookieStore.get("sidebar_state")?.value === "true",
     detailsOpen: cookieStore.get(SESSION_DETAILS_COOKIE)?.value !== "false",
+    detailsLayout: parseSessionDetailsLayout(
+      cookieStore.get(SESSION_DETAILS_LAYOUT_COOKIE)?.value,
+    ),
   };
 }
 
@@ -34,7 +41,7 @@ export default async function Layout({
 }: {
   children: React.ReactNode;
 }) {
-  const { railOpen, detailsOpen } = await readShellState();
+  const { railOpen, detailsOpen, detailsLayout } = await readShellState();
 
   return (
     <>
@@ -63,7 +70,7 @@ export default async function Layout({
                       {children}
                     </SidebarInset>
 
-                    <SessionDetails />
+                    <SessionDetails layout={detailsLayout} />
                   </SessionDetailsProvider>
                 </ChatListShowProvider>
               </CommandPaletteProvider>

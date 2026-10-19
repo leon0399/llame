@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   CopyIcon,
   FolderIcon,
@@ -17,15 +18,14 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSkeleton,
 } from "@workspace/ui/components/sidebar";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import { toast } from "@workspace/ui/components/sonner";
 import {
   Tooltip,
@@ -56,12 +56,17 @@ export interface EnvironmentProject {
 }
 
 export interface EnvironmentSectionProps {
+  /** False until the Chat's card is in the cache; every row is a skeleton
+   *  until then. */
+  chatLoaded: boolean;
   /** Canonical root of the Chat's Workspace binding; null when unbound. */
   workspaceRoot: string | null;
   /** Machine the root names; undefined for a local root. */
   machineName: string | undefined;
   /** Status of that Machine; undefined while loading or when unconfigured. */
   machine: MachineResponse | undefined;
+  /** True while the Machines list is still loading. */
+  machineLoading: boolean;
   /** The Chat's Project; null when it has none, undefined while loading. */
   project: EnvironmentProject | null | undefined;
 }
@@ -113,8 +118,21 @@ function machineState(machine: MachineResponse | undefined) {
 }
 
 /** The Machine's state as a dot and a word; the word carries it for
- *  assistive tech and color blindness. */
-function MachineStatusBadge({ state }: { state: string }) {
+ *  assistive tech and color blindness. A skeleton while it loads. */
+function MachineStatusBadge({
+  state,
+  loading,
+}: {
+  state: string;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <SidebarMenuBadge>
+        <Skeleton className="h-3 w-12" />
+      </SidebarMenuBadge>
+    );
+  }
   return (
     <SidebarMenuBadge>
       <span className="flex items-center gap-1.5">
@@ -139,9 +157,11 @@ function MachineStatusBadge({ state }: { state: string }) {
 function MachineRow({
   machineName,
   machine,
+  loading,
 }: {
   machineName: string;
   machine: MachineResponse | undefined;
+  loading: boolean;
 }) {
   const failure =
     machine?.status === "offline" && machine.failureReason !== null
@@ -165,7 +185,7 @@ function MachineRow({
           <LastSeen machine={machine} />
         </TooltipContent>
       </Tooltip>
-      <MachineStatusBadge state={machineState(machine)} />
+      <MachineStatusBadge state={machineState(machine)} loading={loading} />
       {failure === undefined ? null : (
         <p className="px-2 pb-1 pl-8 text-xs text-destructive">{failure}</p>
       )}
@@ -262,7 +282,11 @@ function BoundRows({
   workspaceRoot,
   machineName,
   machine,
-}: Omit<EnvironmentSectionProps, "project" | "workspaceRoot"> & {
+  machineLoading,
+}: Pick<
+  EnvironmentSectionProps,
+  "machineName" | "machine" | "machineLoading"
+> & {
   workspaceRoot: string;
 }) {
   return (
@@ -270,42 +294,75 @@ function BoundRows({
       {machineName === undefined ? (
         <StaticRow icon={<MonitorIcon />}>This host</StaticRow>
       ) : (
-        <MachineRow machineName={machineName} machine={machine} />
+        <MachineRow
+          machineName={machineName}
+          machine={machine}
+          loading={machineLoading}
+        />
       )}
       <WorkspaceRow workspaceRoot={workspaceRoot} machineName={machineName} />
     </>
   );
 }
 
+/** A loading row: the shadcn menu skeleton in its list item. */
+function SkeletonRow() {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuSkeleton showIcon />
+    </SidebarMenuItem>
+  );
+}
+
+function ProjectSlot({
+  project,
+}: {
+  project: EnvironmentProject | null | undefined;
+}) {
+  if (project === undefined) return <SkeletonRow />;
+  return project === null ? null : <ProjectRow project={project} />;
+}
+
 /**
  * The Chat's environment as compact sidebar rows: its Project, where its
- * tools run, and the Workspace path. Rows only appear for what the Chat has.
+ * tools run, and the Workspace path. Rows only appear for what the Chat has;
+ * what is still loading shows as skeleton rows of the same height.
  */
-export function EnvironmentSection({
+export function EnvironmentSection(props: EnvironmentSectionProps) {
+  if (!props.chatLoaded) {
+    return (
+      <SidebarMenu>
+        <SkeletonRow />
+        <SkeletonRow />
+      </SidebarMenu>
+    );
+  }
+  const { workspaceRoot } = props;
+  return (
+    <SidebarMenu>
+      <ProjectSlot project={props.project} />
+      {workspaceRoot === null ? (
+        <StaticRow icon={<FolderIcon />} muted>
+          No Workspace
+        </StaticRow>
+      ) : (
+        <BoundRows {...props} workspaceRoot={workspaceRoot} />
+      )}
+    </SidebarMenu>
+  );
+}
+
+/** The folded section's one line: where the Chat is, most specific first; a
+ *  skeleton until the Chat is known. */
+export function environmentSummary({
+  chatLoaded,
   workspaceRoot,
   machineName,
-  machine,
   project,
-}: EnvironmentSectionProps) {
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Environment</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {project ? <ProjectRow project={project} /> : null}
-          {workspaceRoot === null ? (
-            <StaticRow icon={<FolderIcon />} muted>
-              No Workspace
-            </StaticRow>
-          ) : (
-            <BoundRows
-              workspaceRoot={workspaceRoot}
-              machineName={machineName}
-              machine={machine}
-            />
-          )}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  );
+}: EnvironmentSectionProps): ReactNode {
+  if (!chatLoaded) return <Skeleton className="h-3 w-16" />;
+  if (workspaceRoot === null) return project?.name ?? "No Workspace";
+  const path = machinePathFromRoot(workspaceRoot) ?? workspaceRoot;
+  const folder = path.replace(/\/+$/, "").split("/").pop() || path;
+  return machineName === undefined ? folder : `${machineName} · ${folder}`;
 }
