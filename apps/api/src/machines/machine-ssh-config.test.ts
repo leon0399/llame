@@ -23,7 +23,7 @@ describe('renderMachineSshConfig', () => {
   it('puts the safety block before the include', () => {
     const text = renderMachineSshConfig(base);
     const lines = text.split('\n');
-    expect(lines[4]).toBe('Host *');
+    expect(lines.find((line) => !line.startsWith('#'))).toBe('Host *');
     expect(lines.at(-2)).toBe('Include "/home/llame/.ssh/config"');
     expect(text.indexOf('Host *')).toBeLessThan(text.indexOf('Include'));
   });

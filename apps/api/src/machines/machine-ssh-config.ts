@@ -5,9 +5,10 @@
  * written into a private configuration file whose `Host *` block comes FIRST
  * and whose `Include` of the operator's own file comes last: ssh keeps the
  * first value it obtains, so host-key checking, batch mode, the agent, and
- * connection sharing are llame's for every hop, while aliases, `HostName`,
- * `User`, `Port`, `ProxyJump`/`ProxyCommand`, and identities still come from
- * the include.
+ * connection sharing are llame's for every hop ssh itself opens, while
+ * aliases, `HostName`, `User`, `Port`, `ProxyJump`/`ProxyCommand`, and
+ * identities still come from the include. A `ProxyCommand` is a command ssh
+ * runs, not a connection it opens, so a hop it makes is outside these options.
  *
  * The file is written once per process, 0600, inside a private 0700 temp
  * directory, because it names the pinned host-key file and the llame identity.
@@ -42,8 +43,9 @@ export type MachineSshConfigFile = {
 
 const HEADER = [
   '# llame Machines (remote-machines D1): the safety block below wins for every',
-  '# hop, including jump hosts, because ssh keeps the first value it obtains.',
-  '# The included configuration supplies aliases, jump hosts, users, ports, and',
+  '# hop ssh itself opens, including jump hosts, because ssh keeps the first',
+  '# value it obtains. A ProxyCommand runs as written and is outside it. The',
+  '# included configuration supplies aliases, jump hosts, users, ports, and',
   '# identities; it cannot weaken these options.',
 ];
 
