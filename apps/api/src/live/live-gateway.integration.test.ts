@@ -11,6 +11,8 @@
 
 import { Test } from '@nestjs/testing';
 import { type INestApplication } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
+import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { WebSocket } from 'ws';
@@ -24,6 +26,7 @@ import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
+import { MachinesStatusRepository } from '../machines/machines-status.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
@@ -38,6 +41,7 @@ describeIfDb('LiveGatewayService', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let tenantDb: TenantDbService;
+  let machineStatus: MachinesStatusRepository;
   let url: string;
   const users: Record<'a' | 'b', { id: string; cookie: string }> = {
     a: { id: '', cookie: '' },
@@ -125,6 +129,7 @@ describeIfDb('LiveGatewayService', () => {
     await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
+    machineStatus = app.get(MachinesStatusRepository);
     const address = http.address();
     if (!address || isString(address)) {
       throw new Error('expected a TCP listen address');
@@ -224,5 +229,64 @@ describeIfDb('LiveGatewayService', () => {
     expect(seenByB).not.toContain(runId);
     expect(seenByB).not.toContain('Renamed live');
     expect(JSON.stringify(a.messages)).not.toContain(marker);
+  });
+
+  it('delivers an instance-wide Machine status change to every user', async () => {
+    const a = await connect(users.a.cookie);
+    const b = await connect(users.b.cookie);
+    const name = `live-${crypto.randomUUID()}`;
+
+    // The real writer path: one successful contact, as the probe records it.
+    await machineStatus.recordContact({
+      name,
+      at: new Date(),
+      hubProtocolVersion: 1,
+      daemonProtocolVersion: 1,
+      daemonVersion: '0.4.0',
+      roots: ['/srv/projects'],
+    });
+
+    const isMachine = (m: UnknownRecord) =>
+      m['type'] === 'machine.upserted' &&
+      isRecord(m['machine']) &&
+      m['machine']['name'] === name;
+    const seenByA = await waitForMessage(a, isMachine);
+    const seenByB = await waitForMessage(b, isMachine);
+
+    // The record is instance-wide: both users receive the same frame, and it
+    // is the shape `GET /api/v1/machines` serves.
+    expect(seenByA).toEqual(seenByB);
+    const machine = seenByA['machine'];
+    if (!isRecord(machine)) throw new Error('expected a machine record');
+    expect(machine).toMatchObject({
+      name,
+      status: 'online',
+      failureReason: null,
+      hubProtocolVersion: 1,
+      daemonProtocolVersion: 1,
+      daemonVersion: '0.4.0',
+      roots: ['/srv/projects'],
+    });
+    expect(isString(machine['lastSeenAt'])).toBe(true);
+
+    // Removing the Machine from the configuration prunes its row on the next
+    // probe; both users must learn that the Machine is gone.
+    const db = app.get<PostgresJsDatabase>('DB_DEV', { strict: false });
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select set_config('app.machines_system', '1', true)`,
+      );
+      await tx.execute(sql`delete from machines_status where name = ${name}`);
+    });
+    const isRemoval = (m: UnknownRecord) =>
+      m['type'] === 'machine.deleted' && m['name'] === name;
+    expect(await waitForMessage(a, isRemoval)).toEqual({
+      type: 'machine.deleted',
+      name,
+    });
+    expect(await waitForMessage(b, isRemoval)).toEqual({
+      type: 'machine.deleted',
+      name,
+    });
   });
 });

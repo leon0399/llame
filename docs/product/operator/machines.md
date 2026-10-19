@@ -164,12 +164,24 @@ local rejects in Machine form:
 
 ## Status
 
-`GET /api/v1/machines` and the settings page list each Machine's state, last
-seen time, last failure reason (`unreachable`, `host_key_mismatch`,
-`auth_failed`, `incompatible_version`, `session_lost`), versions, and roots. A
-probe runs every minute on a `runs` worker; a Machine is online when it was
-reached within 150 seconds and after its last failure. A Chat bound to an
-offline Machine keeps its Workspace; only operations on that Machine fail.
+`GET /api/v1/machines`, the settings page, and a chat's session details
+sidebar list each Machine's state, last seen time, last failure reason
+(`unreachable`, `host_key_mismatch`, `auth_failed`, `incompatible_version`,
+`session_lost`), versions, and roots. A probe runs every minute on a `runs`
+worker; a Machine is online when it was reached within 150 seconds and after
+its last failure. A Chat bound to an offline Machine keeps its Workspace; only
+operations on that Machine fail.
+
+Status changes are pushed to signed-in clients over the live WebSocket as
+`machine.upserted`, and a Machine removed from the configuration is pruned on
+the next probe and pushed as `machine.deleted`, so open views update without
+polling. Online is derived from elapsed time, not stored: a client shows the
+last status it received. While the probe runs, that is the
+current state within a minute. If nothing writes status at all — every `runs`
+worker is down, or the probe job is disabled — no message is sent, so a
+connected client keeps the last value it saw until it reconnects or receives
+`resync`, which refetches the list. Treat a stale "online" in a long-idle tab
+as expected rather than as evidence the Machine is reachable.
 
 ## Threats
 

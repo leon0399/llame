@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { MachinesModule } from '../machines/machines.module';
 import { ChangeHubService } from './change-hub.service';
 import {
   LIVE_CHANGE_LISTENER,
@@ -13,11 +14,13 @@ import {
 } from './live-record-loader';
 
 /**
- * Owner-scoped live updates over WebSocket. API process only: the gateway
- * attaches to the HTTP server, and a worker-only process has none.
+ * Owner-scoped live updates over WebSocket, plus the instance-wide Machine
+ * push. API process only: the gateway attaches to the HTTP server, and a
+ * worker-only process has none. `MachinesModule` supplies the status read the
+ * Machine push needs.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, MachinesModule],
   providers: [
     ChangeHubService,
     LiveGatewayService,

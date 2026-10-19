@@ -10,9 +10,10 @@ import {
 } from "../../api/live-generated/live-protocol";
 
 /**
- * Owner-scoped live update messages from the API's WebSocket. The schemas and
- * types are generated from `apps/api/asyncapi.websocket.yaml`; this module adds only
- * frame parsing and connection helpers.
+ * Live update messages from the API's WebSocket: owner-scoped records plus the
+ * instance-wide Machine record. The schemas and types are generated from
+ * `apps/api/asyncapi.websocket.yaml`; this module adds only frame parsing and
+ * connection helpers.
  */
 
 export type { LiveMessage, RunProgressMessage, RunUpdatedMessage };

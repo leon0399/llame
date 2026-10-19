@@ -336,14 +336,24 @@ The hub SHALL record per Machine the first and last successful contact, the last
 - **WHEN** the process that last contacted `devl` crashes and no process reaches `devl` within the inactivity window
 - **THEN** `devl` is reported offline
 
+### Requirement: Machine status changes are pushed to connected clients
+
+Every status change SHALL be pushed to every connected signed-in client over the live WebSocket as `machine.upserted`, carrying the Machine exactly as `GET /api/v1/machines` lists it, so clients keep the stored list current without polling. A Machine pruned because the operator removed it from the configuration SHALL be pushed as `machine.deleted` with its name.
+
+#### Scenario: A status change reaches every connected client
+
+- **WHEN** the probe records a new contact or failure for `devl`
+- **THEN** every connected client receives one `machine.upserted` message with `devl`'s current status, last seen, failure reason, versions, and roots
+- **AND** a client applies it to the list it already holds instead of refetching
+
 ### Requirement: Authenticated users can see Machines and their Workspace's Machine status
 
-Authenticated users SHALL see a read-only Machines list with each Machine's name, status, last seen, failure reason, versions, and registered roots. A Chat bound to a Machine Workspace SHALL show the Machine name and online or offline state in its Workspace indicator. SSH destinations, jump hosts, and identities SHALL NOT appear in any user- or model-facing surface. Requests without an authenticated identity SHALL NOT read Machine status.
+Authenticated users SHALL see a read-only Machines list with each Machine's name, status, last seen, failure reason, versions, and registered roots. A Chat bound to a Machine Workspace SHALL show the Machine name and online or offline state in its session details sidebar. SSH destinations, jump hosts, and identities SHALL NOT appear in any user- or model-facing surface. Requests without an authenticated identity SHALL NOT read Machine status.
 
-#### Scenario: Workspace indicator shows offline Machine
+#### Scenario: Session details shows an offline Machine
 
 - **WHEN** the owner opens a Chat bound to a `devl` Workspace while `devl` is offline
-- **THEN** the Workspace indicator shows the Workspace on `devl` as offline
+- **THEN** the session details sidebar shows the Workspace on `devl` as offline
 
 #### Scenario: Route details are not disclosed
 

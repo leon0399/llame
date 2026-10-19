@@ -1,19 +1,23 @@
 asyncapi: 3.1.0
 info:
   title: llame live updates
-  version: '0.3'
+  version: '0.4'
   license:
     name: MIT
     url: https://github.com/leon0399/llame/blob/master/LICENSE
   description: |
-    Owner-scoped record updates pushed from the API to signed-in clients over
-    one WebSocket, so clients keep their caches current without refetching.
+    Record updates pushed from the API to signed-in clients over one
+    WebSocket, so clients keep their caches current without refetching.
 
     Record payloads are the same schemas the HTTP API returns
     (`openapi.json`): a `chat.upserted` carries the chat exactly as
-    `GET /api/v1/chats` lists it. The server reads each record as its owner,
-    under the same authorization as the HTTP API, and a connection receives
-    only records owned by its authenticated user.
+    `GET /api/v1/chats` lists it. Most records are owner-scoped: the server
+    reads each one as its owner, under the same authorization as the HTTP API,
+    and a connection receives only records owned by its authenticated user.
+    Instance-wide records are the exception: `machine.upserted` and
+    `machine.deleted` carry a Machine, which every signed-in user may read
+    (`GET /api/v1/machines`), so the server sends them to every authenticated
+    connection.
 
     The document is written from the API's perspective: `send` operations
     are frames the API sends and clients receive.
@@ -80,9 +84,10 @@ channels:
       delta, and `run.progress` carries a Run's current phase and step, so
       applying any message again is harmless. Messages for one owner are sent
       in commit order, and rapid changes to one record may be coalesced into
-      one message carrying its latest state. Messages sent while a client
-      was disconnected are not replayed: on every (re)connect, and on
-      `resync`, a client refetches what it shows.
+      one message carrying its latest state. Instance-wide Machine messages
+      (`machine.upserted`, `machine.deleted`) are sent to every connection.
+      Messages sent while a client was disconnected are not replayed: on every
+      (re)connect, and on `resync`, a client refetches what it shows.
 
       ## Compatibility
 
@@ -101,6 +106,10 @@ channels:
         $ref: '#/components/messages/projectUpserted'
       projectDeleted:
         $ref: '#/components/messages/projectDeleted'
+      machineUpserted:
+        $ref: '#/components/messages/machineUpserted'
+      machineDeleted:
+        $ref: '#/components/messages/machineDeleted'
       pinsReplaced:
         $ref: '#/components/messages/pinsReplaced'
       runUpdated:
@@ -124,6 +133,8 @@ operations:
       - $ref: '#/channels/live/messages/chatDeleted'
       - $ref: '#/channels/live/messages/projectUpserted'
       - $ref: '#/channels/live/messages/projectDeleted'
+      - $ref: '#/channels/live/messages/machineUpserted'
+      - $ref: '#/channels/live/messages/machineDeleted'
       - $ref: '#/channels/live/messages/pinsReplaced'
       - $ref: '#/channels/live/messages/runUpdated'
       - $ref: '#/channels/live/messages/runProgress'
@@ -202,6 +213,38 @@ components:
           payload:
             type: project.deleted
             projectId: 5d0f2b9e-71c4-4a6b-8e3d-2f9a1c7b4e60
+    machineUpserted:
+      name: machine.upserted
+      title: Machine status changed
+      summary: The Machine as `GET /api/v1/machines` lists it, after any contact (a successful probe handshake or a failure), sent to every connection.
+      payload:
+        $ref: '#/components/schemas/MachineUpsertedMessage'
+      examples:
+        - name: online
+          summary: A probe re-stamped the contact; the Machine reads online.
+          payload:
+            type: machine.upserted
+            machine:
+              name: devl
+              status: online
+              lastSeenAt: '2026-10-19T09:12:04.118Z'
+              failureReason: null
+              hubProtocolVersion: 1
+              daemonProtocolVersion: 1
+              daemonVersion: '0.4.0'
+              roots:
+                - /srv/projects
+    machineDeleted:
+      name: machine.deleted
+      title: Machine removed
+      summary: The Machine is no longer configured; the next probe pruned its status, so drop it from every list and close what shows it.
+      payload:
+        $ref: '#/components/schemas/MachineDeletedMessage'
+      examples:
+        - name: deleted
+          payload:
+            type: machine.deleted
+            name: devl
     pinsReplaced:
       name: pins.replaced
       title: Pins replaced
@@ -336,6 +379,37 @@ components:
           projectId:
             type: string
             format: uuid
+    MachineUpsertedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - machine
+        properties:
+          type:
+            type: string
+            enum:
+              - machine.upserted
+          machine:
+            $ref: ./openapi.json#/components/schemas/MachineResponse
+    MachineDeletedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - name
+        properties:
+          type:
+            type: string
+            enum:
+              - machine.deleted
+          name:
+            type: string
+            description: The removed Machine's name, its primary key.
     PinsReplacedMessage:
       schemaFormat: application/vnd.oai.openapi;version=3.0.0
       schema:

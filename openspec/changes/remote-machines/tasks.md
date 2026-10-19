@@ -69,7 +69,7 @@ review (GR) loop of bots and current-head CI per CONTRIBUTING.md.
 ## 7. Status and UI (`remote-machines/implementation`)
 
 - [x] 7.1 Add the `machines_status` migration with forced RLS and an identity-required SELECT policy, the per-minute probe job declared in `asyncapi.queues.yaml`, derived status, and `GET /api/v1/machines`, regenerate OpenAPI, AsyncAPI, and clients with a clean second generation, and verify tests for closed reasons, a crashed holder reading offline, refusal without identity, and no route details in the response ("Machine status is derived from contact and visible", "Authenticated users can see Machines and their Workspace's Machine status")
-- [x] 7.2 Add the read-only Machines settings section and the Machine state in the Workspace indicator with polling, and verify their stories and Storybook tests, returning preview URLs
+- [x] 7.2 Add the read-only Machines settings section and the Machine state in the chat's session details sidebar, kept current by live `machine.upserted` messages, and verify their stories and Storybook tests, returning preview URLs
 
 ## 8. Documentation and layer verification (`remote-machines/implementation`)
 

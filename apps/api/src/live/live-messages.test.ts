@@ -8,7 +8,9 @@ import {
 } from './live-messages';
 import type { LiveRecordLoader } from './live-record-loader';
 import {
+  LIVE_MACHINE_NAME,
   liveChatRecord,
+  liveMachineRecord,
   livePinRecords,
   liveProjectRecord,
   liveRunRecord,
@@ -54,6 +56,13 @@ describe('parseChangeNotification', () => {
     expect(
       parse({ k: 'run_event', owner, chat, run, type: 'model.delta' }),
     ).toEqual(runEvent('model.delta'));
+    // Instance-wide: no owner, and valid without one.
+    expect(
+      parse({ k: 'machine', machine: LIVE_MACHINE_NAME, deleted: false }),
+    ).toEqual({ k: 'machine', machine: LIVE_MACHINE_NAME, deleted: false });
+    expect(
+      parse({ k: 'machine', machine: LIVE_MACHINE_NAME, deleted: true }),
+    ).toEqual({ k: 'machine', machine: LIVE_MACHINE_NAME, deleted: true });
   });
 
   it.each([
@@ -83,6 +92,22 @@ describe('parseChangeNotification', () => {
     [
       'run event without chat',
       JSON.stringify({ k: 'run_event', owner, run, type: 'x' }),
+    ],
+    [
+      'machine without a name',
+      JSON.stringify({ k: 'machine', deleted: false }),
+    ],
+    [
+      'machine with an empty name',
+      JSON.stringify({ k: 'machine', machine: '', deleted: false }),
+    ],
+    [
+      'machine without a deleted flag',
+      JSON.stringify({ k: 'machine', machine: LIVE_MACHINE_NAME }),
+    ],
+    [
+      'machine with a non-boolean deleted flag',
+      JSON.stringify({ k: 'machine', machine: LIVE_MACHINE_NAME, deleted: 1 }),
     ],
   ])('drops a payload with %s', (_label, raw) => {
     expect(parseChangeNotification(raw)).toBeUndefined();
@@ -192,11 +217,16 @@ describe('recordJobFor', () => {
   const chatRecord = liveChatRecord();
   const projectRecord = liveProjectRecord({ id: chat });
   const runRecord = liveRunRecord();
+  const machineRecord = liveMachineRecord();
   const pinRecords = livePinRecords();
+  const machineLookup = vi.fn((name: string) =>
+    Promise.resolve(name === LIVE_MACHINE_NAME ? machineRecord : undefined),
+  );
   const loader: LiveRecordLoader = {
     chat: vi.fn((o: string, id: string) =>
       Promise.resolve(o === owner && id === chat ? chatRecord : undefined),
     ),
+    machine: machineLookup,
     project: vi.fn((o: string, id: string) =>
       Promise.resolve(o === owner && id === chat ? projectRecord : undefined),
     ),
@@ -232,6 +262,22 @@ describe('recordJobFor', () => {
     });
   });
 
+  it('reads a Machine without an owner, and announces its deletion without a read', async () => {
+    expect(
+      await load({ k: 'machine', machine: LIVE_MACHINE_NAME, deleted: false }),
+    ).toEqual({
+      type: 'machine.upserted',
+      machine: machineRecord,
+    });
+    expect(
+      await load({ k: 'machine', machine: 'gone', deleted: false }),
+    ).toBeUndefined();
+    expect(
+      await load({ k: 'machine', machine: LIVE_MACHINE_NAME, deleted: true }),
+    ).toEqual({ type: 'machine.deleted', name: LIVE_MACHINE_NAME });
+    expect(machineLookup).toHaveBeenCalledTimes(2);
+  });
+
   it('sends nothing when the record is gone by the time it is read', async () => {
     expect(
       await load({ k: 'chat', owner, chat: run, deleted: false }),
@@ -265,6 +311,20 @@ describe('recordJobFor', () => {
       recordJobFor({ k: 'project', owner, project: chat, deleted: false })?.key,
     ).toBe(`project:${chat}`);
     expect(recordJobFor({ k: 'pin', owner })?.key).toBe('pins');
+    expect(
+      recordJobFor({
+        k: 'machine',
+        machine: LIVE_MACHINE_NAME,
+        deleted: false,
+      })?.key,
+    ).toBe(`machine:${LIVE_MACHINE_NAME}`);
+    expect(
+      recordJobFor({
+        k: 'machine',
+        machine: LIVE_MACHINE_NAME,
+        deleted: true,
+      })?.key,
+    ).toBe(undefined);
     expect(recordJobFor(runStatus('queued'))?.key).toBe(`run:${run}`);
     expect(recordJobFor(runEvent('model.delta'))).toBeUndefined();
   });

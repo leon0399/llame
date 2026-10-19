@@ -126,7 +126,10 @@ function statusDb(
         where: (where: SQL) => {
           events.push('select');
           selects.push({ table, where });
-          return Promise.resolve(options.rows ?? []);
+          const rows = options.rows ?? [];
+          return Object.assign(Promise.resolve(rows), {
+            limit: (count: number) => Promise.resolve(rows.slice(0, count)),
+          });
         },
       }),
     }),
@@ -272,6 +275,49 @@ describe('MachinesStatusRepository.recordContact', () => {
         },
       },
     ]);
+  });
+});
+
+describe('MachinesStatusRepository.findForLive', () => {
+  it('reads the row in the system context without a user identity', async () => {
+    const fake = statusDb({ rows: [STORED] });
+    const { tenantDb, users } = tenantFake(fake.scoped);
+    const repository = new MachinesStatusRepository(fake.db, tenantDb);
+
+    await expect(repository.findForLive('build-box')).resolves.toEqual(STORED);
+
+    expect(users).toEqual([]);
+    // The marker comes first: on the identity-less connection the system
+    // policy is the only one that admits a select.
+    expect(fake.events).toEqual(['execute', 'select']);
+    expect(dialect.sqlToQuery(fake.executed[0])).toEqual({
+      sql: MARKER_SQL,
+      params: [],
+    });
+    const predicate = dialect.sqlToQuery(fake.selects[0].where);
+    expect(predicate.sql).toBe('"machines_status"."name" = $1');
+    expect(predicate.params).toEqual(['build-box']);
+  });
+
+  it('returns undefined when the row is gone and drops an off-vocabulary reason', async () => {
+    const missing = statusDb();
+    const missingRepository = new MachinesStatusRepository(
+      missing.db,
+      tenantFake(missing.scoped).tenantDb,
+    );
+    await expect(
+      missingRepository.findForLive('gone'),
+    ).resolves.toBeUndefined();
+
+    const odd = statusDb({ rows: [{ ...STORED, lastFailureReason: 'odd' }] });
+    const oddRepository = new MachinesStatusRepository(
+      odd.db,
+      tenantFake(odd.scoped).tenantDb,
+    );
+    await expect(oddRepository.findForLive('build-box')).resolves.toEqual({
+      ...STORED,
+      lastFailureReason: null,
+    });
   });
 });
 

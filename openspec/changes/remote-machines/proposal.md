@@ -48,7 +48,8 @@ no issue tracks it because it ships as one experimental change.
   other tool keep working, and the change is narrated once each way.
 - Connection status (online or offline, last seen, failure reason, versions,
   registered roots) is visible in a read-only settings list and in the Chat's
-  Workspace indicator, and the hub keeps reconnecting in the background.
+  session details sidebar, pushed live as each status changes, and the hub
+  keeps reconnecting in the background.
 - Operator documentation and a dated CHANGELOG entry marked experimental.
 
 ## Capabilities
@@ -110,7 +111,8 @@ the capability graduates:
   Workspace MCP configuration, bounded stdio framing, guarded HTTP fetch, and
   bounded fetch, used by both sides. `packages/bash-executor` is reused
   unchanged; `packages/native-file-tools` gains a byte-buffer media entry point.
-- `apps/web`: settings Machines list and Workspace indicator status.
+- `apps/web`: settings Machines list and session details Machine status,
+  kept current by live `machine.upserted` messages.
 - Database: a new `machines_status` table and a nullable
   `chats.workspace_told_available` column.
 - Docs: a new operator page and reference updates for the `machine://`
