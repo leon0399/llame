@@ -224,9 +224,9 @@ events also write status. Status is online when last contact is within 150
 seconds and after the last failure. The reason comes from the handshake or
 from recognized `ssh` exit status and stderr. `GET /api/v1/machines` serves
 the list to authenticated users. A trigger on `machines_status` notifies the
-live hub of every insert and update, and the hub pushes `machine.upserted`
-(the same row as the endpoint) to every connection, since the record is
-instance-wide.
+live hub of every insert, update, and delete, and the hub pushes
+`machine.upserted` (the same row as the endpoint) to every connection, since
+the record is instance-wide, or `machine.deleted` when the row was pruned.
 
 ### D10. Web
 
