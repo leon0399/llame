@@ -28,7 +28,8 @@
         "src/media/pdf-parse-entry.ts"
       ],
       "project": ["src/**/*.ts", "evals/**/*.ts"],
-      "ignoreBinaries": ["prlimit"]
+      "ignoreBinaries": ["prlimit", "ssh-keygen"],
+      "ignoreDependencies": ["machine"]
     },
     "apps/web": {
       "entry": [
