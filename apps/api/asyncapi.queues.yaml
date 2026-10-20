@@ -120,6 +120,21 @@ channels:
     messages:
       cronTick:
         $ref: '#/components/messages/cronTick'
+  machinesProbe:
+    address: machines.probe
+    title: Machine status probe
+    description: |
+      A pg-boss cron tick every minute that contacts every configured Machine.
+      This is the background retry the Machines list depends on: a Machine that
+      came back is reported online without anyone asking for it, an offline one
+      keeps a current failure reason, and status rows for Machines no longer
+      configured are pruned. A process whose worker profile has no `runs` group
+      registers nothing for it, like every other group's queue.
+    x-llame-queue:
+      policy: stately
+    messages:
+      cronTick:
+        $ref: '#/components/messages/cronTick'
 operations:
   enqueueRun:
     action: send
@@ -171,6 +186,16 @@ operations:
     channel:
       $ref: '#/channels/sessionsCleanup'
     summary: A worker deletes expired sessions.
+  scheduleMachinesProbe:
+    action: send
+    channel:
+      $ref: '#/channels/machinesProbe'
+    summary: pg-boss's scheduler sends the cron tick; llame code only registers the schedule.
+  consumeMachinesProbe:
+    action: receive
+    channel:
+      $ref: '#/channels/machinesProbe'
+    summary: A runs worker contacts every configured Machine and prunes removed ones.
 components:
   messages:
     runJob:

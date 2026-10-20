@@ -2973,6 +2973,43 @@
         "summary": "",
         "tags": ["permission-modes"]
       }
+    },
+    "/api/v1/machines": {
+      "get": {
+        "operationId": "listMachines",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MachineResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Machines are not configured."
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the configured Machines and their status",
+        "tags": ["machines"]
+      }
     }
   },
   "info": {
@@ -4779,6 +4816,67 @@
           }
         },
         "required": ["modes"]
+      },
+      "MachineResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The configured Machine name."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["online", "offline"],
+            "description": "Online when the last successful contact is inside the inactivity window and after the last failure."
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the hub last completed a handshake with this Machine."
+          },
+          "failureReason": {
+            "type": "string",
+            "enum": [
+              "unreachable",
+              "host_key_mismatch",
+              "auth_failed",
+              "incompatible_version",
+              "session_lost"
+            ],
+            "nullable": true,
+            "description": "Why the last contact attempt failed, when one did."
+          },
+          "hubProtocolVersion": {
+            "type": "number",
+            "description": "The protocol version the hub speaks."
+          },
+          "daemonProtocolVersion": {
+            "type": "number",
+            "nullable": true,
+            "description": "The protocol version the daemon reported, once known."
+          },
+          "daemonVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "roots": {
+            "description": "The Machine's registered roots; addressing, not isolation.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "lastSeenAt",
+          "failureReason",
+          "hubProtocolVersion",
+          "daemonProtocolVersion",
+          "daemonVersion",
+          "roots"
+        ]
       }
     }
   }
