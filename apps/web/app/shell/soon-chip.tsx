@@ -10,3 +10,13 @@ export function SoonChip() {
     </span>
   );
 }
+
+/** Marks a preview built on sample data, so nobody mistakes it for their
+ *  own: the same chrome as `SoonChip`, placed inline beside a title. */
+export function DemoChip() {
+  return (
+    <span className="shrink-0 rounded-md border px-1.5 py-0 text-xs font-normal tracking-wide text-muted-foreground">
+      demo
+    </span>
+  );
+}
