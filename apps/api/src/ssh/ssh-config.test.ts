@@ -4,24 +4,24 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import {
-  createMachineSshConfigFile,
-  defaultMachineSshConfigFile,
-  renderMachineSshConfig,
-} from './machine-ssh-config';
+  createSshConfigFile,
+  defaultSshConfigFile,
+  renderSshConfig,
+} from './ssh-config';
 
 // The generated file's own cleanup path only runs when a write or a mkdir
 // fails, so the write is the one seam a test has to move. Everything else in
 // the module keeps its real implementation.
 vi.mock('node:fs', { spy: true });
 
-describe('renderMachineSshConfig', () => {
+describe('renderSshConfig', () => {
   const base = {
     knownHostsFile: '/etc/llame/machine_known_hosts',
     includeFile: '/home/llame/.ssh/config',
   };
 
   it('puts the safety block before the include', () => {
-    const text = renderMachineSshConfig(base);
+    const text = renderSshConfig(base);
     const lines = text.split('\n');
     expect(lines.find((line) => !line.startsWith('#'))).toBe('Host *');
     expect(lines.at(-2)).toBe('Include "/home/llame/.ssh/config"');
@@ -29,7 +29,7 @@ describe('renderMachineSshConfig', () => {
   });
 
   it('sets every hop-level safety option', () => {
-    const text = renderMachineSshConfig(base);
+    const text = renderSshConfig(base);
     for (const expected of [
       'UserKnownHostsFile "/etc/llame/machine_known_hosts"',
       'GlobalKnownHostsFile none',
@@ -51,9 +51,9 @@ describe('renderMachineSshConfig', () => {
   });
 
   it('adds the llame identity only when configured', () => {
-    expect(renderMachineSshConfig(base)).not.toContain('IdentityFile');
+    expect(renderSshConfig(base)).not.toContain('IdentityFile');
     expect(
-      renderMachineSshConfig({
+      renderSshConfig({
         ...base,
         identityFile: '/etc/llame/machine_ed25519',
       }),
@@ -61,7 +61,7 @@ describe('renderMachineSshConfig', () => {
   });
 
   it('quotes and escapes an argument containing spaces or quotes', () => {
-    const text = renderMachineSshConfig({
+    const text = renderSshConfig({
       knownHostsFile: '/srv/llame keys/pinned"x',
       includeFile: '/home/me/my config',
     });
@@ -72,29 +72,27 @@ describe('renderMachineSshConfig', () => {
   });
 
   it('states that the include supplies routes but not host-key checking', () => {
-    const text = renderMachineSshConfig(base);
-    expect(text).toContain('# llame Machines');
+    const text = renderSshConfig(base);
+    expect(text).toContain('# llame SSH');
     expect(text).toContain('it cannot weaken these options');
   });
 
   it('ends with the include line and one final newline', () => {
-    const text = renderMachineSshConfig(base);
+    const text = renderSshConfig(base);
     expect(text.endsWith('Include "/home/llame/.ssh/config"\n')).toBe(true);
     expect(text.split('\n').at(-1)).toBe('');
   });
 });
 
-describe('defaultMachineSshConfigFile', () => {
+describe('defaultSshConfigFile', () => {
   it('names the worker user own configuration', () => {
-    expect(defaultMachineSshConfigFile()).toBe(
-      join(homedir(), '.ssh', 'config'),
-    );
+    expect(defaultSshConfigFile()).toBe(join(homedir(), '.ssh', 'config'));
   });
 });
 
-describe('createMachineSshConfigFile', () => {
+describe('createSshConfigFile', () => {
   it('writes the text 0600 inside a private directory and removes both', () => {
-    const file = createMachineSshConfigFile({
+    const file = createSshConfigFile({
       knownHostsFile: '/tmp/pinned',
       includeFile: '/tmp/operator-config',
     });
@@ -111,8 +109,8 @@ describe('createMachineSshConfigFile', () => {
   });
 
   it('gives each call its own directory', () => {
-    const first = createMachineSshConfigFile(base());
-    const second = createMachineSshConfigFile(base());
+    const first = createSshConfigFile(base());
+    const second = createSshConfigFile(base());
     try {
       expect(first.path).not.toBe(second.path);
     } finally {
@@ -122,7 +120,7 @@ describe('createMachineSshConfigFile', () => {
   });
 
   it('disposes twice: a repeat cleanup is already done', () => {
-    const file = createMachineSshConfigFile(base());
+    const file = createSshConfigFile(base());
     file.dispose();
     expect(() => file.dispose()).not.toThrow();
   });
@@ -133,7 +131,7 @@ describe('createMachineSshConfigFile', () => {
       written.push(String(path));
       throw new Error('EIO: the private directory is full');
     });
-    expect(() => createMachineSshConfigFile(base())).toThrow(
+    expect(() => createSshConfigFile(base())).toThrow(
       new Error('EIO: the private directory is full'),
     );
     expect(() => statSync(dirname(only(written)))).toThrow(/ENOENT/u);
@@ -148,7 +146,7 @@ describe('createMachineSshConfigFile', () => {
       rmSync(dirname(String(path)), { recursive: true, force: true });
       throw new Error('EIO: the private directory was reaped');
     });
-    expect(() => createMachineSshConfigFile(base())).toThrow(
+    expect(() => createSshConfigFile(base())).toThrow(
       new Error('EIO: the private directory was reaped'),
     );
     expect(written).toHaveLength(1);

@@ -1,12 +1,12 @@
 /**
- * The generated SSH configuration every Machine connection goes through
- * (remote-machines design D1). Command-line `-o`/`-i` options apply to the
- * destination only — a jump host ignores them — so the safety options are
- * written into a private configuration file whose `Host *` block comes FIRST
- * and whose `Include` of the operator's own file comes last: ssh keeps the
- * first value it obtains, so host-key checking, batch mode, the agent, and
- * connection sharing are llame's for every hop ssh itself opens, while
- * aliases, `HostName`, `User`, `Port`, `ProxyJump`/`ProxyCommand`, and
+ * The generated SSH configuration every llame SSH connection goes through
+ * (remote-machines design D1, ssh-locator design D1). Command-line `-o`/`-i`
+ * options apply to the destination only — a jump host ignores them — so the
+ * safety options are written into a private configuration file whose `Host *`
+ * block comes FIRST and whose `Include` of the operator's own file comes last:
+ * ssh keeps the first value it obtains, so host-key checking, batch mode, the
+ * agent, and connection sharing are llame's for every hop ssh itself opens,
+ * while aliases, `HostName`, `User`, `Port`, `ProxyJump`/`ProxyCommand`, and
  * identities still come from the include. A `ProxyCommand` is a command ssh
  * runs, not a connection it opens, so a hop it makes is outside these options.
  *
@@ -19,11 +19,11 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /** The include's default: the worker user's own SSH configuration. */
-export function defaultMachineSshConfigFile(): string {
+export function defaultSshConfigFile(): string {
   return join(homedir(), '.ssh', 'config');
 }
 
-export type MachineSshSafetyOptions = {
+export type SshSafetyOptions = {
   /** The pinned host keys every hop is checked against. */
   readonly knownHostsFile: string;
   /** llame's own identity, when the operator configured one. */
@@ -32,7 +32,7 @@ export type MachineSshSafetyOptions = {
   readonly includeFile: string;
 };
 
-export type MachineSshConfigFile = {
+export type SshConfigFile = {
   /** The absolute path passed to `ssh -F`. */
   readonly path: string;
   /** The generated text, so an operator page or a log can show it. */
@@ -42,7 +42,7 @@ export type MachineSshConfigFile = {
 };
 
 const HEADER = [
-  '# llame Machines (remote-machines D1): the safety block below wins for every',
+  '# llame SSH (remote-machines D1, ssh-locator D1): the safety block below wins for every',
   '# hop ssh itself opens, including jump hosts, because ssh keeps the first',
   '# value it obtains. A ProxyCommand runs as written and is outside it. The',
   '# included configuration supplies aliases, jump hosts, users, ports, and',
@@ -53,7 +53,7 @@ const HEADER = [
  * The safety block: host keys only from the pinned file, strict checking, batch
  * mode, no agent, no connection sharing, and bounded connect/liveness timeouts.
  */
-function safetyBlock(options: MachineSshSafetyOptions): ReadonlyArray<string> {
+function safetyBlock(options: SshSafetyOptions): ReadonlyArray<string> {
   const lines = [
     'Host *',
     `  UserKnownHostsFile ${quote(options.knownHostsFile)}`,
@@ -89,9 +89,7 @@ function quote(value: string): string {
 }
 
 /** The exact text of the generated configuration. */
-export function renderMachineSshConfig(
-  options: MachineSshSafetyOptions,
-): string {
+export function renderSshConfig(options: SshSafetyOptions): string {
   return [
     ...HEADER,
     ...safetyBlock(options),
@@ -106,16 +104,14 @@ export function renderMachineSshConfig(
  * is involved, and a jump host inherits it (the implicit jump command carries
  * `-F`).
  */
-export function createMachineSshConfigFile(
-  options: MachineSshSafetyOptions,
-): MachineSshConfigFile {
-  const directory = mkdtempSync(join(tmpdir(), 'llame-machines-'), {
+export function createSshConfigFile(options: SshSafetyOptions): SshConfigFile {
+  const directory = mkdtempSync(join(tmpdir(), 'llame-ssh-'), {
     encoding: 'utf8',
   });
   try {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const path = join(directory, 'ssh_config');
-    const text = renderMachineSshConfig(options);
+    const text = renderSshConfig(options);
     writeFileSync(path, text, { encoding: 'utf8', mode: 0o600 });
     return {
       path,

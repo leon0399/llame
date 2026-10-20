@@ -54,8 +54,8 @@ boundary and request a named exception before publishing one over the budget.
 
 ## 2. Shared SSH transport (`ssh-locator/shared-ssh`)
 
-- [ ] 2.1 Move the safety-block renderer, generated-file lifecycle, spawn seam, and stderr classification into a shared SSH module that the Machine connector calls, keeping the `llame-machine serve --stdio` tail and `sshDestination` in Machine code, and verify that the Machine unit and `pnpm --filter api test:integration` Machine suites pass with only import-path changes
-- [ ] 2.2 Run the affected workspace `lint`, `typecheck`, and `test:coverage`, `pnpm format:check`, and `git diff --check`, all passing
+- [x] 2.1 Move the safety-block renderer, generated-file lifecycle, spawn seam, and stderr classification into a shared SSH module that the Machine connector calls, keeping the `llame-machine serve --stdio` tail and `sshDestination` in Machine code, and verify that the Machine unit and `pnpm --filter api test:integration` Machine suites pass with only import-path changes
+- [x] 2.2 Run the affected workspace `lint`, `typecheck`, and `test:coverage`, `pnpm format:check`, and `git diff --check`, all passing
 - [ ] 2.3 Self-review the parent-relative draft diff, mark it ready, and complete the GitHub review and CI loop
 
 ## 3. Resolution and admission (`ssh-locator/resolve`)

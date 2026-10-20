@@ -10,16 +10,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
 
+import { SSH_DIAGNOSTIC_BYTES, type SshProcess } from '../ssh/ssh-process';
 import {
-  classifyLinkFailure,
   createMachineSshTransportFactory,
   createProcessTransport,
-  LINK_DIAGNOSTIC_BYTES,
-  type MachineLinkProcess,
 } from './machine-transport';
 
 type FakeLink = {
-  readonly process: MachineLinkProcess;
+  readonly process: SshProcess;
   readonly pairs: {
     readonly stdout: PassThrough;
     readonly stdin: PassThrough;
@@ -60,39 +58,6 @@ function fakeLink(): FakeLink {
     killCount: () => kills,
   };
 }
-
-describe('classifyLinkFailure', () => {
-  it('reads ssh own refusal messages before the handshake', () => {
-    expect(classifyLinkFailure(false, 'Host key verification failed.')).toBe(
-      'host_key_mismatch',
-    );
-    expect(
-      classifyLinkFailure(false, 'me@box: Permission denied (publickey).'),
-    ).toBe('auth_failed');
-    expect(
-      classifyLinkFailure(
-        false,
-        'ssh: connect to host box port 22: Connection timed out',
-      ),
-    ).toBe('unreachable');
-    expect(classifyLinkFailure(false, 'llame-machine: command not found')).toBe(
-      'unreachable',
-    );
-    expect(classifyLinkFailure(false, '')).toBe('unreachable');
-  });
-
-  it('reads an end after the handshake as a lost session', () => {
-    expect(classifyLinkFailure(true, 'Host key verification failed.')).toBe(
-      'session_lost',
-    );
-    expect(
-      classifyLinkFailure(
-        true,
-        'kex_exchange_identification: read: Connection reset by peer',
-      ),
-    ).toBe('session_lost');
-  });
-});
 
 describe('createProcessTransport', () => {
   it('resolves the end with the exit status and the collected stderr', async () => {
@@ -135,10 +100,10 @@ describe('createProcessTransport', () => {
     const link = fakeLink();
     const transport = createProcessTransport(link.process);
     for (let index = 0; index < 3; index += 1)
-      link.pairs.stderr.write('x'.repeat(LINK_DIAGNOSTIC_BYTES));
+      link.pairs.stderr.write('x'.repeat(SSH_DIAGNOSTIC_BYTES));
     link.close(1, null);
     const end = await transport.ended;
-    expect(end.diagnostic.length).toBe(LINK_DIAGNOSTIC_BYTES);
+    expect(end.diagnostic.length).toBe(SSH_DIAGNOSTIC_BYTES);
   });
 
   it('swallows a stderr read error so a broken pipe cannot kill the hub', async () => {
