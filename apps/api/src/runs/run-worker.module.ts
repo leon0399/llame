@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { CompactionModule } from '../compaction/compaction.module';
 import { RecencyDigestModule } from '../chats/recency-digest.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
+import { MachinesModule } from '../machines/machines.module';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { McpRuntimeModule } from '../mcp/mcp-runtime.module';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
@@ -52,10 +54,19 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
     PersonalizationModule,
     MemoryModule,
     RecencyDigestModule,
+    MachinesModule,
   ],
   providers: [
     RunExecutionService,
-    WorkspaceMcpClients,
+    {
+      // Built by factory rather than by Nest's own construction so the Machine
+      // connector — which only this provider needs — reaches it: a Workspace
+      // bound to a Machine resolves its MCP servers there.
+      provide: WorkspaceMcpClients,
+      inject: [McpRuntimeService, MachineConnector],
+      useFactory: (operator: McpRuntimeService, connector: MachineConnector) =>
+        new WorkspaceMcpClients(operator, { connector }),
+    },
     RunsWorkerService,
     RunStreamBridgeService,
     RunDispatchService,

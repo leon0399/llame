@@ -2,6 +2,7 @@ import {
   createMCPClient,
   type ListToolsResult,
   type MCPClient,
+  type MCPTransport,
 } from '@ai-sdk/mcp';
 
 import { type ToolResult } from '../tools/types';
@@ -21,11 +22,6 @@ import {
   type McpDeclarationRefusalReason,
 } from './declaration-admission';
 import {
-  McpBodyLimitError,
-  McpRequestLimitError,
-  createMcpBoundedFetch,
-} from '@workspace/mcp-workspace';
-import {
   classifyMcpFailure,
   type McpFailureDisposition,
   type McpFailureKind,
@@ -33,10 +29,15 @@ import {
 } from './mcp-failure-policy';
 
 import {
-  type BoundedStdioTransport,
   DiagnosticBuffer,
+  McpBodyLimitError,
+  McpRequestLimitError,
+  McpSessionChangedError,
+  createMcpGuardedFetch,
   createMcpToolId,
   createStdioTransport,
+  type BoundedStdioTransport,
+  type McpFetch,
   type McpStdioTransportConfig,
 } from '@workspace/mcp-workspace';
 
@@ -160,8 +161,62 @@ export type McpStdioServerClientConfig = McpStdioTransportConfig & {
   readonly signal?: AbortSignal;
 };
 
+/**
+ * A Workspace server of a Machine (remote-machines design D6). The hub holds
+ * no command, URL, or header for it: only which server to ask the Machine for.
+ * The Machine resolves the declaration against its own environment, so the
+ * hub learns nothing about it until `mcp.open` returns the protected values of
+ * the definition it actually started.
+ */
+export type McpMachineRuntimeDefinition = Readonly<{
+  transport: 'machine';
+  readonly machine: string;
+  /** The Workspace's absolute path on that Machine. */
+  readonly root: string;
+  /** The server's name in that Workspace's configuration. */
+  readonly server: string;
+  /** The transport the Machine resolved for the declaration; a stdio server
+   *  is a child process on the Machine, so it retries like a local one. */
+  readonly kind: 'stdio' | 'http';
+  readonly protectedValues?: ReadonlyArray<string>;
+}>;
+
+export type McpMachineServerClientConfig = McpMachineRuntimeDefinition & {
+  readonly serverId: string;
+  /** Where the Machine's relayed diagnostics go, as for a local stdio server. */
+  readonly onDiagnostic?: (text: string) => void;
+  readonly onDisconnect?: () => void;
+  readonly signal?: AbortSignal;
+};
+
+export type McpTransportServerClientConfig = {
+  readonly serverId: string;
+  /** The MCP transport the SDK client speaks over — a Machine channel. */
+  readonly transport: MCPTransport;
+  /**
+   * The transport's own protected values, read at every use: the Machine
+   * resolves the started definition's values at `start` and learns more later.
+   */
+  readonly protectedValues?: () => ReadonlyArray<string>;
+  /**
+   * Whether this transport is gone for good. A call that fails while it
+   * answers `true` failed because the other end is unavailable, not because
+   * the server refused the call.
+   */
+  readonly unavailable?: () => boolean;
+  readonly onDisconnect?: () => void;
+  readonly signal?: AbortSignal;
+};
+
 type ProtectedValueState = {
   sessionId?: string;
+  /**
+   * A transport's own protected values, read at every use — never cached: the
+   * Machine resolves the started definition's values at `start` and reports
+   * more later (an HTTP session id), and a value learned after discovery must
+   * still be redacted from the next declaration, result, or diagnostic.
+   */
+  live?: () => ReadonlyArray<string>;
 };
 
 type DiscoveryByteState = {
@@ -174,13 +229,6 @@ type DisconnectState = {
   notified: boolean;
   pending: boolean;
 };
-
-class McpSessionChangedError extends Error {
-  constructor() {
-    super('The MCP server changed its active session id.');
-    this.name = 'McpSessionChangedError';
-  }
-}
 
 class McpMatchingResponseError extends Error {
   constructor() {
@@ -658,6 +706,9 @@ type ConnectionState = {
   readonly deadlineTimer: ReturnType<typeof setTimeout>;
   readonly initializationSignal: AbortSignal;
   readonly notifyDisconnect: () => void;
+  /** A transport's own verdict that it is gone for good; absent for the two
+   *  transports llame dials itself, whose failures already say so. */
+  readonly unavailable?: () => boolean;
 };
 
 /** The "notify at most once, buffering until connected" disconnect protocol
@@ -684,6 +735,7 @@ function createDisconnectNotifier(
 function beginConnection(config: {
   readonly signal?: AbortSignal;
   readonly onDisconnect?: () => void;
+  readonly unavailable?: () => boolean;
 }): ConnectionState {
   const protectedValueState: ProtectedValueState = {};
   const discoveryByteState: DiscoveryByteState = {};
@@ -715,6 +767,9 @@ function beginConnection(config: {
       disconnectState,
       config.onDisconnect,
     ),
+    ...(config.unavailable !== undefined && {
+      unavailable: config.unavailable,
+    }),
   };
 }
 
@@ -799,37 +854,28 @@ async function normalizeRpcResponse(
 }
 
 /**
- * Wraps `boundedFetch` with the MCP transport protocol's own concerns: a
- * DELETE's close-signal, mcp-session-id tracking/mismatch detection, GET's
- * SSE-listen-stream handling, and POST/JSON-RPC response normalization.
- * Split out of `connect` below purely to give this closure its own line
- * budget — behavior, including every closed-over reference, unchanged.
+ * Wraps the shared guarded fetch with the MCP transport protocol's own
+ * concerns: a DELETE's close-signal, GET's SSE-listen-stream handling, and
+ * POST/JSON-RPC response normalization. Byte bounds, `redirect: 'error'`, and
+ * session-id tracking live in `createMcpGuardedFetch`, shared with the Machine
+ * daemon that opens the same servers on a remote box. Split out of `connect`
+ * below purely to give this closure its own line budget — behavior, including
+ * every closed-over reference, unchanged.
  */
 function createProtocolGuardedFetch(
-  boundedFetch: ReturnType<typeof createMcpBoundedFetch>,
+  guardedFetch: McpFetch,
   closeController: AbortController,
-  protectedValueState: ProtectedValueState,
   notifyDisconnect: () => void,
-): typeof boundedFetch {
+): McpFetch {
   return async (request, init) => {
     const boundedInit = withCloseAbortSignal(init, closeController);
     const method = init?.method?.toUpperCase();
     let response: Response;
     try {
-      response = await boundedFetch(request, boundedInit);
+      response = await guardedFetch(request, boundedInit);
     } catch (error) {
       if (method === 'GET') notifyDisconnect();
       throw error;
-    }
-    const sessionId = response.headers.get('mcp-session-id');
-    if (sessionId !== null && sessionId.length > 0) {
-      if (protectedValueState.sessionId === undefined) {
-        protectedValueState.sessionId = sessionId;
-      } else if (protectedValueState.sessionId !== sessionId) {
-        if (method === 'GET') notifyDisconnect();
-        await response.body?.cancel().catch(() => undefined);
-        throw new McpSessionChangedError();
-      }
     }
     if (method === 'GET')
       return handleGetProtocolResponse(response, notifyDisconnect);
@@ -859,15 +905,21 @@ function resolveTransportHeaders(config: McpServerClientConfig) {
   }
 }
 
-/** The bounded fetch used for discovery: same byte caps as every MCP
- *  request, plus a running total of `tools/list` response bytes across the
- *  WHOLE (possibly paginated) discovery pass — `discoverCompleteCatalog`
- *  owns resetting `discoveryByteState.active` per pass. */
-function createDiscoveryBoundedFetch(
+/**
+ * The guarded fetch every request on this connection goes through: the shared
+ * byte caps, `redirect: 'error'`, and session tracking, plus a running total of
+ * `tools/list` response bytes across the WHOLE (possibly paginated) discovery
+ * pass — `discoverCompleteCatalog` owns resetting `discoveryByteState.active`
+ * per pass. The first session id the server issues is recorded here as a
+ * protected value, exactly like a resolved header, because it travels in
+ * traffic a tool result can echo.
+ */
+function createGuardedFetch(
   config: McpServerClientConfig,
   discoveryByteState: DiscoveryByteState,
-) {
-  return createMcpBoundedFetch({
+  protectedValueState: ProtectedValueState,
+): McpFetch {
+  return createMcpGuardedFetch({
     fetch: config.fetch ?? globalThis.fetch,
     maxRequestBytes: ONE_MIB,
     maxResponseBytes: ONE_MIB,
@@ -878,6 +930,9 @@ function createDiscoveryBoundedFetch(
       if (active.bytes > MAX_DISCOVERY_RESPONSE_BYTES) {
         throw new McpDiscoveryLimitError('response_bytes');
       }
+    },
+    onSessionId: (sessionId) => {
+      protectedValueState.sessionId = sessionId;
     },
   });
 }
@@ -990,6 +1045,58 @@ async function assertSupportedStdioProtocolVersion(
   }
 }
 
+/**
+ * Create the MCP SDK client over an already-built relayed `transport`,
+ * translating a connect failure into the same taxonomy the other two
+ * factories use — closing the transport first, which is also how the Machine
+ * is told to put down the server it started for a session that never
+ * handshook.
+ */
+async function createTransportMcpClientOrThrow(
+  transport: MCPTransport,
+  connectionState: Pick<
+    ConnectionState,
+    'initializationSignal' | 'deadlineController' | 'deadlineTimer'
+  >,
+  callerSignal: AbortSignal | undefined,
+): Promise<MCPClient> {
+  const { initializationSignal, deadlineController, deadlineTimer } =
+    connectionState;
+  try {
+    return await createMCPClient({
+      transport,
+      maxRetries: 0,
+      initializationOptions: { signal: initializationSignal },
+      onUncaughtError: () => undefined,
+    });
+  } catch (error) {
+    await transport.close().catch(() => undefined);
+    if (deadlineController.signal.aborted) {
+      throw new McpServerOperationError('initialize', 'timeout');
+    }
+    throw safeOperationError('initialize', error, callerSignal);
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+}
+
+/**
+ * The pinned client accepts a broader revision set than llame does, so the
+ * gate is llame's own. `MCPTransport` declares `protocolVersion`, and the AI
+ * SDK client assigns it after the handshake completes, so it's genuinely
+ * present by the time a caller reaches this check.
+ */
+async function assertSupportedTransportProtocolVersion(
+  transport: MCPTransport,
+  client: MCPClient,
+): Promise<void> {
+  const negotiated = transport.protocolVersion;
+  if (negotiated !== undefined && !isSupportedMcpProtocolVersion(negotiated)) {
+    await client.close().catch(() => undefined);
+    throw new McpProtocolUnsupportedError();
+  }
+}
+
 export class McpServerClient {
   private closePromise: Promise<void> | undefined;
 
@@ -997,6 +1104,7 @@ export class McpServerClient {
   private readonly discoveryByteState: DiscoveryByteState;
   private readonly disconnectState: DisconnectState;
   private readonly closeController: AbortController;
+  private readonly unavailable: (() => boolean) | undefined;
 
   private constructor(
     private readonly serverId: string,
@@ -1007,6 +1115,7 @@ export class McpServerClient {
       | 'discoveryByteState'
       | 'disconnectState'
       | 'closeController'
+      | 'unavailable'
     >,
     private readonly client: MCPClient,
   ) {
@@ -1014,6 +1123,7 @@ export class McpServerClient {
     this.discoveryByteState = connectionState.discoveryByteState;
     this.disconnectState = connectionState.disconnectState;
     this.closeController = connectionState.closeController;
+    this.unavailable = connectionState.unavailable;
   }
 
   private static finishConnection(
@@ -1042,14 +1152,14 @@ export class McpServerClient {
       resolveTransportHeaders(config);
     const state = beginConnection(config);
     const { protectedValueState, discoveryByteState, closeController } = state;
-    const boundedFetch = createDiscoveryBoundedFetch(
+    const guardedFetch = createGuardedFetch(
       config,
       discoveryByteState,
+      protectedValueState,
     );
     const protocolGuardedFetch = createProtocolGuardedFetch(
-      boundedFetch,
+      guardedFetch,
       closeController,
-      protectedValueState,
       state.notifyDisconnect,
     );
     const httpTransport: Parameters<typeof createMCPClient>[0]['transport'] = {
@@ -1129,6 +1239,50 @@ export class McpServerClient {
       state,
       client,
     );
+  }
+
+  /**
+   * Connects to a Workspace MCP server that runs somewhere else — today, on a
+   * Machine, over one relayed `mcp.open` channel (design D6). The caller owns
+   * the transport: the hub never learns a command, a URL, or a header, only
+   * that the Machine agreed to start a server of that name.
+   *
+   * Only the transport and the failure surface differ from `connectStdio`:
+   * there is no child to bound here, so the byte caps and session tracking the
+   * HTTP path enforces live on the Machine, stderr arrives as relayed
+   * diagnostics, the negotiated revision is gated after the handshake, and a
+   * transport that is gone for good says so itself (`unavailable`), because
+   * the error the SDK raises for it is indistinguishable from any other
+   * disconnect.
+   */
+  static async connectTransport(
+    config: McpTransportServerClientConfig,
+  ): Promise<McpServerClient> {
+    const state = beginConnection(config);
+    const { notifyDisconnect, protectedValueState } = state;
+    if (config.protectedValues !== undefined) {
+      protectedValueState.live = config.protectedValues;
+    }
+
+    const client = await createTransportMcpClientOrThrow(
+      config.transport,
+      state,
+      config.signal,
+    );
+
+    await assertSupportedTransportProtocolVersion(config.transport, client);
+
+    // Chain, never replace, exactly as `connectStdio` does: the SDK client's
+    // own `onclose` rejects every in-flight request, and a lost Machine
+    // channel must do that rather than leave a tool call awaiting a server
+    // that is already gone.
+    const clientOnClose = config.transport.onclose;
+    config.transport.onclose = () => {
+      notifyDisconnect();
+      clientOnClose?.();
+    };
+
+    return McpServerClient.finishConnection(config.serverId, [], state, client);
   }
 
   async discover(
@@ -1429,6 +1583,7 @@ export class McpServerClient {
       ...(this.protectedValueState.sessionId === undefined
         ? []
         : [this.protectedValueState.sessionId]),
+      ...(this.protectedValueState.live?.() ?? []),
     ]);
   }
 
@@ -1482,6 +1637,17 @@ export class McpServerClient {
     error: unknown,
     abortSignal: AbortSignal | undefined,
   ): McpCallOutcome {
+    if (this.unavailable?.() === true) {
+      return {
+        disposition: 'reconnect',
+        result: {
+          status: 'error',
+          type: 'machine_unavailable',
+          message:
+            'The Machine hosting this tool is unavailable, so the call may not have run.',
+        },
+      };
+    }
     const kind = failureKind(error, abortSignal);
     const protectedValues = this.protectedValues();
     if (hasProtectedKeyInErrorData(error, protectedValues)) {

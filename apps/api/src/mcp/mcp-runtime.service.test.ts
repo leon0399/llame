@@ -15,6 +15,10 @@ import {
   McpProtocolUnsupportedError,
   type McpDiscoveredTool,
   type McpDiscoveryResult,
+  type McpMachineRuntimeDefinition,
+  type McpMachineServerClientConfig,
+  type McpServerClientConfig,
+  type McpStdioServerClientConfig,
 } from './mcp-server-client';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
@@ -2250,5 +2254,223 @@ describe('McpRuntimeService session fencing and cadence', () => {
 
     await runtime.onModuleDestroy();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+/**
+ * A Machine Workspace server: the hub holds only which server to ask the
+ * Machine for, and the transport the Machine resolved for it (design D6).
+ */
+function machineDefinition(
+  kind: 'stdio' | 'http',
+  protectedValues?: ReadonlyArray<string>,
+): McpMachineRuntimeDefinition {
+  const definition: McpMachineRuntimeDefinition = {
+    transport: 'machine',
+    machine: 'devl',
+    root: '/srv/work',
+    server: 'one',
+    kind,
+  };
+  return protectedValues === undefined
+    ? definition
+    : { ...definition, protectedValues };
+}
+
+const machineServers = (
+  kind: 'stdio' | 'http',
+  protectedValues?: ReadonlyArray<string>,
+) => ({ 'machine-one': machineDefinition(kind, protectedValues) });
+
+describe('McpRuntimeService Machine definitions', () => {
+  it('asks the Machine for the server and forwards its own fields', async () => {
+    let config: McpMachineServerClientConfig | undefined;
+    const runtime = new McpRuntimeService(machineServers('http'), {
+      clientFactory: vi.fn<McpRuntimeClientFactory>((clientConfig) => {
+        if ('transport' in clientConfig && clientConfig.transport === 'machine')
+          config = clientConfig;
+        return Promise.resolve(fakeClient());
+      }),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(config).toMatchObject({
+      serverId: 'machine-one',
+      transport: 'machine',
+      machine: 'devl',
+      root: '/srv/work',
+      server: 'one',
+      kind: 'http',
+    });
+    expect(Object.keys(config ?? {}).sort()).toEqual([
+      'kind',
+      'machine',
+      'onDiagnostic',
+      'onDisconnect',
+      'root',
+      'server',
+      'serverId',
+      'signal',
+      'transport',
+    ]);
+    expect(config?.onDiagnostic).toBeTypeOf('function');
+    expect(config?.onDisconnect).toBeTypeOf('function');
+    expect(config?.signal).toBeInstanceOf(AbortSignal);
+    await runtime.onModuleDestroy();
+  });
+
+  it('relays a Machine server diagnostic through the runtime log', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    let diagnostic: ((text: string) => void) | undefined;
+    const runtime = new McpRuntimeService(machineServers('http'), {
+      clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
+        diagnostic = 'onDiagnostic' in config ? config.onDiagnostic : undefined;
+        return Promise.resolve(fakeClient());
+      }),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(diagnostic).toBeTypeOf('function');
+    diagnostic?.('the Machine relayed a line');
+    expect(warn).toHaveBeenCalledWith(
+      '[machine-one] the Machine relayed a line',
+    );
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('wires a diagnostic sink onto a local child but not a server llame dials', async () => {
+    let remote: McpServerClientConfig | undefined;
+    let child: McpStdioServerClientConfig | undefined;
+    const runtime = new McpRuntimeService(
+      { ...servers('web'), ...stdioServers('local') },
+      {
+        clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
+          if ('url' in config) remote = config;
+          else if ('command' in config) child = config;
+          return Promise.resolve(fakeClient());
+        }),
+        random: () => 0.5,
+      },
+    );
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(remote).toBeDefined();
+    expect(child).toBeDefined();
+    expect(Object.hasOwn(remote ?? {}, 'onDiagnostic')).toBe(false);
+    expect(Object.hasOwn(child ?? {}, 'onDiagnostic')).toBe(true);
+    await runtime.onModuleDestroy();
+  });
+
+  it('copies and freezes a Machine definition protected values at construction', async () => {
+    const values: Array<string> = ['token-a', 'token-b'];
+    let config: McpMachineServerClientConfig | undefined;
+    const runtime = new McpRuntimeService(machineServers('stdio', values), {
+      clientFactory: vi.fn<McpRuntimeClientFactory>((clientConfig) => {
+        if ('transport' in clientConfig && clientConfig.transport === 'machine')
+          config = clientConfig;
+        return Promise.resolve(fakeClient());
+      }),
+      random: () => 0.5,
+    });
+    values.push('token-later');
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(config?.protectedValues).toEqual(['token-a', 'token-b']);
+    expect(config?.protectedValues).not.toBe(values);
+    expect(Object.isFrozen(config?.protectedValues)).toBe(true);
+    await runtime.onModuleDestroy();
+  });
+
+  it('leaves a Machine definition without protected values without the field', async () => {
+    const captured: Array<McpMachineServerClientConfig> = [];
+    const runtime = new McpRuntimeService(machineServers('stdio'), {
+      clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
+        if ('transport' in config && config.transport === 'machine')
+          captured.push(config);
+        return Promise.resolve(fakeClient());
+      }),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(captured).toHaveLength(1);
+    expect('protectedValues' in captured[0]).toBe(false);
+    await runtime.onModuleDestroy();
+  });
+
+  it('refunds the fast-retry budget to a Machine HTTP server that held ready', async () => {
+    vi.useFakeTimers();
+    const disconnects: Array<() => void> = [];
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      if (clientFactory.mock.calls.length === 1) {
+        return Promise.reject(new Error('ssh: connect refused'));
+      }
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(fakeClient());
+    });
+    const runtime = new McpRuntimeService(machineServers('http'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(clientFactory).toHaveBeenCalledTimes(1);
+
+    // The first failure's reconnect: 0.5 of the 1s base delay.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+
+    disconnects[0]?.();
+    await vi.advanceTimersByTimeAsync(499);
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(clientFactory).toHaveBeenCalledTimes(3);
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('keeps the fast-retry ladder for a Machine stdio server held ready briefly', async () => {
+    vi.useFakeTimers();
+    const disconnects: Array<() => void> = [];
+    const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
+      if (clientFactory.mock.calls.length === 1) {
+        return Promise.reject(new Error('the Machine never answered mcp.open'));
+      }
+      disconnects.push(config.onDisconnect ?? (() => undefined));
+      return Promise.resolve(fakeClient());
+    });
+    const runtime = new McpRuntimeService(machineServers('stdio'), {
+      clientFactory,
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+
+    disconnects[0]?.();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(clientFactory).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(clientFactory).toHaveBeenCalledTimes(3);
+
+    await runtime.onModuleDestroy();
   });
 });
