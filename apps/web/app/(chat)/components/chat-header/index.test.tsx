@@ -32,6 +32,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { ChatHeader } from "./index";
+import { ChatContextPanelProvider } from "../chat-context-panel/panel-state";
 
 function chatRow(
   overrides: Partial<ChatListItemResponse> & Pick<ChatListItemResponse, "id">,
@@ -97,7 +98,9 @@ function renderHeader(
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SidebarProvider>
-        <ChatHeader />
+        <ChatContextPanelProvider defaultOpen={false}>
+          <ChatHeader />
+        </ChatContextPanelProvider>
       </SidebarProvider>
     </QueryClientProvider>,
   );
@@ -339,7 +342,9 @@ describe("ChatHeader", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <SidebarProvider>
-          <ChatHeader />
+          <ChatContextPanelProvider defaultOpen={false}>
+            <ChatHeader />
+          </ChatContextPanelProvider>
         </SidebarProvider>
       </QueryClientProvider>,
     );

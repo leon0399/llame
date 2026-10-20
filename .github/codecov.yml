@@ -41,18 +41,18 @@ flag_management:
       paths: [packages/bash-executor/]
     - name: config-interpolation
       paths: [packages/config-interpolation/]
-    - name: machine
-      paths: [apps/machine/]
-    - name: machine-protocol
-      paths: [packages/machine-protocol/]
-    - name: mcp-workspace
-      paths: [packages/mcp-workspace/]
     - name: native-file-tools
       paths: [packages/native-file-tools/]
     - name: oxlint-plugin-anti-slop
       paths: [packages/oxlint-plugin-anti-slop/]
     - name: runtime-safety
       paths: [packages/runtime-safety/]
+    - name: machine
+      paths: [apps/machine/]
+    - name: machine-protocol
+      paths: [packages/machine-protocol/]
+    - name: mcp-workspace
+      paths: [packages/mcp-workspace/]
     - name: scripts
       paths: [scripts/]
 
@@ -88,6 +88,7 @@ component_management:
         - apps/api/src/skills/**
         - apps/api/src/tools/**
         - apps/machine/**
+        - apps/api/src/machines/**
         - packages/bash-executor/**
         - packages/machine-protocol/**
         - packages/mcp-workspace/**

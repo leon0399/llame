@@ -78,6 +78,10 @@
         "zod"
       ]
     },
+    "packages/native-file-tools": {
+      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
     "packages/machine-protocol": {
       "entry": ["src/index.ts", "src/**/*.test.ts"],
       "project": ["src/**/*.ts"]
@@ -88,10 +92,6 @@
     },
     "apps/machine": {
       "entry": ["src/cli.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
-    },
-    "packages/native-file-tools": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
       "project": ["src/**/*.ts"]
     }
   },

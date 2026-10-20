@@ -26,11 +26,15 @@ file as it is. It is the tool for a partial change.
 
 ## Locators
 
-An absolute host path, a `file://` alias, or a `kb://` locator; see
-[locators](../locators/index.md). The selector grammar is not part of `edit`: a
-`kb://` locator that carries one is refused with `invalid_selector`, and on a
-host `path` or `file://` alias a trailing `:N-M` or `:raw` is part of the
-filename, so the edit targets a file whose name ends in that text.
+An absolute host path, a `file://` alias, a `machine://` locator, or a `kb://`
+locator; see [locators](../locators/index.md). The selector grammar is not part
+of `edit`: a `kb://` locator that carries one is refused with
+`invalid_selector`, and on a host `path` or `file://` alias a trailing `:N-M` or
+`:raw` is part of the filename, so the edit targets a file whose name ends in
+that text. A `machine://` mutation takes no selector either and never binds the
+local executor; the attempt is fenced and recorded with the locator, and an
+edit whose session is lost after dispatch settles as `outcome_unknown` rather
+than being retried; see [machine](../locators/machine.md#behavior).
 
 ## Result
 

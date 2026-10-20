@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { SidebarTrigger } from "@workspace/ui/components/sidebar";
+import { SidebarTrigger, useSidebar } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 import { usePathname } from "next/navigation";
 
@@ -11,6 +11,9 @@ import { useTypewriter } from "@/components/use-typewriter";
 import { WorkspaceIndicator } from "@/components/workspace-indicator";
 
 import { useOpenChat } from "@/lib/services/chat/queries";
+
+import { ChatContextPanelTrigger, useOpenChatId } from "../chat-context-panel";
+import { useChatContextPanel } from "../chat-context-panel/panel-state";
 
 export interface ChatHeaderProps {
   className?: string;
@@ -79,11 +82,11 @@ function ChatHeaderTitle({ title }: { title: string }) {
 
 export function ChatHeader({ className }: ChatHeaderProps) {
   const pathname = usePathname();
-  const chatId = pathname.startsWith("/chat/")
-    ? pathname.split("/")[2]
-    : undefined;
+  const chatId = useOpenChatId();
   const resolvedChat = useResolvedChat(chatId);
   const settledTitle = resolvedChat === null ? null : resolvedChat?.title;
+  const { isMobile } = useSidebar();
+  const panel = useChatContextPanel();
 
   useDocumentTitleSync(settledTitle);
 
@@ -103,7 +106,14 @@ export function ChatHeader({ className }: ChatHeaderProps) {
       {chatId && resolvedChat ? (
         <>
           <ChatHeaderTitle key={chatId} title={resolvedChat.title} />
-          <WorkspaceIndicator workspaceRoot={resolvedChat.workspaceRoot} />
+          <WorkspaceIndicator
+            workspaceRoot={resolvedChat.workspaceRoot}
+            expanded={isMobile ? panel.openMobile : panel.open}
+            onActivate={() => panel.toggle(isMobile)}
+          />
+          <span className="ml-auto">
+            <ChatContextPanelTrigger />
+          </span>
         </>
       ) : null}
     </header>

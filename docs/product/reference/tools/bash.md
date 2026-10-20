@@ -37,8 +37,11 @@ a Workspace is entered and otherwise from the trusted bash working directory,
 or, when none is configured, the working directory of the process that executes
 the Run. When omitted, that same default directory is used. A `cwd` that
 names a locator scheme is refused with `invalid_path` while a Workspace is
-entered. The directory must be enterable before the attempt is recorded, and no
-shell expansion is applied to the argument.
+entered, except a [`machine://`](../locators/machine.md) locator, which runs the
+command on that Machine with the same managed base and bounds. Inside a Machine
+Workspace an omitted or relative `cwd` resolves on the Machine and a bare
+absolute `cwd` is the Machine's own path. The directory must be enterable before
+the attempt is recorded, and no shell expansion is applied to the argument.
 
 Each call starts a fresh process, so its working directory, environment, and
 shell state do not persist. The child receives the fixed managed base (`PATH`,
@@ -55,7 +58,8 @@ through ordinary filesystem commands; that is separate from the owner-scoped
 ## Bounds
 
 Output is bounded by the configured bound and truncation is reported in the
-result. A call is a fresh process with no state carried into the next one.
+result. A call is a fresh process with no state carried into the next one, and a
+Machine call uses the same managed bounds.
 
 ## Errors
 
@@ -63,6 +67,11 @@ An unproven stop leaves the attempt `outcome_unknown` as a tool observation
 while the Run continues; inspect the workspace before retrying. See
 [mutation recovery](../mutation-recovery.md) for the durable attempt fence and
 crash-recovery termination.
+
+A Machine command fails with `machine_not_found` for an unconfigured Machine and
+`machine_unavailable` before anything was sent; a command whose session is lost
+after dispatch settles as `outcome_unknown` and the Machine terminates its
+process group. See [machine](../locators/machine.md#errors).
 
 ## Configured by
 

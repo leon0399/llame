@@ -16,6 +16,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   keyless `api.lu.ma` URL lookup. Calendars, places, and other non-event
   pages fall through to the generic reader.
 
+- **Experimental:** remote Machines. An operator lists boxes under `machines`
+  in the instance configuration, and a Run reaches them over SSH using the
+  operator's own aliases, bastions, and keys under a safety block that pins
+  every hop's host key. `read`, `edit`, `write`, a `bash` `cwd`, and
+  `enter_workspace` accept `machine://<name><absolute path>`; a Machine
+  Workspace loads its instruction files, skills, and Workspace MCP servers
+  from the box, so a server on the box's `localhost` works. The box runs the
+  `llame-machine` daemon, which serves only registered roots. An unreachable
+  Machine keeps the Chat's Workspace and fails only the calls aimed at it.
+  Settings show each Machine's state, and a chat's Details panel, opened from
+  the header, shows its Project, where it runs, and the full Workspace root
+  with a copy button. See [remote Machines](docs/product/operator/machines.md).
+
 - Archived chats and projects are reachable again. The chats rail, the
   projects rail, and a project's page each have a view menu for **Active**,
   **Archived**, or **All**, with a chip to clear a non-default view; the
