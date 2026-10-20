@@ -12,6 +12,7 @@ import type { RequestHeaderTemplates } from '../models/request-headers';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
+import type { MachinesConfig, RawMachinesConfig } from './machines-config';
 
 /**
  * A configured provider connection: `type` selects the client
@@ -555,6 +556,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   mcpServers?: Record<string, RawMcpServerEntry>;
   knowledge?: RawKnowledgeConfig;
   skills?: RawSkillsConfig;
+  machines?: RawMachinesConfig;
   workers?: Record<string, WorkerProfile>;
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
@@ -725,6 +727,14 @@ export type LlameConfig = {
    * literal public filesystem paths — no interpolation is applied or allowed.
    */
   skills: SkillsConfig;
+  /**
+   * Operator-declared remote Machines (remote-machines D12). Absent means the
+   * feature does not exist: no Machine tool argument, route, status read, or
+   * UI surface, and a `machine://` locator stays an unknown scheme. Present
+   * Machines are operator-wide — every authenticated user whose Run passes
+   * tool eligibility and permissions may address them.
+   */
+  machines?: MachinesConfig;
   /**
    * Worker profiles (durable-run-workers D2/D4): profile name → the groups it
    * consumes and each one's concurrency. Selected at boot by

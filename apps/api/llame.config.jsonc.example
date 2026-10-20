@@ -850,6 +850,36 @@
     "callTimeoutSeconds": 120,
   },
 
+  // Optional remote Machines (experimental). Declaring one makes
+  // machine://<name>/<absolute path> locators addressable for every user whose
+  // Run passes tool eligibility and permissions; roots are registered on the
+  // Machine itself. llame generates its own SSH configuration whose safety
+  // options win over the included file for every hop: host keys come only from
+  // knownHostsFile with strict checking, no global known-hosts file, batch
+  // mode, no agent, no connection sharing, and connect/liveness timeouts. The
+  // included configuration (configFile, defaulting to the llame user's
+  // ~/.ssh/config) supplies aliases, jump hosts, users, ports, and identities.
+  // The whole ssh block is optional: knownHostsFile defaults to the llame
+  // user's ~/.ssh/known_hosts and configFile to its ~/.ssh/config. Checking
+  // stays strict, so every hop must already be in the known_hosts file. These
+  // are literal paths: interpolation is
+  // rejected, a relative path resolves against this file's directory, and "~/"
+  // against the llame user's home. A destination is an SSH host alias or
+  // [user@]host[:port], and rejects interpolation and option-shaped values.
+  // tools.nativeExecutorId must not begin with "machine:".
+  // See docs/product/operator/machines.md.
+  // "machines": {
+  //   "ssh": {
+  //     "knownHostsFile": "~/.ssh/known_hosts",
+  //     "identityFile": "/etc/llame/machine_ed25519",
+  //     "configFile": "~/.ssh/config"
+  //   },
+  //   "hosts": {
+  //     "devl": { "destination": "box" },
+  //     "gpu": { "destination": "me@gpu.lan:2222" }
+  //   }
+  // },
+
   // Optional worker-profile concurrency overrides. See docs/product/operator/scaling.md.
   // "workers": {
   //   "all": { "runs": 4 },
