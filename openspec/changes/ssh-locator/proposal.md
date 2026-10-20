@@ -67,8 +67,7 @@ Decided in the 2026-10-19 design session for #936:
   (#1368).
 - POSIX hosts with a shell only; SFTP-only and Windows hosts deferred (#1367).
 - Hosts are instance-wide, gated only by permission rules.
-- The SSH transport is shared with remote Machines, and this change stacks on
-  that work.
+- The SSH transport is shared with remote Machines, now on `master`.
 - Pinned `known_hosts` with strict host-key checking.
 - Authority grammar is OMP's shape, restricted to a strict character set.
 - Whole-file 1 MiB read cap; remote selectors deferred (#1364).

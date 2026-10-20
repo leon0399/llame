@@ -5,15 +5,14 @@ Tracks issue [#936](https://github.com/leon0399/llame/issues/936); follow-ups #1
 ## Delivery stack
 
 ```text
-remote-machines-stack/status-bar <- ssh-locator/proposal <- ssh-locator/shared-ssh <- ssh-locator/resolve <- ssh-locator/read <- ssh-locator/bash <- ssh-locator/bash-guidance <- ssh-locator/finalize
+master <- ssh-locator/proposal <- ssh-locator/shared-ssh <- ssh-locator/resolve <- ssh-locator/read <- ssh-locator/bash <- ssh-locator/bash-guidance <- ssh-locator/finalize
 ```
 
-The stack sits on the remote-Machines stack because it reuses that SSH
-transport; it rebases onto `master` as those layers merge. Estimates are
-scaled from the measured Machine layers (`24b5be48` transport and fixture,
-`eb9bb470` native tools) and include tests and docs.
+The change reuses the remote-Machines SSH transport, merged on `master`.
+Estimates are scaled from the measured Machine layers (#1348 transport and
+fixture, #1350 native tools) and include tests and docs.
 
-- `ssh-locator/proposal` (parent `remote-machines-stack/status-bar`): owns only
+- `ssh-locator/proposal` (parent `master`): owns only
   `proposal.md`, `design.md`, the delta specs, and this file.
 - `ssh-locator/shared-ssh` (parent `ssh-locator/proposal`): moves the SSH safety
   configuration, spawn seam, and failure classification out of
