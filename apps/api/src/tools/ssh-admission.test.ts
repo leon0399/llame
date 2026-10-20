@@ -14,6 +14,7 @@ import {
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
 import { previewToolPermission, runTool } from './runner';
+import { admitSshRead } from './ssh-admission';
 import { type Tool, type ToolContext } from './types';
 import {
   createWorkspaceRootCell,
@@ -322,10 +323,76 @@ describe('ssh read admission', () => {
     );
 
     expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(result.status === 'error' && result.message).toBe(
+      'Tool "read" was cancelled.',
+    );
     expect(resolve).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal }),
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('resolves only the destination fields the locator wrote', async () => {
+    const { client, resolve } = fakeSsh();
+    const admission = await admitSshRead(
+      { path: 'ssh://box/etc/hostname' },
+      context({ read: { allow: true } }, { sshClient: client }),
+    );
+
+    expect(admission.kind).toBe('decided');
+    expect(resolve.mock.calls[0]?.[0]).toStrictEqual({ host: 'box' });
+  });
+
+  it('passes the written user, port, and signal to resolution', async () => {
+    const { client, resolve } = fakeSsh();
+    const controller = new AbortController();
+    const admission = await admitSshRead(
+      { path: 'ssh://deploy@box:2222/etc/hostname' },
+      context(
+        { read: { allow: true } },
+        { sshClient: client, abortSignal: controller.signal },
+      ),
+    );
+
+    expect(admission.kind).toBe('decided');
+    expect(resolve.mock.calls[0]?.[0]).toStrictEqual({
+      host: 'box',
+      user: 'deploy',
+      port: 2222,
+      signal: controller.signal,
+    });
+  });
+
+  it('reports no canonical decision for a locator that is already canonical', async () => {
+    const { client } = fakeSsh();
+    const decisions: Array<unknown> = [];
+    const admission = await admitSshRead(
+      { path: 'ssh://box@box:22/etc/hostname' },
+      context(
+        { read: { allow: true } },
+        {
+          sshClient: client,
+          onDerivedDecision: (decision) => decisions.push(decision),
+        },
+      ),
+    );
+
+    expect(admission.kind).toBe('decided');
+    expect(decisions).toHaveLength(0);
+  });
+
+  it('admits nothing without a trusted policy, even with the ssh section', async () => {
+    const { client, resolve } = fakeSsh();
+    const admission = await admitSshRead(
+      { path: 'ssh://box/etc/hostname' },
+      context(
+        { read: { allow: true } },
+        { sshClient: client, permissionPolicy: undefined },
+      ),
+    );
+
+    expect(admission).toEqual({ kind: 'none' });
+    expect(resolve).not.toHaveBeenCalled();
   });
 
   it('treats every ssh:// read as refused in the synchronous preview', () => {
@@ -414,10 +481,31 @@ describe('ssh mutations and Workspace entry', () => {
         status: 'error',
         type: 'unsupported_operation',
       });
+      expect(result.status === 'error' && result.message).toBe(
+        'An ssh:// locator supports read and a bash working directory only; ' +
+          'edit and write do not change remote files.',
+      );
       expect(resolve).not.toHaveBeenCalled();
       expect(run).not.toHaveBeenCalled();
     },
   );
+
+  it('keeps an unknown scheme unknown for a mutation that carries the ssh section', async () => {
+    const { client, run } = fakeSsh();
+    const result = await runTool(
+      nativeWriteTool,
+      { path: 'vault://box/tmp/x.txt', content: 'x' },
+      context({ write: { allow: true } }, { sshClient: client }),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
 
   it('refuses ssh:// as a Workspace root and leaves the Chat outside it', async () => {
     const workspaceRoot: WorkspaceRootCell & { beginStep(): void } =
@@ -433,6 +521,10 @@ describe('ssh mutations and Workspace entry', () => {
     );
 
     expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
+    expect(result.status === 'error' && result.message).toBe(
+      'An ssh:// locator cannot be a Workspace root; Workspace selects a ' +
+        'local or Machine directory.',
+    );
     expect(workspaceRoot.current()).toBeUndefined();
   });
 });

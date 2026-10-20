@@ -32,6 +32,51 @@ describe('parseSshLocator destinations', () => {
     });
   });
 
+  it('carries no user or port property when the locator wrote neither', () => {
+    expect(parseSshLocator('ssh://Box/etc/hostname')).toStrictEqual({
+      kind: 'path',
+      destination: { host: 'box' },
+      path: '/etc/hostname',
+    });
+    expect(parseSshLocator('ssh://[::1]/etc/hostname')).toStrictEqual({
+      kind: 'path',
+      destination: { host: '::1' },
+      path: '/etc/hostname',
+    });
+  });
+
+  it('accepts a one-character user and keeps it on the destination', () => {
+    expect(parseSshLocator('ssh://a@box/etc/hostname')).toStrictEqual({
+      kind: 'path',
+      destination: { user: 'a', host: 'box' },
+      path: '/etc/hostname',
+    });
+  });
+
+  it('refuses a name host that begins with an option marker', () => {
+    const host = parseSshLocator('ssh://-box/etc/hostname');
+    expect(host.kind).toBe('invalid');
+    expect(host.kind === 'invalid' && host.message).toContain('ssh host');
+  });
+
+  it('refuses a bracketed literal that is not IPv6', () => {
+    const parsed = parseSshLocator('ssh://[abc]/etc/hostname');
+    expect(parsed.kind).toBe('invalid');
+    expect(parsed.kind === 'invalid' && parsed.message).toContain('ssh host');
+  });
+
+  it('refuses an IPv6 literal with no closing bracket', () => {
+    const parsed = parseSshLocator('ssh://[::1/etc/hostname');
+    expect(parsed.kind).toBe('invalid');
+    expect(parsed.kind === 'invalid' && parsed.message).toContain('ssh host');
+  });
+
+  it('refuses a port suffix that does not begin with a colon', () => {
+    const parsed = parseSshLocator('ssh://[::1]x2222/etc/hostname');
+    expect(parsed.kind).toBe('invalid');
+    expect(parsed.kind === 'invalid' && parsed.message).toContain('ssh port');
+  });
+
   it('refuses an option-shaped host before anything resolves', () => {
     const parsed = parseSshLocator('ssh://-oProxyCommand=id/etc/hostname');
     expect(parsed.kind).toBe('invalid');
@@ -69,9 +114,14 @@ describe('parseSshLocator destinations', () => {
     ['port zero', 'ssh://box:0/etc/hostname'],
     ['a port above 65535', 'ssh://box:65536/etc/hostname'],
     ['a non-numeric port', 'ssh://box:ssh/etc/hostname'],
+    ['a port that only starts with digits', 'ssh://box:0x10/etc/hostname'],
     ['an empty IPv6 port', 'ssh://[::1]:/etc/hostname'],
   ])('refuses %s', (_label, value) => {
     expect(parseSshLocator(value).kind).toBe('invalid');
+  });
+
+  it('accepts port 1', () => {
+    expect(pathOf('ssh://box:1/etc/hostname').destination.port).toBe(1);
   });
 
   it('accepts port 65535', () => {
@@ -119,6 +169,21 @@ describe('parseSshLocator paths', () => {
     expect(parsed.kind).toBe('invalid');
     if (parsed.kind !== 'invalid') throw new Error('expected a refusal');
     expect(parsed.message).toContain('absolute path');
+  });
+
+  it('refuses an empty authority and says the locator must name a host', () => {
+    const parsed = parseSshLocator('ssh:///etc/hostname');
+    expect(parsed).toEqual({
+      kind: 'invalid',
+      message: 'An ssh:// locator must name a host.',
+    });
+  });
+
+  it('refuses text that is not an ssh:// locator at all', () => {
+    expect(parseSshLocator('file:///etc/hostname')).toEqual({
+      kind: 'invalid',
+      message: 'This path is not an ssh:// locator.',
+    });
   });
 
   it.each([
@@ -169,5 +234,28 @@ describe('formatSshLocator', () => {
     expect(formatSshLocator({ host: 'box', port: 0 }, '/x')).toBeUndefined();
     expect(formatSshLocator({ host: 'box' }, 'relative')).toBeUndefined();
     expect(formatSshLocator({ host: 'box' }, '/x\u0000y')).toBeUndefined();
+  });
+
+  it.each([
+    ['a name host with a punctuation character', { host: 'box;x' }],
+    ['a name host that begins with an option marker', { host: '-box' }],
+    ['a user that begins with an option marker', { host: 'box', user: '-u' }],
+    ['an IPv6 literal with a zone', { host: 'fe80::1%eth0' }],
+  ])('refuses %s', (_label, destination) => {
+    expect(formatSshLocator(destination, '/x')).toBeUndefined();
+  });
+
+  it.each([
+    [1, 'ssh://box:1/x'],
+    [65_535, 'ssh://box:65535/x'],
+  ])('renders port %s at the edge of the range', (port, expected) => {
+    expect(formatSshLocator({ host: 'box', port }, '/x')).toBe(expected);
+  });
+
+  it('refuses a port above 65535 and a suffix that is not a read selector', () => {
+    expect(
+      formatSshLocator({ host: 'box', port: 65_536 }, '/x'),
+    ).toBeUndefined();
+    expect(formatSshLocator({ host: 'box' }, '/x', 'draft')).toBeUndefined();
   });
 });

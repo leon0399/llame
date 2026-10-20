@@ -144,6 +144,75 @@ describe('createSshClient.resolve', () => {
     expect(harness.calls[0]?.args).not.toContain('-l');
   });
 
+  it('ignores an output line that has no separator', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.resolve({ host: 'box' });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write('user deploy\nhostname box\nport 22\nports\n');
+    process.close(0);
+
+    await expect(pending).resolves.toEqual({
+      outcome: 'resolved',
+      destination: { user: 'deploy', host: 'box', port: 22 },
+    });
+  });
+
+  it('trims the whitespace around a value', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.resolve({ host: 'box' });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write('user deploy  \nhostname box\nport 22\n');
+    process.close(0);
+
+    await expect(pending).resolves.toEqual({
+      outcome: 'resolved',
+      destination: { user: 'deploy', host: 'box', port: 22 },
+    });
+  });
+
+  it.each([
+    ['no user', 'hostname box\nport 22\n'],
+    ['no hostname', 'user deploy\nport 22\n'],
+    ['no port', 'user deploy\nhostname box\n'],
+    [
+      'a port that is not all digits',
+      'user deploy\nhostname box\nport 22x22\n',
+    ],
+    ['port zero', 'user deploy\nhostname box\nport 0\n'],
+    ['port above 65535', 'user deploy\nhostname box\nport 65536\n'],
+  ])('fails as config for %s in the ssh -G output', async (_label, output) => {
+    const { client, harness } = fakeClient();
+    const pending = client.resolve({ host: 'box' });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write(output);
+    process.close(0);
+
+    await expect(pending).resolves.toMatchObject({
+      outcome: 'failed',
+      reason: 'config',
+    });
+  });
+
+  it.each([
+    ['1', 1],
+    ['65535', 65_535],
+  ])('accepts port %s at the edge of the range', async (text, port) => {
+    const { client, harness } = fakeClient();
+    const pending = client.resolve({ host: 'box' });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write(`user deploy\nhostname box\nport ${text}\n`);
+    process.close(0);
+
+    await expect(pending).resolves.toEqual({
+      outcome: 'resolved',
+      destination: { user: 'deploy', host: 'box', port },
+    });
+  });
+
   it('fails as config when ssh -G exits non-zero', async () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
@@ -159,16 +228,39 @@ describe('createSshClient.resolve', () => {
     expect(resolution.diagnostic).toContain('Bad configuration option');
   });
 
+  it('fails as config when ssh -G parses cleanly but exits non-zero', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.resolve({ host: 'box' });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write('user deploy\nhostname box\nport 22\n');
+    process.close(255);
+
+    await expect(pending).resolves.toMatchObject({
+      outcome: 'failed',
+      reason: 'config',
+    });
+  });
+
   it('fails as config when ssh -G output is over its bound', async () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
     if (process === undefined) throw new Error('expected a spawned ssh');
-    process.stdout.write('x'.repeat(SSH_RESOLUTION_OUTPUT_BYTES + 1));
+    // A parseable prefix must not rescue an answer that overran its bound.
+    process.stdout.write(
+      'user deploy\nhostname box\nport 22\n' +
+        'x'.repeat(SSH_RESOLUTION_OUTPUT_BYTES),
+    );
     process.close(0);
 
     const resolution = await pending;
     expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
+    if (resolution.outcome !== 'failed')
+      throw new Error('expected a failed resolution');
+    expect(resolution.diagnostic).toBe(
+      'ssh -G wrote more than its output bound.',
+    );
     expect(process.kill).toHaveBeenCalled();
   });
 
@@ -185,6 +277,22 @@ describe('createSshClient.resolve', () => {
       outcome: 'failed',
       reason: 'client_missing',
     });
+  });
+
+  it('fails as config when a spawn error is not a missing client', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.resolve({ host: 'box' });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.error(
+      Object.assign(new Error('spawn ssh EACCES'), { code: 'EACCES' }),
+    );
+
+    const resolution = await pending;
+    expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
+    if (resolution.outcome !== 'failed')
+      throw new Error('expected a failed resolution');
+    expect(resolution.diagnostic).toContain('EACCES');
   });
 
   it('stops on abort without a connection', async () => {
@@ -310,6 +418,125 @@ describe('createSshClient.run', () => {
     });
     expect(harness.processes[0]?.kill).toHaveBeenCalled();
   });
+
+  it('cancels at once when the call signal is already aborted', async () => {
+    const { client, harness } = fakeClient();
+    const controller = new AbortController();
+    controller.abort();
+    const outcome = await client.run({
+      destination: 'box',
+      remoteCommand: ['sh', '-s'],
+      maxStdoutBytes: 1024,
+      deadlineMs: 50,
+      signal: controller.signal,
+    });
+
+    expect(outcome).toMatchObject({ outcome: 'failed', reason: 'cancelled' });
+    expect(harness.processes[0]?.kill).toHaveBeenCalled();
+  });
+
+  it('keeps stdout that fits its bound exactly without reporting overflow', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.run({
+      destination: 'box',
+      remoteCommand: ['sh', '-s'],
+      maxStdoutBytes: 3,
+      deadlineMs: 5000,
+    });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write('abc');
+    process.close(0);
+
+    const outcome = await pending;
+    expect(outcome).toMatchObject({ outcome: 'ended', stdoutOverflow: false });
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.stdout).toEqual(Buffer.from('abc'));
+  });
+
+  it('captures no bytes when the bound leaves no room', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.run({
+      destination: 'box',
+      remoteCommand: ['sh', '-s'],
+      maxStdoutBytes: -1,
+      deadlineMs: 5000,
+    });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write('abc');
+    process.close(0);
+
+    const outcome = await pending;
+    expect(outcome).toMatchObject({ outcome: 'ended', stdoutOverflow: true });
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.stdout).toEqual(Buffer.alloc(0));
+  });
+
+  it('keeps the call alive when ssh stdout reports an error', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.run({
+      destination: 'box',
+      remoteCommand: ['sh', '-s'],
+      maxStdoutBytes: 1024,
+      deadlineMs: 5000,
+    });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write('ok');
+    process.stdout.emit('error', new Error('EPIPE'));
+    process.close(0);
+
+    const outcome = await pending;
+    expect(outcome).toMatchObject({ outcome: 'ended', code: 0 });
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.stdout).toEqual(Buffer.from('ok'));
+  });
+
+  it('settles once when ssh closes and then reports an error', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.run({
+      destination: 'box',
+      remoteCommand: ['sh', '-s'],
+      maxStdoutBytes: 1024,
+      deadlineMs: 5000,
+    });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stdout.write('done');
+    process.close(0);
+    const outcome = await pending;
+    process.error(new Error('ssh vanished after it closed'));
+
+    expect(outcome).toMatchObject({ outcome: 'ended', code: 0 });
+    expect(process.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends stdin empty and writes no -l or -p when the locator wrote neither', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.run({
+      destination: 'box',
+      remoteCommand: ['sh', '-s'],
+      maxStdoutBytes: 1024,
+      deadlineMs: 5000,
+    });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.close(0);
+    await pending;
+    await tick();
+
+    expect(process.stdinText()).toBe('');
+    expect(harness.calls[0]?.args).toEqual([
+      '-F',
+      '/run/llame/ssh_config',
+      '-T',
+      '--',
+      'box',
+      'sh',
+      '-s',
+    ]);
+  });
 });
 
 describe('createSshClient generated configuration', () => {
@@ -342,6 +569,26 @@ describe('createSshClient generated configuration', () => {
     } finally {
       client.dispose();
     }
+  });
+
+  it('disposes the generated configuration and forgets its text', () => {
+    const harness = fakeSpawn();
+    const configFile = {
+      path: '/run/llame/ssh_config',
+      text: 'Host *\n  BatchMode yes\n',
+      dispose: vi.fn(),
+    };
+    const client = createSshClient({
+      ssh: SSH,
+      spawn: harness.spawn,
+      configFile,
+    });
+
+    expect(client.sshConfigText()).toBe('Host *\n  BatchMode yes\n');
+    client.dispose();
+
+    expect(configFile.dispose).toHaveBeenCalledTimes(1);
+    expect(client.sshConfigText()).toBeUndefined();
   });
 });
 
