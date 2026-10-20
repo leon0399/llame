@@ -10,7 +10,7 @@ codecov:
   notify:
     # One per flag. The comment and statuses otherwise fire on the first
     # upload and compare a partial report against a complete base.
-    after_n_builds: 11
+    after_n_builds: 12
 
 coverage:
   status:
@@ -25,7 +25,7 @@ coverage:
 
 comment:
   layout: "header, diff, flags, components, files"
-  after_n_builds: 11
+  after_n_builds: 12
 
 flag_management:
   individual_flags:
@@ -43,6 +43,8 @@ flag_management:
       paths: [packages/config-interpolation/]
     - name: machine-protocol
       paths: [packages/machine-protocol/]
+    - name: mcp-workspace
+      paths: [packages/mcp-workspace/]
     - name: native-file-tools
       paths: [packages/native-file-tools/]
     - name: oxlint-plugin-anti-slop
@@ -85,6 +87,7 @@ component_management:
         - apps/api/src/tools/**
         - packages/bash-executor/**
         - packages/machine-protocol/**
+        - packages/mcp-workspace/**
         - packages/native-file-tools/**
     - component_id: models
       name: Models and prompts

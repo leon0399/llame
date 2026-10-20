@@ -17,7 +17,7 @@ import {
   WorkspaceMcpClients,
   type WorkspaceMcpKey,
 } from './workspace-mcp-clients';
-import { type WorkspaceMcpServerConfig } from './workspace-mcp-config';
+import { type WorkspaceMcpServerConfig } from '@workspace/mcp-workspace';
 import {
   AttemptToolAdditions,
   type AttemptToolBinding,

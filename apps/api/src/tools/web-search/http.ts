@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createMcpBoundedFetch } from '../../mcp/mcp-bounded-fetch';
+import { createMcpBoundedFetch } from '@workspace/mcp-workspace';
 import { EngineFailure } from './chain';
 
 export const VENDOR_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;

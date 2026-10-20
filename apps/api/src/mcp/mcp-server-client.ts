@@ -24,7 +24,7 @@ import {
   McpBodyLimitError,
   McpRequestLimitError,
   createMcpBoundedFetch,
-} from './mcp-bounded-fetch';
+} from '@workspace/mcp-workspace';
 import {
   classifyMcpFailure,
   type McpFailureDisposition,
@@ -35,10 +35,10 @@ import {
 import {
   type BoundedStdioTransport,
   DiagnosticBuffer,
+  createMcpToolId,
   createStdioTransport,
   type McpStdioTransportConfig,
-} from './mcp-stdio-transport';
-import { createMcpToolId } from './tool-id';
+} from '@workspace/mcp-workspace';
 
 const ONE_MIB = 1024 * 1024;
 const MAX_TOOLS_PER_PAGE = 256;
