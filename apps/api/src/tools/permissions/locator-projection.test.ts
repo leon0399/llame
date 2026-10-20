@@ -710,6 +710,118 @@ describe('native file permission projection', () => {
   });
 });
 
+describe('machine locator permission projection', () => {
+  it('projects a Machine locator to its canonical text', () => {
+    expect(projectNativeFilePath('MACHINE://DEVL/srv/app/README.md')).toBe(
+      'machine://devl/srv/app/README.md',
+    );
+    expect(projectNativeFilePath('machine://devl/home/me/%2Essh/id')).toBe(
+      'machine://devl/home/me/.ssh/id',
+    );
+    expect(projectNativeFilePath('machine://devl/srv/a%23b.md')).toBe(
+      'machine://devl/srv/a%23b.md',
+    );
+    // `.`, `..`, and trailing separators stay as written.
+    expect(projectNativeFilePath('machine://devl/srv/../app/')).toBe(
+      'machine://devl/srv/../app/',
+    );
+    // A selector is preserved for a mutation and removed from a read.
+    expect(projectNativeFilePath('machine://devl/a.ts:5-6')).toBe(
+      'machine://devl/a.ts:5-6',
+    );
+    expect(
+      nativeFileProjection('read')('path', 'machine://devl/a.ts:5-6'),
+    ).toBe('machine://devl/a.ts');
+  });
+
+  it('leaves a listing and a malformed Machine locator as written', () => {
+    for (const value of [
+      'machine://',
+      'machine://devl',
+      'machine://devl/',
+      'machine://Dev_L/srv',
+      'machine://devl/srv/%ZZ',
+    ]) {
+      expect(projectNativeFilePath(value)).toBe(value);
+    }
+  });
+
+  it('cannot be bypassed by an encoded spelling of a reject', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [
+          { field: 'path', regex: '^machine://devl/home/me/\\.ssh(?:/|$)' },
+        ],
+      },
+    };
+    expect(
+      decideNative(map, 'read', {
+        path: 'machine://devl/home/me/%2Essh/id_ed25519',
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+    expect(
+      decideNative(map, 'read', {
+        path: 'MACHINE://DEVL/home/me/%2Essh/id_ed25519',
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
+  it('does not admit a Machine path through a local root-anchored allow', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^/home/me/' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'machine://devl/home/me/notes.md' }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('does not admit a mapped bare absolute path through a local allow', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^/home/me/' }] },
+    };
+    expect(
+      decideNative(
+        map,
+        'read',
+        { path: '/home/me/notes.md' },
+        'machine://devl/home/me/shop',
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+    expect(
+      decideNative(
+        { read: { allow: [{ field: 'path', regex: '^machine://devl/' }] } },
+        'read',
+        { path: '/home/me/notes.md' },
+        'machine://devl/home/me/shop',
+      ),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('scopes a Machine allow to the Machine it names', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^machine://devl/home/me/' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'machine://gpu/home/me/notes.md' }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('keeps a file alias on the local authority in a Machine Workspace', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
+    };
+    expect(
+      decideNative(
+        map,
+        'read',
+        { path: 'file:/etc/%70asswd' },
+        'machine://devl/home/me/shop',
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+});
+
 describe('media locator permission projection', () => {
   const ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
 

@@ -37,7 +37,16 @@ import {
 } from '@workspace/runtime-safety';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
-import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
+import {
+  SkillCatalog,
+  type SkillCatalogEntry,
+  type SkillCatalogPort,
+} from '../skills/skill-catalog';
+import { MachineConnector } from '../machines/machine-connector.service';
+import {
+  createProtocolPeer,
+  type ProtocolPeerOptions,
+} from '../testing/machine-protocol-peer';
 import { SKILL_PATH_INSTRUCTION } from '../skills/skill-target';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
@@ -2074,5 +2083,124 @@ describe('native tool descriptions', () => {
     expect(nativeWriteTool.description).toContain('replace: true');
     expect(nativeWriteTool.description).toContain('file_exists');
     expect(nativeWriteTool.description).toContain('not_found');
+  });
+});
+
+const MACHINE_SKILL_DIRECTORY = 'machine://devl/srv/app/.llame/skills/pdf';
+
+const MACHINE_HOSTS = {
+  ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+  hosts: { devl: { destination: 'box' } },
+};
+
+/** A Machine Workspace skill catalog: entries discovered on the Machine. */
+function machineSkillCatalog(): SkillCatalogPort {
+  const entry: SkillCatalogEntry = {
+    name: 'pdf',
+    description: 'The pdf skill.',
+    proactive: true,
+    sourceDirectory: MACHINE_SKILL_DIRECTORY,
+    skillDirectory: MACHINE_SKILL_DIRECTORY,
+    available: true,
+    diagnostics: [],
+  };
+  return {
+    getSnapshot: () => ({
+      available: true,
+      directories: [MACHINE_SKILL_DIRECTORY],
+      entries: [entry],
+      diagnostics: [],
+    }),
+  };
+}
+
+describe('Machine Workspace skill reads', () => {
+  function machineContext(connector: MachineConnector): ToolContext {
+    const db: Db = drizzle.mock({ schema });
+    return {
+      userId: 'owner',
+      chatId: 'chat',
+      runId: 'run',
+      toolCallId: 'call',
+      nativeDeliverySequence: 1,
+      permissionPolicy: compileTestPermissionPolicy(),
+      skillCatalog: machineSkillCatalog(),
+      machines: connector,
+      tenantDb: {
+        runAs: <T>(_userId: string, operation: (tx: Db) => Promise<T>) =>
+          operation(db),
+      },
+    };
+  }
+
+  function machineConnectorFor(options: ProtocolPeerOptions): MachineConnector {
+    return new MachineConnector({
+      machines: MACHINE_HOSTS,
+      hubVersion: '9.9.9',
+      transportFactory: createProtocolPeer(options).factory,
+      handshakeTimeoutMs: 2000,
+    });
+  }
+
+  it('reads the package file on the Machine and keeps the skill envelope', async () => {
+    const connector = machineConnectorFor({
+      answers: {
+        'fs.read': {
+          value: {
+            status: 'success',
+            kind: 'file',
+            path: 'machine://devl/srv/app/.llame/skills/pdf/SKILL.md',
+            content: '# pdf instructions',
+            truncated: false,
+          },
+        },
+      },
+    });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'skill://pdf' },
+        machineContext(connector),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      kind: 'file',
+      path: 'machine://devl/srv/app/.llame/skills/pdf/SKILL.md',
+      content: '# pdf instructions',
+      locator: 'skill://pdf',
+      resolvedPath: 'machine://devl/srv/app/.llame/skills/pdf/SKILL.md',
+      skillDirectory: MACHINE_SKILL_DIRECTORY,
+      sourceDirectory: MACHINE_SKILL_DIRECTORY,
+      skillPathInstruction: SKILL_PATH_INSTRUCTION,
+    });
+  });
+
+  it('passes a Machine skill refusal through without the envelope', async () => {
+    const connector = machineConnectorFor({
+      answers: {
+        'fs.read': {
+          value: {
+            status: 'error',
+            type: 'not_found',
+            message: 'File not found.',
+          },
+        },
+      },
+    });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'skill://pdf' },
+        machineContext(connector),
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'File not found.',
+    });
   });
 });

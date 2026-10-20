@@ -37,8 +37,9 @@ export type {
 } from "./read";
 export type { DirectoryListingEntry } from "./collected-directory";
 export { selectMultiRangeLines } from "./stream-read";
-export { MEDIA_SELECTOR_MESSAGE } from "./media";
+export { MEDIA_SELECTOR_MESSAGE, readMediaBytes } from "./media";
 export type {
+  MediaBufferTarget,
   MediaDecodeSuccess,
   MediaReadHook,
   MediaReadSuccess,

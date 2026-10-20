@@ -1,0 +1,1 @@
+ALTER TABLE "chats" ADD COLUMN "workspace_told_available" boolean;

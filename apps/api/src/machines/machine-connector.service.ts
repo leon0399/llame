@@ -363,3 +363,5 @@ export class MachineConnector {
     return this.ssh;
   }
 }
+
+export { MachineUnavailableError } from './machine-session';

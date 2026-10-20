@@ -37,6 +37,7 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   workspaceGeneration: 0,
   workspaceTold: null,
   workspaceToldFrom: null,
+  workspaceToldAvailable: null,
   workspaceDetachReason: null,
   ...overrides,
 });

@@ -18,6 +18,7 @@ type QueryUpdate = Readonly<{
   workspaceDetachReason?: string | null;
   workspaceTold?: string | null;
   workspaceToldFrom?: string | null;
+  workspaceToldAvailable?: boolean | null;
 }>;
 type QueryProjection = Readonly<{
   id?: typeof schema.chats.id;
@@ -127,11 +128,118 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toEqual({ status: 'fence_lost' });
     expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
   });
+  it('fences a stale exit before it can clear the binding', async () => {
+    const { db, calls } = makeDb({
+      select: [run, [{ sequence: 6 }], [current]],
+      update: [[{ workspaceGeneration: 6 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).exit({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        bindExecutorId: 'worker-a',
+      }),
+    ).resolves.toEqual({ status: 'fence_lost' });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
+  });
+
+  it('records Machine availability only for a narration that passes one', async () => {
+    const { db, calls } = makeDb({ update: [[], [], []] });
+    const repository = new WorkspaceBindingRepository(db);
+    const told = {
+      chatId: 'chat-a',
+      ownerUserId: 'owner-a',
+      told: '/work/project',
+      toldFrom: 'compaction-a',
+      clearDetachReason: false,
+    };
+
+    await repository.setTold({ ...told, available: false });
+    await repository.setTold({ ...told, available: null });
+    await repository.setTold(told);
+
+    expect(
+      calls
+        .filter(({ method, value }) => method === 'set' && value !== undefined)
+        .map(({ value }) => value),
+    ).toStrictEqual([
+      {
+        workspaceTold: '/work/project',
+        workspaceToldFrom: 'compaction-a',
+        workspaceToldAvailable: false,
+      },
+      {
+        workspaceTold: '/work/project',
+        workspaceToldFrom: 'compaction-a',
+        workspaceToldAvailable: null,
+      },
+      { workspaceTold: '/work/project', workspaceToldFrom: 'compaction-a' },
+    ]);
+  });
+
+  it('narrates Machine availability on entry and no availability for a local root', async () => {
+    const machine = makeDb({
+      select: fenceSelect(),
+      update: [[{ workspaceGeneration: 5 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(machine.db).enter({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        executorId: 'machine:build-1',
+        root: 'machine://build-1/home/operator/app',
+      }),
+    ).resolves.toMatchObject({
+      status: 'switched',
+      previousRoot: '/work/old',
+      generation: 5,
+    });
+    const sets = machine.calls
+      .filter(({ method, value }) => method === 'set' && value !== undefined)
+      .map(({ value }) => value);
+    expect(sets).toHaveLength(1);
+    expect(sets[0]).toMatchObject({
+      workspaceRoot: 'machine://build-1/home/operator/app',
+      workspaceExecutorId: 'machine:build-1',
+      workspaceToldAvailable: true,
+    });
+
+    const local = makeDb({
+      select: fenceSelect(),
+      update: [[{ workspaceGeneration: 5 }]],
+    });
+    await expect(
+      new WorkspaceBindingRepository(local.db).enter({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        executorId: 'worker-a',
+        root: '/work/new',
+      }),
+    ).resolves.toMatchObject({ status: 'switched' });
+    const localSets = local.calls
+      .filter(({ method, value }) => method === 'set' && value !== undefined)
+      .map(({ value }) => value);
+    expect(localSets).toHaveLength(1);
+    expect(localSets[0]).toMatchObject({
+      workspaceExecutorId: 'worker-a',
+      workspaceToldAvailable: null,
+    });
+  });
+
   it('checks the current owner delivery without writing', async () => {
     const current = makeDb({ select: [run, started] });
     await expect(
@@ -171,6 +279,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/old',
       }),
     ).resolves.toMatchObject({
@@ -190,6 +299,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toMatchObject({
@@ -224,6 +334,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-b',
+        bindExecutorId: 'worker-b',
         root: '/work/old',
       }),
     ).resolves.toMatchObject({
@@ -250,6 +361,7 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toMatchObject({
@@ -269,7 +381,7 @@ describe('WorkspaceBindingRepository', () => {
         ownerUserId: 'owner-a',
         runId: 'run-1',
         deliverySequence: 7,
-        executorId: 'worker-a',
+        bindExecutorId: 'worker-a',
       }),
     ).resolves.toMatchObject({
       status: 'cleared',

@@ -44,6 +44,7 @@ function chat(id: string, title = id): Chat {
     workspaceGeneration: 0,
     workspaceTold: null,
     workspaceToldFrom: null,
+    workspaceToldAvailable: null,
     workspaceDetachReason: null,
   };
 }

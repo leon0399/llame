@@ -21,12 +21,23 @@ import { type AttemptToolAdditions } from './attempt-tool-additions';
 import { type DerivedDecision } from './web-read/admission';
 import { type ModelClientFactory } from '../models/models.service';
 import { type ToolMediaStore } from '../media/tool-media-store';
+import { type MachineConnector } from '../machines/machine-connector.service';
+import { type MachineStatusView } from '../machines/machines-status';
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
  * external sources (D2: "accepted as the source ships it"). Distinct from
  * `z.ZodType` which is the code-authored schema form.
  */
 export type JsonSchemaDocument = UnknownRecord;
+
+/**
+ * The configured Machines with their derived status, as a bare `machine://`
+ * read lists them. It is the owner-scoped read model behind the Machines
+ * route; no SSH route, jump host, or identity is part of it.
+ */
+export type MachineStatusReader = {
+  list(userId: string): Promise<ReadonlyArray<MachineStatusView>>;
+};
 
 /** Trusted, worker-bound capability for live owner Knowledge access. */
 export type KnowledgeToolSpaceReference = {
@@ -138,6 +149,18 @@ export interface ToolContext {
   readonly toolAdditions?: AttemptToolAdditions;
   /** Process-local Workspace MCP clients for this Chat's current binding. */
   readonly workspaceMcp?: WorkspaceMcpClients;
+  /**
+   * Operator-configured Machines this Run may address. Absent means no Machine
+   * surface exists, so `machine://` is refused as an unknown scheme.
+   */
+  readonly machines?: MachineConnector;
+  /** The owner-scoped status read model a bare `machine://` read lists. */
+  readonly machineStatus?: MachineStatusReader;
+  /**
+   * The attempt identity every Machine request carries and once-per-attempt
+   * reachability is cached by. Absent means one verdict for the process.
+   */
+  readonly machineAttemptKey?: string;
 }
 
 /** SPEC §13.5 classification. Code-owned non-read-only execution requires an

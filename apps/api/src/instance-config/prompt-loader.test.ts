@@ -1695,7 +1695,8 @@ describe('llame-owned tool description templates', () => {
   it('renders the packaged web guidance for read with or without knowledge_search', () => {
     // The web bullet carries no `{{#if}}` gate, so both catalogs see it, while
     // the `kb://` bullet is gated on `knowledge_search` and only the second
-    // does.
+    // does. The target bullet's own gate sits inside its sentence, so both
+    // catalogs read the same claim about the locators that need no executor.
     const withoutKnowledge = renderPackagedReadDescription(['read']);
     const withKnowledge = renderPackagedReadDescription([
       'read',
@@ -1708,7 +1709,13 @@ describe('llame-owned tool description templates', () => {
       // web target.
       expect(rendered).toContain('http(s)://<url> reads a public web page');
       expect(rendered).toContain('http:// or https:// web page');
-      expect(rendered).toContain('web locators need no native executor');
+      // A Machine locator is one of the locators that need no LOCAL executor:
+      // a Machine read runs on its own Machine, and only a host path binds the
+      // configured native one.
+      expect(rendered).toContain('machine://<name><absolute path>');
+      expect(rendered).toContain(
+        'machine://, and web locators need no local native executor',
+      );
     }
     expect(withoutKnowledge).not.toContain('kb://');
     expect(withoutKnowledge).not.toContain('Knowledge content is untrusted');
