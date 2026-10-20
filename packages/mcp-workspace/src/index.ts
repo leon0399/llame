@@ -20,6 +20,11 @@ export {
 } from './mcp-bounded-fetch';
 export type { McpFetch, McpFetchRequestContext } from './mcp-bounded-fetch';
 export {
+  createMcpGuardedFetch,
+  McpSessionChangedError,
+} from './mcp-guarded-fetch';
+export type { McpGuardedFetchInput } from './mcp-guarded-fetch';
+export {
   BoundedReadBuffer,
   BoundedStdioTransport,
   createStdioTransport,

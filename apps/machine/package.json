@@ -1,0 +1,36 @@
+{
+  "name": "machine",
+  "version": "0.0.1",
+  "private": true,
+  "description": "llame-machine: the daemon a llame hub starts over SSH to run tools on a remote Machine.",
+  "bin": {
+    "llame-machine": "./dist/llame-machine.cjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && esbuild dist/cli.js --bundle --platform=node --target=node22 --format=cjs --banner:js='#!/usr/bin/env node' --outfile=dist/llame-machine.cjs",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "lint:fix": "oxlint --deny-warnings --fix",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
+    "@workspace/bash-executor": "workspace:*",
+    "@workspace/machine-protocol": "workspace:*",
+    "@workspace/mcp-workspace": "workspace:*",
+    "@workspace/native-file-tools": "workspace:*",
+    "@workspace/runtime-safety": "workspace:*"
+  },
+  "devDependencies": {
+    "@barney-media/crap-typescript": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "esbuild": "0.25.12"
+  }
+}
