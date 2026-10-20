@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { formatDistanceToNowStrict } from "date-fns";
 
 import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
@@ -14,6 +13,7 @@ import {
 } from "@workspace/ui/components/card";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { RelativeTime } from "@/components/relative-time";
 import type { MachineResponse } from "@/lib/services/machines/queries";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 
@@ -107,11 +107,7 @@ function MachineFacts({ machine }: { machine: MachineResponse }) {
         {machine.lastSeenAt === null ? (
           "Never connected"
         ) : (
-          <time dateTime={machine.lastSeenAt}>
-            {formatDistanceToNowStrict(new Date(machine.lastSeenAt), {
-              addSuffix: true,
-            })}
-          </time>
+          <RelativeTime date={machine.lastSeenAt} />
         )}
       </FactRow>
       {failure === null ? null : (
