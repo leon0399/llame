@@ -5,6 +5,8 @@ import {
   SidebarProvider,
   AppSidebar,
 } from "@/app/shell/app-sidebar";
+import { AppShellFrame } from "@/app/shell/app-shell-frame";
+import { LiveUpdatesProvider } from "@/contexts/live-updates-context";
 
 import { AdminHeader } from "./components/admin-header";
 import { AdminSectionNav } from "./components/admin-section-nav";
@@ -33,16 +35,21 @@ export default async function AdminLayout({
   const host = headerStore.get("host") ?? "instance";
 
   return (
-    <SidebarProvider defaultOpen={defaultOpen} className="h-svh">
-      <AppSidebar />
+    <AppShellFrame>
+      <SidebarProvider defaultOpen={defaultOpen} className="min-h-0 flex-1">
+        {/* The status bar's Machine overview relies on live pushes, not a poll. */}
+        <LiveUpdatesProvider>
+          <AppSidebar />
 
-      <AdminSectionNav host={host} />
+          <AdminSectionNav host={host} />
 
-      <SidebarInset className="flex h-full flex-col overflow-hidden">
-        <AdminHeader />
+          <SidebarInset className="flex h-full flex-col overflow-hidden">
+            <AdminHeader />
 
-        {children}
-      </SidebarInset>
-    </SidebarProvider>
+            {children}
+          </SidebarInset>
+        </LiveUpdatesProvider>
+      </SidebarProvider>
+    </AppShellFrame>
   );
 }

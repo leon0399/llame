@@ -1,7 +1,8 @@
 "use client";
 
-// DEMO ONLY — static placeholder blocks to judge how session details look
-// with several groups. Not wired to any data; delete before committing.
+// Demo sections: static sample values, marked with a `demo` chip where they
+// are mounted, so the sidebar can be judged with several sections before the
+// data exists. Each is replaced by its real section, then this file goes.
 
 import { GitPullRequestIcon } from "lucide-react";
 
@@ -29,6 +30,8 @@ function UsageBar() {
   );
 }
 
+/** TODO(#1355): the open chat's context-window fill, compaction threshold,
+ *  and token/cost totals instead of these sample values. */
 export function DemoContextSection() {
   return (
     <>
@@ -51,6 +54,7 @@ export function DemoContextSection() {
   );
 }
 
+/** TODO(#1355): the real fill percentage. */
 export function DemoContextSummary() {
   return (
     <span className="flex items-center gap-2">
@@ -62,6 +66,8 @@ export function DemoContextSummary() {
   );
 }
 
+/** TODO(#1356): the open chat's changed files and linked pull request
+ *  instead of this sample. */
 export function DemoChangesSection() {
   return (
     <>
