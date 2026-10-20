@@ -721,6 +721,28 @@
         }
       }
     },
+    "ssh": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional operator-wide `ssh://` locator settings (ssh-locator, experimental). Absent means the feature does not exist: an `ssh://` path is refused as an unknown scheme and no SSH process starts. Present enables `ssh://` for every authenticated user whose Run passes tool eligibility and permissions. The same three file settings as `machines.ssh` apply, with the same defaults: host keys are pinned and checked strictly, and the included configuration can supply aliases, jump hosts, users, ports, ProxyCommand, and SendEnv but can never weaken the host-key check. See docs/product/operator/ssh.md.",
+      "properties": {
+        "knownHostsFile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pinned host-keys file checked for every hop, with strict checking (an unknown host key fails; nothing is learned on first use). Defaults to the worker user's ~/.ssh/known_hosts. A literal host path: interpolation is rejected, a relative path resolves against this configuration file's directory, and a leading `~/` resolves against the operator process home. The loader never probes it — a missing file fails at connect time, not boot."
+        },
+        "identityFile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional private key identifying the hub to every `ssh://` destination. A literal host path resolved like knownHostsFile. Omitted means the included SSH configuration's own identities apply."
+        },
+        "configFile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional SSH configuration to include after llame's safety block. A literal host path resolved like knownHostsFile; omitted means the worker user's ~/.ssh/config. Aliases, jump hosts, users, ports, ProxyCommand, and SendEnv come from here, and it is included for every hop."
+        }
+      }
+    },
     "runs": {
       "type": "object",
       "additionalProperties": false,

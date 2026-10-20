@@ -15,6 +15,7 @@ import {
 } from './machine-workspace';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineExecutorId } from '../machines/machine-locator';
+import { createSshClient, type SshClient } from '../ssh/ssh-client';
 import {
   serializeNativeModelOutput,
   statHostPath,
@@ -773,6 +774,8 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
   private readonly toolPromptRenderer: ToolPromptRenderer;
+  /** The process-wide `ssh://` transport; absent without the `ssh` section. */
+  private readonly sshClient: SshClient | undefined;
 
   /**
    * The Machine Workspace skill catalogs taken this process last prepared,
@@ -845,6 +848,11 @@ export class RunExecutionService {
       instancePromptFiles: this.instanceConfig.config.tools.promptFiles,
       models: this.instanceConfig.config.models,
     });
+    // One generated SSH configuration per worker process, written only when a
+    // call actually resolves or runs (ssh-locator D1). Without the `ssh`
+    // section there is no client, so `ssh://` stays an unknown scheme.
+    const ssh = this.instanceConfig.config.ssh;
+    this.sshClient = ssh === undefined ? undefined : createSshClient({ ssh });
   }
 
   /**
@@ -1312,6 +1320,7 @@ export class RunExecutionService {
         input.runId,
         claim.nativeDeliverySequence,
       ),
+      sshClient: this.sshClient,
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;

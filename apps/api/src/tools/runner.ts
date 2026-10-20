@@ -27,6 +27,11 @@ import {
   resolveWorkspacePath,
 } from './workspace-path';
 import { isMachineLocator } from '../machines/machine-locator';
+import {
+  admitSshRead,
+  isSshRead,
+  type SshReadAdmission,
+} from './ssh-admission';
 import { type PermissionDecision } from './permissions/types';
 
 const logger = new Logger('ToolRunner');
@@ -330,6 +335,9 @@ export function previewToolPermission(
   args: SubmittedToolArguments,
   context: ToolContext,
 ): boolean {
+  // A preview is synchronous: it cannot resolve an ssh destination, and the
+  // allow must be decided on the resolved locator, so it fails closed.
+  if (isSshRead(tool, args)) return false;
   return evaluateToolPermission(tool, args, context)?.decision === 'allow';
 }
 
@@ -358,7 +366,16 @@ export async function runTool(
   if ('result' in admission) return admission.result;
   const { context: validContext, args: validArgs, submittedArgs } = admission;
 
-  const decision = evaluateToolPermission(tool, submittedArgs, validContext);
+  // Any other call keeps the synchronous permission path; an `ssh://` read
+  // must resolve its destination first, so only that branch awaits.
+  const ssh: SshReadAdmission = isSshRead(tool, submittedArgs)
+    ? await admitSshRead(submittedArgs, validContext)
+    : { kind: 'none' };
+  if (ssh.kind === 'refused') return ssh.result;
+  const decision =
+    ssh.kind === 'decided'
+      ? ssh.decision
+      : evaluateToolPermission(tool, submittedArgs, validContext);
   if (decision === undefined) return permissionDeniedResult('no_allow');
   if (onAdmitted !== undefined) await onAdmitted(decision);
   if (decision.decision === 'reject') {
@@ -376,7 +393,12 @@ export async function runTool(
     };
   }
 
-  return executeAdmittedTool(tool, validArgs, validContext, callTimeoutSeconds);
+  return executeAdmittedTool(
+    tool,
+    validArgs,
+    ssh.kind === 'decided' ? ssh.context : validContext,
+    callTimeoutSeconds,
+  );
 }
 
 /** Run an admitted tool under its composed timeout/abort signal and map any

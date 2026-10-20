@@ -38,11 +38,8 @@ import {
   type RawWebSearchEngineEntry,
   type WebAdapterConfig,
 } from './llame-config';
-import type {
-  MachineHostConfig,
-  MachinesConfig,
-  RawMachinesConfig,
-} from './machines-config';
+import type { MachineHostConfig } from './machines-config';
+import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
@@ -488,7 +485,7 @@ export function loadInstanceConfig(
     mcpServers,
     knowledge: resolveKnowledge(raw, env),
     skills: resolveSkillsConfig(raw, configPath),
-    ...resolveMachinesSection(raw, configPath),
+    ...resolveRemoteSections(raw, configPath),
     workers: resolveWorkerProfiles(raw),
     providers,
     models,
@@ -856,65 +853,60 @@ const MACHINE_DESTINATION_PATTERN =
   /^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+(?::[0-9]{1,5})?$/;
 
 /**
- * Resolve the optional `machines` section (remote-machines D12) into the
- * fragment the config spreads: `{}` when the section is absent (so no
- * `machines` key exists at all and no Machine argument, route, status read, or
- * UI surface is offered, and a `machine://` locator stays an unknown scheme),
- * or `{ machines }` when it is present.
- *
- * Host keys are always checked strictly, against `machines.ssh.knownHostsFile`
- * or, when it is omitted, the worker user's `~/.ssh/known_hosts`.
+ * The optional remote sections: `machines` (remote-machines D12) and `ssh`
+ * (ssh-locator D1). Each is absent — so its locator stays an unknown scheme
+ * and nothing can start a process — unless the operator wrote it. Host keys
+ * are always checked strictly, against the section's `knownHostsFile` or the
+ * worker user's `~/.ssh/known_hosts`.
  */
-function resolveMachinesSection(
+function resolveRemoteSections(
   raw: RawInstanceConfig | undefined,
   configPath: string,
-): Pick<LlameConfig, 'machines'> {
-  const section = raw?.machines;
-  if (section === undefined) {
-    return {};
-  }
-
+): Pick<LlameConfig, 'machines' | 'ssh'> {
   const configDirectory = path.dirname(configPath);
+  const machines = raw?.machines;
+  const ssh = raw?.ssh;
   return {
-    machines: {
-      ssh: resolveMachineSsh(section.ssh, configDirectory),
-      hosts: resolveMachineHosts(section.hosts),
-    },
+    ...(machines !== undefined && {
+      machines: {
+        ssh: resolveSshFiles(machines.ssh, 'machines.ssh', configDirectory),
+        hosts: resolveMachineHosts(machines.hosts),
+      },
+    }),
+    ...(ssh !== undefined && {
+      ssh: resolveSshFiles(ssh, 'ssh', configDirectory),
+    }),
   };
 }
 
-/**
- * `machines.ssh`: the pinned host-keys file every hop is checked against
- * (default: the worker user's `~/.ssh/known_hosts`), plus the optional llame
- * identity and the SSH configuration to include after llame's safety block.
- * All three resolve to literal absolute paths.
- */
-function resolveMachineSsh(
-  ssh: RawMachinesConfig['ssh'],
+/** The three SSH file settings shared by `machines.ssh` and `ssh`. */
+function resolveSshFiles(
+  ssh: RawSshConfig | undefined,
+  configPath: string,
   configDirectory: string,
-): MachinesConfig['ssh'] {
+): SshConfig {
   const {
     knownHostsFile = '~/.ssh/known_hosts',
     identityFile,
     configFile,
   } = ssh ?? {};
   return {
-    knownHostsFile: resolveMachinePath(
+    knownHostsFile: resolveSshPath(
       knownHostsFile,
-      'machines.ssh.knownHostsFile',
+      `${configPath}.knownHostsFile`,
       configDirectory,
     ),
     ...(identityFile !== undefined && {
-      identityFile: resolveMachinePath(
+      identityFile: resolveSshPath(
         identityFile,
-        'machines.ssh.identityFile',
+        `${configPath}.identityFile`,
         configDirectory,
       ),
     }),
     ...(configFile !== undefined && {
-      configFile: resolveMachinePath(
+      configFile: resolveSshPath(
         configFile,
-        'machines.ssh.configFile',
+        `${configPath}.configFile`,
         configDirectory,
       ),
     }),
@@ -963,21 +955,22 @@ function resolveMachineDestination(name: string, destination: string): string {
 }
 
 /**
- * An `machines.ssh` file path. Like the `tools.promptFiles` and
- * `skills.directories` paths these are literal host paths on the hub box: any
- * token syntax is rejected before resolution, so a `{env:...}`/`{path:...}`
- * token cannot smuggle a different file in, and `~/` expands only because the
- * operator wrote it. The loader never probes the filesystem — an unmounted
- * pinned file is the session manager's connect-time failure, not a boot error.
+ * An `ssh` file path, shared by `ssh` and `machines.ssh`. Like the
+ * `tools.promptFiles` and `skills.directories` paths these are literal host
+ * paths on the hub box: any token syntax is rejected before resolution, so a
+ * `{env:...}`/`{path:...}` token cannot smuggle a different file in, and `~/`
+ * expands only because the operator wrote it. The loader never probes the
+ * filesystem — an unmounted pinned file is the session manager's connect-time
+ * failure, not a boot error.
  */
-function resolveMachinePath(
+function resolveSshPath(
   value: string,
   configPath: string,
   configDirectory: string,
 ): string {
   if (INTERPOLATION_TOKEN_SYNTAX.test(value)) {
     throw new InstanceConfigError(
-      `${configPath}: machine file paths are literal and do not support interpolation`,
+      `${configPath}: file paths are literal and do not support interpolation`,
     );
   }
   if (value.includes('\0')) {

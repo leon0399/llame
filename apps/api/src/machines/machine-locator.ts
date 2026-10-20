@@ -25,6 +25,7 @@ import {
 } from '@workspace/native-file-tools';
 
 import { decodeFileAlias } from '../tools/permissions/file-alias';
+import { encodeLocatorPath } from '../tools/permissions/locator-path';
 
 /** The locator scheme, and the prefix a Workspace executor id carries. */
 export const MACHINE_SCHEME = 'machine';
@@ -139,39 +140,10 @@ export function formatMachineLocator(
   const canonicalName = name.toLowerCase();
   if (!MACHINE_NAME_PATTERN.test(canonicalName)) return undefined;
   if (selector !== undefined && !isSelectorSuffix(selector)) return undefined;
-  const encoded = encodeMachinePath(path);
+  const encoded = encodeLocatorPath(path);
   if (encoded === undefined) return undefined;
   const locator = `${MACHINE_SCHEME}://${canonicalName}${encoded}`;
   return selector === undefined ? locator : `${locator}:${selector}`;
-}
-
-function encodeMachinePath(path: string): string | undefined {
-  if (!path.startsWith(NAME_SEPARATOR) || path.includes('\u0000'))
-    return undefined;
-  const lastSeparator = path.lastIndexOf(NAME_SEPARATOR);
-  let encoded = '';
-  for (let index = 0; index < path.length; index += 1) {
-    encoded += encodePathCharacter(
-      path.charCodeAt(index),
-      index > lastSeparator,
-    );
-  }
-  return encoded;
-}
-
-/** One character of a path, escaped only where the grammar requires it. */
-function encodePathCharacter(
-  code: number,
-  afterLastSeparator: boolean,
-): string {
-  if (code === 0x25) return '%25';
-  if (code === 0x23) return '%23';
-  if (code === 0x3f) return '%3F';
-  if (code === 0x5c) return '%5C';
-  if (code === 0x3a && afterLastSeparator) return '%3A';
-  if (code <= 0x1f || code === 0x7f)
-    return `%${code.toString(16).padStart(2, '0').toUpperCase()}`;
-  return String.fromCharCode(code);
 }
 
 /** The executor id a Machine Workspace binds: `machine:<name>`. */

@@ -13,6 +13,7 @@ import {
   parseMachineLocator,
 } from '../machines/machine-locator';
 import { readFsStatResult } from '../machines/machine-results';
+import { isSshLocator } from '../ssh/ssh-locator';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { boundSkillCatalog } from '../skills/skill-prompt-baseline';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
@@ -484,6 +485,10 @@ export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
     }
     if (isMachineLocator(input.path))
       return enterMachineEntry(context, input.path);
+    if (isSshLocator(input.path))
+      return invalidWorkspacePath(
+        'An ssh:// locator cannot be a Workspace root; Workspace selects a local or Machine directory.',
+      );
 
     const authority = localAuthority(context);
     if ('status' in authority) return authority;
