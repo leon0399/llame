@@ -97,6 +97,8 @@ jobs:
             dir: packages/bash-executor
           - flag: config-interpolation
             dir: packages/config-interpolation
+          - flag: machine-protocol
+            dir: packages/machine-protocol
           - flag: native-file-tools
             dir: packages/native-file-tools
           - flag: oxlint-plugin-anti-slop
