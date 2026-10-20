@@ -39,6 +39,7 @@ argument: the selector in `path` carries all of that. See
 | [absolute host path](../locators/host-path.md) | yes      | yes     | the worker's filesystem; depth-2 listing |
 | [`file://`](../locators/host-path.md#form)     | yes      | yes     | the same path, decoded once              |
 | [`machine://`](../locators/machine.md)         | no       | yes     | a configured Machine, over SSH           |
+| [`ssh://`](../locators/ssh.md)                 | no       | no      | an external host, over SSH               |
 | [`kb://`](../locators/kb.md)                   | no       | yes     | the owner's Knowledge Space tree         |
 | [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only    |
 | [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process  |
@@ -159,6 +160,15 @@ locator; a bare `machine://` lists the configured Machines with their status and
 it with no sandbox and no isolation between users who share the Machine; see
 [machine](../locators/machine.md#authority).
 
+An `ssh://` read runs on an external host as its login user, over the operator's
+SSH configuration and the instance's SSH identity, with no sandbox and no
+isolation between llame users. It returns UTF-8 text up to 1 MiB with the same
+selectors and line numbers as a local read, or one level of the directory in the
+local listing form, capped at 1,000 entries with a line saying more exist; a
+larger file is `file_too_large`, and a FIFO, socket, or device is
+`not_regular_file`. Its directory is not entered by any Workspace, and its
+instruction chain is never loaded. See [ssh](../locators/ssh.md#authority).
+
 A marker in a prompt (`@path`, `@"…"`, `@'…'`, ``@`…` ``, `@[label](path)`, or
 `[label](path "import")`) is read once for the owner before the first model
 request, with the same locators and selectors; see [prompt imports](../prompt-imports.md).
@@ -201,6 +211,8 @@ cannot be decoded, fails `unsupported_media_type`. Neither falls back to text.
   the `read` entry.
 - [Web reads](../../operator/web-read.md) configures `http(s)://` restrictions,
   and [web adapters](../../operator/web-adapters.md) configures adapters.
+- [SSH locators](../../operator/ssh.md) enables `ssh://` and pins the host keys
+  behind it.
 - [Personal Knowledge](../../operator/knowledge.md) configures the Knowledge root
   behind `kb://`.
 - [Skills](../../operator/skills.md) installs the packages `skill://` reads.

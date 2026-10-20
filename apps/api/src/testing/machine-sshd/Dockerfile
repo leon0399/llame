@@ -50,6 +50,34 @@ COPY notes.txt /home/box/work/notes.txt
 RUN rm -f /etc/ssh/ssh_host_* \
   && chown -R box:box /home/box
 
+# The `ssh://` read fixtures (ssh-locator task 4.1), created as root so the box
+# account's own permissions decide each case: a plain file and a link to it, an
+# empty file, a 2 MiB file, a name with a newline in it, a FIFO, a file and a
+# directory only root can read, an empty directory, and a directory past the
+# 1,000-entry listing bound. The login-shell startup file is box's `.bashrc`,
+# printed through the `BASH_ENV` the plain key's `authorized_keys` line sets:
+# sshd's own `bash -c` is not interactive and would not read it otherwise.
+RUN mkdir -p /home/box/work/fixture/empty-dir /home/box/work/fixture/many \
+  && printf 'symlink target\n' > /home/box/work/fixture/target.txt \
+  && ln -s target.txt /home/box/work/fixture/link.txt \
+  && : > /home/box/work/fixture/empty.txt \
+  && printf 'hidden\n' > /home/box/work/fixture/.hidden.txt \
+  && printf 'one\ntwo\nthree\nfour\n' > /home/box/work/fixture/lines.txt \
+  && head -c 2097152 /dev/zero | tr '\0' 'a' > /home/box/work/fixture/big.txt \
+  && printf 'kept as one entry\n' > "/home/box/work/fixture/$(printf 'line\nbreak.txt')" \
+  && mkfifo /home/box/work/fixture/fifo \
+  && printf 'root only\n' > /home/box/work/fixture/secret.txt \
+  && chmod 0600 /home/box/work/fixture/secret.txt \
+  && mkdir -p /home/box/work/fixture/root-only \
+  && printf 'root only\n' > /home/box/work/fixture/root-only/inside.txt \
+  && chmod 0700 /home/box/work/fixture/root-only \
+  && i=0 \
+  && while [ "$i" -lt 1500 ]; do : > "/home/box/work/fixture/many/f$(printf %04d "$i")"; i=$((i + 1)); done \
+  && printf '%s\n' \
+    'echo "llame fixture: login shell startup noise"' \
+    'echo "llame fixture: login shell diagnostic noise" >&2' \
+    > /home/box/.bashrc
+
 COPY sshd_config /etc/ssh/sshd_config
 COPY entrypoint.sh /usr/local/bin/machine-sshd
 RUN chmod 0755 /usr/local/bin/machine-sshd

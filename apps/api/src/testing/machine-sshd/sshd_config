@@ -34,6 +34,12 @@ PrintMotd no
 UseDNS no
 Subsystem sftp internal-sftp
 
+# One authorized_keys line (the plain-login `ssh://` key) sets BASH_ENV, so the
+# account's login-shell startup file prints on every session and the read
+# suites can prove that output is discarded. The option is per key: the Machine
+# hub key carries no `environment=` and sees no change.
+PermitUserEnvironment yes
+
 # The liveness sshd side of the connection: the daemon's own heartbeat keeps
 # the link busy well inside this window, and a hub that goes silent without
 # closing the link is disconnected (the operator page documents the same).

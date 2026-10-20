@@ -51,7 +51,7 @@ import {
   MACHINE_SCHEME,
   parseMachineLocator,
 } from '../machines/machine-locator';
-import { sshUnsupportedMutationResult } from './ssh-results';
+import { executeSshNative } from './ssh-files';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -142,9 +142,8 @@ function executeLocator(
     // submitted text, which policy matched, and requests its canonical form.
     return executeWebRead(context, call);
   }
-  // `ssh://` supports `read` and a `bash` cwd only; a read stays unknown.
-  if (scheme === 'ssh' && call.operation !== 'read' && context.sshClient)
-    return Promise.resolve(sshUnsupportedMutationResult());
+  if (scheme === 'ssh' && context.sshClient !== undefined)
+    return executeSshNative(context, call.operation, call.input.path);
   return Promise.resolve(unknownSchemeResult());
 }
 

@@ -26,7 +26,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   GenericContainer,
@@ -40,6 +39,23 @@ import {
 
 import type { MachinesConfig } from '../../instance-config/machines-config';
 import { createSshConfigFile, type SshConfigFile } from '../../ssh/ssh-config';
+import {
+  SSHD_STARTUP_MS,
+  ensureRunning,
+  startForRestart,
+  stopForRestart,
+} from './container-restart';
+import {
+  sshConnection,
+  type SshConnectionVariant,
+  type SshFixtureFiles,
+  type SshdSshConnection,
+} from './ssh-connections';
+
+export type {
+  SshConnectionVariant,
+  SshdSshConnection,
+} from './ssh-connections';
 
 const FIXTURES = __dirname;
 
@@ -56,11 +72,21 @@ const DAEMON_TARGET = '/usr/local/bin/llame-machine';
 /** Where the suite puts the key this container's `box` user may log in with. */
 const SETUP_KEYS_TARGET = '/tmp/llame-setup/authorized_keys';
 
+/** Where the suite tells the entrypoint to start the `sh`-only variant. */
+const SH_ONLY_TARGET = '/tmp/llame-setup/sh-only';
+
 const BASTION_ALIAS = 'bastion';
 const HUB_KEY_COMMENT = 'llame-machine-sshd-test';
+const PLAIN_KEY_COMMENT = 'llame-ssh-locator-sshd-test';
+const REJECTED_KEY_COMMENT = 'llame-ssh-locator-rejected-key';
 const SSHD_HOST_KEY = '/etc/ssh/ssh_host_ed25519_key.pub';
-const SSHD_STARTUP_MS = 60_000;
-const SSHD_POLL_MS = 200;
+
+/**
+ * The box's login-shell startup file prints through the plain key's
+ * `BASH_ENV`, so every `ssh://` session sees text before the read script does.
+ * The bytes here are the ones the image writes.
+ */
+const LOGIN_SHELL_NOISE = 'llame fixture: login shell startup noise';
 
 /** sshd's readiness line: it runs with `-e`, so its log is the container's. */
 const SSHD_READY = Wait.forLogMessage(
@@ -77,6 +103,15 @@ export const MACHINE_SSHD_ALIAS = 'box';
 /** The box's registered root (baked into the image's roots.json). */
 export const MACHINE_SSHD_ROOT = '/home/box/work';
 export const MACHINE_SSHD_NOTES_FILE = `${MACHINE_SSHD_ROOT}/notes.txt`;
+
+/** The root-only read fixtures the image creates (ssh-locator task 4.1). */
+export const MACHINE_SSHD_FIXTURE_ROOT = `${MACHINE_SSHD_ROOT}/fixture`;
+
+/** The text the login shell writes before every `ssh://` script runs. */
+export const MACHINE_SSHD_LOGIN_NOISE = LOGIN_SHELL_NOISE;
+
+/** The `sh`-only container's alias: `/bin/sh` and no `bash`. */
+export const MACHINE_SSHD_SH_ALIAS = 'shbox';
 
 /** The bytes the suite expects back for that file, read from the same fixture
  *  the image copies, so the expectation cannot drift from the container. */
@@ -115,10 +150,18 @@ export type MachineSshdConnection = {
 export type MachineSshd = {
   readonly bastion: StartedTestContainer;
   readonly box: StartedTestContainer;
+  /** The same image with `bash` removed and `/bin/sh` as the account's shell. */
+  readonly shBox: StartedTestContainer;
   readonly hubKeyFile: string;
+  /** The plain-login key both the box and the bastion accept. */
+  readonly plainKeyFile: string;
+  /** A key neither container accepts. */
+  readonly rejectedKeyFile: string;
   /** Where a winning `ControlMaster auto` would have put its socket. */
   readonly controlDirectory: string;
   connection(options?: ConnectionVariant): MachineSshdConnection;
+  /** The files an `ssh://` client connects with, over the same route. */
+  ssh(options?: SshConnectionVariant): SshdSshConnection;
   /** Run a command inside a container, failing on a non-zero exit. */
   execIn(
     container: StartedTestContainer,
@@ -150,12 +193,20 @@ type FixtureContext = {
   readonly directory: string;
   readonly controlDirectory: string;
   readonly hubKeyFile: string;
+  readonly plainKeyFile: string;
+  readonly rejectedKeyFile: string;
   readonly network: StartedNetwork;
   readonly bastionPort: number;
+  readonly shBoxPort: number;
   readonly bastion: StartedTestContainer;
   readonly box: StartedTestContainer;
+  readonly shBox: StartedTestContainer;
   /** `<name> <key>` lines, one per container, ready for a known_hosts file. */
-  readonly hostKeys: { readonly bastion: string; readonly box: string };
+  readonly hostKeys: {
+    readonly bastion: string;
+    readonly box: string;
+    readonly shBox: string;
+  };
   readonly generated: Array<SshConfigFile>;
 };
 
@@ -192,12 +243,12 @@ function assertFixtureTools(): void {
   }
 }
 
-/** A throwaway hub key pair; the suite pins its public half on both containers. */
-function createHubKey(directory: string): string {
-  const keyFile = join(directory, 'hub_ed25519');
+/** A throwaway key pair; the suite installs the ones a container may accept. */
+function createKey(directory: string, name: string, comment: string): string {
+  const keyFile = join(directory, name);
   execFileSync(
     'ssh-keygen',
-    ['-q', '-t', 'ed25519', '-N', '', '-C', HUB_KEY_COMMENT, '-f', keyFile],
+    ['-q', '-t', 'ed25519', '-N', '', '-C', comment, '-f', keyFile],
     { stdio: 'ignore' },
   );
   return keyFile;
@@ -240,6 +291,28 @@ async function startBox(
       // Copied in before start, so the forced command's path exists from the
       // first session, and the image never has to be rebuilt with the daemon.
       { content: daemon, target: DAEMON_TARGET, mode: 0o755 },
+    ])
+    .withWaitStrategy(SSHD_READY)
+    .withStartupTimeout(SSHD_STARTUP_MS)
+    .start();
+}
+
+/**
+ * The `sh`-only variant: the same image with `bash` removed at boot, so an
+ * `ssh://` read still succeeds and a `bash` call must be refused.
+ */
+async function startShBox(
+  network: StartedNetwork,
+  authorizedKeys: string,
+): Promise<StartedTestContainer> {
+  return (await builder().build())
+    .withNetwork(network)
+    .withNetworkAliases(MACHINE_SSHD_SH_ALIAS)
+    .withExposedPorts(22)
+    .withAutoRemove(false)
+    .withCopyContentToContainer([
+      { content: authorizedKeys, target: SETUP_KEYS_TARGET, mode: 0o644 },
+      { content: '', target: SH_ONLY_TARGET, mode: 0o644 },
     ])
     .withWaitStrategy(SSHD_READY)
     .withStartupTimeout(SSHD_STARTUP_MS)
@@ -378,45 +451,6 @@ async function restorePackets(container: StartedTestContainer): Promise<void> {
   await execIn(container, ['iptables', '-D', 'INPUT', ...DROP_RULE]);
 }
 
-/** Whether that container's sshd accepts a connection yet. */
-async function sshdListens(container: StartedTestContainer): Promise<boolean> {
-  // bash's /dev/tcp is the probe: it is the same TCP handshake the hub makes,
-  // and it needs nothing installed in the image.
-  const probe = await container.exec([
-    'bash',
-    '-c',
-    'exec 3<>/dev/tcp/127.0.0.1/22',
-  ]);
-  return probe.exitCode === 0;
-}
-
-async function startForRestart(container: StartedTestContainer): Promise<void> {
-  execFileSync('docker', ['start', container.getId()], { stdio: 'ignore' });
-  const deadline = Date.now() + SSHD_STARTUP_MS;
-  while (Date.now() < deadline) {
-    if (await sshdListens(container)) return;
-    await delay(SSHD_POLL_MS);
-  }
-  throw new Error(
-    `${container.getName()} did not serve sshd within ${String(SSHD_STARTUP_MS)}ms of starting.`,
-  );
-}
-
-async function ensureRunning(container: StartedTestContainer): Promise<void> {
-  try {
-    await container.exec(['true']);
-    return;
-  } catch (error) {
-    // A container the previous test stopped is expected; anything else says so
-    // through the failure of the start below.
-    console.warn(
-      `[machine-sshd] starting ${container.getName()} for the next test:`,
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-  await startForRestart(container);
-}
-
 /**
  * Teardown never fails an otherwise-green run; say what leaked instead, and
  * remember the reaper still collects anything labeled with this run.
@@ -435,15 +469,55 @@ async function teardown(
   }
 }
 
+/** The known_hosts lines and host names every `ssh://` connection file set uses. */
+function sshFixtureFiles(context: FixtureContext): SshFixtureFiles {
+  return {
+    directory: context.directory,
+    controlDirectory: context.controlDirectory,
+    plainKeyFile: context.plainKeyFile,
+    bastionPort: context.bastionPort,
+    shBoxPort: context.shBoxPort,
+    hostKeys: context.hostKeys,
+    hosts: {
+      box: MACHINE_SSHD_ALIAS,
+      bastion: BASTION_ALIAS,
+      shBox: MACHINE_SSHD_SH_ALIAS,
+    },
+  };
+}
+
+/** Remove every container, the network, and the private directory. */
+async function disposeFixture(context: FixtureContext): Promise<void> {
+  const remove = { remove: true, removeVolumes: true };
+  for (const generated of context.generated) generated.dispose();
+  await teardown('stopping the sh-only box failed', async () => {
+    await context.shBox.stop(remove);
+  });
+  await teardown('stopping the box failed', async () => {
+    await context.box.stop(remove);
+  });
+  await teardown('stopping the bastion failed', async () => {
+    await context.bastion.stop(remove);
+  });
+  await teardown('removing the fixture network failed', async () => {
+    await context.network.stop();
+  });
+  rmSync(context.directory, { recursive: true, force: true });
+}
+
 function fixture(
   context: FixtureContext,
   connections: Connections,
 ): MachineSshd {
-  const remove = { remove: true, removeVolumes: true };
+  const sshConnections = new Map<string, SshdSshConnection>();
+  const files = sshFixtureFiles(context);
   return {
     bastion: context.bastion,
     box: context.box,
+    shBox: context.shBox,
     hubKeyFile: context.hubKeyFile,
+    plainKeyFile: context.plainKeyFile,
+    rejectedKeyFile: context.rejectedKeyFile,
     controlDirectory: context.controlDirectory,
     connection: (options = {}) => {
       const pinned = (options.pinBastion ?? true) ? 'pinned' : 'unpinned';
@@ -451,57 +525,97 @@ function fixture(
         ? connections[`${pinned}-weakened`]
         : connections[pinned];
     },
+    ssh: (options = {}) => sshConnection(sshConnections, files, options),
     execIn,
     dropPackets,
     restorePackets,
-    stopForRestart: (container) => {
-      execFileSync('docker', ['stop', container.getId()], { stdio: 'ignore' });
-    },
+    stopForRestart,
     startForRestart,
     ensureRunning,
-    dispose: async () => {
-      for (const generated of context.generated) generated.dispose();
-      await teardown('stopping the box failed', async () => {
-        await context.box.stop(remove);
-      });
-      await teardown('stopping the bastion failed', async () => {
-        await context.bastion.stop(remove);
-      });
-      await teardown('removing the fixture network failed', async () => {
-        await context.network.stop();
-      });
-      rmSync(context.directory, { recursive: true, force: true });
-    },
+    dispose: () => disposeFixture(context),
   };
 }
 
-async function provision(directory: string): Promise<MachineSshd> {
-  const hubKeyFile = createHubKey(directory);
-  const publicKey = readFileSync(`${hubKeyFile}.pub`, 'utf8').trim();
-  const daemon = daemonBundle();
-  const network = await new Network().start();
-  // The bastion key may only forward to the box; the box key runs the forced
-  // command. Nothing above either container's own `authorized_keys` line.
+/** The key pairs every container is started with, and their public halves. */
+type FixtureKeys = {
+  readonly hubKeyFile: string;
+  readonly plainKeyFile: string;
+  readonly rejectedKeyFile: string;
+  readonly hubPublic: string;
+  readonly plainPublic: string;
+};
+
+function createFixtureKeys(directory: string): FixtureKeys {
+  const hubKeyFile = createKey(directory, 'hub_ed25519', HUB_KEY_COMMENT);
+  const plainKeyFile = createKey(directory, 'plain_ed25519', PLAIN_KEY_COMMENT);
+  const rejectedKeyFile = createKey(
+    directory,
+    'rejected_ed25519',
+    REJECTED_KEY_COMMENT,
+  );
+  return {
+    hubKeyFile,
+    plainKeyFile,
+    rejectedKeyFile,
+    hubPublic: readFileSync(`${hubKeyFile}.pub`, 'utf8').trim(),
+    plainPublic: readFileSync(`${plainKeyFile}.pub`, 'utf8').trim(),
+  };
+}
+
+/**
+ * The three containers, each with only the `authorized_keys` lines it needs:
+ * the hub key may only forward from the bastion and only run the daemon on the
+ * box, and the plain key is a login the `ssh://` suite uses, with the box's
+ * login-shell startup noise enabled on that host alone.
+ */
+async function startContainers(
+  network: StartedNetwork,
+  keys: FixtureKeys,
+  daemon: Buffer,
+): Promise<{
+  readonly bastion: StartedTestContainer;
+  readonly box: StartedTestContainer;
+  readonly shBox: StartedTestContainer;
+}> {
+  const forwarding = `restrict,port-forwarding,permitopen="${MACHINE_SSHD_ALIAS}:22"`;
   const bastion = await startBastion(
     network,
-    `restrict,port-forwarding,permitopen="${MACHINE_SSHD_ALIAS}:22" ${publicKey}\n`,
+    `${forwarding} ${keys.hubPublic}\n${forwarding} ${keys.plainPublic}\n`,
   );
   const box = await startBox(
     network,
-    `restrict,command="${DAEMON_TARGET} serve --stdio" ${publicKey}\n`,
+    `restrict,command="${DAEMON_TARGET} serve --stdio" ${keys.hubPublic}\n` +
+      `restrict,environment="BASH_ENV=/home/box/.bashrc" ${keys.plainPublic}\n`,
     daemon,
+  );
+  const shBox = await startShBox(network, `restrict ${keys.plainPublic}\n`);
+  return { bastion, box, shBox };
+}
+
+async function provision(directory: string): Promise<MachineSshd> {
+  const keys = createFixtureKeys(directory);
+  const network = await new Network().start();
+  const { bastion, box, shBox } = await startContainers(
+    network,
+    keys,
+    daemonBundle(),
   );
   const context: FixtureContext = {
     directory,
     controlDirectory: join(directory, 'control'),
-    hubKeyFile,
+    hubKeyFile: keys.hubKeyFile,
+    plainKeyFile: keys.plainKeyFile,
+    rejectedKeyFile: keys.rejectedKeyFile,
     network,
     bastionPort: bastion.getMappedPort(22),
+    shBoxPort: shBox.getMappedPort(22),
     bastion,
     box,
+    shBox,
     hostKeys: {
       bastion: await hostKeyLine(bastion, BASTION_ALIAS),
       box: await hostKeyLine(box, MACHINE_SSHD_ALIAS),
+      shBox: await hostKeyLine(shBox, MACHINE_SSHD_SH_ALIAS),
     },
     generated: [],
   };

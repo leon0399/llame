@@ -21,6 +21,8 @@ below state additional ordering where a change needs it.
   `write`, `bash`, Workspace entry, and permission modes.
 - [Remote Machines](machines.md): experimental SSH-reached Machines, the
   `llame-machine` daemon, registered roots, permissions, and status.
+- [SSH locators](ssh.md): experimental `ssh://` reads on external hosts, pinned
+  keys, the included SSH configuration, and its threats.
 - [Web reads](web-read.md): `http(s)://` reads, address pinning, and the web
   threat model.
 - [Web adapters](web-adapters.md): each `tools.webAdapters` entry, the URLs it

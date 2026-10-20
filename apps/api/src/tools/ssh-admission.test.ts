@@ -448,8 +448,8 @@ describe('ssh read admission', () => {
     expect(executionContext?.sshBinding).toBeUndefined();
   });
 
-  it('fails closed for an admitted read until the remote dispatch lands', async () => {
-    const { client } = fakeSsh();
+  it('runs an admitted read through the resolved binding and its client', async () => {
+    const { client, run } = fakeSsh();
     const result = await runTool(
       nativeReadTool,
       { path: 'ssh://box/etc/hostname' },
@@ -457,11 +457,20 @@ describe('ssh read admission', () => {
       5,
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: 'error',
-      type: 'invalid_path',
-      message: 'This path scheme is not available.',
+      type: 'ssh_unavailable',
     });
+    expect(result.status === 'error' && result.message).toContain(
+      'client_missing',
+    );
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destination: 'box',
+        resolved: RESOLVED,
+        remoteCommand: ['sh', '-s'],
+      }),
+    );
   });
 
   it('returns invalid_path for a malformed locator before resolving', async () => {
