@@ -68,14 +68,15 @@ export const machinesStatus = pgTable(
     // READ: an authenticated identity only. This is the policy the spec's
     // "Requests without an authenticated identity SHALL NOT read Machine
     // status" is enforced by; `runAsPublic` (identity '') deliberately matches
-    // nothing, and the identity-less probe path cannot read either — it only
-    // writes.
+    // nothing. The hub's own live push reads the row in the marked system
+    // context below instead of any user's identity, because it sends the
+    // instance-wide record to every connection.
     pgPolicy('machines_status_authenticated_select', {
       for: 'select',
       using: sql`current_setting('app.current_user_id', true) <> ''`,
     }),
-    // WRITE: the hub's own system context, marked per transaction by
-    // `set_config('app.machines_system', '1', true)` in
+    // WRITE, and the live push's read: the hub's own system context, marked
+    // per transaction by `set_config('app.machines_system', '1', true)` in
     // MachinesStatusRepository. The marker is transaction-local, so a session
     // event and the probe job write, while a request — which never sets it —
     // cannot. It is one `for: 'all'` policy rather than per-command ones on

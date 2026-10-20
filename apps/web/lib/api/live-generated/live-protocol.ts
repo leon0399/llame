@@ -62,6 +62,59 @@ export const projectDeletedMessageSchema = z
   .strict();
 export type ProjectDeletedMessage = z.infer<typeof projectDeletedMessageSchema>;
 
+export const machineResponseSchema = z.object({
+  name: z.string().describe("The configured Machine name."),
+  status: z
+    .enum(["online", "offline"])
+    .describe(
+      "Online when the last successful contact is inside the inactivity window and after the last failure.",
+    ),
+  lastSeenAt: z
+    .string()
+    .nullable()
+    .describe("When the hub last completed a handshake with this Machine."),
+  failureReason: z
+    .enum([
+      "unreachable",
+      "host_key_mismatch",
+      "auth_failed",
+      "incompatible_version",
+      "session_lost",
+    ])
+    .nullable()
+    .describe("Why the last contact attempt failed, when one did."),
+  hubProtocolVersion: z
+    .number()
+    .describe("The protocol version the hub speaks."),
+  daemonProtocolVersion: z
+    .number()
+    .nullable()
+    .describe("The protocol version the daemon reported, once known."),
+  daemonVersion: z.string().nullable(),
+  roots: z
+    .array(z.string())
+    .describe("The Machine's registered roots; addressing, not isolation."),
+});
+export type MachineResponse = z.infer<typeof machineResponseSchema>;
+
+export const machineUpsertedMessageSchema = z
+  .object({
+    type: z.literal("machine.upserted"),
+    machine: machineResponseSchema,
+  })
+  .strict();
+export type MachineUpsertedMessage = z.infer<
+  typeof machineUpsertedMessageSchema
+>;
+
+export const machineDeletedMessageSchema = z
+  .object({
+    type: z.literal("machine.deleted"),
+    name: z.string().describe("The removed Machine's name, its primary key."),
+  })
+  .strict();
+export type MachineDeletedMessage = z.infer<typeof machineDeletedMessageSchema>;
+
 export const chatRefCardSchema = z.object({
   id: z.string().uuid(),
   title: z.string().nullable(),
@@ -179,6 +232,8 @@ export const liveMessageSchema = z.discriminatedUnion("type", [
   chatDeletedMessageSchema,
   projectUpsertedMessageSchema,
   projectDeletedMessageSchema,
+  machineUpsertedMessageSchema,
+  machineDeletedMessageSchema,
   pinsReplacedMessageSchema,
   runUpdatedMessageSchema,
   runProgressMessageSchema,

@@ -38,11 +38,12 @@ type LiveUpdatesContextValue = {
 const LiveUpdatesContext = createContext<LiveUpdatesContextValue | null>(null);
 
 /**
- * Holds one owner-scoped WebSocket to the API (protocol:
+ * Holds one authenticated WebSocket to the API (protocol:
  * `apps/api/asyncapi.websocket.yaml`). Record messages update the TanStack Query caches
  * in place; run messages go to subscribers (the active-runs provider).
  * Reconnects with jittered backoff; on every (re)connect it refetches the
- * owner lists, since messages sent while it was disconnected are lost.
+ * lists a missed message could have changed, since messages sent while it was
+ * disconnected are lost.
  * When the server ends the session (close code 4401) it stops and sends the
  * user to sign in, as an HTTP 401 does.
  */

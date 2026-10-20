@@ -1,19 +1,23 @@
 /**
- * MachinesStatusRepository — the `machines_status` table's two access paths,
- * kept in one place so the RLS split is visible rather than implied:
+ * MachinesStatusRepository — the `machines_status` table's access paths, kept
+ * in one place so the RLS split is visible rather than implied:
  *
  * - WRITES (a session event, the probe job) run on the identity-less `DB_DEV`
  *   connection inside a transaction that marks itself as the system context
  *   (`app.machines_system`), which is the one policy that admits them. The
  *   marker is transaction-local and no request path sets it, so a user request
  *   cannot write status.
- * - READS run under `runAs(userId)`, the only context the select policy admits,
- *   so an unauthenticated caller gets no rows even if a handler forgot a filter.
+ * - READS for a request run under `runAs(userId)`, the only context the select
+ *   policy admits, so an unauthenticated caller gets no rows even if a handler
+ *   forgot a filter.
+ * - The LIVE push's read (`findForLive`) has no request identity: it serves
+ *   every connection and the record is instance-wide by design, so it reads in
+ *   the same system context as the writer. That context can only read this
+ *   table's instance-wide rows, which every authenticated user may read anyway.
  */
 
 import { Inject, Injectable } from '@nestjs/common';
-import { inArray, notInArray } from 'drizzle-orm';
-import { sql } from 'drizzle-orm';
+import { eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
@@ -31,6 +35,20 @@ import {
 
 /** The transaction-local setting that marks the hub's own status writer. */
 const SYSTEM_MARKER = sql`select set_config('app.machines_system', '1', true)`;
+
+/** A selected row, with its failure reason narrowed to the closed set. */
+function asStatusRow(
+  row: typeof machinesStatus.$inferSelect,
+): MachineStatusRow {
+  // The CHECK constrains the column to the closed set; the guard keeps the
+  // mapping honest without asserting a shape.
+  return {
+    ...row,
+    lastFailureReason: isMachineFailureReason(row.lastFailureReason)
+      ? row.lastFailureReason
+      : null,
+  };
+}
 
 /** The row one contact produces, with every daemon-supplied value bounded. */
 function contactRow(
@@ -123,14 +141,24 @@ export class MachinesStatusRepository {
         .select()
         .from(machinesStatus)
         .where(inArray(machinesStatus.name, [...names]));
-      // The CHECK constrains the column to the closed set; the guard keeps
-      // the mapping honest without asserting a shape.
-      return rows.map((row) => ({
-        ...row,
-        lastFailureReason: isMachineFailureReason(row.lastFailureReason)
-          ? row.lastFailureReason
-          : null,
-      }));
+      return rows.map(asStatusRow);
+    });
+  }
+
+  /**
+   * One Machine's row for the live push. The hub holds no request identity and
+   * sends the record to every connection, so this runs in the same system
+   * context as the writer rather than under an arbitrary user.
+   */
+  async findForLive(name: string): Promise<MachineStatusRow | undefined> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(SYSTEM_MARKER);
+      const [row] = await tx
+        .select()
+        .from(machinesStatus)
+        .where(eq(machinesStatus.name, name))
+        .limit(1);
+      return row === undefined ? undefined : asStatusRow(row);
     });
   }
 

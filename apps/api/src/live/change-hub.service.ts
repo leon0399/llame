@@ -1,6 +1,6 @@
 /**
  * ChangeHub — one Postgres LISTEN connection per API process, fanned out to
- * owner-scoped subscribers (the live WebSocket gateway).
+ * subscribers (the live WebSocket gateway).
  *
  * A notification is a pointer: routing uses the payload's owner, which the
  * trigger reads from the changed row, never from a caller. For an owner with
@@ -9,6 +9,10 @@
  * Reads run in notification order per owner; a notification for a record
  * whose read has not started yet is merged into that read, which then sees
  * the latest committed state. A failed read sends `resync`.
+ *
+ * An instance-wide record — a Machine, which every authenticated user may
+ * read — has no owner in its payload. It is sent to every connection, and its
+ * read runs without an identity (see `MachinesStatusRepository.findForLive`).
  *
  * Every outgoing message is serialized and validated against the generated
  * wire schema, so the server cannot send a shape `asyncapi.websocket.yaml` does not
@@ -33,6 +37,7 @@ import {
   parseChangeNotification,
   recordJobFor,
   RunProgressTracker,
+  type ChangeNotification,
   type LiveMessage,
   type RecordJob,
   type ServerLiveMessage,
@@ -45,10 +50,21 @@ import {
 /** Receives one serialized, schema-valid message frame. */
 type LiveSubscriber = (frame: string) => void;
 
-/** What the gateway needs from the hub. */
-export type ChangeHubSubscriptions = Pick<ChangeHubService, 'subscribe'>;
+/**
+ * The audience for instance-wide records: every open connection. A symbol, so
+ * no user id can ever be mistaken for it.
+ */
+const INSTANCE_AUDIENCE = Symbol('instance');
 
-type OwnerQueue = { jobs: Array<RecordJob>; waiting: Set<string> };
+type Audience = string | typeof INSTANCE_AUDIENCE;
+
+/** What the gateway needs from the hub. */
+export type ChangeHubSubscriptions = Pick<
+  ChangeHubService,
+  'subscribe' | 'subscribeInstance'
+>;
+
+type SendQueue = { jobs: Array<RecordJob>; waiting: Set<string> };
 
 /** The wire form of a message, or `undefined` when it violates the schema. */
 export function toWireMessage(
@@ -63,8 +79,9 @@ export function toWireMessage(
 export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChangeHubService.name);
   private readonly subscribers = new Map<string, Set<LiveSubscriber>>();
+  private readonly instanceSubscribers = new Set<LiveSubscriber>();
   private readonly tracker = new RunProgressTracker();
-  private readonly queues = new Map<string, OwnerQueue>();
+  private readonly queues = new Map<Audience, SendQueue>();
   private listenCount = 0;
 
   constructor(
@@ -83,6 +100,7 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.subscribers.clear();
+    this.instanceSubscribers.clear();
     this.queues.clear();
     await this.listener.close();
   }
@@ -98,11 +116,26 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /**
+   * Register a subscriber for instance-wide records (every open connection);
+   * returns the unsubscribe function.
+   */
+  subscribeInstance(subscriber: LiveSubscriber): () => void {
+    this.instanceSubscribers.add(subscriber);
+    return () => {
+      this.instanceSubscribers.delete(subscriber);
+    };
+  }
+
   /** Handle one NOTIFY payload. */
   dispatch(raw: string): void {
     const notification = parseChangeNotification(raw);
     if (!notification) {
       this.logger.warn('Dropped malformed live change notification');
+      return;
+    }
+    if (notification.k === 'machine') {
+      this.dispatchInstance(notification);
       return;
     }
     // Fold every notification, even for owners with no subscriber, so the
@@ -115,8 +148,17 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     if (job) this.enqueue(notification.owner, job);
   }
 
-  private enqueue(owner: string, job: RecordJob): void {
-    const existing = this.queues.get(owner);
+  /** Fan one instance-wide record out to every open connection. */
+  private dispatchInstance(
+    notification: Extract<ChangeNotification, { k: 'machine' }>,
+  ): void {
+    if (this.instanceSubscribers.size === 0) return;
+    const job = recordJobFor(notification);
+    if (job) this.enqueue(INSTANCE_AUDIENCE, job);
+  }
+
+  private enqueue(audience: Audience, job: RecordJob): void {
+    const existing = this.queues.get(audience);
     const queue = existing ?? { jobs: [], waiting: new Set<string>() };
     if (job.key !== undefined) {
       if (queue.waiting.has(job.key)) return;
@@ -124,48 +166,53 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     }
     queue.jobs.push(job);
     if (existing) return;
-    this.queues.set(owner, queue);
-    void this.drain(owner, queue);
+    this.queues.set(audience, queue);
+    void this.drain(audience, queue);
   }
 
-  private async drain(owner: string, queue: OwnerQueue): Promise<void> {
+  private async drain(audience: Audience, queue: SendQueue): Promise<void> {
     for (let job = queue.jobs.shift(); job; job = queue.jobs.shift()) {
       if (job.key !== undefined) queue.waiting.delete(job.key);
       try {
         const message = await job.load(this.loader);
-        if (message) this.send(owner, message);
+        if (message) this.send(audience, message);
       } catch (error) {
         this.logger.warn(
           `Live record read failed; requesting resync: ${error instanceof Error ? error.message : 'unknown'}`,
         );
-        this.send(owner, { type: 'resync' });
+        this.send(audience, { type: 'resync' });
       }
     }
-    this.queues.delete(owner);
+    this.queues.delete(audience);
   }
 
   private onListen(): void {
     this.listenCount += 1;
     if (this.listenCount === 1) return;
     this.logger.warn('Live change listener reconnected; requesting resync');
+    // A socket also holds an instance subscription, and its client refetches
+    // instance-wide lists on any `resync`, so the owner stream covers it.
     for (const owner of this.subscribers.keys()) {
       this.send(owner, { type: 'resync' });
     }
   }
 
-  private send(ownerId: string, message: ServerLiveMessage): void {
-    const subscribers = this.subscribers.get(ownerId);
-    if (!subscribers) return;
+  private send(audience: Audience, message: ServerLiveMessage): void {
+    const subscribers =
+      audience === INSTANCE_AUDIENCE
+        ? this.instanceSubscribers
+        : this.subscribers.get(audience);
+    if (!subscribers || subscribers.size === 0) return;
     const wire = toWireMessage(message);
     if (!wire) {
       this.logger.error(
         `Dropped a ${message.type} message that violates asyncapi.websocket.yaml`,
       );
       // The client stopped polling while connected; have it refetch instead.
-      if (message.type !== 'resync') this.send(ownerId, { type: 'resync' });
+      if (message.type !== 'resync') this.send(audience, { type: 'resync' });
       return;
     }
-    // Serialized once per owner, not once per socket.
+    // Serialized once per audience, not once per socket.
     const frame = JSON.stringify(wire);
     for (const subscriber of subscribers) {
       try {

@@ -526,6 +526,13 @@
       "when": 1792353078153,
       "tag": "20261018195118_lyrical_luckman",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1792424619000,
+      "tag": "20261019154341_machine_status_notify",
+      "breakpoints": true
     }
   ]
 }

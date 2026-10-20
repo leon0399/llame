@@ -1,5 +1,7 @@
 /**
- * Live gateway — `GET /api/v1/live` WebSocket upgrade, owner-scoped.
+ * Live gateway — `GET /api/v1/live` WebSocket upgrade. Each socket subscribes
+ * to its owner's records and to the instance-wide ones every signed-in user
+ * may read.
  *
  * The socket is authorized before the `101` response: the session token comes
  * from the same bearer-or-cookie extraction the HTTP guard uses and is
@@ -156,9 +158,18 @@ export class LiveGatewayService
       alive: true,
       unsubscribe: () => undefined,
     };
-    live.unsubscribe = this.hub.subscribe(userId, (frame) =>
+    // Two streams: this owner's records, and the instance-wide ones every
+    // connection may receive. A close ends both.
+    const unsubscribeOwner = this.hub.subscribe(userId, (frame) =>
       this.deliver(live, frame),
     );
+    const unsubscribeInstance = this.hub.subscribeInstance((frame) =>
+      this.deliver(live, frame),
+    );
+    live.unsubscribe = () => {
+      unsubscribeOwner();
+      unsubscribeInstance();
+    };
     this.sockets.add(live);
     socket.on('pong', () => {
       live.alive = true;

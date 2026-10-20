@@ -11,12 +11,7 @@ import {
 } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
-import {
-  fetchMachines,
-  machinesQueryKeys,
-  MACHINES_REFETCH_INTERVAL_MS,
-  useMachinesQuery,
-} from "./queries";
+import { fetchMachines, machinesQueryKeys, useMachinesQuery } from "./queries";
 import {
   jsonResponse,
   requestFromCall,
@@ -54,10 +49,6 @@ describe("machines query keys", () => {
     expect(machinesQueryKeys.all).toEqual(["machines"]);
     expect(machinesQueryKeys.list()).toEqual(["machines", "list"]);
   });
-
-  it("polls every 15 seconds", () => {
-    expect(MACHINES_REFETCH_INTERVAL_MS).toBe(15_000);
-  });
 });
 
 describe("machines query transport", () => {
@@ -85,7 +76,7 @@ describe("machines query transport", () => {
     await expect(fetchMachines()).rejects.toThrow("GET /api/v1/machines");
   });
 
-  it("refetches the status list on the poll interval", async () => {
+  it("reads once and does not poll: live messages keep the list current", async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValue(jsonResponse([DEVL]));
 
@@ -97,11 +88,10 @@ describe("machines query transport", () => {
     await act(async () => {});
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // The interval is what makes the list live; nothing else refetches it.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(MACHINES_REFETCH_INTERVAL_MS);
+      await vi.advanceTimersByTimeAsync(60_000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("stays off the network while disabled", async () => {

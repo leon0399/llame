@@ -58,6 +58,29 @@ describeIfDb('llame_notify_change triggers', () => {
       .then(() => id);
   };
 
+  /**
+   * One contact with a Machine, written the way the hub's probe writes it: the
+   * identity-less connection inside a transaction that marks the system
+   * context, which is the only writer the RLS policy admits.
+   */
+  const recordMachine = async (name: string): Promise<void> => {
+    const at = new Date().toISOString();
+    await sql.begin(async (tx) => {
+      await tx`SELECT set_config('app.machines_system', '1', true)`;
+      await tx`
+        INSERT INTO machines_status
+          (name, first_contact_at, last_contact_at, hub_protocol_version,
+           daemon_protocol_version, daemon_version, roots, updated_at)
+        VALUES
+          (${name}, ${at}::timestamptz, ${at}::timestamptz, 1, 1, '0.4.0',
+           ${JSON.stringify(['/srv/projects'])}::jsonb, ${at}::timestamptz)
+        ON CONFLICT (name) DO UPDATE
+          SET last_contact_at = EXCLUDED.last_contact_at,
+              updated_at = EXCLUDED.updated_at
+      `;
+    });
+  };
+
   beforeAll(async () => {
     const postgres = await import('postgres');
     const connect = postgres.default ?? postgres;
@@ -172,5 +195,28 @@ describeIfDb('llame_notify_change triggers', () => {
       (p) =>
         p['k'] === 'run' && p['run'] === runId && p['status'] === 'completed',
     );
+  });
+
+  it('notifies a machine status write without an owner', async () => {
+    const name = `live-${crypto.randomUUID()}`;
+
+    await recordMachine(name);
+
+    const payload = await waitForPayload(
+      (p) => p['k'] === 'machine' && p['machine'] === name,
+    );
+    // Instance-wide: the payload names the Machine and no owner, and carries
+    // no row content beyond it.
+    expect(payload).toEqual({ k: 'machine', machine: name, deleted: false });
+
+    // The probe prunes the row of a Machine the operator removed; that
+    // deletion is the notification a connected client drops it by.
+    await sql.begin(async (tx) => {
+      await tx`SELECT set_config('app.machines_system', '1', true)`;
+      await tx`DELETE FROM machines_status WHERE name = ${name}`;
+    });
+    await expect(
+      waitForPayload((p) => p['k'] === 'machine' && p['deleted'] === true),
+    ).resolves.toEqual({ k: 'machine', machine: name, deleted: true });
   });
 });
