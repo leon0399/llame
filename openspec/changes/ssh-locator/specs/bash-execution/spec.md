@@ -1,15 +1,16 @@
 ## ADDED Requirements
 
-### Requirement: The bash description directs working-directory use through cwd
+### Requirement: The bash description tells the model to use cwd
 
-The `bash` description SHALL tell the model to choose the working directory with `cwd` rather than a `cd` inside `command`: within an entered Workspace, to omit `cwd` or pass a path relative to the Workspace root; outside a Workspace, to pass an absolute `cwd`. This guidance SHALL NOT change how `cwd` is resolved or how `command` is matched.
+The `bash` description MUST tell the model to set the directory of the command with `cwd`, and not with a `cd` in `command`. In an entered Workspace, the model gives no `cwd` or a path relative to the Workspace root. If no Workspace is entered, the model gives an absolute `cwd`. This text MUST NOT have an effect on how the hub resolves `cwd` or how permissions match `command`.
 
-#### Scenario: Description carries the working-directory guidance
+#### Scenario: Description has the directory instructions
 
-- **WHEN** `bash` is offered
-- **THEN** its description states to use `cwd` instead of `cd` in `command`, to omit `cwd` or pass a relative one within a Workspace, and to pass an absolute one outside a Workspace
+- **WHEN** `bash` is available to the model
+- **THEN** its description tells the model to use `cwd` and not `cd` in `command`
+- **AND** it tells the model to give no `cwd` or a relative `cwd` in a Workspace, and an absolute `cwd` if no Workspace is entered
 
-#### Scenario: A cd in command still runs as written
+#### Scenario: A cd in command runs as written
 
 - **WHEN** the model calls `bash` with `command: "cd /srv && ls"`
-- **THEN** the command runs exactly as submitted and permissions match the submitted `command` text
+- **THEN** the command runs as the model wrote it, and permissions match the submitted `command` text
