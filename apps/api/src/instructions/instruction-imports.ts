@@ -17,6 +17,11 @@ import {
   KNOWLEDGE_LOCATOR_SCHEME,
   parseKnowledgeLocator,
 } from '../knowledge/knowledge-locator';
+import {
+  formatMachineLocator,
+  isMachineLocator,
+  parseMachineLocator,
+} from '../machines/machine-locator';
 import type { LoadedInstructionFile } from '../chats/instructions-item';
 import {
   parentKey,
@@ -72,6 +77,21 @@ function resolveImport(
 ): ResolvedImport | undefined {
   if (!isLocalImportTarget(target)) return undefined;
   if (!group.knowledge) {
+    const machine = isMachineLocator(importer)
+      ? parseMachineLocator(importer)
+      : undefined;
+    if (machine?.kind === 'path') {
+      // A file inside a Machine imports inside that Machine: the target is
+      // addressed in the Machine's own key space, its `..` segments resolve
+      // there, and the block is named by the canonical locator of the file the
+      // Machine actually read.
+      const key = target.startsWith('/')
+        ? posix.normalize(target)
+        : posix.resolve(posix.dirname(machine.path), target);
+      const path = formatMachineLocator(machine.name, key);
+      return path === undefined ? undefined : { key, path };
+    }
+    if (machine !== undefined) return undefined;
     const key = target.startsWith('/')
       ? posix.normalize(target)
       : posix.resolve(posix.dirname(importer), target);
@@ -93,7 +113,16 @@ function candidateDirectory(
   group: InstructionImportGroup,
   path: string,
 ): string | undefined {
-  if (!group.knowledge) return parentKey(path, group.scope.root);
+  // A Machine file is named by its canonical locator, so the directory it
+  // activates is the absolute Machine path every other Machine key uses; a host
+  // path is the key itself.
+  if (!group.knowledge) {
+    const machine = isMachineLocator(path)
+      ? parseMachineLocator(path)
+      : undefined;
+    if (machine?.kind === 'path') return parentKey(machine.path, '/');
+    return parentKey(path, group.scope.root);
+  }
   const prefix = `${KNOWLEDGE_LOCATOR_SCHEME}://`;
   const parsed = parseKnowledgeLocator(path.slice(prefix.length));
   if ('type' in parsed) return undefined;

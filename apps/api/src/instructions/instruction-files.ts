@@ -93,17 +93,38 @@ export function parentKey(key: string, root: string): string {
 
 /**
  * Every directory from `root` down to `key`, inclusive and broadest first. The
- * walk never leaves `root`, so a Space never reaches a host ancestor.
+ * walk never leaves `root`, so a Space never reaches a host ancestor and a
+ * Machine never reaches a directory above its registered root.
+ *
+ * A key is read in the world's own key space first: a host key is already
+ * absolute under `/`, a Space key is already relative, and a Machine key is an
+ * absolute Machine path — so the key a Machine trigger resolves to when the
+ * trigger is the registered root itself, or when it is a directory under it,
+ * walks that root and then the path inside it, instead of being read a second
+ * time as a path relative to the root.
  */
 export function walkFrom(root: string, key: string): Array<string> {
   const directories = [root];
   let current = '';
-  for (const segment of key.split('/')) {
+  for (const segment of relativeKey(root, key).split('/')) {
     if (segment === '') continue;
     current = current === '' ? segment : `${current}/${segment}`;
     directories.push(joinKey(root, current));
   }
   return directories;
+}
+
+/**
+ * One key as the path it spells inside `root`'s own key space. A root with no
+ * directory of its own — the host filesystem, or a Space's own directory —
+ * carries no prefix to cut: a key that opens with a separator loses it here,
+ * which names the same directories, because the walk below drops the empty
+ * segment it leaves behind.
+ */
+function relativeKey(root: string, key: string): string {
+  if (key === root) return '';
+  const prefix = `${root}/`;
+  return key.startsWith(prefix) ? key.slice(prefix.length) : key;
 }
 
 /**

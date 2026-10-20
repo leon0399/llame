@@ -18,7 +18,21 @@ import type { ModelMessage } from 'ai';
 import type { AuthoredContextItemPart } from '../chats/context-item';
 import { type KnowledgeInstructionProbe } from '../knowledge/knowledge-instruction-probe';
 import type { ReadPage } from '../instructions/instruction-files';
+import type { MachineInstructionProbe } from '../instructions/machine-instruction-scope';
 import type { ToolResult } from '../tools/types';
+
+/**
+ * The Machine capability a producer may load instruction files with: the same
+ * audited page reader every other world uses, plus the registered-root view of
+ * one Machine target. Both halves are present or neither, so a `machine://`
+ * trigger loads nothing at all without them.
+ */
+export interface MachineInstructionWorld {
+  /** The same audited page reader as `readPage`. */
+  readonly readPage: ReadPage;
+  /** The registered-root view of one Machine target. */
+  readonly probe: MachineInstructionProbe;
+}
 
 export interface InRunContextItems {
   /**
@@ -185,10 +199,19 @@ export const IN_RUN_CONTEXT_PRODUCER = Symbol('IN_RUN_CONTEXT_PRODUCER');
  * that path — the producer adds the candidate exclusion itself.
  */
 export interface PromptImportTrigger {
-  /** An absolute host path, or a Space-relative path (`''` is the Space's own directory). */
+  /**
+   * An absolute host path, an absolute Machine path, or a Space-relative path
+   * (`''` is the Space's own directory).
+   */
   readonly key: string;
   /** The canonical lower-case Space id of a `kb://` trigger; absent for a host path. */
   readonly space?: { readonly id: string };
+  /**
+   * The Machine a `machine://` trigger named; absent for a host path and a
+   * Space. `key` then holds the absolute Machine path the import addressed,
+   * which the Machine world resolves to the registered root containing it.
+   */
+  readonly machine?: { readonly name: string };
 }
 
 /** One accepted turn offered to a producer for the request it is building. */
@@ -206,6 +229,8 @@ export interface InRunTurnContext {
   readonly admitsRead: (path: string) => boolean;
   /** The Knowledge capability, with the same shape and meaning as an in-Run attempt's. */
   readonly knowledge?: InRunAttempt['knowledge'];
+  /** The Machine capability, with the same shape and meaning as an in-Run attempt's. */
+  readonly machines?: InRunAttempt['machines'];
   /**
    * The admitted local targets of the turn's prompt imports, derived from the
    * persisted item. Each loads like a native `read` of its path, in addition
@@ -259,6 +284,12 @@ export interface InRunAttempt {
     /** The trusted owner-scoped view of one Space. */
     readonly probe: KnowledgeInstructionProbe;
   };
+  /**
+   * The Machine capability this attempt may load Machine instruction files
+   * with. Absent when it may not: `read` is not allowlisted or no Machine is
+   * configured, so a `machine://` trigger loads nothing at all without it.
+   */
+  readonly machines?: MachineInstructionWorld;
   /** The Run's own abort signal; a producer must stop loading once it fires. */
   readonly abortSignal?: AbortSignal;
 }
