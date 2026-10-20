@@ -44,7 +44,41 @@ export function resetManagedExecutorForTests(): void {
   activeProcesses = 0;
 }
 
-function measureInput(input: BashCommandInput): number {
+/** One reserved unit of the managed process slot. */
+export type ManagedProcessSlot = {
+  readonly release: () => void;
+};
+
+function processLimitReached(): BashUnavailableResult {
+  return {
+    status: "error",
+    type: "unavailable",
+    message: "Managed process limit reached.",
+  };
+}
+
+/**
+ * Reserve the process slot a managed command occupies, for a caller that runs
+ * the command itself (an `ssh://` bash). The counter is the one local commands
+ * reserve, so a worker runs one managed bash at a time whatever its target.
+ */
+export function reserveManagedProcessSlot(
+  context: BashExecutorContext,
+): ManagedProcessSlot | BashUnavailableResult {
+  if (activeProcesses >= context.maxProcesses) return processLimitReached();
+  activeProcesses += 1;
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      activeProcesses -= 1;
+    },
+  };
+}
+
+/** The input bound's measure: the command, its argv, the cwd, and the additions. */
+export function measureManagedInput(input: BashCommandInput): number {
   const args = input.args ?? [];
   let size = Buffer.byteLength(input.command, "utf8");
   for (const arg of args) size += Buffer.byteLength(arg, "utf8") + 1;
@@ -56,7 +90,10 @@ function measureInput(input: BashCommandInput): number {
   return size;
 }
 
-function unusableWorkingDirectory(literal: string): BashUnavailableResult {
+/** The local refusal for a working directory the executor cannot enter. */
+export function unusableWorkingDirectory(
+  literal: string,
+): BashUnavailableResult {
   return {
     status: "error",
     type: "unavailable",
@@ -93,20 +130,14 @@ function rejectLimits(
       message: "Command is outside the configured managed tool set.",
     };
   }
-  if (measureInput(input) > context.inputBound) {
+  if (measureManagedInput(input) > context.inputBound) {
     return {
       status: "error",
       type: "unavailable",
       message: "Command input exceeds the managed input bound.",
     };
   }
-  if (activeProcesses >= context.maxProcesses) {
-    return {
-      status: "error",
-      type: "unavailable",
-      message: "Managed process limit reached.",
-    };
-  }
+  if (activeProcesses >= context.maxProcesses) return processLimitReached();
   if (options.timeoutSignal?.aborted) {
     return timedOutResult(context, options);
   }

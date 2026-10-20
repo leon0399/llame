@@ -73,6 +73,7 @@ function ended(
     stdout: Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout),
     stdoutOverflow: false,
     diagnostic: stderr,
+    stderrOverflow: false,
     code,
     signal: null,
   };

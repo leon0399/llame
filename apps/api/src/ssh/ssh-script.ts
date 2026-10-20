@@ -88,6 +88,20 @@ export type SshReadFrames = {
   readonly status?: number;
 };
 
+/** The frames one remote `bash` call's streams carry. */
+export type SshBashFrames = {
+  /** True once the start marker arrived; the command then ran or may have. */
+  readonly started: boolean;
+  /** The bytes after the stdout marker line: the command's own output. */
+  readonly stdout: Buffer;
+  /** The command's stderr, without the marker, the login noise, or the trailer. */
+  readonly stderr: string;
+  /** The refusal kind, exactly as the host wrote it, when a precondition failed. */
+  readonly refusal?: string;
+  /** The status of the end trailer; absent when the trailer did not arrive. */
+  readonly status?: number;
+};
+
 /** One entry of a directory listing the host sent. */
 export type SshDirectoryEntry = {
   readonly name: string;
@@ -195,6 +209,41 @@ export function buildSshReadScript(request: {
   ].join('\n');
 }
 
+/**
+ * The `bash` script: the `cd` precondition, the exported `env` entries, the
+ * start markers, then the model's command through `eval` in a subshell with an
+ * empty stdin, and the end trailer with the status of that subshell. The cwd,
+ * each value, and the command reach the script only as single-quoted shell
+ * words; the argv of both processes is fixed.
+ */
+export function buildSshBashScript(request: {
+  readonly nonce: string;
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly command: string;
+}): string {
+  return [
+    '{',
+    `  h=${shellQuote(request.nonce)}`,
+    `  p=${shellQuote(request.cwd)}`,
+    '  if ! cd -- "$p" 2>/dev/null; then',
+    String.raw`    printf '%s:refuse:cwd\n' "$h" >&2`,
+    String.raw`    printf '%s:end:0\n' "$h" >&2`,
+    '    exit 0',
+    '  fi',
+    ...Object.entries(request.env).map(
+      ([key, value]) => `  export ${key}=${shellQuote(value)}`,
+    ),
+    String.raw`  printf '%s:start\n' "$h"`,
+    String.raw`  printf '%s:start\n' "$h" >&2`,
+    `  ( eval ${shellQuote(request.command)} ) </dev/null`,
+    '  s=$?',
+    String.raw`  printf '%s:end:%s\n' "$h" "$s" >&2`,
+    '}',
+    '',
+  ].join('\n');
+}
+
 /** The end trailer's status, from the last one `stderr` holds. */
 export function parseSshTrailer(
   stderr: string,
@@ -259,6 +308,47 @@ export function parseSshReadFrames(
     started: true,
     ...(kind !== undefined && { kind }),
     content: lineEnd === -1 ? Buffer.alloc(0) : stdout.subarray(lineEnd + 1),
+    ...(status !== undefined && { status }),
+  };
+}
+
+/**
+ * The command's stderr: everything after the stderr start marker line and
+ * before the end trailer. A stream with no marker carries no command output,
+ * because nothing after the marker can be told apart from login noise.
+ */
+function commandStderr(stderr: string, marker: string, nonce: string): string {
+  const index = stderr.indexOf(marker);
+  if (index === -1) return '';
+  const lineEnd = stderr.indexOf('\n', index + marker.length);
+  const start = lineEnd === -1 ? stderr.length : lineEnd + 1;
+  const end = stderr.lastIndexOf(`${nonce}:end:`);
+  return end < start ? stderr.slice(start) : stderr.slice(start, end);
+}
+
+/**
+ * Split one remote `bash` call's streams into its frames. The stdout marker is
+ * a line of its own; the marker on stderr is what says the command started when
+ * the process ended before its stdout arrived, and the trailer's last
+ * occurrence is the status the subshell left.
+ */
+export function parseSshBashFrames(
+  stdout: Buffer,
+  stderr: string,
+  nonce: string,
+): SshBashFrames {
+  const marker = sshStartMarker(nonce);
+  const index = stdout.indexOf(Buffer.from(marker));
+  const started = index !== -1 || stderr.includes(marker);
+  const refusal = parseSshRefusal(stderr, nonce);
+  const status = started ? parseSshTrailer(stderr, nonce) : undefined;
+  const lineEnd =
+    index === -1 ? -1 : stdout.indexOf(0x0a, index + marker.length);
+  return {
+    started,
+    stdout: lineEnd === -1 ? Buffer.alloc(0) : stdout.subarray(lineEnd + 1),
+    stderr: started ? commandStderr(stderr, marker, nonce) : '',
+    ...(refusal !== undefined && { refusal }),
     ...(status !== undefined && { status }),
   };
 }

@@ -18,8 +18,14 @@ import {
   resetManagedExecutorForTests,
   type BashResult,
 } from '@workspace/bash-executor';
+import {
+  type SshClient,
+  type SshRunOutcome,
+  type SshRunRequest,
+} from '../ssh/ssh-client';
 import * as bashExecutor from '@workspace/bash-executor';
-import { bashTool, toToolResult } from './bash';
+import { bashTool } from './bash';
+import { toToolResult } from './bash-result';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { createWorkspaceRootCell } from './workspace-path';
@@ -235,6 +241,113 @@ describe('bash durable admission', () => {
       message:
         'Working directory argument "vault://notes" is not usable. The command did not run; the argument was taken literally with no ~ or variable expansion. List its parent or create the directory.',
     });
+  });
+
+  it('leaves an ssh:// cwd alone in a Machine Workspace', async () => {
+    const runs: Array<SshRunRequest> = [];
+    const client: SshClient = {
+      resolve: () =>
+        Promise.resolve({
+          outcome: 'resolved',
+          destination: { user: 'box', host: 'box', port: 22 },
+        }),
+      run: (request): Promise<SshRunOutcome> => {
+        runs.push(request);
+        const nonce = /h='([0-9a-f]+)'/u.exec(String(request.input))?.[1] ?? '';
+        return Promise.resolve({
+          outcome: 'ended',
+          stdout: Buffer.from(`${nonce}:start\n/home/box/work\n`),
+          diagnostic: `${nonce}:start\n${nonce}:end:0\n`,
+          stdoutOverflow: false,
+          stderrOverflow: false,
+          code: 0,
+          signal: null,
+        });
+      },
+      sshConfigText: () => undefined,
+      dispose: () => undefined,
+    };
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'ssh://box/tmp' },
+      {
+        ...testContext(),
+        sshClient: client,
+        workspaceRoot: createWorkspaceRootCell('machine://devl/home/box/work'),
+      },
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      stdout: '/home/box/work\n',
+    });
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      destination: 'box',
+      remoteCommand: ['bash', '-s'],
+      resolved: { user: 'box', host: 'box', port: 22 },
+    });
+    expect(String(runs[0]?.input)).toContain("p='/tmp'");
+    expect(begin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fence: { bound: false },
+        path: 'ssh://box@box:22/tmp',
+      }),
+    );
+  });
+
+  it('requires the local executor for a local cwd when only ssh is configured', async () => {
+    const client: SshClient = {
+      resolve: () => Promise.reject(new Error('a local cwd resolves nothing')),
+      run: () => Promise.reject(new Error('a local cwd runs nothing')),
+      sshConfigText: () => undefined,
+      dispose: () => undefined,
+    };
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    const result = await runTool(
+      bashTool,
+      { command: 'printf never', cwd: '/tmp' },
+      { ...testContext(), nativeExecutorId: undefined, sshClient: client },
+      5,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'Native host authority is unavailable.',
+    });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('keeps ssh:// an unknown scheme without the ssh section', async () => {
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'printf never', cwd: 'ssh://box/tmp' },
+        testContext(),
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
+    });
+    expect(begin).not.toHaveBeenCalled();
   });
 
   it('preserves the submitted spelling of an absolute cwd', async () => {

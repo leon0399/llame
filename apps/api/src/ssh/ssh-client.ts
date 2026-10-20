@@ -29,6 +29,7 @@ import {
 } from './ssh-config';
 import {
   collectSshDiagnostic,
+  SSH_DIAGNOSTIC_BYTES,
   spawnOneShotSshProcess,
   type SshLinkFailureReason,
   type SshProcess,
@@ -93,6 +94,12 @@ export type SshRunRequest = {
   /** The caller's stdout bound; bytes after it are dropped and flagged. */
   readonly maxStdoutBytes: number;
   readonly deadlineMs: number;
+  /**
+   * The stderr tail a caller that runs its own remote command keeps past the
+   * head bound, so a trailer written after that output still arrives. Absent
+   * keeps the bounded head alone.
+   */
+  readonly stderrTailBytes?: number;
   readonly signal?: AbortSignal;
 };
 
@@ -105,6 +112,8 @@ export type SshRunOutcome =
       readonly stdoutOverflow: boolean;
       /** The bounded stderr head, kept for classification and the operator. */
       readonly diagnostic: string;
+      /** True when ssh wrote more stderr than the head (and tail) bound. */
+      readonly stderrOverflow: boolean;
       readonly code: number | null;
       readonly signal: string | null;
     }
@@ -186,17 +195,62 @@ function parseResolvedDestination(
 type BoundedSshLimits = {
   readonly maxStdoutBytes: number;
   readonly deadlineMs: number;
+  readonly stderrTailBytes?: number;
   readonly signal?: AbortSignal;
   readonly input?: string | Buffer;
+};
+
+type StderrCollector = {
+  readonly text: () => string;
+  readonly overflow: () => boolean;
 };
 
 type BoundedWiring = {
   readonly process: SshProcess;
   readonly state: { stdout: Buffer; overflow: boolean };
-  readonly diagnostic: () => string;
+  readonly stderr: StderrCollector;
   readonly finish: (end: SshRunOutcome) => void;
   readonly maxStdoutBytes: number;
 };
+
+/**
+ * The bounded stderr head every caller gets, plus, when a caller asks for one,
+ * a bounded tail. A remote command writes its own stderr before the end
+ * trailer, so the tail is what keeps a chatty command that finished from
+ * looking like a lost session.
+ */
+function collectStderr(
+  stderr: SshProcess['stderr'],
+  tailBytes: number,
+): StderrCollector {
+  if (tailBytes <= 0) {
+    const text = collectSshDiagnostic(stderr);
+    return { text, overflow: () => false };
+  }
+  const head: Array<Buffer> = [];
+  let headBytes = 0;
+  let tail = Buffer.alloc(0);
+  stderr.on('data', (chunk: Buffer | string) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const room = SSH_DIAGNOSTIC_BYTES - headBytes;
+    const taken = room > 0 ? bytes.subarray(0, room) : bytes.subarray(0, 0);
+    if (taken.length > 0) {
+      head.push(taken);
+      headBytes += taken.length;
+    }
+    const rest = bytes.subarray(taken.length);
+    if (rest.length > 0)
+      tail = Buffer.concat([tail, rest]).subarray(-tailBytes);
+  });
+  stderr.on('error', () => undefined);
+  return {
+    text: () =>
+      tail.length === 0
+        ? Buffer.concat(head).toString('utf8')
+        : `${Buffer.concat(head).toString('utf8')}\n${tail.toString('utf8')}`,
+    overflow: () => tail.length > 0,
+  };
+}
 
 /** Append one chunk under the caller's byte bound, flagging dropped bytes. */
 function appendBounded(
@@ -217,7 +271,7 @@ function appendBounded(
 
 /** Wire one process's streams and exit into the bounded outcome. */
 function wireBoundedProcess(wiring: BoundedWiring): void {
-  const { process, state, diagnostic, finish, maxStdoutBytes } = wiring;
+  const { process, state, stderr, finish, maxStdoutBytes } = wiring;
   process.stdout.on('data', (chunk: Buffer | string) => {
     const appended = appendBounded(state.stdout, chunk, maxStdoutBytes);
     state.stdout = appended.stdout;
@@ -236,7 +290,8 @@ function wireBoundedProcess(wiring: BoundedWiring): void {
       outcome: 'ended',
       stdout: state.stdout,
       stdoutOverflow: state.overflow,
-      diagnostic: diagnostic(),
+      diagnostic: stderr.text(),
+      stderrOverflow: stderr.overflow(),
       code,
       signal,
     }),
@@ -251,7 +306,7 @@ function runBoundedSsh(
 ): Promise<SshRunOutcome> {
   const { promise, resolve } = Promise.withResolvers<SshRunOutcome>();
   const process = spawn('ssh', args);
-  const diagnostic = collectSshDiagnostic(process.stderr);
+  const stderr = collectStderr(process.stderr, limits.stderrTailBytes ?? 0);
   const state = { stdout: Buffer.alloc(0), overflow: false };
   let settled = false;
   const finish = (end: SshRunOutcome) => {
@@ -263,14 +318,14 @@ function runBoundedSsh(
     resolve(end);
   };
   const fail = (reason: 'client_missing' | 'timed_out' | 'cancelled') =>
-    finish({ outcome: 'failed', reason, diagnostic: diagnostic() });
+    finish({ outcome: 'failed', reason, diagnostic: stderr.text() });
   const onAbort = () => fail('cancelled');
   const timer = setTimeout(() => fail('timed_out'), limits.deadlineMs);
 
   wireBoundedProcess({
     process,
     state,
-    diagnostic,
+    stderr,
     finish,
     maxStdoutBytes: limits.maxStdoutBytes,
   });

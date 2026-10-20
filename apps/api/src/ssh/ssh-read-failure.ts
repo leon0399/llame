@@ -17,7 +17,7 @@ import {
   type SshOperationFailureReason,
   type SshRunOutcome,
 } from './ssh-client';
-import { type SshReadFrames } from './ssh-script';
+import { type SshBashFrames, type SshReadFrames } from './ssh-script';
 
 const SSH_HOST_KEY_MISMATCH = /host key verification failed/iu;
 const SSH_AUTH_FAILED = /Permission denied \(/u;
@@ -28,11 +28,14 @@ const SSH_CONNECT_FAILED =
 const SSH_HANDSHAKE_FAILED =
   /^(?!debug\d*:)[^\n]*\b(?:kex_exchange_identification|banner exchange):/imu;
 const SSH_MISSING_SHELL = /\bsh\b[^\n]*\bnot found\b/iu;
+/** `bash` absent, which a host with `sh` reports as the missing command. */
+const SSH_MISSING_BASH =
+  /(?:\bbash: (?:command )?not found\b|command not found: bash\b)/iu;
 const WINDOWS_SHELL =
   /is not recognized as an internal or external command|is not recognized as the name of a cmdlet|The system cannot find the (?:file|path) specified/iu;
 
 /** Why the host cannot run an llame script at all. */
-export type SshUnsupportedHostCause = 'posix_shell' | 'no_script';
+export type SshUnsupportedHostCause = 'posix_shell' | 'no_script' | 'bash';
 
 /** What one completed process's streams mean before the marker. */
 export type SshPreludeFailure =
@@ -67,6 +70,10 @@ export function classifySshPreludeFailure(
     SSH_HANDSHAKE_FAILED.test(diagnostic)
   )
     return { kind: 'unavailable', reason: 'unreachable' };
+  // Before the `sh` pattern: a host whose login shell is `sh` reports the
+  // missing `bash` as `sh: 1: bash: not found`, which both patterns match.
+  if (code === 127 && SSH_MISSING_BASH.test(diagnostic))
+    return { kind: 'unsupported', cause: 'bash' };
   if (
     (code === 127 && SSH_MISSING_SHELL.test(diagnostic)) ||
     WINDOWS_SHELL.test(diagnostic)
@@ -80,6 +87,27 @@ export type SshReadVerdict =
   | { readonly kind: 'complete' }
   | SshPreludeFailure
   | { readonly kind: 'unavailable'; readonly reason: 'session_lost' };
+/** What a remote `bash` call's process and frames amount to. */
+export type SshBashVerdict =
+  | { readonly kind: 'complete' }
+  | SshPreludeFailure
+  /** The command may have run; only the end trailer could have said so. */
+  | { readonly kind: 'unknown' };
+
+/**
+ * A remote command is complete only with the end trailer. Before the marker
+ * ssh's own refusal decides; after it, a deadline, a cancellation, or a lost
+ * link leaves an outcome the hub cannot attribute, so it is never replayed.
+ */
+export function classifySshBashOutcome(
+  outcome: SshRunOutcome,
+  frames: SshBashFrames,
+): SshBashVerdict {
+  if (!frames.started) return classifySshPreludeFailure(outcome);
+  if (outcome.outcome === 'failed' || frames.status === undefined)
+    return { kind: 'unknown' };
+  return { kind: 'complete' };
+}
 
 /**
  * A read is complete only with the start marker and the end trailer: the

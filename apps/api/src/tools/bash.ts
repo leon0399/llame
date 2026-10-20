@@ -1,15 +1,14 @@
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
-import {
-  admitManagedBash,
-  type BashExecutorContext,
-  type BashResult,
-} from '@workspace/bash-executor';
+import { admitManagedBash, type BashResult } from '@workspace/bash-executor';
 import { parsePathScheme } from '@workspace/native-file-tools';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
 import { isWorkspaceTool } from './workspace';
-import { bashWorkingDirectory } from './env';
+import { managedBashContext } from './bash-limits';
+import { toToolResult } from './bash-result';
+import { executeSshBash } from './ssh-bash';
+import { isSshLocator } from '../ssh/ssh-locator';
 import {
   isWorkspaceRelative,
   machineWorkspaceRoot,
@@ -47,21 +46,6 @@ type BashInput = {
   env?: Record<string, string>;
 };
 
-function managedContext(context: ToolContext): BashExecutorContext {
-  const workingDirectory =
-    context.workspaceRoot?.current() ?? bashWorkingDirectory();
-  return {
-    workingDirectory,
-    // ponytail: alpha host claims; managed Sandbox must prove these for stronger isolation.
-    secretBoundary: true,
-    processIsolation: true,
-    outputBound: Number('32000'),
-    inputBound: Number('8000'),
-    durationMs: Number('300000'),
-    maxProcesses: 1,
-  };
-}
-
 /** A working directory resolved to one Machine, and its canonical locator. */
 type MachineWorkingDirectory = {
   readonly name: string;
@@ -89,6 +73,9 @@ function projectBashInput(
   input: BashInput,
 ): BashInput | ToolResult {
   const root = context.workspaceRoot?.current();
+  // An `ssh://` cwd addresses its own host in every Workspace, including a
+  // Machine one, so projection leaves it exactly as submitted.
+  if (input.cwd !== undefined && isSshLocator(input.cwd)) return input;
   if (input.cwd !== undefined && isMachineLocator(input.cwd))
     return projectMachineCwd(input, input.cwd);
   const machineRoot = machineWorkspaceRoot(root);
@@ -240,39 +227,6 @@ function machineBashExecution(
   return runMachineBash(context, input, machine);
 }
 
-export function toToolResult(result: BashResult): ToolResult {
-  if (result.status === 'success') {
-    return {
-      status: 'success',
-      operation: result.operation,
-      executor: result.executor,
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      truncated: result.truncated,
-    };
-  }
-  if ('type' in result) {
-    if (result.type === 'timed_out') {
-      return {
-        status: 'error',
-        type: 'timed_out',
-        message: `Command exceeded its deadline of ${result.durationMs} ms.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}${result.truncated ? '\nOutput was truncated.' : ''}`,
-      };
-    }
-    return {
-      status: 'error',
-      type: result.type,
-      message: result.message,
-    };
-  }
-  return {
-    status: 'error',
-    type: 'command_failed',
-    message: `Command exited with code ${result.exitCode}.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
-  };
-}
-
 async function runAdmittedBash(
   context: AdmittedBashContext,
   admitted: AdmittedBashExecution,
@@ -323,6 +277,13 @@ export const bashTool: Tool<BashInput> = {
     if ('status' in projectedInput) return projectedInput;
     const machineExecution = machineBashExecution(context, projectedInput);
     if (machineExecution !== undefined) return machineExecution;
+    // An `ssh://` cwd runs before the local executor gate: it needs no local
+    // executor, and a local cwd on the same process still refuses below.
+    if (projectedInput.cwd !== undefined && isSshLocator(projectedInput.cwd))
+      return executeSshBash(context, {
+        ...projectedInput,
+        cwd: projectedInput.cwd,
+      });
     if (!runId || !nativeExecutorId || !toolCallId) {
       return {
         status: 'error',
@@ -339,7 +300,7 @@ export const bashTool: Tool<BashInput> = {
         cwd: projectedInput.cwd,
         env: projectedInput.env,
       },
-      managedContext(context),
+      managedBashContext(context),
       {
         signal: context.abortSignal,
         timeoutSignal: context.timeoutSignal,

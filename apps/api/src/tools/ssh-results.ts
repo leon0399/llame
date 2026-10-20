@@ -21,6 +21,7 @@ const UNSUPPORTED_HOST_MESSAGES: Record<SshUnsupportedHostCause, string> = {
     'The remote account ran no POSIX sh: an ssh:// locator needs a host whose login shell runs POSIX sh, and a Windows or other non-POSIX shell is not supported.',
   no_script:
     'The remote account ran no llame script: a forced command, nologin, or another command ran instead, so an ssh:// locator needs an ordinary POSIX login shell.',
+  bash: 'The remote host has no bash, so a bash call with an ssh:// working directory cannot run there; a read of the same host still works.',
 };
 
 /** The typed refusal for a destination that cannot run an llame script. */
