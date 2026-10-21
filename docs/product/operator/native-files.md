@@ -77,6 +77,54 @@ needs a distinct, stable `nativeExecutorId`. Co-located API and worker processes
 that use the same native filesystem should use the same identity. Without it,
 absolute-path native access and `bash` are unavailable even when allowlisted.
 
+## `grep`
+
+`grep` searches file contents. It is read-only and records no native attempt.
+It needs its own `tools.allowed` entry and at least one serving backend: a
+`nativeExecutorId`, a `knowledge.root`, a skills directory, or a configured
+Machine. Without a backend the tool is not advertised.
+
+A host scope needs the same `nativeExecutorId` as `read`. A host scope on a
+process without accepted native host authority returns
+`executor_unavailable`.
+
+`grep` adds one permission group, `tools.permissions.grep`. The shipped
+example config does not include this group. An absent group rejects every
+call.
+
+The group runs once per scope, before any file is opened. A clause on `scopes`
+sees the literal prefix of that scope. The prefix stops at the first segment
+that holds a glob operator, so a clause never sees `*` or `?`. A relative
+scope is first resolved from the Workspace root. An all-fields reject also
+sees the submitted scope text, so it can reject a glob. One refused scope
+rejects the whole call.
+
+```json
+{
+  "tools": {
+    "permissions": {
+      "grep": {
+        "allow": true,
+        "reject": [{ "field": "scopes", "literal": "/srv/secrets/" }]
+      }
+    }
+  }
+}
+```
+
+`grep` then runs the `read` group on every candidate file. It sets `path` to
+the canonical locator of that file. A file that `read` refuses contributes no
+hit. The result does not count the refused files. The completion audit does.
+
+A host walk follows these rules:
+
+- It includes hidden entries.
+- It MUST NOT follow a symbolic link.
+- It MUST NOT enter a directory named `.git`.
+- It applies each `.gitignore` between the scope prefix and the file, with Git
+  precedence.
+- It searches an exact file scope even when an ignore rule matches it.
+
 ## Permission modes
 
 `tools.permissionModes` is an ordered list of per-Run modes. It defaults to
