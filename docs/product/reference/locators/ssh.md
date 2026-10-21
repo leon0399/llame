@@ -117,7 +117,7 @@ stdin, with empty stdin for the command itself:
   stderr carries its status. A status of 0 is `success`, any other is
   `command_failed` with the same message a local exit code gets. A command that
   holds NUL is refused with `invalid_input` before the destination resolves:
-  `bash -s` would drop the NUL, so the command that ran would not be the text
+  `bash -s` would drop the NUL, so the command that would run is not the text
   the permission rules matched.
 - Output and stderr are bounded and truncated as a local command's are. The call
   shares the `bash` time budget. A call that ends before its process starts is
