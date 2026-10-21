@@ -207,38 +207,31 @@ locally.
 
 ## Remote bash
 
-An `ssh://` `cwd` runs the model's `command` with `bash -s` on the host, as the
-resolved login user, inside the directory the locator names:
+Remote commands take no configuration of their own: the `ssh` section enables
+them and the `bash` group decides each one. Keep `bash` in `tools.allowed` for
+the users who may run remote commands, and write `bash` rules on the full
+arguments, as shown in
+[Permissions on the resolved locator](#permissions-on-the-resolved-locator).
+With no local executor configured, an `ssh://` `cwd` is the only `cwd` form that
+runs; a local one is `executor_unavailable`.
 
-- The script enters that directory first. A directory the login user cannot
-  enter is the local "not usable" refusal, and the command does not run; the
-  attempt is already durable at that point because only the host can test it.
-- `env` entries travel as single-quoted assignments inside the script, never on
-  an `ssh` argv. Each key must be an identifier (`[A-Za-z_][A-Za-z0-9_]*`) and
-  cannot replace a managed base variable; a NUL value is refused. The remote
-  session starts with the login shell's own environment, not the hub's managed
-  base.
-- The model's command runs through `eval` with an empty stdin, so it cannot
-  consume anything else the hub sent. Its stdout and stderr are bounded and
-  truncated as locally.
-- The attempt is recorded as an unbound native attempt before SSH starts, and
-  its result is recorded once afterwards. Hub state stays owner-scoped: another
-  user never sees the attempt, its result, or the Run's events.
-
-A connection that ends before the end trailer — timeout, cancellation, dropped
-session — is `outcome_unknown` and is never replayed: the hub cannot prove the
-remote command stopped.
+The login user is the one OpenSSH resolves for the destination, so the identity
+fields in [Enabling](#enabling) and the included configuration decide it. What a
+remote command returns, how the command and its `env` reach the host, and every
+outcome it can produce are on the
+[ssh locator reference](../reference/locators/ssh.md#behavior) and the
+[bash reference](../reference/tools/bash.md#behavior).
 
 ## Failure reasons
 
 A refused connection is `ssh_unavailable` with one reason: `host_key_mismatch`,
 `auth_failed`, `unreachable`, `config`, `client_missing` (no `ssh` client on the
-worker), or `session_lost` (the operation started and stopped before its end
-trailer). A host that cannot run the script is `ssh_unsupported_host`: it has no
-POSIX `sh` for a read, no `bash` for a command, or its account ran a forced
-command or `nologin` instead. No probe runs: each failure is classified from the
-operation itself, so the first read of a misconfigured host is also the
-diagnosis.
+worker), or `session_lost` (a read started and stopped before its end trailer;
+a command in that position is `outcome_unknown`). A host that cannot run the
+script is `ssh_unsupported_host`: it has no POSIX `sh` for a read, no `bash` for
+a command, or its account ran a forced command or `nologin` instead. No probe
+runs: each failure is classified from the operation itself, so the first read of
+a misconfigured host is also the diagnosis.
 
 ## Threats
 

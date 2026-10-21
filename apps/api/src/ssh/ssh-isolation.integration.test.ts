@@ -142,7 +142,14 @@ describe('ssh operations stay in their owner scope', () => {
       context(userA, runA),
       CALL_TIMEOUT_SECONDS,
     );
-    expect(result).toMatchObject({ status: 'success', operation: 'bash' });
+    // The submitted text is what ran: `id -un` prints the fixture's login
+    // user (`User box` in the included configuration), so a script that
+    // evaluated anything else would not produce this output.
+    expect(result).toMatchObject({
+      status: 'success',
+      operation: 'bash',
+      stdout: 'box\n',
+    });
 
     // A's own ledger: the attempt is durable before SSH, and exactly one
     // result follows it.
@@ -174,6 +181,14 @@ describe('ssh operations stay in their owner scope', () => {
         new NativeFilesRepository(tx).hasMutation(runA.runId),
       ),
     ).resolves.toBe(true);
+    // A's own probe returns the settled outcome for the same call: the fence a
+    // redelivered Run relies on, so B's empty probe below is not hiding a
+    // probe that never returns anything.
+    await expect(
+      tenantDb.runAs(userA, (tx) =>
+        new NativeFilesRepository(tx).priorOutcome(runA.runId, toolCallA),
+      ),
+    ).resolves.toMatchObject({ status: 'success' });
 
     // B's reads of that Run: no events, no attempt row, no settled outcome,
     // and no Run at all. The two attempt probes take no user argument, so the

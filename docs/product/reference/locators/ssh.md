@@ -105,8 +105,6 @@ target, and a link to a directory lists it. Selectors, line numbers, Markdown
 handling, and the result bound are the hub's own, so they match a local read of
 the same text. NUL is valid text, as locally.
 
-## Remote command
-
 A `bash` call with an `ssh://` `cwd` runs one `bash -s` script on the host, on
 stdin, with empty stdin for the command itself:
 
@@ -122,10 +120,11 @@ stdin, with empty stdin for the command itself:
   shares the `bash` time budget. A call that ends before its process starts is
   `cancelled` or `timed_out`, as locally. Only a pre-session failure is a known
   refusal: `ssh_unavailable` with `client_missing`, `host_key_mismatch`,
-  `auth_failed`, or `unreachable`, and `ssh_unsupported_host` for a host that
-  cannot run the script. Every other end after SSH starts without the end
-  trailer — timeout, cancellation, or a dropped session — is `outcome_unknown`
-  and is never replayed. A remote command never reports `session_lost`.
+  `auth_failed`, `unreachable`, or `config` (the destination did not resolve),
+  and `ssh_unsupported_host` for a host that cannot run the script. Every other
+  end after SSH starts without the end trailer — timeout, cancellation, or a
+  dropped session — is `outcome_unknown` and is never replayed. A remote
+  command never reports `session_lost`.
 
 The attempt is recorded before SSH starts and its result once afterwards, both
 under the calling Run, so a retry replays the settled outcome instead of
@@ -168,8 +167,8 @@ byte bound. `invalid_utf8`, `not_regular_file`, `not_found`, and
 not in the pinned file, `auth_failed` for a credential refusal, `unreachable`
 for a host that did not answer or refused the connection, `config` for a
 configuration that does not evaluate, `client_missing` for a worker without an
-`ssh` client, and `session_lost` for an operation that stopped after its marker
-and before its end trailer.
+`ssh` client, and `session_lost` for a read that stopped after its marker and
+before its end trailer.
 
 `ssh_unsupported_host` means the host cannot run an llame script: it has no
 POSIX `sh` (the message names that requirement, and a Windows login shell is

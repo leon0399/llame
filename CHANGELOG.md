@@ -17,7 +17,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   command whose end is not proven — timeout, cancellation, a dropped session —
   is `outcome_unknown` and is never replayed. Host keys are pinned for every hop
   under the safety block Machines already use; a missing key, a refused
-  credential, an unreachable host, or a session lost mid-operation is a typed
+  credential, an unreachable host, or a session lost mid-read is a typed
   `ssh_unavailable` refusal, and a host without a POSIX `sh`, or without
   `bash` for a command, is `ssh_unsupported_host`. Permission rules match the
   resolved locator, so an alias cannot hide the address it reaches, and a rule
