@@ -590,6 +590,27 @@ describe('createSshClient generated configuration', () => {
     expect(configFile.dispose).toHaveBeenCalledTimes(1);
     expect(client.sshConfigText()).toBeUndefined();
   });
+
+  it('renders the operator-selected agent into the generated configuration', async () => {
+    const harness = fakeSpawn();
+    const client = createSshClient({
+      ssh: { ...SSH, identityAgent: 'SSH_AUTH_SOCK' },
+      spawn: harness.spawn,
+    });
+    try {
+      const pending = client.resolve({ host: 'box' });
+      harness.processes[0]?.stdout.write('user root\nhostname box\nport 22\n');
+      harness.processes[0]?.close(0);
+      await pending;
+
+      const lines = client.sshConfigText()?.split('\n');
+      expect(lines).toContain('  IdentityAgent "SSH_AUTH_SOCK"');
+      expect(lines).not.toContain('  IdentityAgent none');
+      expect(lines).toContain('  ForwardAgent no');
+    } finally {
+      client.dispose();
+    }
+  });
 });
 
 describe('real ssh -G resolution', () => {

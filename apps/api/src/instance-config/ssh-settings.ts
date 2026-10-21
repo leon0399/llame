@@ -10,6 +10,8 @@ export type RawSshConfig = {
   knownHostsFile?: string;
   identityFile?: string;
   configFile?: string;
+  /** `ssh` only: the agent `ssh://` may use; the schema refuses it under `machines.ssh`. */
+  identityAgent?: string;
 };
 
 /**
@@ -22,4 +24,10 @@ export type SshConfig = {
   knownHostsFile: string;
   identityFile?: string;
   configFile?: string;
+  /**
+   * `SSH_AUTH_SOCK` (read by OpenSSH from the worker's environment) or an
+   * absolute socket path. Absent means `IdentityAgent none`; Machines never
+   * set it.
+   */
+  identityAgent?: string;
 };

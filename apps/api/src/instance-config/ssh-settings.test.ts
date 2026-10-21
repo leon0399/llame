@@ -116,4 +116,34 @@ describe('ssh configuration', () => {
 
     expect(() => load()).toThrow(InstanceConfigError);
   });
+
+  it('keeps SSH_AUTH_SOCK as written and resolves an agent socket path', () => {
+    writeConfig({ ssh: { identityAgent: 'SSH_AUTH_SOCK' } });
+    expect(load().ssh?.identityAgent).toBe('SSH_AUTH_SOCK');
+
+    writeConfig({ ssh: { identityAgent: 'run/agent.sock' } });
+    expect(load().ssh?.identityAgent).toBe(path.join(cwd, 'run/agent.sock'));
+  });
+
+  it('leaves the agent absent by default', () => {
+    writeConfig({ ssh: {} });
+
+    expect(load().ssh).not.toHaveProperty('identityAgent');
+  });
+
+  it('rejects interpolation in identityAgent, naming the key', () => {
+    writeConfig({ ssh: { identityAgent: '{env:SSH_AUTH_SOCK}' } });
+
+    expect(loadError({ SSH_AUTH_SOCK: '/tmp/agent' })).toContain(
+      'ssh.identityAgent',
+    );
+  });
+
+  it('does not accept an agent for Machines', () => {
+    writeConfig({
+      machines: { ssh: { identityAgent: 'SSH_AUTH_SOCK' }, hosts: {} },
+    });
+
+    expect(loadError()).toContain('/machines/ssh/identityAgent');
+  });
 });

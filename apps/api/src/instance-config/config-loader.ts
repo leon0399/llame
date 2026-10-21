@@ -874,7 +874,15 @@ function resolveRemoteSections(
       },
     }),
     ...(ssh !== undefined && {
-      ssh: resolveSshFiles(ssh, 'ssh', configDirectory),
+      ssh: {
+        ...resolveSshFiles(ssh, 'ssh', configDirectory),
+        ...(ssh.identityAgent !== undefined && {
+          identityAgent: resolveIdentityAgent(
+            ssh.identityAgent,
+            configDirectory,
+          ),
+        }),
+      },
     }),
   };
 }
@@ -911,6 +919,17 @@ function resolveSshFiles(
       ),
     }),
   };
+}
+
+/**
+ * `ssh.identityAgent`: OpenSSH's own `SSH_AUTH_SOCK` keyword, kept as written so
+ * ssh reads the socket from the worker's environment, or a literal socket path
+ * resolved like the other `ssh` files.
+ */
+function resolveIdentityAgent(value: string, configDirectory: string): string {
+  return value === 'SSH_AUTH_SOCK'
+    ? value
+    : resolveSshPath(value, 'ssh.identityAgent', configDirectory);
 }
 
 /**

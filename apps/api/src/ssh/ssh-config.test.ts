@@ -50,6 +50,16 @@ describe('renderSshConfig', () => {
     }
   });
 
+  it('turns the agent off unless an agent is selected', () => {
+    expect(renderSshConfig(base).split('\n')).toContain('  IdentityAgent none');
+    const lines = renderSshConfig({
+      ...base,
+      identityAgent: '/run/user/1000/agent.sock',
+    }).split('\n');
+    expect(lines).toContain('  IdentityAgent "/run/user/1000/agent.sock"');
+    expect(lines).not.toContain('  IdentityAgent none');
+  });
+
   it('adds the llame identity only when configured', () => {
     expect(renderSshConfig(base)).not.toContain('IdentityFile');
     expect(

@@ -370,6 +370,7 @@ export function createSshClient(options: SshClientOptions): SshClient {
     configFile ??= createSshConfigFile({
       knownHostsFile: options.ssh.knownHostsFile,
       identityFile: options.ssh.identityFile,
+      identityAgent: options.ssh.identityAgent,
       includeFile: options.ssh.configFile ?? defaultSshConfigFile(),
     });
     return configFile.path;
