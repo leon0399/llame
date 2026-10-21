@@ -212,8 +212,8 @@ them and the `bash` group decides each one. Keep `bash` in `tools.allowed` for
 the users who may run remote commands, and write `bash` rules on the full
 arguments, as shown in
 [Permissions on the resolved locator](#permissions-on-the-resolved-locator).
-With no local executor configured, an `ssh://` `cwd` is the only `cwd` form that
-runs; a local one is `executor_unavailable`.
+With no local executor configured, a local `cwd` is `executor_unavailable`; an
+`ssh://` `cwd` still runs, as a `machine://` one does on its Machine.
 
 The login user is the one OpenSSH resolves for the destination, so the identity
 fields in [Enabling](#enabling) and the included configuration decide it. What a
