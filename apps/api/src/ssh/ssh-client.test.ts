@@ -745,15 +745,24 @@ async function waitForPid(file: string): Promise<number> {
   throw new Error(`no pid was written to ${file}`);
 }
 
-/** Wait until the pid is dead, proving the group kill reached it. */
+/**
+ * Wait until the pid is dead, proving the group kill reached it. A killed
+ * orphan stays a zombie under a PID 1 that does not reap, so a zombie counts.
+ */
 async function waitForExit(pid: number): Promise<void> {
   for (let attempt = 0; attempt < 400; attempt += 1) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
+    if (!isRunning(pid)) return;
     await delay(25);
   }
   throw new Error(`process ${pid} survived the resolution deadline`);
+}
+
+function isRunning(pid: number): boolean {
+  let fields: string;
+  try {
+    fields = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch {
+    return false;
+  }
+  return fields.charAt(fields.lastIndexOf(')') + 2) !== 'Z';
 }
