@@ -141,14 +141,8 @@ export async function admitSshRead(
   args: SshReadArguments,
   context: ToolContext,
 ): Promise<SshReadAdmission> {
-  const client = context.sshClient;
-  // Without the section the scheme stays unknown: the normal path evaluates
-  // policy and execution refuses it, and there is nothing to resolve with. A
-  // missing trusted policy denies the call before any process, exactly as the
-  // synchronous path does.
-  if (client === undefined || context.permissionPolicy === undefined)
-    return { kind: 'none' };
-
+  // A bare locator asks how to address hosts, and the answer is the same
+  // whether or not the section exists: it starts nothing and lists nothing.
   const parsed = parseSshLocator(args.path);
   if (parsed.kind === 'help')
     return {
@@ -159,6 +153,15 @@ export async function admitSshRead(
         message: SSH_LOCATOR_HELP,
       },
     };
+
+  const client = context.sshClient;
+  // Without the section the scheme stays unknown: the normal path evaluates
+  // policy and execution refuses it, and there is nothing to resolve with. A
+  // missing trusted policy denies the call before any process, exactly as the
+  // synchronous path does.
+  if (client === undefined || context.permissionPolicy === undefined)
+    return { kind: 'none' };
+
   if (parsed.kind === 'invalid')
     return {
       kind: 'refused',
