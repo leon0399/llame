@@ -22,7 +22,8 @@ The tool MUST compile each pattern with RE2 syntax through a linear-time
 engine. When the engine rejects a pattern, the tool MUST fail the call as
 `invalid_pattern` with the engine message and the pattern index. The tool
 MUST NOT run an engine that backtracks. The tool MUST NOT rewrite a rejected
-pattern.
+pattern. The tool MUST NOT record a `native.attempt` effect, because it
+mutates nothing.
 
 #### Scenario: Unknown property is refused
 
@@ -41,6 +42,16 @@ pattern.
 - **WHEN** `literal` is `true` and a pattern is `a.b(`
 - **THEN** only lines that contain the text `a.b(` match
 
+#### Scenario: Nine patterns are refused
+
+- **WHEN** `patterns` holds nine strings
+- **THEN** the tool returns `invalid_input`
+
+#### Scenario: No native attempt is recorded
+
+- **WHEN** a grep call runs over a host scope
+- **THEN** no `native.attempt` event is appended
+
 ### Requirement: A scope is a walkable locator with an optional glob
 
 A scope MUST be one of these forms:
@@ -51,15 +62,26 @@ A scope MUST be one of these forms:
 - `machine://<name><absolute path>`,
 - `kb://`, which names every current Knowledge Space of the Run owner,
 - `kb://<space-id>/<path>`,
-- `skill://`, which names every package in the catalog,
+- `skill://`, which names every package in the effective catalog of the
+  Chat, without the manual-only entries that the current user turn did not
+  select,
 - `skill://<name>` or `skill://<name>/<path>`.
 
-The path part of a scope can contain the glob operators `*`, `**`, and `?`.
-`*` and `?` MUST NOT match a path separator. `**` MUST match zero or more
-path segments. A scope with no glob operator MUST name a directory or one
-regular file. The tool searches a directory recursively. The scheme, the
-Machine name, the Space identifier, and the skill name MUST NOT contain a
-glob operator.
+When the Workspace of the Chat is on a Machine, a host scope MUST map to
+that Machine with the Workspace host mapping of `read`. The tool MUST
+normalize a host or Machine scope lexically before any other step. It
+resolves `.` and `..` segments and collapses repeated separators like POSIX
+`path.posix.resolve`, without a filesystem probe.
+
+The tool MUST recognize a glob operator only as a literal `*` or `?`
+character in the submitted text of the path part. `*` and `?` MUST NOT
+match a path separator. `**` as a whole segment MUST match zero or more
+path segments. A percent-encoded `%2A` or `%3F` is a literal character and
+never a glob operator.
+
+A scope with no glob operator MUST name a directory or one regular file. The
+tool searches a directory recursively. The scheme, the Machine name, the
+Space identifier, and the skill name MUST NOT contain a glob operator.
 
 A scope MUST NOT carry a read selector. The tool MUST refuse these scopes as
 `invalid_path` before admission:
@@ -67,6 +89,7 @@ A scope MUST NOT carry a read selector. The tool MUST refuse these scopes as
 - a `media://` scope,
 - an `http://` or `https://` scope,
 - a `file:` alias with a remote host,
+- a bare `machine://` or `machine://<name>` with no path,
 - a scope with an unknown scheme,
 - a scope with a glob operator the tool does not support, such as `{a,b}` or
   `[ab]`. The error MUST name the operator.
@@ -82,6 +105,12 @@ or host paths.
 - **WHEN** a scope is `kb://<id>/notes/**/*.md`
 - **THEN** every Markdown file beneath `notes` in that Space is a candidate
 - **AND** `kb://<id>/notes/other.txt` is not a candidate
+
+#### Scenario: Encoded asterisk is a literal character
+
+- **WHEN** a scope is `kb://<id>/a%2Ab/`
+- **THEN** the tool searches the directory named `a*b`
+- **AND** no glob is applied
 
 #### Scenario: Glob in the Space identifier is refused
 
@@ -104,25 +133,43 @@ or host paths.
 - **WHEN** a scope is `https://example.test/docs`
 - **THEN** the tool returns `invalid_path` before any permission decision or request
 
+#### Scenario: Media, remote alias, and unknown scheme are refused
+
+- **WHEN** a scope is `media://<id>`, `file://nas/share`, or `ftp://host/path`
+- **THEN** the tool returns `invalid_path` before any permission decision
+
+#### Scenario: Parent segments are resolved before admission
+
+- **WHEN** a scope is `/home/u/repo/src/../../../etc/**`
+- **THEN** the admitted prefix is `/etc/`
+- **AND** an allow on `/home/u/repo/` does not admit the call
+
+#### Scenario: Host scope inside a Machine Workspace
+
+- **WHEN** the Chat's Workspace is `machine://devl/home/me/shop` and a scope is `/home/me/shop/src/**`
+- **THEN** the tool searches `machine://devl/home/me/shop/src/**`
+
 ### Requirement: Each scope is admitted against the grep group on its literal prefix
 
 The tool MUST evaluate the `tools.permissions.grep` group once per scope,
-before it opens any file. For that evaluation, the `scopes` field MUST hold
-one string: the literal prefix of the scope. The literal prefix is the scope
-without every segment from the first segment that contains a glob operator.
-The prefix keeps its end separator when it names a directory.
+before it opens any file, under the grep scope projection that the
+`tool-call-permissions` capability defines. The literal prefix of a scope is
+the scope without every segment from the first segment that contains a glob
+operator. The prefix ends with a separator when a segment was removed or
+when the submitted text ends with a separator. A bare `kb://` or `skill://`
+scope projects to that exact text.
 
 The tool MUST first project a relative host scope through the Workspace path
 projection rule. The tool MUST project a `kb://`, `skill://`, or
-`machine://` scope with the same text-only projection that `read` applies to
-that scheme. A clause then matches the same identity that a `read` of the
+`machine://` prefix with the same text-only projection that `read` applies
+to that scheme. A clause then matches the same identity that a `read` of the
 prefix matches.
 
 An absent `grep` group MUST reject the call. When the group rejects any
-scope, the tool MUST reject the whole call as `permission_denied` with the
-decision provenance of the permission capability. The tool MUST NOT search
-any scope of a rejected call. A bypassed Run MUST record bypass decisions as
-the permission capability defines.
+scope, the tool MUST reject the whole call as `permission_denied`. The
+recorded call decision is the first rejection in scope order. The tool MUST
+NOT search any scope of a rejected call. A bypassed Run MUST record one
+bypass decision for the call.
 
 #### Scenario: Prefix of a glob scope is the matched identity
 
@@ -133,7 +180,7 @@ the permission capability defines.
 #### Scenario: One refused scope refuses the call
 
 - **WHEN** two scopes are submitted and a reject clause matches the second
-- **THEN** the tool returns `permission_denied`
+- **THEN** the tool returns `permission_denied` with the second scope's decision
 - **AND** no file beneath the first scope is opened
 
 #### Scenario: A Knowledge scope matches on its logical identity
@@ -142,68 +189,128 @@ the permission capability defines.
 - **THEN** the call is admitted
 - **AND** no host path or configured root entered policy matching
 
+#### Scenario: A bare Knowledge scope matches its own text
+
+- **WHEN** the only `grep` allow is `literal: "kb://"` on `scopes` and the scope is `kb://`
+- **THEN** the call is admitted
+
 ### Requirement: Every hit is a locator that the read group admits
 
-Before a file contributes a hit, the tool MUST evaluate the `read` group with
-`path` set to the canonical locator of that file. The evaluation MUST use the
-same projection that `read` applies. When the `read` evaluation is not an
-allow, the file contributes nothing. The tool MUST NOT open, count, or name
-that file in the result. An absent `read` group MUST make every file
-contribute nothing. The tool MUST record each decision as a derived decision
-of the `grep` call, with the decision provenance of the permission capability.
+Before a file contributes a hit, the tool MUST evaluate the `read` group.
+The evaluation sets `path` to the canonical locator of that file, under the
+projection that `read` applies. When the `read` evaluation is not an allow,
+the file contributes nothing. The tool MUST NOT emit, count as examined, or
+name that file in the result. A host, Knowledge, or skill walk MUST NOT open
+that file.
+
+A Machine walk opens the file on the Machine, under the Machine's own
+authority. The page of the daemon never reaches the model before the check.
+An absent `read` group MUST make every file contribute nothing. The result
+MUST carry one `warnings` entry of kind `read_refused` with the count of
+refused files. The `tool-call-permissions` capability defines how the
+decisions are recorded.
+
+An ignore file that the walker reads as walk policy is not a candidate. The
+walker MUST NOT emit its content and needs no `read` decision for it.
 
 Every emitted `locator` MUST have the form
 `<canonical file locator>:<start>-<end>` with a one-based inclusive line
-range. The value is directly a valid `read` argument. A `kb://` hit MUST
-carry the logical Knowledge locator. A `machine://` hit MUST carry the
-Machine locator. No hit MUST carry a configured root or a Machine host path.
+range. The value is directly a valid `read` argument. In a `kb://` or
+`skill://` locator the tool MUST encode a literal `*` as `%2A` and a literal
+`?` as `%3F`. The locator can then return as a scope without a glob.
+
+A `kb://` hit MUST carry the logical Knowledge locator. A `machine://` hit MUST carry
+the Machine locator. No hit MUST carry a configured root or a Machine host
+path.
 
 #### Scenario: A read reject hides a file beneath an admitted scope
 
 - **WHEN** the `grep` group allows `/home/u/repo/` and the `read` group rejects `regex: "\\.env$"` on `path`
 - **THEN** a grep over `/home/u/repo/**` never opens `/home/u/repo/.env`
-- **AND** the result does not name `.env` and does not count it
+- **AND** the result does not name `.env` and `warnings` counts one `read_refused`
 
 #### Scenario: A hit is a valid read argument
 
 - **WHEN** line 12 of `kb://<id>/notes/a.md` matches
 - **THEN** the hit locator is `kb://<id>/notes/a.md:11-13`
-- **AND** `read` of that locator returns those lines
+- **AND** a `read` of that locator shows lines 11 to 13 in its window
 
-#### Scenario: Another owner's Space contributes nothing
+#### Scenario: A Knowledge file named with an asterisk returns as a scope
+
+- **WHEN** line 3 of the Knowledge file `notes/a*.md` matches
+- **THEN** the hit locator is `kb://<id>/notes/a%2A.md:2-4`
+- **AND** `kb://<id>/notes/a%2A.md` as a later scope searches that one file
+
+#### Scenario: Another owner's Space is not found
 
 - **WHEN** a scope names a Space that belongs to another owner
-- **THEN** the tool returns `knowledge_space_unavailable`
+- **THEN** the tool returns `knowledge_space_not_found`
 - **AND** no directory of that Space is probed
 
-### Requirement: Walks are bounded and never follow links
+### Requirement: Walks are bounded
 
 For every scheme, the walk MUST obey these rules:
 
-- The walk MUST NOT follow a symbolic link.
 - The walk MUST skip a file with a NUL byte in its first 8 KiB.
 - The walk MUST skip a file that is not valid UTF-8.
 - The walk MUST skip a regular file larger than 1 MiB.
 - The result MUST count each skip in a `warnings` entry by kind.
-- The walk MUST stop after it examined 5,000 files.
+- The walk MUST stop after it examined 5,000 files. A file is examined when
+  the walk opens it for a match.
+- The walk MUST stop after it listed 20,000 directory entries.
 - The walk MUST stop after it read 32 MiB across the call.
 
-When a walk stops at a bound, the result MUST carry `complete: false` and a
-`warnings` entry that names the bound.
+The bounds apply across every scope of one call. When a walk stops at a
+bound, the result MUST carry `complete: false` and a `warnings` entry that
+names the bound. The result MUST carry a `cursor` when at least one passage
+was emitted.
+
+The call MUST stop after 30 seconds of wall time across every scope. It MUST
+then return the passages found so far with `complete: false` and a
+`deadline` entry in `warnings`. The result MUST carry a `cursor` when at
+least one passage was emitted.
+
+#### Scenario: Binary file is skipped and counted
+
+- **WHEN** a candidate contains a NUL byte in its first 8 KiB
+- **THEN** it contributes no hit
+- **AND** `warnings` counts one binary skip
+
+#### Scenario: File bound stops the walk
+
+- **WHEN** a scope holds 6,000 candidate files and the first 5,000 give no match
+- **THEN** the walk stops at 5,000 examined files
+- **AND** the result carries `complete: false`, a `warnings` entry that names the file bound, and no `cursor`
+
+#### Scenario: Deadline returns a partial page
+
+- **WHEN** the walk passes 30 seconds after it emitted three passages
+- **THEN** the result carries those three passages, `complete: false`, a `deadline` entry, and a `cursor`
+
+#### Scenario: Oversized file is skipped and counted
+
+- **WHEN** a candidate is 2 MiB
+- **THEN** it contributes no hit
+- **AND** `warnings` counts one oversized skip
+
+### Requirement: Walk order and links are defined per scheme
+
+The walk MUST visit each directory depth-first. Inside one directory, the
+walk MUST order entries by name in byte order. The walk MUST visit a file
+before it descends into a directory of a later name. This traversal order
+is the canonical order of the call.
+
+A host, Machine, or Knowledge walk MUST NOT follow a symbolic link. A skill
+walk MUST follow the agent-skills link semantics, under the same file,
+entry, byte, and time bounds.
 
 A host or Machine walk MUST include hidden entries. It MUST NOT enter a
 directory named `.git`. It MUST apply every `.gitignore` file between the
 scope prefix and the candidate, with Git precedence. When a scope names one
 exact file, the tool MUST search that file even when an ignore rule matches
-it.
-
-A Knowledge walk MUST keep the Knowledge filesystem rules: the walk refuses a
-symbolic link at every component, and the path stays inside the resolved
-Space. A skill walk MUST keep the agent-skills link semantics.
-
-The call MUST stop after 30 seconds of wall time. It MUST then return the
-passages found so far with `complete: false` and a `deadline` entry in
-`warnings`.
+it. A Knowledge walk MUST keep the Knowledge filesystem rules: the walk
+refuses a symbolic link at every component, and the path stays inside the
+resolved Space.
 
 #### Scenario: gitignored directory is not entered
 
@@ -215,17 +322,25 @@ passages found so far with `complete: false` and a `deadline` entry in
 - **WHEN** a scope is `/home/u/repo/dist/app.js` and `dist/` is gitignored
 - **THEN** that file is searched
 
-#### Scenario: Binary file is skipped and counted
+#### Scenario: The Git directory is never entered
 
-- **WHEN** a candidate contains a NUL byte in its first 8 KiB
-- **THEN** it contributes no hit
-- **AND** `warnings` counts one binary skip
+- **WHEN** a scope is `/home/u/repo/**` and `.git/config` contains a match
+- **THEN** no passage names `.git/config`
 
-#### Scenario: File bound stops the walk
+#### Scenario: Hidden file is searched
 
-- **WHEN** a scope holds 6,000 candidate files
-- **THEN** the walk stops at 5,000 examined files
-- **AND** the result carries `complete: false` and a `warnings` entry that names the file bound
+- **WHEN** a scope is `/home/u/repo/**` and `.editorconfig` contains a match
+- **THEN** a passage names `.editorconfig`
+
+#### Scenario: Host link is not followed
+
+- **WHEN** `/home/u/repo/link` is a symbolic link to `/etc` and a scope is `/home/u/repo/**`
+- **THEN** no file beneath `/etc` is examined
+
+#### Scenario: Skill package link is followed
+
+- **WHEN** a skill source holds a child link to a package directory
+- **THEN** a bare `skill://` scope searches that package
 
 ### Requirement: Matching is per logical line with a one-line window
 
@@ -264,23 +379,50 @@ the window. The tool MUST NOT report match columns, scores, or counts beyond
 - **THEN** the emitted line is 512 code units followed by `…`
 - **AND** the locator still addresses the full source line
 
+#### Scenario: A long merged interval is partitioned
+
+- **WHEN** every line of a 4,500-line file matches
+- **THEN** the file yields passages `:1-2000`, `:2001-4000`, and `:4001-4500`
+
+#### Scenario: Case is ignored on request
+
+- **WHEN** `ignoreCase` is `true` and a pattern is `todo`
+- **THEN** a line that contains `TODO` matches
+
 ### Requirement: Results are ordered, bounded, and paged by a keyset cursor
 
-The tool MUST order passages by submitted scope index, then by canonical file
-locator in byte order, then by passage start line. One page MUST hold at most
+The tool MUST order passages by submitted scope index, then by canonical
+order of the walk, then by passage start line. One page MUST hold at most
 `limit` files and at most 20 passages per file. A file with more than 20
-passages MUST contribute its first 20 in order and a per-file
-`truncated: true`. The whole result MUST stay under the 16,000 character
-result cap of the tool loop.
+passages MUST contribute its first 20 in canonical order and
+`truncated: true` on its twentieth passage. The passages after the
+twentieth are not reachable through a cursor. A later `read` of the file
+reaches them.
+
+The tool MUST keep the result under a budget of 15,000 UTF-16 code units.
+It MUST emit whole passages in order while the next passage fits. When the
+first passage of a page does not fit, the tool MUST cut that passage at a
+line boundary and mark it `truncated: true`. That passage ends the page. The
+page MUST end before the budget, so the tool loop never cuts the result.
 
 When passages remain after a page, the result MUST carry `complete: false`
-and an opaque keyset `cursor`. The cursor names the next passage by scope
-index, file locator, and start line. A later call with that `cursor` and the
-same `patterns`, `scopes`, `literal`, and `ignoreCase` MUST resume after that
-passage. The tool MUST refuse a `cursor` submitted with different search
-inputs as `invalid_input`. The tool MUST NOT store state between calls.
+and an opaque keyset `cursor`. The cursor names the last emitted passage by
+scope index, canonical file locator, and start line. It also carries a hash
+of the resolved search inputs: the patterns, the projected scopes, `literal`,
+and `ignoreCase`. A later call with that `cursor` MUST resume after the
+named passage.
 
-A result with no passage MUST return `results: []` and `complete: true`.
+The tool MUST refuse a `cursor` whose hash differs from the current resolved
+inputs as `invalid_input`. A Workspace change then invalidates an old
+cursor. The tool MUST NOT store state between calls.
+
+On resume, the walk MUST list entries before the cursor without opening
+them. Listed entries count toward the 20,000-entry bound, and opened files
+count toward the 5,000-file bound. A file that a `read` reject refuses is
+listed, not examined.
+
+A result with no passage MUST return `results: []` and `complete: true`
+when no bound stopped the walk.
 
 #### Scenario: Second page resumes after the cursor
 
@@ -293,6 +435,22 @@ A result with no passage MUST return `results: []` and `complete: true`.
 - **WHEN** a `cursor` from a call with `patterns: ["a"]` is submitted with `patterns: ["b"]`
 - **THEN** the tool returns `invalid_input`
 
+#### Scenario: Cursor from another Workspace is refused
+
+- **WHEN** a `cursor` was issued while `/home/u/a` was the Workspace and the Chat then entered `/home/u/b`
+- **THEN** a call with that `cursor` and the same submitted inputs returns `invalid_input`
+
+#### Scenario: Twenty-first passage is marked, not paged
+
+- **WHEN** one file holds 25 passages
+- **THEN** the page holds its first 20, the twentieth carries `truncated: true`
+- **AND** the cursor names the twentieth passage, so the next page starts at the next file
+
+#### Scenario: The budget ends a page early
+
+- **WHEN** the eleventh passage of a page does not fit under 15,000 code units
+- **THEN** the page holds ten passages and a `cursor` that names the tenth
+
 #### Scenario: No match
 
 - **WHEN** no line in any admitted file matches
@@ -302,22 +460,42 @@ A result with no passage MUST return `results: []` and `complete: true`.
 ### Requirement: Scope backends fail closed per scheme
 
 A host scope on a process without accepted native host authority MUST fail as
-`executor_unavailable`. A `machine://` scope MUST run on the named Machine
-through the `fs.grep` protocol method. The daemon MUST walk, match, and bound
-the search locally under the rules of this capability. The daemon MUST return
-passages that name Machine locators only. An unreachable or unknown Machine
-MUST fail the call with the Machine failure results that `read` uses.
+`executor_unavailable`. A `kb://` scope on a process without a configured
+Knowledge root MUST fail as `knowledge_space_unavailable`. A bare `kb://`
+scope for an owner with zero Spaces MUST fail as
+`knowledge_space_not_configured`. A bare `kb://` scope MUST re-check access
+to each Space before the walk enters it.
 
-A `kb://` scope on a process without a configured Knowledge root MUST fail as
-`knowledge_space_not_configured`. A `skill://` scope on a process with no
-configured skill source MUST return no passage for that scope. A failure of
-one scope MUST fail the whole call. A partial result MUST NOT hide a scope
-that the tool did not search.
+A `skill://` scope on a Chat with no effective skill source MUST return no
+passage for that scope. A failure of one scope MUST fail the whole call. A
+partial result MUST NOT hide a scope that the tool did not search.
+
+A `machine://` scope MUST run on the named Machine through the `fs.grep`
+protocol method. The daemon MUST resolve the prefix through its registered
+roots. It MUST return `path_not_registered` for a prefix outside them, as
+`read` does. The daemon MUST walk, match, and bound the search locally under
+the rules of this capability. The request carries the remaining file, entry,
+byte, and time budget, and the daemon MUST stay inside it.
+
+The daemon MUST return passages that name paths relative to its display
+prefix only. An unreachable or unknown Machine MUST fail the call with the
+Machine failure results that `read` uses. A daemon without the method MUST
+fail the call as Machine unusable.
 
 #### Scenario: Host scope without an executor
 
 - **WHEN** a scope is `/srv/data/**` and the process has no accepted native host authority
 - **THEN** the tool returns `executor_unavailable`
+
+#### Scenario: Knowledge scope without a root
+
+- **WHEN** a scope is `kb://<id>/notes/**` and the worker has no configured Knowledge root
+- **THEN** the tool returns `knowledge_space_unavailable`
+
+#### Scenario: Skill scope without a source
+
+- **WHEN** a scope is `skill://` and the Chat has no effective skill source
+- **THEN** the result holds no passage for that scope and `complete: true`
 
 #### Scenario: Machine search runs on the Machine
 
@@ -325,22 +503,32 @@ that the tool did not search.
 - **THEN** the daemon on `build` performs the walk and the match
 - **AND** every hit locator starts with `machine://build/`
 
+#### Scenario: Machine prefix outside the roots
+
+- **WHEN** a scope is `machine://build/**` and `/` is not a registered root
+- **THEN** the tool returns `path_not_registered`
+- **AND** the daemon opens no file
+
 #### Scenario: Unknown Machine fails the call
 
 - **WHEN** a scope names a Machine that is not configured
 - **THEN** the tool returns the Machine not-found result that `read` uses
 - **AND** no other scope of that call is searched
 
+#### Scenario: Budgets span Machines
+
+- **WHEN** two Machine scopes are submitted and the first consumed 30 MiB
+- **THEN** the second request carries a 2 MiB byte budget
+
 ### Requirement: The tool is advertised when a backend can serve
 
 The candidate resolver MUST admit `grep` when `tools.allowed` names it and
 at least one backend can serve. A backend can serve when the process holds
 accepted native host authority, a configured Knowledge root, a configured
-skill source, or a configured Machine. With no backend, the tool MUST stay
-unavailable. The tool MUST NOT record a `native.attempt` effect, because it
-mutates nothing. The packaged description MUST be a complete template under
-the tool-prompt-templates rules. `tools.grep` MUST be a true predicate when
-the tool is admitted.
+operator skill source, or a configured Machine. With no backend, the tool
+MUST stay unavailable. The packaged description MUST be a complete template
+under the tool-prompt-templates rules. `tools.grep` MUST be a true predicate
+when the tool is admitted.
 
 #### Scenario: Knowledge root alone admits grep
 

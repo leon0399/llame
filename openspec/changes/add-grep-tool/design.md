@@ -107,6 +107,12 @@ Rejected alternatives:
 
 ### D3. Glob matcher: `*`, `**`, `?` only
 
+The engine recognizes glob operators in the submitted text before any
+percent-decoding, so `%2A` stays a literal asterisk. Emitted `kb://` and
+`skill://` locators encode `*` and `?`, so a hit returns as a scope without
+a glob. A host file whose name holds `*` or `?` is reachable only through a
+glob. That ceiling is recorded here.
+
 The engine splits a scope into the literal prefix and the glob suffix at the
 first segment that contains `*` or `?`. The prefix is the admitted identity.
 
@@ -142,27 +148,35 @@ The runner gains a `grep` branch beside the native file branch:
 ```text
 admit(call):
   for each scope in order:
-    prefix = literalPrefix(projectScheme(scope))
-    decision = evaluate(policy, toolId: grep, args: { scopes: prefix })
-    record(decision)
-    if reject: return permission_denied
+    prefix = literalPrefix(normalize(projectScheme(scope)))
+    args = { ...submitted, scopes: prefix }
+    decision = evaluate(policy, toolId: grep, args, allFieldsExtra: prefixes)
+    if reject: record(decision); return permission_denied
+  record(allow)
   run engine with onCandidate(file):
     decision = evaluate(policy, toolId: read, args: { path: canonical(file) })
-    record(decision, derived: true)
+    if reject: refused += 1
     return decision is allow
+  result.warnings += { kind: read_refused, count: refused }
 ```
 
 The projection reuses `locator-projection.ts`. `grep` joins
 `NATIVE_FILE_PERMISSION_TOOL_IDS` with a scope branch that removes the glob
-suffix instead of a read selector.
+suffix instead of a read selector. Host and Machine scopes are normalized
+lexically first, so `..` cannot widen a substring allow. The per-file check
+reuses the `read` projection unchanged. A `.env` reject written for `read`
+hides the file from `grep` with no second rule.
 
-The per-file check reuses the `read`
-projection unchanged. A `.env` reject written for `read` hides the file from
-`grep` with no second rule. Each per-file decision is a derived decision of
-the `grep` call, stored like a web-read hop decision.
+Per-file decisions are counted, not recorded one by one. The derived
+decision list is capped at 26 entries (`runs/assistant-transcript.ts`), and
+a call can refuse thousands of files. The count reaches the completion
+audit and the result.
 
-Rejected alternative: an array-aware field matcher in the evaluator. That
-changes the permission capability for every tool to serve one.
+Rejected alternatives:
+
+- An array-aware field matcher in the evaluator. That changes the permission
+  capability for every tool to serve one.
+- One derived decision per file. The cap drops them silently.
 
 ### D6. Output shape
 
@@ -182,24 +196,37 @@ changes the permission capability for every tool to serve one.
 ```
 
 Passages of one file are adjacent in `results`. A file with more than 20
-passages adds `truncated: true` on its twentieth passage. The cursor encodes
-`{ scope index, file locator, start line }` and a hash of the search inputs,
-as base64url. A cursor whose hash differs from the current inputs is
-`invalid_input`.
+passages adds `truncated: true` on its twentieth passage. The page is
+budgeted at 15,000 UTF-16 code units before the runner's 16,000-character
+cap, so the cursor is never cut away.
+
+The walk order is depth-first with byte-ordered names per directory. That
+is the canonical order the cursor keys on. The cursor encodes
+`{ scope index, canonical file locator, start line }` of the last emitted
+passage and a SHA-256 of the resolved inputs (patterns, projected scopes,
+`literal`, `ignoreCase`), as base64url. The projected scopes carry the
+Workspace root, so a Workspace change invalidates the cursor.
+
+On resume the walk lists but does not open entries before the cursor.
 
 ### D7. `fs.grep` on the Machine daemon
 
-Request: `{ path, globSuffix, patterns, literal, ignoreCase, cursor }`.
-Response: the D6 shape with paths relative to the display prefix of the
-daemon, plus the `complete` flag and warnings. The daemon applies every D1 to
-D6 bound locally.
+Request: `{ path, globSuffix, patterns, literal, ignoreCase, cursor, budget }`
+where `budget` is `{ files, entries, bytes, deadlineMs }` remaining for the
+call. Response: the D6 shape with paths relative to the display prefix of
+the daemon, the `complete` flag, warnings, and the budget consumed. The
+daemon resolves `path` through its root guard and returns
+`path_not_registered` outside the roots. The daemon applies every D1 to D6
+bound locally within the request budget.
 
-The API renders each path through `formatMachineLocator`,
-so no host path crosses. The API still evaluates the `read` group per
-returned file before it emits the passage.
+The API renders each path through `formatMachineLocator`, so no host path
+crosses. The API evaluates the `read` group per returned file before it
+emits the passage. The daemon opened those files under the Machine's own
+authority. That is the same authority `bash` on the Machine already holds.
 
-The daemon returns at most one
-page per request. The API cursor wraps the daemon cursor.
+The daemon returns at most one page per request. The API cursor wraps the
+daemon cursor. A method-not-found error maps to the Machine unusable
+result.
 
 ### D8. Advertisement
 
@@ -241,6 +268,8 @@ exist.
 
 ### Compatibility
 
+- The `remote-machines` change is not archived. The Machine layer cites its
+  canonical-locator and registered-root rules and must archive after it.
 - `rg` honors ignore files only inside a Git repository. This design honors
   them everywhere. That is deterministic and simpler.
 - A Machine daemon older than this change has no `fs.grep`. The API maps the

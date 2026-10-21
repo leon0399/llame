@@ -80,6 +80,22 @@ model calls, and every hit is a locator that `read` accepts.
   that is not `grep`, because `grep` becomes registered.
 - `tool-prompt-templates`: the uninstalled-tool scenario uses an unregistered
   id that is not `grep`, for the same reason.
+- `tool-call-permissions`: a new requirement defines the per-scope `grep`
+  evaluation, what an all-fields reject sees, and how per-file `read`
+  decisions are counted instead of recorded one by one.
+- `knowledge-tools`: the configured root also makes `grep` eligible for
+  `kb://` scopes.
+
+## Dependencies
+
+- The `machine://` backend depends on the `remote-machines` change. Its
+  Machine locator, registered-root, and canonical-locator permission rules
+  are cited here and must be canonical before the Machine layer archives.
+- The active `knowledge-submit` change modifies the same `tool-calling`
+  registry requirement. The second change to archive must carry both edits.
+- The shipped `llame.config.jsonc.example` documents nine permission groups
+  by spec. `grep` joins the operator docs, not the example, like
+  `web_search`.
 
 ## Impact
 
@@ -92,8 +108,14 @@ model calls, and every hit is a locator that `read` accepts.
   dependencies: `re2js` (moved from `apps/api`) and `ignore`.
 - `apps/api/src/knowledge` and `apps/api/src/skills`: walk ports for `kb://`
   and `skill://`.
+
+### Protocol and tests
+
 - `packages/machine-protocol` and `apps/machine`: new `fs.grep` method and
   its daemon handler.
+- `apps/api/src/instance-config/prompt-loader.test.ts` and
+  `apps/api/src/prompts/tool-descriptions.test.ts`: the unregistered example
+  id changes from `grep` to `never_registered`.
 
 ### Documentation
 
@@ -108,3 +130,16 @@ model calls, and every hit is a locator that `read` accepts.
   current Knowledge port closes it.
 - A pathological pattern that blocks the worker. RE2 closes it.
 - A Machine that returns a host path. The Machine locator rule closes it.
+
+## Revision history
+
+- **v2 (2026-10-21):** Review round 1.
+  - Added the `tool-call-permissions` and `knowledge-tools` deltas.
+  - Corrected the Knowledge error codes.
+  - Defined the canonical walk order and the cursor hash over resolved inputs.
+  - Added the 15,000-unit result budget and lexical scope normalization.
+  - Added the Machine Workspace mapping and the Machine root and budget rules.
+  - Defined encoded glob characters and skill link semantics.
+  - Renamed the unregistered example id to `never_registered`.
+  - Split the engine layer in two.
+- **v1 (2026-10-21):** Initial draft.

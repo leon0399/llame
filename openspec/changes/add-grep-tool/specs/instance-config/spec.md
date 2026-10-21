@@ -48,9 +48,9 @@ system prompt; rendered tool descriptions SHALL not be stored in receipts.
 
 #### Scenario: Unknown predicate is valid while unknown override target is not
 
-- **WHEN** a valid registered-tool override checks an unregistered `tools.find`
+- **WHEN** a valid registered-tool override checks an unregistered `tools.never_registered`
 - **THEN** worker boot succeeds and that predicate is false
-- **AND** an override map entry targeting the unregistered find tool itself is rejected
+- **AND** an override map entry targeting the unregistered `never_registered` tool itself is rejected
 
 #### Scenario: Worker restart applies file edits
 
