@@ -93,6 +93,33 @@ describe('loadPackagedToolDescription', () => {
     expect(description).toMatch(/without isolation between llame users/u);
   });
 
+  it('discloses ssh working directories and their remote host authority on bash', () => {
+    const description = loadPackagedToolDescription('bash');
+    // The form: a cwd locator that runs the command on that host.
+    expect(description).toContain(
+      '`ssh://[user@]host[:port]/<absolute path>` `cwd`',
+    );
+    expect(description).toMatch(/as the remote login user/u);
+    // The env rule and the unreplayable end, as the ssh branch enforces them.
+    expect(description).toContain('[A-Za-z_][A-Za-z0-9_]*');
+    expect(description).toMatch(/outcome_unknown/u);
+    // The authority: the instance's SSH identity and no isolation per user.
+    expect(description).toMatch(/SSH identity of the instance/u);
+    expect(description).toMatch(/no function isolates llame users/u);
+  });
+
+  it('tells the model to set the directory with cwd, not cd in command', () => {
+    const description = loadPackagedToolDescription('bash');
+    expect(description).toMatch(
+      /Set the directory of a command with `cwd`, not with a `cd` in `command`/u,
+    );
+    // Inside a Workspace: no cwd or a relative one. Outside: an absolute one.
+    expect(description).toMatch(
+      /in an entered Workspace give no `cwd` or one relative to its root/u,
+    );
+    expect(description).toMatch(/with no Workspace give an absolute `cwd`/u);
+  });
+
   it('normalizes CRLF and trailing whitespace out of a Windows-authored asset', () => {
     fsMocks.readFileSync.mockReturnValueOnce('line one\r\nline two   \r\n\r\n');
 

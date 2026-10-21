@@ -57,8 +57,9 @@ locator — an absolute path argument on that process fails closed with
 
 `ssh://` locators need only the top-level `ssh` section, described in
 [SSH locators](ssh.md); they do not need `tools.nativeExecutorId`, and a
-process with the section but no local executor still serves them. `read` is the
-only tool that accepts one in this revision: `edit` and `write` refuse it with
+process with the section but no local executor still serves them. `read`
+accepts an `ssh://` path and `bash` accepts one as its `cwd`, which runs the
+command on that host; `edit` and `write` refuse it with
 `unsupported_operation`, and `enter_workspace` refuses it with `invalid_path`.
 
 Optional trusted bash cwd (defaults to the cwd of the process that executes the

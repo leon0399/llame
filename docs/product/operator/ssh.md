@@ -1,21 +1,23 @@
 ---
-summary: "Enabling experimental ssh:// reads: the ssh section, pinned host keys, the included SSH configuration, permission rules on the resolved locator, and the threats"
+summary: "Enabling experimental ssh:// reads and bash working directories: the ssh section, pinned host keys, the included SSH configuration, permission rules on the resolved locator, and the threats"
 read_when:
-  - you are enabling ssh:// locators for reads on external hosts
+  - you are enabling ssh:// locators for reads and bash working directories on external hosts
   - you are deciding which ssh:// destinations a permission policy admits
-  - you need to diagnose a refused ssh:// read
+  - you need to diagnose a refused ssh:// read or command
 behavior:
   - ../reference/locators/ssh.md
   - ../reference/tools/read.md
+  - ../reference/tools/bash.md
   - ../reference/locators/index.md
 ---
 
 # SSH locators
 
-**Experimental.** An `ssh://` locator reads a file or one directory level on a
-host the operator's own SSH configuration reaches. Nothing is installed on that
-host: the hub runs the system `ssh` client, sends a POSIX `sh` script on stdin,
-and reads the framed answer back. The behavior contract is the
+**Experimental.** An `ssh://` locator reads a file or one directory level, or
+runs a `bash` command, on a host the operator's own SSH configuration reaches.
+Nothing is installed on that host: the hub runs the system `ssh` client, sends a
+POSIX `sh` or `bash` script on stdin, and reads the framed answer back. The
+behavior contract is the
 [ssh-locator spec](../../../openspec/changes/ssh-locator/specs/ssh-locator/spec.md);
 what a result contains is in the
 [ssh locator reference](../reference/locators/ssh.md).
@@ -58,8 +60,10 @@ Interpolation is not applied to these values, and an unknown key or a wrong
 type fails startup naming the field. Relative paths resolve from the
 configuration file, and `~/` from the llame process user's home. Every API and
 worker process that executes Runs needs an `ssh` client, the pinned file, and
-whatever the included configuration references; keep `read` in `tools.allowed`
-for the users who may use it.
+whatever the included configuration references; keep `read` and `bash` in
+`tools.allowed` for the users who may use them. The `ssh` section also makes
+`bash` available without a local executor: an `ssh://` `cwd` runs remotely,
+while a local `cwd` is `executor_unavailable`.
 
 This section is separate from `machines.ssh`: configuring one does not enable
 the other, so an instance can reach external hosts without declaring a Machine.
@@ -193,13 +197,39 @@ anchored reject that closes it for the hosts where it matters; the third keeps
 `~/.ssh` out of a broad allow. A whole-tool `read: allow: true` admits every
 pinned host the instance's identity can reach.
 
+A `bash` call is judged on its full arguments — `command`, `env`, and `cwd` —
+with `cwd` the submitted text in the first pass and the resolved locator in the
+second, both before the command runs. The `command` text matches its own rule,
+exactly as for a local command, so a `cd` inside it is matched as written and
+never changes the directory the model submitted. A `command` rule matches in
+either pass, and an `allFields` reject visits the `env` values as it does
+locally.
+
+## Remote bash
+
+Remote commands take no configuration of their own: the `ssh` section enables
+them and the `bash` group decides each one. Keep `bash` in `tools.allowed` for
+the users who may run remote commands, and write `bash` rules on the full
+arguments, as shown in
+[Permissions on the resolved locator](#permissions-on-the-resolved-locator).
+With no local executor configured, a local `cwd` is `executor_unavailable`; an
+`ssh://` `cwd` still runs, as a `machine://` one does on its Machine.
+
+The login user is the one OpenSSH resolves for the destination, so the identity
+fields in [Enabling](#enabling) and the included configuration decide it. What a
+remote command returns, how the command and its `env` reach the host, and every
+outcome it can produce are on the
+[ssh locator reference](../reference/locators/ssh.md#behavior) and the
+[bash reference](../reference/tools/bash.md#behavior).
+
 ## Failure reasons
 
 A refused connection is `ssh_unavailable` with one reason: `host_key_mismatch`,
 `auth_failed`, `unreachable`, `config`, `client_missing` (no `ssh` client on the
-worker), or `session_lost` (the read started and stopped before its end
-trailer). A host that cannot run the script is `ssh_unsupported_host`: it has no
-POSIX `sh`, or its account ran a forced command or `nologin` instead. No probe
+worker), or `session_lost` (a read started and stopped before its end trailer;
+a command in that position is `outcome_unknown`). A host that cannot run the
+script is `ssh_unsupported_host`: it has no POSIX `sh` for a read, no `bash` for
+a command, or its account ran a forced command or `nologin` instead. No probe
 runs: each failure is classified from the operation itself, so the first read of
 a misconfigured host is also the diagnosis.
 
@@ -211,26 +241,31 @@ a misconfigured host is also the diagnosis.
   log in to; scope allows per host.
 - **T2. Injection.** Host, user, and port are restricted to a strict character
   set before any process starts, the destination is passed after `--`, and the
-  remote script and its arguments travel on stdin, single-quoted. Model text
-  never reaches an `ssh` option or the remote argv.
+  remote script, its arguments, the `env` values, and the command travel on
+  stdin, single-quoted. Model text never reaches an `ssh` option or the remote
+  argv.
 - **T3. Operator configuration side effects.** Resolution runs the included
   `Match exec` commands and may resolve DNS for every locator that passes the
   submitted-text rejects, including ones the resolved text then rejects. Only
-  users who pass the `read` group can trigger it.
+  users who pass the `read` or `bash` group can trigger it.
 - **T4. Remote work that outlives the hub.** A remote process can keep running
   after the local `ssh` is killed. A read transfers one bounded file or listing
-  and then exits, so it leaves nothing behind; remote commands are not part of
-  this revision.
+  and then exits, so it leaves nothing behind. A `bash` command is bounded by
+  the call deadline and the shared output bound, but the hub cannot prove the
+  remote stop: a command cut off after it started is `outcome_unknown`, and the
+  worker never replays it. Prefer idempotent commands on hosts where a stray
+  process matters.
 - **T5. No isolation between users.** Every user acts with one SSH identity on
-  each host and can read whatever that login user can. Hub-held state — attempts,
-  results, and events — stays owner-scoped per user.
+  each host and has whatever authority that login user has, read or
+  command alike. Hub-held state — attempts, results, and events — stays
+  owner-scoped per user.
 - **T6. Included configuration.** Identities, `ProxyCommand`, `Match exec`, and
   `SendEnv` in the included file apply as written; the safety block bounds host
   key checking, not what the operator configured.
 
 ## Not in this revision
 
-`edit` and `write` refuse an `ssh://` locator with `unsupported_operation`,
-`enter_workspace` refuses it, and a remote `bash` working directory is not
-accepted. Host listing, remote line selectors inside the script, SFTP and
-Windows hosts, connection reuse, and a proven remote stop are follow-ups.
+`edit` and `write` refuse an `ssh://` locator with `unsupported_operation`, and
+`enter_workspace` refuses it. Host listing, remote line selectors inside the
+script, SFTP and Windows hosts, connection reuse, and a proven remote stop are
+follow-ups.

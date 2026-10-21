@@ -30,23 +30,25 @@ and read-only. Each scheme page states its accepted spellings; see
 
 ## Accepted by
 
-| Scheme                     | `read` | `edit` | `write` | Executor | Authority                                               | Mutable | Triggers instructions |
-| -------------------------- | ------ | ------ | ------- | -------- | ------------------------------------------------------- | ------- | --------------------- |
-| absolute path              | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                    | yes     | yes                   |
-| `file://`                  | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                    | yes     | yes                   |
-| [`machine://`](machine.md) | yes    | yes    | yes     | no       | a configured Machine's filesystem, its OS user over SSH | yes     | yes, on the Machine   |
-| [`ssh://`](ssh.md)         | yes    | no     | no      | no       | an external host's filesystem, its login user over SSH  | no      | no                    |
-| `kb://`                    | yes    | yes    | yes     | no       | the owner's Knowledge Space directory                   | yes     | yes, inside the Space |
-| `skill://`                 | yes    | no     | no      | no       | an installed skill package, read-only                   | no      | no                    |
-| `http(s)://`               | yes    | no     | no      | no       | the public web, through the API process                 | no      | no                    |
-| `media://`                 | yes    | no     | no      | no       | the owner's stored images, read-only                    | no      | no                    |
+| Scheme                     | `read` | `edit` | `write` | Executor | Authority                                               | Mutable    | Triggers instructions |
+| -------------------------- | ------ | ------ | ------- | -------- | ------------------------------------------------------- | ---------- | --------------------- |
+| absolute path              | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                    | yes        | yes                   |
+| `file://`                  | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                    | yes        | yes                   |
+| [`machine://`](machine.md) | yes    | yes    | yes     | no       | a configured Machine's filesystem, its OS user over SSH | yes        | yes, on the Machine   |
+| [`ssh://`](ssh.md)         | yes    | no     | no      | no       | an external host's filesystem, its login user over SSH  | as written | no                    |
+| `kb://`                    | yes    | yes    | yes     | no       | the owner's Knowledge Space directory                   | yes        | yes, inside the Space |
+| `skill://`                 | yes    | no     | no      | no       | an installed skill package, read-only                   | no         | no                    |
+| `http(s)://`               | yes    | no     | no      | no       | the public web, through the API process                 | no         | no                    |
+| `media://`                 | yes    | no     | no      | no       | the owner's stored images, read-only                    | no         | no                    |
 
 `edit` and `write` reject `http://` and `https://` with `invalid_path` before
 any request, and reject `skill://`, [`media://`](media.md), and
 [`ssh://`](ssh.md) with `unsupported_operation` and no filesystem effect. The
 same two tools refuse the two [`machine://`](machine.md) listing forms with
-`unsupported_operation`. The
-operator enables the host executor the first two rows need; see
+`unsupported_operation`. A [`machine://`](machine.md) and [`ssh://`](ssh.md)
+locator is also accepted as a `bash` `cwd`, where the command runs on that host
+and may change whatever its user may change. The operator enables the host
+executor the first two rows need; see
 [native files](../../operator/native-files.md#enabling).
 
 ## Authority
