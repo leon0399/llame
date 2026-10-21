@@ -58,6 +58,12 @@ const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const OUTCOME_UNKNOWN_MESSAGE =
   'The remote command may have executed; the connection ended without its end trailer. It will not be replayed automatically.';
 
+const CANCELLED_BEFORE_START: ToolResult = {
+  status: 'error',
+  type: 'cancelled',
+  message: 'Command was cancelled before start.',
+};
+
 /** The command a remote `bash` call runs: model text, never host authority. */
 export type SshBashInput = {
   readonly command: string;
@@ -122,11 +128,7 @@ function verdictResult(
 ): ToolResult {
   switch (verdict.kind) {
     case 'cancelled':
-      return {
-        status: 'error',
-        type: 'cancelled',
-        message: 'Command was cancelled before start.',
-      };
+      return CANCELLED_BEFORE_START;
     case 'unsupported':
       return sshUnsupportedHostResult(verdict.cause);
     case 'unavailable':
@@ -332,11 +334,7 @@ function preStartResult(
       truncated: false,
     });
   return context.abortSignal?.aborted === true
-    ? {
-        status: 'error',
-        type: 'cancelled',
-        message: 'Command was cancelled before start.',
-      }
+    ? CANCELLED_BEFORE_START
     : undefined;
 }
 

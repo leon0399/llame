@@ -432,7 +432,6 @@ async function resolveDestination(
     };
   }
 }
-
 export function createSshClient(options: SshClientOptions): SshClient {
   const spawn = options.spawn ?? spawnOneShotSshProcess;
   let configFile = options.configFile;

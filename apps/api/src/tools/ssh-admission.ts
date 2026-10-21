@@ -261,3 +261,17 @@ export async function admitSshBash(
     client,
   );
 }
+
+/**
+ * The `ssh://` admission a call needs, or undefined for every other call, so
+ * those keep the synchronous permission path without an extra await.
+ */
+export function admitSshCall(
+  tool: Tool,
+  args: UnknownRecord,
+  context: ToolContext,
+): Promise<SshAdmission> | undefined {
+  if (isSshRead(tool, args)) return admitSshRead(args, context);
+  if (isSshBash(tool, args)) return admitSshBash(args, context);
+  return undefined;
+}

@@ -28,8 +28,7 @@ import {
 } from './workspace-path';
 import { isMachineLocator } from '../machines/machine-locator';
 import {
-  admitSshBash,
-  admitSshRead,
+  admitSshCall,
   isSshBash,
   isSshRead,
   type SshAdmission,
@@ -370,11 +369,9 @@ export async function runTool(
 
   // Any other call keeps the synchronous permission path; an `ssh://` read or
   // `bash` cwd must resolve its destination first, so only those await.
-  const ssh: SshAdmission = isSshRead(tool, submittedArgs)
-    ? await admitSshRead(submittedArgs, validContext)
-    : isSshBash(tool, submittedArgs)
-      ? await admitSshBash(submittedArgs, validContext)
-      : { kind: 'none' };
+  const pendingSsh = admitSshCall(tool, submittedArgs, validContext);
+  const ssh: SshAdmission =
+    pendingSsh === undefined ? { kind: 'none' } : await pendingSsh;
   if (ssh.kind === 'refused') return ssh.result;
   const decision =
     ssh.kind === 'decided'
