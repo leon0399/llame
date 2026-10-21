@@ -177,6 +177,28 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
+  it('admits bash on the ssh section without a local executor', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        ssh: { knownHostsFile: '/etc/llame/ssh_known_hosts' },
+      },
+    });
+
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['bash'],
+      codeOwnedTools: [bashTool],
+    });
+
+    expect(candidates).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: bashTool,
+      },
+    ]);
+  });
+
   it('does not query the owner row when no Knowledge tool is allowlisted', async () => {
     const findForOwnerForBinding = vi.spyOn(
       KnowledgeSpaceRepository.prototype,

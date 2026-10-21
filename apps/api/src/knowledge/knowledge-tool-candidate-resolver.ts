@@ -85,18 +85,21 @@ export class KnowledgeToolCandidateResolver {
   }
 
   /**
-   * `bash` needs an accepted native host, or a configured Machine to run on.
-   * The native file tools also serve `kb://` locators, which need no executor
-   * identity, so a Knowledge root alone admits `edit` and `write`, and
-   * `skill://` and web locators, which need no host authority at all, admit
-   * `read` alone; a configured Machine admits the host tools too, because a
-   * Machine locator is its own authority. A local path on such a process still
-   * fails closed with `executor_unavailable` at execution.
+   * `bash` needs an accepted native host, a configured Machine, or the `ssh`
+   * section to run on. The native file tools also serve `kb://` locators, which
+   * need no executor identity, so a Knowledge root alone admits `edit` and
+   * `write`, and `skill://` and web locators, which need no host authority at
+   * all, admit `read` alone; a configured Machine or `ssh` section admits the
+   * host tools too, because those locators are their own authority. A local
+   * path on such a process still fails closed with `executor_unavailable` at
+   * execution.
    */
   private admitsHostCapability(tool: Tool): boolean {
     const { nativeExecutorId } = this.instanceConfig.config.tools;
     const machines = this.instanceConfig.config.machines !== undefined;
-    if (isBashTool(tool)) return nativeExecutorId !== undefined || machines;
+    const ssh = this.instanceConfig.config.ssh !== undefined;
+    if (isBashTool(tool))
+      return nativeExecutorId !== undefined || machines || ssh;
     if (!isNativeFileTool(tool)) return true;
     if (tool.id === 'read') return true;
     return (

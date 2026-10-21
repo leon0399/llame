@@ -105,7 +105,8 @@ the same text. NUL is valid text, as locally.
 ## Bounds
 
 A regular file transfers at most 1 MiB plus one byte; a larger file is
-`file_too_large`. A directory list contains at most 1,000 entries. One
+`file_too_large` and the result names `bash` as the way to examine it. A
+directory list contains at most 1,000 entries. One
 directory transfer collects at most the local 10,000-entry traversal budget
 plus one, so a directory within that budget lists exactly what a local read
 would list first, and one past it is `directory_too_large` instead of a subset

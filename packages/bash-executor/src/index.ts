@@ -7,6 +7,7 @@ export type {
   BashUnavailableResult,
   BashUnknownResult,
 } from "./types";
+export { managedEnvironmentCollision } from "./env";
 export { requireManagedBoundary, sanitizeKnownResult } from "./sanitize";
 export {
   CONFIGURED_TOOLS,
@@ -18,6 +19,9 @@ export {
   admitManagedBash,
   executeManagedBash,
   MANAGED_EXECUTOR,
+  measureManagedInput,
   resetManagedExecutorForTests,
+  reserveManagedProcessSlot,
+  unusableWorkingDirectory,
 } from "./execute";
-export type { ExecuteManagedBashOptions } from "./execute";
+export type { ExecuteManagedBashOptions, ManagedProcessSlot } from "./execute";

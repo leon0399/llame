@@ -491,6 +491,145 @@ describe('ssh read admission', () => {
   });
 });
 
+/** A `bash` tool that observes the context execution actually receives. */
+function bashProbe() {
+  const execute = vi.fn(
+    (executionContext: ToolContext, { cwd }: { cwd: string }) => ({
+      status: 'success' as const,
+      cwd,
+      binding: executionContext.sshBinding,
+    }),
+  );
+  const tool: Tool<{ command: string; cwd: string }> = {
+    id: 'bash',
+    description: 'runs a command',
+    classification: 'execute_code',
+    inputSchema: z.strictObject({ command: z.string(), cwd: z.string() }),
+    execute,
+  };
+  return { tool, execute };
+}
+
+async function runBash(
+  cwd: string,
+  map: ToolPermissionMap,
+  overrides: Partial<ToolContext> = {},
+) {
+  const probe = bashProbe();
+  const result = await runTool(
+    probe.tool,
+    { command: 'pwd', cwd },
+    context(map, overrides),
+    5,
+  );
+  return { result, execute: probe.execute };
+}
+
+describe('ssh bash admission', () => {
+  it('refuses a submitted-cwd reject without resolving the destination', async () => {
+    const { client, resolve } = fakeSsh();
+    const { result, execute } = await runBash(
+      'ssh://prod/srv',
+      {
+        bash: {
+          allow: true,
+          reject: [{ field: 'cwd', regex: '^ssh://prod/' }],
+        },
+      },
+      { sshClient: client },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses an alias spelling the resolved cwd rejects', async () => {
+    const { client, resolve } = fakeSsh({
+      outcome: 'resolved',
+      destination: { user: 'root', host: '10.0.0.5', port: 22 },
+    });
+    const { result, execute } = await runBash(
+      'ssh://prod/srv',
+      {
+        bash: {
+          allow: true,
+          reject: [{ field: 'cwd', regex: '^ssh://root@10\\.0\\.0\\.5:22/' }],
+        },
+      },
+      { sshClient: client },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('binds the resolved directory the allow matched', async () => {
+    const { client } = fakeSsh();
+    const { result, execute } = await runBash(
+      'ssh://box/srv/app',
+      { bash: { allow: [{ field: 'cwd', regex: '^ssh://box@box:22/srv/' }] } },
+      { sshClient: client },
+    );
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0].sshBinding).toEqual({
+      destination: 'box',
+      user: 'box',
+      host: 'box',
+      port: 22,
+      locator: 'ssh://box@box:22/srv/app',
+    });
+  });
+
+  it('refuses a selector on the cwd before resolving', async () => {
+    const { client, resolve } = fakeSsh();
+    const { result, execute } = await runBash(
+      'ssh://box/tmp:1-2',
+      { bash: { allow: true } },
+      { sshClient: client },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'An ssh:// working directory is one absolute path without a selector.',
+    });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('treats an ssh:// bash as refused in the synchronous preview', () => {
+    const { client } = fakeSsh();
+    const probe = bashProbe();
+    const policy = context({ bash: { allow: true } }, { sshClient: client });
+
+    expect(
+      previewToolPermission(
+        probe.tool,
+        { command: 'pwd', cwd: 'ssh://box/tmp' },
+        policy,
+      ),
+    ).toBe(false);
+    expect(
+      previewToolPermission(
+        probe.tool,
+        { command: 'pwd', cwd: '/tmp' },
+        policy,
+      ),
+    ).toBe(true);
+  });
+});
+
 describe('ssh mutations and Workspace entry', () => {
   it.each([
     [

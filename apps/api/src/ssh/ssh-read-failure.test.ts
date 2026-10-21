@@ -1,5 +1,6 @@
 import { type SshRunOutcome } from './ssh-client';
 import {
+  classifySshBashOutcome,
   classifySshPreludeFailure,
   classifySshReadOutcome,
 } from './ssh-read-failure';
@@ -24,6 +25,7 @@ function ended(diagnostic: string, code: number | null = 0): SshRunOutcome {
     stdout: Buffer.alloc(0),
     stdoutOverflow: false,
     diagnostic,
+    stderrOverflow: false,
     code,
     signal: null,
   };
@@ -145,6 +147,20 @@ describe('classifySshPreludeFailure', () => {
     ).toEqual({ kind: 'unsupported', cause: 'no_script' });
   });
 
+  it('names bash itself when only bash is missing', () => {
+    expect(
+      classifySshPreludeFailure(ended('sh: 1: bash: not found', 127)),
+    ).toEqual({ kind: 'unsupported', cause: 'bash' });
+    expect(
+      classifySshPreludeFailure(
+        ended('bash: line 1: bash: command not found', 127),
+      ),
+    ).toEqual({ kind: 'unsupported', cause: 'bash' });
+    expect(
+      classifySshPreludeFailure(ended('zsh:1: command not found: bash', 127)),
+    ).toEqual({ kind: 'unsupported', cause: 'bash' });
+  });
+
   it('names the POSIX shell requirement for a Windows login shell', () => {
     expect(
       classifySshPreludeFailure(
@@ -174,6 +190,79 @@ describe('classifySshPreludeFailure', () => {
         ended('This account is currently not available.', 1),
       ),
     ).toEqual({ kind: 'unsupported', cause: 'no_script' });
+  });
+});
+
+const OVERFLOWED: SshRunOutcome = {
+  outcome: 'ended',
+  stdout: Buffer.alloc(0),
+  stdoutOverflow: true,
+  diagnostic: '',
+  stderrOverflow: false,
+  code: 0,
+  signal: null,
+};
+
+describe('classifySshBashOutcome', () => {
+  it('is complete only with the end trailer', () => {
+    expect(
+      classifySshBashOutcome(ended(''), {
+        started: true,
+        stdout: Buffer.alloc(0),
+        stderr: '',
+        status: 0,
+      }),
+    ).toEqual({ kind: 'complete' });
+  });
+
+  it('leaves a command without its trailer an unknown outcome', () => {
+    const frames = { started: true, stdout: Buffer.alloc(0), stderr: '' };
+    expect(classifySshBashOutcome(ended(''), frames)).toEqual({
+      kind: 'unknown',
+    });
+    expect(classifySshBashOutcome(failed('timed_out'), frames)).toEqual({
+      kind: 'unknown',
+    });
+    expect(classifySshBashOutcome(failed('cancelled'), frames)).toEqual({
+      kind: 'unknown',
+    });
+  });
+
+  it('leaves a pre-marker bash cancellation unknown and keeps a refusal typed', () => {
+    const unstarted = { started: false, stdout: Buffer.alloc(0), stderr: '' };
+    // The local ssh may have sent the script before the hub stopped it.
+    expect(classifySshBashOutcome(failed('cancelled'), unstarted)).toEqual({
+      kind: 'unknown',
+    });
+    expect(
+      classifySshBashOutcome(
+        ended('ssh: connect to host box port 22: Connection refused', 255),
+        unstarted,
+      ),
+    ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
+    // A login shell that floods stdout can push the marker past the bound.
+    expect(classifySshBashOutcome(OVERFLOWED, unstarted)).toEqual({
+      kind: 'unknown',
+    });
+  });
+
+  it('leaves a command whose stdout marker the bound took unknown', () => {
+    // The stderr marker and trailer arrived, but the command's output did not.
+    const marked = {
+      started: true,
+      stdout: Buffer.alloc(0),
+      stderr: '',
+      status: 0,
+    };
+    expect(classifySshBashOutcome(OVERFLOWED, marked)).toEqual({
+      kind: 'unknown',
+    });
+    expect(
+      classifySshBashOutcome(OVERFLOWED, {
+        ...marked,
+        stdout: Buffer.from('x'),
+      }),
+    ).toEqual({ kind: 'complete' });
   });
 });
 

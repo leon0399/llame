@@ -28,9 +28,10 @@ import {
 } from './workspace-path';
 import { isMachineLocator } from '../machines/machine-locator';
 import {
-  admitSshRead,
+  admitSshCall,
+  isSshBash,
   isSshRead,
-  type SshReadAdmission,
+  type SshAdmission,
 } from './ssh-admission';
 import { type PermissionDecision } from './permissions/types';
 
@@ -337,7 +338,7 @@ export function previewToolPermission(
 ): boolean {
   // A preview is synchronous: it cannot resolve an ssh destination, and the
   // allow must be decided on the resolved locator, so it fails closed.
-  if (isSshRead(tool, args)) return false;
+  if (isSshRead(tool, args) || isSshBash(tool, args)) return false;
   return evaluateToolPermission(tool, args, context)?.decision === 'allow';
 }
 
@@ -366,11 +367,11 @@ export async function runTool(
   if ('result' in admission) return admission.result;
   const { context: validContext, args: validArgs, submittedArgs } = admission;
 
-  // Any other call keeps the synchronous permission path; an `ssh://` read
-  // must resolve its destination first, so only that branch awaits.
-  const ssh: SshReadAdmission = isSshRead(tool, submittedArgs)
-    ? await admitSshRead(submittedArgs, validContext)
-    : { kind: 'none' };
+  // Any other call keeps the synchronous permission path; an `ssh://` read or
+  // `bash` cwd must resolve its destination first, so only those await.
+  const pendingSsh = admitSshCall(tool, submittedArgs, validContext);
+  const ssh: SshAdmission =
+    pendingSsh === undefined ? { kind: 'none' } : await pendingSsh;
   if (ssh.kind === 'refused') return ssh.result;
   const decision =
     ssh.kind === 'decided'

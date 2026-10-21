@@ -3,9 +3,11 @@ import {
   SSH_DIRECTORY_TRANSFER_BYTES,
   SSH_LIST_MAX_ENTRIES,
   SSH_READ_TRANSFER_BYTES,
+  buildSshBashScript,
   buildSshReadScript,
   createSshNonce,
   isSshReadRefusal,
+  parseSshBashFrames,
   parseSshDirectoryEntries,
   parseSshReadFrames,
   parseSshRefusal,
@@ -145,6 +147,130 @@ describe('isSshReadRefusal', () => {
     expect(isSshReadRefusal('not_a_kind')).toBe(false);
     expect(isSshReadRefusal('')).toBe(false);
     expect(isSshReadRefusal('not_found ')).toBe(false);
+  });
+});
+
+describe('buildSshBashScript', () => {
+  it('enters the cwd, marks the start, then runs the command with its entries', () => {
+    const script = buildSshBashScript({
+      nonce: NONCE,
+      cwd: '/srv/app',
+      env: { TOKEN_HINT: "it's data" },
+      command: 'printf "%s" "$TOKEN_HINT"',
+    });
+
+    expect(script.startsWith('{\n')).toBe(true);
+    expect(script.endsWith('}\n')).toBe(true);
+    expect(script).toContain(`p='/srv/app'`);
+    expect(script).toContain('if ! cd -- "$p" 2>/dev/null; then');
+    expect(script).toContain(
+      String.raw`printf '%s:refuse:cwd\n' '${NONCE}' >&2`,
+    );
+    expect(script.split('\n').filter((line) => /^[{}]$/u.test(line))).toEqual([
+      '{',
+      '}',
+    ]);
+    // The command is one single-quoted word after `eval`, with the entries
+    // exported in the same subshell and an empty stdin; the trailer carries
+    // that subshell's status.
+    expect(script).toContain(
+      `  ( export TOKEN_HINT='it'\\''s data'; eval 'printf "%s" "$TOKEN_HINT"' ) </dev/null`,
+    );
+    expect(script).toContain('  s=$?');
+    expect(script).toContain(
+      String.raw`printf '%s:end:%s\n' '${NONCE}' "$s" >&2`,
+    );
+    // The markers come before the command, and each frame carries the nonce
+    // itself: no script variable can be overwritten by an entry.
+    expect(script.indexOf(':start')).toBeLessThan(
+      script.indexOf('( export TOKEN_HINT'),
+    );
+    expect(script).not.toContain('h=');
+    expect(script).not.toContain('"$h"');
+  });
+
+  it('keeps an entry named like a script variable out of every frame', () => {
+    const script = buildSshBashScript({
+      nonce: NONCE,
+      cwd: '/tmp',
+      env: { h: 'x', p: 'y', s: 'z' },
+      command: 'true',
+    });
+
+    // Each entry lives in the command's subshell, so the outer shell keeps the
+    // directory it entered and prints the frames with the literal nonce.
+    expect(script).toContain(
+      `  ( export h='x'; export p='y'; export s='z'; eval 'true' ) </dev/null`,
+    );
+    expect(script).toContain(`  p='/tmp'`);
+    expect(script).toContain(String.raw`printf '%s:start\n' '${NONCE}' >&2`);
+    expect(script).toContain(
+      String.raw`printf '%s:end:%s\n' '${NONCE}' "$s" >&2`,
+    );
+  });
+
+  it('keeps shell text in the command inside its single-quoted word', () => {
+    const script = buildSshBashScript({
+      nonce: NONCE,
+      cwd: '/tmp',
+      env: {},
+      command: 'echo "a" && exit 255',
+    });
+
+    expect(script).toContain(`( eval 'echo "a" && exit 255' ) </dev/null`);
+  });
+});
+
+describe('parseSshBashFrames', () => {
+  it('keeps the command output after the marker and its stderr without the trailer', () => {
+    const frames = parseSshBashFrames(
+      Buffer.from(`login banner\n${sshStartMarker(NONCE)}\ncommand out\n`),
+      `login banner\n${sshStartMarker(NONCE)}\ncommand err\n${NONCE}:end:255\n`,
+      NONCE,
+    );
+
+    expect(frames.started).toBe(true);
+    expect(frames.stdout.toString()).toBe('command out\n');
+    expect(frames.stderr).toBe('command err\n');
+    expect(frames.status).toBe(255);
+  });
+
+  it('starts on the stderr marker when a failed process carried no stdout', () => {
+    const frames = parseSshBashFrames(
+      Buffer.alloc(0),
+      `${sshStartMarker(NONCE)}\n`,
+      NONCE,
+    );
+
+    expect(frames.started).toBe(true);
+    expect(frames.status).toBeUndefined();
+    expect(frames.stderr).toBe('');
+  });
+
+  it('reports a cwd refusal without a marker', () => {
+    const frames = parseSshBashFrames(
+      Buffer.alloc(0),
+      `${NONCE}:refuse:cwd\n${NONCE}:end:0\n`,
+      NONCE,
+    );
+
+    expect(frames.started).toBe(false);
+    expect(frames.refusal).toBe('cwd');
+    expect(frames.stderr).toBe('');
+  });
+
+  it('does not mistake login noise for output', () => {
+    const frames = parseSshBashFrames(
+      Buffer.from('login banner\n'),
+      'login banner\n',
+      NONCE,
+    );
+
+    expect(frames).toEqual({
+      started: false,
+      stdout: Buffer.alloc(0),
+      stderr: '',
+    });
   });
 });
 

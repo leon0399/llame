@@ -350,6 +350,7 @@ describe('createSshClient.run', () => {
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stdout).toEqual(Buffer.from([0x00, 0xff, 0x41, 0x62]));
     expect(outcome.diagnostic).toBe('w'.repeat(4096) + 'x'.repeat(4096));
+    expect(outcome.stderrOverflow).toBe(false);
     expect(harness.calls[0]).toEqual({
       command: 'ssh',
       args: [
@@ -366,6 +367,29 @@ describe('createSshClient.run', () => {
         '-s',
       ],
     });
+  });
+
+  it('keeps the end of stderr past the head when a caller asks for a tail', async () => {
+    const { client, harness } = fakeClient();
+    const pending = client.run({
+      destination: 'box',
+      remoteCommand: ['bash', '-s'],
+      maxStdoutBytes: 4,
+      deadlineMs: 5000,
+      stderrTailBytes: 64,
+    });
+    const process = harness.processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stderr.write(`${'x'.repeat(20_000)}nonce:end:7\n`);
+    process.close(7);
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    // The head and the tail are adjacent in the stream, so they join with no
+    // separator, and only the bytes the tail dropped count as overflow.
+    expect(outcome.diagnostic).toHaveLength(8192 + 64);
+    expect(outcome.diagnostic.endsWith('nonce:end:7\n')).toBe(true);
+    expect(outcome.stderrOverflow).toBe(true);
   });
 
   it('binds a resolved destination with -o and keeps the submitted host', async () => {

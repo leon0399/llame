@@ -17,7 +17,7 @@ import {
   type SshOperationFailureReason,
   type SshRunOutcome,
 } from './ssh-client';
-import { type SshReadFrames } from './ssh-script';
+import { type SshBashFrames, type SshReadFrames } from './ssh-script';
 
 const SSH_HOST_KEY_MISMATCH = /host key verification failed/iu;
 const SSH_AUTH_FAILED = /Permission denied \(/u;
@@ -28,11 +28,14 @@ const SSH_CONNECT_FAILED =
 const SSH_HANDSHAKE_FAILED =
   /^(?!debug\d*:)[^\n]*\b(?:kex_exchange_identification|banner exchange):/imu;
 const SSH_MISSING_SHELL = /\bsh\b[^\n]*\bnot found\b/iu;
+/** `bash` absent, which a host with `sh` reports as the missing command. */
+const SSH_MISSING_BASH =
+  /(?:\bbash: (?:command )?not found\b|command not found: bash\b)/iu;
 const WINDOWS_SHELL =
   /is not recognized as an internal or external command|is not recognized as the name of a cmdlet|The system cannot find the (?:file|path) specified/iu;
 
 /** Why the host cannot run an llame script at all. */
-export type SshUnsupportedHostCause = 'posix_shell' | 'no_script';
+export type SshUnsupportedHostCause = 'posix_shell' | 'no_script' | 'bash';
 
 /** What one completed process's streams mean before the marker. */
 export type SshPreludeFailure =
@@ -40,10 +43,16 @@ export type SshPreludeFailure =
   | { readonly kind: 'unsupported'; readonly cause: SshUnsupportedHostCause }
   | { readonly kind: 'cancelled' };
 
+/** A pre-session failure of a process that ended on its own: never a cancel. */
+export type SshEndedPreludeFailure = Exclude<
+  SshPreludeFailure,
+  { readonly kind: 'cancelled' }
+>;
+
 /**
  * The failure a process that never printed the start marker reports. A spawn
- * error is the missing client; our own deadline before the marker is a host
- * that never answered; and any other exit that ran no llame script is a host
+ * error is the missing client, our own deadline before the marker is a host
+ * that never answered, and any other exit that ran no llame script is a host
  * whose account cannot, unless the missing interpreter says which one.
  */
 export function classifySshPreludeFailure(
@@ -57,6 +66,13 @@ export function classifySshPreludeFailure(
         outcome.reason === 'client_missing' ? 'client_missing' : 'unreachable',
     };
   }
+  return classifyEndedPreludeFailure(outcome);
+}
+
+/** The failure a process that ended on its own reports before the marker. */
+function classifyEndedPreludeFailure(
+  outcome: Extract<SshRunOutcome, { readonly outcome: 'ended' }>,
+): SshEndedPreludeFailure {
   const { diagnostic, code } = outcome;
   if (SSH_HOST_KEY_MISMATCH.test(diagnostic))
     return { kind: 'unavailable', reason: 'host_key_mismatch' };
@@ -67,6 +83,10 @@ export function classifySshPreludeFailure(
     SSH_HANDSHAKE_FAILED.test(diagnostic)
   )
     return { kind: 'unavailable', reason: 'unreachable' };
+  // Before the `sh` pattern: a host whose login shell is `sh` reports the
+  // missing `bash` as `sh: 1: bash: not found`, which both patterns match.
+  if (code === 127 && SSH_MISSING_BASH.test(diagnostic))
+    return { kind: 'unsupported', cause: 'bash' };
   if (
     (code === 127 && SSH_MISSING_SHELL.test(diagnostic)) ||
     WINDOWS_SHELL.test(diagnostic)
@@ -80,6 +100,52 @@ export type SshReadVerdict =
   | { readonly kind: 'complete' }
   | SshPreludeFailure
   | { readonly kind: 'unavailable'; readonly reason: 'session_lost' };
+/** What a remote `bash` call's process and frames amount to. */
+export type SshBashVerdict =
+  | { readonly kind: 'complete' }
+  | SshEndedPreludeFailure
+  /** The command may have run; only the end trailer could have said so. */
+  | { readonly kind: 'unknown' };
+
+/**
+ * A remote command is complete only with the end trailer. Before the marker
+ * ssh's own refusal decides; after it — and also when a deadline or a
+ * cancellation ended the local `ssh` before the marker reached the hub, which
+ * may have let the command run — the end trailer alone could have said what
+ * happened, so the outcome is never replayed.
+ */
+export function classifySshBashOutcome(
+  outcome: SshRunOutcome,
+  frames: SshBashFrames,
+): SshBashVerdict {
+  if (!frames.started) return preMarkerBashFailure(outcome);
+  if (outcome.outcome === 'failed' || frames.status === undefined)
+    return { kind: 'unknown' };
+  // The stderr marker says the command started, but a stdout bound reached
+  // with no output after the stdout marker means the bound took the marker:
+  // the command's output is lost, so its result cannot be reported.
+  if (outcome.stdoutOverflow && frames.stdout.length === 0)
+    return { kind: 'unknown' };
+  return { kind: 'complete' };
+}
+
+/**
+ * The failure of a process that ended before the hub saw the start marker. A
+ * missing client never ran anything; a process that ended on its own left
+ * ssh's stderr to classify; our own deadline or a cancellation stops the local
+ * `ssh` after it may have sent the script, so it is an unknown outcome, and so
+ * is a stdout bound reached before the marker, which may have dropped the
+ * marker of a command that ran. Only the caller's pre-spawn check is a known
+ * cancellation.
+ */
+function preMarkerBashFailure(outcome: SshRunOutcome): SshBashVerdict {
+  if (outcome.outcome === 'failed')
+    return outcome.reason === 'client_missing'
+      ? { kind: 'unavailable', reason: 'client_missing' }
+      : { kind: 'unknown' };
+  if (outcome.stdoutOverflow) return { kind: 'unknown' };
+  return classifyEndedPreludeFailure(outcome);
+}
 
 /**
  * A read is complete only with the start marker and the end trailer: the

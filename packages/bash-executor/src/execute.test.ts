@@ -7,7 +7,10 @@ import {
   executeManagedBash,
   isConfiguredTool,
   MANAGED_EXECUTOR,
+  managedEnvironmentCollision,
+  measureManagedInput,
   requireManagedBoundary,
+  reserveManagedProcessSlot,
   resolveConfiguredTool,
   resetManagedExecutorForTests,
 } from "./index";
@@ -425,5 +428,42 @@ describe("managed executor contract", () => {
       status: "success",
       stdout: "never",
     });
+  });
+
+  it("shares its process slot with a caller that runs the command itself", async () => {
+    const input = { command: "bash", args: ["-c", "printf local"] };
+    const slot = reserveManagedProcessSlot(context(directory));
+    if ("type" in slot) throw new Error("Expected a slot");
+    expect(await executeManagedBash(input, context(directory))).toMatchObject({
+      type: "unavailable",
+      message: "Managed process limit reached.",
+    });
+    slot.release();
+    slot.release();
+    // A second release frees nothing: the held slot below still fills the
+    // single-process bound.
+    const held = reserveManagedProcessSlot(context(directory));
+    if ("type" in held) throw new Error("Expected a slot");
+    expect(await executeManagedBash(input, context(directory))).toMatchObject({
+      type: "unavailable",
+      message: "Managed process limit reached.",
+    });
+    held.release();
+    expect(await executeManagedBash(input, context(directory))).toMatchObject({
+      status: "success",
+      stdout: "local",
+    });
+  });
+
+  it("measures the command, argv, cwd, and additions as UTF-8 bytes", () => {
+    expect(measureManagedInput({ command: "bash" })).toBe(4);
+    expect(measureManagedInput({ command: "bash", args: ["-s"] })).toBe(7);
+    expect(measureManagedInput({ command: "bash", cwd: "/tmp" })).toBe(9);
+    expect(measureManagedInput({ command: "bash", env: { É: "😀" } })).toBe(12);
+  });
+
+  it("names a base variable an addition would replace", () => {
+    expect(managedEnvironmentCollision({ PATH: "/tmp" })).toBe("PATH");
+    expect(managedEnvironmentCollision({ TOKEN: "x" })).toBeUndefined();
   });
 });

@@ -73,6 +73,7 @@ function ended(
     stdout: Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout),
     stdoutOverflow: false,
     diagnostic: stderr,
+    stderrOverflow: false,
     code,
     signal: null,
   };
@@ -139,6 +140,9 @@ describe('ssh read transfer', () => {
     expect(runs[0]?.maxStdoutBytes).toBe(
       SSH_DIRECTORY_TRANSFER_BYTES + SSH_READ_NOISE_BYTES,
     );
+    // Login noise past the stderr head must not hide the marker or the
+    // trailer, so the read keeps a tail as well.
+    expect(runs[0]?.stderrTailBytes).toBe(SSH_READ_NOISE_BYTES);
     expect(String(runs[0]?.input)).toContain("p='/etc/hostname'");
   });
 
@@ -191,7 +195,7 @@ describe('ssh read transfer', () => {
 
     expect(result).toMatchObject({ status: 'error', type: 'file_too_large' });
     expect(result.status === 'error' && result.message).toBe(
-      'The remote file is larger than the 1 MiB read bound.',
+      'The remote file is larger than the 1 MiB read bound; examine it with a bash ssh:// cwd instead.',
     );
   });
 
