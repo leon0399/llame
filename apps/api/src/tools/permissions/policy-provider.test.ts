@@ -63,6 +63,14 @@ describe('buildToolPermissionPolicy', () => {
     ).rejects.toBeInstanceOf(PermissionCompileError);
   });
 
+  it('allows no other tool the grep scopes field', async () => {
+    await expect(
+      buildToolPermissionPolicy({
+        read: { allow: [{ field: 'scopes', literal: 'x' }] },
+      }),
+    ).rejects.toBeInstanceOf(PermissionCompileError);
+  });
+
   it('does not field-validate MCP groups at boot', async () => {
     const policy = await buildToolPermissionPolicy({
       mcp__docs__fetch: { allow: [{ field: 'anything', literal: 'x' }] },

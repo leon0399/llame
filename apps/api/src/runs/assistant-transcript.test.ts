@@ -994,6 +994,7 @@ describe('reconstructDurableAssistant', () => {
         output: { status: 'success' },
         derivedDecisions: [
           { ...refused, count: 40 },
+          { ...refused, policyId: 'policy-zero', count: 0 },
           { ...refused, policyId: 'policy-bad', count: -1 },
         ],
       }),
@@ -1004,6 +1005,7 @@ describe('reconstructDurableAssistant', () => {
       .find((part): part is ToolActivityPart => part.type === 'tool-grep');
     expect(toolPart?.derivedDecisions).toStrictEqual([
       { ...refused, count: 40 },
+      { ...refused, policyId: 'policy-zero', count: 0 },
       { ...refused, policyId: 'policy-bad' },
     ]);
   });

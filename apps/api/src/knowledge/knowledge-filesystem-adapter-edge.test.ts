@@ -238,3 +238,215 @@ describe('Knowledge filesystem adapter edge branches', () => {
     expect(budget.remainingFiles).toBe(0);
   });
 });
+
+const directoryEntry = (name: string): KnowledgeFilesystemDirent => ({
+  name,
+  isDirectory: () => true,
+  isFile: () => false,
+  isSymbolicLink: () => false,
+});
+
+const specialEntry = (name: string): KnowledgeFilesystemDirent => ({
+  name,
+  isDirectory: () => false,
+  isFile: () => false,
+  isSymbolicLink: () => false,
+});
+
+type WalkPortOptions = {
+  readonly entries?: ReadonlyArray<KnowledgeFilesystemDirent>;
+  readonly directories?: ReadonlyArray<string>;
+  readonly notes?: KnowledgeFilesystemStats;
+  readonly bytes?: Buffer;
+  readonly openFile?: () => Promise<KnowledgeFilesystemFile>;
+  readonly holdStat?: (
+    filePath: string,
+  ) => Promise<KnowledgeFilesystemStats> | undefined;
+};
+
+/** A port whose every listed entry is settled by the test, not the disk. */
+function walkPort(options: WalkPortOptions = {}): KnowledgeFilesystemPort {
+  const entries = [...(options.entries ?? [])];
+  const bytes = options.bytes ?? Buffer.from('needle\n');
+  const notes = options.notes ?? fileStats(bytes.length);
+  const directories = new Set([
+    ROOT,
+    DIRECTORY,
+    ...(options.directories ?? []),
+  ]);
+  return {
+    lstat: vi.fn((filePath: string) => {
+      const held = options.holdStat?.(filePath);
+      if (held !== undefined) return held;
+      return Promise.resolve(
+        directories.has(filePath) ? directoryStats : notes,
+      );
+    }),
+    opendir: vi.fn(() => {
+      let index = 0;
+      const directory: KnowledgeFilesystemDirectory = {
+        read: vi.fn(() => Promise.resolve(entries[index++] ?? null)),
+        close: vi.fn(() => Promise.resolve()),
+      };
+      return Promise.resolve(directory);
+    }),
+    open: vi.fn(() => {
+      if (options.openFile !== undefined) return options.openFile();
+      const file: KnowledgeFilesystemFile = {
+        stat: vi.fn(() => Promise.resolve(notes)),
+        read: vi.fn<KnowledgeFilesystemFile['read']>(
+          (buffer, offset, length, position) => {
+            const bytesRead = Math.min(
+              length,
+              Math.max(0, bytes.length - position),
+            );
+            bytes.copy(buffer, offset, position, position + bytesRead);
+            return Promise.resolve({ bytesRead });
+          },
+        ),
+        close: vi.fn(() => Promise.resolve()),
+      };
+      return Promise.resolve(file);
+    }),
+    realpath: vi.fn((filePath: string) => Promise.resolve(filePath)),
+    mkdir: vi.fn(() => Promise.resolve()),
+  };
+}
+
+describe('Knowledge filesystem walk entries', () => {
+  it('classifies a link, a directory, a file, a non-file, and an unaddressable name', async () => {
+    const fileSystem = walkPort({
+      entries: [
+        fileEntry('note.md'),
+        directoryEntry('sub'),
+        symlinkEntry('link.md'),
+        specialEntry('fifo'),
+        fileEntry('bad\u0001name.md'),
+      ],
+    });
+
+    await expect(
+      new KnowledgeFilesystemAdapter(binding(), fileSystem).listWalk(''),
+    ).resolves.toStrictEqual([
+      { name: 'note.md', kind: 'file' },
+      { name: 'sub', kind: 'directory' },
+      { name: 'link.md', kind: 'link' },
+      { name: 'fifo', kind: 'other' },
+      { name: 'bad\u0001name.md', kind: 'other' },
+    ]);
+  });
+});
+
+describe('Knowledge filesystem walk probes', () => {
+  it('reports whether a walk path names a file or a directory', async () => {
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({ directories: [`${DIRECTORY}/notes`] }),
+    );
+
+    await expect(adapter.inspectWalk('notes')).resolves.toBe('directory');
+    await expect(adapter.inspectWalk('note.md')).resolves.toBe('file');
+  });
+
+  it('refuses a target that a link replaced between resolution and classification', async () => {
+    let stats = 0;
+    const fileSystem = walkPort({ notes: fileStats(0) });
+    const lstat = vi.spyOn(fileSystem, 'lstat');
+    lstat.mockImplementation((filePath: string) => {
+      if (filePath !== `${DIRECTORY}/notes`) {
+        const isDirectory = filePath === ROOT || filePath === DIRECTORY;
+        return Promise.resolve(isDirectory ? directoryStats : fileStats(0));
+      }
+      stats += 1;
+      return Promise.resolve(stats === 1 ? directoryStats : symlinkStats);
+    });
+
+    await expect(
+      new KnowledgeFilesystemAdapter(binding(), fileSystem).inspectWalk(
+        'notes',
+      ),
+    ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
+  });
+
+  it('reads a walk file, and reports an over-bound read as oversized', async () => {
+    const bytes = Buffer.from('needle\n');
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({ bytes }),
+    );
+
+    await expect(adapter.readWalk('note.md', bytes.length)).resolves.toEqual(
+      bytes,
+    );
+    await expect(adapter.readWalk('note.md', 2)).resolves.toStrictEqual({
+      kind: 'oversized',
+    });
+  });
+
+  it('reports a file the walk cannot open as unreadable', async () => {
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        openFile: () =>
+          Promise.reject(
+            Object.assign(new Error('denied'), { code: 'EACCES' }),
+          ),
+      }),
+    );
+
+    await expect(adapter.readWalk('note.md', 64)).resolves.toStrictEqual({
+      kind: 'unreadable',
+    });
+  });
+
+  it('propagates a cancellation instead of counting it as a refusal', async () => {
+    const controller = new AbortController();
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        notes: fileStats(6),
+        openFile: () =>
+          Promise.resolve({
+            stat: () => Promise.resolve(fileStats(6)),
+            read: () => {
+              controller.abort();
+              return Promise.withResolvers<{ bytesRead: number }>().promise;
+            },
+            close: () => Promise.resolve(),
+          }),
+      }),
+    );
+
+    await expect(
+      adapter.readWalk('note.md', 64, controller.signal),
+    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+  });
+
+  it('interrupts a component stat when the signal aborts mid-walk', async () => {
+    const controller = new AbortController();
+    const component = `${DIRECTORY}/notes`;
+    const started = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<KnowledgeFilesystemStats>();
+    const fileSystem = walkPort({
+      holdStat: (filePath) => {
+        if (filePath !== component) return undefined;
+        started.resolve();
+        return held.promise;
+      },
+    });
+    const adapter = new KnowledgeFilesystemAdapter(binding(), fileSystem);
+    const open = vi.spyOn(fileSystem, 'open');
+
+    const pending = adapter.readWalk('notes/a.md', 64, controller.signal);
+    await started.promise;
+    controller.abort();
+    // The in-flight stat settles after the abort: only the pass-through of the
+    // signal into the component walk can turn this into a cancellation.
+    held.reject(Object.assign(new Error('gone'), { code: 'ENOENT' }));
+
+    await expect(pending).rejects.toMatchObject({
+      code: 'knowledge_cancelled',
+    });
+    expect(open).not.toHaveBeenCalled();
+  });
+});

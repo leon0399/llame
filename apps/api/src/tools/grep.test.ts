@@ -15,11 +15,15 @@ import {
   KnowledgeFilesystemAdapter,
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
+import { MachineConnector } from '../machines/machine-connector.service';
 import {
   TOOL_PROMPT_IDS,
   loadPackagedToolDescription,
 } from '../prompts/tool-descriptions';
-import { skillCatalogUnavailableResult } from '../skills/skill-target';
+import {
+  skillCatalogUnavailableResult,
+  skillUnavailableResult,
+} from '../skills/skill-target';
 import {
   type SkillCatalogEntry,
   type SkillCatalogPort,
@@ -679,5 +683,297 @@ describe('unavailable catalog', () => {
       { patterns: ['x'], scopes: ['skill://pdf'] },
     );
     expect(result).toEqual(skillCatalogUnavailableResult());
+  });
+});
+
+describe('pattern and scope ordering', () => {
+  it('refuses an over-bound pattern before any scope is admitted', async () => {
+    // 300 code units, 600 UTF-8 bytes: the engine's bound is bytes.
+    const result = await run(contextOf({ catalog: catalogOf([]) }), {
+      patterns: ['é'.repeat(300)],
+      scopes: ['machine://dev/notes'],
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_pattern',
+      message: 'Pattern 0: pattern exceeds 512 UTF-8 bytes',
+    });
+  });
+
+  it('names the first oversized pattern before compiling an earlier one', async () => {
+    const result = await run(contextOf({ catalog: catalogOf([]) }), {
+      patterns: [String.raw`(a)\1`, 'é'.repeat(300)],
+      scopes: ['machine://dev/notes'],
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_pattern',
+      message: 'Pattern 1: pattern exceeds 512 UTF-8 bytes',
+    });
+  });
+
+  it('compiles a pattern exactly at the 512-byte bound', async () => {
+    await withRoot(async (root) => {
+      const pkg = path.join(root, 'pdf');
+      await mkdir(pkg);
+      await writeFile(
+        path.join(pkg, 'SKILL.md'),
+        lineNumbered('x'.repeat(512)),
+      );
+      const result = await run(
+        contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
+        { patterns: ['x'.repeat(512)], scopes: ['skill://pdf'] },
+      );
+
+      expect(locatorsOf(result)).toEqual(['skill://pdf/SKILL.md:1-1']);
+    });
+  });
+});
+
+describe('matching modes', () => {
+  async function packageWith(root: string, content: string): Promise<string> {
+    const pkg = path.join(root, 'pdf');
+    await mkdir(pkg, { recursive: true });
+    await writeFile(path.join(pkg, 'SKILL.md'), lineNumbered(content));
+    return pkg;
+  }
+
+  it('matches case-sensitively unless ignoreCase asks otherwise', async () => {
+    await withRoot(async (root) => {
+      const pkg = await packageWith(root, 'Needle in a haystack');
+      const context = contextOf({
+        catalog: catalogOf([packageEntry('pdf', pkg)]),
+      });
+
+      expect(
+        await run(context, { patterns: ['needle'], scopes: ['skill://pdf'] }),
+      ).toMatchObject({ status: 'success', results: [] });
+      expect(
+        locatorsOf(
+          await run(context, {
+            patterns: ['needle'],
+            ignoreCase: true,
+            scopes: ['skill://pdf'],
+          }),
+        ),
+      ).toEqual(['skill://pdf/SKILL.md:1-1']);
+    });
+  });
+
+  it('reads metacharacters as syntax unless literal asks otherwise', async () => {
+    await withRoot(async (root) => {
+      const pkg = await packageWith(root, 'axb');
+      const context = contextOf({
+        catalog: catalogOf([packageEntry('pdf', pkg)]),
+      });
+
+      expect(
+        locatorsOf(
+          await run(context, { patterns: ['a.b'], scopes: ['skill://pdf'] }),
+        ),
+      ).toEqual(['skill://pdf/SKILL.md:1-1']);
+      expect(
+        await run(context, {
+          patterns: ['a.b'],
+          literal: true,
+          scopes: ['skill://pdf'],
+        }),
+      ).toMatchObject({ status: 'success', results: [] });
+    });
+  });
+});
+
+describe('cursor inputs', () => {
+  async function pagedPackage(root: string): Promise<ToolContext> {
+    const pkg = path.join(root, 'pdf');
+    await mkdir(pkg);
+    await writeFile(path.join(pkg, 'a.md'), lineNumbered('needle'));
+    await writeFile(path.join(pkg, 'b.md'), lineNumbered('needle'));
+    return contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) });
+  }
+
+  it('omits a cursor from a complete result', async () => {
+    await withRoot(async (root) => {
+      const context = await pagedPackage(root);
+      const result = await run(context, {
+        patterns: ['needle'],
+        scopes: ['skill://pdf'],
+      });
+      expect(result).not.toHaveProperty('cursor');
+    });
+  });
+
+  it('keys the cursor on the effective ignoreCase flag', async () => {
+    await withRoot(async (root) => {
+      const context = await pagedPackage(root);
+      const page = await run(context, {
+        patterns: ['needle'],
+        ignoreCase: true,
+        scopes: ['skill://pdf'],
+        limit: 1,
+      });
+      const cursor = cursorOf(page);
+      if (cursor === undefined)
+        throw new Error('the first page carries a cursor');
+
+      expect(
+        await run(context, {
+          patterns: ['needle'],
+          ignoreCase: false,
+          scopes: ['skill://pdf'],
+          limit: 1,
+          cursor,
+        }),
+      ).toMatchObject({ status: 'error', type: 'invalid_input' });
+    });
+  });
+
+  it('keys the cursor on the effective literal flag', async () => {
+    await withRoot(async (root) => {
+      const context = await pagedPackage(root);
+      const page = await run(context, {
+        patterns: ['needle'],
+        literal: true,
+        scopes: ['skill://pdf'],
+        limit: 1,
+      });
+      const cursor = cursorOf(page);
+      if (cursor === undefined)
+        throw new Error('the first page carries a cursor');
+
+      expect(
+        await run(context, {
+          patterns: ['needle'],
+          literal: false,
+          scopes: ['skill://pdf'],
+          limit: 1,
+          cursor,
+        }),
+      ).toMatchObject({ status: 'error', type: 'invalid_input' });
+    });
+  });
+
+  it('treats an explicit false as the same input as an omitted flag', async () => {
+    await withRoot(async (root) => {
+      const context = await pagedPackage(root);
+      const omitted = await run(context, {
+        patterns: ['needle'],
+        scopes: ['skill://pdf'],
+        limit: 1,
+      });
+      const cursor = cursorOf(omitted);
+      if (cursor === undefined)
+        throw new Error('the first page carries a cursor');
+
+      expect(
+        await run(context, {
+          patterns: ['needle'],
+          ignoreCase: false,
+          literal: false,
+          scopes: ['skill://pdf'],
+          limit: 1,
+          cursor,
+        }),
+      ).toMatchObject({ status: 'success' });
+    });
+  });
+});
+
+describe('scope kinds message', () => {
+  const MACHINES = new MachineConnector({
+    machines: undefined,
+    hubVersion: 'test',
+    onContact: () => undefined,
+  });
+
+  it.each([
+    [{}, 'grep requires scopes, and this process has no searchable backend.'],
+    [
+      { nativeExecutorId: 'host-a' },
+      'grep requires scopes: this process can search host paths.',
+    ],
+    [
+      { machines: MACHINES },
+      'grep requires scopes: this process can search machine:// locators.',
+    ],
+    [
+      { knowledgeResolver: knowledgeResolver(new Map()) },
+      'grep requires scopes: this process can search kb:// locators.',
+    ],
+    [
+      { skillCatalog: catalogOf([]) },
+      'grep requires scopes: this process can search skill:// locators.',
+    ],
+    [
+      {
+        knowledgeResolver: knowledgeResolver(new Map()),
+        skillCatalog: catalogOf([]),
+      },
+      'grep requires scopes: this process can search kb:// locators, and skill:// locators.',
+    ],
+    [
+      {
+        nativeExecutorId: 'host-a',
+        knowledgeResolver: knowledgeResolver(new Map()),
+        skillCatalog: catalogOf([]),
+      },
+      'grep requires scopes: this process can search host paths, kb:// locators, and skill:// locators.',
+    ],
+  ])(
+    'names only the backends this process can serve',
+    async (extra, message) => {
+      const result = await run(
+        { ...contextOf(), ...extra },
+        { patterns: ['x'] },
+      );
+      expect(result).toEqual({
+        status: 'error',
+        type: 'invalid_input',
+        message,
+      });
+    },
+  );
+});
+
+describe('walk failures', () => {
+  it('propagates a cancellation the walk raised instead of a result', async () => {
+    await withRoot(async (root) => {
+      const pkg = path.join(root, 'pdf');
+      await mkdir(pkg);
+      await writeFile(path.join(pkg, 'SKILL.md'), lineNumbered('needle'));
+      const controller = new AbortController();
+      const catalog = catalogOf([packageEntry('pdf', pkg)]);
+      const context: ToolContext = {
+        ...contextOf(),
+        abortSignal: controller.signal,
+        skillCatalog: {
+          getSnapshot: (sources) => {
+            // Cancel while the scope resolves: the entry check has already
+            // run, so the cancellation has to travel out of the walk itself.
+            controller.abort();
+            return catalog.getSnapshot(sources);
+          },
+        },
+      };
+
+      await expect(
+        run(context, { patterns: ['needle'], scopes: ['skill://pdf/**'] }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+    });
+  });
+
+  it('returns the closed result a scope failed with instead of throwing', async () => {
+    await withRoot(async (root) => {
+      const pkg = path.join(root, 'pdf');
+      await mkdir(pkg);
+      const result = await run(
+        contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
+        { patterns: ['needle'], scopes: ['skill://pdf/absent/**'] },
+      );
+
+      expect(result).toEqual(skillUnavailableResult());
+    });
   });
 });

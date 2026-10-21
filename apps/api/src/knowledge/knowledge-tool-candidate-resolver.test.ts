@@ -366,6 +366,28 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
+  it('admits grep on a local native executor with no other backend', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+        skills: { directories: [] },
+      },
+    });
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['grep'],
+        codeOwnedTools: [nativeGrepTool],
+      }),
+    ).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeGrepTool,
+      },
+    ]);
+  });
+
   it('leaves grep unadvertised with no backend', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },

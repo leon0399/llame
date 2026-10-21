@@ -76,6 +76,22 @@ describe('projectGrepScope', () => {
     );
   });
 
+  it('keeps a logical scope with no path part whole', () => {
+    expect(projectGrepScope('skill://pdf', undefined)).toEqual({
+      submitted: 'skill://pdf',
+      prefix: 'skill://pdf',
+    });
+    expect(projectGrepScope('skill://p/x', undefined).prefix).toBe(
+      'skill://p/x',
+    );
+  });
+
+  it('keeps a glob in a logical authority out of the path cut', () => {
+    expect(projectGrepScope('skill://pd*/x', undefined).prefix).toBe(
+      'skill://pd*/x',
+    );
+  });
+
   it('keeps a colon in a host scope as path text', () => {
     expect(projectGrepScope('/repo/v:1/**', undefined).prefix).toBe(
       '/repo/v:1/',
@@ -92,6 +108,12 @@ describe('grepScopeStrings', () => {
 
   it('is undefined without scopes and without a Workspace', () => {
     expect(grepScopeStrings({ patterns: ['x'] }, undefined)).toBeUndefined();
+  });
+
+  it('falls back to the Workspace root when a scope entry is not text', () => {
+    expect(grepScopeStrings({ scopes: ['/a', 1] }, '/home/u/repo')).toEqual([
+      '/home/u/repo/',
+    ]);
   });
 });
 
@@ -163,6 +185,48 @@ describe('evaluateGrepPermission', () => {
     );
   });
 
+  it('allows a call with no scopes and no Workspace through the grep group', () => {
+    const context = contextWith({ grep: { allow: true } });
+    expect(evaluateGrepPermission({ patterns: ['x'] }, context)?.decision).toBe(
+      'allow',
+    );
+  });
+
+  it('decides an empty scope list once, against the submitted arguments', () => {
+    const context = contextWith({ grep: { allow: true } });
+    expect(
+      evaluateGrepPermission({ patterns: ['x'], scopes: [] }, context)
+        ?.decision,
+    ).toBe('allow');
+  });
+
+  it('reports the clause of the first surviving reject across scopes', () => {
+    // The earlier clause matches only the second scope's projected prefix,
+    // which no submitted text spells; only the aggregate prefix list carries
+    // it while the first scope is evaluated.
+    const context = contextWith({
+      grep: {
+        allow: true,
+        reject: [
+          { allFields: true, literal: '/repo/b/' },
+          { allFields: true, literal: '/repo/a/' },
+        ],
+      },
+    });
+    const decision = evaluateGrepPermission(
+      {
+        patterns: ['x'],
+        scopes: ['/repo/a/**', '/repo/x/../b/**'],
+      },
+      context,
+    );
+
+    expect(decision).toMatchObject({
+      decision: 'reject',
+      reference: { groupId: 'grep', list: 'reject', clauseIndex: 0 },
+    });
+  });
+
   it('rejects when no grep group exists', () => {
     const context = contextWith({ read: { allow: true } });
     expect(
@@ -194,6 +258,7 @@ describe('createGrepReadAdmission', () => {
     expect(derived).toHaveLength(1);
     expect(derived[0]).toMatchObject({
       kind: 'grep-file',
+      url: '',
       count: 2,
       decision: { decision: 'reject', reason: 'explicit_reject' },
     });
@@ -204,6 +269,20 @@ describe('createGrepReadAdmission', () => {
       contextWith({ grep: { allow: true } }),
     );
     expect(admission.admit(`kb://${SPACE}/notes/a.md`)).toBe(false);
+  });
+
+  it('judges a hit as the read of its canonical locator', () => {
+    const admission = createGrepReadAdmission(
+      contextWith({
+        grep: { allow: true },
+        read: {
+          allow: true,
+          reject: [{ field: 'path', literal: `kb://${SPACE}/notes/a.md` }],
+        },
+      }),
+    );
+    expect(admission.admit(`kb://${SPACE}/notes/%61.md`)).toBe(false);
+    expect(admission.refused).toBe(1);
   });
 
   it('records nothing when no file was refused', () => {

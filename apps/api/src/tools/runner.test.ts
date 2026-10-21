@@ -707,6 +707,40 @@ describe('runTool permission gate', () => {
   const INPUT_LIMIT =
     'Tool call rejected before execution by operator permissions. The submitted input exceeds the permission inspection limit. Do not retry unchanged or evade a reject by splitting, encoding, switching tools, or delegating. A smaller request may be submitted only as independently permitted work. In-run approval is unavailable; explain any blocked required step to the user.';
 
+  it('admits a grep call once per scope against the projected prefix', async () => {
+    const execute = vi.fn(() => ({
+      status: 'success' as const,
+      results: [],
+      complete: true,
+    }));
+    const grepTool: Tool<{ scopes: Array<string> }> = {
+      id: 'grep',
+      description: 'searches the scopes it names',
+      classification: 'read_only',
+      inputSchema: z.strictObject({ scopes: z.array(z.string()).min(1) }),
+      execute,
+    };
+
+    const result = await runTool(
+      grepTool,
+      { scopes: ['kb://11111111-1111-4111-8111-111111111111/notes/**'] },
+      contextWith({
+        grep: {
+          allow: [
+            {
+              field: 'scopes',
+              literal: 'kb://11111111-1111-4111-8111-111111111111/notes/',
+            },
+          ],
+        },
+      }),
+      5,
+    );
+
+    expect(result).toEqual({ status: 'success', results: [], complete: true });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it('fails closed when no trusted policy is supplied', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
     const tool: Tool = { ...echoTool, execute };
