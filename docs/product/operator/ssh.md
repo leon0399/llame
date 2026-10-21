@@ -48,6 +48,8 @@ Each field overrides one file:
     "identityFile": "/etc/llame/ssh_ed25519",
     // Default ~/.ssh/config. Its aliases, jump hosts, and users apply.
     "configFile": "/etc/llame/ssh_config",
+    // Optional agent: "SSH_AUTH_SOCK" or a socket path. Default: no agent.
+    "identityAgent": "SSH_AUTH_SOCK",
   },
 }
 ```
@@ -61,6 +63,21 @@ for the users who may use it.
 
 This section is separate from `machines.ssh`: configuring one does not enable
 the other, so an instance can reach external hosts without declaring a Machine.
+
+### Using an SSH agent
+
+By default llame uses no SSH agent, so a key that lives only in an agent does
+not authenticate and the call fails with `ssh_unavailable` reason
+`auth_failed`. Set `identityAgent` to `SSH_AUTH_SOCK` to use the agent named by
+that variable in the llame process environment, or to an absolute socket path.
+The agent is never forwarded to the remote host, and Machines never use it.
+
+Every key in that agent then authenticates to every destination a Run can
+reach, and the model chooses the destination. Bound the reach with a dedicated
+`knownHostsFile` that lists only the hosts llame may contact, and with
+host-scoped allows (see [Permissions](#permissions-on-the-resolved-locator)).
+`SSH_AUTH_SOCK` must also stay valid for the life of the worker process: an
+agent tied to a login session stops working when that session ends.
 
 ## Pinned host keys
 
@@ -80,7 +97,7 @@ Host *
   GlobalKnownHostsFile none
   StrictHostKeyChecking yes
   BatchMode yes
-  IdentityAgent none
+  IdentityAgent none            # or the configured identityAgent
   ForwardAgent no
   ControlMaster no
   ControlPath none
