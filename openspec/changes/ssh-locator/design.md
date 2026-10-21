@@ -270,6 +270,15 @@ A timeout or cancellation once SSH runs ends the local `ssh`: `outcome_unknown`
 unless a typed pre-session failure is already classified. Proven remote stop
 is #1369.
 
+### D6a: Prompt imports
+
+An `ssh://` marker plans as a `direct` prompt-import target, like `skill://`
+and web: no probe (a probe would cost a connection) and no synchronous
+pre-evaluation (resolution is asynchronous). The single `read` goes through
+`runTool`, so it gets the two-pass admission, the audit events, and the
+resolved-connection binding of a model call. The system read context carries
+the SSH client for this. A denied or failed target is named as not imported.
+
 ### D7: Offer, Workspaces, and descriptions
 
 The candidate resolver offers `bash` when the `ssh` section is present.

@@ -434,9 +434,28 @@ Native attempts, results, and events for `ssh://` operations MUST have the same 
 - **WHEN** user A runs `bash` with an `ssh://` `cwd`, and user B reads native attempts and Run events through the API
 - **THEN** B gets none of the attempt rows, results, or events of A
 
+### Requirement: ssh locators are prompt-import targets
+
+If the configuration has the `ssh` section and `read` is in `tools.allowed`, an `ssh://` marker in a user prompt MUST be a prompt-import target. The hub MUST read it once through `read` with system origin `prompt-import`, as for a web target. It MUST NOT do a probe or a separate pre-evaluation first. The read MUST use the same admission as a model call, and it MUST count toward the read and output bounds of prompt imports.
+
+#### Scenario: ssh marker is imported
+
+- **WHEN** the user writes `` Explore @`ssh://box/etc/hostname` `` and a `read` allow applies to the resolved locator
+- **THEN** the turn gets a `prompt-imports` item with the content of the file before the model request
+
+#### Scenario: Denied ssh marker is not imported
+
+- **WHEN** a `read` reject matches the resolved locator of an `ssh://` marker
+- **THEN** the marker is named as not imported, and no SSH connection opens
+
+#### Scenario: ssh marker without the section stays prose
+
+- **WHEN** the configuration has no `ssh` section and the user writes an `ssh://` marker
+- **THEN** the hub imports nothing for that marker
+
 ### Requirement: ssh locators extend local-only argument forms
 
-The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, and `tool-calling` capabilities contain local-only rules. For `ssh://` locators, this capability MUST replace these rules:
+The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities contain local-only rules. For `ssh://` locators, this capability MUST replace these rules:
 
 - An argument is a host path.
 - `bash` is available only with the local executor.
