@@ -169,14 +169,17 @@ keeps brackets in `u@[v6]`.
 `runTool` gains an asynchronous step before `evaluateToolPermission`:
 
 1. Parse the locator (`read` path or `bash` `cwd`). Grammar errors stop here.
-2. Evaluate rejects on the submitted text (selector removed). A match
+2. Evaluate rejects on the submitted arguments with the locator field replaced
+   by the submitted text (for `read`, the selector removed). The other
+   arguments — `bash`'s `command` and `env` — stay as submitted. A match
    refuses; nothing is resolved, so a rejected locator runs no `Match exec`.
 3. Run `ssh -F <generated> -G [-l u] [-p p] -- <host>` with a 5 s deadline,
    the call's abort signal, and a 64 KiB output bound. Read `user`,
    `hostname`, `port`. Failure or deadline is `ssh_unavailable` reason
    `config`; abort is the cancelled result. Resolution also runs in `bypass`
    mode, because execution binds to it.
-4. Evaluate the group on the resolved locator
+4. Evaluate the group on the same arguments with the locator field replaced by
+   the resolved locator
    `ssh://<user>@<hostname>:<port><decoded path>` (IPv6 bracketed, `.`, `..`,
    and trailing separators kept), so rejects and the allow both see it,
    including all-fields rejects. `ssh://` gets its own two-pass branch and
@@ -218,15 +221,27 @@ failure or timeout, exit 127 with the login shell's "not found" for `sh` or
 `bash`, or Windows shell text, each a typed refusal. Any other pre-marker
 failure is `ssh_unsupported_host` ("the remote account ran no llame script"),
 covering forced commands and `nologin`. A start marker without a trailer is
-`session_lost` for `read` and `outcome_unknown` for `bash`.
+`session_lost` for `read` and `outcome_unknown` for `bash`; for `bash` this
+also covers a deadline or a cancellation that stopped the local `ssh` before
+the marker reached the hub, because the script may already have run. Only the
+pre-spawn check in `runTool` reports a known cancellation.
+
+stderr keeps a bounded head plus, when the caller asks for one, a bounded
+tail. The head and the tail are adjacent in the stream, so they join with no
+separator: a marker or trailer split across the head bound stays whole. Only
+bytes the tail dropped are an overflow. `bash` keeps `3 × outputBound` bytes
+and `read` keeps the noise bound, so a chatty command or a noisy login shell
+still delivers its trailer.
 
 Alternative: a separate probe with a cached capability record (OMP); it costs
 an extra connection per host per worker and needs invalidation.
 
 ### D5: Reads
 
-Preconditions, before the start marker: `test -e || test -L` (else refuse
-`not_found`), then for a directory `test -r && test -x` (else refuse
+Preconditions, before the start marker: `test -e` (else refuse `not_found`,
+or `unreadable` when the parent directory exists and is not searchable — a
+path inside a directory the user cannot enter fails the traversal, not the
+leaf), then for a directory `test -r && test -x` (else refuse
 `unreadable`), for a non-regular file refuse `not_regular_file` without
 opening it, for an unreadable file refuse `unreadable`. `unreadable` maps to
 the local `executor_unavailable` "could not be read" result.
@@ -237,10 +252,14 @@ the local `executor_unavailable` "could not be read" result.
   windows, and bounds match local reads.
 - Directory: a glob loop over `*`, `.[!.]*`, `..?*` prints each existing entry
   as a type letter (`d`, `l`, `f`) and its name, NUL-terminated, stopping
-  after 1,001 entries. The hub sorts and renders them with the local listing
-  formatter and slicing, one level deep, links marked without targets (the
-  `kb://` listing precedent), then a "more entries exist" line past 1,000.
-  NUL termination keeps newline-bearing names one entry.
+  after the local traversal budget plus one (10,001) entries. The hub sorts
+  that set in the local order and renders it with the local listing formatter
+  and slicing, one level deep, links marked without targets (the `kb://`
+  listing precedent), keeping the first 1,000 and then a "more entries exist"
+  line. NUL termination keeps newline-bearing names one entry. The stdout
+  bound fits every collected entry at its largest (about 2.6 MB), separate
+  from the 1 MiB file bound; a transfer that stops at the bound is an
+  unfinished read, never a shortened list.
 
 Reads record no native attempt.
 
@@ -252,11 +271,17 @@ local budget (unbounded remote traversal for the first iteration).
 
 `cwd` must be one `ssh://` path without a selector. `env` keys must match
 `[A-Za-z_][A-Za-z0-9_]*`, must not name a managed base variable, and keys and
-values must hold no NUL; violations are refused before any process. The
-script runs `cd -- <cwd>` as a precondition (failure prints
-`<nonce>:refuse:cwd`, mapped to the local unusable-working-directory result
-with no command run), exports each entry as `KEY=<single-quoted value>`, prints
-the start marker, then runs `( eval <single-quoted command> ) </dev/null`.
+values must hold no NUL; violations are refused by the admission before the
+destination resolves, so no process starts. A `command` that holds NUL is
+refused for the same reason: `bash -s` drops NUL, so `r\0m` would run as `rm`
+after a reject that only saw the submitted text. The script runs
+`cd -- <cwd>` as a precondition (failure prints `<nonce>:refuse:cwd`, mapped
+to the local unusable-working-directory result with no command run), prints
+the start markers, then runs
+`( export KEY=<single-quoted value>; ...; eval <single-quoted command> ) </dev/null`
+and prints the end trailer with that subshell's status. Each marker carries
+the literal quoted nonce, never a shell variable, so an `env` key named `p`
+or `s` cannot change a frame or the directory the script entered.
 
 `packages/bash-executor` exports the base-variable check and the output
 sanitizer for reuse; the process slot is the same one local `bash` uses, so a

@@ -163,7 +163,7 @@ The hub MUST resolve the destination through local evaluation of the SSH configu
 
 ### Requirement: Permission rules match the resolved ssh locator
 
-For `read`, permission rules MUST match the locator without its selector. For `bash`, permission rules MUST match the `cwd`. The hub MUST evaluate rejects on the submitted text before the resolution, and then on the resolved text. A match in one of the two MUST refuse the call.
+The locator is the `read` path without its selector, or the `bash` `cwd`. The other arguments, such as `command` and `env`, stay as submitted. The hub MUST evaluate rejects on the submitted arguments before the resolution, and then with the resolved locator. A match in one of the two MUST refuse the call.
 
 The hub MUST use the resolved text to evaluate the allow. All-fields rejects MUST also find the resolved text. The connection MUST use the resolved user, host, and port.
 
@@ -176,6 +176,11 @@ The hub MUST use the resolved text to evaluate the allow. All-fields rejects MUS
 #### Scenario: Submitted-text reject refuses before resolution
 
 - **WHEN** a `bash` reject matches `^ssh://prod/` on `cwd` and the model calls `bash` with `cwd: "ssh://prod/srv"`
+- **THEN** the hub refuses the call and does not resolve the destination
+
+#### Scenario: Command reject sees the submitted command
+
+- **WHEN** a `bash` reject matches `rm -rf` on `command` and the model calls `bash` with that command and `cwd: "ssh://box/tmp"`
 - **THEN** the hub refuses the call and does not resolve the destination
 
 #### Scenario: Allow applies only to the resolved host
@@ -202,6 +207,16 @@ The hub MUST use the resolved text to evaluate the allow. All-fields rejects MUS
 
 - **WHEN** an all-fields `read` reject matches `10\.0\.0\.5` and the alias `prod` resolves to `10.0.0.5`
 - **THEN** the hub refuses a read of `ssh://prod/etc/hosts`
+
+### Requirement: Remote bash commands hold no NUL
+
+The hub MUST refuse an `ssh://` `bash` command that holds NUL before a process starts, because the remote shell drops NUL. Thus the command that runs is the text that the permission rules matched.
+
+#### Scenario: A command with NUL is refused before a process
+
+- **WHEN** the model gives an `ssh://` `bash` command that holds NUL
+- **THEN** the tool refuses the call before a process starts, because the remote shell drops NUL
+- **AND** the command that runs cannot differ from the text the permission rules matched
 
 ### Requirement: Remote output starts after a per-call marker
 
@@ -357,6 +372,12 @@ Before SSH starts, a remote `bash` call MUST record a native attempt, with the s
 
 - **WHEN** the call is cancelled after SSH starts and before the hub gets the end trailer
 - **THEN** the result is `outcome_unknown`
+
+#### Scenario: Cancellation before the start marker gives an unknown outcome
+
+- **WHEN** the hub starts SSH for a remote `bash` call and the call is cancelled before the start marker arrives
+- **THEN** the result is `outcome_unknown`, and not a refusal that says the command did not run
+- **AND** the hub reports a cancellation as a known result only when it refuses the call before it starts SSH
 
 ### Requirement: Missing remote prerequisites are named
 
