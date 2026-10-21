@@ -49,7 +49,7 @@
     "streamdown": "catalog:",
     "typescript": "catalog:",
     "use-stick-to-bottom": "catalog:",
-    "vite": "6.4.3",
+    "vite": "6.4.4",
     "vitest": "catalog:",
     "zod": "catalog:"
   }
