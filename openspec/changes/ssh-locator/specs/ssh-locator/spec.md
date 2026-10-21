@@ -538,7 +538,7 @@ If the configuration has the `ssh` section and `read` in `tools.allowed`, an `ss
 
 ### Requirement: ssh locators extend local-only argument forms
 
-The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities MUST be read as follows for `ssh://` locators. Where one restricts an argument or root to a host path, or gates on a local executor identity, this capability replaces its rule. Where one forbids a model-selected executor or remote authority, the rule applies to the local executor only. Local and Machine behavior MUST stay the same.
+The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities change as follows for `ssh://` locators. Where one restricts an argument or root to a host path, or gates on a local executor identity, this capability replaces it. Where one forbids a model-selected executor or remote authority, only that clause changes: it applies to the local executor. Local and Machine behavior and the other clauses MUST stay the same.
 
 #### Scenario: Bash is offered without a local executor
 

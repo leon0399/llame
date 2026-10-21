@@ -210,7 +210,12 @@ keeps brackets in `u@[v6]`.
 -o User=<user> -- <host>`, where `<host>` is the lowercase host that step 3
    resolved, so the checked address is the address used, and `Host`-scoped
    `ProxyJump` and identities from the included configuration match the same
-   name in both steps.
+   name in both steps. A `Match host` criterion does not: OpenSSH tests it
+   against `HostName` when one is set, so it sees the submitted name in step 3
+   and the resolved address in step 5. The address stays pinned either way;
+   only the route or identity a `Match host` block selects can differ, so the
+   operator page tells operators to scope jump hosts and identities with
+   `Host`.
 
 The synchronous preview path treats `ssh://` as refused; no current preview
 caller can produce one.
@@ -243,9 +248,11 @@ draws a random nonce:
 Without a start marker, classification is from the client: spawn `ENOENT`
 (`client_missing`), host-key failure, `Permission denied (`, connect
 failure or timeout, exit 127 with the login shell's "not found" for `sh` or
-`bash`, or Windows shell text, each a typed refusal. Any other pre-marker
-failure is `ssh_unsupported_host` ("the remote account ran no llame script"),
-covering forced commands and `nologin`. A start marker without a trailer is
+`bash`, or Windows shell text, each a typed refusal. A transfer that reaches
+its stdout bound before the marker is an unfinished read (`executor_unavailable`,
+"The remote read did not finish"). Any other pre-marker failure is
+`ssh_unsupported_host` ("the remote account ran no llame script"), covering
+forced commands and `nologin`. A start marker without a trailer is
 `session_lost` for `read` and `outcome_unknown` for `bash`; for `bash` this
 also covers a deadline or a cancellation that stopped the local `ssh` before
 the marker reached the hub, because the script may already have run. Only the
