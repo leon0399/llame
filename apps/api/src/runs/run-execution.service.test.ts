@@ -172,6 +172,8 @@ import {
   resolveEffectivePermissionMode,
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import type { SshConfig } from '../instance-config/ssh-settings';
+import type { SshClient, SshClientFactory } from '../ssh/ssh-client';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import {
   KnowledgeFilesystemAdapter,
@@ -421,6 +423,10 @@ type ExecutionServiceOptions = {
   knowledgeResolver?: KnowledgeToolResolver;
   /** The operator's step cap; the built-in default is null (no cap). */
   maxStepsPerRun?: number | null;
+  /** The `ssh` section; absent leaves `ssh://` an unknown scheme. */
+  ssh?: SshConfig;
+  /** The seam that builds the `ssh://` transport from that section. */
+  sshClientFactory?: SshClientFactory;
 };
 
 function makeExecutionService(
@@ -465,6 +471,7 @@ function makeExecutionService(
         options.knowledgeRoot === undefined
           ? BUILT_IN_DEFAULTS.knowledge
           : { root: options.knowledgeRoot },
+      ...(options.ssh !== undefined && { ssh: options.ssh }),
     },
   };
   // Held separately so tests can rescript it with its inferred Mock type
@@ -523,6 +530,9 @@ function makeExecutionService(
     options.workspaceMcp,
     options.inRunProducer,
     options.machineConnector,
+    // No Machine status reader in these tests.
+    undefined,
+    options.sshClientFactory,
   );
   return {
     service,
@@ -538,6 +548,66 @@ function makeExecutionService(
     client,
   };
 }
+
+describe('ssh transport lifecycle', () => {
+  /** A transport that never connects, so the lifecycle is all it shows. */
+  function fakeClient() {
+    const dispose = vi.fn();
+    const client: SshClient = {
+      resolve: () =>
+        Promise.resolve({
+          outcome: 'failed',
+          reason: 'config',
+          diagnostic: 'test transport',
+        }),
+      run: () =>
+        Promise.resolve({
+          outcome: 'failed',
+          reason: 'client_missing',
+          diagnostic: 'test transport',
+        }),
+      sshConfigText: () => undefined,
+      dispose,
+    };
+    return { client, dispose };
+  }
+
+  it('disposes the generated configuration when the module is destroyed', () => {
+    const { client, dispose } = fakeClient();
+    const create = vi.fn<SshClientFactory>(() => client);
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      ssh: { knownHostsFile: '/etc/llame/known_hosts' },
+      sshClientFactory: create,
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      ssh: { knownHostsFile: '/etc/llame/known_hosts' },
+    });
+    execution.service.onModuleDestroy();
+
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds the real transport by default', () => {
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      ssh: { knownHostsFile: '/etc/llame/known_hosts' },
+    });
+
+    // The real transport writes nothing until a call resolves or runs, so
+    // destroying it here removes nothing and must not throw.
+    expect(() => execution.service.onModuleDestroy()).not.toThrow();
+  });
+
+  it('builds no transport, and destroys cleanly, without the ssh section', () => {
+    const create = vi.fn<SshClientFactory>();
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      sshClientFactory: create,
+    });
+
+    expect(create).not.toHaveBeenCalled();
+    expect(() => execution.service.onModuleDestroy()).not.toThrow();
+  });
+});
 
 function mockNormalExecutionRepositories() {
   const markStarted = vi

@@ -140,6 +140,16 @@ export type SshClientOptions = {
   readonly resolutionOutputBytes?: number;
 };
 
+/** How a worker process builds its `ssh://` transport from the section. */
+export type SshClientFactory = (options: SshClientOptions) => SshClient;
+
+/**
+ * Injection token for `SshClientFactory`. Unprovided, the worker builds the
+ * real transport; the token is the seam a test replaces to observe the
+ * transport it would have created.
+ */
+export const SSH_CLIENT_FACTORY = Symbol('SSH_CLIENT_FACTORY');
+
 /** Does a spawn error mean the `ssh` client itself is missing? */
 function isMissingClient(error: Error): boolean {
   // SAFETY: Node attaches `code` to the error a failed `spawn` emits; an

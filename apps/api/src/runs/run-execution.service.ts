@@ -15,7 +15,12 @@ import {
 } from './machine-workspace';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineExecutorId } from '../machines/machine-locator';
-import { createSshClient, type SshClient } from '../ssh/ssh-client';
+import {
+  createSshClient,
+  SSH_CLIENT_FACTORY,
+  type SshClient,
+  type SshClientFactory,
+} from '../ssh/ssh-client';
 import {
   serializeNativeModelOutput,
   statHostPath,
@@ -842,6 +847,11 @@ export class RunExecutionService {
     @Optional()
     @Inject(MachinesService)
     private readonly machinesStatus?: MachineStatusReader,
+    // The one seam over the `ssh://` transport: unprovided, the worker builds
+    // the real client from the operator's section.
+    @Optional()
+    @Inject(SSH_CLIENT_FACTORY)
+    private readonly sshClientFactory: SshClientFactory = createSshClient,
   ) {
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
@@ -852,7 +862,17 @@ export class RunExecutionService {
     // call actually resolves or runs (ssh-locator D1). Without the `ssh`
     // section there is no client, so `ssh://` stays an unknown scheme.
     const ssh = this.instanceConfig.config.ssh;
-    this.sshClient = ssh === undefined ? undefined : createSshClient({ ssh });
+    this.sshClient =
+      ssh === undefined ? undefined : this.sshClientFactory({ ssh });
+  }
+
+  /**
+   * Remove the generated `ssh://` configuration directory this process wrote.
+   * The file holds the pinned host-key path and the llame identity, so it must
+   * not outlive the worker that created it (ssh-locator D1).
+   */
+  onModuleDestroy(): void {
+    this.sshClient?.dispose();
   }
 
   /**

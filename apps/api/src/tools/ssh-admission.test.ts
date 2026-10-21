@@ -413,8 +413,14 @@ describe('ssh read admission', () => {
   });
 
   it('keeps ssh:// an unknown scheme without the ssh section', async () => {
+    // The section is the only source of a transport, so the read reaches
+    // execution with no client and no resolved binding: nothing can start an
+    // ssh process for it.
+    const execute = vi.fn((toolContext: ToolContext, args: { path: string }) =>
+      nativeReadTool.execute(toolContext, args),
+    );
     const result = await runTool(
-      nativeReadTool,
+      { ...nativeReadTool, execute },
       { path: 'ssh://box/etc/hostname' },
       context({ read: { allow: true } }),
       5,
@@ -425,6 +431,10 @@ describe('ssh read admission', () => {
       type: 'invalid_path',
       message: 'This path scheme is not available.',
     });
+    expect(execute).toHaveBeenCalledTimes(1);
+    const [executionContext] = execute.mock.calls[0] ?? [];
+    expect(executionContext?.sshClient).toBeUndefined();
+    expect(executionContext?.sshBinding).toBeUndefined();
   });
 
   it('fails closed for an admitted read until the remote dispatch lands', async () => {
