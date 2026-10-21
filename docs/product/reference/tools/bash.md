@@ -47,7 +47,9 @@ absolute `cwd` is the Machine's own path. An
 login user, whenever the operator enabled ssh locators; it is never projected,
 so it addresses its own host inside any Workspace. The directory must be
 enterable before the attempt is recorded, and no shell expansion is applied to
-the argument.
+the argument. An `ssh://` directory is the exception: only the host can test it,
+so that attempt is recorded first, and a directory its login user cannot enter
+still gives the same `unavailable` refusal with the command not run.
 
 The description tells the model to set the directory with `cwd` and not with a
 `cd` in `command`: inside an entered Workspace it gives no `cwd` or one relative

@@ -197,10 +197,13 @@ anchored reject that closes it for the hosts where it matters; the third keeps
 `~/.ssh` out of a broad allow. A whole-tool `read: allow: true` admits every
 pinned host the instance's identity can reach.
 
-A `bash` call is judged the same way on its `cwd`: the submitted text first,
-then the resolved locator, before the command runs. The `command` text matches
-its own rule, exactly as for a local command, so a `cd` inside it is matched as
-written and never changes the directory the model submitted.
+A `bash` call is judged on its full arguments — `command`, `env`, and `cwd` —
+with `cwd` the submitted text in the first pass and the resolved locator in the
+second, both before the command runs. The `command` text matches its own rule,
+exactly as for a local command, so a `cd` inside it is matched as written and
+never changes the directory the model submitted. A `command` rule matches in
+either pass, and an `allFields` reject visits the `env` values as it does
+locally.
 
 ## Remote bash
 

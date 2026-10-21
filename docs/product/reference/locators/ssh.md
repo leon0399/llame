@@ -119,10 +119,13 @@ stdin, with empty stdin for the command itself:
   stderr carries its status. A status of 0 is `success`, any other is
   `command_failed` with the same message a local exit code gets.
 - Output and stderr are bounded and truncated as a local command's are. The call
-  shares the `bash` time budget; a connection that ends before the end trailer,
-  whether by timeout, cancellation, or a dropped session, is `outcome_unknown`
-  and is never replayed. `session_lost` is reported only before the command
-  started.
+  shares the `bash` time budget. A call that ends before its process starts is
+  `cancelled` or `timed_out`, as locally. Only a pre-session failure is a known
+  refusal: `ssh_unavailable` with `client_missing`, `host_key_mismatch`,
+  `auth_failed`, or `unreachable`, and `ssh_unsupported_host` for a host that
+  cannot run the script. Every other end after SSH starts without the end
+  trailer — timeout, cancellation, or a dropped session — is `outcome_unknown`
+  and is never replayed. A remote command never reports `session_lost`.
 
 The attempt is recorded before SSH starts and its result once afterwards, both
 under the calling Run, so a retry replays the settled outcome instead of
@@ -183,6 +186,6 @@ The operator enables the locator with a top-level `ssh` section, pins every
 hop's host key, and writes the permission rules; without that configuration
 `ssh://` is an unknown scheme and no process starts. See
 [SSH locators](../../operator/ssh.md). The `read` group gates each read and the
-`bash` group each command, and a rule is matched against the resolved locator
-`ssh://<user>@<hostname>:<port><absolute path>`, so a local `^/` rule never
-admits one.
+`bash` group each command, and a `path` rule is matched against the resolved
+locator `ssh://<user>@<hostname>:<port><absolute path>`, so a local `^/` rule
+never admits one.
