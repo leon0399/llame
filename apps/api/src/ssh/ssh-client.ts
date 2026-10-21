@@ -8,6 +8,11 @@
  * shared spawn seam (ssh-process.ts) so a test drives argv, bounds, deadlines,
  * and aborts without an `ssh` binary.
  *
+ * Both are one-shot, so each `ssh` leads its own process group and ending an
+ * operation kills the whole group: an `ssh` killed alone leaves the commands it
+ * spawned (`Match exec`, a ProxyCommand) running for a model-chosen
+ * destination.
+ *
  * Resolution is `ssh -F <generated> -G [-l user] [-p port] -- <host>`: a local
  * evaluation that never connects, bounded to 5 s and 64 KiB. Execution binds
  * the resolved address with `-o HostName= -o Port= -o User=` while the
@@ -24,7 +29,7 @@ import {
 } from './ssh-config';
 import {
   collectSshDiagnostic,
-  spawnSshProcess,
+  spawnOneShotSshProcess,
   type SshLinkFailureReason,
   type SshProcess,
   type SshSpawn,
@@ -339,8 +344,42 @@ function resolvedFromEnd(end: SshRunOutcome): SshResolution {
     : { outcome: 'resolved', destination };
 }
 
+/**
+ * Resolve one destination, or the `config` failure a pre-spawn throw means.
+ * Writing the generated configuration and spawning can both throw before the
+ * bounded runner exists (an unwritable or full temp directory is the reachable
+ * case). Resolution runs before the runner's execution guard, so a throw here
+ * would reject the whole call instead of reporting the failure.
+ */
+async function resolveDestination(
+  spawn: SshSpawn,
+  configPath: () => string,
+  limits: Pick<
+    SshClientOptions,
+    'resolutionDeadlineMs' | 'resolutionOutputBytes'
+  >,
+  request: SshResolveRequest,
+): Promise<SshResolution> {
+  try {
+    return resolvedFromEnd(
+      await runBoundedSsh(spawn, resolveArgs(configPath(), request), {
+        maxStdoutBytes:
+          limits.resolutionOutputBytes ?? SSH_RESOLUTION_OUTPUT_BYTES,
+        deadlineMs: limits.resolutionDeadlineMs ?? SSH_RESOLUTION_DEADLINE_MS,
+        ...(request.signal !== undefined && { signal: request.signal }),
+      }),
+    );
+  } catch (error) {
+    return {
+      outcome: 'failed',
+      reason: 'config',
+      diagnostic: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export function createSshClient(options: SshClientOptions): SshClient {
-  const spawn = options.spawn ?? spawnSshProcess;
+  const spawn = options.spawn ?? spawnOneShotSshProcess;
   let configFile = options.configFile;
 
   /** The generated configuration, written once per process on first use. */
@@ -356,16 +395,8 @@ export function createSshClient(options: SshClientOptions): SshClient {
 
   return {
     sshConfigText: () => configFile?.text,
-    resolve: async (request) =>
-      resolvedFromEnd(
-        await runBoundedSsh(spawn, resolveArgs(configPath(), request), {
-          maxStdoutBytes:
-            options.resolutionOutputBytes ?? SSH_RESOLUTION_OUTPUT_BYTES,
-          deadlineMs:
-            options.resolutionDeadlineMs ?? SSH_RESOLUTION_DEADLINE_MS,
-          ...(request.signal !== undefined && { signal: request.signal }),
-        }),
-      ),
+    resolve: (request) =>
+      resolveDestination(spawn, configPath, options, request),
     run: async (request) =>
       runBoundedSsh(spawn, runArgs(configPath(), request), request),
     dispose: () => {

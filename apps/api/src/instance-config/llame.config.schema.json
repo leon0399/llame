@@ -724,7 +724,7 @@
     "ssh": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional operator-wide `ssh://` locator settings (ssh-locator, experimental). Absent means the feature does not exist: an `ssh://` path is refused as an unknown scheme and no SSH process starts. Present enables `ssh://` for every authenticated user whose Run passes tool eligibility and permissions. The same three file settings as `machines.ssh` apply, with the same defaults, plus an opt-in identityAgent: host keys are pinned and checked strictly, and the included configuration can supply aliases, jump hosts, users, ports, ProxyCommand, and SendEnv but can never weaken the host-key check. See docs/product/operator/ssh.md.",
+      "description": "Optional operator-wide `ssh://` locator settings (ssh-locator, experimental). Absent means the feature does not exist: an `ssh://` path is refused as an unknown scheme and no SSH process starts. Present enables `ssh://` for every authenticated user whose Run passes tool eligibility and permissions. The same three file settings as `machines.ssh` apply, with the same defaults, plus an opt-in identityAgent: host keys are pinned and checked strictly, and the included configuration can supply aliases, jump hosts, users, ports, ProxyCommand, and SendEnv but can never weaken the host-key check.",
       "properties": {
         "knownHostsFile": {
           "type": "string",
@@ -744,7 +744,7 @@
         "identityAgent": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional SSH agent for `ssh://` connections: `SSH_AUTH_SOCK` (OpenSSH reads the socket from the worker process environment) or a literal socket path resolved like knownHostsFile. Omitted means no agent (`IdentityAgent none`). Machines never use it, and the agent is never forwarded. Every key in that agent then authenticates to every destination that passes the permission rules and the pinned host keys, so pair it with a dedicated knownHostsFile and host-scoped allows. See docs/product/operator/ssh.md."
+          "description": "Optional SSH agent for `ssh://` connections: `SSH_AUTH_SOCK` (OpenSSH reads the socket from the worker process environment) or a literal socket path resolved like knownHostsFile. Omitted means no agent (`IdentityAgent none`). Machines never use it, and the agent is never forwarded. Every key in that agent then authenticates to every destination that passes the permission rules and the pinned host keys, so pair it with a dedicated knownHostsFile and host-scoped allows."
         }
       }
     },

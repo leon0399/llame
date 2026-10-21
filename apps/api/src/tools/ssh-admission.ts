@@ -7,6 +7,8 @@
  * the full group is evaluated once more against the resolved locator
  * `ssh://<user>@<host>:<port><decoded path>`, so an alias cannot go around an
  * address reject and an allow names the host the connection actually reaches.
+ * A bare locator is answered with the fixed address message and starts
+ * nothing.
  *
  * Resolution runs in `bypass` mode too, because execution binds to it. The
  * resolved user, host, and port travel to execution on the trusted context;
@@ -20,6 +22,7 @@ import {
   formatSshLocator,
   isSshLocator,
   parseSshLocator,
+  SSH_LOCATOR_HELP,
   type SshPathLocator,
 } from '../ssh/ssh-locator';
 import { type SshResolvedDestination } from '../ssh/ssh-client';
@@ -147,7 +150,15 @@ export async function admitSshRead(
     return { kind: 'none' };
 
   const parsed = parseSshLocator(args.path);
-  if (parsed.kind === 'help') return { kind: 'none' };
+  if (parsed.kind === 'help')
+    return {
+      kind: 'refused',
+      result: {
+        status: 'error',
+        type: 'invalid_path',
+        message: SSH_LOCATOR_HELP,
+      },
+    };
   if (parsed.kind === 'invalid')
     return {
       kind: 'refused',

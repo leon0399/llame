@@ -1,5 +1,15 @@
-import { setImmediate as tick } from 'node:timers/promises';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  setImmediate as tick,
+  setTimeout as delay,
+} from 'node:timers/promises';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { userInfo } from 'node:os';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -571,6 +581,32 @@ describe('createSshClient generated configuration', () => {
     }
   });
 
+  it('fails as config when the generated configuration cannot be written', async () => {
+    const harness = fakeSpawn();
+    const client = createSshClient({ ssh: SSH, spawn: harness.spawn });
+    const previous = process.env['TMPDIR'];
+    // An unwritable or full temp directory is the reachable case: writing the
+    // configuration throws before any process starts, and resolution runs
+    // before the runner's execution guard, so it must report the failure.
+    process.env['TMPDIR'] = path.join(
+      tmpdir(),
+      'llame-ssh-missing-parent',
+      String(process.pid),
+    );
+    try {
+      const resolution = await client.resolve({ host: 'box' });
+
+      expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
+      if (resolution.outcome !== 'failed')
+        throw new Error('expected a failed resolution');
+      expect(resolution.diagnostic).toContain('ENOENT');
+      expect(harness.calls).toHaveLength(0);
+    } finally {
+      if (previous === undefined) delete process.env['TMPDIR'];
+      else process.env['TMPDIR'] = previous;
+    }
+  });
+
   it('disposes the generated configuration and forgets its text', () => {
     const harness = fakeSpawn();
     const configFile = {
@@ -674,4 +710,50 @@ describe('real ssh -G resolution', () => {
     expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
     expect(Date.now() - started).toBeLessThan(5000);
   });
+
+  it('kills the whole process group when resolution stops', async () => {
+    // OpenSSH runs `Match exec` for the resolution itself; a kill of the
+    // `ssh -G` parent alone leaves that child reparented and running, so a
+    // model-chosen destination could accumulate them.
+    const marker = path.join(directory, 'match-exec.pid');
+    const script = path.join(directory, 'hang.sh');
+    writeFileSync(script, `#!/bin/sh\necho $$ > "${marker}"\nexec sleep 60\n`);
+    chmodSync(script, 0o700);
+    const client = realClient(
+      `Match exec "${script}"\n  HostName hang.lan\n`,
+      1000,
+    );
+
+    const pending = client.resolve({ host: 'hang' });
+    const matchExecPid = await waitForPid(marker);
+    await expect(pending).resolves.toMatchObject({
+      outcome: 'failed',
+      reason: 'config',
+    });
+
+    await waitForExit(matchExecPid);
+  }, 15_000);
 });
+
+/** Wait for a pid file the fixture script writes, and return its pid. */
+async function waitForPid(file: string): Promise<number> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const text = existsSync(file) ? readFileSync(file, 'utf8').trim() : '';
+    if (/^[0-9]+$/u.test(text)) return Number(text);
+    await delay(25);
+  }
+  throw new Error(`no pid was written to ${file}`);
+}
+
+/** Wait until the pid is dead, proving the group kill reached it. */
+async function waitForExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+    await delay(25);
+  }
+  throw new Error(`process ${pid} survived the resolution deadline`);
+}

@@ -27,6 +27,9 @@ describe('parseSshLocator destinations', () => {
     expect(pathOf('ssh://Box/etc/hostname').destination).toEqual({
       host: 'box',
     });
+    expect(pathOf('ssh://BOX/etc/hostname').destination).toEqual({
+      host: 'box',
+    });
     expect(pathOf('ssh://[::1]/etc/hostname').destination).toEqual({
       host: '::1',
     });
