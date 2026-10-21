@@ -83,7 +83,10 @@ A scope with no glob operator MUST name a directory or one regular file. The
 tool searches a directory recursively. The scheme, the Machine name, the
 Space identifier, and the skill name MUST NOT contain a glob operator.
 
-A scope MUST NOT carry a read selector. The tool MUST refuse these scopes as
+The tool MUST NOT parse a read selector on a scope. In a host or Machine
+scope, a colon is part of the path. In a `kb://` scope, a literal colon is
+written `%3A`, as `read` requires. The tool MUST refuse a colon in a
+`skill://` scope as `invalid_path`. The tool MUST refuse these scopes as
 `invalid_path` before admission:
 
 - a `media://` scope,
@@ -138,6 +141,12 @@ or host paths.
 - **WHEN** a scope is `media://<id>`, `file://nas/share`, or `ftp://host/path`
 - **THEN** the tool returns `invalid_path` before any permission decision
 
+#### Scenario: A colon in a host scope is part of the path
+
+- **WHEN** a scope is `/home/u/repo/v:1/**`
+- **THEN** the tool searches the directory named `v:1`
+- **AND** no selector is parsed
+
 #### Scenario: Parent segments are resolved before admission
 
 - **WHEN** a scope is `/home/u/repo/src/../../../etc/**`
@@ -165,11 +174,18 @@ projection rule. The tool MUST project a `kb://`, `skill://`, or
 to that scheme. A clause then matches the same identity that a `read` of the
 prefix matches.
 
-An absent `grep` group MUST reject the call. When the group rejects any
-scope, the tool MUST reject the whole call as `permission_denied`. The
-recorded call decision is the first rejection in scope order. The tool MUST
-NOT search any scope of a rejected call. A bypassed Run MUST record one
-bypass decision for the call.
+When `scopes` is omitted and a Workspace is entered, the tool MUST evaluate
+the Workspace root as the one scope, as the `tool-call-permissions`
+capability defines. An absent `grep` group MUST reject the call. When the
+group rejects any scope, the tool MUST reject the whole call as
+`permission_denied`. The recorded call decision is the first rejection in
+scope order, or the allow of the last scope when every scope is allowed.
+The tool MUST NOT search any scope of a rejected call. A bypassed Run MUST
+record one bypass decision for the call.
+
+A bare `kb://` scope MUST visit Spaces in byte order of the Space
+identifier. A bare `skill://` scope MUST visit packages in byte order of
+the package name.
 
 #### Scenario: Prefix of a glob scope is the matched identity
 
@@ -189,6 +205,12 @@ bypass decision for the call.
 - **THEN** the call is admitted
 - **AND** no host path or configured root entered policy matching
 
+#### Scenario: An omitted scope is admitted as the Workspace root
+
+- **WHEN** the Chat entered `/home/u/repo`, the model submits only `patterns`, and the `grep` group rejects `literal: "/home/u/repo/"` on `scopes`
+- **THEN** the tool returns `permission_denied`
+- **AND** no file is opened
+
 #### Scenario: A bare Knowledge scope matches its own text
 
 - **WHEN** the only `grep` allow is `literal: "kb://"` on `scopes` and the scope is `kb://`
@@ -205,10 +227,17 @@ that file.
 
 A Machine walk opens the file on the Machine, under the Machine's own
 authority. The page of the daemon never reaches the model before the check.
-An absent `read` group MUST make every file contribute nothing. The result
-MUST carry one `warnings` entry of kind `read_refused` with the count of
-refused files. The `tool-call-permissions` capability defines how the
-decisions are recorded.
+The daemon counts those files as examined. An absent `read` group MUST make
+every file contribute nothing.
+
+The result MUST NOT tell the model how many files the `read` group refused.
+The completion audit, which the owner sees, MUST carry that count. The
+`tool-call-permissions` capability defines how the decisions are recorded.
+
+When a scope with no glob names one path, the tool MUST evaluate the `read`
+group on that path before any probe. When the `read` group refuses it, the
+tool MUST return the same `not_found` result as for a missing path. The
+result then does not reveal whether the file exists.
 
 An ignore file that the walker reads as walk policy is not a candidate. The
 walker MUST NOT emit its content and needs no `read` decision for it.
@@ -220,14 +249,21 @@ range. The value is directly a valid `read` argument. In a `kb://` or
 `?` as `%3F`. The locator can then return as a scope without a glob.
 
 A `kb://` hit MUST carry the logical Knowledge locator. A `machine://` hit MUST carry
-the Machine locator. No hit MUST carry a configured root or a Machine host
+the Machine locator. A hit MUST NOT carry a configured root or a Machine host
 path.
 
 #### Scenario: A read reject hides a file beneath an admitted scope
 
 - **WHEN** the `grep` group allows `/home/u/repo/` and the `read` group rejects `regex: "\\.env$"` on `path`
 - **THEN** a grep over `/home/u/repo/**` never opens `/home/u/repo/.env`
-- **AND** the result does not name `.env` and `warnings` counts one `read_refused`
+- **AND** the result does not name `.env` and carries no count of refused files
+- **AND** the completion audit records one refused file
+
+#### Scenario: A refused exact path looks missing
+
+- **WHEN** the `read` group rejects `/home/u/.ssh/` and a scope is `/home/u/.ssh/id_ed25519`
+- **THEN** the tool returns `not_found`
+- **AND** the result is identical for `/home/u/.ssh/absent`
 
 #### Scenario: A hit is a valid read argument
 
@@ -302,7 +338,10 @@ is the canonical order of the call.
 
 A host, Machine, or Knowledge walk MUST NOT follow a symbolic link. A skill
 walk MUST follow the agent-skills link semantics, under the same file,
-entry, byte, and time bounds.
+entry, byte, and time bounds. A skill walk MUST NOT enter a directory whose
+canonical identity is already on the current path. It MUST count such a
+directory, and a link the operating system reports as a loop, as a `link`
+skip.
 
 A host or Machine walk MUST include hidden entries. It MUST NOT enter a
 directory named `.git`. It MUST apply every `.gitignore` file between the
@@ -337,6 +376,12 @@ resolved Space.
 - **WHEN** `/home/u/repo/link` is a symbolic link to `/etc` and a scope is `/home/u/repo/**`
 - **THEN** no file beneath `/etc` is examined
 
+#### Scenario: Skill link loop is skipped
+
+- **WHEN** a package holds `loop -> .`
+- **THEN** the walk does not enter `loop`
+- **AND** the entries after `loop` in the package are searched
+
 #### Scenario: Skill package link is followed
 
 - **WHEN** a skill source holds a child link to a package directory
@@ -353,8 +398,9 @@ tool MUST clip the window at the file ends.
 
 Windows in one file that overlap or touch MUST merge into one passage. A
 passage MUST span at most 2,000 lines. The tool MUST partition a longer
-merged interval into adjacent passages of at most 2,000 lines. Each partition
-MUST contain at least one matched line.
+merged interval into adjacent passages. Each cut falls after the last
+matched line that lies in the first 2,000 lines of the remainder. A
+remainder with no matched line is dropped.
 
 Each passage MUST carry `locator`, `content`, and `matches`. `content` MUST
 hold the window lines with the ordinary one-based `N:` prefix. The tool MUST
@@ -384,6 +430,11 @@ the window. The tool MUST NOT report match columns, scores, or counts beyond
 - **WHEN** every line of a 4,500-line file matches
 - **THEN** the file yields passages `:1-2000`, `:2001-4000`, and `:4001-4500`
 
+#### Scenario: A trailing context line is dropped by the cut
+
+- **WHEN** lines 1 to 2,000 of a file match and line 2,001 is only context
+- **THEN** the file yields one passage `:1-2000`
+
 #### Scenario: Case is ignored on request
 
 - **WHEN** `ignoreCase` is `true` and a pattern is `todo`
@@ -397,7 +448,8 @@ order of the walk, then by passage start line. One page MUST hold at most
 passages MUST contribute its first 20 in canonical order and
 `truncated: true` on its twentieth passage. The passages after the
 twentieth are not reachable through a cursor. A later `read` of the file
-reaches them.
+reaches them. A cursor that names a twentieth passage resumes at the next
+file in canonical order.
 
 The tool MUST keep the result under a budget of 15,000 UTF-16 code units.
 It MUST emit whole passages in order while the next passage fits. When the
@@ -408,7 +460,8 @@ page MUST end before the budget, so the tool loop never cuts the result.
 When passages remain after a page, the result MUST carry `complete: false`
 and an opaque keyset `cursor`. The cursor names the last emitted passage by
 scope index, canonical file locator, and start line. It also carries a hash
-of the resolved search inputs: the patterns, the projected scopes, `literal`,
+of the resolved search inputs: the patterns, the projected scopes, the
+Space identifiers and package names a bare scope resolved to, `literal`,
 and `ignoreCase`. A later call with that `cursor` MUST resume after the
 named passage.
 
@@ -417,9 +470,10 @@ inputs as `invalid_input`. A Workspace change then invalidates an old
 cursor. The tool MUST NOT store state between calls.
 
 On resume, the walk MUST list entries before the cursor without opening
-them. Listed entries count toward the 20,000-entry bound, and opened files
-count toward the 5,000-file bound. A file that a `read` reject refuses is
-listed, not examined.
+them. Those entries do not count toward the 20,000-entry bound. Entries at
+or after the cursor count. Opened files count toward the 5,000-file bound.
+A file that a `read` reject refuses is listed, not examined, except on a
+Machine.
 
 A result with no passage MUST return `results: []` and `complete: true`
 when no bound stopped the walk.
@@ -445,6 +499,11 @@ when no bound stopped the walk.
 - **WHEN** one file holds 25 passages
 - **THEN** the page holds its first 20, the twentieth carries `truncated: true`
 - **AND** the cursor names the twentieth passage, so the next page starts at the next file
+
+#### Scenario: A new Space invalidates a bare cursor
+
+- **WHEN** a `cursor` was issued for scope `kb://` and the owner then created a Space
+- **THEN** a call with that `cursor` returns `invalid_input`
 
 #### Scenario: The budget ends a page early
 
@@ -478,9 +537,15 @@ the rules of this capability. The request carries the remaining file, entry,
 byte, and time budget, and the daemon MUST stay inside it.
 
 The daemon MUST return passages that name paths relative to its display
-prefix only. An unreachable or unknown Machine MUST fail the call with the
-Machine failure results that `read` uses. A daemon without the method MUST
-fail the call as Machine unusable.
+prefix only. The request also carries the remaining page budget. The API
+MUST cut a daemon page that exceeds the remaining budget. The API MUST
+abandon the request at the remaining deadline. The API MUST build the
+cursor from the last passage it emitted, never from a daemon passage it
+dropped.
+
+An unreachable or unknown Machine MUST fail the call with the Machine
+failure results that `read` uses. A daemon without the method MUST fail the
+call as Machine unusable.
 
 #### Scenario: Host scope without an executor
 
@@ -514,6 +579,12 @@ fail the call as Machine unusable.
 - **WHEN** a scope names a Machine that is not configured
 - **THEN** the tool returns the Machine not-found result that `read` uses
 - **AND** no other scope of that call is searched
+
+#### Scenario: A dropped Machine passage never names the cursor
+
+- **WHEN** the daemon's last passage belongs to a file the `read` group refuses
+- **THEN** the cursor names the last passage the API emitted
+- **AND** the refused path appears nowhere in the result
 
 #### Scenario: Budgets span Machines
 

@@ -113,6 +113,8 @@ model calls, and every hit is a locator that `read` accepts.
 
 - `packages/machine-protocol` and `apps/machine`: new `fs.grep` method and
   its daemon handler.
+- `apps/api/src/tools/permissions/declared-fields.ts` and
+  `policy-provider.ts`: `scopes` accepted as a clause field of `grep`.
 - `apps/api/src/instance-config/prompt-loader.test.ts` and
   `apps/api/src/prompts/tool-descriptions.test.ts`: the unregistered example
   id changes from `grep` to `never_registered`.
@@ -133,6 +135,17 @@ model calls, and every hit is a locator that `read` accepts.
 
 ## Revision history
 
+- **v3 (2026-10-21):** Review round 2.
+  - `scopes` is an accepted array-valued clause field for the `grep` group.
+  - An omitted `scopes` is evaluated as the Workspace root.
+  - The refused-file count leaves the result and stays in the audit. A
+    refused exact path returns `not_found`.
+  - Colons are path text on host and Machine scopes. No selector parsing.
+  - Skill link loops are skipped. Bare scopes order Spaces and packages and
+    hash their resolved set.
+  - The partition cut, the resume after a twentieth passage, and re-listed
+    entries are defined. The API builds Machine cursors from emitted passages
+    and enforces the daemon budget.
 - **v2 (2026-10-21):** Review round 1.
   - Added the `tool-call-permissions` and `knowledge-tools` deltas.
   - Corrected the Knowledge error codes.

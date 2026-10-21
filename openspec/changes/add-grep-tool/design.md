@@ -147,17 +147,19 @@ The runner gains a `grep` branch beside the native file branch:
 
 ```text
 admit(call):
+  scopes = submitted.scopes ?? [workspaceRoot]   // omitted: root, else invalid_input
   for each scope in order:
     prefix = literalPrefix(normalize(projectScheme(scope)))
     args = { ...submitted, scopes: prefix }
-    decision = evaluate(policy, toolId: grep, args, allFieldsExtra: prefixes)
+    allFieldsExtra = submitted.scopes ∪ prefixes
+    decision = evaluate(policy, toolId: grep, args, allFieldsExtra)
     if reject: record(decision); return permission_denied
-  record(allow)
+  record(last allow)
   run engine with onCandidate(file):
     decision = evaluate(policy, toolId: read, args: { path: canonical(file) })
     if reject: refused += 1
     return decision is allow
-  result.warnings += { kind: read_refused, count: refused }
+  audit.readRefused = refused            // owner-visible only
 ```
 
 The projection reuses `locator-projection.ts`. `grep` joins
@@ -166,6 +168,11 @@ suffix instead of a read selector. Host and Machine scopes are normalized
 lexically first, so `..` cannot widen a substring allow. The per-file check
 reuses the `read` projection unchanged. A `.env` reject written for `read`
 hides the file from `grep` with no second rule.
+
+`declared-fields.ts` and `policy-provider.ts` accept `scopes` on the
+`grep` group as the one array-valued declared field. An exact-path scope is
+checked against `read` before any probe. On refusal it returns `not_found`.
+The model then cannot tell a refused file from a missing one.
 
 Per-file decisions are counted, not recorded one by one. The derived
 decision list is capped at 26 entries (`runs/assistant-transcript.ts`), and
@@ -200,11 +207,13 @@ passages adds `truncated: true` on its twentieth passage. The page is
 budgeted at 15,000 UTF-16 code units before the runner's 16,000-character
 cap, so the cursor is never cut away.
 
-The walk order is depth-first with byte-ordered names per directory. That
-is the canonical order the cursor keys on. The cursor encodes
+The walk order is depth-first with byte-ordered names per directory. A bare
+`kb://` visits Spaces by identifier and a bare `skill://` visits packages by
+name, both in byte order. That is the canonical order the cursor keys on. The cursor encodes
 `{ scope index, canonical file locator, start line }` of the last emitted
 passage and a SHA-256 of the resolved inputs (patterns, projected scopes,
-`literal`, `ignoreCase`), as base64url. The projected scopes carry the
+resolved Space identifiers or package names, `literal`, `ignoreCase`), as
+base64url. The projected scopes carry the
 Workspace root, so a Workspace change invalidates the cursor.
 
 On resume the walk lists but does not open entries before the cursor.
@@ -212,8 +221,8 @@ On resume the walk lists but does not open entries before the cursor.
 ### D7. `fs.grep` on the Machine daemon
 
 Request: `{ path, globSuffix, patterns, literal, ignoreCase, cursor, budget }`
-where `budget` is `{ files, entries, bytes, deadlineMs }` remaining for the
-call. Response: the D6 shape with paths relative to the display prefix of
+where `budget` is `{ files, entries, bytes, deadlineMs, limit, pageUnits }`
+remaining for the call. Response: the D6 shape with paths relative to the display prefix of
 the daemon, the `complete` flag, warnings, and the budget consumed. The
 daemon resolves `path` through its root guard and returns
 `path_not_registered` outside the roots. The daemon applies every D1 to D6
@@ -224,9 +233,12 @@ crosses. The API evaluates the `read` group per returned file before it
 emits the passage. The daemon opened those files under the Machine's own
 authority. That is the same authority `bash` on the Machine already holds.
 
-The daemon returns at most one page per request. The API cursor wraps the
-daemon cursor. A method-not-found error maps to the Machine unusable
-result.
+The daemon returns at most one page per request. The request budget also
+carries the remaining `limit` and page units. The API cuts an oversized
+daemon page, abandons the request at the remaining deadline, and builds its
+cursor from the last passage it emitted. On resume the API passes that
+passage as the daemon cursor. A method-not-found error maps to the Machine
+unusable result.
 
 ### D8. Advertisement
 
