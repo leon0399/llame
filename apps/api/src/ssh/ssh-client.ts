@@ -232,15 +232,15 @@ function collectStderr(
   let tail = Buffer.alloc(0);
   stderr.on('data', (chunk: Buffer | string) => {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    const room = SSH_DIAGNOSTIC_BYTES - headBytes;
-    const taken = room > 0 ? bytes.subarray(0, room) : bytes.subarray(0, 0);
-    if (taken.length > 0) {
-      head.push(taken);
-      headBytes += taken.length;
-    }
-    const rest = bytes.subarray(taken.length);
-    if (rest.length > 0)
-      tail = Buffer.concat([tail, rest]).subarray(-tailBytes);
+    // The head takes what is left of its bound and the rest becomes the tail.
+    // `headBytes` never passes the bound, so the room is never negative and
+    // an empty `taken` is an empty `subarray`, not a guarded case.
+    const taken = bytes.subarray(0, SSH_DIAGNOSTIC_BYTES - headBytes);
+    head.push(taken);
+    headBytes += taken.length;
+    tail = Buffer.concat([tail, bytes.subarray(taken.length)]).subarray(
+      -tailBytes,
+    );
   });
   stderr.on('error', () => undefined);
   return {
