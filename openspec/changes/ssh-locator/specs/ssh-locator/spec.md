@@ -239,7 +239,7 @@ Each remote script MUST write a random start marker on stdout and stderr before 
 #### Scenario: Pre-marker output above its allowance fails the read
 
 - **WHEN** the login shell writes more than 64 KiB to stdout before the start marker of a read
-- **THEN** the tool returns the local unfinished-read error, and it returns no content
+- **THEN** the tool returns `executor_unavailable` with "The remote read did not finish, so the file could not be read.", and it returns no content
 
 #### Scenario: Interrupted read is not a success
 
@@ -320,7 +320,7 @@ A list MUST contain a maximum of 1,000 entries. If there are more entries, a lin
 
 ### Requirement: Remote directory reads fail above the traversal budget
 
-A directory with more entries than the local traversal budget MUST fail as a local over-budget directory does: `directory_too_large` with the entry count and no entry list. The hub MUST stop the collection at 10,001 entries, and it MUST order that set before it applies the 1,000-entry limit.
+A directory with more entries than the local traversal budget MUST fail with the local over-budget result: `directory_too_large` and no entry list. The hub MUST stop the collection at 10,001 entries. The count in the result MUST be the count that the hub collected, not the full count of the directory. The hub MUST order that set before it applies the 1,000-entry limit.
 
 #### Scenario: Directory above the traversal budget is refused
 
@@ -538,7 +538,7 @@ If the configuration has the `ssh` section and `read` in `tools.allowed`, an `ss
 
 ### Requirement: ssh locators extend local-only argument forms
 
-The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities MUST be read as follows for `ssh://` locators. Where one restricts an argument or root to a host path, or gates on a local executor identity, this capability replaces its rule. Where one forbids a model-selected executor or remote authority, the same rule applies. Local and Machine behavior MUST stay the same.
+The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities MUST be read as follows for `ssh://` locators. Where one restricts an argument or root to a host path, or gates on a local executor identity, this capability replaces its rule. Where one forbids a model-selected executor or remote authority, the rule applies to the local executor only. Local and Machine behavior MUST stay the same.
 
 #### Scenario: Bash is offered without a local executor
 

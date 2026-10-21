@@ -207,9 +207,10 @@ keeps brackets in `u@[v6]`.
    does not go through Workspace projection, so `runner.ts:299` does not skip
    the submitted text.
 5. Execution connects with `-o HostName=<hostname> -o Port=<port>
--o User=<user> -- <submitted host>`, so the checked address is the address
-   used, while `Host`-scoped `ProxyJump` and identities from the included
-   configuration still match the submitted name.
+-o User=<user> -- <host>`, where `<host>` is the lowercase host that step 3
+   resolved, so the checked address is the address used, and `Host`-scoped
+   `ProxyJump` and identities from the included configuration match the same
+   name in both steps.
 
 The synchronous preview path treats `ssh://` as refused; no current preview
 caller can produce one.
