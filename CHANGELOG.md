@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-21
+
+- CI scans the API dynamically from its OpenAPI document with Schemathesis and
+  the ZAP API scan against a throwaway stack. Both jobs reuse the API that the
+  Build job compiled; they run on every push to master, nightly, and on pull
+  requests that change the API, its workspace dependencies, or the scan. The
+  procedure is in [testing](docs/development/testing.md#api-dast).
+
 # 2026-10-18
 
 - The Nix dev shell evaluates again on every system it declares: the flake
@@ -8,13 +16,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   aarch64 macOS directly. A path-filtered `Dev shell` workflow runs
   `nix flake check` and fails when the shell's pnpm differs from
   `packageManager` or its Node leaves the `.node-version` major.
-
-- The native `luma` web adapter reads `luma.com/{slug}` and `lu.ma/{slug}`
-  event links, which the generic converter leaves as a script-heavy page, as
-  Markdown: title, start and end in the event's timezone, place or online
-  location, hosts, tickets, cover image, and description. It uses Luma's
-  keyless `api.lu.ma` URL lookup. Calendars, places, and other non-event
-  pages fall through to the generic reader.
 
 - **Experimental:** remote Machines. An operator lists boxes under `machines`
   in the instance configuration, and a Run reaches them over SSH using the
@@ -31,6 +32,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Machine or as its locator. A status bar along the bottom of every signed-in
   page lists the Machines with their state and how many are online. See
   [remote Machines](docs/product/operator/machines.md).
+
+- The native `luma` web adapter reads `luma.com/{slug}` and `lu.ma/{slug}`
+  event links, which the generic converter leaves as a script-heavy page, as
+  Markdown: title, start and end in the event's timezone, place or online
+  location, hosts, tickets, cover image, and description. It uses Luma's
+  keyless `api.lu.ma` URL lookup. Calendars, places, and other non-event
+  pages fall through to the generic reader.
 
 - Archived chats and projects are reachable again. The chats rail, the
   projects rail, and a project's page each have a view menu for **Active**,

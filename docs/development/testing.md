@@ -121,11 +121,41 @@ execution. Direct `test:mutation` runs report MSI over the whole corpus without
 enforcing a threshold. See the [measurements and
 alternatives](../research/development-pipeline.md).
 
+## API DAST
+
+The `API DAST` jobs (`.github/workflows/dast.yml`, called by CI after Build)
+download the API that Build compiled, boot it on a throwaway stack from the
+e2e fixtures (`.github/actions/dast-stack`: Postgres, mock model, mock MCP),
+register two users, and scan it from `apps/api/openapi.json` with two
+Dockerized scanners, pinned by digest:
+
+- Schemathesis (`scripts/dast/schemathesis.toml`): every check, including
+  `ignored_auth` and `object_level_authorization`, which replays one
+  registered user's reads as the second user.
+- ZAP's API scan (`scripts/dast/zap-plan.yaml`): OWASP passive and active
+  rules, authenticated as the first user. It fails on Medium and High alerts.
+
+Server-sent event streams and session revocation are excluded, and rate limits
+are lifted for the same reason as in Playwright. The jobs run on every push to
+master, nightly with a fresh Schemathesis seed, and on pull requests that
+change the API, a workspace package it imports, the e2e support fixtures, the
+scan, or the lockfile; other pull requests report them as skipped. Pull
+requests and master use a fixed seed, so a finding reproduces on the next push
+and with the `curl` or `st replay` command in the report.
+
+Each job uploads its reports as an artifact. ZAP's native SARIF report is also
+uploaded to code scanning after `scripts/dast/relocate-zap-sarif.jq` anchors
+each result to its operation's line in `apps/api/openapi.json`, since code
+scanning rejects ZAP's URL locations; the scanned method and path stay in the
+message. Schemathesis has no SARIF output. Findings have no baseline: a job
+stays red until its findings are fixed.
+
 ## CI mapping
 
 ```text
 typecheck ----> test (one leg per workspace) ----+
 typecheck ----> build ---------------------------+-> product e2e
+                build -> API DAST (Schemathesis, ZAP)
 typecheck ----> mutation
 ```
 
@@ -135,7 +165,7 @@ typecheck ----> mutation
 - CI: typecheck; a `test` matrix with one leg per workspace running its
   `test:coverage` (thresholds, and CRAP where the script adds it), with the
   api leg on Testcontainers and the `web`/`ui` legs in the Playwright image;
-  build plus generated-diff check; mutation; production Playwright.
+  build plus generated-diff check; API DAST; mutation; production Playwright.
 - Each test leg uploads its report to Codecov as its own flag;
   `.github/codecov.yml` also groups paths into components by SPEC area.
   Codecov reports trends and pull request deltas; the thresholds stay the gate.

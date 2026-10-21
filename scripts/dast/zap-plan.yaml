@@ -1,0 +1,67 @@
+# ZAP Automation Framework plan for the API DAST job (dast-zap in
+# .github/workflows/ci.yml). The Authorization header comes from the
+# ZAP_AUTH_HEADER* environment variables, which ZAP adds to every request to
+# the target host (ZAP_AUTH_HEADER_SITE).
+env:
+  contexts:
+    - name: llame-api
+      urls:
+        - ${DAST_TARGET_URL}
+      # Same exclusions as schemathesis.toml: endless SSE streams, and session
+      # revocation, which would sign the scanner out mid-run.
+      excludePaths:
+        - ".*/api/v1/chats/[^/]+/stream.*"
+        - ".*/api/v1/runs/[^/]+/events.*"
+        - ".*/auth/v1/sessions.*"
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  - type: openapi
+    parameters:
+      apiFile: /zap/wrk/openapi.json
+      targetUrl: ${DAST_TARGET_URL}
+      context: llame-api
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: activeScan
+    parameters:
+      context: llame-api
+      maxRuleDurationInMins: 2
+      maxScanDurationInMins: 20
+
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk/out
+      reportFile: zap-report.html
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: /zap/wrk/out
+      reportFile: zap-report.json
+
+  # Uploaded to GitHub code scanning by the workflow. ZAP appends the
+  # template's .json extension, so this writes zap-report.sarif.json.
+  - type: report
+    parameters:
+      template: sarif-json
+      reportDir: /zap/wrk/out
+      reportFile: zap-report.sarif
+
+  # Exit 1 on any High alert and 2 on Medium, so the run reports findings
+  # through its exit code like Schemathesis does.
+  - type: exitStatus
+    parameters:
+      errorLevel: High
+      warnLevel: Medium

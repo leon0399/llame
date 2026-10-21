@@ -1,0 +1,123 @@
+name: API DAST
+
+# Dynamic scan of the API from apps/api/openapi.json against a throwaway stack
+# (.github/actions/dast-stack). Called by ci.yml after its build job, whose
+# api-build artifact it runs instead of compiling the API again. One job per
+# scanner, each on its own stack, so one's fuzzed data never shapes the
+# other's findings, and only ZAP holds security-events: write.
+on:
+  workflow_call:
+    inputs:
+      scan:
+        description: Whether this run changes the API or the scan.
+        type: boolean
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  schemathesis:
+    name: Schemathesis
+    if: ${{ inputs.scan }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - uses: ./.github/actions/dast-stack
+
+      # Pull requests and master use a fixed seed, so a finding reproduces on
+      # the next push; scheduled and on-demand runs let Schemathesis pick one,
+      # which it prints with the report.
+      - name: Run Schemathesis
+        env:
+          DAST_SEED: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '20261018' || '' }}
+        run: |
+          # The default shell has no pipefail, so tee would hide a failure.
+          set -o pipefail
+          docker run --rm --network host \
+            -v "$PWD/apps/api/openapi.json:/spec/openapi.json:ro" \
+            -v "$PWD/scripts/dast/schemathesis.toml:/cfg/schemathesis.toml:ro" \
+            -v "$RUNNER_TEMP/dast-secrets:/secrets:ro" \
+            -v "$PWD/dast-report/schemathesis:/out" \
+            schemathesis/schemathesis:4.32.0@sha256:c4935c2c27489923b0091246aa831c92166fa169fb8f35ebdeefd408a7a935f5 \
+            --config-file /cfg/schemathesis.toml \
+            run /spec/openapi.json --url http://localhost:4301 \
+            ${DAST_SEED:+--seed "$DAST_SEED"} \
+            --report junit,html --report-dir /out --report-junit-path /out/junit.xml \
+            2>&1 | tee dast-report/schemathesis/console.txt
+
+      # Schemathesis has no native SARIF output; its findings stay here.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dast-report-schemathesis
+          path: dast-report/
+          retention-days: 14
+
+  zap:
+    name: ZAP
+    if: ${{ inputs.scan }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      # Upload of ZAP's SARIF to code scanning.
+      security-events: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - uses: ./.github/actions/dast-stack
+
+      # ZAP adds the Authorization header to requests whose host contains
+      # ZAP_AUTH_HEADER_SITE, so every request to the stack is authenticated.
+      - name: Run ZAP
+        run: |
+          set -o pipefail
+          token="$(jq -r '.auth[0].fixedHeaders[0].value' "$RUNNER_TEMP/dast-secrets/auth.wfc.json")"
+          docker run --rm --network host \
+            -e ZAP_AUTH_HEADER=Authorization \
+            -e ZAP_AUTH_HEADER_VALUE="$token" \
+            -e ZAP_AUTH_HEADER_SITE=localhost \
+            -e DAST_TARGET_URL=http://localhost:4301 \
+            -v "$PWD/apps/api/openapi.json:/zap/wrk/openapi.json:ro" \
+            -v "$PWD/scripts/dast/zap-plan.yaml:/zap/wrk/zap-plan.yaml:ro" \
+            -v "$PWD/dast-report/zap:/zap/wrk/out" \
+            ghcr.io/zaproxy/zaproxy:2.17.0@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 \
+            zap.sh -cmd -autorun /zap/wrk/zap-plan.yaml \
+            2>&1 | tee dast-report/zap/console.txt
+
+      # Code scanning rejects ZAP's http:// locations, so each result is
+      # anchored to its operation's line in the OpenAPI document.
+      - name: Relocate SARIF to the OpenAPI document
+        id: relocate
+        if: ${{ !cancelled() && hashFiles('dast-report/zap/zap-report.sarif.json') != '' }}
+        run: >-
+          jq --rawfile spec apps/api/openapi.json
+          -f scripts/dast/relocate-zap-sarif.jq
+          dast-report/zap/zap-report.sarif.json
+          > dast-report/zap/zap-report.code-scanning.sarif.json
+
+      # Fork pull requests get a read-only token, so the upload would fail the
+      # job; their findings stay in the report artifact.
+      - if: ${{ !cancelled() && steps.relocate.outcome == 'success' && github.event.pull_request.head.repo.fork != true }}
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: dast-report/zap/zap-report.code-scanning.sarif.json
+          category: dast-zap
+
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dast-report-zap
+          path: dast-report/
+          retention-days: 14
