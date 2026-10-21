@@ -14,6 +14,7 @@
 import {
   NativeFileError,
   applySelectorSuffix,
+  compareEntries,
   fileMediaType,
   outlineReader,
   renderCollectedDirectory,
@@ -36,9 +37,10 @@ import {
   classifySshReadOutcome,
 } from '../ssh/ssh-read-failure';
 import {
+  SSH_DIRECTORY_TRANSFER_BYTES,
+  SSH_LIST_MAX_ENTRIES,
   SSH_READ_MAX_BYTES,
   SSH_READ_NOISE_BYTES,
-  SSH_READ_TRANSFER_BYTES,
   buildSshReadScript,
   createSshNonce,
   isSshReadRefusal,
@@ -266,6 +268,12 @@ function renderDirectoryRead(
 ): ToolResult {
   try {
     const { entries, more } = parseSshDirectoryEntries(content);
+    // The host sends glob order; the hub keeps the local order, so the bound
+    // selects the first entries a local listing shows rather than the first
+    // ones a glob group happened to reach.
+    const shown = [...entries]
+      .sort(compareEntries)
+      .slice(0, SSH_LIST_MAX_ENTRIES);
     const { read, options } = listingOptions(
       target.locator,
       target.selector,
@@ -273,7 +281,7 @@ function renderDirectoryRead(
     );
     const refused = directorySelectorFailure(read);
     if (refused !== undefined) return refused;
-    const result = renderCollectedDirectory(target.locator, entries, options);
+    const result = renderCollectedDirectory(target.locator, shown, options);
     if (result.status === 'error')
       return {
         status: 'error',
@@ -309,6 +317,8 @@ function helpResult(path: string): ToolResult {
 type RemoteRead = {
   readonly frames: SshReadFrames;
   readonly verdict: SshReadVerdict;
+  /** True when the transfer was cut at the caller's stdout bound. */
+  readonly overflow: boolean;
 };
 
 /** Everything one remote read needs, all of it trusted context. */
@@ -322,12 +332,14 @@ type RemoteReadRequest = {
 
 async function runRemoteRead(request: RemoteReadRequest): Promise<RemoteRead> {
   const { client, binding, context } = request;
+  // The read's kind is unknown until its marker, so the bound covers a
+  // directory transfer; a file's own bound is what the script asks for.
   const outcome = await client.run({
     destination: binding.destination,
     resolved: binding,
     remoteCommand: ['sh', '-s'],
     input: buildSshReadScript({ nonce: request.nonce, path: request.path }),
-    maxStdoutBytes: SSH_READ_TRANSFER_BYTES + SSH_READ_NOISE_BYTES,
+    maxStdoutBytes: SSH_DIRECTORY_TRANSFER_BYTES + SSH_READ_NOISE_BYTES,
     deadlineMs: readBudgetMs(context),
     ...(context.abortSignal !== undefined && { signal: context.abortSignal }),
   });
@@ -336,7 +348,11 @@ async function runRemoteRead(request: RemoteReadRequest): Promise<RemoteRead> {
     outcome.diagnostic,
     request.nonce,
   );
-  return { frames, verdict: classifySshReadOutcome(outcome, frames) };
+  return {
+    frames,
+    verdict: classifySshReadOutcome(outcome, frames),
+    overflow: outcome.outcome === 'ended' && outcome.stdoutOverflow,
+  };
 }
 
 /** The result a completed read's frames become, file or listing. */
@@ -384,13 +400,22 @@ export async function executeSshRead(
       type: 'invalid_path',
       message: 'This path scheme is not available.',
     };
-  const { frames, verdict } = await runRemoteRead({
+  const { frames, verdict, overflow } = await runRemoteRead({
     client,
     binding,
     path: parsed.path,
     nonce: createSshNonce(),
     context,
   });
+  // The transfer stopped at the stdout bound, so its bytes are a prefix of
+  // what the host sent: a truncated success would misreport the file or the
+  // listing, whichever the marker named.
+  if (overflow)
+    return {
+      status: 'error',
+      type: 'executor_unavailable',
+      message: UNFINISHED_READ_MESSAGE,
+    };
   // A refusal the host named is its own result: the script ran, and it says
   // which precondition failed. A kind this revision does not know is a frame
   // mismatch, not a refusal to act on.

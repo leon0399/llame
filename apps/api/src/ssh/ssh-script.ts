@@ -18,6 +18,8 @@
 
 import { randomBytes } from 'node:crypto';
 
+import { DIRECTORY_TRAVERSAL_BUDGET } from '@workspace/native-file-tools';
+
 /** The 1 MiB file bound; the transfer asks for one byte more to see it. */
 export const SSH_READ_MAX_BYTES = 1024 * 1024;
 
@@ -26,6 +28,23 @@ export const SSH_READ_TRANSFER_BYTES = SSH_READ_MAX_BYTES + 1;
 
 /** The entries a directory list keeps, and the one more that says there are more. */
 export const SSH_LIST_MAX_ENTRIES = 1000;
+
+/**
+ * The entries a directory transfer collects: the local traversal budget plus
+ * one, so the hub sorts the same set a local listing walks and still learns
+ * that a directory past the budget holds more.
+ */
+export const SSH_DIRECTORY_MAX_ENTRIES = DIRECTORY_TRAVERSAL_BUDGET + 1;
+
+/**
+ * The bytes one transferred entry can take: a name of up to 255 bytes, its
+ * kind letter, and the two NULs that delimit the pair.
+ */
+const SSH_DIRECTORY_ENTRY_MAX_BYTES = 255 + 1 + 2;
+
+/** The bytes a directory read asks the host for: every collected entry at its largest. */
+export const SSH_DIRECTORY_TRANSFER_BYTES =
+  SSH_DIRECTORY_MAX_ENTRIES * SSH_DIRECTORY_ENTRY_MAX_BYTES;
 
 /** Room for the marker, the login-shell noise before it, and the trailer. */
 export const SSH_READ_NOISE_BYTES = 64 * 1024;
@@ -100,13 +119,20 @@ function preconditionLines(nonce: string, path: string): Array<string> {
     String.raw`    printf '%s:end:0\n' "$h" >&2`,
     '    exit 0',
     '  }',
-    '  if [ ! -e "$p" ]; then refuse not_found; fi',
+    // A path under a directory the user cannot enter fails `test -e` exactly
+    // as a missing one does, so the parent is asked first: a local read of the
+    // same path fails on the traversal, not on the leaf.
+    '  d=${p%/*}',
+    '  if [ -z "$d" ] || [ "$d" = "$p" ]; then d=/; fi',
+    '  if [ ! -e "$p" ]; then',
+    '    if [ -d "$d" ] && [ ! -x "$d" ]; then refuse unreadable; fi',
+    '    refuse not_found',
+    '  fi',
   ];
 }
 
 /** The directory branch: one NUL-terminated `type`/`name` pair per entry. */
 function directoryLines(): Array<string> {
-  const limit = String(SSH_LIST_MAX_ENTRIES + 1);
   return [
     '  if [ -d "$p" ]; then',
     '    if [ ! -r "$p" ] || [ ! -x "$p" ]; then refuse unreadable; fi',
@@ -123,7 +149,7 @@ function directoryLines(): Array<string> {
     '      name=${e##*/}',
     String.raw`      printf '%s\000%s\000' "$k" "$name"`,
     '      n=$((n + 1))',
-    `      if [ "$n" -ge ${limit} ]; then break; fi`,
+    `      if [ "$n" -ge ${String(SSH_DIRECTORY_MAX_ENTRIES)} ]; then break; fi`,
     '    done',
   ];
 }
@@ -246,15 +272,19 @@ function entryKind(letter: string): SshDirectoryEntry['kind'] | undefined {
   }
 }
 
-/**
- * The host's `<type>\0<name>\0` pairs. NUL termination is what keeps a name
- * with a newline one entry, and the transfer stops one entry past the bound so
- * the caller learns there are more.
- */
-export function parseSshDirectoryEntries(content: Buffer): {
+/** The entries one directory transfer carried, and whether it passed the hub bound. */
+export type SshDirectoryListing = {
   readonly entries: ReadonlyArray<SshDirectoryEntry>;
   readonly more: boolean;
-} {
+};
+
+/**
+ * The host's `<type>\0<name>\0` pairs. NUL termination is what keeps a name
+ * with a newline one entry. The host sends glob order up to the traversal
+ * budget, so `more` only says the list passes the hub's own bound: the caller
+ * keeps the local order, and that order decides which entries it shows.
+ */
+export function parseSshDirectoryEntries(content: Buffer): SshDirectoryListing {
   const fields = content.toString('utf8').split('\0');
   const entries: Array<SshDirectoryEntry> = [];
   // The last field is the empty string after the final NUL.
@@ -263,7 +293,5 @@ export function parseSshDirectoryEntries(content: Buffer): {
     if (kind === undefined) continue;
     entries.push({ name: fields[index + 1], kind });
   }
-  return entries.length > SSH_LIST_MAX_ENTRIES
-    ? { entries: entries.slice(0, SSH_LIST_MAX_ENTRIES), more: true }
-    : { entries, more: false };
+  return { entries, more: entries.length > SSH_LIST_MAX_ENTRIES };
 }

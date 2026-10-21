@@ -64,6 +64,11 @@ for the users who may use it.
 This section is separate from `machines.ssh`: configuring one does not enable
 the other, so an instance can reach external hosts without declaring a Machine.
 
+Enabling the section also makes an `@ssh://…` marker in a prompt an import
+target. Each marker is read once through `read`, with the read's own admission,
+and a target the rules deny or the read fails is reported as not imported (see
+[prompt imports](../reference/prompt-imports.md#targets)).
+
 ### Using an SSH agent
 
 By default llame uses no SSH agent, so a key that lives only in an agent does
@@ -99,6 +104,7 @@ Host *
   BatchMode yes
   IdentityAgent none            # or the configured identityAgent
   ForwardAgent no
+  ForwardX11 no
   ControlMaster no
   ControlPath none
   PermitLocalCommand no
@@ -106,6 +112,7 @@ Host *
   ConnectTimeout 10
   ServerAliveInterval 15
   ServerAliveCountMax 3
+  IdentityFile <identityFile>   # only when identityFile is configured
 Include <configFile>
 ```
 

@@ -1,4 +1,6 @@
 import {
+  SSH_DIRECTORY_MAX_ENTRIES,
+  SSH_DIRECTORY_TRANSFER_BYTES,
   SSH_LIST_MAX_ENTRIES,
   SSH_READ_TRANSFER_BYTES,
   buildSshReadScript,
@@ -39,14 +41,34 @@ describe('buildSshReadScript', () => {
   it('checks the preconditions before it starts, and transfers bounded content', () => {
     const script = buildSshReadScript({ nonce: NONCE, path: '/etc/hostname' });
 
-    expect(script).toContain('if [ ! -e "$p" ]; then refuse not_found; fi');
+    expect(script).toContain('  d=${p%/*}');
+    expect(script).toContain(
+      '  if [ -z "$d" ] || [ "$d" = "$p" ]; then d=/; fi',
+    );
+    expect(script).toContain('  if [ ! -e "$p" ]; then');
+    expect(script).toContain(
+      '    if [ -d "$d" ] && [ ! -x "$d" ]; then refuse unreadable; fi',
+    );
+    expect(script).toContain('    refuse not_found');
     expect(script).toContain('refuse not_regular_file');
     expect(script).toContain('refuse unreadable');
     expect(script).toContain('head -c 1048577 -- "$p"');
     expect(script).toContain(String.raw`printf '%s:start:file\n'`);
     expect(script).toContain(String.raw`printf '%s:start:dir\n'`);
     expect(script).toContain('"$p"/* "$p"/.[!.]* "$p"/..?*');
+    expect(script).toContain(
+      `      if [ "$n" -ge ${String(SSH_DIRECTORY_MAX_ENTRIES)} ]; then break; fi`,
+    );
     expect(script).toContain(String.raw`printf '%s:end:%s\n' "$h" "$s" >&2`);
+  });
+
+  it('sizes the directory transfer for every collected entry at its largest', () => {
+    // A 255-byte name, its kind letter, and the two NULs that frame the pair.
+    expect(SSH_DIRECTORY_MAX_ENTRIES).toBe(10_001);
+    expect(SSH_DIRECTORY_TRANSFER_BYTES).toBe(
+      SSH_DIRECTORY_MAX_ENTRIES * (255 + 1 + 2),
+    );
+    expect(SSH_DIRECTORY_TRANSFER_BYTES).toBeGreaterThan(2_500_000);
   });
 
   it('emits the exact wire script the host runs', () => {
@@ -62,7 +84,12 @@ describe('buildSshReadScript', () => {
       String.raw`    printf '%s:end:0\n' "$h" >&2`,
       '    exit 0',
       '  }',
-      '  if [ ! -e "$p" ]; then refuse not_found; fi',
+      '  d=${p%/*}',
+      '  if [ -z "$d" ] || [ "$d" = "$p" ]; then d=/; fi',
+      '  if [ ! -e "$p" ]; then',
+      '    if [ -d "$d" ] && [ ! -x "$d" ]; then refuse unreadable; fi',
+      '    refuse not_found',
+      '  fi',
       '  if [ -d "$p" ]; then',
       '    if [ ! -r "$p" ] || [ ! -x "$p" ]; then refuse unreadable; fi',
       String.raw`    printf '%s:start:dir\n' "$h"`,
@@ -78,7 +105,7 @@ describe('buildSshReadScript', () => {
       '      name=${e##*/}',
       String.raw`      printf '%s\000%s\000' "$k" "$name"`,
       '      n=$((n + 1))',
-      `      if [ "$n" -ge ${String(SSH_LIST_MAX_ENTRIES + 1)} ]; then break; fi`,
+      `      if [ "$n" -ge ${String(SSH_DIRECTORY_MAX_ENTRIES)} ]; then break; fi`,
       '    done',
       '  else',
       '    if [ ! -f "$p" ]; then refuse not_regular_file; fi',
@@ -288,7 +315,7 @@ describe('parseSshDirectoryEntries', () => {
     ]);
   });
 
-  it('stops one entry past the bound and says there are more', () => {
+  it('says there are more as soon as the hub bound is passed', () => {
     const field = Array.from(
       { length: SSH_LIST_MAX_ENTRIES + 1 },
       (_, index): string => `f\0f${String(index)}\0`,
@@ -296,7 +323,9 @@ describe('parseSshDirectoryEntries', () => {
 
     const { entries, more } = parseSshDirectoryEntries(Buffer.from(field));
 
-    expect(entries).toHaveLength(SSH_LIST_MAX_ENTRIES);
+    // The parser keeps what the host sent: the caller sorts it and keeps the
+    // local order's own bound.
+    expect(entries).toHaveLength(SSH_LIST_MAX_ENTRIES + 1);
     expect(more).toBe(true);
   });
 
@@ -310,6 +339,18 @@ describe('parseSshDirectoryEntries', () => {
 
     expect(entries).toHaveLength(SSH_LIST_MAX_ENTRIES);
     expect(more).toBe(false);
+  });
+
+  it('keeps every entry a full transfer carries', () => {
+    const field = Array.from(
+      { length: SSH_DIRECTORY_MAX_ENTRIES },
+      (_, index): string => `f\0f${String(index)}\0`,
+    ).join('');
+
+    const { entries, more } = parseSshDirectoryEntries(Buffer.from(field));
+
+    expect(entries).toHaveLength(SSH_DIRECTORY_MAX_ENTRIES);
+    expect(more).toBe(true);
   });
 
   it('names a special entry and skips a letter it does not know', () => {

@@ -91,7 +91,9 @@ and each read draws a new marker:
 - A failed precondition prints a refusal instead: a missing path is
   `not_found`, a FIFO, socket, or device is `not_regular_file` and is never
   opened, and a path the login user cannot read is the local `executor_unavailable`
-  "could not be read" result.
+  "could not be read" result. A path inside a directory the login user cannot
+  enter is the same "could not be read" result: the traversal fails before the
+  leaf, as it does locally, and the path is not reported as missing.
 
 A symbolic link at the leaf is followed: a link to a regular file reads the
 target, and a link to a directory lists it. Selectors, line numbers, Markdown
@@ -102,9 +104,12 @@ the same text. NUL is valid text, as locally.
 
 A regular file transfers at most 1 MiB plus one byte; a larger file is
 `file_too_large` and the result names `bash` as the way to examine it. A
-directory list contains at most 1,000 entries. One read shares the call's time
-budget, capped at 60 seconds, and one `ssh` process per operation — there is no
-connection reuse.
+directory list contains at most 1,000 entries. One directory transfer collects
+at most the local 10,000-entry traversal budget plus one, so a directory within
+that budget lists exactly what a local read would list first. One read shares
+the call's time budget, capped at 60 seconds, and one `ssh` process per
+operation — there is no connection reuse. A transfer that stops at its byte
+bound is an error, never a shortened success.
 
 ## Listing
 

@@ -183,6 +183,23 @@ describe('ssh reads over a real sshd', () => {
     });
   });
 
+  it('refuses a file behind a directory the login user cannot enter', async () => {
+    // `test -e` fails on the traversal, not on the leaf, so the leaf would
+    // otherwise read as a missing path.
+    const result = await read(
+      `ssh://box${FIXTURE}/root-only/inside.txt`,
+      client(),
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+    expect(result.status === 'error' && result.message).toBe(
+      'File could not be read.',
+    );
+  });
+
   it('lists a directory in the local form, hidden entries included', async () => {
     const result = await read(`ssh://box${FIXTURE}`, client());
 
@@ -207,6 +224,11 @@ describe('ssh reads over a real sshd', () => {
     expect(result['truncated']).toBe(true);
     expect(result['content']).toContain('more entries exist');
     expect(String(result['content']).match(/- f\d+/gu)).toHaveLength(1000);
+    // The hub sorts the whole transfer and only then applies its bound, so the
+    // thousand shown are the first thousand a local listing would show.
+    expect(result['content']).toContain('  - f0000');
+    expect(result['content']).toContain('  - f0999');
+    expect(result['content']).not.toContain('  - f1000');
   });
 
   it('keeps a name with a newline one entry', async () => {

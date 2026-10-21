@@ -6,7 +6,12 @@ import {
   type SshRunRequest,
 } from '../ssh/ssh-client';
 import { SSH_LOCATOR_HELP } from '../ssh/ssh-locator';
-import { SSH_READ_MAX_BYTES, SSH_READ_TRANSFER_BYTES } from '../ssh/ssh-script';
+import {
+  SSH_DIRECTORY_TRANSFER_BYTES,
+  SSH_READ_MAX_BYTES,
+  SSH_READ_NOISE_BYTES,
+  SSH_READ_TRANSFER_BYTES,
+} from '../ssh/ssh-script';
 import { nativeEditTool, nativeReadTool } from './native-files';
 import { executeSshRead } from './ssh-files';
 import { type ToolContext } from './types';
@@ -121,9 +126,11 @@ describe('ssh read transfer', () => {
       resolved: { user: 'box', host: 'box', port: 22 },
       remoteCommand: ['sh', '-s'],
     });
-    // The transfer asks for the bound plus one byte, plus room for the marker
-    // and any login-shell output before it.
-    expect(runs[0]?.maxStdoutBytes).toBeGreaterThan(SSH_READ_TRANSFER_BYTES);
+    // The kind is unknown until the marker, so the bound covers a directory
+    // transfer at its largest, plus room for the marker and login-shell output.
+    expect(runs[0]?.maxStdoutBytes).toBe(
+      SSH_DIRECTORY_TRANSFER_BYTES + SSH_READ_NOISE_BYTES,
+    );
     expect(String(runs[0]?.input)).toContain("p='/etc/hostname'");
   });
 
@@ -322,6 +329,21 @@ describe('ssh read refusals', () => {
     });
   });
 
+  it('refuses a transfer cut at the stdout bound as an unfinished read', async () => {
+    // The marker and the trailer both arrived, so nothing else would notice
+    // that the host wrote more than the transfer carried.
+    const { result } = await read('ssh://box/x', (nonce) => ({
+      ...ended(`${nonce}:start:file\npartial`, `${nonce}:end:0\n`),
+      stdoutOverflow: true,
+    }));
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'The remote read did not finish, so the file could not be read.',
+    });
+  });
+
   it('classifies a Windows login shell as an unsupported host', async () => {
     const { result } = await read('ssh://box/x', () =>
       ended(
@@ -483,6 +505,28 @@ describe('ssh directory reads', () => {
     expect(result['truncated']).toBe(true);
     expect(result['content']).toContain('more entries exist');
     expect(String(result['content']).match(/- f\d+/gu)).toHaveLength(1000);
+  });
+
+  it('keeps the local order before it applies the hub bound', async () => {
+    // The host sends glob order: every plain name, then the hidden group. A
+    // listing that cut before sorting would drop the hidden entry and keep the
+    // last plain one, which is not what a local listing of the same directory
+    // shows.
+    const pairs = [
+      ...Array.from(
+        { length: 1001 },
+        (_, index) => `f\0f${String(index).padStart(4, '0')}\0`,
+      ),
+      'f\0.aaa\0',
+    ].join('');
+
+    const { result } = await read('ssh://box/srv', directoryReply(pairs));
+    const content = String(result['content']);
+
+    expect(content).toContain('  - .aaa');
+    expect(content).toContain('  - f0000');
+    expect(content).not.toContain('  - f0999');
+    expect(content.endsWith('  … more entries exist\n')).toBe(true);
   });
 
   it('refuses a comma list on a directory', async () => {
