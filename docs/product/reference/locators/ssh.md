@@ -3,7 +3,7 @@ summary: "ssh:// locators: reads of files and one directory level, and bash work
 read_when:
   - you are passing an ssh:// locator to read or a bash cwd
   - you need to know what an ssh:// read or command returns or why it failed
-spec: native-file-tools
+spec: ssh-locator
 configured_by: ../../operator/ssh.md
 ---
 
@@ -12,10 +12,7 @@ configured_by: ../../operator/ssh.md
 **Experimental.** An `ssh://` locator reads a file or one directory level, or
 names the working directory of a `bash` command, on a host the operator's own
 SSH configuration reaches, with nothing installed on that host. The behavior
-contract is the
-[ssh-locator spec](../../../../openspec/changes/ssh-locator/specs/ssh-locator/spec.md);
-the capability named above is the closest one already synced into
-`openspec/specs`.
+contract is the [ssh-locator spec](../../../../openspec/specs/ssh-locator/spec.md).
 
 ## Form
 
