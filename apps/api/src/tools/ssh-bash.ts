@@ -231,6 +231,16 @@ function beginAttempt(
 }
 
 /**
+ * What the fence runs once its attempt is durable: the locator it records, a
+ * recheck that can settle the call before SSH starts, and the command.
+ */
+type FencedCommand = {
+  readonly locator: string;
+  readonly preStart: () => ToolResult | undefined;
+  readonly run: () => Promise<ToolResult>;
+};
+
+/**
  * The fenced body: the unbound attempt is durable before SSH starts, its
  * result follows once, and a failure already recorded by a retry replays
  * instead of running the command again.
@@ -238,12 +248,14 @@ function beginAttempt(
 async function fencedRemoteCommand(
   context: ToolContext,
   identity: AttemptIdentity,
-  binding: SshBinding,
-  run: () => Promise<ToolResult>,
+  command: FencedCommand,
 ): Promise<ToolResult> {
-  const prior = await beginAttempt(context, identity, binding.locator);
+  const prior = await beginAttempt(context, identity, command.locator);
   if (prior) return prior;
-  const settled = await run();
+  // The attempt write is durable, but a cancellation or deadline that fired
+  // while it was awaited must not still start SSH: the known pre-start result
+  // settles the attempt as a completed run.
+  const settled = command.preStart() ?? (await command.run());
   await context.tenantDb.runAs(identity.userId, async (db) => {
     await new RunEventsRepository(db).append(identity.runId, 'native.result', {
       toolCallId: identity.toolCallId,
@@ -322,18 +334,21 @@ async function runWithSlot(
         type: 'executor_unavailable',
         message: 'Native host authority is unavailable.',
       };
-    return await fencedRemoteCommand(context, identity, target.binding, () =>
-      runRemoteCommand({
-        client: target.client,
-        binding: target.binding,
-        cwd: target.path,
-        input,
-        nonce: createSshNonce(),
-        context,
-        executorContext,
-        budgetMs,
-      }),
-    );
+    return await fencedRemoteCommand(context, identity, {
+      locator: target.binding.locator,
+      preStart: () => preStartResult(context, budgetMs),
+      run: () =>
+        runRemoteCommand({
+          client: target.client,
+          binding: target.binding,
+          cwd: target.path,
+          input,
+          nonce: createSshNonce(),
+          context,
+          executorContext,
+          budgetMs,
+        }),
+    });
   } finally {
     slot.release();
   }
@@ -351,11 +366,12 @@ export async function executeSshBash(
   const target = remoteTarget(context, input);
   if ('status' in target) return target;
   const executorContext = managedBashContext(context);
+  // The bound measures what a local call measures, and it governs the model's
+  // text the same way: the command, its fixed argv, the directory, and each
+  // addition. The quoting the generated script adds is not part of it.
   // The `env` entries and a NUL in the command are refused by the admission,
   // before the destination resolves, so every call that reaches here carries
   // entries this script can export as data.
-  // The bound measures what a local call measures: the command, its fixed
-  // argv, the directory, and each addition.
   if (
     measureManagedInput({
       command: input.command,

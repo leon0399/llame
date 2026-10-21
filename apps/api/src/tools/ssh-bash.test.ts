@@ -377,6 +377,57 @@ describe('ssh bash execution', () => {
     expect(timedOut).toMatchObject({ status: 'error', type: 'timed_out' });
   });
 
+  it('settles a call cancelled while the attempt write was in flight', async () => {
+    // The cancellation can fire after the pre-start check and before the write
+    // returns; the durable attempt must then carry the known result and no
+    // ssh may start.
+    const remoteClient = remote();
+    const { begin, append } = stubFence();
+    const controller = new AbortController();
+    begin.mockImplementation(() => {
+      controller.abort();
+      return Promise.resolve(undefined);
+    });
+
+    const result = await executeSshBash(
+      context(remoteClient, { abortSignal: controller.signal }),
+      { command: 'true', cwd: CWD },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'cancelled',
+      message: 'Command was cancelled before start.',
+    });
+    expect(remoteClient.runs).toHaveLength(0);
+    expect(append).toHaveBeenCalledWith('run', 'native.result', {
+      toolCallId: 'call',
+      result,
+    });
+  });
+
+  it('settles a deadline that fired while the attempt write was in flight', async () => {
+    const remoteClient = remote();
+    const { begin, append } = stubFence();
+    const controller = new AbortController();
+    begin.mockImplementation(() => {
+      controller.abort();
+      return Promise.resolve(undefined);
+    });
+
+    const result = await executeSshBash(
+      context(remoteClient, { timeoutSignal: controller.signal }),
+      { command: 'true', cwd: CWD },
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'timed_out' });
+    expect(remoteClient.runs).toHaveLength(0);
+    expect(append).toHaveBeenCalledWith('run', 'native.result', {
+      toolCallId: 'call',
+      result,
+    });
+  });
+
   it('replays a recorded attempt instead of running the command again', async () => {
     const remoteClient = remote();
     stubFence();
