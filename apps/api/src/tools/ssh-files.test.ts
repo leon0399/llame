@@ -660,38 +660,33 @@ describe('ssh read dispatch', () => {
     expect(remoteClient.runs).toHaveLength(0);
   });
 
-  it('returns that message through the tool, with or without the section', async () => {
-    // The answer does not depend on the operator's `ssh` section: it starts
-    // nothing, so the same call returns the same bound read either way.
+  it('returns that message through the tool when the section is present', async () => {
+    // The scheme exists only with the operator's `ssh` section, so that is the
+    // one configuration that answers a bare locator with the fixed message.
     const remoteClient = remote(fileReply('x'));
 
-    for (const path of ['ssh://', 'ssh:///'])
-      for (const sshClient of [remoteClient.client, undefined]) {
-        const result = await runTool(
-          nativeReadTool,
-          { path },
-          {
-            ...context(undefined),
-            permissionPolicy: compileToolPermissionMap(
-              { read: { allow: true } },
-              'test-policy',
-            ),
-            ...(sshClient !== undefined && { sshClient }),
-          },
-          5,
-        );
+    for (const path of ['ssh://', 'ssh:///']) {
+      const result = await runTool(
+        nativeReadTool,
+        { path },
+        {
+          ...context(undefined),
+          permissionPolicy: compileToolPermissionMap(
+            { read: { allow: true } },
+            'test-policy',
+          ),
+          sshClient: remoteClient.client,
+        },
+        5,
+      );
 
-        expect(result).toMatchObject({
-          status: 'success',
-          kind: 'file',
-          path,
-        });
-        expect(result['content']).toBe(SSH_LOCATOR_HELP);
-        expect(remoteClient.runs).toHaveLength(0);
-      }
+      expect(result).toMatchObject({ status: 'success', kind: 'file', path });
+      expect(result['content']).toBe(SSH_LOCATOR_HELP);
+      expect(remoteClient.runs).toHaveLength(0);
+    }
   });
 
-  it('leaves every other ssh call an unknown scheme without the section', async () => {
+  it('keeps every ssh call an unknown scheme without the section', async () => {
     const shared = {
       ...context(undefined),
       permissionPolicy: compileToolPermissionMap(
@@ -705,14 +700,10 @@ describe('ssh read dispatch', () => {
       message: 'This path scheme is not available.',
     };
 
-    expect(
-      await runTool(
-        nativeReadTool,
-        { path: 'ssh://box/etc/hostname' },
-        shared,
-        5,
-      ),
-    ).toEqual(unknownScheme);
+    for (const path of ['ssh://', 'ssh:///', 'ssh://box/etc/hostname'])
+      expect(await runTool(nativeReadTool, { path }, shared, 5)).toEqual(
+        unknownScheme,
+      );
     expect(
       await runTool(
         nativeEditTool,

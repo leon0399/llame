@@ -51,7 +51,7 @@ import {
   MACHINE_SCHEME,
   parseMachineLocator,
 } from '../machines/machine-locator';
-import { executeSshNative, isSshNativeDispatch } from './ssh-files';
+import { executeSshNative } from './ssh-files';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -142,7 +142,7 @@ function executeLocator(
     // submitted text, which policy matched, and requests its canonical form.
     return executeWebRead(context, call);
   }
-  if (scheme === 'ssh' && isSshNativeDispatch(context, call))
+  if (scheme === 'ssh' && context.sshClient !== undefined)
     return executeSshNative(context, call.operation, call.input.path);
   return Promise.resolve(unknownSchemeResult());
 }
