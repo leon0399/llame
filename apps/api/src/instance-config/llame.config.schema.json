@@ -744,7 +744,7 @@
         "identityAgent": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional SSH agent for `ssh://` connections: `SSH_AUTH_SOCK` (OpenSSH reads the socket from the worker process environment) or a literal socket path resolved like knownHostsFile. Omitted means no agent (`IdentityAgent none`). Machines never use it, and the agent is never forwarded. Every key in that agent then authenticates to every destination that passes the permission rules and the pinned host keys, so pair it with a dedicated knownHostsFile and host-scoped allows. See docs/product/operator/ssh.md."
+          "description": "Optional SSH agent for `ssh://` connections: `SSH_AUTH_SOCK` (OpenSSH reads the socket from the worker process environment) or a literal socket path resolved like knownHostsFile. Omitted means no agent (`IdentityAgent none`). Machines never use it, and the agent is never forwarded. Every key in that agent then authenticates to every destination that passes the permission rules and the pinned host keys, and to every jump host the included configuration names for it, which no permission rule judges; so pair it with a dedicated knownHostsFile, host-scoped allows, and jump hosts you trust with those keys. See docs/product/operator/ssh.md."
         }
       }
     },

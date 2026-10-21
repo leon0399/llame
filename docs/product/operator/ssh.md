@@ -78,9 +78,12 @@ that variable in the llame process environment, or to an absolute socket path.
 The agent is never forwarded to the remote host, and Machines never use it.
 
 Every key in that agent then authenticates to every destination a Run can
-reach, and the model chooses the destination. Bound the reach with a dedicated
-`knownHostsFile` that lists only the hosts llame may contact, and with
-host-scoped allows (see [Permissions](#permissions-on-the-resolved-locator)).
+reach, and the model chooses the destination. It is also offered to every jump
+host the included configuration names for that destination, which no
+permission rule judges. Bound the reach with a dedicated `knownHostsFile` that
+lists only the hosts llame may contact, with host-scoped allows (see
+[Permissions](#permissions-on-the-resolved-locator)), and with jump hosts you
+trust with those keys.
 `SSH_AUTH_SOCK` must also stay valid for the life of the worker process: an
 agent tied to a login session stops working when that session ends.
 

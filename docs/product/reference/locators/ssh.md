@@ -84,8 +84,10 @@ The connection is one `ssh` process with `sh -s` and the read script on stdin,
 and each read draws a new marker:
 
 - The script checks its preconditions, then prints the start marker. Every byte
-  before it — login-shell startup output, banners — is discarded and counts
-  against no bound.
+  before it — login-shell startup output, banners — is discarded and never
+  shortens content, but it shares the read's stdout bound: a host that prints
+  past that bound before the marker fails the read as unfinished
+  (`executor_unavailable`).
 - File content follows the marker; the end trailer on stderr ends the read. A
   marker with no trailer is `ssh_unavailable` with reason `session_lost`.
 - A failed precondition prints a refusal instead: a missing path is
