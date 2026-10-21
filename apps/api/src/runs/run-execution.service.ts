@@ -2697,6 +2697,9 @@ export class RunExecutionService {
         connector: this.machineConnector,
         toolAllowlist: this.instanceConfig.config.tools.allowed,
       }),
+      sshAvailable:
+        this.sshClient !== undefined &&
+        this.instanceConfig.config.tools.allowed.includes('read'),
       admitsRead: (path) =>
         previewToolPermission(nativeReadTool, { path }, context),
       probeHost: async (path) => {
@@ -2830,6 +2833,7 @@ export class RunExecutionService {
       machines: this.machineConnector,
       machineStatus: this.machinesStatus,
       machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
+      sshClient: this.sshClient,
     };
   }
 

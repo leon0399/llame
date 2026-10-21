@@ -66,7 +66,12 @@ its selector attached. Every `read` locator is accepted:
 | `kb://<space>/<path>`        | the [Knowledge Space](locators/kb.md) file         |
 | `skill://<name>/<path>`      | a [skill package](locators/skill.md) file, as data |
 | `http://…`, `https://…`      | the [web](locators/web.md) read                    |
+| `ssh://<host>/<path>`        | an [ssh locator](locators/ssh.md) read             |
 | `media://<id>`               | an image or PDF you [stored](locators/media.md)    |
+
+An `ssh://` target imports only when the operator has enabled the `ssh` section
+(see [ssh](../operator/ssh.md)); without it the marker stays prose and no SSH
+process starts.
 
 On a text target any [selector](selectors.md) rides along, so the imported body
 is what `read` returns for the same locator, context lines and Markdown ancestor
@@ -111,12 +116,15 @@ Imports use the same authority as a model `read`, not more:
    target is admitted without evaluating the group, and the decision is recorded
    as bypass. If `read` is not available at all, nothing is imported.
 
-`skill://` and web targets need no probe and go straight to the read; one the
-`read` rules reject is reported as not imported. A web
-import records every derived decision (redirect, alternate, adapter request,
-network address) like any web read. The permission rules themselves are in
-[tool-call permissions](../operator/tool-call-permissions.md#matching) and
-[permission modes](permission-modes.md).
+`skill://`, web, and `ssh://` targets need no probe and go straight to the
+read; one the `read` rules reject is reported as not imported. An `ssh://`
+target is admitted twice by the read itself: first on the submitted locator,
+then on the destination it resolves to, so a rule that names the resolved
+address decides too, and a target the SSH section does not enable stays prose.
+A web import records every derived decision (redirect, alternate, adapter
+request, network address) like any web read. The permission rules themselves
+are in [tool-call permissions](../operator/tool-call-permissions.md#matching)
+and [permission modes](permission-modes.md).
 
 ## Audit
 

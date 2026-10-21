@@ -27,6 +27,8 @@ export {
   OUTLINE_UNSUPPORTED_MESSAGE,
 } from "./representations";
 export { renderCollectedDirectory } from "./collected-directory";
+/** The local entry order: directories first, then by name, as every listing sorts. */
+export { compareEntries } from "./directory-listing";
 export type {
   NativeReadOptions,
   ReadSuccess,

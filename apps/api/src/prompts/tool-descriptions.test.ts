@@ -80,6 +80,19 @@ describe('loadPackagedToolDescription', () => {
     }
   });
 
+  it('discloses ssh locators and their remote host authority on read', () => {
+    const description = loadPackagedToolDescription('read');
+    expect(description).toContain('ssh://');
+    // The form and its bounds: the 1 MiB file bound and the listing cap.
+    expect(description).toMatch(/1 MiB/u);
+    expect(description).toMatch(/1,000/u);
+    // The authority: the remote login user, the instance's SSH identity, and
+    // the absence of isolation between llame users on that host.
+    expect(description).toMatch(/remote host as its login user/u);
+    expect(description).toMatch(/SSH identity of the instance/u);
+    expect(description).toMatch(/without isolation between llame users/u);
+  });
+
   it('normalizes CRLF and trailing whitespace out of a Windows-authored asset', () => {
     fsMocks.readFileSync.mockReturnValueOnce('line one\r\nline two   \r\n\r\n');
 

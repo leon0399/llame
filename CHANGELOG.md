@@ -2,6 +2,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-21
 
+- **Experimental:** `ssh://` reads. With a top-level `ssh` section in the
+  instance configuration, a Run reads a file or one directory level on any host
+  the operator's own SSH configuration reaches, with nothing installed on that
+  host: `read({ path: "ssh://deploy@edge-1.lan:2222/var/log/syslog:10-20" })`
+  returns UTF-8 text up to 1 MiB with the same selectors and line numbers as a
+  local read, and `ssh://edge-1.lan/etc` lists the directory in the local
+  listing form, one level deep and capped at 1,000 entries. Host keys are pinned
+  for every hop under the safety block Machines already use; a missing key, a
+  refused credential, an unreachable host, or a session lost mid-read is a typed
+  `ssh_unavailable` refusal, and a host without a POSIX shell is
+  `ssh_unsupported_host`. Permission rules match the resolved locator, so an
+  alias cannot hide the address it reaches, and a rule written for a local path
+  admits none of them. Login-shell output is framed out of the result, a FIFO is
+  never opened, and an oversized or non-UTF-8 file is refused by type. `edit`
+  and `write` refuse the scheme, and `enter_workspace` never binds one. See
+  [SSH locators](docs/product/operator/ssh.md).
+
 - CI uploads every suite's JUnit results to Codecov Test Analytics, flagged by
   workspace and by the test layers in
   [testing](docs/development/testing.md#layers): unit, integration, and

@@ -35,15 +35,17 @@ and read-only. Each scheme page states its accepted spellings; see
 | absolute path              | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                    | yes     | yes                   |
 | `file://`                  | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                    | yes     | yes                   |
 | [`machine://`](machine.md) | yes    | yes    | yes     | no       | a configured Machine's filesystem, its OS user over SSH | yes     | yes, on the Machine   |
+| [`ssh://`](ssh.md)         | yes    | no     | no      | no       | an external host's filesystem, its login user over SSH  | no      | no                    |
 | `kb://`                    | yes    | yes    | yes     | no       | the owner's Knowledge Space directory                   | yes     | yes, inside the Space |
 | `skill://`                 | yes    | no     | no      | no       | an installed skill package, read-only                   | no      | no                    |
 | `http(s)://`               | yes    | no     | no      | no       | the public web, through the API process                 | no      | no                    |
 | `media://`                 | yes    | no     | no      | no       | the owner's stored images, read-only                    | no      | no                    |
 
 `edit` and `write` reject `http://` and `https://` with `invalid_path` before
-any request, and reject `skill://` and [`media://`](media.md) with
-`unsupported_operation` and no filesystem effect. The same two tools refuse the
-two [`machine://`](machine.md) listing forms with `unsupported_operation`. The
+any request, and reject `skill://`, [`media://`](media.md), and
+[`ssh://`](ssh.md) with `unsupported_operation` and no filesystem effect. The
+same two tools refuse the two [`machine://`](machine.md) listing forms with
+`unsupported_operation`. The
 operator enables the host executor the first two rows need; see
 [native files](../../operator/native-files.md#enabling).
 
@@ -54,8 +56,10 @@ access on every call, with no filesystem probe; `skill://` resolves inside a
 package the operator installed; `http(s)://` is fetched by the API process;
 `media://` resolves only the Run owner's stored media. A `machine://` locator
 runs on an operator-configured Machine as that Machine's OS user, over the
-operator's SSH route. None of the five binds the Run to a local executor, and
-only the first two rows of the table above do.
+operator's SSH route, and an `ssh://` locator runs on an external host as its
+login user over the operator's own SSH configuration, with nothing installed
+there. None of the six binds the Run to a local executor, and only the first two
+rows of the table above do.
 
 An unimplemented `scheme://` prefix — for example `vault://x` — fails closed
 with `invalid_path` on `read`, `edit`, and `write` alike. It is never treated as
@@ -67,8 +71,9 @@ read, created, or modified.
 Each scheme's directory or catalog listing is documented on its own page: an
 absolute path and `file://` in [host-path](host-path.md), a Space directory in
 [kb](kb.md), a package directory and the catalog in [skill](skill.md), a
-Machine's status and registered roots in [machine](machine.md), and a web
-adapter directory in [web adapters](../web-adapters.md#github-adapter).
+Machine's status and registered roots in [machine](machine.md), an external
+host's directory in [ssh](ssh.md), and a web adapter directory in
+[web adapters](../web-adapters.md#github-adapter).
 
 ## Errors
 
@@ -90,6 +95,8 @@ vocabulary is in [read](../tools/read.md#errors).
 
 - [Native files](../../operator/native-files.md) enables the host executor the
   absolute-path and `file://` rows need.
+- [SSH locators](../../operator/ssh.md) enables `ssh://` and pins the host keys
+  behind it.
 - [Personal Knowledge](../../operator/knowledge.md) configures the Knowledge root
   behind `kb://`.
 - [Skills](../../operator/skills.md) installs the packages `skill://` reads.

@@ -18,6 +18,15 @@ fi
 
 mkdir -p /run/sshd
 
+# The `sh`-only variant (ssh-locator task 4.1): the same image with `bash`
+# removed and the account's shell set to `/bin/sh`, so a `bash` call must be
+# refused while a read still works. The suite marks the container by copying
+# this file in before start; every other container keeps bash.
+if [ -f /tmp/llame-setup/sh-only ]; then
+  usermod -s /bin/sh box
+  rm -f /bin/bash /usr/bin/bash
+fi
+
 # One key per container, on first boot and after a restart only if missing: the
 # suite reads this key back to pin it, so it must be stable across the restart
 # the recovery test performs.

@@ -60,6 +60,8 @@ export type PromptImportRequest = {
   readonly knowledgeAvailable: boolean;
   /** Whether the Run may reach the configured Machines at all. */
   readonly machineAvailable: boolean;
+  /** Whether `ssh://` is enabled and `read` allowlisted (ssh-locator D6a). */
+  readonly sshAvailable: boolean;
   /** Silent `read`-group pre-evaluation of the exact string the read submits. */
   readonly admitsRead: (path: string) => boolean;
   readonly probeHost: (absolutePathWithoutSelector: string) => Promise<boolean>;
@@ -243,6 +245,11 @@ function planScheme(
   }
   if (scheme === MEDIA_LOCATOR_SCHEME) {
     return { kind: 'media', readPath: target };
+  }
+  // A probe would cost a connection and admission resolves asynchronously, so
+  // `ssh://` reads directly like web: `read` itself admits it (ssh-locator D6a).
+  if (scheme === 'ssh' && request.sshAvailable) {
+    return { kind: 'direct', readPath: target };
   }
   return undefined;
 }

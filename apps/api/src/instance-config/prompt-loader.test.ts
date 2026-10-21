@@ -1714,7 +1714,7 @@ describe('llame-owned tool description templates', () => {
       // configured native one.
       expect(rendered).toContain('machine://<name><absolute path>');
       expect(rendered).toContain(
-        'machine://, and web locators need no local native executor',
+        'machine://, ssh://, and web locators need no local native executor',
       );
     }
     expect(withoutKnowledge).not.toContain('kb://');
