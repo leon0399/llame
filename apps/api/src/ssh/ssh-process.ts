@@ -7,7 +7,7 @@
  * runner on the same seam.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 
 /** The bounded stderr text a link keeps for classification and the operator. */
@@ -80,6 +80,47 @@ export const spawnSshProcess: SshSpawn = (command, args) => {
     kill: () => {
       child.kill();
     },
+    onError: (handler) => child.on('error', handler),
+    onClose: (handler) => child.on('close', handler),
+  };
+};
+
+/**
+ * Kill a whole process group, falling back to the child alone when the group
+ * is already gone or the pid was never assigned.
+ */
+function killProcessGroup(child: ChildProcess): void {
+  const { pid } = child;
+  if (pid === undefined) {
+    child.kill('SIGKILL');
+    return;
+  }
+  try {
+    // The group id is the detached child's pid, so this reaches the `sh` and
+    // `Match exec` children ssh leaves behind when it is killed alone.
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+}
+
+/**
+ * The one-shot spawn: the `ssh` child leads its own process group, and `kill`
+ * terminates that group. A bounded operation ends by killing its process, and
+ * an `ssh` killed alone leaves the commands it spawned (`Match exec`, a
+ * ProxyCommand) reparented and running, so a model-chosen destination could
+ * accumulate them; Machines keep the shared long-lived spawn instead.
+ */
+export const spawnOneShotSshProcess: SshSpawn = (command, args) => {
+  const child = spawn(command, args, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true,
+  });
+  return {
+    stdout: child.stdout,
+    stdin: child.stdin,
+    stderr: child.stderr,
+    kill: () => killProcessGroup(child),
     onError: (handler) => child.on('error', handler),
     onClose: (handler) => child.on('close', handler),
   };

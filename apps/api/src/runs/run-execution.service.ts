@@ -16,6 +16,12 @@ import {
 import { MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineExecutorId } from '../machines/machine-locator';
 import {
+  createSshClient,
+  SSH_CLIENT_FACTORY,
+  type SshClient,
+  type SshClientFactory,
+} from '../ssh/ssh-client';
+import {
   serializeNativeModelOutput,
   statHostPath,
 } from '@workspace/native-file-tools';
@@ -773,6 +779,8 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
   private readonly toolPromptRenderer: ToolPromptRenderer;
+  /** The process-wide `ssh://` transport; absent without the `ssh` section. */
+  private readonly sshClient: SshClient | undefined;
 
   /**
    * The Machine Workspace skill catalogs taken this process last prepared,
@@ -839,12 +847,32 @@ export class RunExecutionService {
     @Optional()
     @Inject(MachinesService)
     private readonly machinesStatus?: MachineStatusReader,
+    // The one seam over the `ssh://` transport: unprovided, the worker builds
+    // the real client from the operator's section.
+    @Optional()
+    @Inject(SSH_CLIENT_FACTORY)
+    private readonly sshClientFactory: SshClientFactory = createSshClient,
   ) {
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
       instancePromptFiles: this.instanceConfig.config.tools.promptFiles,
       models: this.instanceConfig.config.models,
     });
+    // One generated SSH configuration per worker process, written only when a
+    // call actually resolves or runs (ssh-locator D1). Without the `ssh`
+    // section there is no client, so `ssh://` stays an unknown scheme.
+    const ssh = this.instanceConfig.config.ssh;
+    this.sshClient =
+      ssh === undefined ? undefined : this.sshClientFactory({ ssh });
+  }
+
+  /**
+   * Remove the generated `ssh://` configuration directory this process wrote.
+   * The file holds the pinned host-key path and the llame identity, so it must
+   * not outlive the worker that created it (ssh-locator D1).
+   */
+  onModuleDestroy(): void {
+    this.sshClient?.dispose();
   }
 
   /**
@@ -1312,6 +1340,7 @@ export class RunExecutionService {
         input.runId,
         claim.nativeDeliverySequence,
       ),
+      sshClient: this.sshClient,
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;

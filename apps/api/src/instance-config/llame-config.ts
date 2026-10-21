@@ -13,6 +13,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import type { MachinesConfig, RawMachinesConfig } from './machines-config';
+import type { RawSshConfig, SshConfig } from './ssh-settings';
 
 /**
  * A configured provider connection: `type` selects the client
@@ -557,6 +558,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   knowledge?: RawKnowledgeConfig;
   skills?: RawSkillsConfig;
   machines?: RawMachinesConfig;
+  ssh?: RawSshConfig;
   workers?: Record<string, WorkerProfile>;
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
@@ -735,6 +737,15 @@ export type LlameConfig = {
    * tool eligibility and permissions may address them.
    */
   machines?: MachinesConfig;
+  /**
+   * Operator-wide `ssh://` locator settings (ssh-locator D1). Absent means the
+   * locator feature does not exist: an `ssh://` path stays an unknown scheme
+   * and no SSH process starts. Present enables the locator for every
+   * authenticated user whose Run passes tool eligibility and permissions, with
+   * the same pinned host keys, identity, and included configuration the
+   * `machines.ssh` section uses.
+   */
+  ssh?: SshConfig;
   /**
    * Worker profiles (durable-run-workers D2/D4): profile name → the groups it
    * consumes and each one's concurrency. Selected at boot by

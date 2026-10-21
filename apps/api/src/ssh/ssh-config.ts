@@ -28,6 +28,8 @@ export type SshSafetyOptions = {
   readonly knownHostsFile: string;
   /** llame's own identity, when the operator configured one. */
   readonly identityFile?: string;
+  /** The agent `ssh://` may use (`SSH_AUTH_SOCK` or a socket path); absent means none. */
+  readonly identityAgent?: string;
   /** The operator's SSH configuration, whose aliases and hops are kept. */
   readonly includeFile: string;
 };
@@ -51,7 +53,8 @@ const HEADER = [
 
 /**
  * The safety block: host keys only from the pinned file, strict checking, batch
- * mode, no agent, no connection sharing, and bounded connect/liveness timeouts.
+ * mode, no agent unless `ssh://` selected one, no connection sharing, and
+ * bounded connect/liveness timeouts.
  */
 function safetyBlock(options: SshSafetyOptions): ReadonlyArray<string> {
   const lines = [
@@ -60,7 +63,7 @@ function safetyBlock(options: SshSafetyOptions): ReadonlyArray<string> {
     '  GlobalKnownHostsFile none',
     '  StrictHostKeyChecking yes',
     '  BatchMode yes',
-    '  IdentityAgent none',
+    `  IdentityAgent ${options.identityAgent === undefined ? 'none' : quote(options.identityAgent)}`,
     '  ForwardAgent no',
     '  ForwardX11 no',
     '  ControlMaster no',

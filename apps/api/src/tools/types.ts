@@ -23,6 +23,7 @@ import { type ModelClientFactory } from '../models/models.service';
 import { type ToolMediaStore } from '../media/tool-media-store';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
+import { type SshBinding, type SshClient } from '../ssh/ssh-client';
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
  * external sources (D2: "accepted as the source ships it"). Distinct from
@@ -161,6 +162,18 @@ export interface ToolContext {
    * reachability is cached by. Absent means one verdict for the process.
    */
   readonly machineAttemptKey?: string;
+  /**
+   * The `ssh://` transport, present only when the operator configured the
+   * top-level `ssh` section (ssh-locator D1). Absent means the locator does not
+   * exist and an `ssh://` path stays an unknown scheme with no process.
+   */
+  readonly sshClient?: SshClient;
+  /**
+   * The resolved destination of this call, set by the runner's two-pass
+   * admission for an admitted `ssh://` read (ssh-locator D3). Execution binds
+   * the connection to it; it is trusted, never model supplied.
+   */
+  readonly sshBinding?: SshBinding;
 }
 
 /** SPEC §13.5 classification. Code-owned non-read-only execution requires an
