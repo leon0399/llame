@@ -173,6 +173,76 @@ export type FsBytesResult =
   | { readonly size: number; readonly mediaType: string }
   | NativeFailureResult;
 
+/** What is left of one call's search bounds when a request reaches a Machine. */
+export type FsGrepBudget = {
+  readonly files: number;
+  readonly entries: number;
+  readonly bytes: number;
+  readonly deadlineMs: number;
+  readonly limit: number;
+  readonly pageUnits: number;
+};
+
+export type FsGrepParams = {
+  readonly envelope: RequestEnvelope;
+  /** The absolute literal prefix; the daemon resolves it through its roots. */
+  readonly path: string;
+  /** The glob text from the first glob segment onward. */
+  readonly globSuffix?: string;
+  readonly patterns: ReadonlyArray<string>;
+  readonly literal: boolean;
+  readonly ignoreCase: boolean;
+  /** The daemon's own page key, issued for the same search inputs. */
+  readonly cursor?: string;
+  readonly budget: FsGrepBudget;
+};
+
+/** The skips a walk counts, by kind; the same vocabulary as the local walk. */
+export type FsGrepWarningKind =
+  | "binary"
+  | "invalid_utf8"
+  | "oversized"
+  | "unreadable"
+  | "link"
+  | "file_bound"
+  | "entry_bound"
+  | "byte_bound"
+  | "deadline";
+
+export type FsGrepWarning = {
+  readonly kind: FsGrepWarningKind;
+  readonly count: number;
+};
+
+export type FsGrepConsumed = {
+  readonly files: number;
+  readonly entries: number;
+  readonly bytes: number;
+};
+
+/** One passage named relative to the request's prefix, never by host path. */
+export type FsGrepPassage = {
+  /** `'/'-separated`, relative to the prefix; empty when the prefix is the file. */
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly content: string;
+  readonly matches: ReadonlyArray<number>;
+  readonly truncated?: true;
+};
+
+export type FsGrepSuccess = {
+  readonly ok: true;
+  readonly results: ReadonlyArray<FsGrepPassage>;
+  readonly complete: boolean;
+  /** The daemon's next page key, opaque to the hub. */
+  readonly cursor?: string;
+  readonly warnings: ReadonlyArray<FsGrepWarning>;
+  readonly consumed: FsGrepConsumed;
+};
+
+export type FsGrepResult = FsGrepSuccess | NativeFailureResult;
+
 export type ProcBashParams = {
   readonly envelope: RequestEnvelope;
   readonly command: string;
@@ -255,6 +325,7 @@ export type MachineMethodParams = {
   readonly "fs.edit": FsMutateParams;
   readonly "fs.write": FsWriteParams;
   readonly "fs.bytes": FsBytesParams;
+  readonly "fs.grep": FsGrepParams;
   readonly "proc.bash": ProcBashParams;
   readonly "mcp.servers": McpServersParams;
   readonly "mcp.open": McpOpenParams;
@@ -270,6 +341,7 @@ export type MachineMethodResults = {
   readonly "fs.edit": FsMutateResult;
   readonly "fs.write": FsMutateResult;
   readonly "fs.bytes": FsBytesResult;
+  readonly "fs.grep": FsGrepResult;
   readonly "proc.bash": ProcBashResult;
   readonly "mcp.servers": McpServersResult;
   readonly "mcp.open": McpOpenResult;

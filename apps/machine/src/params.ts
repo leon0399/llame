@@ -47,6 +47,68 @@ export function optionalString(
   return value;
 }
 
+export function requireBoolean(
+  source: SerializableRecord,
+  key: string,
+  method: string,
+): boolean {
+  const value = source[key];
+  if (value !== true && value !== false)
+    throw invalidParams(method, `parameter ${key} must be a boolean`);
+  return value;
+}
+
+/** A whole, non-negative count, as a budget field is. */
+export function requireCount(
+  source: SerializableRecord,
+  key: string,
+  method: string,
+): number {
+  const value = source[key];
+  if (!isIntegerValue(value) || value < 0)
+    throw invalidParams(
+      method,
+      `parameter ${key} must be a whole number of at least 0`,
+    );
+  return value;
+}
+
+export function requireRecord(
+  source: SerializableRecord,
+  key: string,
+  method: string,
+): SerializableRecord {
+  const value = source[key];
+  if (!isSerializableRecord(value))
+    throw invalidParams(method, `parameter ${key} must be an object`);
+  return value;
+}
+
+/** A non-empty bounded list of strings, as a pattern list is. */
+export function requireStringList(
+  source: SerializableRecord,
+  key: string,
+  method: string,
+  maximum: number,
+): ReadonlyArray<string> {
+  const value = source[key];
+  if (!Array.isArray(value))
+    throw invalidParams(method, `parameter ${key} must be an array`);
+  const entries: ReadonlyArray<SerializableValue> = value;
+  if (entries.length === 0)
+    throw invalidParams(method, `parameter ${key} must be a non-empty array`);
+  if (entries.length > maximum)
+    throw invalidParams(
+      method,
+      `parameter ${key} may hold at most ${String(maximum)} entries`,
+    );
+  return entries.map((entry) => {
+    if (!isStringValue(entry) || entry.length === 0)
+      throw invalidParams(method, `every ${key} entry must be a string`);
+    return entry;
+  });
+}
+
 export function optionalInteger(
   source: SerializableRecord,
   key: string,

@@ -314,6 +314,7 @@ function buildResult(state: ScanState): GrepScanResult {
     warnings: [...state.warnings].map(([kind, count]) => ({ kind, count })),
     readRefused: state.readRefused,
     consumed: { ...state.consumed },
+    ...(last !== undefined && { last: { ...last } }),
   };
 }
 

@@ -10,6 +10,12 @@
 import {
   isSerializableRecord,
   type FsBytesResult,
+  type FsGrepConsumed,
+  type FsGrepPassage,
+  type FsGrepResult,
+  type FsGrepSuccess,
+  type FsGrepWarning,
+  type FsGrepWarningKind,
   type FsListEntry,
   type FsListEntryKind,
   type FsListResult,
@@ -69,6 +75,18 @@ const NATIVE_FAILURE_TYPES = {
 const MCP_TRANSPORTS = { stdio: true, http: true } as const;
 const MCP_STATES = { available: true, unavailable: true } as const;
 
+const FS_GREP_WARNING_KINDS = {
+  binary: true,
+  invalid_utf8: true,
+  oversized: true,
+  unreadable: true,
+  link: true,
+  file_bound: true,
+  entry_bound: true,
+  byte_bound: true,
+  deadline: true,
+} as const;
+
 function isFsStatKind(value: SerializableValue): value is FsStatKind {
   return isText(value) && Object.hasOwn(FS_STAT_KINDS, value);
 }
@@ -91,6 +109,12 @@ function isMcpTransportKind(
 
 function isMcpServerState(value: SerializableValue): value is McpServerState {
   return isText(value) && Object.hasOwn(MCP_STATES, value);
+}
+
+function isFsGrepWarningKind(
+  value: SerializableValue,
+): value is FsGrepWarningKind {
+  return isText(value) && Object.hasOwn(FS_GREP_WARNING_KINDS, value);
 }
 
 /** A non-negative whole number, the only numeric shape these results carry. */
@@ -317,4 +341,104 @@ export function readMcpOpenResult(value: JsonValue): McpOpenResult | undefined {
   return isTextList(protectedValues)
     ? { protectedValues: [...protectedValues] }
     : undefined;
+}
+
+/**
+ * A path a passage names, relative to the request's prefix. The hub concatenates
+ * it onto the prefix it sent, so an absolute path, a `.`/`..` segment, or an
+ * empty middle segment is refused: it could name something the request never
+ * searched.
+ */
+function isScopeRelativePath(value: string): boolean {
+  if (value.includes('\u0000') || value.startsWith('/')) return false;
+  if (value === '') return true;
+  return value
+    .split('/')
+    .every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+
+function readGrepPassage(value: SerializableValue): FsGrepPassage | undefined {
+  if (!isSerializableRecord(value)) return undefined;
+  const { path, startLine, endLine, content, matches, truncated } = value;
+  if (!isText(path) || !isScopeRelativePath(path)) return undefined;
+  if (!isCount(startLine) || startLine < 1) return undefined;
+  if (!isCount(endLine) || endLine < startLine) return undefined;
+  const matchLines = matches ?? null;
+  if (!isText(content) || !isUntrustedList(matchLines)) return undefined;
+  const lines: Array<number> = [];
+  for (const match of matchLines) {
+    if (!isCount(match) || match < startLine || match > endLine)
+      return undefined;
+    lines.push(match);
+  }
+  if (truncated !== undefined && truncated !== true) return undefined;
+  const passage: FsGrepPassage = {
+    path,
+    startLine,
+    endLine,
+    content,
+    matches: lines,
+  };
+  return truncated === true ? { ...passage, truncated: true } : passage;
+}
+
+function readGrepPassages(
+  value: JsonValue,
+): ReadonlyArray<FsGrepPassage> | undefined {
+  if (!isUntrustedList(value)) return undefined;
+  const passages: Array<FsGrepPassage> = [];
+  for (const entry of value) {
+    const passage = readGrepPassage(entry);
+    if (passage === undefined) return undefined;
+    passages.push(passage);
+  }
+  return passages;
+}
+
+function readGrepWarnings(
+  value: JsonValue,
+): ReadonlyArray<FsGrepWarning> | undefined {
+  if (!isUntrustedList(value)) return undefined;
+  const warnings: Array<FsGrepWarning> = [];
+  for (const entry of value) {
+    if (!isSerializableRecord(entry)) return undefined;
+    const { kind, count } = entry;
+    if (!isFsGrepWarningKind(kind) || !isCount(count)) return undefined;
+    warnings.push({ kind, count });
+  }
+  return warnings;
+}
+
+function readGrepConsumed(value: JsonValue): FsGrepConsumed | undefined {
+  if (!isSerializableRecord(value)) return undefined;
+  const { files, entries, bytes } = value;
+  if (!isCount(files) || !isCount(entries) || !isCount(bytes)) return undefined;
+  return { files, entries, bytes };
+}
+
+/** An `fs.grep` answer: the passages the daemon walked, or a refusal. */
+export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
+  const failure = readNativeFailure(value);
+  if (failure !== undefined) return failure;
+  if (!isSerializableRecord(value) || value['ok'] !== true) return undefined;
+  const { complete, cursor } = value;
+  const results = readGrepPassages(fieldOf(value, 'results') ?? null);
+  const warnings = readGrepWarnings(fieldOf(value, 'warnings') ?? null);
+  const consumed = readGrepConsumed(fieldOf(value, 'consumed') ?? null);
+  if (
+    results === undefined ||
+    warnings === undefined ||
+    consumed === undefined ||
+    !isFlag(complete)
+  )
+    return undefined;
+  if (cursor !== undefined && !isText(cursor)) return undefined;
+  const success: FsGrepSuccess = {
+    ok: true,
+    results,
+    complete,
+    warnings,
+    consumed,
+  };
+  return isText(cursor) ? { ...success, cursor } : success;
 }

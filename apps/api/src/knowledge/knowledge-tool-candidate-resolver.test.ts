@@ -409,6 +409,30 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
+  it('admits grep on a configured Machine alone', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        machines: {
+          ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+          hosts: { devl: { destination: 'box' } },
+        },
+      },
+    });
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['grep'],
+        codeOwnedTools: [nativeGrepTool],
+      }),
+    ).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeGrepTool,
+      },
+    ]);
+  });
+
   it('leaves grep unadvertised with no backend', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },

@@ -13,6 +13,7 @@ import {
 
 import { decodeRelativePath } from './locator-spelling';
 import { type GrepReadAdmission } from './grep-admission';
+import { type MachineGrepScope } from './grep-machine';
 import {
   invalidPathResult,
   notFoundResult,
@@ -25,10 +26,19 @@ import { type ScopeProbe } from './grep-ports';
 export type ResolvedScopes = {
   readonly scopes: ReadonlyArray<GrepScope>;
   readonly roots: ReadonlyArray<string>;
+  /** Machine scopes, each executed as one request on its Machine. */
+  readonly machines?: ReadonlyArray<MachineGrepScope>;
 };
 
-/** Either a resolved scope set or the result that ends the whole call. */
-export type ScopeOutcome = ResolvedScopes | { readonly result: GrepToolError };
+/** Either one Machine scope, a resolved scope set, or the result that ends the call. */
+export type ScopeOutcome =
+  | ResolvedScopes
+  | {
+      readonly machine: MachineGrepScope;
+      /** The Machine name, which the call's cursor is keyed on. */
+      readonly root: string;
+    }
+  | { readonly result: GrepToolError };
 
 /** The characters splitGrepScope treats as glob operators. */
 const GLOB_OPERATORS = ['*', '?', '{', '}', '[', ']'] as const;

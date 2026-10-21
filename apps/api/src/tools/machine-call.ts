@@ -95,7 +95,14 @@ export function machineConnector(
   return connector?.enabled() === true ? connector : undefined;
 }
 
-export function machineNotFoundResult(name: string): ToolResult {
+/** A Machine refusal, narrow enough for a caller that returns only failures. */
+export type MachineFailureResult = {
+  readonly status: 'error';
+  readonly type: string;
+  readonly message: string;
+};
+
+export function machineNotFoundResult(name: string): MachineFailureResult {
   return {
     status: 'error',
     type: 'machine_not_found',
@@ -114,7 +121,7 @@ const REASON_TEXT: Readonly<Record<MachineFailureReason, string>> = {
 export function machineUnavailableResult(
   name: string,
   reason?: MachineFailureReason,
-): ToolResult {
+): MachineFailureResult {
   return {
     status: 'error',
     type: 'machine_unavailable',
@@ -126,7 +133,7 @@ export function machineUnavailableResult(
 }
 
 /** A mutation or command whose success the hub could not establish. */
-export function machineUnknownResult(name: string): ToolResult {
+export function machineUnknownResult(name: string): MachineFailureResult {
   return {
     status: 'error',
     type: 'outcome_unknown',
@@ -135,7 +142,7 @@ export function machineUnknownResult(name: string): ToolResult {
 }
 
 /** The Machine answered a shape this hub cannot use. */
-export function machineUnusableResult(name: string): ToolResult {
+export function machineUnusableResult(name: string): MachineFailureResult {
   return {
     status: 'error',
     type: 'machine_protocol_error',

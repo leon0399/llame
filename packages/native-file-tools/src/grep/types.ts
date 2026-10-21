@@ -100,6 +100,17 @@ export interface GrepScanResult {
   /** For the audit only; the caller must not put it in the model result. */
   readRefused: number;
   consumed: { files: number; entries: number; bytes: number };
+  /** The last passage the page emitted, for a caller that pages across walks. */
+  last?: GrepPageEnd;
+}
+
+/** Where a page ended: the passage it emitted last, and its file's state. */
+export interface GrepPageEnd {
+  scopeIndex: number;
+  rel: string;
+  startLine: number;
+  /** The passage was its file's twentieth, so the file is exhausted. */
+  capped: boolean;
 }
 
 export interface GrepScanInput {

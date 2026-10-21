@@ -38,6 +38,7 @@ import {
   resolveKnowledgeScope,
   refuseUnsearchableKnowledgeScope,
 } from './grep-knowledge-scope';
+import { resolveMachineScope, type MachineGrepScope } from './grep-machine';
 import { decodeFileAlias, isFileAlias } from './permissions/file-alias';
 import {
   createHostWalkPort,
@@ -49,7 +50,6 @@ import {
 import {
   executorUnavailableResult,
   invalidPathResult,
-  machineUnsupportedResult,
   selectorColonResult,
   unsupportedGlobResult,
   type GrepToolError,
@@ -58,6 +58,7 @@ import {
   buildScope,
   hasGlobOperator,
   splitScopePath,
+  type ResolvedScopes,
   type ScopeOutcome,
 } from './grep-scope-shape';
 import { type ToolContext } from './types';
@@ -138,23 +139,30 @@ export async function resolveScopes(
   context: ToolContext,
   submitted: ReadonlyArray<string>,
   admission: GrepReadAdmission,
-): Promise<ScopeOutcome> {
+): Promise<ResolvedScopes | { readonly result: GrepToolError }> {
   const scopes: Array<GrepScope> = [];
   const roots: Array<string> = [];
   // A bare `kb://` or `skill://` scope expands to one scope per Space or
   // package. Each expansion is its own scope, so it takes its own ordinal:
   // a cursor names exactly one of them, and a page resumes after that one.
   let ordinal = 0;
+  const machines: Array<MachineGrepScope> = [];
   for (const [index, scope] of submitted.entries()) {
     const outcome = await resolveScope(context, scope, index, admission);
     if ('result' in outcome) return outcome;
+    if ('machine' in outcome) {
+      machines.push({ ...outcome.machine, index: ordinal });
+      ordinal += 1;
+      roots.push(outcome.root);
+      continue;
+    }
     for (const resolved of outcome.scopes) {
       scopes.push({ ...resolved, index: ordinal });
       ordinal += 1;
     }
     roots.push(...outcome.roots);
   }
-  return { scopes, roots };
+  return { scopes, roots, machines };
 }
 
 async function resolveScope(
@@ -179,6 +187,8 @@ async function resolveScope(
       return resolveKnowledgeScope(context, scheme.rest, index, admission);
     case SKILL_SCHEME:
       return resolveSkillScope(context, scheme.rest, index, admission);
+    case MACHINE_SCHEME:
+      return resolveMachineScope(context, scope, index);
     default:
       return { result: unsearchableSchemeResult(scheme.scheme) };
   }
@@ -224,13 +234,10 @@ async function resolveHostScope(
   const scheme = parsePathScheme(placed);
   if (scheme !== undefined) {
     // An absolute path inside a Machine Workspace becomes that Machine's
-    // locator, which only the Machine layer can serve.
-    return {
-      result:
-        scheme.scheme === MACHINE_SCHEME
-          ? machineUnsupportedResult()
-          : invalidPathResult('This path scheme cannot be searched.'),
-    };
+    // locator, so it goes to the Machine backend like a submitted one.
+    return scheme.scheme === MACHINE_SCHEME
+      ? resolveMachineScope(context, placed, index)
+      : { result: invalidPathResult('This path scheme cannot be searched.') };
   }
   return buildHostScope(context, placed, index, admission);
 }
@@ -306,7 +313,7 @@ async function resolveSkillScope(
     admission,
     signal: context.abortSignal,
   });
-  if ('result' in outcome) return outcome;
+  if ('result' in outcome || 'machine' in outcome) return outcome;
   return { scopes: outcome.scopes, roots: [name] };
 }
 
@@ -365,7 +372,7 @@ async function resolveEverySkill(
       admission,
       signal: context.abortSignal,
     });
-    if ('result' in outcome) return outcome;
+    if ('result' in outcome || 'machine' in outcome) return outcome;
     scopes.push(...outcome.scopes);
   }
   return { scopes, roots: packages.map((entry) => entry.name) };

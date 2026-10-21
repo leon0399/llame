@@ -94,9 +94,9 @@ export function hostPathFailureResult(): GrepToolError {
   };
 }
 
-/** This layer has no Machine backend; the Machine layer replaces this branch. */
+/** A Machine scope on a process with no Machine surface. */
 export function machineUnsupportedResult(): GrepToolError {
   return invalidPathResult(
-    'Machine locators cannot be searched on this process yet.',
+    'Machine locators are not available on this process.',
   );
 }
