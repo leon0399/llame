@@ -104,12 +104,24 @@ describe('admitSshBash refusals', () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
-  it('leaves the call alone when no trusted policy exists', async () => {
+  it('leaves a read alone when no trusted policy exists', async () => {
     const { client, resolve } = fakeSsh();
 
     await expect(
       admitSshRead(
         { path: 'ssh://box/tmp' },
+        context({}, { sshClient: client, permissionPolicy: undefined }),
+      ),
+    ).resolves.toEqual({ kind: 'none' });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('leaves a bash call alone when no trusted policy exists', async () => {
+    const { client, resolve } = fakeSsh();
+
+    await expect(
+      admitSshBash(
+        { cwd: 'ssh://box/tmp' },
         context({}, { sshClient: client, permissionPolicy: undefined }),
       ),
     ).resolves.toEqual({ kind: 'none' });
