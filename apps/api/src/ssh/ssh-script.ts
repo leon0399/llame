@@ -120,12 +120,19 @@ function preconditionLines(nonce: string, path: string): Array<string> {
     '    exit 0',
     '  }',
     // A path under a directory the user cannot enter fails `test -e` exactly
-    // as a missing one does, so the parent is asked first: a local read of the
-    // same path fails on the traversal, not on the leaf.
+    // as a missing one does, however far above the leaf the unsearchable
+    // directory is. The nearest ancestor that exists decides: when it is a
+    // directory the user cannot search, the local read fails on the traversal
+    // too, so the leaf is unreadable rather than missing.
     '  d=${p%/*}',
     '  if [ -z "$d" ] || [ "$d" = "$p" ]; then d=/; fi',
     '  if [ ! -e "$p" ]; then',
-    '    if [ -d "$d" ] && [ ! -x "$d" ]; then refuse unreadable; fi',
+    '    a=$d',
+    '    while [ ! -e "$a" ] && [ "$a" != / ]; do',
+    '      a=${a%/*}',
+    '      if [ -z "$a" ]; then a=/; fi',
+    '    done',
+    '    if [ -d "$a" ] && [ ! -x "$a" ]; then refuse unreadable; fi',
     '    refuse not_found',
     '  fi',
   ];
@@ -280,9 +287,11 @@ export type SshDirectoryListing = {
 
 /**
  * The host's `<type>\0<name>\0` pairs. NUL termination is what keeps a name
- * with a newline one entry. The host sends glob order up to the traversal
- * budget, so `more` only says the list passes the hub's own bound: the caller
- * keeps the local order, and that order decides which entries it shows.
+ * with a newline one entry. The host sends glob order up to the local
+ * traversal budget plus one, so a listing that reached the extra entry is a
+ * directory the caller refuses; below that, `more` says the list passes the
+ * hub's own 1,000 bound, and the caller keeps the local order, which decides
+ * which entries it shows.
  */
 export function parseSshDirectoryEntries(content: Buffer): SshDirectoryListing {
   const fields = content.toString('utf8').split('\0');

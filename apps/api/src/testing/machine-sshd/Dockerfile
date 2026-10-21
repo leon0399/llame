@@ -68,8 +68,9 @@ RUN mkdir -p /home/box/work/fixture/empty-dir /home/box/work/fixture/many \
   && mkfifo /home/box/work/fixture/fifo \
   && printf 'root only\n' > /home/box/work/fixture/secret.txt \
   && chmod 0600 /home/box/work/fixture/secret.txt \
-  && mkdir -p /home/box/work/fixture/root-only \
+  && mkdir -p /home/box/work/fixture/root-only/deep \
   && printf 'root only\n' > /home/box/work/fixture/root-only/inside.txt \
+  && printf 'root only\n' > /home/box/work/fixture/root-only/deep/inside.txt \
   && chmod 0700 /home/box/work/fixture/root-only \
   && i=0 \
   && while [ "$i" -lt 1500 ]; do : > "/home/box/work/fixture/many/f$(printf %04d "$i")"; i=$((i + 1)); done \

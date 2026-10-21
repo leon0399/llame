@@ -129,8 +129,9 @@ describe('ssh reads over a real sshd', () => {
     const result = await read(`ssh://box${FIXTURE}/big.txt`, client());
 
     expect(result).toMatchObject({ status: 'error', type: 'file_too_large' });
-    expect(result.status === 'error' && result.message).toContain('1 MiB');
-    expect(result.status === 'error' && result.message).toContain('bash');
+    expect(result.status === 'error' && result.message).toBe(
+      'The remote file is larger than the 1 MiB read bound.',
+    );
   });
 
   it('refuses the binary file as invalid_utf8', async () => {
@@ -185,17 +186,40 @@ describe('ssh reads over a real sshd', () => {
 
   it('refuses a file behind a directory the login user cannot enter', async () => {
     // `test -e` fails on the traversal, not on the leaf, so the leaf would
-    // otherwise read as a missing path.
-    const result = await read(
+    // otherwise read as a missing path. The unsearchable directory is asked
+    // for at whatever depth it sits: the parent alone does not decide.
+    const sshClient = client();
+    const leaf = await read(
       `ssh://box${FIXTURE}/root-only/inside.txt`,
-      client(),
+      sshClient,
     );
 
-    expect(result).toMatchObject({
+    expect(leaf).toMatchObject({
       status: 'error',
       type: 'executor_unavailable',
     });
-    expect(result.status === 'error' && result.message).toBe(
+    expect(leaf.status === 'error' && leaf.message).toBe(
+      'File could not be read.',
+    );
+
+    const nested = await read(
+      `ssh://box${FIXTURE}/root-only/deep/inside.txt`,
+      sshClient,
+    );
+    expect(nested).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+
+    const missing = await read(
+      `ssh://box${FIXTURE}/root-only/deep/nope.txt`,
+      sshClient,
+    );
+    expect(missing).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+    expect(missing.status === 'error' && missing.message).toBe(
       'File could not be read.',
     );
   });

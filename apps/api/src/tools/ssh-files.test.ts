@@ -1,3 +1,5 @@
+import { DIRECTORY_TRAVERSAL_BUDGET } from '@workspace/native-file-tools';
+
 import { type TenantRunner } from '../db/tenant-db.service';
 import {
   type SshBinding,
@@ -182,8 +184,9 @@ describe('ssh read transfer', () => {
     );
 
     expect(result).toMatchObject({ status: 'error', type: 'file_too_large' });
-    expect(result.status === 'error' && result.message).toContain('1 MiB');
-    expect(result.status === 'error' && result.message).toContain('bash');
+    expect(result.status === 'error' && result.message).toBe(
+      'The remote file is larger than the 1 MiB read bound.',
+    );
   });
 
   it('refuses bytes outside UTF-8 as invalid_utf8', async () => {
@@ -441,6 +444,40 @@ describe('ssh read refusals', () => {
 });
 
 describe('ssh directory reads', () => {
+  it('refuses a directory past the traversal budget, and lists one at it', async () => {
+    // The host collects the local budget plus one and stops: reaching it means
+    // the directory is one a local listing refuses, so the hub refuses it with
+    // the local result rather than showing the entries the glob reached first.
+    const over = await read(
+      'ssh://box/many',
+      directoryReply(
+        Array.from(
+          { length: DIRECTORY_TRAVERSAL_BUDGET + 1 },
+          (_, index) => `f\0f${String(index).padStart(5, '0')}\0`,
+        ).join(''),
+      ),
+    );
+    expect(over.result).toMatchObject({
+      status: 'error',
+      type: 'directory_too_large',
+    });
+    expect(over.result.status === 'error' && over.result.message).toBe(
+      `Directory contains ${String(DIRECTORY_TRAVERSAL_BUDGET + 1)} entries, exceeding the ${String(DIRECTORY_TRAVERSAL_BUDGET)} entry budget.`,
+    );
+
+    const at = await read(
+      'ssh://box/many',
+      directoryReply(
+        Array.from(
+          { length: DIRECTORY_TRAVERSAL_BUDGET },
+          (_, index) => `f\0f${String(index).padStart(5, '0')}\0`,
+        ).join(''),
+      ),
+    );
+    expect(at.result).toMatchObject({ status: 'success', kind: 'directory' });
+    expect(at.result['truncated']).toBe(true);
+  });
+
   it('reserves room for the more-entries line at the result bound', async () => {
     // One entry per 15 code units, so the 1000-entry listing crosses the
     // 16 000-unit result cap. The bound line's own room is what decides how

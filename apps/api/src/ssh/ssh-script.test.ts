@@ -46,8 +46,13 @@ describe('buildSshReadScript', () => {
       '  if [ -z "$d" ] || [ "$d" = "$p" ]; then d=/; fi',
     );
     expect(script).toContain('  if [ ! -e "$p" ]; then');
+    expect(script).toContain('    a=$d');
+    expect(script).toContain('    while [ ! -e "$a" ] && [ "$a" != / ]; do');
+    expect(script).toContain('      a=${a%/*}');
+    expect(script).toContain('      if [ -z "$a" ]; then a=/; fi');
+    expect(script).toContain('    done');
     expect(script).toContain(
-      '    if [ -d "$d" ] && [ ! -x "$d" ]; then refuse unreadable; fi',
+      '    if [ -d "$a" ] && [ ! -x "$a" ]; then refuse unreadable; fi',
     );
     expect(script).toContain('    refuse not_found');
     expect(script).toContain('refuse not_regular_file');
@@ -87,7 +92,12 @@ describe('buildSshReadScript', () => {
       '  d=${p%/*}',
       '  if [ -z "$d" ] || [ "$d" = "$p" ]; then d=/; fi',
       '  if [ ! -e "$p" ]; then',
-      '    if [ -d "$d" ] && [ ! -x "$d" ]; then refuse unreadable; fi',
+      '    a=$d',
+      '    while [ ! -e "$a" ] && [ "$a" != / ]; do',
+      '      a=${a%/*}',
+      '      if [ -z "$a" ]; then a=/; fi',
+      '    done',
+      '    if [ -d "$a" ] && [ ! -x "$a" ]; then refuse unreadable; fi',
       '    refuse not_found',
       '  fi',
       '  if [ -d "$p" ]; then',

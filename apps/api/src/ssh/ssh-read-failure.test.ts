@@ -72,6 +72,25 @@ describe('classifySshPreludeFailure', () => {
     ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
   });
 
+  it('classifies a key-exchange or mid-connect drop as unreachable', () => {
+    // A peer that hangs up before the handshake finishes reports a key-exchange
+    // failure or a closed connection, not `connect ... closed by`, and it is
+    // still a connection failure rather than a host that ran no llame script.
+    expect(
+      classifySshPreludeFailure(
+        ended(
+          'kex_exchange_identification: Connection closed by remote host',
+          255,
+        ),
+      ),
+    ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
+    expect(
+      classifySshPreludeFailure(
+        ended('Connection closed by 10.0.0.5 port 22', 255),
+      ),
+    ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
+  });
+
   it('does not take remote text for an authentication failure', () => {
     // A forced command that prints the words is not ssh refusing a credential.
     expect(

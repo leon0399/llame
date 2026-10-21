@@ -12,6 +12,7 @@
  */
 
 import {
+  DIRECTORY_TRAVERSAL_BUDGET,
   NativeFileError,
   applySelectorSuffix,
   compareEntries,
@@ -67,7 +68,7 @@ const UNREADABLE_MESSAGE = 'File could not be read.';
 const NOT_REGULAR_MESSAGE =
   'Only a regular file or a directory can be read; a FIFO, socket, or device is never opened.';
 const INVALID_UTF8_MESSAGE = 'The remote file is not valid UTF-8 text.';
-const FILE_TOO_LARGE_MESSAGE = `The remote file is larger than the ${String(SSH_READ_MAX_BYTES / (1024 * 1024))} MiB read bound; examine it with a bash ssh:// cwd instead.`;
+const FILE_TOO_LARGE_MESSAGE = `The remote file is larger than the ${String(SSH_READ_MAX_BYTES / (1024 * 1024))} MiB read bound.`;
 const UNFINISHED_READ_MESSAGE =
   'The remote read did not finish, so the file could not be read.';
 
@@ -268,19 +269,27 @@ function renderDirectoryRead(
 ): ToolResult {
   try {
     const { entries, more } = parseSshDirectoryEntries(content);
+    const { read, options } = listingOptions(
+      target.locator,
+      target.selector,
+      more,
+    );
+    // A selector the local directory reader refuses is refused first, exactly
+    // as locally: it needs no page of the directory.
+    const refused = directorySelectorFailure(read);
+    if (refused !== undefined) return refused;
+    // The host collects at most the local traversal budget plus one, so a
+    // transfer that reaches it is a directory a local listing refuses. The
+    // local renderer names the refusal, and the count it prints is the one the
+    // transfer carried: a subset of a directory that size would misreport it.
+    if (entries.length > DIRECTORY_TRAVERSAL_BUDGET)
+      return renderCollectedDirectory(target.locator, entries);
     // The host sends glob order; the hub keeps the local order, so the bound
     // selects the first entries a local listing shows rather than the first
     // ones a glob group happened to reach.
     const shown = [...entries]
       .sort(compareEntries)
       .slice(0, SSH_LIST_MAX_ENTRIES);
-    const { read, options } = listingOptions(
-      target.locator,
-      target.selector,
-      more,
-    );
-    const refused = directorySelectorFailure(read);
-    if (refused !== undefined) return refused;
     const result = renderCollectedDirectory(target.locator, shown, options);
     if (result.status === 'error')
       return {
