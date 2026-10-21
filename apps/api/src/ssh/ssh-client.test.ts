@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import {
   setImmediate as tick,
   setTimeout as delay,
@@ -757,12 +758,12 @@ async function waitForExit(pid: number): Promise<void> {
   throw new Error(`process ${pid} survived the resolution deadline`);
 }
 
+/** `ps` exits 1 for a pid that is gone; a zombie shows state `Z`. */
 function isRunning(pid: number): boolean {
-  let fields: string;
-  try {
-    fields = readFileSync(`/proc/${pid}/stat`, 'utf8');
-  } catch {
-    return false;
-  }
-  return fields.charAt(fields.lastIndexOf(')') + 2) !== 'Z';
+  const probe = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], {
+    encoding: 'utf8',
+  });
+  if (probe.status === 1) return false;
+  if (probe.status !== 0) throw new Error(`ps could not inspect ${pid}`);
+  return !probe.stdout.trim().startsWith('Z');
 }
