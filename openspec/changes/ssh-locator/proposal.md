@@ -37,7 +37,8 @@ nothing installed on the far side.
   statuses are told apart.
 - `read` returns UTF-8 text files up to 1 MiB, applying selectors on the hub,
   and one-level directory listings of at most 1,000 entries in the local
-  listing format. Larger, invalid-UTF-8, and special files fail with typed
+  listing format, where a directory above the local traversal budget fails as
+  a local one does. Larger, invalid-UTF-8, and special files fail with typed
   errors.
 - `bash` with an `ssh://` `cwd` runs the command through `bash` on that host,
   with `env` keys restricted to identifier names and values delivered outside
@@ -121,7 +122,9 @@ to amend if the capability graduates:
 
 - `native-file-tools`: native tools operate on absolute local regular files;
   directory reads are two levels deep with a 10,000-entry budget and link
-  targets.
+  targets; a model argument does not select a remote authority.
+- `prompt-imports`: an unbound host target needs `read` allowlisted and a
+  native executor, and a `kb://` target a Knowledge root.
 - `bash-execution`: `bash` is available only with `tools.nativeExecutorId`;
   the host runs `bash -c`; the model does not select an executor.
 - `tool-call-permissions`: only the defined native Workspace and locator

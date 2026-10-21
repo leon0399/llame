@@ -66,20 +66,24 @@ Prior art (research notes in `docs/research`, cited in the #936 thread):
 | Orca rung D      | `ssh2` + system `ssh`       | SFTP                               | relay process sweep | known_hosts + trust store |
 | Ansible `smart`  | system `ssh`, ControlMaster | sftp → scp → `dd`                  | n/a                 | OpenSSH                   |
 
-More facts that constrain resolution and scripts:
+More facts that constrain resolution and scripts (the `permissions/…` paths
+are relative to `apps/api/src/tools/`):
 
 - `evaluateToolPermission` and `previewToolPermission` are synchronous and
   run before the per-call timeout wrapper (`tools/runner.ts:360-398`);
   preview is called synchronously from `runs/run-execution.service.ts:1562,
 2672, 2919`, and prompt imports never plan an unknown scheme
   (`prompt-imports.ts:238-247`). `bypass` mode evaluates no group
-  (`permissions/admit.ts:10`). When Workspace projection changed an argument,
+  (`apps/api/src/tools/permissions/admit.ts:11`). When Workspace projection
+  changed an argument,
   `runner.ts:299` evaluates only the projected text.
 - The evaluator never visits object keys (`permissions/value-selection.ts:43-46`),
   and `bash` accepts any `env` key (`tools/bash.ts:318`); local spawn passes
-  keys as data. `admitManagedBash` holds the base-env refusal, input bound,
-  process slot, and redaction, and stats the local `cwd`
-  (`packages/bash-executor/src/execute.ts:67-136`); `managedEnvironmentCollision`
+  keys as data. `admitManagedBash` holds the local `cwd` check, the input
+  bound, the process slot, and the base-env refusal
+  (`packages/bash-executor/src/execute.ts:67-136`), not redaction: a known
+  result is redacted by `sanitizeKnownResult`
+  (`packages/bash-executor/src/sanitize.ts:33`). `managedEnvironmentCollision`
   and `watchManagedChild` are not exported.
 - `classifyLinkFailure` keeps an 8 KiB UTF-8 stderr head and matches
   `/permission denied/i` (`machines/machine-transport.ts:77-105`); its
@@ -88,20 +92,24 @@ More facts that constrain resolution and scripts:
 - A local unreadable file or directory fails as `executor_unavailable`
   "File could not be read." (`packages/native-file-tools/src/read.ts:216-240`).
 
-`ssh -G` on OpenSSH 8.9 (throwaway configs, verified in review round 1):
+`ssh -G` on OpenSSH 8.9 (throwaway configs, verified in review rounds 1 and 2):
 
-| Case                                          | Result                                              |
-| --------------------------------------------- | --------------------------------------------------- |
-| alias with `User`/`Port`/`ProxyJump`          | printed as configured                               |
-| no `User` / no `Port`                         | worker's local user name / `22`                     |
-| host case, `%h` in `HostName`                 | lowercased, expanded                                |
-| `Match exec`                                  | runs for every destination, including invented ones |
-| unknown alias                                 | exit 0, resolved as a literal host name             |
-| missing `Include`                             | ignored                                             |
-| invalid option                                | exit 255                                            |
-| `CanonicalizeHostname yes`, unresolvable host | DNS lookup, exit 255                                |
-| `ssh://[v6]:p` or `u@[v6]` destination        | usage error, or brackets kept in `hostname`         |
-| `-l u -p p -- 2001:db8::1`                    | correct user, host, port                            |
+| Case                                                                          | Result                                                                  |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| alias with `User`/`Port`/`ProxyJump`                                          | printed as configured                                                   |
+| no `User` / no `Port`                                                         | worker's local user name / `22`                                         |
+| `%h` in `HostName`                                                            | expanded                                                                |
+| host case in the output                                                       | lowercased in `hostname`                                                |
+| `Host box` block, destination `BOX` or `Box`                                  | block not applied: literal host `box`, port `22`, worker user, no proxy |
+| `Match exec`                                                                  | runs for each `ssh` invocation, the resolution and the connection       |
+| unknown alias                                                                 | exit 0, resolved as a literal host name                                 |
+| missing `Include`                                                             | ignored                                                                 |
+| invalid option                                                                | exit 255                                                                |
+| `CanonicalizeHostname yes` alone, unresolvable host                           | no DNS lookup, exit 0, literal host                                     |
+| the same with `CanonicalizePermittedCNAMEs` or `CanonicalizeFallbackLocal no` | DNS lookup, exit 255 on a name that does not resolve                    |
+| the same with `CanonicalDomains`                                              | DNS lookup, then fallback to the literal name with exit 0               |
+| `ssh://[v6]:p` or `u@[v6]` destination                                        | usage error, or brackets kept in `hostname`                             |
+| `-l u -p p -- 2001:db8::1`                                                    | correct user, host, port                                                |
 
 ## Goals / Non-Goals
 
@@ -159,6 +167,15 @@ no literal `?`, `#`, backslash, or control character, no encoded `/` or NUL);
 a `read` selector splits off as for local paths. `ssh://` and `ssh:///` return
 a fixed explanation and start nothing.
 
+The host is lowercased before the resolution and the connection, because
+OpenSSH matches a `Host` block against the raw destination with case: with a
+`Host box` block, the destination `BOX` skips the block and resolves as the
+literal host `box` with the default port, the worker user, and no jump. A
+model-chosen spelling can then reach a destination other than the alias that
+the allow names. Lowercase first means a lowercase alias always applies, and a
+`Host BOX` block never does; the operator page says to write aliases in
+lowercase.
+
 Every ssh invocation passes the destination as the bare host (IPv6
 unbracketed) after `--`, with `-l <user>` and `-p <port>` only when written;
 `sshDestination` is not reused, because OpenSSH rejects `ssh://[v6]:p` and
@@ -176,8 +193,12 @@ keeps brackets in `u@[v6]`.
 3. Run `ssh -F <generated> -G [-l u] [-p p] -- <host>` with a 5 s deadline,
    the call's abort signal, and a 64 KiB output bound. Read `user`,
    `hostname`, `port`. Failure or deadline is `ssh_unavailable` reason
-   `config`; abort is the cancelled result. Resolution also runs in `bypass`
-   mode, because execution binds to it.
+   `config`; abort is the cancelled result. The included configuration can
+   make this step resolve DNS (`CanonicalizePermittedCNAMEs`,
+   `CanonicalDomains`, or `CanonicalizeFallbackLocal no` with
+   `CanonicalizeHostname`), and a name that does not resolve is this same
+   `config` failure. Resolution also runs in `bypass` mode, because execution
+   binds to it.
 4. Evaluate the group on the same arguments with the locator field replaced by
    the resolved locator
    `ssh://<user>@<hostname>:<port><decoded path>` (IPv6 bracketed, `.`, `..`,
@@ -208,7 +229,10 @@ draws a random nonce:
 
 - The script prints `<nonce>:start` on stdout and stderr once its
   preconditions hold. The hub discards everything before it, so login-shell
-  startup output is neither content nor counted against a bound.
+  startup output is neither content nor charged to a content bound. Those
+  bytes have their own 64 KiB allowance (`SSH_READ_NOISE_BYTES`): the stdout
+  bound is the content limit plus that allowance, and a transfer that reaches
+  the bound is an unfinished read, never truncated content.
 - On exit it prints `<nonce>:end:<status>` on stderr. A result is complete only
   with that trailer; its status is authoritative, so a remote `exit 255` is
   not mistaken for an ssh failure.
@@ -238,10 +262,10 @@ an extra connection per host per worker and needs invalidation.
 
 ### D5: Reads
 
-Preconditions, before the start marker: `test -e` (else refuse `not_found`,
-or `unreadable` when the parent directory exists and is not searchable — a
-path inside a directory the user cannot enter fails the traversal, not the
-leaf), then for a directory `test -r && test -x` (else refuse
+Preconditions, before the start marker: `test -e` (else `unreadable` when the
+nearest existing ancestor of the path is a directory without search
+permission — a path inside a directory the user cannot enter fails the
+traversal, not the leaf — and `not_found` otherwise), then for a directory `test -r && test -x` (else refuse
 `unreadable`), for a non-regular file refuse `not_regular_file` without
 opening it, for an unreadable file refuse `unreadable`. `unreadable` maps to
 the local `executor_unavailable` "could not be read" result.
@@ -253,12 +277,17 @@ the local `executor_unavailable` "could not be read" result.
 - Directory: a glob loop over `*`, `.[!.]*`, `..?*` prints each existing entry
   as a type letter (`d`, `l`, `f`) and its name, NUL-terminated, stopping
   after the local traversal budget plus one (10,001) entries. The hub sorts
-  that set in the local order and renders it with the local listing formatter
-  and slicing, one level deep, links marked without targets (the `kb://`
-  listing precedent), keeping the first 1,000 and then a "more entries exist"
-  line. NUL termination keeps newline-bearing names one entry. The stdout
-  bound fits every collected entry at its largest (about 2.6 MB), separate
-  from the 1 MiB file bound; a transfer that stops at the bound is an
+  that set in the local order first, and only then applies the 1,000-entry
+  limit: an unsorted subset would drop a directory or hidden entry that the
+  local order puts first. A set above the budget (10,001 collected entries)
+  fails closed with the local `directory_too_large` error and the collected
+  count, as a local over-budget directory does, rather than a shortened list.
+  Within the budget the hub renders the local listing formatter and slicing,
+  one level deep, links marked without targets (the `kb://` listing
+  precedent), keeping the first 1,000 and then a "more entries exist" line.
+  NUL termination keeps newline-bearing names one entry. The stdout bound is
+  the directory transfer bound plus the noise allowance (about 2.6 MB),
+  separate from the 1 MiB file bound; a transfer that stops at the bound is an
   unfinished read, never a shortened list.
 
 Reads record no native attempt.
@@ -285,11 +314,16 @@ or `s` cannot change a frame or the directory the script entered.
 
 `packages/bash-executor` exports the base-variable check and the output
 sanitizer for reuse; the process slot is the same one local `bash` uses, so a
-worker runs one `bash` at a time whatever its target. The local output and
-input bounds and the 300 s budget apply. The call records an unbound native
-attempt before spawning SSH, as Machine `bash` does; its branch sits before
-the local executor gate in `tools/bash.ts`, including inside a Machine
-Workspace, where an explicit `ssh://` `cwd` is no longer `invalid_path`.
+worker runs one `bash` at a time whatever its target. The local output bound
+and the 300 s budget apply. The input bound applies to the text of the model
+(`command`, `cwd`, `env`) exactly as for a local call, not to the generated
+script, which carries the framing and the quoting the model did not write.
+The call records an unbound native attempt before spawning SSH, as Machine
+`bash` does; its branch sits before the local executor gate in `tools/bash.ts`,
+including inside a Machine Workspace, where an explicit `ssh://` `cwd` is no
+longer `invalid_path`. After that durable write the call checks the deadline
+and the abort signal again; a stop found there is recorded on the attempt as a
+known result and no `ssh` starts.
 
 A timeout or cancellation once SSH runs ends the local `ssh`: `outcome_unknown`
 unless a typed pre-session failure is already classified. Proven remote stop
@@ -324,8 +358,12 @@ working-directory guidance required by the `bash-execution` delta.
   arguments on stdin, and D6's key grammar keep model text out of ssh options,
   `%h`/`%u` expansions, and remote shell syntax outside `command`.
 - **T3. Operator configuration side effects.** Resolution runs `Match exec`
-  commands and may resolve DNS for every locator that passes the
-  submitted-text rejects, including ones the resolved text then rejects.
+  commands for every locator that passes the submitted-text rejects, including
+  ones the resolved text then rejects, and the connection runs them again, so
+  an operator command runs twice for one operation. Resolution resolves DNS
+  only when the included configuration sets `CanonicalizePermittedCNAMEs`,
+  `CanonicalDomains`, or `CanonicalizeFallbackLocal no` with
+  `CanonicalizeHostname`.
 - **T4. Remote orphans.** A timed-out command can keep running remotely until
   it next writes or exits; reported as `outcome_unknown`.
 - **T5. No isolation between users.** All users act with one SSH identity;
@@ -338,7 +376,9 @@ working-directory guidance required by the `bash-execution` delta.
 - [Handshake per operation] → Accepted; measured before #1366.
 - [1 MiB cap below local behavior] → The error names `bash`; #1364 lifts it.
 - [Listing differs from local: one level, 1,000 entries, no link targets] →
-  Stated in the spec and the locator reference.
+  Stated in the spec and the locator reference. A directory above the local
+  traversal budget fails as a local one does, so no listing is ever a
+  re-ordered subset.
 - [`..` kept in the resolved text admits `/var/log/../../etc/shadow` under a
   `/var/log/` allow] → Same as local and Machine projection; the operator page
   shows the anchored reject.

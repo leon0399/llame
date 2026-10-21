@@ -98,6 +98,15 @@ For a host of a different form, also a host with `%`, the tool MUST return `inva
 - **WHEN** the model reads `SSH://deploy@[2001:db8::1]:2222/etc/hostname` and the key of that host is pinned
 - **THEN** the hub connects as `deploy` to `2001:db8::1` on port 2222
 
+### Requirement: The host of an ssh locator is lowercase before use
+
+The tool MUST lowercase the host before the resolution of the destination and before the connection. OpenSSH matches a `Host` block with case, so an uppercase host can select a different destination. A resolved locator MUST show the lowercase host.
+
+#### Scenario: Uppercase spelling uses the configured alias
+
+- **WHEN** the model reads `ssh://BOX/etc/hostname` and the included configuration has a `Host box` block with `HostName`, `User`, and `Port`
+- **THEN** the hub resolves and connects through that block, as for a read of `ssh://box/etc/hostname`
+
 ### Requirement: ssh locator users and ports have a strict form
 
 The user MUST contain only letters, digits, `.`, `_`, and `-`. Its first character MUST NOT be `-`. The port MUST be 1 to 65535. For a user or port of a different form, also a password or an empty value, the tool MUST return `invalid_path` before a process starts.
@@ -220,12 +229,17 @@ The hub MUST refuse an `ssh://` `bash` command that holds NUL before a process s
 
 ### Requirement: Remote output starts after a per-call marker
 
-Each remote script MUST write a random start marker on stdout and stderr before its work. Each call has a new marker. After its work, the script MUST write an end trailer with its status on stderr. The hub MUST discard the bytes before the start marker, and these bytes MUST NOT count for a bound. An operation is complete only when the hub gets the end trailer.
+Each remote script MUST write a random start marker on stdout and stderr before its work. Each call has a new marker. After its work, the script MUST write an end trailer with its status on stderr. The hub MUST discard the bytes before the start marker. These bytes have their own 64 KiB allowance, apart from the content bounds. An operation is complete only when the hub gets the end trailer.
 
 #### Scenario: Output from the login shell is not file content
 
 - **WHEN** the startup file of the shell of the remote account writes text at each login
 - **THEN** `read ssh://box/etc/hostname` returns only the content of the file
+
+#### Scenario: Pre-marker output above its allowance fails the read
+
+- **WHEN** the login shell writes more than 64 KiB to stdout before the start marker of a read
+- **THEN** the tool returns the local unfinished-read error, and it returns no content
 
 #### Scenario: Interrupted read is not a success
 
@@ -273,7 +287,7 @@ Selectors, line numbers, and result bounds MUST be the same as for a local read 
 
 ### Requirement: Remote directory reads use the local list form
 
-For a read of a directory, the tool MUST show a list of the entries directly in the directory. The list MUST contain hidden entries, but not `.` and `..`. The header, the order, the form of each entry, and the selector rules MUST be the same as for a local directory. The list MUST give a mark to symbolic links and MUST NOT show their targets.
+For a read of a directory, the tool MUST show the entries directly in the directory. The list MUST have one level. It MUST contain hidden entries, but not `.` and `..`. The header, the order, the form of each entry, and the selector rules MUST be the same as for a local directory. The list MUST give a mark to symbolic links and MUST NOT show their targets.
 
 #### Scenario: Empty directory
 
@@ -291,7 +305,7 @@ A list MUST contain a maximum of 1,000 entries. If there are more entries, a lin
 
 #### Scenario: Large directory is bounded
 
-- **WHEN** the remote directory contains 50,000 entries
+- **WHEN** the remote directory contains 5,000 entries
 - **THEN** the result shows 1,000 entries and tells that there are more entries
 
 #### Scenario: Name with a newline is one entry
@@ -304,9 +318,24 @@ A list MUST contain a maximum of 1,000 entries. If there are more entries, a lin
 - **WHEN** the remote login user cannot read the directory
 - **THEN** the tool returns an error, and not an empty list
 
+### Requirement: Remote directory reads fail above the traversal budget
+
+A directory with more entries than the local traversal budget MUST fail as a local over-budget directory does: `directory_too_large` with the entry count and no entry list. The hub MUST stop the collection at 10,001 entries, and it MUST order that set before it applies the 1,000-entry limit.
+
+#### Scenario: Directory above the traversal budget is refused
+
+- **WHEN** the remote directory holds 12,000 entries
+- **THEN** the tool returns `directory_too_large` with the count of the entries it collected
+- **AND** it shows no entry list
+
+#### Scenario: Directory at the budget is listed
+
+- **WHEN** the remote directory holds 10,000 entries
+- **THEN** the result shows the first 1,000 entries and tells that there are more entries
+
 ### Requirement: Bash runs on a remote host through an ssh working directory
 
-As its `cwd`, `bash` MUST accept one `ssh://` path without a selector. The hub MUST run the command with `bash` in that directory on that host, as the remote login user. The stdin of the command is empty. If the hub cannot go into the `cwd`, it MUST refuse the call as for a local call, and no command can run. The local bounds for output, input, time, and processes MUST apply. The exit status is the status in the end trailer.
+As its `cwd`, `bash` MUST accept one `ssh://` path without a selector. The hub MUST run the command with `bash` in that directory on that host, as the remote login user. The stdin of the command is empty. If the hub cannot go into the `cwd`, it MUST refuse the call as for a local call, and no command can run. The exit status is the status in the end trailer.
 
 #### Scenario: Command runs on the remote host in the given directory
 
@@ -334,6 +363,16 @@ As its `cwd`, `bash` MUST accept one `ssh://` path without a selector. The hub M
 - **WHEN** the Chat is bound to a Machine Workspace and the model gives `cwd: "ssh://box/tmp"`
 - **THEN** the command runs on `box` through `ssh://`, and not on the Machine
 
+### Requirement: Remote bash uses the local bounds
+
+The output, input, time, and process bounds MUST be the same as for a local call. The input bound MUST apply to the text of the model (`command`, `cwd`, and `env`), as for a local call, and not to the generated script. The process slot MUST be the one that local `bash` uses.
+
+#### Scenario: Command text above the input bound is refused before a process
+
+- **WHEN** the model gives an `ssh://` `bash` command longer than the local input bound
+- **THEN** the tool refuses the call as a local call does
+- **AND** no SSH process starts
+
 ### Requirement: Remote bash environment entries are data
 
 Each `env` key MUST match `[A-Za-z_][A-Za-z0-9_]*`. An `env` key MUST NOT be the name of a managed base variable. Keys and values MUST NOT contain NUL. If a call does not obey these rules, the hub MUST refuse it before a process starts. The command MUST get each permitted entry. No argument list of a process on the hub or on the host can contain the entry.
@@ -356,7 +395,7 @@ Each `env` key MUST match `[A-Za-z_][A-Za-z0-9_]*`. An `env` key MUST NOT be the
 
 ### Requirement: Remote bash outcomes after start are never replayed
 
-Before SSH starts, a remote `bash` call MUST record a native attempt, with the same owner rules as a local attempt. Only a failure of the pre-session type can give a known refusal. These failures are a missing client, a host key, authentication, a connect failure, or a missing interpreter. The tool MUST return `outcome_unknown` for each other end of the call after SSH starts. This includes a start marker without an end trailer.
+Before SSH starts, a remote `bash` call MUST record a native attempt, with the same owner rules as a local attempt. Only a pre-session failure can give a known refusal: a missing client, a host key, authentication, a connect failure, or a missing interpreter. The tool MUST return `outcome_unknown` for each other end of the call after SSH starts. This includes a start marker without an end trailer.
 
 #### Scenario: Timeout gives an unknown outcome
 
@@ -377,7 +416,25 @@ Before SSH starts, a remote `bash` call MUST record a native attempt, with the s
 
 - **WHEN** the hub starts SSH for a remote `bash` call and the call is cancelled before the start marker arrives
 - **THEN** the result is `outcome_unknown`, and not a refusal that says the command did not run
-- **AND** the hub reports a cancellation as a known result only when it refuses the call before it starts SSH
+
+### Requirement: The host can refuse a remote bash call before the command
+
+If a precondition of the script fails, the script MUST write a refusal frame such as `refuse:cwd` before the start marker. The tool MUST give the local known refusal for that frame, and the command does not run.
+
+#### Scenario: A missing working directory is a known refusal
+
+- **WHEN** the model gives `cwd: "ssh://box/no/such/dir"` and SSH starts
+- **THEN** the result is the local unusable-working-directory refusal, and not `outcome_unknown`
+
+### Requirement: A remote bash stop before SSH starts is a known outcome
+
+The hub MUST check the time bound and the cancellation again after it records the attempt and before it starts SSH. If either one is set, the tool MUST record the known pre-start result on that attempt and MUST NOT start a process.
+
+#### Scenario: Cancellation after the attempt record stops the call
+
+- **WHEN** the call is cancelled while the hub records the attempt of a remote `bash` call
+- **THEN** the result is the known cancellation result, and it is recorded on that attempt
+- **AND** no SSH process starts
 
 ### Requirement: Missing remote prerequisites are named
 
@@ -457,12 +514,17 @@ Native attempts, results, and events for `ssh://` operations MUST have the same 
 
 ### Requirement: ssh locators are prompt-import targets
 
-If the configuration has the `ssh` section and `read` is in `tools.allowed`, an `ssh://` marker in a user prompt MUST be a prompt-import target. The hub MUST read it once through `read` with system origin `prompt-import`, as for a web target. It MUST NOT do a probe or a separate pre-evaluation first. The read MUST use the same admission as a model call, and it MUST count toward the read and output bounds of prompt imports.
+If the configuration has the `ssh` section and `read` in `tools.allowed`, an `ssh://` marker in a user prompt MUST be a prompt-import target. Such a target needs no native executor and no Knowledge root. The hub MUST read it once through `read` with system origin `prompt-import`, as for a web target, with no probe and no separate pre-evaluation. The read MUST use the same admission as a model call, and it MUST count toward the read and output bounds of prompt imports.
 
 #### Scenario: ssh marker is imported
 
 - **WHEN** the user writes `` Explore @`ssh://box/etc/hostname` `` and a `read` allow applies to the resolved locator
 - **THEN** the turn gets a `prompt-imports` item with the content of the file before the model request
+
+#### Scenario: ssh marker needs no native executor
+
+- **WHEN** the configuration has the `ssh` section, no `tools.nativeExecutorId`, and `read` in `tools.allowed`, and the user writes an `ssh://` marker
+- **THEN** the turn gets a `prompt-imports` item before the model request
 
 #### Scenario: Denied ssh marker is not imported
 
@@ -476,15 +538,7 @@ If the configuration has the `ssh` section and `read` is in `tools.allowed`, an 
 
 ### Requirement: ssh locators extend local-only argument forms
 
-The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities contain local-only rules. For `ssh://` locators, this capability MUST replace these rules:
-
-- An argument is a host path.
-- `bash` is available only with the local executor.
-- The model does not select an executor.
-- Directory lists.
-- Projection is a text parse only.
-
-Local behavior and Machine behavior MUST stay the same.
+The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities MUST be read as follows for `ssh://` locators. Where one restricts an argument or root to a host path, or gates on a local executor identity, this capability replaces its rule. Where one forbids a model-selected executor or remote authority, the same rule applies. Local and Machine behavior MUST stay the same.
 
 #### Scenario: Bash is offered without a local executor
 
@@ -496,3 +550,22 @@ Local behavior and Machine behavior MUST stay the same.
 
 - **WHEN** the configuration has the `ssh` section and the model reads an absolute local host path
 - **THEN** the read operates as before this change
+
+### Requirement: ssh locators extend the local list and import rules
+
+Where a capability defines directory lists or limits projection to a text parse, this capability MUST replace its rule for `ssh://` locators. Where it confines an unbound import to a native executor or a Knowledge root, this capability MUST replace its rule.
+
+#### Scenario: A remote directory uses the remote list
+
+- **WHEN** the model reads `ssh://box/etc`
+- **THEN** the entry list follows this capability, and not the local directory rules
+
+### Requirement: The model selects the remote authority of an ssh locator
+
+The argument of the model selects the remote authority of an `ssh://` locator: the host, the user, and the port. The owner, the tenant, and the permission mode of the call MUST stay the same. The model MUST NOT select a local executor for an `ssh://` locator.
+
+#### Scenario: A remote call keeps its owner and permission mode
+
+- **WHEN** the model reads `ssh://box/etc/hostname` in a Run of user A whose permission mode is `ask`
+- **THEN** the `read` group decides the call in that mode
+- **AND** the owner and the tenant stay those of user A, and no local executor is needed
