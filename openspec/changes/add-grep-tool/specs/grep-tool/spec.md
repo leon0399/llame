@@ -149,7 +149,7 @@ or host paths.
 
 #### Scenario: Parent segments are resolved before admission
 
-- **WHEN** a scope is `/home/u/repo/src/../../../etc/**`
+- **WHEN** a scope is `/home/u/repo/../../../etc/**`
 - **THEN** the admitted prefix is `/etc/`
 - **AND** an allow on `/home/u/repo/` does not admit the call
 

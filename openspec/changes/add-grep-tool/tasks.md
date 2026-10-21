@@ -81,7 +81,7 @@ master
 
 ## 5. finalize
 
-- [ ] 5.1 Enter `add-grep-tool/finalize` with `$gh-stack` before any canonical spec write. Confirm `remote-machines` is archived. Rebase the `tool-calling` delta onto the canonical text if `knowledge-submit` archived first, so both edits survive. Then run `$openspec-sync-specs`. Verify the `grep-tool` capability and the `tool-call-permissions` addition appear word for word and each MODIFIED requirement matches its delta with every canonical scenario kept.
+- [ ] 5.1 Enter `add-grep-tool/finalize` with `$gh-stack` before any canonical spec write. After the sync, set `spec: grep-tool` in `docs/product/reference/tools/grep.md`, which names `native-file-tools` until the capability is canonical. Confirm `remote-machines` is archived. Rebase the `tool-calling` delta onto the canonical text if `knowledge-submit` archived first, so both edits survive. Then run `$openspec-sync-specs`. Verify the `grep-tool` capability and the `tool-call-permissions` addition appear word for word and each MODIFIED requirement matches its delta with every canonical scenario kept.
 - [ ] 5.2 Confirm archive readiness: `openspec status --change add-grep-tool --json` reports every artifact done and every task above is checked. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
