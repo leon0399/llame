@@ -7,6 +7,7 @@ import {
   chmodSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -626,6 +627,38 @@ describe('createSshClient generated configuration', () => {
 
     expect(configFile.dispose).toHaveBeenCalledTimes(1);
     expect(client.sshConfigText()).toBeUndefined();
+  });
+
+  it('writes no configuration after disposal', async () => {
+    const harness = fakeSpawn();
+    const client = createSshClient({ ssh: SSH, spawn: harness.spawn });
+    const previous = process.env['TMPDIR'];
+    const directory = mkdtempSync(path.join(tmpdir(), 'llame-ssh-disposed-'));
+    // A Run that reaches the client during shutdown would otherwise write a
+    // fresh directory that no later disposal removes.
+    process.env['TMPDIR'] = directory;
+    try {
+      client.dispose();
+
+      expect(await client.resolve({ host: 'box' })).toMatchObject({
+        outcome: 'failed',
+        reason: 'config',
+      });
+      await expect(
+        client.run({
+          destination: 'box',
+          remoteCommand: ['sh', '-s'],
+          maxStdoutBytes: 1,
+          deadlineMs: 5000,
+        }),
+      ).rejects.toThrow('disposed');
+      expect(readdirSync(directory)).toEqual([]);
+      expect(harness.calls).toHaveLength(0);
+    } finally {
+      if (previous === undefined) delete process.env['TMPDIR'];
+      else process.env['TMPDIR'] = previous;
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('renders the operator-selected agent into the generated configuration', async () => {

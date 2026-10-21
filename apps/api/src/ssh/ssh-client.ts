@@ -381,9 +381,14 @@ async function resolveDestination(
 export function createSshClient(options: SshClientOptions): SshClient {
   const spawn = options.spawn ?? spawnOneShotSshProcess;
   let configFile = options.configFile;
+  let disposed = false;
 
-  /** The generated configuration, written once per process on first use. */
+  /**
+   * The generated configuration, written once per process on first use. After
+   * disposal nothing would remove a new one, so a late call fails instead.
+   */
   function configPath(): string {
+    if (disposed) throw new Error('The SSH client was disposed.');
     configFile ??= createSshConfigFile({
       knownHostsFile: options.ssh.knownHostsFile,
       identityFile: options.ssh.identityFile,
@@ -400,6 +405,7 @@ export function createSshClient(options: SshClientOptions): SshClient {
     run: async (request) =>
       runBoundedSsh(spawn, runArgs(configPath(), request), request),
     dispose: () => {
+      disposed = true;
       configFile?.dispose();
       configFile = undefined;
     },
