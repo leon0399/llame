@@ -51,7 +51,7 @@ Each SSH process for an `ssh://` operation, also for the resolution of the desti
 
 #### Scenario: Alias and jump host come from the included configuration
 
-- **WHEN** the included configuration resolves `box` through `ProxyJump bastion` and the two keys are pinned
+- **WHEN** a `Host box` block of the included configuration sets `ProxyJump bastion` and the two keys are pinned
 - **THEN** `read ssh://box/etc/hostname` returns the file from `box` through `bastion`
 
 ### Requirement: The ssh agent is off unless the operator selects it
