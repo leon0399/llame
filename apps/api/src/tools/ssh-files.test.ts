@@ -195,7 +195,7 @@ describe('ssh read transfer', () => {
 
     expect(result).toMatchObject({ status: 'error', type: 'file_too_large' });
     expect(result.status === 'error' && result.message).toBe(
-      'The remote file is larger than the 1 MiB read bound.',
+      'The remote file is larger than the 1 MiB read bound; examine it with a bash ssh:// cwd instead.',
     );
   });
 

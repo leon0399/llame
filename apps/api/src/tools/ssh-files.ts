@@ -68,7 +68,7 @@ const UNREADABLE_MESSAGE = 'File could not be read.';
 const NOT_REGULAR_MESSAGE =
   'Only a regular file or a directory can be read; a FIFO, socket, or device is never opened.';
 const INVALID_UTF8_MESSAGE = 'The remote file is not valid UTF-8 text.';
-const FILE_TOO_LARGE_MESSAGE = `The remote file is larger than the ${String(SSH_READ_MAX_BYTES / (1024 * 1024))} MiB read bound.`;
+const FILE_TOO_LARGE_MESSAGE = `The remote file is larger than the ${String(SSH_READ_MAX_BYTES / (1024 * 1024))} MiB read bound; examine it with a bash ssh:// cwd instead.`;
 const UNFINISHED_READ_MESSAGE =
   'The remote read did not finish, so the file could not be read.';
 
