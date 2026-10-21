@@ -440,6 +440,26 @@ export async function executeSshRead(
   );
 }
 
+/**
+ * Does one `ssh` call reach this module? A configured section dispatches every
+ * call; without one, only a `read` of a bare locator does, because its fixed
+ * answer starts nothing and lists nothing, so it cannot depend on the section.
+ * Every other `ssh://` call without a section stays an unknown scheme.
+ */
+export function isSshNativeDispatch(
+  context: ToolContext,
+  call: {
+    readonly operation: 'read' | 'edit' | 'write';
+    readonly input: { readonly path: string };
+  },
+): boolean {
+  return (
+    context.sshClient !== undefined ||
+    (call.operation === 'read' &&
+      parseSshLocator(call.input.path).kind === 'help')
+  );
+}
+
 /** The `read` and mutation dispatch for one admitted `ssh://` path. */
 export function executeSshNative(
   context: ToolContext,

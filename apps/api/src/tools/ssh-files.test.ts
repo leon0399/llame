@@ -15,6 +15,8 @@ import {
   SSH_READ_TRANSFER_BYTES,
 } from '../ssh/ssh-script';
 import { nativeEditTool, nativeReadTool } from './native-files';
+import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { runTool } from './runner';
 import { executeSshRead } from './ssh-files';
 import { type ToolContext } from './types';
 
@@ -656,6 +658,69 @@ describe('ssh read dispatch', () => {
       shownRange: null,
     });
     expect(remoteClient.runs).toHaveLength(0);
+  });
+
+  it('returns that message through the tool, with or without the section', async () => {
+    // The answer does not depend on the operator's `ssh` section: it starts
+    // nothing, so the same call returns the same bound read either way.
+    const remoteClient = remote(fileReply('x'));
+
+    for (const path of ['ssh://', 'ssh:///'])
+      for (const sshClient of [remoteClient.client, undefined]) {
+        const result = await runTool(
+          nativeReadTool,
+          { path },
+          {
+            ...context(undefined),
+            permissionPolicy: compileToolPermissionMap(
+              { read: { allow: true } },
+              'test-policy',
+            ),
+            ...(sshClient !== undefined && { sshClient }),
+          },
+          5,
+        );
+
+        expect(result).toMatchObject({
+          status: 'success',
+          kind: 'file',
+          path,
+        });
+        expect(result['content']).toBe(SSH_LOCATOR_HELP);
+        expect(remoteClient.runs).toHaveLength(0);
+      }
+  });
+
+  it('leaves every other ssh call an unknown scheme without the section', async () => {
+    const shared = {
+      ...context(undefined),
+      permissionPolicy: compileToolPermissionMap(
+        { read: { allow: true }, edit: { allow: true } },
+        'test-policy',
+      ),
+    };
+    const unknownScheme = {
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
+    };
+
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: 'ssh://box/etc/hostname' },
+        shared,
+        5,
+      ),
+    ).toEqual(unknownScheme);
+    expect(
+      await runTool(
+        nativeEditTool,
+        { path: 'ssh://', oldText: 'a', newText: 'b' },
+        shared,
+        5,
+      ),
+    ).toEqual(unknownScheme);
   });
 
   it('fails closed without a binding and starts nothing', async () => {
