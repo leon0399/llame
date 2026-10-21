@@ -230,6 +230,13 @@ describe('classifySshBashOutcome', () => {
         unstarted,
       ),
     ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
+    // A login shell that floods stdout can push the marker past the bound.
+    expect(
+      classifySshBashOutcome(
+        { ...ended('', 0), stdoutOverflow: true },
+        unstarted,
+      ),
+    ).toEqual({ kind: 'unknown' });
   });
 });
 

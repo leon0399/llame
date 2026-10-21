@@ -128,14 +128,17 @@ export function classifySshBashOutcome(
  * The failure of a process that ended before the hub saw the start marker. A
  * missing client never ran anything; a process that ended on its own left
  * ssh's stderr to classify; our own deadline or a cancellation stops the local
- * `ssh` after it may have sent the script, so it is an unknown outcome. Only
- * the caller's pre-spawn check is a known cancellation.
+ * `ssh` after it may have sent the script, so it is an unknown outcome, and so
+ * is a stdout bound reached before the marker, which may have dropped the
+ * marker of a command that ran. Only the caller's pre-spawn check is a known
+ * cancellation.
  */
 function preMarkerBashFailure(outcome: SshRunOutcome): SshBashVerdict {
   if (outcome.outcome === 'failed')
     return outcome.reason === 'client_missing'
       ? { kind: 'unavailable', reason: 'client_missing' }
       : { kind: 'unknown' };
+  if (outcome.stdoutOverflow) return { kind: 'unknown' };
   return classifyEndedPreludeFailure(outcome);
 }
 
