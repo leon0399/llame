@@ -15,7 +15,7 @@ nothing installed on the far side.
 ## What Changes
 
 - New optional `ssh` configuration section (`knownHostsFile`, `identityFile`,
-  `configFile`). Without it, `ssh://` is refused as an unknown scheme exactly
+  `configFile`, and an opt-in `identityAgent` for `ssh://` only). Without it, `ssh://` is refused as an unknown scheme exactly
   as today and no SSH process starts.
 - New locator `ssh://[user@]host[:port]/<absolute path>` accepted by `read`
   and as the `bash` `cwd`. The authority is any destination OpenSSH resolves

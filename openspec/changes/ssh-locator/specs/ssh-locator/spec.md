@@ -21,7 +21,7 @@ The configuration MUST accept an optional `ssh` section under the closed publish
 
 ### Requirement: SSH settings are validated at startup
 
-The `ssh` section MUST accept only `knownHostsFile`, `identityFile`, and `configFile`. Each value is a path without interpolation. The loader MUST resolve each path relative to the configuration file and expand `~/`. The default `knownHostsFile` is `~/.ssh/known_hosts` of the worker user. The default `configFile` is `~/.ssh/config` of the worker user. If a field is not correct or is not known, startup MUST fail and show the name of the field.
+The `ssh` section MUST accept only `knownHostsFile`, `identityFile`, `configFile`, and `identityAgent`. Each file value is a path without interpolation. The loader MUST resolve each path relative to the configuration file and expand `~/`. The default `knownHostsFile` is `~/.ssh/known_hosts` of the worker user. The default `configFile` is `~/.ssh/config` of the worker user. If a field is not correct or is not known, startup MUST fail and show the name of the field.
 
 #### Scenario: Interpolated path stops startup
 
@@ -36,7 +36,7 @@ The `ssh` section MUST accept only `knownHostsFile`, `identityFile`, and `config
 
 ### Requirement: ssh connections use the llame SSH safety options
 
-Each SSH process for an `ssh://` operation, also for the resolution of the destination, MUST use the generated configuration of remote Machines. The llame safety options come first, and the configured SSH configuration follows them. For each hop that ssh opens, host keys MUST come only from the pinned file, with strict checks. Batch mode, connect timeouts, and liveness timeouts MUST apply. The SSH agent MUST stay off. Each operation MUST use a different connection.
+Each SSH process for an `ssh://` operation, also for the resolution of the destination, MUST use the generated configuration of remote Machines. The llame safety options come first, and the configured SSH configuration follows them. For each hop that ssh opens, host keys MUST come only from the pinned file, with strict checks. Batch mode, connect timeouts, and liveness timeouts MUST apply. The agent MUST NOT go to the remote host. Each operation MUST use a different connection.
 
 #### Scenario: Unpinned host is refused
 
@@ -53,6 +53,25 @@ Each SSH process for an `ssh://` operation, also for the resolution of the desti
 
 - **WHEN** the included configuration resolves `box` through `ProxyJump bastion` and the two keys are pinned
 - **THEN** `read ssh://box/etc/hostname` returns the file from `box` through `bastion`
+
+### Requirement: The ssh agent is off unless the operator selects it
+
+The `ssh` section MUST accept an optional `identityAgent`. Its value is `SSH_AUTH_SOCK` or a path, and the path rules of the other `ssh` fields apply. If the section has no `identityAgent`, `ssh://` connections MUST NOT use an SSH agent. If it has one, `ssh://` connections MUST use that agent, and Machine connections MUST NOT use it.
+
+#### Scenario: No agent by default
+
+- **WHEN** the `ssh` section has no `identityAgent` and the only key for `box` is in the SSH agent of the worker user
+- **THEN** a read of `ssh://box/etc/hostname` returns `ssh_unavailable` with reason `auth_failed`
+
+#### Scenario: Operator selects the agent
+
+- **WHEN** the `ssh` section has `identityAgent: SSH_AUTH_SOCK` and the SSH agent of the worker process has the key for `box`
+- **THEN** a read of `ssh://box/etc/hostname` returns the file
+
+#### Scenario: Machines do not use the agent
+
+- **WHEN** the `ssh` section has `identityAgent: SSH_AUTH_SOCK` and a Machine is configured
+- **THEN** the Machine connection does not use an SSH agent
 
 ### Requirement: ssh locators name a destination with strict spelling
 

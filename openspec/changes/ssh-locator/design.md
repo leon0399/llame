@@ -136,6 +136,15 @@ A top-level `ssh` section with the same three keys and defaults as
 Alternatives: read `machines.ssh` (couples enabling `ssh://` to declaring
 Machines); a standalone transport copy (two host-key policies drift).
 
+The `ssh` section also accepts `identityAgent` (`SSH_AUTH_SOCK`, which OpenSSH
+reads from the worker's environment, or a literal socket path). Set, it
+replaces `IdentityAgent none` in the `ssh://` generated configuration only;
+`ForwardAgent no` stays, and Machines keep `IdentityAgent none`. Leo chose it on
+2026-10-21 so a personal instance can use the operator's agent keys. The cost:
+every key in that agent authenticates to every model-chosen destination that
+passes the permission rules and the pinned host keys, so the operator page
+pairs it with a dedicated `knownHostsFile` and host-scoped allows.
+
 ### D2: Authority and path grammar
 
 `ssh://[user@]host[:port]/<path>`, scheme case-insensitive. Host: a name or
