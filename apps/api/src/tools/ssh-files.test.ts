@@ -14,7 +14,7 @@ import { type ToolContext } from './types';
 const BINDING: SshBinding = {
   destination: 'box',
   user: 'box',
-  hostname: 'box',
+  host: 'box',
   port: 22,
   locator: 'ssh://box@box:22/etc/hostname',
 };

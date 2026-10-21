@@ -324,11 +324,7 @@ async function runRemoteRead(request: RemoteReadRequest): Promise<RemoteRead> {
   const { client, binding, context } = request;
   const outcome = await client.run({
     destination: binding.destination,
-    resolved: {
-      user: binding.user,
-      host: binding.hostname,
-      port: binding.port,
-    },
+    resolved: binding,
     remoteCommand: ['sh', '-s'],
     input: buildSshReadScript({ nonce: request.nonce, path: request.path }),
     maxStdoutBytes: SSH_READ_TRANSFER_BYTES + SSH_READ_NOISE_BYTES,

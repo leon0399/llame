@@ -467,7 +467,11 @@ describe('ssh read admission', () => {
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
         destination: 'box',
-        resolved: RESOLVED,
+        resolved: {
+          ...RESOLVED,
+          destination: 'box',
+          locator: 'ssh://box@box:22/etc/hostname',
+        },
         remoteCommand: ['sh', '-s'],
       }),
     );
