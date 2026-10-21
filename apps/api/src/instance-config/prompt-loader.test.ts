@@ -452,7 +452,7 @@ describe('model prompt rendering', () => {
 
 describe('tool membership predicates', () => {
   it.each([
-    ['unknown native id', 'grep'],
+    ['unknown native id', 'never_registered'],
     ['unknown canonical MCP id', 'mcp__offline__search'],
   ])('boots and renders %s as false', (_case, id) => {
     writeFileSync(

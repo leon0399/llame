@@ -17,7 +17,8 @@ export type DerivedLocatorKind =
   | 'llms-txt'
   | 'adapter'
   | 'address'
-  | 'canonical';
+  | 'canonical'
+  | 'grep-file';
 
 /** One derived locator's admission, handed to the trusted run loop beside the
  *  call decision; never model-visible. */
@@ -25,6 +26,8 @@ export type DerivedDecision = {
   readonly kind: DerivedLocatorKind;
   readonly url: string;
   readonly decision: PermissionDecision;
+  /** `grep-file` only: how many candidate files the `read` group refused. */
+  readonly count?: number;
 };
 
 /**
@@ -36,6 +39,8 @@ export type DerivedDecision = {
  */
 export type DerivedDecisionRecord = PermissionDecision & {
   readonly kind: DerivedLocatorKind;
+  /** `grep-file` only: the refused-file count the one record stands for. */
+  readonly count?: number;
 };
 
 /** Every kind, exhaustive by construction so the guard below and the type
@@ -48,6 +53,7 @@ const KIND_NAMES: Readonly<Record<DerivedLocatorKind, true>> = {
   adapter: true,
   address: true,
   canonical: true,
+  'grep-file': true,
 };
 
 /** Whether a stored provenance record names a kind this build knows: stored

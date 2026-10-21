@@ -171,7 +171,7 @@ function skillSelectorSpelling(
  * character, or exceeds the shared bounds. Returns the path components when
  * admissible.
  */
-function validateSkillResourcePath(
+export function validateSkillResourcePath(
   relativePath: string,
 ): ReadonlyArray<string> | undefined {
   if (

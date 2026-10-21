@@ -975,6 +975,39 @@ describe('reconstructDurableAssistant', () => {
     ).toHaveLength(26);
   });
 
+  it('keeps the refused-file count of a grep-file decision and drops a malformed one', () => {
+    const refused = {
+      kind: 'grep-file' as const,
+      policyId: 'policy-grep',
+      decision: 'reject' as const,
+      reason: 'explicit_reject' as const,
+      reference: null,
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'grep',
+        input: { patterns: ['x'] },
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success' },
+        derivedDecisions: [
+          { ...refused, count: 40 },
+          { ...refused, policyId: 'policy-bad', count: -1 },
+        ],
+      }),
+    ]);
+
+    const toolPart = result.collector
+      .parts()
+      .find((part): part is ToolActivityPart => part.type === 'tool-grep');
+    expect(toolPart?.derivedDecisions).toStrictEqual([
+      { ...refused, count: 40 },
+      { ...refused, policyId: 'policy-bad' },
+    ]);
+  });
+
   it('keeps derived-locator decisions out of the observable result and model replay', () => {
     const decision = {
       kind: 'hop' as const,

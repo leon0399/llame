@@ -51,6 +51,18 @@ describe('buildToolPermissionPolicy', () => {
     expect(policy.groups.has('read')).toBe(true);
   });
 
+  it('accepts the array-valued scopes field on grep and no other array', async () => {
+    const policy = await buildToolPermissionPolicy({
+      grep: { allow: [{ field: 'scopes', literal: '/home/u/' }] },
+    });
+    expect(policy.groups.has('grep')).toBe(true);
+    await expect(
+      buildToolPermissionPolicy({
+        grep: { allow: [{ field: 'patterns', literal: 'x' }] },
+      }),
+    ).rejects.toBeInstanceOf(PermissionCompileError);
+  });
+
   it('does not field-validate MCP groups at boot', async () => {
     const policy = await buildToolPermissionPolicy({
       mcp__docs__fetch: { allow: [{ field: 'anything', literal: 'x' }] },

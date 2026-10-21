@@ -36,6 +36,9 @@ const renderPathInstructionTemplate = loadPackagedTemplate<
 
 export const SKILL_PATH_INSTRUCTION = renderPathInstructionTemplate({});
 
+/** The error half of a tool result; every refusal on this surface is one. */
+export type SkillToolError = Extract<ToolResult, { status: 'error' }>;
+
 /**
  * The current user turn's explicit skill selections. The read layer always
  * passes an empty set; the activation layer supplies the Run's selections so a
@@ -94,7 +97,7 @@ export async function resolveSkillLocator(
   if ('type' in parsed) return { status: 'error', ...parsed };
 
   const snapshot = catalog.getSnapshot(extraSources);
-  if (!snapshot.available) return catalogUnavailableResult();
+  if (!snapshot.available) return skillCatalogUnavailableResult();
 
   if (parsed.catalog === true) {
     const entries = snapshot.entries.filter((entry) =>
@@ -108,11 +111,12 @@ export async function resolveSkillLocator(
   const entry = snapshot.entries.find(
     (candidate) => candidate.name === parsed.name,
   );
-  if (entry === undefined) return notFoundResult();
+  if (entry === undefined) return skillNotFoundResult();
   if (!entry.available || entry.skillDirectory === null) {
-    return unavailablePackageResult();
+    return skillUnavailableResult();
   }
-  if (!isReadable(entry, selection)) return manualOnlyResult(entry.name);
+  if (!isReadable(entry, selection))
+    return skillRequiresSelectionResult(entry.name);
 
   return resolveWithinPackage(parsed, entry, entry.skillDirectory);
 }
@@ -191,11 +195,11 @@ async function realPackageDirectory(
   return real === skillDirectory ? undefined : real;
 }
 
-function notFoundResult(): ToolResult {
+export function skillNotFoundResult(): SkillToolError {
   return { status: 'error', type: 'not_found', message: 'File not found.' };
 }
 
-function catalogUnavailableResult(): ToolResult {
+export function skillCatalogUnavailableResult(): SkillToolError {
   return {
     status: 'error',
     type: 'skill_catalog_unavailable',
@@ -203,7 +207,7 @@ function catalogUnavailableResult(): ToolResult {
   };
 }
 
-function unavailablePackageResult(): ToolResult {
+export function skillUnavailableResult(): SkillToolError {
   return {
     status: 'error',
     type: 'skill_unavailable',
@@ -213,7 +217,7 @@ function unavailablePackageResult(): ToolResult {
 
 /** Bounded and explicit: the model is told the package exists but needs the
  *  user to name it, so it asks rather than inventing the instructions. */
-function manualOnlyResult(name: string): ToolResult {
+export function skillRequiresSelectionResult(name: string): SkillToolError {
   return {
     status: 'error',
     type: 'skill_requires_explicit_selection',

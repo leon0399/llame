@@ -129,10 +129,39 @@ export type KnowledgeFilesystemSearchMatch = {
   readonly excerpt: string;
 };
 
+/** One listed entry of a content walk; a link is reported, never followed. */
+export type KnowledgeWalkEntry = {
+  readonly name: string;
+  readonly kind: 'file' | 'directory' | 'link' | 'other';
+};
+
+/** Why a walk read handed back no bytes; the walk counts the skip. */
+export type KnowledgeWalkReadRefusal = {
+  readonly kind: 'oversized' | 'unreadable';
+};
+
 export type KnowledgeFilesystemAdapterPort = Pick<
   KnowledgeFilesystemAdapter,
   'search' | 'resolveHostPath' | 'isInsideSpace'
 >;
+
+/** The walk half of one bound Space: listing, classification, bounded reads. */
+export type KnowledgeWalkAdapter = Pick<
+  KnowledgeFilesystemAdapter,
+  'inspectWalk' | 'listWalk' | 'readWalk'
+>;
+
+/**
+ * The walk surface for one binding the trusted resolver already returned.
+ * Separate from {@link KnowledgeFilesystemAdapterPort} because a reader needs
+ * one file at a time, while a walk needs a whole tree; a tool that only reads
+ * never depends on it.
+ */
+export function createKnowledgeWalkAdapter(
+  binding: KnowledgeFilesystemBinding,
+): KnowledgeWalkAdapter {
+  return new KnowledgeFilesystemAdapter(binding);
+}
 
 export type KnowledgeFilesystemSearchOptions = {
   readonly signal?: AbortSignal;
@@ -187,6 +216,20 @@ function assertReadableFileStats(
   if (fileStats.size > maxBytes) {
     throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
   }
+}
+
+/** A listed entry as a walk sees it: a link stays a link, and a name the Space
+ *  rules cannot address is neither a file nor a directory. */
+function walkEntry(entry: KnowledgeFilesystemDirent): KnowledgeWalkEntry {
+  if (entry.isSymbolicLink()) return { name: entry.name, kind: 'link' };
+  if (!entry.isDirectory() && !entry.isFile())
+    return { name: entry.name, kind: 'other' };
+  try {
+    validatePath(entry.name);
+  } catch {
+    return { name: entry.name, kind: 'other' };
+  }
+  return { name: entry.name, kind: entry.isDirectory() ? 'directory' : 'file' };
 }
 
 /**
@@ -357,6 +400,80 @@ export class KnowledgeFilesystemAdapter {
         mkdir: (directoryPath) => this.mkdir(directoryPath),
       },
       options,
+    );
+  }
+
+  /**
+   * Classify one path a content walk is about to enter. Components settle
+   * through the same `lstat` walk `read` uses, so a symbolic link anywhere on
+   * the way is refused and the target stays inside the resolved Space.
+   */
+  async inspectWalk(
+    relativePath: string,
+    signal?: AbortSignal,
+  ): Promise<'file' | 'directory'> {
+    const hostPath = await this.walkHostPath(relativePath, signal);
+    const stats = await this.lstat(hostPath, 'knowledge_not_found', signal);
+    if (stats.isSymbolicLink()) {
+      throw new KnowledgeFilesystemError('knowledge_path_invalid');
+    }
+    return stats.isDirectory() ? 'directory' : 'file';
+  }
+
+  /**
+   * List one directory of a content walk. A name the Space rules cannot
+   * address is reported as `other`, so the walk lists it without opening it.
+   */
+  async listWalk(
+    relativePath: string,
+    signal?: AbortSignal,
+  ): Promise<ReadonlyArray<KnowledgeWalkEntry>> {
+    const hostPath = await this.walkHostPath(relativePath, signal);
+    const result = await this.readDirectory(
+      hostPath,
+      KNOWLEDGE_MAX_ENTRIES,
+      signal,
+    );
+    return result.entries.map(walkEntry);
+  }
+
+  /**
+   * Read one file of a content walk under its per-file byte bound. A file over
+   * the bound and a file the walk cannot open are skips, never failures of the
+   * walk: the caller counts them.
+   */
+  async readWalk(
+    relativePath: string,
+    maxBytes: number,
+    signal?: AbortSignal,
+  ): Promise<Buffer | KnowledgeWalkReadRefusal> {
+    const hostPath = await this.walkHostPath(relativePath, signal);
+    try {
+      return await this.readFile(hostPath, maxBytes, signal);
+    } catch (error) {
+      if (
+        error instanceof KnowledgeFilesystemError &&
+        error.code === 'knowledge_cancelled'
+      ) {
+        throw error;
+      }
+      return {
+        kind:
+          error instanceof KnowledgeFilesystemError &&
+          error.code === 'knowledge_limit_exceeded'
+            ? 'oversized'
+            : 'unreadable',
+      };
+    }
+  }
+
+  private walkHostPath(
+    relativePath: string,
+    signal: AbortSignal | undefined,
+  ): Promise<string> {
+    return this.resolveHostPath(
+      relativePath.length === 0 ? undefined : relativePath,
+      { signal },
     );
   }
 

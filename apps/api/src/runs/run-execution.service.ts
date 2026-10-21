@@ -736,7 +736,11 @@ function appendDerivedDecision(
       ? MAX_ADAPTER_DECISIONS
       : MAX_DERIVED_DECISIONS;
   if (recordedCount >= limit) return;
-  decisions.push({ ...decision.decision, kind: decision.kind });
+  decisions.push(
+    decision.count === undefined
+      ? { ...decision.decision, kind: decision.kind }
+      : { ...decision.decision, kind: decision.kind, count: decision.count },
+  );
 }
 
 /** The capabilities the runs worker needs to drive and terminalize a turn. */

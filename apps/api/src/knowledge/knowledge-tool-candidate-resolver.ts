@@ -1,4 +1,5 @@
 import { isBashTool } from '../tools/bash';
+import { isGrepTool } from '../tools/grep';
 import { isNativeFileTool } from '../tools/native-files';
 import { Inject, Injectable } from '@nestjs/common';
 
@@ -100,6 +101,16 @@ export class KnowledgeToolCandidateResolver {
     const ssh = this.instanceConfig.config.ssh !== undefined;
     if (isBashTool(tool))
       return nativeExecutorId !== undefined || machines || ssh;
+    // `grep` is advertised only when a backend can serve it: a host executor,
+    // a Knowledge root, an operator skill source, or a Machine.
+    if (isGrepTool(tool)) {
+      return (
+        nativeExecutorId !== undefined ||
+        this.instanceConfig.config.knowledge.root !== undefined ||
+        this.instanceConfig.config.skills.directories.length > 0 ||
+        machines
+      );
+    }
     if (!isNativeFileTool(tool)) return true;
     if (tool.id === 'read') return true;
     return (

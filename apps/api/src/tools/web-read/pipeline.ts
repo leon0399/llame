@@ -55,7 +55,7 @@ export type WebPipelineDeps = {
 /** The kinds the pipeline derives itself; a hop is the hop loop's. */
 type ProbeKind = Exclude<
   DerivedLocatorKind,
-  'hop' | 'address' | 'canonical' | 'adapter'
+  'hop' | 'address' | 'canonical' | 'adapter' | 'grep-file'
 >;
 
 /** The `method` a winning probe reports, which names the adapter that won. */

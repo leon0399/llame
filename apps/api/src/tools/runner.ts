@@ -11,6 +11,7 @@ import {
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import { evaluateGrepPermission } from './grep-admission';
 import { admitPermission } from './permissions/admit';
 import { isBashCommandField } from './permissions/bash-command-field';
 import { evaluatePermission } from './permissions/evaluator';
@@ -287,6 +288,16 @@ function evaluateCanonicalReadPermission(
  * is why each hop is admitted in its own right instead.
  */
 function evaluateToolPermission(
+  tool: Tool,
+  args: SubmittedToolArguments,
+  context: ToolContext,
+): PermissionDecision | undefined {
+  // `grep` is admitted once per scope on each scope's literal prefix.
+  if (tool.id === 'grep') return evaluateGrepPermission(args, context);
+  return evaluateLocatorToolPermission(tool, args, context);
+}
+
+function evaluateLocatorToolPermission(
   tool: Tool,
   args: SubmittedToolArguments,
   context: ToolContext,
