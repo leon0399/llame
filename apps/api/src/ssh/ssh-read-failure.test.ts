@@ -87,6 +87,16 @@ describe('classifySshPreludeFailure', () => {
     ).toEqual({ kind: 'unsupported', cause: 'posix_shell' });
   });
 
+  it('needs the missing-shell exit status, not just the phrase', () => {
+    // A remote command that merely prints the words is a host that ran no
+    // llame script, not one whose interpreter is missing.
+    expect(
+      classifySshPreludeFailure(
+        ended('bash: line 1: sh: command not found', 1),
+      ),
+    ).toEqual({ kind: 'unsupported', cause: 'no_script' });
+  });
+
   it('names the POSIX shell requirement for a Windows login shell', () => {
     expect(
       classifySshPreludeFailure(

@@ -1,7 +1,9 @@
 import {
   SSH_LIST_MAX_ENTRIES,
+  SSH_READ_TRANSFER_BYTES,
   buildSshReadScript,
   createSshNonce,
+  isSshReadRefusal,
   parseSshDirectoryEntries,
   parseSshReadFrames,
   parseSshRefusal,
@@ -45,6 +47,67 @@ describe('buildSshReadScript', () => {
     expect(script).toContain(String.raw`printf '%s:start:dir\n'`);
     expect(script).toContain('"$p"/* "$p"/.[!.]* "$p"/..?*');
     expect(script).toContain(String.raw`printf '%s:end:%s\n' "$h" "$s" >&2`);
+  });
+
+  it('emits the exact wire script the host runs', () => {
+    // The script is the host-side wire contract: every line is a statement the
+    // hub parses back (markers, refusals, entry pairs). Pin it whole so a
+    // dropped or reworded line cannot silently change the protocol.
+    const expected = [
+      '{',
+      `  h='${NONCE}'`,
+      `  p='/srv/a'`,
+      '  refuse() {',
+      String.raw`    printf '%s:refuse:%s\n' "$h" "$1" >&2`,
+      String.raw`    printf '%s:end:0\n' "$h" >&2`,
+      '    exit 0',
+      '  }',
+      '  if [ ! -e "$p" ]; then refuse not_found; fi',
+      '  if [ -d "$p" ]; then',
+      '    if [ ! -r "$p" ] || [ ! -x "$p" ]; then refuse unreadable; fi',
+      String.raw`    printf '%s:start:dir\n' "$h"`,
+      String.raw`    printf '%s:start\n' "$h" >&2`,
+      '    n=0',
+      '    for e in "$p"/* "$p"/.[!.]* "$p"/..?*; do',
+      '      if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi',
+      '      if [ -L "$e" ]; then k=l',
+      '      elif [ -d "$e" ]; then k=d',
+      '      elif [ -f "$e" ]; then k=f',
+      '      else k=o',
+      '      fi',
+      '      name=${e##*/}',
+      String.raw`      printf '%s\000%s\000' "$k" "$name"`,
+      '      n=$((n + 1))',
+      `      if [ "$n" -ge ${String(SSH_LIST_MAX_ENTRIES + 1)} ]; then break; fi`,
+      '    done',
+      '  else',
+      '    if [ ! -f "$p" ]; then refuse not_regular_file; fi',
+      '    if [ ! -r "$p" ]; then refuse unreadable; fi',
+      String.raw`    printf '%s:start:file\n' "$h"`,
+      String.raw`    printf '%s:start\n' "$h" >&2`,
+      `    head -c ${String(SSH_READ_TRANSFER_BYTES)} -- "$p"`,
+      '  fi',
+      '  s=$?',
+      String.raw`  printf '%s:end:%s\n' "$h" "$s" >&2`,
+      '}',
+      '',
+    ].join('\n');
+
+    expect(buildSshReadScript({ nonce: NONCE, path: '/srv/a' })).toBe(expected);
+  });
+});
+
+describe('isSshReadRefusal', () => {
+  it('accepts the kinds this revision understands', () => {
+    expect(isSshReadRefusal('not_found')).toBe(true);
+    expect(isSshReadRefusal('not_regular_file')).toBe(true);
+    expect(isSshReadRefusal('unreadable')).toBe(true);
+  });
+
+  it('refuses a kind from another revision', () => {
+    expect(isSshReadRefusal('not_a_kind')).toBe(false);
+    expect(isSshReadRefusal('')).toBe(false);
+    expect(isSshReadRefusal('not_found ')).toBe(false);
   });
 });
 
@@ -123,6 +186,46 @@ describe('parseSshReadFrames', () => {
     expect(frames.started).toBe(false);
     expect(frames.refusal).toBe('not_found');
   });
+
+  it('takes a bare marker as file content', () => {
+    const frames = framesFrom(
+      `${sshStartMarker(NONCE)}\nplain\n`,
+      `${NONCE}:end:0\n`,
+    );
+
+    expect(frames.kind).toBe('file');
+    expect(frames.content.toString()).toBe('plain\n');
+  });
+
+  it('leaves the kind unknown when the marker suffix is foreign', () => {
+    const frames = framesFrom(
+      `${sshStartMarker(NONCE)}:link\nbody\n`,
+      `${NONCE}:end:0\n`,
+    );
+
+    expect(frames.started).toBe(true);
+    expect('kind' in frames).toBe(false);
+    expect(frames.content.toString()).toBe('body\n');
+  });
+
+  it('reads a marker that never ends its line', () => {
+    const frames = parseSshReadFrames(
+      Buffer.from(`${sshStartMarker(NONCE)}:`),
+      `${NONCE}:end:0\n`,
+      NONCE,
+    );
+
+    expect('kind' in frames).toBe(false);
+    expect(frames.content.byteLength).toBe(0);
+  });
+
+  it('omits a refusal and a status the streams did not carry', () => {
+    const noTrailer = framesFrom(`${sshStartMarker(NONCE)}:file\nx`, 'noise');
+    expect('status' in noTrailer).toBe(false);
+
+    const noRefusal = framesFrom('', 'noise');
+    expect('refusal' in noRefusal).toBe(false);
+  });
 });
 
 describe('parseSshTrailer and parseSshRefusal', () => {
@@ -141,6 +244,33 @@ describe('parseSshTrailer and parseSshRefusal', () => {
   it('is absent when the frames never arrived', () => {
     expect(parseSshTrailer('nothing here', NONCE)).toBeUndefined();
     expect(parseSshRefusal('nothing here', NONCE)).toBeUndefined();
+  });
+
+  it('needs the marker itself, not only digits after it', () => {
+    expect(parseSshTrailer('9'.repeat(64), NONCE)).toBeUndefined();
+  });
+
+  it('reads a trailer that starts away from the buffer start', () => {
+    expect(parseSshTrailer(`x${NONCE}:end:5\n`, NONCE)).toBe(5);
+  });
+
+  it('reads the status digits only where the marker ends', () => {
+    expect(parseSshTrailer(`${NONCE}:end:x7\n`, NONCE)).toBeUndefined();
+    expect(parseSshTrailer(`${NONCE}:end:\n`, NONCE)).toBeUndefined();
+  });
+
+  it('reads a three-digit status whole', () => {
+    expect(parseSshTrailer(`${NONCE}:end:123\n`, NONCE)).toBe(123);
+  });
+
+  it('reads a refusal that ends the buffer with no line end', () => {
+    expect(parseSshRefusal(`${NONCE}:refuse:unreadable`, NONCE)).toBe(
+      'unreadable',
+    );
+  });
+
+  it('stops a refusal at its first line end', () => {
+    expect(parseSshRefusal(`${NONCE}:refuse:a\nrest`, NONCE)).toBe('a');
   });
 });
 
@@ -168,6 +298,36 @@ describe('parseSshDirectoryEntries', () => {
 
     expect(entries).toHaveLength(SSH_LIST_MAX_ENTRIES);
     expect(more).toBe(true);
+  });
+
+  it('keeps the bound itself as no more than the bound', () => {
+    const field = Array.from(
+      { length: SSH_LIST_MAX_ENTRIES },
+      (_, index): string => `f\0f${String(index)}\0`,
+    ).join('');
+
+    const { entries, more } = parseSshDirectoryEntries(Buffer.from(field));
+
+    expect(entries).toHaveLength(SSH_LIST_MAX_ENTRIES);
+    expect(more).toBe(false);
+  });
+
+  it('names a special entry and skips a letter it does not know', () => {
+    const { entries } = parseSshDirectoryEntries(
+      Buffer.from('f\0file\0o\0device\0x\0junk\0'),
+    );
+
+    expect(entries).toEqual([
+      { name: 'file', kind: 'file' },
+      { name: 'device', kind: 'special' },
+    ]);
+  });
+
+  it('ignores a trailing field with no name after it', () => {
+    const { entries, more } = parseSshDirectoryEntries(Buffer.from('f\0a\0d'));
+
+    expect(entries).toEqual([{ name: 'a', kind: 'file' }]);
+    expect(more).toBe(false);
   });
 });
 

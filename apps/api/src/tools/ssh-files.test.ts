@@ -6,7 +6,7 @@ import {
   type SshRunRequest,
 } from '../ssh/ssh-client';
 import { SSH_LOCATOR_HELP } from '../ssh/ssh-locator';
-import { SSH_READ_TRANSFER_BYTES } from '../ssh/ssh-script';
+import { SSH_READ_MAX_BYTES, SSH_READ_TRANSFER_BYTES } from '../ssh/ssh-script';
 import { nativeEditTool, nativeReadTool } from './native-files';
 import { executeSshRead } from './ssh-files';
 import { type ToolContext } from './types';
@@ -203,6 +203,83 @@ describe('ssh read transfer', () => {
     expect(remoteClient.runs[0]?.signal).toBe(controller.signal);
     expect(remoteClient.runs[0]?.deadlineMs).toBe(5000);
   });
+
+  it('carries no signal field when the call has no deadline', async () => {
+    const { runs } = await read('ssh://box/etc/hostname', fileReply('x\n'));
+
+    expect(runs[0]).toBeDefined();
+    expect('signal' in (runs[0] ?? {})).toBe(false);
+  });
+
+  it('accepts a file exactly at the read bound', async () => {
+    const { result } = await read(
+      'ssh://box/exact.txt',
+      fileReply(Buffer.alloc(SSH_READ_MAX_BYTES, 0x61)),
+    );
+
+    expect(result).toMatchObject({ status: 'success', kind: 'file' });
+  });
+
+  it('keeps a byte order mark as text, as a local read does', async () => {
+    const { result } = await read(
+      'ssh://box/bom.txt',
+      fileReply(
+        Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('a\n')]),
+      ),
+    );
+
+    expect(result['content']).toBe('1: \ufeffa\n');
+  });
+
+  it('resolves an end-relative selector against the transferred lines', async () => {
+    const { result } = await read(
+      'ssh://box/etc/os-release:4-',
+      fileReply('one\ntwo\nthree\nfour\nfive\n'),
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      requestedRange: { startLine: 4, endLine: 5 },
+      representation: 'text',
+    });
+    expect(result['content']).toBe('3: three\n4: four\n5: five\n');
+  });
+
+  it('selects several ranges on the hub', async () => {
+    const { result } = await read(
+      'ssh://box/notes.txt:1-2,7',
+      fileReply(
+        ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight']
+          .map((line) => `${line}\n`)
+          .join(''),
+      ),
+    );
+
+    expect(result['content']).toContain('1: one');
+    expect(result['content']).toContain('2: two');
+    expect(result['content']).toContain('7: seven');
+    expect(result['content']).not.toContain('4: four');
+    expect(result).toMatchObject({
+      requestedRanges: [
+        { startLine: 1, endLine: 2 },
+        { startLine: 7, endLine: 7 },
+      ],
+    });
+  });
+
+  it('renders a markdown outline from the transferred lines', async () => {
+    const { result } = await read(
+      'ssh://box/README.md:outline',
+      fileReply('# Title\n\ntext\n'),
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'file',
+      representation: 'outline',
+    });
+    expect(result['content']).toBe('1: # Title\n3: text\n');
+  });
 });
 
 describe('ssh read refusals', () => {
@@ -290,9 +367,79 @@ describe('ssh read refusals', () => {
       hostKey.result.status === 'error' && hostKey.result.message,
     ).toContain('host_key_mismatch');
   });
+
+  it('reports a cancelled read as cancelled', async () => {
+    const { result } = await read('ssh://box/x', () => ({
+      outcome: 'failed',
+      reason: 'cancelled',
+      diagnostic: '',
+    }));
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'cancelled',
+      message: 'Tool "read" was cancelled.',
+    });
+  });
+
+  it('reports a foreign refusal kind as a lost session', async () => {
+    const { result } = await read('ssh://box/x', (nonce) =>
+      ended('', `${nonce}:refuse:from_another_revision\n${nonce}:end:0\n`),
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'ssh_unavailable' });
+    expect(result.status === 'error' && result.message).toContain(
+      'session_lost',
+    );
+  });
+
+  it('reports a foreign content marker as a lost session', async () => {
+    const { result } = await read('ssh://box/x', (nonce) =>
+      ended(`${nonce}:start:tape\nbody\n`, `${nonce}:start\n${nonce}:end:0\n`),
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'ssh_unavailable' });
+    expect(result.status === 'error' && result.message).toContain(
+      'session_lost',
+    );
+  });
+
+  it('rejects a malformed locator with its own message', async () => {
+    const remoteClient = remote(fileReply('x'));
+    const result = await executeSshRead(context(remoteClient), 'ssh://box');
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'An ssh:// locator needs an absolute path after the destination, like ssh://box/etc/hostname.',
+    });
+    expect(remoteClient.runs).toHaveLength(0);
+  });
 });
 
 describe('ssh directory reads', () => {
+  it('reserves room for the more-entries line at the result bound', async () => {
+    // One entry per 15 code units, so the 1000-entry listing crosses the
+    // 16 000-unit result cap. The bound line's own room is what decides how
+    // many entries survive: the renderer must stop short of the cap by the
+    // line the caller appends, never truncate that line's last entry.
+    const pairs = Array.from(
+      { length: 1001 },
+      (_, index) => `f\0f${String(index).padStart(9, '0')}\0`,
+    ).join('');
+
+    const { result } = await read(
+      'ssh://box/srvxxxxxxxx:1-',
+      directoryReply(pairs),
+    );
+    const content = String(result['content']);
+
+    expect(result['truncated']).toBe(true);
+    expect(content.endsWith('  … more entries exist\n')).toBe(true);
+    expect(content.match(/- f\d+/gu)).toHaveLength(990);
+  });
+
   it('lists one level in the local form, hidden entries included', async () => {
     const { result } = await read(
       'ssh://box/srv',
@@ -349,6 +496,67 @@ describe('ssh directory reads', () => {
       type: 'invalid_selector',
     });
   });
+
+  it('refuses a comma list still to place on a directory', async () => {
+    const { result } = await read(
+      'ssh://box/srv:4-5,99-',
+      directoryReply('f\0a\0'),
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'Comma-separated selectors are not supported for directory reads.',
+    });
+  });
+
+  it('refuses the outline member on a directory', async () => {
+    const { result } = await read(
+      'ssh://box/srv:outline',
+      directoryReply('f\0a\0'),
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for directory reads.',
+    });
+  });
+
+  it('refuses the raw member on a directory', async () => {
+    const { result } = await read(
+      'ssh://box/srv:raw',
+      directoryReply('f\0a\0'),
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :raw selector is not supported for directory reads.',
+    });
+  });
+
+  it('pages a listing by the selector window', async () => {
+    const { result } = await read(
+      'ssh://box/srv:2-3',
+      directoryReply('f\0d\0f\0a\0f\0b\0f\0c\0'),
+    );
+
+    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result['content']).toBe('ssh://box/srv\n  - b\n  - c\n');
+    expect(result['nextOffset']).toBe(3);
+  });
+
+  it('pages a listing whose end is relative to the entry count', async () => {
+    const { result } = await read(
+      'ssh://box/srv:2-',
+      directoryReply('f\0d\0f\0a\0f\0b\0f\0c\0'),
+    );
+
+    expect(result).toMatchObject({ status: 'success', truncated: false });
+    expect(result['content']).toBe('ssh://box/srv\n  - b\n  - c\n  - d\n');
+  });
 });
 
 describe('ssh read dispatch', () => {
@@ -356,8 +564,16 @@ describe('ssh read dispatch', () => {
     const remoteClient = remote(fileReply('x'));
     const result = await executeSshRead(context(remoteClient), 'ssh://');
 
-    expect(result).toMatchObject({ status: 'success', path: 'ssh://' });
-    expect(result['content']).toBe(SSH_LOCATOR_HELP);
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: 'ssh://',
+      representation: 'text',
+      content: SSH_LOCATOR_HELP,
+      truncated: false,
+      requestedRange: null,
+      shownRange: null,
+    });
     expect(remoteClient.runs).toHaveLength(0);
   });
 
@@ -403,5 +619,33 @@ describe('ssh read dispatch', () => {
       type: 'unsupported_operation',
     });
     expect(remoteClient.runs).toHaveLength(0);
+  });
+
+  it('keeps a non-ssh scheme out of the ssh branch when a client exists', async () => {
+    const remoteClient = remote(fileReply('x'));
+    const result = await nativeReadTool.execute(context(remoteClient), {
+      path: 'media://box/clip.mp4',
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
+    });
+    expect(remoteClient.runs).toHaveLength(0);
+  });
+
+  it('keeps an ssh mutation unavailable when no client exists', async () => {
+    const result = await nativeEditTool.execute(context(undefined), {
+      path: 'ssh://box/tmp/x.txt',
+      oldText: 'a',
+      newText: 'b',
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
+    });
   });
 });
