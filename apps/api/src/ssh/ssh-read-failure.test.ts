@@ -233,7 +233,15 @@ describe('classifySshBashOutcome', () => {
     // A login shell that floods stdout can push the marker past the bound.
     expect(
       classifySshBashOutcome(
-        { ...ended('', 0), stdoutOverflow: true },
+        {
+          outcome: 'ended',
+          stdout: Buffer.alloc(0),
+          stdoutOverflow: true,
+          diagnostic: '',
+          stderrOverflow: false,
+          code: 0,
+          signal: null,
+        },
         unstarted,
       ),
     ).toEqual({ kind: 'unknown' });
