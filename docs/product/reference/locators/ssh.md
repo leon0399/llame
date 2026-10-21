@@ -1,17 +1,18 @@
 ---
-summary: "ssh:// locators: reads of files and one directory level on a host reached over the operator's SSH configuration"
+summary: "ssh:// locators: reads of files and one directory level, and bash working directories, on a host reached over the operator's SSH configuration"
 read_when:
-  - you are passing an ssh:// locator to read
-  - you need to know what an ssh:// read returns or why it failed
+  - you are passing an ssh:// locator to read or a bash cwd
+  - you need to know what an ssh:// read or command returns or why it failed
 spec: native-file-tools
 configured_by: ../../operator/ssh.md
 ---
 
 # ssh locators
 
-**Experimental.** An `ssh://` locator reads a file or one directory level on a
-host the operator's own SSH configuration reaches, with nothing installed on
-that host. The behavior contract is the
+**Experimental.** An `ssh://` locator reads a file or one directory level, or
+names the working directory of a `bash` command, on a host the operator's own
+SSH configuration reaches, with nothing installed on that host. The behavior
+contract is the
 [ssh-locator spec](../../../../openspec/changes/ssh-locator/specs/ssh-locator/spec.md);
 the capability named above is the closest one already synced into
 `openspec/specs`.
@@ -49,25 +50,27 @@ Two forms are an explanation rather than a path:
 
 ## Accepted by
 
-| Tool              | Locator form | Mutable |
-| ----------------- | ------------ | ------- |
-| `read`            | path         | no      |
-| `edit`, `write`   | none         | no      |
-| `enter_workspace` | none         | no      |
+| Tool              | Locator form | Mutable               |
+| ----------------- | ------------ | --------------------- |
+| `read`            | path         | no                    |
+| `bash`            | `cwd`        | as the command writes |
+| `edit`, `write`   | none         | no                    |
+| `enter_workspace` | none         | no                    |
 
 `edit` and `write` refuse an ssh locator with `unsupported_operation` and no
 effect, and `enter_workspace` refuses it with `invalid_path`; neither starts a
-process. Remote `bash` is not part of this revision.
+process.
 
 ## Authority
 
-An ssh read runs on the remote host as the login user that OpenSSH resolves for
-the destination, over the operator's SSH configuration and the instance's own
-SSH identity. There is no sandbox on that host and no isolation between llame
-users: every user whose permissions admit the locator has the same remote
-authority, and anything else that user may read on that host is reachable the
-same way. Hub-held state stays owner-scoped, and an ssh read records no native
-attempt because it changes nothing.
+An ssh read or command runs on the remote host as the login user that OpenSSH
+resolves for the destination, over the operator's SSH configuration and the
+instance's own SSH identity. There is no sandbox on that host and no isolation
+between llame users: every user whose permissions admit the locator has the same
+remote authority, and anything else that user may read or change on that host is
+reachable the same way. Hub-held state stays owner-scoped: a `bash` call records
+an unbound native attempt and its result under its own Run, while an ssh read
+records no native attempt because it changes nothing.
 
 The address the connection uses is the address the permission decision saw: the
 destination resolves through the local SSH configuration first, and the
@@ -102,6 +105,29 @@ target, and a link to a directory lists it. Selectors, line numbers, Markdown
 handling, and the result bound are the hub's own, so they match a local read of
 the same text. NUL is valid text, as locally.
 
+## Remote command
+
+A `bash` call with an `ssh://` `cwd` runs one `bash -s` script on the host, on
+stdin, with empty stdin for the command itself:
+
+- The script enters the working directory first, so a directory the login user
+  cannot enter is the local "not usable" refusal and the command does not run.
+- `env` entries travel as single-quoted assignments in the script; each key is
+  an identifier, no value holds NUL, and no entry replaces a managed base
+  variable. The remote session starts with the login shell's own environment.
+- The command runs through `eval` after the start marker, and the end trailer on
+  stderr carries its status. A status of 0 is `success`, any other is
+  `command_failed` with the same message a local exit code gets.
+- Output and stderr are bounded and truncated as a local command's are. The call
+  shares the `bash` time budget; a connection that ends before the end trailer,
+  whether by timeout, cancellation, or a dropped session, is `outcome_unknown`
+  and is never replayed. `session_lost` is reported only before the command
+  started.
+
+The attempt is recorded before SSH starts and its result once afterwards, both
+under the calling Run, so a retry replays the settled outcome instead of
+running the command twice.
+
 ## Bounds
 
 A regular file transfers at most 1 MiB plus one byte; a larger file is
@@ -115,6 +141,8 @@ of its entries. That result uses the local message, but its count is the
 shares the call's time budget, capped at 60 seconds, and one `ssh` process per
 operation — there is no connection reuse. A transfer that stops at its byte
 bound is an error, never a shortened success.
+A remote command uses the shared `bash` bounds: the same output bound, the
+same truncation report, and the call's remaining time.
 
 ## Listing
 
@@ -137,20 +165,24 @@ byte bound. `invalid_utf8`, `not_regular_file`, `not_found`, and
 not in the pinned file, `auth_failed` for a credential refusal, `unreachable`
 for a host that did not answer or refused the connection, `config` for a
 configuration that does not evaluate, `client_missing` for a worker without an
-`ssh` client, and `session_lost` for a read that stopped after its marker.
+`ssh` client, and `session_lost` for an operation that stopped after its marker
+and before its end trailer.
 
 `ssh_unsupported_host` means the host cannot run an llame script: it has no
 POSIX `sh` (the message names that requirement, and a Windows login shell is
-this case), or its account ran something else instead — a forced command or
-`nologin`. A malformed locator is `invalid_path`. Every other failure is the
-shared native vocabulary in [read](../tools/read.md#errors).
+this case) or no `bash` for a command, or its account ran something else
+instead — a forced command or `nologin`. A malformed locator is `invalid_path`,
+and a working directory its login user cannot enter is `unavailable`. A command
+whose end the hub could not establish is `outcome_unknown`. Every other failure
+is the shared native vocabulary in [read](../tools/read.md#errors) or
+[bash](../tools/bash.md#errors).
 
 ## Configured by
 
 The operator enables the locator with a top-level `ssh` section, pins every
 hop's host key, and writes the permission rules; without that configuration
 `ssh://` is an unknown scheme and no process starts. See
-[SSH locators](../../operator/ssh.md). The `read` group gates each call, and a
-rule is matched against the resolved locator
+[SSH locators](../../operator/ssh.md). The `read` group gates each read and the
+`bash` group each command, and a rule is matched against the resolved locator
 `ssh://<user>@<hostname>:<port><absolute path>`, so a local `^/` rule never
 admits one.

@@ -167,7 +167,8 @@ selectors and line numbers as a local read, or one level of the directory in the
 local listing form, capped at 1,000 entries with a line saying more exist; a
 larger file is `file_too_large`, and a FIFO, socket, or device is
 `not_regular_file`. Its directory is not entered by any Workspace, and its
-instruction chain is never loaded. See [ssh](../locators/ssh.md#authority).
+instruction chain is never loaded; `bash` accepts the same locator as a `cwd`.
+See [ssh](../locators/ssh.md#authority).
 
 A marker in a prompt (`@path`, `@"…"`, `@'…'`, ``@`…` ``, `@[label](path)`, or
 `[label](path "import")`) is read once for the owner before the first model

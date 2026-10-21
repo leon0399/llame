@@ -92,10 +92,10 @@ boundary and request a named exception before publishing one over the budget.
 
 ## 6. Bash guidance and delivery (`ssh-locator/bash-guidance`)
 
-- [ ] 6.1 Update `prompts/tools/bash.md` with the `ssh://` `cwd` sentence, the remote-authority disclosure, and the working-directory guidance, and verify the tool-description test ("ssh operations are disclosed as remote host authority", "The bash description tells the model to use cwd")
-- [ ] 6.2 Add the negative isolation integration test: user A runs remote `bash`, and user B's API reads of native attempts and Run events return none of A's rows ("Hub state for ssh operations stays isolated for each owner")
-- [ ] 6.3 Update `docs/product/operator/ssh.md`, the locator reference, the `bash` tool reference, and the `CHANGELOG.md` entry for remote `bash`, and verify `pnpm lint:markdown` passes
-- [ ] 6.4 Run `pnpm lint`, the affected workspace `typecheck` and `test:coverage`, `pnpm format:check`, and `git diff --check`, all passing
+- [x] 6.1 Update `prompts/tools/bash.md` with the `ssh://` `cwd` sentence, the remote-authority disclosure, and the working-directory guidance, and verify the tool-description test ("ssh operations are disclosed as remote host authority", "The bash description tells the model to use cwd")
+- [x] 6.2 Add the negative isolation integration test: user A runs remote `bash`, and user B's API reads of native attempts and Run events return none of A's rows ("Hub state for ssh operations stays isolated for each owner")
+- [x] 6.3 Update `docs/product/operator/ssh.md`, the locator reference, the `bash` tool reference, and the `CHANGELOG.md` entry for remote `bash`, and verify `pnpm lint:markdown` passes
+- [x] 6.4 Run `pnpm lint`, the affected workspace `typecheck` and `test:coverage`, `pnpm format:check`, and `git diff --check`, all passing
 - [ ] 6.5 Smoke `read` and `bash` against a real external host through one jump host, recording the transcript in the PR body
 - [ ] 6.6 Self-review the parent-relative draft diff against REVIEW_GUIDE.md, mark it ready, and complete the GitHub review and CI loop
 

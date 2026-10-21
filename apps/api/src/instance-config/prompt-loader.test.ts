@@ -1692,6 +1692,32 @@ describe('llame-owned tool description templates', () => {
     );
   });
 
+  it('renders the cwd guidance and the ssh working directory on bash', () => {
+    // The guidance is unconditional text, not a `{{#if}}` gate, so the model
+    // reads it in every catalog: whether bash is admitted alone or next to
+    // edit, the cwd instruction and the ssh authority are the same.
+    const model = { id: 'model' };
+    const renderer = createToolPromptRenderer({ configPath, models: [model] });
+    for (const admittedToolIds of [['bash'], ['bash', 'edit']]) {
+      const rendered = renderer.render({
+        toolId: 'bash',
+        model,
+        anchor: TEST_ANCHOR,
+        admittedToolIds,
+      }).text;
+
+      expect(rendered).toContain(
+        'Set the directory of a command with `cwd`, not with a `cd` in `command`',
+      );
+      expect(rendered).toContain('with no Workspace give an absolute `cwd`');
+      expect(rendered).toContain(
+        '`ssh://[user@]host[:port]/<absolute path>` `cwd`',
+      );
+      expect(rendered).toContain('as the remote login user');
+      expect(rendered).toContain('no function isolates llame users');
+    }
+  });
+
   it('renders the packaged web guidance for read with or without knowledge_search', () => {
     // The web bullet carries no `{{#if}}` gate, so both catalogs see it, while
     // the `kb://` bullet is gated on `knowledge_search` and only the second
