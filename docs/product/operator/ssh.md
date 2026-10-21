@@ -139,10 +139,11 @@ operator's responsibility:
   the connection it opens is outside the safety block. Prefer `ProxyJump`.
 - **`SendEnv`.** The included entries still forward those variables to the
   remote session. Keep the host from forwarding anything it should not see.
-- **`Match host`.** Resolution sees the submitted name and the connection sees
-  the resolved `HostName`, so a `Match host` block can pick a different
-  `ProxyJump` or identity in each step. The address stays the one the
-  permission rules checked. Scope jump hosts and identities with `Host`.
+- **`Match host`.** The connection sets `HostName` on the command line and the
+  resolution does not, so a `Match host` block can apply in one step and not
+  the other, and a block placed after a `HostName` line may never see the alias.
+  The address stays the one the permission rules checked, but the `ProxyJump` or
+  identity can differ. Scope jump hosts and identities with `Host`.
 
 ## Permissions on the resolved locator
 
