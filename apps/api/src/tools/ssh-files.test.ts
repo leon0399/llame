@@ -35,6 +35,7 @@ const tenantDb: TenantRunner = {
 type Remote = {
   readonly client: SshClient;
   readonly runs: Array<SshRunRequest>;
+  readonly resolutions: Array<unknown>;
 };
 
 /** A client whose answer is built from the nonce the read drew. */
@@ -42,12 +43,15 @@ function remote(
   reply: (nonce: string, request: SshRunRequest) => SshRunOutcome,
 ): Remote {
   const runs: Array<SshRunRequest> = [];
+  const resolutions: Array<unknown> = [];
   const client: SshClient = {
-    resolve: () =>
-      Promise.resolve({
+    resolve: (request) => {
+      resolutions.push(request);
+      return Promise.resolve({
         outcome: 'resolved',
         destination: { user: 'box', host: 'box', port: 22 },
-      }),
+      });
+    },
     run: (request) => {
       runs.push(request);
       const nonce = /h='([^']+)'/u.exec(String(request.input))?.[1] ?? '';
@@ -56,7 +60,7 @@ function remote(
     sshConfigText: () => undefined,
     dispose: () => undefined,
   };
-  return { client, runs };
+  return { client, runs, resolutions };
 }
 
 function ended(
@@ -683,6 +687,7 @@ describe('ssh read dispatch', () => {
       expect(result).toMatchObject({ status: 'success', kind: 'file', path });
       expect(result['content']).toBe(SSH_LOCATOR_HELP);
       expect(remoteClient.runs).toHaveLength(0);
+      expect(remoteClient.resolutions).toHaveLength(0);
     }
   });
 

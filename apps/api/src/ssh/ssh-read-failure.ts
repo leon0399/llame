@@ -22,7 +22,7 @@ import { type SshReadFrames } from './ssh-script';
 const SSH_HOST_KEY_MISMATCH = /host key verification failed/iu;
 const SSH_AUTH_FAILED = /Permission denied \(/u;
 const SSH_CONNECT_FAILED =
-  /connection refused|connection timed out|connect(?:ion)? to .* closed by|connection closed by (?:remote host|[^\n]* port [0-9]+)|kex_exchange_identification|operation timed out|could not resolve hostname|no route to host|network is unreachable|connection reset by peer/iu;
+  /connection refused|connection timed out|connect(?:ion)? to .* closed by|connection closed by (?:remote host|[^\n]* port [0-9]+)|operation timed out|could not resolve hostname|no route to host|network is unreachable|connection reset by peer/iu;
 const SSH_MISSING_SHELL = /\bsh\b[^\n]*\bnot found\b/iu;
 const WINDOWS_SHELL =
   /is not recognized as an internal or external command|is not recognized as the name of a cmdlet|The system cannot find the (?:file|path) specified/iu;

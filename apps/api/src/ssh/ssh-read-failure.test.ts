@@ -91,6 +91,19 @@ describe('classifySshPreludeFailure', () => {
     ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
   });
 
+  it('does not take the debug handshake banner for a connection failure', () => {
+    // An included configuration can raise LogLevel, and every handshake then
+    // prints this banner; the forced command that follows ran no llame script.
+    expect(
+      classifySshPreludeFailure(
+        ended(
+          'debug1: kex_exchange_identification: banner line 0: SSH-2.0-OpenSSH_9.6',
+          0,
+        ),
+      ),
+    ).toEqual({ kind: 'unsupported', cause: 'no_script' });
+  });
+
   it('does not take remote text for an authentication failure', () => {
     // A forced command that prints the words is not ssh refusing a credential.
     expect(

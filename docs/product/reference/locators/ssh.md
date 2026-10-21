@@ -106,11 +106,12 @@ A regular file transfers at most 1 MiB plus one byte; a larger file is
 `file_too_large`. A directory list contains at most 1,000 entries. One
 directory transfer collects at most the local 10,000-entry traversal budget
 plus one, so a directory within that budget lists exactly what a local read
-would list first, and one past it is `directory_too_large` with the local
-message instead of a subset of its entries. One read shares the call's time
-budget, capped at 60 seconds, and one `ssh` process per operation — there is no
-connection reuse. A transfer that stops at its byte bound is an error, never a
-shortened success.
+would list first, and one past it is `directory_too_large` instead of a subset
+of its entries. That result uses the local message, but its count is the
+10,001 entries collected, not the full count a local read reports. One read
+shares the call's time budget, capped at 60 seconds, and one `ssh` process per
+operation — there is no connection reuse. A transfer that stops at its byte
+bound is an error, never a shortened success.
 
 ## Listing
 
@@ -125,9 +126,9 @@ directory the login user cannot read is an error, never an empty list.
 ## Errors
 
 `file_too_large` is specific to this scheme: no other read refuses a file at a
-byte bound. `invalid_utf8`, `not_regular_file`, `not_found`,
-`directory_too_large`, and `executor_unavailable` mean what they mean for a
-local read of the same bytes.
+byte bound. `invalid_utf8`, `not_regular_file`, `not_found`, and
+`executor_unavailable` mean what they mean for a local read of the same bytes;
+`directory_too_large` has the local type and form, with the collected count.
 
 `ssh_unavailable` carries one reason: `host_key_mismatch` for a hop whose key is
 not in the pinned file, `auth_failed` for a credential refusal, `unreachable`
