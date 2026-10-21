@@ -11,7 +11,7 @@
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none src",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none src",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

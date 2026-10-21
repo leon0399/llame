@@ -12,7 +12,7 @@
     "lint:fix": "oxlint --deny-warnings --fix",
     "start": "next start",
     "test": "vitest run --project unit",
-    "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none --exclude 'lib/api/generated/**' --exclude 'lib/api/live-generated/**' app lib components contexts hooks utils",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none --exclude 'lib/api/generated/**' --exclude 'lib/api/live-generated/**' app lib components contexts hooks utils",
     "test:stories": "vitest run --project stories",
     "test:watch": "vitest --project unit",
     "typecheck": "next typegen && tsgo --noEmit"

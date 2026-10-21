@@ -10,7 +10,7 @@
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "node registry.check.mjs && vitest run",
-    "test:coverage": "node registry.check.mjs && vitest run --coverage && crap-typescript --threshold 42 --format none rules shared index.ts",
+    "test:coverage": "node registry.check.mjs && vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none rules shared index.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {

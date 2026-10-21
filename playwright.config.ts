@@ -62,8 +62,15 @@ export default defineConfig({
   // turn a flaky test into a passing CI signal.
   failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
+  // CI also writes JUnit for Codecov Test Analytics. It sits in the output
+  // directory, which Playwright clears when a run starts, not when it ends.
   reporter: process.env.CI
-    ? [["html", { open: "never" }], ["github"], ["list"]]
+    ? [
+        ["html", { open: "never" }],
+        ["github"],
+        ["list"],
+        ["junit", { outputFile: "test-results/junit.xml" }],
+      ]
     : [["html", { open: "never" }], ["list"]],
   expect: {
     timeout: 15_000,

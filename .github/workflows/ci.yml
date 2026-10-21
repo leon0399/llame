@@ -176,6 +176,49 @@ jobs:
           flags: ${{ matrix.flag }}
           files: ${{ matrix.dir }}/coverage/${{ matrix.report || 'coverage-final.json' }}
 
+      # Test Analytics: every leg's test:coverage also writes JUnit, which is
+      # split by the layers in docs/development/testing.md so each upload
+      # carries the leg's flag and its layer. Uploads run after failing tests
+      # too, since failures are what Test Analytics tracks.
+      - name: Split JUnit by test layer
+        if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit.xml', matrix.dir)) != '' }}
+        env:
+          REPORT_DIR: ${{ matrix.dir }}/coverage
+        run: node scripts/split-junit-by-layer.mjs "$REPORT_DIR/junit.xml" "$REPORT_DIR/junit"
+
+      - if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit/junit-unit.xml', matrix.dir)) != '' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          report_type: test_results
+          disable_search: true
+          flags: ${{ matrix.flag }},unit
+          name: ${{ matrix.flag }}-unit
+          files: ${{ matrix.dir }}/coverage/junit/junit-unit.xml
+
+      - if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit/junit-integration.xml', matrix.dir)) != '' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          report_type: test_results
+          disable_search: true
+          flags: ${{ matrix.flag }},integration
+          name: ${{ matrix.flag }}-integration
+          files: ${{ matrix.dir }}/coverage/junit/junit-integration.xml
+
+      - if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit/junit-component.xml', matrix.dir)) != '' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          report_type: test_results
+          disable_search: true
+          flags: ${{ matrix.flag }},component
+          name: ${{ matrix.flag }}-component
+          files: ${{ matrix.dir }}/coverage/junit/junit-component.xml
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -246,6 +289,8 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      # OIDC for the Schemathesis Test Analytics upload.
+      id-token: write
     with:
       scan: ${{ needs.build.outputs.dast == 'true' }}
 
@@ -312,6 +357,10 @@ jobs:
     # including real-Postgres integration, must pass first. Playwright then
     # rebuilds the web app with its E2E API URL.
     needs: [build, test]
+    permissions:
+      contents: read
+      # OIDC for the Test Analytics upload, as in the test matrix.
+      id-token: write
     env:
       # Node >=21 derives navigator.language from the process locale; with
       # LANG=C/unset it reports an invalid tag and `new Intl.Locale(...)`
@@ -333,6 +382,17 @@ jobs:
       # production web app, then drives Chromium against the real stack. The
       # ONLY place the browser suite runs — keep it green.
       - run: pnpm test:e2e
+
+      - if: ${{ !cancelled() && hashFiles('test-results/junit.xml') != '' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          report_type: test_results
+          disable_search: true
+          flags: e2e
+          name: e2e
+          files: test-results/junit.xml
 
       # failure() || cancelled(), NOT !cancelled(): a timed-out or cancelled
       # run is exactly when the trace is worth keeping. Playwright's CI config

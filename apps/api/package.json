@@ -34,7 +34,7 @@
     "start:worker:dev": "nest start --entryFile worker --watch",
     "start:worker:prod": "node dist/worker",
     "test": "vitest run --project unit",
-    "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none --exclude 'src/db/migrations/**' --exclude 'src/testing/**' --exclude 'src/live/generated/**' --exclude 'src/queue/generated/**' src",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none --exclude 'src/db/migrations/**' --exclude 'src/testing/**' --exclude 'src/live/generated/**' --exclude 'src/queue/generated/**' src",
     "test:evals": "RUN_MODEL_EVALS=1 vitest run --project integration qa-evals",
     "eval:compaction": "tsx evals/compaction/run.ts",
     "test:evals:mcp-web-search": "RUN_MCP_WEB_SEARCH_EVAL=1 vitest run --project mcp-live-eval",

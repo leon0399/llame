@@ -22,6 +22,10 @@ jobs:
     if: ${{ inputs.scan }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      # OIDC for the Test Analytics upload.
+      id-token: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -51,6 +55,19 @@ jobs:
             ${DAST_SEED:+--seed "$DAST_SEED"} \
             --report junit,html --report-dir /out --report-junit-path /out/junit.xml \
             2>&1 | tee dast-report/schemathesis/console.txt
+
+      # Its own flag, apart from the unit/integration/component/e2e layers:
+      # its failures are open findings, not flakes.
+      - if: ${{ !cancelled() && hashFiles('dast-report/schemathesis/junit.xml') != '' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          report_type: test_results
+          disable_search: true
+          flags: dast
+          name: schemathesis
+          files: dast-report/schemathesis/junit.xml
 
       # Schemathesis has no native SARIF output; its findings stay here.
       - if: ${{ !cancelled() }}
