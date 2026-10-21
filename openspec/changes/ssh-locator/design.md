@@ -237,9 +237,10 @@ draws a random nonce:
 - The script prints `<nonce>:start` on stdout and stderr once its
   preconditions hold. The hub discards everything before it, so login-shell
   startup output is neither content nor charged to a content bound. Those
-  bytes have their own 64 KiB allowance (`SSH_READ_NOISE_BYTES`): the stdout
-  bound is the content limit plus that allowance, and a transfer that reaches
-  the bound is an unfinished read, never truncated content.
+  bytes share the read's stdout bound, which is the directory transfer bound
+  plus a 64 KiB allowance (`SSH_READ_NOISE_BYTES`) for the marker, noise, and
+  trailer; a transfer that reaches the bound is an unfinished read, never
+  truncated content.
 - On exit it prints `<nonce>:end:<status>` on stderr. A result is complete only
   with that trailer; its status is authoritative, so a remote `exit 255` is
   not mistaken for an ssh failure.

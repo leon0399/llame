@@ -229,16 +229,16 @@ The hub MUST refuse an `ssh://` `bash` command that holds NUL before a process s
 
 ### Requirement: Remote output starts after a per-call marker
 
-Each remote script MUST write a random start marker on stdout and stderr before its work. Each call has a new marker. After its work, the script MUST write an end trailer with its status on stderr. The hub MUST discard the bytes before the start marker. These bytes have their own 64 KiB allowance, apart from the content bounds. An operation is complete only when the hub gets the end trailer.
+Each remote script MUST write a random start marker on stdout and stderr before its work. Each call has a new marker. After its work, the script MUST write an end trailer with its status on stderr. The hub MUST discard the bytes before the start marker. These bytes MUST NOT shorten the content, and they share the stdout bound of the read. An operation is complete only when the hub gets the end trailer.
 
 #### Scenario: Output from the login shell is not file content
 
 - **WHEN** the startup file of the shell of the remote account writes text at each login
 - **THEN** `read ssh://box/etc/hostname` returns only the content of the file
 
-#### Scenario: Pre-marker output above its allowance fails the read
+#### Scenario: Pre-marker output above the stdout bound fails the read
 
-- **WHEN** the login shell writes more than 64 KiB to stdout before the start marker of a read
+- **WHEN** the login shell writes more bytes to stdout before the start marker of a read than the stdout bound of the read holds
 - **THEN** the tool returns `executor_unavailable` with "The remote read did not finish, so the file could not be read.", and it returns no content
 
 #### Scenario: Interrupted read is not a success
