@@ -2,6 +2,7 @@
 #
 #   typecheck -> test (one leg per workspace, coverage) --+
 #   typecheck -> build -----------------------------------+-> browser-e2e
+#                build -> dast (dast.yml: Schemathesis, ZAP)
 #   typecheck -> mutation
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
@@ -10,7 +11,11 @@
 # type error never spends a runner on the full-stack browser suite, and the
 # browser suite never boots a stack whose api contract is already failing.
 # Build and mutation wait only for typecheck: no test leg catches a build
-# failure, and Stryker's own initial run fails on a red suite.
+# failure, and Stryker's own initial run fails on a red suite. The API DAST
+# jobs scan the API that build compiled, so they wait only for build.
+#
+# The nightly schedule runs only typecheck, build and API DAST, with a fresh
+# Schemathesis seed, so unchanged code still gets new fuzzing inputs.
 #
 # Static checks (lint, format, workflow linting) live in lint.yml — they need
 # no build, browser or database, and report independently.
@@ -23,6 +28,9 @@ on:
   pull_request:
   push:
     branches: [master]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 # A new push supersedes the old run on a pull request: nothing there needs to
 # finish for a commit that is already outdated. Each master run gets its own
@@ -67,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [typecheck]
+    # Nightly and on-demand runs exist for API DAST only.
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     permissions:
       contents: read
       # OIDC replaces a CODECOV_TOKEN secret; fork pull requests fall back to
@@ -171,10 +181,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [typecheck]
+    outputs:
+      dast: ${{ steps.dast-scope.outputs.run }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          # A pull request checks out its merge commit; its first parent is
+          # the base, which the DAST scope below diffs against.
+          fetch-depth: 2
 
       - uses: ./.github/actions/setup
         with:
@@ -187,6 +202,52 @@ jobs:
       - run: pnpm generate:api-schema
       - run: pnpm generate:web-client
       - run: git diff --exit-code
+
+      # A pull request scans the API only when it changes what the API runs
+      # or how it is scanned; every other event always scans.
+      - id: dast-scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
+            apps/api packages/bash-executor packages/config-interpolation \
+            packages/machine-protocol packages/mcp-workspace \
+            packages/native-file-tools packages/runtime-safety \
+            e2e/support scripts/dast .github/actions/dast-stack \
+            .github/workflows/ci.yml .github/workflows/dast.yml pnpm-lock.yaml; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      # The API and the workspace packages it imports from dist/; the DAST
+      # jobs run this build instead of compiling their own.
+      - if: ${{ steps.dast-scope.outputs.run == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-build
+          path: |
+            apps/api/dist/
+            packages/bash-executor/dist/
+            packages/config-interpolation/dist/
+            packages/machine-protocol/dist/
+            packages/mcp-workspace/dist/
+            packages/native-file-tools/dist/
+            packages/runtime-safety/dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Dynamic scan of the API that build compiled (.github/workflows/dast.yml).
+  # Always called after build: a pull request that does not change the API
+  # reports the scanner jobs as skipped, which satisfies a required check,
+  # where a skipped caller would leave them pending.
+  dast:
+    name: API DAST
+    needs: [build]
+    uses: ./.github/workflows/dast.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      scan: ${{ needs.build.outputs.dast == 'true' }}
 
   # Mutate the lines this diff changed and require them to be detected. No
   # stored index, no baseline restore, no environment fingerprint: the scope is
@@ -202,6 +263,7 @@ jobs:
     # revert to 45 once those layers have merged.
     timeout-minutes: ${{ matrix.timeout || 45 }}
     needs: [typecheck]
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     strategy:
       fail-fast: false
       matrix:

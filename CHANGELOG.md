@@ -1,12 +1,14 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
-# 2026-10-18
+# 2026-10-21
 
-- An experimental nightly workflow scans the API from its OpenAPI document
-  with Schemathesis and the ZAP API scan against a throwaway stack. It is
-  advisory, runs on pull requests only when the scan itself changes, and its
-  procedure is in
-  [testing](docs/development/testing.md#api-dast-experimental).
+- CI scans the API dynamically from its OpenAPI document with Schemathesis and
+  the ZAP API scan against a throwaway stack. Both jobs reuse the API that the
+  Build job compiled; they run on every push to master, nightly, and on pull
+  requests that change the API, its workspace dependencies, or the scan. The
+  procedure is in [testing](docs/development/testing.md#api-dast).
+
+# 2026-10-18
 
 - The Nix dev shell evaluates again on every system it declares: the flake
   drops `flake-utils`, whose default systems still listed `x86_64-darwin`

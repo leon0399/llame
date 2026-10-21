@@ -1,0 +1,67 @@
+name: Start the API DAST stack
+description: >-
+  Boots Postgres, the mock model, the mock MCP server and the API built by the
+  build job from the e2e fixtures, then registers two users for the scanners.
+  Expects ./.github/actions/setup to have run.
+
+# The scanners run in Docker with --network host, so they reach this stack on
+# localhost. Processes started here keep running for the rest of the job.
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        name: api-build
+
+    - name: Start the stack
+      shell: bash
+      env:
+        NODE_ENV: production
+        PORT: "4301"
+        POSTGRES_URL: postgres://app:app@localhost:55433/llame_e2e
+        WEB_ORIGIN: http://localhost:4300
+        SESSION_COOKIE_DOMAIN: localhost
+        OPENAI_API_KEY: dast-mock-key
+        OPENAI_BASE_URL: http://localhost:4303/v1
+        # Lifted for the same reason as in playwright.config.ts: a fuzzer from
+        # one IP would otherwise measure the throttler, not the API.
+        AUTH_RATE_LIMIT_PER_MINUTE: "100000"
+        API_RATE_LIMIT_PER_MINUTE: "1000000"
+        LLAME_CONFIG_PATH: ${{ github.workspace }}/e2e/support/fixtures/llame.config.e2e.json
+      run: |
+        mkdir -p dast-report/logs /tmp/llame-e2e-knowledge
+        node --import tsx e2e/support/db-server.ts >dast-report/logs/db.log 2>&1 &
+        node --import tsx e2e/support/model-server.ts >dast-report/logs/model.log 2>&1 &
+        node --import tsx e2e/support/mcp-server.ts >dast-report/logs/mcp.log 2>&1 &
+        ready() { curl -fsS -o /dev/null --retry 180 --retry-delay 1 --retry-connrefused "$1"; }
+        ready http://localhost:4302/ready
+        ready http://localhost:4303/ready
+        ready http://localhost:4304/ready
+        (cd apps/api && exec node dist/main) >dast-report/logs/api.log 2>&1 &
+        ready http://localhost:4301/
+
+    # Schemathesis replays the first user's reads as the second (BOLA); ZAP
+    # scans as the first. The tokens stay in $RUNNER_TEMP/dast-secrets,
+    # outside the uploaded report.
+    - name: Register scan users
+      shell: bash
+      run: |
+        register() {
+          curl -fsS -X POST http://localhost:4301/auth/v1/register \
+            -H 'content-type: application/json' \
+            -d "{\"email\":\"dast-$1@example.com\",\"name\":\"DAST $1\",\"password\":\"Password123!\"}" |
+            jq -er .token
+        }
+        alice="$(register alice)"
+        bob="$(register bob)"
+        echo "::add-mask::$alice"
+        echo "::add-mask::$bob"
+        # The scanner images run as their own users.
+        mkdir -p "$RUNNER_TEMP/dast-secrets" dast-report/schemathesis dast-report/zap
+        jq -n --arg a "$alice" --arg b "$bob" '{auth: [
+          {name: "alice", fixedHeaders: [{name: "Authorization", value: "Bearer \($a)"}]},
+          {name: "bob", fixedHeaders: [{name: "Authorization", value: "Bearer \($b)"}]}
+        ]}' >"$RUNNER_TEMP/dast-secrets/auth.wfc.json"
+        chmod a+rx "$RUNNER_TEMP/dast-secrets"
+        chmod a+r "$RUNNER_TEMP/dast-secrets/auth.wfc.json"
+        chmod a+rwx dast-report/schemathesis dast-report/zap

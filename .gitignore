@@ -55,6 +55,3 @@ coverage/
 .stryker-tmp/
 **/reports/mutation/
 stryker.changed-lines.json
-
-# Experimental API DAST reports (scripts/dast/run-api-scan.sh)
-dast-report/

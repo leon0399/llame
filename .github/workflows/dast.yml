@@ -1,35 +1,27 @@
-name: API DAST (experimental)
+name: API DAST
 
-# Advisory dynamic scan of the API: Schemathesis (contract, auth and
-# object-level authorization checks) and the OWASP ZAP API scan, both driven
-# by apps/api/openapi.json against a throwaway stack. Nightly, on demand, and
-# on pull requests that change the scan itself; it is not a required check.
+# Dynamic scan of the API from apps/api/openapi.json against a throwaway stack
+# (.github/actions/dast-stack). Called by ci.yml after its build job, whose
+# api-build artifact it runs instead of compiling the API again. One job per
+# scanner, each on its own stack, so one's fuzzed data never shapes the
+# other's findings, and only ZAP holds security-events: write.
 on:
-  pull_request:
-    paths:
-      - .github/workflows/dast.yml
-      - scripts/dast/**
-  schedule:
-    - cron: "17 3 * * *"
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      scan:
+        description: Whether this run changes the API or the scan.
+        type: boolean
+        required: true
 
 permissions:
   contents: read
 
-env:
-  TURBO_TELEMETRY_DISABLED: "1"
-
-# Each scanner is its own job on its own stack, so one's fuzzed data never
-# shapes the other's findings, and either can be re-run alone.
 jobs:
   schemathesis:
     name: Schemathesis
+    if: ${{ inputs.scan }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -37,11 +29,28 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      - uses: ./.github/actions/dast-stack
+
+      # Pull requests and master use a fixed seed, so a finding reproduces on
+      # the next push; scheduled and on-demand runs let Schemathesis pick one,
+      # which it prints with the report.
       - name: Run Schemathesis
         env:
-          DAST_SCANNERS: schemathesis
-          DAST_OUT_DIR: ${{ github.workspace }}/dast-report
-        run: scripts/dast/run-api-scan.sh
+          DAST_SEED: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '20261018' || '' }}
+        run: |
+          # The default shell has no pipefail, so tee would hide a failure.
+          set -o pipefail
+          docker run --rm --network host \
+            -v "$PWD/apps/api/openapi.json:/spec/openapi.json:ro" \
+            -v "$PWD/scripts/dast/schemathesis.toml:/cfg/schemathesis.toml:ro" \
+            -v "$RUNNER_TEMP/dast-secrets:/secrets:ro" \
+            -v "$PWD/dast-report/schemathesis:/out" \
+            schemathesis/schemathesis:4.32.0@sha256:c4935c2c27489923b0091246aa831c92166fa169fb8f35ebdeefd408a7a935f5 \
+            --config-file /cfg/schemathesis.toml \
+            run /spec/openapi.json --url http://localhost:4301 \
+            ${DAST_SEED:+--seed "$DAST_SEED"} \
+            --report junit,html --report-dir /out --report-junit-path /out/junit.xml \
+            2>&1 | tee dast-report/schemathesis/console.txt
 
       # Schemathesis has no native SARIF output; its findings stay here.
       - if: ${{ !cancelled() }}
@@ -53,8 +62,9 @@ jobs:
 
   zap:
     name: ZAP
+    if: ${{ inputs.scan }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     permissions:
       contents: read
       # Upload of ZAP's SARIF to code scanning.
@@ -66,11 +76,25 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      - uses: ./.github/actions/dast-stack
+
+      # ZAP adds the Authorization header to requests whose host contains
+      # ZAP_AUTH_HEADER_SITE, so every request to the stack is authenticated.
       - name: Run ZAP
-        env:
-          DAST_SCANNERS: zap
-          DAST_OUT_DIR: ${{ github.workspace }}/dast-report
-        run: scripts/dast/run-api-scan.sh
+        run: |
+          set -o pipefail
+          token="$(jq -r '.auth[0].fixedHeaders[0].value' "$RUNNER_TEMP/dast-secrets/auth.wfc.json")"
+          docker run --rm --network host \
+            -e ZAP_AUTH_HEADER=Authorization \
+            -e ZAP_AUTH_HEADER_VALUE="$token" \
+            -e ZAP_AUTH_HEADER_SITE=localhost \
+            -e DAST_TARGET_URL=http://localhost:4301 \
+            -v "$PWD/apps/api/openapi.json:/zap/wrk/openapi.json:ro" \
+            -v "$PWD/scripts/dast/zap-plan.yaml:/zap/wrk/zap-plan.yaml:ro" \
+            -v "$PWD/dast-report/zap:/zap/wrk/out" \
+            ghcr.io/zaproxy/zaproxy:2.17.0@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 \
+            zap.sh -cmd -autorun /zap/wrk/zap-plan.yaml \
+            2>&1 | tee dast-report/zap/console.txt
 
       # Code scanning rejects ZAP's http:// locations, so each result is
       # anchored to its operation's line in the OpenAPI document.

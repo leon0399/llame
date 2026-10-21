@@ -1,6 +1,6 @@
-# Schemathesis configuration for the experimental API DAST run
-# (scripts/dast/run-api-scan.sh). The schema path, base URL, seed and report
-# options are passed on the command line.
+# Schemathesis configuration for the API DAST job (dast-schemathesis in
+# .github/workflows/ci.yml). The schema path, base URL, seed and report options
+# are passed on the command line.
 
 # Every check, including the auth ones: ignored_auth (operations that answer
 # without or with invalid credentials) and object_level_authorization (bob
