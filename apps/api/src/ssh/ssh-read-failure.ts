@@ -23,6 +23,10 @@ const SSH_HOST_KEY_MISMATCH = /host key verification failed/iu;
 const SSH_AUTH_FAILED = /Permission denied \(/u;
 const SSH_CONNECT_FAILED =
   /connection refused|connection timed out|connect(?:ion)? to .* closed by|connection closed by (?:remote host|[^\n]* port [0-9]+)|operation timed out|could not resolve hostname|no route to host|network is unreachable|connection reset by peer/iu;
+// A banner-exchange failure is a connection failure; the same prefix on a
+// `debug` line (a raised LogLevel) is the ordinary handshake.
+const SSH_HANDSHAKE_FAILED =
+  /^(?!debug\d*:)[^\n]*\b(?:kex_exchange_identification|banner exchange):/imu;
 const SSH_MISSING_SHELL = /\bsh\b[^\n]*\bnot found\b/iu;
 const WINDOWS_SHELL =
   /is not recognized as an internal or external command|is not recognized as the name of a cmdlet|The system cannot find the (?:file|path) specified/iu;
@@ -58,7 +62,10 @@ export function classifySshPreludeFailure(
     return { kind: 'unavailable', reason: 'host_key_mismatch' };
   if (SSH_AUTH_FAILED.test(diagnostic))
     return { kind: 'unavailable', reason: 'auth_failed' };
-  if (SSH_CONNECT_FAILED.test(diagnostic))
+  if (
+    SSH_CONNECT_FAILED.test(diagnostic) ||
+    SSH_HANDSHAKE_FAILED.test(diagnostic)
+  )
     return { kind: 'unavailable', reason: 'unreachable' };
   if (
     (code === 127 && SSH_MISSING_SHELL.test(diagnostic)) ||

@@ -89,6 +89,22 @@ describe('classifySshPreludeFailure', () => {
         ended('Connection closed by 10.0.0.5 port 22', 255),
       ),
     ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
+    expect(
+      classifySshPreludeFailure(
+        ended(
+          'kex_exchange_identification: No SSH version received in first 1024 lines from server\nbanner exchange: Connection to 10.0.0.5 port 22: invalid format',
+          255,
+        ),
+      ),
+    ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
+    expect(
+      classifySshPreludeFailure(
+        ended(
+          'banner exchange: Connection to 10.0.0.5 port 22: invalid format',
+          255,
+        ),
+      ),
+    ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
   });
 
   it('does not take the debug handshake banner for a connection failure', () => {
