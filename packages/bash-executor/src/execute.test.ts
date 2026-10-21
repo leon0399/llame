@@ -440,6 +440,15 @@ describe("managed executor contract", () => {
     });
     slot.release();
     slot.release();
+    // A second release frees nothing: the held slot below still fills the
+    // single-process bound.
+    const held = reserveManagedProcessSlot(context(directory));
+    if ("type" in held) throw new Error("Expected a slot");
+    expect(await executeManagedBash(input, context(directory))).toMatchObject({
+      type: "unavailable",
+      message: "Managed process limit reached.",
+    });
+    held.release();
     expect(await executeManagedBash(input, context(directory))).toMatchObject({
       status: "success",
       stdout: "local",

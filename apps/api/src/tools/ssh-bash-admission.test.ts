@@ -273,6 +273,7 @@ function bashProbe() {
 describe('ssh bash permission projection', () => {
   it('refuses a command reject the submitted arguments carry', async () => {
     const probe = bashProbe();
+    const ssh = fakeSsh();
 
     const result = await runTool(
       probe.tool,
@@ -284,7 +285,7 @@ describe('ssh bash permission projection', () => {
             reject: [{ field: 'command', regex: 'rm -rf' }],
           },
         },
-        { sshClient: fakeSsh().client },
+        { sshClient: ssh.client },
       ),
       5,
     );
@@ -294,6 +295,7 @@ describe('ssh bash permission projection', () => {
       type: 'permission_denied',
     });
     expect(probe.execute).not.toHaveBeenCalled();
+    expect(ssh.resolve).not.toHaveBeenCalled();
   });
 
   it('admits a call a command-only allow names', async () => {

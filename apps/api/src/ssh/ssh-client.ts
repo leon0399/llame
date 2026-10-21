@@ -239,16 +239,16 @@ function collectStderr(
   stderr.on('data', (chunk: Buffer | string) => {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     // The head takes what is left of its bound and the rest becomes the tail.
-    // `headBytes` never passes the bound, so the room is never negative and
-    // an empty `taken` is an empty `subarray`, not a guarded case.
+    // Both keep copies: a view, even an empty one, would pin the whole chunk
+    // and let retained memory grow with the stderr volume.
     const taken = bytes.subarray(0, SSH_DIAGNOSTIC_BYTES - headBytes);
-    head.push(taken);
+    if (taken.length > 0) head.push(Buffer.from(taken));
     headBytes += taken.length;
     const rest = bytes.subarray(taken.length);
     if (rest.length === 0) return;
     const kept = Buffer.concat([tail, rest]);
     dropped += Math.max(0, kept.length - tailBytes);
-    tail = kept.subarray(-tailBytes);
+    tail = Buffer.from(kept.subarray(-tailBytes));
   });
   stderr.on('error', () => undefined);
   return {
