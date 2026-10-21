@@ -60,6 +60,12 @@ sources:
   - id: xerj-resume
     resource: "https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/cli.rs#L597-L611"
     title: "Generation resume and what --fresh does not delete"
+  - id: xerj-def
+    resource: "https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/def.rs#L1-L12"
+    title: "One path:line plus the declaration per hit"
+  - id: xerj-def-print
+    resource: "https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/def.rs#L524-L553"
+    title: "Printer writes path:line, symbol kind, and the declaration"
   - id: xerj-search
     resource: "https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/search.rs#L1-L31"
     title: "xerj search is a lexical passage client"
@@ -167,16 +173,17 @@ whatever endpoint the operator configured.[^xerj-embedder][^xerj-hash][^xerj-emb
 
 **Interface and model-facing output.** `xerj search` prints ranked passages
 with `file:line`, a score, and clipped text (default 600 characters, five
-hits). `xerj def` prints the declaration line and a symbol inventory. `xerj
-code` adds `--json` and `--meatl` (one line per hit). `xerj mcp` is stdio
-JSON-RPC. Search tools include `xerj_search`, `xerj_semantic_search`,
+hits). `xerj def` prints one `path:line` and the declaration per hit, tagged
+with the symbol kind. `xerj code` adds `--json` and `--meatl` (one line per
+hit). `xerj mcp` is stdio JSON-RPC. Search tools include `xerj_search`,
+`xerj_semantic_search`,
 `xerj_vector_search`, `xerj_hybrid_search`, and `xerj_code_search`. Those five
 search tools accept `max_tokens` and dedupe overlapping `file:line` passages
 before budgeting.
 Unfiltered kNN is described as HNSW with exact rescoring; filtered kNN and
 other ineligible shapes run an exact scan. The server proxies the engine and adds no ranking
 of its own. `--insecure` disables TLS and API-key auth on a loopback
-bind.[^xerj-search][^xerj-search-mode][^xerj-code][^xerj-mcp][^xerj-mcp-budget][^xerj-readme]
+bind.[^xerj-search][^xerj-def][^xerj-def-print][^xerj-search-mode][^xerj-code][^xerj-mcp][^xerj-mcp-budget][^xerj-readme]
 
 **Performance claims.** The README table reports 16/16 solves for a grep-driven Claude Code arm and a
 XERJ arm, with output tokens 26,477 versus 9,982 and cost $3.27 versus $1.58
@@ -213,8 +220,8 @@ backend as lexical, and on a second run submitted 0 records. Indexing
 `apps/api/src/tools/web-search` required a distinct `--prefix` because the
 default prefix already held `ax-docs`. That run indexed 27 code files and 282
 records. `xerj search executeSearchChain --prefix ws` returned `chain.ts:267`
-with the function signature. `xerj def` listed function, class, method, and
-type symbols from the same file. `xerj search --mode semantic` was refused.
+with the function signature. `xerj def` listed symbol kinds including
+function, class, method, and type. `xerj search --mode semantic` was refused.
 These runs check the CLI contract. They are not a quality
 benchmark.[^cli-runs]
 
@@ -255,6 +262,10 @@ benchmark.[^cli-runs]
 [^xerj-watch]: [Watch mode skip rules and the mtime hole](https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/watch.rs#L1-L37)
 
 [^xerj-resume]: [Generation resume and what --fresh does not delete](https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/cli.rs#L597-L611)
+
+[^xerj-def]: [One path:line plus the declaration per hit](https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/def.rs#L1-L12)
+
+[^xerj-def-print]: [Printer writes path:line, symbol kind, and the declaration](https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/def.rs#L524-L553)
 
 [^xerj-search]: [xerj search is a lexical passage client](https://github.com/xerj-org/xerj/blob/f6c5d40cdceba4ff14e5fae882d3d8df62d3d965/engine/crates/xerj-autoindex/src/search.rs#L1-L31)
 

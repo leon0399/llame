@@ -21,6 +21,9 @@ sources:
   - id: omp-find-flow
     resource: "https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/docs/tools/find.md#L50-L67"
     title: "Documented cascade flow and caps"
+  - id: omp-find-dirs
+    resource: "https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/docs/tools/find.md#L74-L77"
+    title: "Directory folders are never judged"
   - id: omp-cascade
     resource: "https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/tools/jfind/cascade.ts#L1-L58"
     title: "Cascade constants in source"
@@ -43,8 +46,8 @@ sources:
     resource: "https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/prompts/tools/find.md#L1-L4"
     title: "Model-facing tool prompt"
   - id: omp-jcache
-    resource: "https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/judgment/cache.ts#L1-L16"
-    title: "SQLite cache of native judgment answers"
+    resource: "https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/judgment/cache.ts#L1-L19"
+    title: "Local answer cache backed by bun:sqlite"
   - id: omp-jcache-key
     resource: "https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/judgment/cache.ts#L184-L192"
     title: "Lookup uses the state hash, model, and question fields"
@@ -93,8 +96,8 @@ in flight. Twenty files are read, up to 4 MiB each. Windows are 8,192 bytes;
 24 windows are kept per file; each sketch is 384 bytes. Sketches at or above
 0.45 are verified, at most 40 complete passages, grouped per file. A file is
 a hit when its best verified passage reaches 0.20. Sketch judgments are
-routing signals. Directory entries are listed, not judged. There is no
-embedding stage and no AST stage in `jfind`.[^omp-cascade][^omp-find-flow]
+routing signals. Directory folders are never judged. There is no
+embedding stage and no AST stage in `jfind`.[^omp-cascade][^omp-find-flow][^omp-find-dirs]
 
 **Chunking.** Windows are byte-bounded. Sketches are verbatim keyword-dense
 lines with original line numbers, the same shape as jegrep's sketch. The
@@ -166,6 +169,8 @@ was not installed, and no judge credential was configured.[^cli-runs]
 
 [^omp-find-flow]: [Documented cascade flow and caps](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/docs/tools/find.md#L50-L67)
 
+[^omp-find-dirs]: [Directory folders are never judged](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/docs/tools/find.md#L74-L77)
+
 [^omp-cascade]: [Cascade constants in source](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/tools/jfind/cascade.ts#L1-L58)
 
 [^omp-enable]: [20 second tool budget and native-judge gate](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/tools/jfind/index.ts#L41-L57)
@@ -180,7 +185,7 @@ was not installed, and no judge credential was configured.[^cli-runs]
 
 [^omp-prompt]: [Model-facing tool prompt](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/prompts/tools/find.md#L1-L4)
 
-[^omp-jcache]: [SQLite cache of native judgment answers](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/judgment/cache.ts#L1-L16)
+[^omp-jcache]: [Local answer cache backed by bun:sqlite](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/judgment/cache.ts#L1-L19)
 
 [^omp-jcache-key]: [Lookup uses the state hash, model, and question fields](https://github.com/can1357/oh-my-pi/blob/b32f6fa70c17ddd5600438e55fa1571060102b83/packages/coding-agent/src/judgment/cache.ts#L184-L192)
 

@@ -14,7 +14,7 @@ sources:
     title: "No embeddings, no index, line-range output"
   - id: jegrep-providers
     resource: "https://github.com/can1357/jegrep/blob/197e674285eb321e2be4b5f6797d755af2c32c77/README.md#L49-L68"
-    title: "OpenRouter, TypeSafe, failover, and --only"
+    title: "Provider selection, failover, and --only"
   - id: jegrep-compact
     resource: "https://github.com/can1357/jegrep/blob/197e674285eb321e2be4b5f6797d755af2c32c77/README.md#L78-L106"
     title: "JSON and compact digests for agents"
@@ -110,9 +110,10 @@ fails over to the other hosted key on auth, credit, timeout, rate-limit,
 5xx, transport, and invalid-response errors. `--only` refuses failover.
 `--endpoint local` uses `JEGREP_ENDPOINT_URL` or
 `http://127.0.0.1:8756/`, sends no `Authorization` header, and does not fail
-over. The README prices Jev at $0.042 per million input tokens. Weights are
-not bundled. Offline use requires a Jev-compatible server the operator runs.
-This inspection did not run one that answered.[^jegrep-local][^jegrep-providers]
+over. The README prices Jev at $0.042 per million input tokens.[^jegrep-readme]
+Weights are not bundled. Offline use requires a Jev-compatible server the
+operator runs. This inspection did not run one that
+answered.[^jegrep-local][^jegrep-providers]
 
 **Interface and model-facing output.** The interface is the CLI. This checkout
 has no MCP server. `--json` emits the query, root, rounds, threshold, hits,
@@ -155,7 +156,7 @@ measurement.[^cli-runs]
 
 [^jegrep-readme]: [No embeddings, no index, line-range output](https://github.com/can1357/jegrep/blob/197e674285eb321e2be4b5f6797d755af2c32c77/README.md#L12-L21)
 
-[^jegrep-providers]: [OpenRouter, TypeSafe, failover, and --only](https://github.com/can1357/jegrep/blob/197e674285eb321e2be4b5f6797d755af2c32c77/README.md#L49-L68)
+[^jegrep-providers]: [Provider selection, failover, and --only](https://github.com/can1357/jegrep/blob/197e674285eb321e2be4b5f6797d755af2c32c77/README.md#L49-L68)
 
 [^jegrep-compact]: [JSON and compact digests for agents](https://github.com/can1357/jegrep/blob/197e674285eb321e2be4b5f6797d755af2c32c77/README.md#L78-L106)
 
