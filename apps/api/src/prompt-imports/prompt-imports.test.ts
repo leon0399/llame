@@ -14,6 +14,7 @@ type HarnessOptions = {
   readonly hostAvailable?: boolean;
   readonly knowledgeAvailable?: boolean;
   readonly machineAvailable?: boolean;
+  readonly sshAvailable?: boolean;
   /** Host paths a probe finds. */
   readonly existing?: ReadonlyArray<string>;
   /** Machine targets a probe finds, keyed `<name>` + absolute Machine path. */
@@ -66,6 +67,7 @@ function createHarness(options: HarnessOptions = {}) {
       hostAvailable: true,
       knowledgeAvailable: true,
       machineAvailable: true,
+      sshAvailable: true,
       ...options,
       admitsRead: (path) => {
         calls.admits.push(path);
@@ -1242,5 +1244,52 @@ describe('resolvePromptImports PDF entries', () => {
       omitted: ['paper.pdf', 'https://x.test/readme'],
     });
     expect(calls.readLocators).toEqual(['paper.pdf']);
+  });
+});
+
+describe('resolvePromptImports ssh targets', () => {
+  it('reads an ssh target once without a pre-evaluation or probe', async () => {
+    const { calls, run } = createHarness();
+
+    const result = await run('Explore @`ssh://root@box/opt/services`');
+
+    expect(calls.admits).toEqual([]);
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.machineProbes).toEqual([]);
+    expect(calls.reads).toEqual([
+      { path: 'ssh://root@box/opt/services', ordinal: 0 },
+    ]);
+    expect(result.outcomes).toEqual([
+      expect.objectContaining({
+        locator: 'ssh://root@box/opt/services',
+        outcome: 'imported',
+        body: 'body of ssh://root@box/opt/services',
+      }),
+    ]);
+  });
+
+  it('keeps an ssh target as prose without the ssh section', async () => {
+    const { calls, run } = createHarness({ sshAvailable: false });
+
+    const result = await run('@ssh://box/etc/hostname');
+
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it('names a denied ssh target as not imported', async () => {
+    const { run } = createHarness({
+      result: () => ({
+        status: 'error',
+        type: 'permission_denied',
+        message: 'denied',
+      }),
+    });
+
+    const result = await run('@ssh://box/etc/shadow');
+
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).not.toHaveProperty('body');
+    expect(result.outcomes[0]?.outcome).not.toBe('imported');
   });
 });
