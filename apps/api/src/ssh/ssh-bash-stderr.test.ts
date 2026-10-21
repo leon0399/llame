@@ -75,7 +75,7 @@ afterEach(() => {
 });
 
 describe('remote bash stderr tail', () => {
-  it('stops the head at its bound and keeps the rest as the tail', async () => {
+  it('stops the head at its bound and keeps the last tail bytes when it drops', async () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
@@ -89,10 +89,30 @@ describe('remote bash stderr tail', () => {
     const outcome = await pending;
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     const headBytes = SSH_DIAGNOSTIC_BYTES - 100;
+    // The head and the tail are adjacent in the stream, so they join with no
+    // separator: an inserted one could split the end trailer.
     expect(outcome.diagnostic).toBe(
-      'a'.repeat(100) + 'b'.repeat(headBytes) + '\n' + 'b'.repeat(TAIL_BYTES),
+      'a'.repeat(100) + 'b'.repeat(headBytes + TAIL_BYTES),
     );
     expect(outcome.stderrOverflow).toBe(true);
+  });
+
+  it('keeps a trailer split across the head bound whole, with no overflow', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    // The boundary falls inside the trailer: the head holds `:en` and the
+    // tail begins with `d:0`.
+    const head = 'a'.repeat(SSH_DIAGNOSTIC_BYTES - 3) + ':en';
+    process.stderr.write(head);
+    process.stderr.write('d:0\n');
+    process.close(0);
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.diagnostic).toBe(`${head}d:0\n`);
+    expect(outcome.stderrOverflow).toBe(false);
   });
 
   it('keeps a short stderr exactly, with no separator and no overflow', async () => {
@@ -107,6 +127,23 @@ describe('remote bash stderr tail', () => {
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe('warn: something\n');
     expect(outcome.stderrOverflow).toBe(false);
+  });
+
+  it('keeps the end trailer a command wrote past the head', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stderr.write('login noise\n'.repeat(1000));
+    process.stderr.write('command err\nnonce:end:7\n');
+    process.close(0);
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.diagnostic.endsWith('nonce:end:7\n')).toBe(true);
+    // 12,000 noise bytes plus the command's own line: the tail dropped only
+    // what cannot fit, so the stream is still an overflow.
+    expect(outcome.stderrOverflow).toBe(true);
   });
 
   it('ignores an error event on stderr instead of losing the outcome', async () => {

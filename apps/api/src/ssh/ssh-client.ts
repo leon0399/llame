@@ -95,9 +95,9 @@ export type SshRunRequest = {
   readonly maxStdoutBytes: number;
   readonly deadlineMs: number;
   /**
-   * The stderr tail a caller that runs its own remote command keeps past the
-   * head bound, so a trailer written after that output still arrives. Absent
-   * keeps the bounded head alone.
+   * The stderr tail a caller keeps past the head bound, so a marker or an end
+   * trailer written after more output than the head holds still arrives.
+   * Absent keeps the bounded head alone.
    */
   readonly stderrTailBytes?: number;
   readonly signal?: AbortSignal;
@@ -218,6 +218,11 @@ type BoundedWiring = {
  * a bounded tail. A remote command writes its own stderr before the end
  * trailer, so the tail is what keeps a chatty command that finished from
  * looking like a lost session.
+ *
+ * The head and the tail are adjacent in what ssh wrote, so they join with no
+ * separator: a marker split across the head's bound stays one marker. Only the
+ * bytes the tail itself dropped are an overflow; a stream that fits in both
+ * bounds is kept whole.
  */
 function collectStderr(
   stderr: SshProcess['stderr'],
@@ -230,6 +235,7 @@ function collectStderr(
   const head: Array<Buffer> = [];
   let headBytes = 0;
   let tail = Buffer.alloc(0);
+  let dropped = 0;
   stderr.on('data', (chunk: Buffer | string) => {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     // The head takes what is left of its bound and the rest becomes the tail.
@@ -238,17 +244,16 @@ function collectStderr(
     const taken = bytes.subarray(0, SSH_DIAGNOSTIC_BYTES - headBytes);
     head.push(taken);
     headBytes += taken.length;
-    tail = Buffer.concat([tail, bytes.subarray(taken.length)]).subarray(
-      -tailBytes,
-    );
+    const rest = bytes.subarray(taken.length);
+    if (rest.length === 0) return;
+    const kept = Buffer.concat([tail, rest]);
+    dropped += Math.max(0, kept.length - tailBytes);
+    tail = kept.subarray(-tailBytes);
   });
   stderr.on('error', () => undefined);
   return {
-    text: () =>
-      tail.length === 0
-        ? Buffer.concat(head).toString('utf8')
-        : `${Buffer.concat(head).toString('utf8')}\n${tail.toString('utf8')}`,
-    overflow: () => tail.length > 0,
+    text: () => Buffer.concat([...head, tail]).toString('utf8'),
+    overflow: () => dropped > 0,
   };
 }
 

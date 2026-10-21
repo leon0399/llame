@@ -53,7 +53,10 @@ function remote(reply: (nonce: string) => SshRunOutcome = completed()): Remote {
       }),
     run: (request) => {
       runs.push(request);
-      const nonce = /h='([0-9a-f]+)'/u.exec(String(request.input))?.[1] ?? '';
+      const nonce =
+        /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
+          String(request.input),
+        )?.[1] ?? '';
       return Promise.resolve(reply(nonce));
     },
     sshConfigText: () => undefined,
@@ -183,7 +186,9 @@ describe('ssh bash request bounds', () => {
 });
 
 describe('ssh bash remote outcome', () => {
-  it('reports a cancelled verdict under the bash tool name', async () => {
+  it('leaves a cancellation that reached the transport an unknown outcome', async () => {
+    // The script may already have reached the host, so a cancelled local ssh
+    // cannot say the command did not run; only a pre-spawn cancel can.
     const remoteClient = remote(() => ({
       outcome: 'failed',
       reason: 'cancelled',
@@ -193,11 +198,27 @@ describe('ssh bash remote outcome', () => {
 
     await expect(
       executeSshBash(context(remoteClient), { command: 'true', cwd: CWD }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+  });
+
+  it('refuses a call cancelled before it spawned an ssh', async () => {
+    const remoteClient = remote();
+    stubFence();
+
+    const result = await executeSshBash(
+      context(remoteClient, { abortSignal: AbortSignal.abort() }),
+      { command: 'true', cwd: CWD },
+    );
+
+    expect(result).toEqual({
       status: 'error',
       type: 'cancelled',
       message: 'Command was cancelled before start.',
     });
+    expect(remoteClient.runs).toHaveLength(0);
   });
 
   it('marks stdout overflow as a truncated result', async () => {

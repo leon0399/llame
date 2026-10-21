@@ -210,11 +210,15 @@ export function buildSshReadScript(request: {
 }
 
 /**
- * The `bash` script: the `cd` precondition, the exported `env` entries, the
- * start markers, then the model's command through `eval` in a subshell with an
- * empty stdin, and the end trailer with the status of that subshell. The cwd,
- * each value, and the command reach the script only as single-quoted shell
- * words; the argv of both processes is fixed.
+ * The `bash` script: the `cd` precondition, the start markers, then the model's
+ * command through `eval` with the exported `env` entries in the same subshell,
+ * and the end trailer with the status of that subshell. The cwd, each value,
+ * and the command reach the script only as single-quoted shell words; the argv
+ * of both processes is fixed.
+ *
+ * Markers use the literal nonce and the entries are exported inside the
+ * subshell: an `env` key `p` or `s` therefore cannot overwrite a variable the
+ * script reads or a frame it prints.
  */
 export function buildSshBashScript(request: {
   readonly nonce: string;
@@ -222,23 +226,23 @@ export function buildSshBashScript(request: {
   readonly env: Readonly<Record<string, string>>;
   readonly command: string;
 }): string {
+  const nonce = shellQuote(request.nonce);
+  const exports = Object.entries(request.env).map(
+    ([key, value]) => `export ${key}=${shellQuote(value)}; `,
+  );
   return [
     '{',
-    `  h=${shellQuote(request.nonce)}`,
     `  p=${shellQuote(request.cwd)}`,
     '  if ! cd -- "$p" 2>/dev/null; then',
-    String.raw`    printf '%s:refuse:cwd\n' "$h" >&2`,
-    String.raw`    printf '%s:end:0\n' "$h" >&2`,
+    String.raw`    printf '%s:refuse:cwd\n' ${nonce} >&2`,
+    String.raw`    printf '%s:end:0\n' ${nonce} >&2`,
     '    exit 0',
     '  fi',
-    ...Object.entries(request.env).map(
-      ([key, value]) => `  export ${key}=${shellQuote(value)}`,
-    ),
-    String.raw`  printf '%s:start\n' "$h"`,
-    String.raw`  printf '%s:start\n' "$h" >&2`,
-    `  ( eval ${shellQuote(request.command)} ) </dev/null`,
+    String.raw`  printf '%s:start\n' ${nonce}`,
+    String.raw`  printf '%s:start\n' ${nonce} >&2`,
+    `  ( ${exports.join('')}eval ${shellQuote(request.command)} ) </dev/null`,
     '  s=$?',
-    String.raw`  printf '%s:end:%s\n' "$h" "$s" >&2`,
+    String.raw`  printf '%s:end:%s\n' ${nonce} "$s" >&2`,
     '}',
     '',
   ].join('\n');

@@ -350,6 +350,9 @@ async function runRemoteRead(request: RemoteReadRequest): Promise<RemoteRead> {
     input: buildSshReadScript({ nonce: request.nonce, path: request.path }),
     maxStdoutBytes: SSH_DIRECTORY_TRANSFER_BYTES + SSH_READ_NOISE_BYTES,
     deadlineMs: readBudgetMs(context),
+    // Login-shell noise larger than the stderr head would otherwise hide the
+    // start marker, the refusal, or the end trailer. The tail keeps them.
+    stderrTailBytes: SSH_READ_NOISE_BYTES,
     ...(context.abortSignal !== undefined && { signal: context.abortSignal }),
   });
   const frames = parseSshReadFrames(

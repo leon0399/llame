@@ -1,21 +1,21 @@
 /**
  * The `ssh://` branch of `bash` (ssh-locator design D6): one `bash -s` script
  * on stdin over the resolved binding the admission step produced. The script
- * enters the working directory first, exports the permitted `env` entries,
- * prints the per-call start marker, runs the model's command through `eval`
- * with an empty stdin, and prints the end trailer with the status of that
- * subshell.
+ * enters the working directory first, prints the per-call start markers, runs
+ * the model's command through `eval` in a subshell with an empty stdin — the
+ * permitted `env` entries are exported there, so no entry can overwrite a
+ * variable the script itself reads — and prints the end trailer with the
+ * status of that subshell.
  *
  * Nothing model supplied reaches either argv: the cwd, each value, and the
  * command travel only inside single-quoted script words on stdin. The local
  * bounds, the shared process slot, and the unbound native attempt are the
- * local and Machine `bash` ones. Before the start marker ssh's own refusal can
- * still name a known failure; after it, anything but the end trailer is
- * `outcome_unknown` and is never replayed.
+ * local and Machine `bash` ones. Before the start marker, a process that ended
+ * on its own can still name a known failure; once SSH is spawned, anything but
+ * the end trailer is `outcome_unknown` and is never replayed.
  */
 
 import {
-  managedEnvironmentCollision,
   measureManagedInput,
   reserveManagedProcessSlot,
   sanitizeKnownResult,
@@ -47,13 +47,8 @@ import { toToolResult } from './bash-result';
 import { sshUnavailableResult, sshUnsupportedHostResult } from './ssh-results';
 import { type ToolContext, type ToolResult } from './types';
 
-/** The tail kept past the stderr head, so the end trailer survives command output. */
-const SSH_BASH_STDERR_TAIL_BYTES = 512;
-
 /** The output bound in UTF-8 bytes: three bytes per UTF-16 code unit. */
 const UTF8_BYTES_PER_CODE_UNIT = 3;
-
-const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
 const OUTCOME_UNKNOWN_MESSAGE =
   'The remote command may have executed; the connection ended without its end trailer. It will not be replayed automatically.';
@@ -91,44 +86,11 @@ function bashBudgetMs(
     : Math.max(1, Math.min(remaining, executorContext.durationMs));
 }
 
-/**
- * The `env` refusal, before any attempt or process: each key is an identifier,
- * no value holds NUL, and no entry replaces a managed base variable.
- */
-function invalidEnvironment(
-  env: Readonly<Record<string, string>>,
-): ToolResult | undefined {
-  for (const [key, value] of Object.entries(env)) {
-    if (!ENV_KEY_PATTERN.test(key))
-      return {
-        status: 'error',
-        type: 'unavailable',
-        message: `Environment key ${JSON.stringify(key)} is not a valid name; an ssh:// bash environment key must match [A-Za-z_][A-Za-z0-9_]*.`,
-      };
-    if (value.includes('\0'))
-      return {
-        status: 'error',
-        type: 'unavailable',
-        message: `Environment entry ${JSON.stringify(key)} must not contain NUL.`,
-      };
-  }
-  const collision = managedEnvironmentCollision(env);
-  return collision === undefined
-    ? undefined
-    : {
-        status: 'error',
-        type: 'unavailable',
-        message: `Environment variable ${collision} cannot replace a managed base variable.`,
-      };
-}
-
 /** The tool result a verdict that is not a complete command becomes. */
 function verdictResult(
   verdict: Exclude<SshBashVerdict, { readonly kind: 'complete' }>,
 ): ToolResult {
   switch (verdict.kind) {
-    case 'cancelled':
-      return CANCELLED_BEFORE_START;
     case 'unsupported':
       return sshUnsupportedHostResult(verdict.cause);
     case 'unavailable':
@@ -219,8 +181,10 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
       SSH_READ_NOISE_BYTES,
     deadlineMs: request.budgetMs,
     // A command's own stderr precedes the trailer, so the head alone would
-    // lose it for a chatty command.
-    stderrTailBytes: SSH_BASH_STDERR_TAIL_BYTES,
+    // lose it for a chatty command. The tail is the local output bound in
+    // bytes, so a command that reaches the bound still keeps its trailer.
+    stderrTailBytes:
+      request.executorContext.outputBound * UTF8_BYTES_PER_CODE_UNIT,
     ...(context.abortSignal !== undefined && { signal: context.abortSignal }),
   });
   return commandResult(
@@ -387,8 +351,9 @@ export async function executeSshBash(
   const target = remoteTarget(context, input);
   if ('status' in target) return target;
   const executorContext = managedBashContext(context);
-  const invalid = invalidEnvironment(input.env ?? {});
-  if (invalid !== undefined) return invalid;
+  // The `env` entries and a NUL in the command are refused by the admission,
+  // before the destination resolves, so every call that reaches here carries
+  // entries this script can export as data.
   // The bound measures what a local call measures: the command, its fixed
   // argv, the directory, and each addition.
   if (

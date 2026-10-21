@@ -140,6 +140,9 @@ describe('ssh read transfer', () => {
     expect(runs[0]?.maxStdoutBytes).toBe(
       SSH_DIRECTORY_TRANSFER_BYTES + SSH_READ_NOISE_BYTES,
     );
+    // Login noise past the stderr head must not hide the marker or the
+    // trailer, so the read keeps a tail as well.
+    expect(runs[0]?.stderrTailBytes).toBe(SSH_READ_NOISE_BYTES);
     expect(String(runs[0]?.input)).toContain("p='/etc/hostname'");
   });
 

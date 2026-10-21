@@ -151,7 +151,7 @@ describe('isSshReadRefusal', () => {
 });
 
 describe('buildSshBashScript', () => {
-  it('enters the cwd first, exports the additions, then runs the command', () => {
+  it('enters the cwd, marks the start, then runs the command with its entries', () => {
     const script = buildSshBashScript({
       nonce: NONCE,
       cwd: '/srv/app',
@@ -163,21 +163,49 @@ describe('buildSshBashScript', () => {
     expect(script.endsWith('}\n')).toBe(true);
     expect(script).toContain(`p='/srv/app'`);
     expect(script).toContain('if ! cd -- "$p" 2>/dev/null; then');
-    expect(script).toContain(String.raw`printf '%s:refuse:cwd\n' "$h" >&2`);
-    expect(script).toContain(String.raw`export TOKEN_HINT='it'\''s data'`);
+    expect(script).toContain(
+      String.raw`printf '%s:refuse:cwd\n' '${NONCE}' >&2`,
+    );
     expect(script.split('\n').filter((line) => /^[{}]$/u.test(line))).toEqual([
       '{',
       '}',
     ]);
-    // The command is one single-quoted word after `eval`, run in a subshell
-    // with an empty stdin, and the trailer carries that subshell's status.
+    // The command is one single-quoted word after `eval`, with the entries
+    // exported in the same subshell and an empty stdin; the trailer carries
+    // that subshell's status.
     expect(script).toContain(
-      `  ( eval 'printf "%s" "$TOKEN_HINT"' ) </dev/null`,
+      `  ( export TOKEN_HINT='it'\\''s data'; eval 'printf "%s" "$TOKEN_HINT"' ) </dev/null`,
     );
     expect(script).toContain('  s=$?');
-    expect(script).toContain(String.raw`printf '%s:end:%s\n' "$h" "$s" >&2`);
-    expect(script.indexOf('export TOKEN_HINT')).toBeLessThan(
-      script.indexOf(String.raw`printf '%s:start\n' "$h"`),
+    expect(script).toContain(
+      String.raw`printf '%s:end:%s\n' '${NONCE}' "$s" >&2`,
+    );
+    // The markers come before the command, and each frame carries the nonce
+    // itself: no script variable can be overwritten by an entry.
+    expect(script.indexOf(':start')).toBeLessThan(
+      script.indexOf('( export TOKEN_HINT'),
+    );
+    expect(script).not.toContain('h=');
+    expect(script).not.toContain('"$h"');
+  });
+
+  it('keeps an entry named like a script variable out of every frame', () => {
+    const script = buildSshBashScript({
+      nonce: NONCE,
+      cwd: '/tmp',
+      env: { h: 'x', p: 'y', s: 'z' },
+      command: 'true',
+    });
+
+    // Each entry lives in the command's subshell, so the outer shell keeps the
+    // directory it entered and prints the frames with the literal nonce.
+    expect(script).toContain(
+      `  ( export h='x'; export p='y'; export s='z'; eval 'true' ) </dev/null`,
+    );
+    expect(script).toContain(`  p='/tmp'`);
+    expect(script).toContain(String.raw`printf '%s:start\n' '${NONCE}' >&2`);
+    expect(script).toContain(
+      String.raw`printf '%s:end:%s\n' '${NONCE}' "$s" >&2`,
     );
   });
 

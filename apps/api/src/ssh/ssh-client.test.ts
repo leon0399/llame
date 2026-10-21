@@ -385,7 +385,9 @@ describe('createSshClient.run', () => {
 
     const outcome = await pending;
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
-    expect(outcome.diagnostic).toHaveLength(8192 + 1 + 64);
+    // The head and the tail are adjacent in the stream, so they join with no
+    // separator, and only the bytes the tail dropped count as overflow.
+    expect(outcome.diagnostic).toHaveLength(8192 + 64);
     expect(outcome.diagnostic.endsWith('nonce:end:7\n')).toBe(true);
     expect(outcome.stderrOverflow).toBe(true);
   });

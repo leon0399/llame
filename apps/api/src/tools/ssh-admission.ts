@@ -1,13 +1,19 @@
 /**
  * The asynchronous two-pass admission for an `ssh://` locator (ssh-locator
  * design D3): `read`'s `path` and `bash`'s `cwd`. The locator grammar is
- * checked first, then the tool group's rejects against the submitted text with
- * the read selector removed — a match refuses before anything resolves, so a
- * rejected locator runs no operator `Match exec`. Only then does the
- * destination resolve through `ssh -G`, and the full group is evaluated once
- * more against the resolved locator `ssh://<user>@<host>:<port><decoded path>`,
- * so an alias cannot go around an address reject and an allow names the host
- * the connection actually reaches.
+ * checked first, then the tool group's rules against the submitted arguments
+ * with that field replaced by the locator (for `read`, without its selector) —
+ * a reject refuses before anything resolves, so a rejected locator runs no
+ * operator `Match exec`. Only then does the destination resolve through
+ * `ssh -G`, and the full group is evaluated once more against the resolved
+ * locator `ssh://<user>@<host>:<port><decoded path>`, so an alias cannot go
+ * around an address reject and an allow names the host the connection actually
+ * reaches.
+ *
+ * `bash`'s other arguments stay visible to every rule: a `command` or `env`
+ * reject matches the same text the remote shell runs. Its arguments are also
+ * refused here, before the resolution, when the `env` entries are not data or
+ * the command holds NUL, which `bash -s` drops.
  *
  * Resolution runs in `bypass` mode too, because execution binds to it. The
  * resolved user, host, and port travel to execution on the trusted context;
@@ -16,6 +22,8 @@
  */
 
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
+
+import { managedEnvironmentCollision } from '@workspace/bash-executor';
 
 import {
   formatSshLocator,
@@ -31,6 +39,8 @@ import { type PermissionDecision } from './permissions/types';
 import { sshUnavailableResult } from './ssh-results';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
+const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+
 /** What the runner does with this call after the `ssh://` admission step. */
 export type SshAdmission =
   | { readonly kind: 'none' }
@@ -45,8 +55,15 @@ export type SshAdmission =
 /** The submitted arguments of an `ssh://` read: only `path` decides. */
 export type SshReadArguments = { readonly path: string };
 
-/** The submitted arguments of an `ssh://` bash: only `cwd` decides. */
-export type SshBashArguments = { readonly cwd: string };
+/**
+ * The submitted arguments of an `ssh://` bash: `cwd` decides the locator, and
+ * `command` and `env` stay visible to the permission rules as submitted.
+ */
+export type SshBashArguments = {
+  readonly cwd: string;
+  readonly command: string;
+  readonly env?: Readonly<Record<string, string>>;
+};
 
 /** Is this call a `read` of an `ssh://` locator? */
 export function isSshRead(
@@ -64,7 +81,10 @@ export function isSshBash(
   args: UnknownRecord,
 ): args is SshBashArguments {
   return (
-    tool.id === 'bash' && isString(args['cwd']) && isSshLocator(args['cwd'])
+    tool.id === 'bash' &&
+    isString(args['cwd']) &&
+    isSshLocator(args['cwd']) &&
+    isString(args['command'])
   );
 }
 
@@ -72,6 +92,8 @@ export function isSshBash(
 type SshLocatorCall = {
   readonly toolId: 'read' | 'bash';
   readonly field: 'path' | 'cwd';
+  /** The submitted arguments, of which only the locator field is replaced. */
+  readonly args: UnknownRecord;
   readonly submitted: string;
   readonly parsed: SshPathLocator;
 };
@@ -91,15 +113,66 @@ function invalidPathResult(message: string): SshAdmission {
   };
 }
 
-/** The group's decision for one locator text. */
+function unavailableResult(message: string): SshAdmission {
+  return {
+    kind: 'refused',
+    result: { status: 'error', type: 'unavailable', message },
+  };
+}
+
+/**
+ * The `env` and `command` refusal of an `ssh://` bash, before any process and
+ * before the destination resolves. Each `env` key is an identifier, no value
+ * holds NUL, and no entry replaces a managed base variable; the script exports
+ * each entry as data. A command with NUL is refused because `bash -s` drops it,
+ * so the command that runs would not be the text the rules matched.
+ */
+function refusedBashArguments(
+  args: SshBashArguments,
+): SshAdmission | undefined {
+  if (args.command.includes('\0'))
+    return {
+      kind: 'refused',
+      result: {
+        status: 'error',
+        type: 'invalid_input',
+        message:
+          'The command must not contain NUL: the remote shell drops it, so the command that would run is not the text the permission rules matched.',
+      },
+    };
+  for (const [key, value] of Object.entries(args.env ?? {})) {
+    if (!ENV_KEY_PATTERN.test(key))
+      return unavailableResult(
+        `Environment key ${JSON.stringify(key)} is not a valid name; an ssh:// bash environment key must match [A-Za-z_][A-Za-z0-9_]*.`,
+      );
+    if (value.includes('\0'))
+      return unavailableResult(
+        `Environment entry ${JSON.stringify(key)} must not contain NUL.`,
+      );
+  }
+  const collision = managedEnvironmentCollision(args.env ?? {});
+  return collision === undefined
+    ? undefined
+    : unavailableResult(
+        `Environment variable ${collision} cannot replace a managed base variable.`,
+      );
+}
+
+/**
+ * The group's decision for the submitted arguments with the locator field
+ * replaced. Rules see `command` and `env` as submitted, so a reject on either
+ * cannot be arranged to miss a call an `ssh://` bash would run.
+ */
 function evaluateSshLocator(
   context: ToolContext,
-  toolId: 'read' | 'bash',
-  field: 'path' | 'cwd',
+  call: SshLocatorCall,
   value: string,
 ): PermissionDecision | undefined {
   return admitPermission(context, (policy) =>
-    evaluatePermission(policy, { toolId, args: { [field]: value } }),
+    evaluatePermission(policy, {
+      toolId: call.toolId,
+      args: { ...call.args, [call.field]: value },
+    }),
   );
 }
 
@@ -152,12 +225,7 @@ function decideResolvedSsh(
   const locator = formatSshLocator(resolved, call.parsed.path);
   if (locator === undefined)
     return { kind: 'refused', result: sshUnavailableResult('config') };
-  const decision = evaluateSshLocator(
-    context,
-    call.toolId,
-    call.field,
-    locator,
-  );
+  const decision = evaluateSshLocator(context, call, locator);
   if (decision === undefined) return { kind: 'none' };
   if (locator !== call.submitted)
     context.onDerivedDecision?.({ kind: 'canonical', url: locator, decision });
@@ -181,12 +249,7 @@ async function admitSshLocator(
   context: ToolContext,
   client: NonNullable<ToolContext['sshClient']>,
 ): Promise<SshAdmission> {
-  const submittedDecision = evaluateSshLocator(
-    context,
-    call.toolId,
-    call.field,
-    call.submitted,
-  );
+  const submittedDecision = evaluateSshLocator(context, call, call.submitted);
   if (
     submittedDecision !== undefined &&
     submittedDecision.decision === 'reject' &&
@@ -227,7 +290,7 @@ export async function admitSshRead(
 
   const submitted = withoutReadSelector(args.path);
   return admitSshLocator(
-    { toolId: 'read', field: 'path', submitted, parsed },
+    { toolId: 'read', field: 'path', args, submitted, parsed },
     context,
     client,
   );
@@ -235,7 +298,8 @@ export async function admitSshRead(
 
 /**
  * `bash`'s admission: its `cwd` is one absolute locator without a read
- * selector, and the group matches that text, never the command.
+ * selector. The group sees the submitted `command` and `env` too, on the
+ * submitted and on the resolved locator, both before any process.
  */
 export async function admitSshBash(
   args: SshBashArguments,
@@ -244,6 +308,9 @@ export async function admitSshBash(
   const client = context.sshClient;
   if (client === undefined || context.permissionPolicy === undefined)
     return { kind: 'none' };
+
+  const refusedArguments = refusedBashArguments(args);
+  if (refusedArguments !== undefined) return refusedArguments;
 
   const parsed = parseSshLocator(args.cwd);
   if (parsed.kind === 'help')
@@ -256,7 +323,7 @@ export async function admitSshBash(
       'An ssh:// working directory is one absolute path without a selector.',
     );
   return admitSshLocator(
-    { toolId: 'bash', field: 'cwd', submitted: args.cwd, parsed },
+    { toolId: 'bash', field: 'cwd', args, submitted: args.cwd, parsed },
     context,
     client,
   );

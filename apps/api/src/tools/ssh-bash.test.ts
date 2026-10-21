@@ -51,7 +51,10 @@ function remote(
       }),
     run: (request) => {
       runs.push(request);
-      const nonce = /h='([0-9a-f]+)'/u.exec(String(request.input))?.[1] ?? '';
+      const nonce =
+        /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
+          String(request.input),
+        )?.[1] ?? '';
       return Promise.resolve(reply(nonce, request));
     },
     sshConfigText: () => undefined,
@@ -158,11 +161,17 @@ describe('ssh bash execution', () => {
       resolved: { user: 'box', host: 'box', port: 22 },
       remoteCommand: ['bash', '-s'],
     });
-    expect(run?.stderrTailBytes).toBe(512);
+    expect(run?.stderrTailBytes).toBe(
+      managedBashContext(context(remoteClient)).outputBound * 3,
+    );
     const script = String(run?.input);
     expect(script).toContain("p='/tmp'");
-    expect(script).toContain(String.raw`export TOKEN_HINT='it'\''s data'`);
-    expect(script).toContain(`( eval 'printenv TOKEN_HINT' ) </dev/null`);
+    // The entries are exported inside the command's subshell, so no key can
+    // overwrite a variable the script reads or a frame it prints.
+    expect(script).toContain(
+      `( export TOKEN_HINT='it'\\''s data'; eval 'printenv TOKEN_HINT' ) </dev/null`,
+    );
+    expect(script).not.toContain('h=');
     // No model text reaches the argv of either process.
     expect(run?.remoteCommand).not.toContain('printenv TOKEN_HINT');
     expect(run?.remoteCommand.join(' ')).not.toContain('TOKEN_HINT');
@@ -305,44 +314,6 @@ describe('ssh bash execution', () => {
     });
     expect(result.status === 'error' && result.message).toContain('bash');
   });
-
-  const envRefusals: ReadonlyArray<{
-    readonly label: string;
-    readonly env: Record<string, string>;
-    readonly message: string;
-  }> = [
-    {
-      label: 'a key carrying shell text',
-      env: { 'X=1; id; Y': 'v' },
-      message: 'is not a valid name',
-    },
-    { label: 'a NUL value', env: { TOKEN: 'a\0b' }, message: 'NUL' },
-    {
-      label: 'a managed base variable',
-      env: { PATH: '/tmp' },
-      message:
-        'Environment variable PATH cannot replace a managed base variable.',
-    },
-  ];
-
-  it.each(envRefusals)(
-    'refuses $label before any attempt or process',
-    async ({ env, message }) => {
-      const remoteClient = remote();
-      const { begin } = stubFence();
-
-      const result = await executeSshBash(context(remoteClient), {
-        command: 'printf never',
-        cwd: CWD,
-        env,
-      });
-
-      expect(result).toMatchObject({ status: 'error', type: 'unavailable' });
-      expect(result.status === 'error' && result.message).toContain(message);
-      expect(remoteClient.runs).toHaveLength(0);
-      expect(begin).not.toHaveBeenCalled();
-    },
-  );
 
   it('refuses a command over the local input bound before any process', async () => {
     const remoteClient = remote();

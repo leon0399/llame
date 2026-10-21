@@ -253,7 +253,10 @@ describe('bash durable admission', () => {
         }),
       run: (request): Promise<SshRunOutcome> => {
         runs.push(request);
-        const nonce = /h='([0-9a-f]+)'/u.exec(String(request.input))?.[1] ?? '';
+        const nonce =
+          /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
+            String(request.input),
+          )?.[1] ?? '';
         return Promise.resolve({
           outcome: 'ended',
           stdout: Buffer.from(`${nonce}:start\n/home/box/work\n`),

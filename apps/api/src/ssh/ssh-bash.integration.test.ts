@@ -111,7 +111,11 @@ describe('ssh bash over a real sshd', () => {
   }
 
   function bash(
-    input: { readonly command: string; readonly cwd: string },
+    input: {
+      readonly command: string;
+      readonly cwd: string;
+      readonly env?: Record<string, string>;
+    },
     sshClient: SshClient,
     overrides: Partial<ToolContext> = {},
     callTimeoutSeconds = CALL_TIMEOUT_SECONDS,
@@ -246,6 +250,23 @@ describe('ssh bash over a real sshd', () => {
 
     expect(result).toMatchObject({ status: 'success', stdout: '/tmp\n' });
     expect(String(result['stdout'])).not.toContain('/home/box/work');
+  });
+
+  it('keeps an entry named like a script variable out of every frame', async () => {
+    // `h` and `p` are the names the script used to read; an entry may still
+    // carry them, and its value must reach the command without touching the
+    // markers, the directory, or the trailer.
+    const result = await bash(
+      {
+        command: 'pwd; printenv h; printenv p',
+        cwd: 'ssh://box/tmp',
+        env: { h: 'set-by-env', p: '/nope' },
+      },
+      client(),
+    );
+
+    expect(result).toMatchObject({ status: 'success', exitCode: 0 });
+    expect(result['stdout']).toBe('/tmp\nset-by-env\n/nope\n');
   });
 
   it('refuses bash on the sh-only host while a read still works', async () => {

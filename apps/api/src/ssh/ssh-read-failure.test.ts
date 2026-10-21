@@ -218,10 +218,11 @@ describe('classifySshBashOutcome', () => {
     });
   });
 
-  it('keeps a pre-marker cancellation and refusal typed', () => {
+  it('leaves a pre-marker bash cancellation unknown and keeps a refusal typed', () => {
     const unstarted = { started: false, stdout: Buffer.alloc(0), stderr: '' };
+    // The local ssh may have sent the script before the hub stopped it.
     expect(classifySshBashOutcome(failed('cancelled'), unstarted)).toEqual({
-      kind: 'cancelled',
+      kind: 'unknown',
     });
     expect(
       classifySshBashOutcome(
