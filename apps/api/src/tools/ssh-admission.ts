@@ -107,13 +107,7 @@ function boundContext(
 ): ToolContext {
   return {
     ...context,
-    sshBinding: {
-      destination: parsed.destination.host,
-      user: resolved.user,
-      hostname: resolved.host,
-      port: resolved.port,
-      locator,
-    },
+    sshBinding: { ...resolved, destination: parsed.destination.host, locator },
   };
 }
 

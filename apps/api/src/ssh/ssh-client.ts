@@ -119,16 +119,13 @@ export type SshClient = {
   dispose(): void;
 };
 
-/** The resolved destination one admitted `ssh://` call hands to execution. */
-export type SshBinding = {
+/**
+ * The resolved destination one admitted `ssh://` call hands to execution: the
+ * address the connection binds with `-o HostName= -o Port= -o User=`.
+ */
+export type SshBinding = SshResolvedDestination & {
   /** The submitted host, which stays ssh's destination for Host-scoped settings. */
   readonly destination: string;
-  /** The resolved login user the connection binds with `-o User=`. */
-  readonly user: string;
-  /** The resolved hostname the connection binds with `-o HostName=`. */
-  readonly hostname: string;
-  /** The resolved port the connection binds with `-o Port=`. */
-  readonly port: number;
   /** The canonical locator permission was decided on. */
   readonly locator: string;
 };
@@ -171,22 +168,6 @@ function parseResolvedDestination(
   return { user, host: hostname.toLowerCase(), port };
 }
 
-/** One bounded ssh process's raw end: bytes, diagnostic, and exit facts. */
-type BoundedSshEnd =
-  | {
-      readonly kind: 'ended';
-      readonly stdout: Buffer;
-      readonly stdoutOverflow: boolean;
-      readonly diagnostic: string;
-      readonly code: number | null;
-      readonly signal: string | null;
-    }
-  | {
-      readonly kind: 'failed';
-      readonly reason: 'client_missing' | 'timed_out' | 'cancelled';
-      readonly diagnostic: string;
-    };
-
 type BoundedSshLimits = {
   readonly maxStdoutBytes: number;
   readonly deadlineMs: number;
@@ -198,7 +179,7 @@ type BoundedWiring = {
   readonly process: SshProcess;
   readonly state: { stdout: Buffer; overflow: boolean };
   readonly diagnostic: () => string;
-  readonly finish: (end: BoundedSshEnd) => void;
+  readonly finish: (end: SshRunOutcome) => void;
   readonly maxStdoutBytes: number;
 };
 
@@ -230,14 +211,14 @@ function wireBoundedProcess(wiring: BoundedWiring): void {
   process.stdout.on('error', () => undefined);
   process.onError((error) =>
     finish({
-      kind: 'failed',
+      outcome: 'failed',
       reason: isMissingClient(error) ? 'client_missing' : 'timed_out',
       diagnostic: error.message,
     }),
   );
   process.onClose((code, signal) =>
     finish({
-      kind: 'ended',
+      outcome: 'ended',
       stdout: state.stdout,
       stdoutOverflow: state.overflow,
       diagnostic: diagnostic(),
@@ -252,13 +233,13 @@ function runBoundedSsh(
   spawn: SshSpawn,
   args: ReadonlyArray<string>,
   limits: BoundedSshLimits,
-): Promise<BoundedSshEnd> {
-  const { promise, resolve } = Promise.withResolvers<BoundedSshEnd>();
+): Promise<SshRunOutcome> {
+  const { promise, resolve } = Promise.withResolvers<SshRunOutcome>();
   const process = spawn('ssh', args);
   const diagnostic = collectSshDiagnostic(process.stderr);
   const state = { stdout: Buffer.alloc(0), overflow: false };
   let settled = false;
-  const finish = (end: BoundedSshEnd) => {
+  const finish = (end: SshRunOutcome) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
@@ -267,7 +248,7 @@ function runBoundedSsh(
     resolve(end);
   };
   const fail = (reason: 'client_missing' | 'timed_out' | 'cancelled') =>
-    finish({ kind: 'failed', reason, diagnostic: diagnostic() });
+    finish({ outcome: 'failed', reason, diagnostic: diagnostic() });
   const onAbort = () => fail('cancelled');
   const timer = setTimeout(() => fail('timed_out'), limits.deadlineMs);
 
@@ -323,8 +304,8 @@ function runArgs(
   return args;
 }
 
-function resolvedFromEnd(end: BoundedSshEnd): SshResolution {
-  if (end.kind === 'failed') {
+function resolvedFromEnd(end: SshRunOutcome): SshResolution {
+  if (end.outcome === 'failed') {
     return end.reason === 'cancelled'
       ? { outcome: 'cancelled' }
       : {
@@ -346,19 +327,6 @@ function resolvedFromEnd(end: BoundedSshEnd): SshResolution {
   return destination === undefined
     ? { outcome: 'failed', reason: 'config', diagnostic: end.diagnostic }
     : { outcome: 'resolved', destination };
-}
-
-function outcomeFromEnd(end: BoundedSshEnd): SshRunOutcome {
-  return end.kind === 'failed'
-    ? { outcome: 'failed', reason: end.reason, diagnostic: end.diagnostic }
-    : {
-        outcome: 'ended',
-        stdout: end.stdout,
-        stdoutOverflow: end.stdoutOverflow,
-        diagnostic: end.diagnostic,
-        code: end.code,
-        signal: end.signal,
-      };
 }
 
 export function createSshClient(options: SshClientOptions): SshClient {
@@ -389,14 +357,7 @@ export function createSshClient(options: SshClientOptions): SshClient {
         }),
       ),
     run: async (request) =>
-      outcomeFromEnd(
-        await runBoundedSsh(spawn, runArgs(configPath(), request), {
-          maxStdoutBytes: request.maxStdoutBytes,
-          deadlineMs: request.deadlineMs,
-          ...(request.signal !== undefined && { signal: request.signal }),
-          ...(request.input !== undefined && { input: request.input }),
-        }),
-      ),
+      runBoundedSsh(spawn, runArgs(configPath(), request), request),
     dispose: () => {
       configFile?.dispose();
       configFile = undefined;

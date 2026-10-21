@@ -263,7 +263,7 @@ describe('ssh read admission', () => {
     expect(received?.sshBinding).toEqual({
       destination: 'box',
       user: 'box',
-      hostname: 'box',
+      host: 'box',
       port: 22,
       locator: 'ssh://box@box:22/var/log/../../etc/shadow',
     });
