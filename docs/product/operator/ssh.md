@@ -18,7 +18,7 @@ runs a `bash` command, on a host the operator's own SSH configuration reaches.
 Nothing is installed on that host: the hub runs the system `ssh` client, sends a
 POSIX `sh` or `bash` script on stdin, and reads the framed answer back. The
 behavior contract is the
-[ssh-locator spec](../../../openspec/changes/ssh-locator/specs/ssh-locator/spec.md);
+[ssh-locator spec](../../../openspec/specs/ssh-locator/spec.md);
 what a result contains is in the
 [ssh locator reference](../reference/locators/ssh.md).
 
