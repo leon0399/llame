@@ -25,8 +25,21 @@ independently reproduced performance.
 
 ## Search and knowledge tools
 
-- [jegrep](./jegrep.md) — Standalone staged semantic source search using typed
-  judgments.
+- [jevgrep](./jevgrep.md) — Hierarchical Jev retrieval over a live tree, with
+  declaration parsing for four languages and an answer cache rather than a
+  repository index.
+- [XERJ](./xerj.md) — Local search engine with BM25, optional vectors,
+  tree-sitter code records, and an MCP server. The default embedder is a
+  lexical feature hash.
+- [jegrep](./jegrep.md) — Live-tree semantic grep: an in-memory lexical rank,
+  then Jev filename, sketch, and full-passage judgments, with no repository
+  index.
+- [oh-my-pi find](./oh-my-pi-find.md) — OMP's semantic find tool: the jegrep
+  cascade as an agent tool and `omp find` CLI, gated on a native System One
+  judge.
+- [Code search](./code-search.md) — Compares four source-search tools and
+  lists mechanisms worth studying for a future llame semantic search tool,
+  without treating that tool as decided.
 - [agent-memory](./agent-memory.md) — Derived memory indexes and federated
   retrieval.
 - [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall.

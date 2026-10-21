@@ -21,7 +21,9 @@ Noncanonical; no feature implementation or scope approval.
   model/endpoint not exposed, reported cost not independently verified billing.
 
 Related references: [OMP](../../harnesses/oh-my-pi.md#semantic-find-and-jegrep),
-[jegrep](../../tools/jegrep.md), and the [harness index](../../harnesses/index.md).
+[jegrep](../../tools/jegrep.md), [oh-my-pi find](../../tools/oh-my-pi-find.md),
+the [code-search comparison](../../tools/code-search.md), and the
+[harness index](../../harnesses/index.md).
 Source selection, answer generation and execution authorization remain separate.
 
 ## Reproduce the offline probes

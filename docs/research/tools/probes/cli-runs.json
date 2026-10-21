@@ -1,0 +1,57 @@
+{
+  "observed": "2026-10-21",
+  "note": "Command transcripts from this inspection. They exercise CLI contracts. They are not retrieval-quality benchmarks.",
+  "checkouts": {
+    "jevgrep": "5a50fedceb24e691c15d90c8585d7957a95f8c8a",
+    "xerj_source": "f6c5d40cdceba4ff14e5fae882d3d8df62d3d965",
+    "jegrep": "197e674285eb321e2be4b5f6797d755af2c32c77",
+    "oh_my_pi": "b32f6fa70c17ddd5600438e55fa1571060102b83"
+  },
+  "runs": [
+    {
+      "tool": "jevgrep",
+      "binary": "bun apps/cli/src/index.ts from checkout 5a50fed, package version 0.8.5",
+      "command": "jg --version; jg files /workspace/docs/research/tools; jg \"where is chat search fusion implemented?\" /workspace/docs/research/tools",
+      "exit_codes": [0, 0, 1],
+      "observed": [
+        "files: 11 files eligible (73.7 KiB); stdout said no provider requests were made",
+        "search without jg auth exited 1 with: Run jg auth or use jg auth --provider NAME --stdin."
+      ]
+    },
+    {
+      "tool": "jegrep",
+      "binary": "cargo build --release of checkout 197e674, reported version 0.1.3",
+      "command": "jegrep --list-strategies; jegrep QUERY /workspace/docs/research/tools; JEGREP_ENDPOINT_URL=http://127.0.0.1:9/ jegrep --endpoint local QUERY /workspace/docs/research/tools --quiet",
+      "exit_codes": [0, 2, 0],
+      "observed": [
+        "strategies include cascade (default per --help)",
+        "benches/RESULTS.md has 148 relative link targets; 147 do not resolve, including recommended.json and comparison-evidence.json",
+        "missing OPENROUTER_API_KEY and TYPESAFE_API_KEY exited 2 before a search",
+        "--endpoint and --only cannot be combined (exit 2)",
+        "local endpoint with nothing listening: 13/13 judge requests failed, connection refused, stdout still said no hits after 1 round at tau 0.20, process exit 0, 77.8s wall"
+      ]
+    },
+    {
+      "tool": "xerj",
+      "binary": "GitHub release v1.0.0-rc.97 asset xerj-1.0.0-rc.97-x86_64-unknown-linux-gnu.tar.gz, tag commit e6216b6597ca11b816caa4e3e0ca2ffdf73d9a2b, sha256 248ef532c6fa3cabb0fbde480c60d9201fa681b69726947192707f3a9ae32db0",
+      "source_mismatch": "Inspected source is f6c5d40cdceba4ff14e5fae882d3d8df62d3d965, which is newer than the release tag. Help text for `xerj code` and `xerj search` matched the strings read at that source. Runtime indexing below was not rebuilt from f6c5d40.",
+      "command": "xerj --insecure --data-dir /tmp/xerj-data --port 9200; xerj autoindex /workspace/docs/research/tools; repeat autoindex; xerj autoindex /workspace/apps/api/src/tools/web-search --prefix ws; xerj search and xerj def",
+      "exit_codes": [0, 0, 0, 0, 0],
+      "observed": [
+        "server started on 127.0.0.1:9200 in 73ms",
+        "markdown notes: 11 files, 44 records, embedding backend reported as lexical, 0 code files, 0.7s",
+        "second autoindex of the same folder submitted 0 source records (already indexed), 0.1s",
+        "indexing the TypeScript directory under the default prefix was refused because that prefix already held ax-docs",
+        "prefix ws: 28 files, 27 code files indexed, 282 records, lexical backend, 0.8s",
+        "xerj search executeSearchChain --prefix ws returned chain.ts:267 labeled [function] and a verbatim signature",
+        "xerj def executeSearchChain --prefix ws listed symbol kinds including function, class, method, and type",
+        "xerj search --mode semantic was refused: the command always sends a lexical query"
+      ]
+    },
+    {
+      "tool": "oh-my-pi find",
+      "ran": false,
+      "reason": "The semantic find CLI is omp find inside the coding-agent package. This inspection did not install that package or a judge credential, so no omp find process was executed."
+    }
+  ]
+}
