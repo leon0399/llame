@@ -121,6 +121,11 @@ export function classifySshBashOutcome(
   if (!frames.started) return preMarkerBashFailure(outcome);
   if (outcome.outcome === 'failed' || frames.status === undefined)
     return { kind: 'unknown' };
+  // The stderr marker says the command started, but a stdout bound reached
+  // with no output after the stdout marker means the bound took the marker:
+  // the command's output is lost, so its result cannot be reported.
+  if (outcome.stdoutOverflow && frames.stdout.length === 0)
+    return { kind: 'unknown' };
   return { kind: 'complete' };
 }
 

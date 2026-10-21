@@ -193,6 +193,16 @@ describe('classifySshPreludeFailure', () => {
   });
 });
 
+const OVERFLOWED: SshRunOutcome = {
+  outcome: 'ended',
+  stdout: Buffer.alloc(0),
+  stdoutOverflow: true,
+  diagnostic: '',
+  stderrOverflow: false,
+  code: 0,
+  signal: null,
+};
+
 describe('classifySshBashOutcome', () => {
   it('is complete only with the end trailer', () => {
     expect(
@@ -231,20 +241,28 @@ describe('classifySshBashOutcome', () => {
       ),
     ).toEqual({ kind: 'unavailable', reason: 'unreachable' });
     // A login shell that floods stdout can push the marker past the bound.
+    expect(classifySshBashOutcome(OVERFLOWED, unstarted)).toEqual({
+      kind: 'unknown',
+    });
+  });
+
+  it('leaves a command whose stdout marker the bound took unknown', () => {
+    // The stderr marker and trailer arrived, but the command's output did not.
+    const marked = {
+      started: true,
+      stdout: Buffer.alloc(0),
+      stderr: '',
+      status: 0,
+    };
+    expect(classifySshBashOutcome(OVERFLOWED, marked)).toEqual({
+      kind: 'unknown',
+    });
     expect(
-      classifySshBashOutcome(
-        {
-          outcome: 'ended',
-          stdout: Buffer.alloc(0),
-          stdoutOverflow: true,
-          diagnostic: '',
-          stderrOverflow: false,
-          code: 0,
-          signal: null,
-        },
-        unstarted,
-      ),
-    ).toEqual({ kind: 'unknown' });
+      classifySshBashOutcome(OVERFLOWED, {
+        ...marked,
+        stdout: Buffer.from('x'),
+      }),
+    ).toEqual({ kind: 'complete' });
   });
 });
 
