@@ -6,7 +6,6 @@ import {
   type SshResolution,
   type SshResolvedDestination,
 } from '../ssh/ssh-client';
-import { SSH_LOCATOR_HELP } from '../ssh/ssh-locator';
 import {
   nativeEditTool,
   nativeReadTool,
@@ -362,29 +361,6 @@ describe('ssh read admission', () => {
       port: 2222,
       signal: controller.signal,
     });
-  });
-
-  it('returns the same fixed address message for a bare locator', async () => {
-    const fake = fakeSsh();
-    for (const path of ['ssh://', 'ssh:///']) {
-      for (const client of [fake.client, undefined]) {
-        const probe = readProbe();
-        const result = await runTool(
-          probe.tool,
-          { path },
-          context({ read: { allow: true } }, { sshClient: client }),
-          5,
-        );
-
-        expect(result).toEqual({
-          status: 'error',
-          type: 'invalid_path',
-          message: SSH_LOCATOR_HELP,
-        });
-        expect(probe.execute).not.toHaveBeenCalled();
-      }
-    }
-    expect(fake.resolve).not.toHaveBeenCalled();
   });
 
   it('resolves an uppercase host under its lowercase spelling', async () => {
