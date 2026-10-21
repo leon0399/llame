@@ -74,7 +74,10 @@ traces [OMP's cascade](./oh-my-pi.md#semantic-find-and-jegrep) and its
 [jegrep reference](../tools/jegrep.md), including native versus parsed-label judging,
 failure/coverage mechanics and benchmark limitations. It maps concrete uses
 across chat evidence, code, tools, skills, documents and future Run/artifact
-sources without making relevance an authorization decision.
+sources without making relevance an authorization decision. Current catalog
+notes: [jevgrep](../tools/jevgrep.md), [jegrep](../tools/jegrep.md),
+[oh-my-pi find](../tools/oh-my-pi-find.md), [XERJ](../tools/xerj.md), and the
+[comparison](../tools/code-search.md).
 
 The [prompt-cache boundaries study](../tool-harness/2026-09-26-prompt-cache-boundaries.md)
 compares how Anthropic, OpenAI, DeepSeek, Gemini and vLLM write and reuse
