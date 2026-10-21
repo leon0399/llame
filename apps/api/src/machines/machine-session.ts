@@ -35,9 +35,9 @@ import {
   type MachineMethodParams,
 } from '@workspace/machine-protocol';
 
+import { classifySshLinkFailure } from '../ssh/ssh-process';
 import { readHelloResult } from './machine-results';
 import {
-  classifyLinkFailure,
   type MachineLinkEnd,
   type MachineTransport,
 } from './machine-transport';
@@ -320,8 +320,8 @@ export class MachineSession {
     if (input.kind === 'closed') return 'closed';
     const end = input.end;
     return end === undefined
-      ? classifyLinkFailure(this.established, '')
-      : classifyLinkFailure(this.established, end.diagnostic);
+      ? classifySshLinkFailure(this.established, '')
+      : classifySshLinkFailure(this.established, end.diagnostic);
   }
 
   private openStream(): MachineChannel {

@@ -6,25 +6,25 @@
  * into the one closed set of failure reasons the status column accepts.
  *
  * Production link: `ssh -F <generated> -T -- <destination> llame-machine serve
- * --stdio`. `-F` carries the generated safety block (machine-ssh-config.ts) and
- * the `Include` of the operator's own configuration, and it propagates to jump
+ * --stdio`. `-F` carries the generated safety block (ssh-config.ts) and the
+ * `Include` of the operator's own configuration, and it propagates to jump
  * hosts (the implicit jump command carries it), unlike command-line `-o`/`-i`.
  */
 
-import { spawn } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 
 import type { MachinesConfig } from '../instance-config/machines-config';
-
 import {
-  createMachineSshConfigFile,
-  defaultMachineSshConfigFile,
-  type MachineSshConfigFile,
-} from './machine-ssh-config';
-import type { MachineFailureReason } from './machines-status';
-
-/** The bounded stderr text a link keeps for classification and the operator. */
-export const LINK_DIAGNOSTIC_BYTES = 8192;
+  createSshConfigFile,
+  defaultSshConfigFile,
+  type SshConfigFile,
+} from '../ssh/ssh-config';
+import {
+  collectSshDiagnostic,
+  spawnSshProcess,
+  type SshProcess,
+  type SshSpawn,
+} from '../ssh/ssh-process';
 
 /** How the link ended; `diagnostic` is the link process's own stderr. */
 export type MachineLinkEnd = {
@@ -56,61 +56,9 @@ export type MachineTransportFactory = {
   open(request: MachineTransportRequest): MachineTransport;
 };
 
-/**
- * The smallest child-process surface a link needs, so a test can drive the
- * factory's argv and failure paths without an `ssh` binary.
- */
-export type MachineLinkProcess = {
-  readonly stdout: Readable;
-  readonly stdin: Writable;
-  readonly stderr: Readable;
-  kill(): void;
-  onError(handler: (error: Error) => void): void;
-  onClose(handler: (code: number | null, signal: string | null) => void): void;
-};
-
-export type MachineLinkSpawn = (
-  command: string,
-  args: ReadonlyArray<string>,
-) => MachineLinkProcess;
-
-const SSH_HOST_KEY_MISMATCH = /host key verification failed/iu;
-const SSH_AUTH_FAILED = /permission denied/iu;
-
-/**
- * The reason a link failure maps to. Once the handshake completed the link was
- * established, so an end after that is a lost session, whatever ssh prints.
- * Before it, ssh's own message decides: only a pinned-key refusal is a host-key
- * mismatch, only a credential refusal is an auth failure, and everything else
- * (an unknown host, a black-holed hop, a missing remote command) is
- * unreachable.
- */
-export function classifyLinkFailure(
-  established: boolean,
-  diagnostic: string,
-): MachineFailureReason {
-  if (established) return 'session_lost';
-  if (SSH_HOST_KEY_MISMATCH.test(diagnostic)) return 'host_key_mismatch';
-  if (SSH_AUTH_FAILED.test(diagnostic)) return 'auth_failed';
-  return 'unreachable';
-}
-
-/** Accumulates stderr to a bound, keeping the head (where ssh states its why). */
-function collectDiagnostic(stderr: Readable): () => string {
-  let text = '';
-  stderr.setEncoding('utf8');
-  stderr.on('data', (chunk: string) => {
-    if (Buffer.byteLength(text) < LINK_DIAGNOSTIC_BYTES) text += chunk;
-  });
-  stderr.on('error', () => undefined);
-  return () => text;
-}
-
 /** Wrap a spawned link process as a transport. */
-export function createProcessTransport(
-  link: MachineLinkProcess,
-): MachineTransport {
-  const diagnostic = collectDiagnostic(link.stderr);
+export function createProcessTransport(link: SshProcess): MachineTransport {
+  const diagnostic = collectSshDiagnostic(link.stderr);
   let closedByHub = false;
   const ended = new Promise<MachineLinkEnd>((resolve) => {
     link.onClose((code, signal) =>
@@ -138,26 +86,12 @@ export function createProcessTransport(
   };
 }
 
-const spawnLinkProcess: MachineLinkSpawn = (command, args) => {
-  const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-  return {
-    stdout: child.stdout,
-    stdin: child.stdin,
-    stderr: child.stderr,
-    kill: () => {
-      child.kill();
-    },
-    onError: (handler) => child.on('error', handler),
-    onClose: (handler) => child.on('close', handler),
-  };
-};
-
 export type MachineSshTransportFactoryOptions = {
   readonly ssh: MachinesConfig['ssh'];
   /** Test seam: where the link process comes from. */
-  readonly spawn?: MachineLinkSpawn;
+  readonly spawn?: SshSpawn;
   /** Test seam: a pre-made generated configuration file. */
-  readonly configFile?: MachineSshConfigFile;
+  readonly configFile?: SshConfigFile;
 };
 
 export type MachineSshTransportFactory = MachineTransportFactory & {
@@ -184,14 +118,14 @@ function sshDestination(destination: string): string {
 export function createMachineSshTransportFactory(
   options: MachineSshTransportFactoryOptions,
 ): MachineSshTransportFactory {
-  const spawnLink = options.spawn ?? spawnLinkProcess;
+  const spawnLink = options.spawn ?? spawnSshProcess;
   let configFile = options.configFile;
 
   function path(): string {
-    configFile ??= createMachineSshConfigFile({
+    configFile ??= createSshConfigFile({
       knownHostsFile: options.ssh.knownHostsFile,
       identityFile: options.ssh.identityFile,
-      includeFile: options.ssh.configFile ?? defaultMachineSshConfigFile(),
+      includeFile: options.ssh.configFile ?? defaultSshConfigFile(),
     });
     return configFile.path;
   }

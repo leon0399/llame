@@ -9,7 +9,7 @@
  *
  * Everything here is the real thing the transport uses: the same sshd the
  * operator page describes, the same forced command, and the same generated
- * configuration (`machine-ssh-config.ts`). What the suite asserts on is
+ * configuration (`ssh-config.ts`). What the suite asserts on is
  * therefore observed over a real SSH connection, not simulated.
  *
  * Requires a Docker daemon and the OpenSSH client tools on PATH; the suite
@@ -39,10 +39,7 @@ import {
 } from 'testcontainers';
 
 import type { MachinesConfig } from '../../instance-config/machines-config';
-import {
-  createMachineSshConfigFile,
-  type MachineSshConfigFile,
-} from '../../machines/machine-ssh-config';
+import { createSshConfigFile, type SshConfigFile } from '../../ssh/ssh-config';
 
 const FIXTURES = __dirname;
 
@@ -111,7 +108,7 @@ export type MachineSshdConnection = {
   readonly knownHostsFile: string;
   readonly includeFile: string;
   /** The generated file `ssh -F` is given: safety block, then the include. */
-  readonly sshConfig: MachineSshConfigFile;
+  readonly sshConfig: SshConfigFile;
   readonly machines: MachinesConfig;
 };
 
@@ -159,7 +156,7 @@ type FixtureContext = {
   readonly box: StartedTestContainer;
   /** `<name> <key>` lines, one per container, ready for a known_hosts file. */
   readonly hostKeys: { readonly bastion: string; readonly box: string };
-  readonly generated: Array<MachineSshConfigFile>;
+  readonly generated: Array<SshConfigFile>;
 };
 
 let fixtureBuilder: GenericContainerBuilder | undefined;
@@ -316,7 +313,7 @@ function createConnection(
     includeConfigText(context, variant.weaken),
     'utf8',
   );
-  const sshConfig = createMachineSshConfigFile({
+  const sshConfig = createSshConfigFile({
     knownHostsFile,
     identityFile: context.hubKeyFile,
     includeFile,
