@@ -61,3 +61,5 @@ export { statHostPath } from "./stat";
 export type { HostPathStat } from "./stat";
 
 export { boundedReadLineCount, renderSourceLine } from "./source-lines";
+
+export * from "./grep";

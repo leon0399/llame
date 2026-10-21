@@ -29,6 +29,8 @@
     "vitest": "catalog:"
   },
   "dependencies": {
-    "@workspace/runtime-safety": "workspace:*"
+    "@workspace/runtime-safety": "workspace:*",
+    "ignore": "7.0.12",
+    "re2js": "2.8.6"
   }
 }

@@ -1068,6 +1068,12 @@ importers:
       '@workspace/runtime-safety':
         specifier: workspace:*
         version: link:../runtime-safety
+      ignore:
+        specifier: 7.0.12
+        version: 7.0.12
+      re2js:
+        specifier: 2.8.6
+        version: 2.8.6
     devDependencies:
       '@barney-media/crap-typescript':
         specifier: 'catalog:'
@@ -7346,6 +7352,10 @@ packages:
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
+    engines: {node: '>= 4'}
+
+  ignore@7.0.12:
+    resolution: {integrity: sha512-/8UvqAPU9DGTI9k4mxtf49U37Isfwr8Uts96+SBHIkFxPJnHS0Ew4f00sM4Scd8V8EjM0jUNtVDdv1kPdt35lg==}
     engines: {node: '>= 4'}
 
   ignore@7.0.6:
@@ -16745,6 +16755,8 @@ snapshots:
   ieee754@1.2.1: {}
 
   ignore@5.3.2: {}
+
+  ignore@7.0.12: {}
 
   ignore@7.0.6: {}
 
