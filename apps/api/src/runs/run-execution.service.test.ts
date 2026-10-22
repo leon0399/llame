@@ -5982,6 +5982,61 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
   });
 
+  it('keeps the refused-file count of a grep-file derived decision', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const rejected: PermissionDecision = {
+      policyId: 'test-policy',
+      decision: 'reject',
+      reason: 'explicit_reject',
+      reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+    };
+    const execute = vi.fn((context: ToolContext) => {
+      context.onDerivedDecision?.({
+        kind: 'grep-file',
+        url: '',
+        decision: rejected,
+        count: 3,
+      });
+      return Promise.resolve({ status: 'success' as const, hits: 0 });
+    });
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const recorded = { ...rejected, kind: 'grep-file' as const, count: 3 };
+    expect(appended[4]?.payload).toStrictEqual({
+      toolCallId: 'call-1',
+      toolName: toolDeclaration.id,
+      status: 'success',
+      output: { status: 'success', hits: 0 },
+      permission: allowDecision(toolDeclaration.id),
+      derivedDecisions: [recorded],
+    });
+    expect(spies.markFinished).toHaveBeenCalled();
+  });
+
   it('bounds refused addresses separately from hop decisions', async () => {
     const spies = mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();

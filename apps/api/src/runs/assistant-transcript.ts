@@ -472,8 +472,11 @@ function derivedDecisionRecordFrom(
   const kind = value['kind'];
   if (!isDerivedLocatorKind(kind)) return undefined;
   const decision = permissionDecisionFrom(value);
-
-  return decision === undefined ? undefined : { ...decision, kind };
+  if (decision === undefined) return undefined;
+  const count = value['count'];
+  return isNumber(count) && Number.isInteger(count) && count >= 0
+    ? { ...decision, kind, count }
+    : { ...decision, kind };
 }
 
 /**

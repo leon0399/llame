@@ -9,7 +9,10 @@ import { type ToolResult } from '@workspace/runtime-safety';
 
 import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
 
-export function knowledgeNotConfiguredResult(): ToolResult {
+/** The error half of a tool result; every refusal on this surface is one. */
+export type KnowledgeToolError = Extract<ToolResult, { status: 'error' }>;
+
+export function knowledgeNotConfiguredResult(): KnowledgeToolError {
   return {
     status: 'error',
     type: 'knowledge_space_not_configured',
@@ -17,7 +20,7 @@ export function knowledgeNotConfiguredResult(): ToolResult {
   };
 }
 
-export function knowledgeNotFoundResult(): ToolResult {
+export function knowledgeNotFoundResult(): KnowledgeToolError {
   return {
     status: 'error',
     type: 'knowledge_space_not_found',
@@ -25,7 +28,7 @@ export function knowledgeNotFoundResult(): ToolResult {
   };
 }
 
-export function knowledgeUnavailableResult(): ToolResult {
+export function knowledgeUnavailableResult(): KnowledgeToolError {
   return {
     status: 'error',
     type: 'knowledge_space_unavailable',
@@ -33,7 +36,7 @@ export function knowledgeUnavailableResult(): ToolResult {
   };
 }
 
-export function knowledgeLimitResult(): ToolResult {
+export function knowledgeLimitResult(): KnowledgeToolError {
   return {
     status: 'error',
     type: 'knowledge_limit_exceeded',
@@ -43,7 +46,7 @@ export function knowledgeLimitResult(): ToolResult {
 
 /** A cancelled operation is the caller's own abort; it is never an owner-facing
  *  result and must reach the runner as a rejection. */
-export function mapKnowledgeFailure(error: unknown): ToolResult {
+export function mapKnowledgeFailure(error: unknown): KnowledgeToolError {
   if (error instanceof KnowledgeFilesystemError) {
     if (error.code === 'knowledge_cancelled') throw error;
     return { status: 'error', type: error.code, message: error.message };
@@ -53,7 +56,9 @@ export function mapKnowledgeFailure(error: unknown): ToolResult {
 
 /** Binding resolution speaks only the Space vocabulary: an unusable root or
  *  child is unavailable, and nothing below it reaches the caller. */
-export function mapKnowledgeResolverFailure(error: unknown): ToolResult {
+export function mapKnowledgeResolverFailure(
+  error: unknown,
+): KnowledgeToolError {
   if (error instanceof KnowledgeFilesystemError) {
     if (error.code === 'knowledge_cancelled') throw error;
     if (error.code === 'knowledge_space_unavailable') {

@@ -7,6 +7,7 @@ import { isSelectorSuffix } from '@workspace/native-file-tools';
 import {
   KnowledgeFilesystemError,
   type KnowledgeFilesystemAdapterPort,
+  type KnowledgeFilesystemBinding,
 } from './knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from './knowledge-content-notice';
 import {
@@ -14,6 +15,7 @@ import {
   validatePath,
 } from './knowledge-filesystem-validation';
 import {
+  type KnowledgeToolError,
   knowledgeNotFoundResult,
   knowledgeUnavailableResult,
   mapKnowledgeResolverFailure,
@@ -199,7 +201,10 @@ export async function resolveKnowledgeLocator(
   if (!isKnowledgeSpaceId(parsed.knowledgeSpaceId))
     return knowledgeNotFoundResult();
 
-  const access = await resolveSpaceAccess(context, parsed.knowledgeSpaceId);
+  const access = await resolveKnowledgeSpaceAccess(
+    context,
+    parsed.knowledgeSpaceId,
+  );
   if ('status' in access) return access;
 
   try {
@@ -223,7 +228,7 @@ export async function resolveKnowledgeLocator(
       ? target
       : { ...target, selector: parsed.selector };
   } catch (error) {
-    return mapResolutionFailure(error);
+    return mapKnowledgeResolutionFailure(error);
   }
 }
 
@@ -242,7 +247,7 @@ async function createDirectories(
     });
     return undefined;
   } catch (error) {
-    return mapResolutionFailure(error);
+    return mapKnowledgeResolutionFailure(error);
   }
 }
 
@@ -258,18 +263,19 @@ async function assertInsideSpace(
     );
     return inside ? undefined : knowledgeNotFoundResult();
   } catch (error) {
-    return mapResolutionFailure(error);
+    return mapKnowledgeResolutionFailure(error);
   }
 }
 
-type KnowledgeSpaceAccess = {
+export type KnowledgeSpaceAccess = {
   readonly adapter: KnowledgeFilesystemAdapterPort;
+  readonly binding: KnowledgeFilesystemBinding;
   readonly knowledgeSpaceName: string;
 };
 
 /** Resolution runs under the trusted Run owner and RLS on every call, so an
  *  absent, removed, or other-owner Space is one indistinguishable result. */
-async function resolveSpaceAccess(
+export async function resolveKnowledgeSpaceAccess(
   context: ToolContext,
   knowledgeSpaceId: string,
 ): Promise<KnowledgeSpaceAccess | ToolResult> {
@@ -283,6 +289,7 @@ async function resolveSpaceAccess(
     if (binding === undefined) return knowledgeNotFoundResult();
     return {
       adapter: resolver.createAdapter(binding),
+      binding,
       knowledgeSpaceName: binding.name ?? binding.id,
     };
   } catch (error) {
@@ -294,7 +301,9 @@ async function resolveSpaceAccess(
  * Path and file failures speak the native vocabulary; only the Space segment
  * keeps the Knowledge one, so one tool never mixes two error languages.
  */
-function mapResolutionFailure(error: unknown): ToolResult {
+export function mapKnowledgeResolutionFailure(
+  error: unknown,
+): KnowledgeToolError {
   if (!(error instanceof KnowledgeFilesystemError))
     return knowledgeUnavailableResult();
   switch (error.code) {

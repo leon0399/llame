@@ -11,6 +11,8 @@ import {
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import { evaluateGrepPermission } from './grep-admission';
+import { refuseUnsearchableGrepScopes } from './grep-scopes';
 import { admitPermission } from './permissions/admit';
 import { isBashCommandField } from './permissions/bash-command-field';
 import { evaluatePermission } from './permissions/evaluator';
@@ -38,6 +40,9 @@ import { type PermissionDecision } from './permissions/types';
 const logger = new Logger('ToolRunner');
 
 class ToolAbortError extends Error {}
+
+/** The admission of a call that names no `ssh://` destination. */
+const NO_SSH: SshAdmission = { kind: 'none' };
 
 type PreparedToolExecution = {
   readonly context: ToolContext;
@@ -291,6 +296,16 @@ function evaluateToolPermission(
   args: SubmittedToolArguments,
   context: ToolContext,
 ): PermissionDecision | undefined {
+  // `grep` is admitted once per scope on each scope's literal prefix.
+  if (tool.id === 'grep') return evaluateGrepPermission(args, context);
+  return evaluateLocatorToolPermission(tool, args, context);
+}
+
+function evaluateLocatorToolPermission(
+  tool: Tool,
+  args: SubmittedToolArguments,
+  context: ToolContext,
+): PermissionDecision | undefined {
   const root = context.workspaceRoot?.current();
   const workspace = projectWorkspaceArguments(tool, args, root);
   const options = {
@@ -370,9 +385,13 @@ export async function runTool(
   // Any other call keeps the synchronous permission path; an `ssh://` read or
   // `bash` cwd must resolve its destination first, so only those await.
   const pendingSsh = admitSshCall(tool, submittedArgs, validContext);
-  const ssh: SshAdmission =
-    pendingSsh === undefined ? { kind: 'none' } : await pendingSsh;
+  const ssh = pendingSsh === undefined ? NO_SSH : await pendingSsh;
   if (ssh.kind === 'refused') return ssh.result;
+  // Policy is not asked for a scope this process cannot search.
+  if (tool.id === 'grep') {
+    const refused = refuseUnsearchableGrepScopes(submittedArgs, validContext);
+    if (refused !== undefined) return refused;
+  }
   const decision =
     ssh.kind === 'decided'
       ? ssh.decision

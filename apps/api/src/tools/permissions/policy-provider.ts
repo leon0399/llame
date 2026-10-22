@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { Logger } from '@nestjs/common';
 
+import { GREP_SCOPES_FIELD } from '../grep-admission';
 import { TOOL_REGISTRY } from '../registry';
 import { resolveJsonSchema } from '../schema-utils';
 import { compileToolPermissionMap } from './compile-permissions';
@@ -53,7 +54,13 @@ async function validateCodeOwnedFields(
     const tool = TOOL_REGISTRY.get(toolId);
     if (tool === undefined) continue;
     const document = await resolveJsonSchema(tool.inputSchema);
-    const allowedFields = declaredStringProperties(document);
+    // `grep` evaluates once per scope with `scopes` replaced by one projected
+    // prefix string, so the array-valued input is the one declared exception
+    // (tool-call-permissions, "Grep scopes are admitted per scope").
+    const allowedFields =
+      toolId === 'grep'
+        ? new Set([...declaredStringProperties(document), GREP_SCOPES_FIELD])
+        : declaredStringProperties(document);
     assertMatcherFields(toolId, 'allow', group.allow, allowedFields);
     assertMatcherFields(toolId, 'reject', group.reject, allowedFields);
   }

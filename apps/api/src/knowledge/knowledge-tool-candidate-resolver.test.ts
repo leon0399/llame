@@ -10,6 +10,7 @@ import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { knowledgeSearchTool } from './knowledge-tools';
+import { nativeGrepTool } from '../tools/grep';
 import {
   KnowledgeToolCandidateResolver,
   type KnowledgeToolCandidateResolverInput,
@@ -324,6 +325,79 @@ describe('KnowledgeToolCandidateResolver', () => {
     });
 
     expect(findForOwnerForBinding).not.toHaveBeenCalled();
+  });
+
+  it('admits grep on a Knowledge root alone', async () => {
+    const resolver = new KnowledgeToolCandidateResolver(
+      makeConfig('/srv/knowledge'),
+    );
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['grep'],
+        codeOwnedTools: [nativeGrepTool],
+      }),
+    ).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeGrepTool,
+      },
+    ]);
+  });
+
+  it('admits grep on an operator skill source alone', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        skills: { directories: ['/srv/skills'] },
+      },
+    });
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['grep'],
+        codeOwnedTools: [nativeGrepTool],
+      }),
+    ).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeGrepTool,
+      },
+    ]);
+  });
+
+  it('admits grep on a local native executor with no other backend', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+        skills: { directories: [] },
+      },
+    });
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['grep'],
+        codeOwnedTools: [nativeGrepTool],
+      }),
+    ).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeGrepTool,
+      },
+    ]);
+  });
+
+  it('leaves grep unadvertised with no backend', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },
+    });
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['grep'],
+        codeOwnedTools: [nativeGrepTool],
+      }),
+    ).toEqual([]);
   });
 
   it('does not mutate the static registry while resolving candidates', async () => {

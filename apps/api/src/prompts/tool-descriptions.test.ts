@@ -37,7 +37,7 @@ describe('isToolPromptId', () => {
   });
 
   it('rejects an id the packaged registry does not carry', () => {
-    expect(isToolPromptId('grep')).toBe(false);
+    expect(isToolPromptId('never_registered')).toBe(false);
     expect(isToolPromptId('')).toBe(false);
     expect(isToolPromptId('mcp__demo__lookup')).toBe(false);
   });

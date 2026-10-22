@@ -6,6 +6,7 @@ import {
 import { bashTool, isHostCapabilityTool } from './bash';
 import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
+import { nativeGrepTool } from './grep';
 import { searchConversationsTool } from './search-conversations';
 import { conversationReadTool } from './conversation-read';
 import { webSearchTool } from './web-search/tool';
@@ -22,6 +23,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
   nativeReadTool,
   nativeEditTool,
   nativeWriteTool,
+  nativeGrepTool,
   bashTool,
   enterWorkspaceTool,
   exitWorkspaceTool,

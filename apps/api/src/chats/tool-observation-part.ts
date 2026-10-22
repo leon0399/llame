@@ -59,6 +59,16 @@ const TOOL_OUTCOME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
  *  target (tools/web-read/http-client.ts). */
 const READ_TOOL_NAME = 'read';
 
+/**
+ * The tools whose `complete: false` result means the payload is partial: a
+ * cleared pair replays as `incomplete`, not as a success, so the model never
+ * reads a stopped page as the whole answer.
+ */
+const PARTIAL_RESULT_TOOL_PARTS = {
+  'tool-knowledge_search': true,
+  'tool-grep': true,
+} satisfies Record<string, true>;
+
 /** The error type a refused redirect hop reports. */
 const HOP_REJECTION_OUTCOME = 'permission_denied';
 
@@ -462,7 +472,7 @@ function storedObservations(
       toolName,
       outcome,
       clearedOutcome:
-        part.type === 'tool-knowledge_search' &&
+        Object.hasOwn(PARTIAL_RESULT_TOOL_PARTS, part.type) &&
         part.state === 'output-available' &&
         outcome === 'success' &&
         isRecord(part.output) &&

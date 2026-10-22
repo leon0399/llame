@@ -403,7 +403,7 @@ describe('projectToolObservations', () => {
     },
   );
 
-  it('marks a cleared payload incomplete ONLY for an incomplete successful Knowledge result', () => {
+  it('marks a cleared payload incomplete ONLY for a partial Knowledge search or grep result', () => {
     const bulk = 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2);
     const clearedOutcomeOf = (overrides: UnknownRecord): string => {
       const projection = projectToolObservations([toolPart(overrides)]);
@@ -422,6 +422,20 @@ describe('projectToolObservations', () => {
         output: { status: 'success', complete: false, results: bulk },
       }),
     ).toBe('incomplete');
+    // A grep page that stopped at a bound is a partial result too.
+    expect(
+      clearedOutcomeOf({
+        type: 'tool-grep',
+        output: { status: 'success', complete: false, results: bulk },
+      }),
+    ).toBe('incomplete');
+    // A complete grep page is not.
+    expect(
+      clearedOutcomeOf({
+        type: 'tool-grep',
+        output: { status: 'success', complete: true, results: bulk },
+      }),
+    ).toBe('success');
     // Another tool with the identical payload shape is not Knowledge.
     expect(
       clearedOutcomeOf({

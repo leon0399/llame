@@ -32,6 +32,7 @@ import {
   NO_SKILL_SELECTION,
   isSkillCatalogResult,
   resolveSkillLocator,
+  skillCatalogUnavailableResult,
   type ResolvedSkillTarget,
 } from '../skills/skill-target';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -341,14 +342,6 @@ function skillMutationUnsupportedResult(): ToolResult {
     status: 'error',
     type: 'unsupported_operation',
     message: 'Skill locators are read-only; edit and write cannot target them.',
-  };
-}
-
-function skillCatalogUnavailableResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'skill_catalog_unavailable',
-    message: 'The skill catalog is unavailable.',
   };
 }
 
