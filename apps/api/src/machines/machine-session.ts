@@ -88,6 +88,27 @@ function tracedParams<M extends MachineMethod>(
   };
 }
 
+/** `@sentry/core`'s error status code, which `@sentry/nestjs` does not export. */
+const SPAN_STATUS_ERROR = 2;
+
+/**
+ * The hub's span for one Machine call: Sentry's `rpc` op with its rpc and
+ * jsonrpc semantic conventions. The daemon's server span uses the same
+ * service and method.
+ */
+function machineRpcSpan(method: MachineMethod) {
+  return {
+    name: `llame-machine/${method}`,
+    op: 'rpc',
+    attributes: {
+      'rpc.system.name': 'jsonrpc',
+      'rpc.service': 'llame-machine',
+      'rpc.method': method,
+      'jsonrpc.protocol.version': '2.0',
+    },
+  };
+}
+
 /**
  * One method invocation: the wire name and its params, INCLUDING the envelope.
  * The params type is the protocol's own, so no hub-side composition has to
@@ -227,54 +248,51 @@ export class MachineSession {
     // protocol's stream request only observes aborts after it is written, so a
     // pre-aborted signal must fail here rather than reach it.
     options.signal?.throwIfAborted();
-    return Sentry.startSpan(
-      {
-        // Sentry's `rpc` op and its rpc/jsonrpc semantic conventions; the
-        // daemon's server span uses the same service and method.
-        name: `llame-machine/${call.method}`,
-        op: 'rpc',
-        attributes: {
-          'rpc.system.name': 'jsonrpc',
-          'rpc.service': 'llame-machine',
-          'rpc.method': call.method,
-          'jsonrpc.protocol.version': '2.0',
-        },
-      },
-      async () => {
-        const channel = this.openStream();
-        let sent = false;
-        try {
-          const before = this.framesWritten;
-          const answer = channel.request(call.method, tracedParams(call), {
-            signal: options.signal,
-          });
-          sent = this.framesWritten > before;
-          return await answer;
-        } catch (error) {
-          throw this.failure(error, sent, options.signal);
-        } finally {
-          channel.close();
-        }
-      },
-    );
+    return Sentry.startSpan(machineRpcSpan(call.method), async () => {
+      const channel = this.openStream();
+      const before = this.framesWritten;
+      const answer = channel.request(call.method, tracedParams(call), {
+        signal: options.signal,
+      });
+      const sent = this.framesWritten > before;
+      try {
+        return await answer;
+      } catch (error) {
+        throw this.failure(error, sent, options.signal);
+      } finally {
+        channel.close();
+      }
+    });
   }
 
-  /** Open a stream that stays open after its answer (a Workspace MCP channel). */
+  /**
+   * Open a stream that stays open after its answer (a Workspace MCP channel).
+   * Its span ends with the answer, not with the stream.
+   */
   openChannel<M extends MachineMethod>(
     call: MachineCall<M>,
     options: MachineRequestOptions = {},
   ): MachineChannelHandle {
     options.signal?.throwIfAborted();
+    // Refused before the span starts: a manual span left open by a throw
+    // would never be sent.
     const channel = this.openStream();
-    const before = this.framesWritten;
-    const answer = channel.request(call.method, tracedParams(call), {
-      signal: options.signal,
+    return Sentry.startSpanManual(machineRpcSpan(call.method), (span) => {
+      const before = this.framesWritten;
+      const answer = channel.request(call.method, tracedParams(call), {
+        signal: options.signal,
+      });
+      const sent = this.framesWritten > before;
+      const result = this.reclassify(answer, sent, options.signal);
+      result.then(
+        () => span.end(),
+        () => {
+          span.setStatus({ code: SPAN_STATUS_ERROR });
+          span.end();
+        },
+      );
+      return { channel, result };
     });
-    const sent = this.framesWritten > before;
-    return {
-      channel,
-      result: this.reclassify(answer, sent, options.signal),
-    };
   }
 
   /** End the session politely: an idle close or a process shutting down. */

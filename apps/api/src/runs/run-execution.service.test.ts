@@ -19,6 +19,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Logger } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -42,6 +43,14 @@ import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
+
+// The real SDK without a client, with the three calls a Run makes observable.
+vi.mock('@sentry/nestjs', async (importOriginal) => ({
+  ...(await importOriginal<typeof Sentry>()),
+  captureException: vi.fn(),
+  setConversationId: vi.fn(),
+  setUser: vi.fn(),
+}));
 
 import type {
   Chat,
@@ -4450,6 +4459,43 @@ describe('RunExecutionService executeRun — stream failure', () => {
       error: { message: 'plain string blowup' },
       attemptId: testAttemptId,
     });
+  });
+
+  it('reports a failed Run to Sentry under its Chat conversation and owner', async () => {
+    vi.mocked(Sentry.captureException).mockClear();
+    mockNormalExecutionRepositories();
+    recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const failure = new Error('provider exploded');
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onError?.({ error: failure });
+
+    expect(Sentry.setConversationId).toHaveBeenCalledWith(chatId);
+    expect(Sentry.setUser).toHaveBeenCalledWith({ id: userId });
+    expect(vi.mocked(Sentry.captureException).mock.calls).toEqual([
+      [failure, { tags: { 'llame.run_id': runId, 'llame.chat_id': chatId } }],
+    ]);
+  });
+
+  it('does not report a Run the owner cancelled', async () => {
+    vi.mocked(Sentry.captureException).mockClear();
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    controller.abort();
+    await capturing
+      .streamOptions()
+      .onError?.({ error: new Error('stream aborted') });
+
+    expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -723,10 +723,15 @@ describe('createOpenAICompletionsModelClient — reasoning_content on tool-call 
   // `reasoning_content`, and a load-balancing gateway's upstream may answer a
   // tool-call step with no reasoning to replay.
   const history = [
+    { role: 'user', content: 'Hello.' },
+    // An answer with no tool call needs no reasoning to replay.
+    { role: 'assistant', content: 'Hi.' },
     { role: 'user', content: 'Run date twice.' },
     {
       role: 'assistant',
       content: [
+        // An empty reasoning part is no reasoning: the adapter drops it.
+        { type: 'reasoning', text: '' },
         {
           type: 'tool-call',
           toolCallId: 'call-a',
@@ -820,14 +825,15 @@ describe('createOpenAICompletionsModelClient — reasoning_content on tool-call 
   }
 
   it('sends an empty reasoning_content for a reasoningless tool call when thinking is requested', async () => {
-    const [unreasoned, reasoned] = await sentAssistantMessages('high');
+    const [answer, unreasoned, reasoned] = await sentAssistantMessages('high');
 
+    expect(answer).not.toHaveProperty('reasoning_content');
     expect(unreasoned).toMatchObject({ reasoning_content: '' });
     expect(reasoned).toMatchObject({ reasoning_content: 'once more' });
   });
 
   it('adds no reasoning_content when the request carries no effort', async () => {
-    const [unreasoned] = await sentAssistantMessages(undefined);
+    const [, unreasoned] = await sentAssistantMessages(undefined);
 
     expect(unreasoned).not.toHaveProperty('reasoning_content');
   });

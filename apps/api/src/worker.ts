@@ -1,6 +1,5 @@
 // Must stay the first import: see instrument.ts.
 import './instrument';
-import * as Sentry from '@sentry/nestjs';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 
@@ -21,7 +20,6 @@ import { WorkerModule } from './worker.module';
  * with no separate build config).
  */
 async function bootstrap() {
-  Sentry.getGlobalScope().setTag('llame.process', 'worker');
   const logger = new Logger('Worker');
   const app = await NestFactory.createApplicationContext(WorkerModule);
   // Same rationale as main.ts: SIGTERM must reach onModuleDestroy so
