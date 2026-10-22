@@ -116,13 +116,16 @@ glob. That ceiling is recorded here.
 The engine splits a scope into the literal prefix and the glob suffix at the
 first segment that contains `*` or `?`. The prefix is the admitted identity.
 
-The suffix compiles to one RE2 pattern over the path relative to the prefix.
-`*` and `?` become `[^/]*` and `[^/]`. `**` becomes `.*` across segments.
+The suffix matches the path relative to the prefix segment by segment. Each
+suffix segment compiles to one RE2 matcher. `*` and `?` become `[^/]*` and
+`[^/]` inside a segment. A whole-segment `**` absorbs zero or more segments.
+The suffix `**/*.md` therefore matches `a.md` directly beneath the prefix.
+
 The engine quotes every other character. A `{`, `}`, `[`, or `]` in the
 suffix is `invalid_path` with the operator named.
 
-The engine enters a directory only when the compiled suffix can still match
-beneath it. It computes that with a prefix match on the segment pattern
+The engine enters a directory only when the matcher list can still match
+beneath it. It computes that with a prefix match on the per-segment matcher
 list. A glob never forces a full walk of the prefix.
 
 Rejected alternative: `picomatch`. Its negation and extglob operators
@@ -170,14 +173,16 @@ reuses the `read` projection unchanged. A `.env` reject written for `read`
 hides the file from `grep` with no second rule.
 
 `declared-fields.ts` and `policy-provider.ts` accept `scopes` on the
-`grep` group as the one array-valued declared field. An exact-path scope is
-checked against `read` before any probe. On refusal it returns `not_found`.
-The model then cannot tell a refused file from a missing one.
+`grep` group as the one array-valued declared field. A glob-free scope is
+probed first. The exact-path `read` check and the `not_found` answer apply
+only when that path is one regular file. A directory scope is walked with a
+per-file check, and the directory is never counted as a refused file. The
+model then cannot tell a refused file from a missing one.
 
 Per-file decisions are counted, not recorded one by one. The derived
 decision list is capped at 26 entries (`runs/assistant-transcript.ts`), and
-a call can refuse thousands of files. The count reaches the completion
-audit and the result.
+a call can refuse thousands of files. The count reaches the completion audit
+only.
 
 Rejected alternatives:
 
@@ -198,7 +203,8 @@ Rejected alternatives:
   ],
   "complete": false,
   "cursor": "<opaque>",
-  "warnings": [{ "kind": "binary", "count": 2 }]
+  "warnings": [{ "kind": "binary", "count": 2 }],
+  "notice": "<closed Knowledge untrusted-content notice>"
 }
 ```
 
@@ -209,14 +215,27 @@ cap, so the cursor is never cut away.
 
 The walk order is depth-first with byte-ordered names per directory. A bare
 `kb://` visits Spaces by identifier and a bare `skill://` visits packages by
-name, both in byte order. That is the canonical order the cursor keys on. The cursor encodes
-`{ scope index, canonical file locator, start line }` of the last emitted
-passage and a SHA-256 of the resolved inputs (patterns, projected scopes,
-resolved Space identifiers or package names, `literal`, `ignoreCase`), as
-base64url. The projected scopes carry the
-Workspace root, so a Workspace change invalidates the cursor.
+name, both in byte order. That is the canonical order the cursor keys on. A
+scope ordinal is the position of the resolved scope. Each expansion of a
+bare scope takes its own ordinal.
 
-On resume the walk lists but does not open entries before the cursor.
+The cursor also encodes a SHA-256 of the resolved inputs (patterns, projected
+scopes, resolved Space identifiers or package names, `literal`, `ignoreCase`),
+as base64url. The projected scopes carry the Workspace root, so a Workspace
+change invalidates the cursor.
+
+The cursor payload has `kind: "passage" | "position"`. A passage cursor
+holds the scope ordinal, the canonical file locator, and the start line of
+the last emitted passage. It also holds the last emitted line of a cut
+passage. A position cursor holds the scope ordinal and the relative path of
+the last entry the walk reached. A bound or the deadline emits a passage
+cursor when the page emitted a passage. It emits a position cursor
+otherwise.
+
+On resume the walk lists, and does not open, the entries up to a position
+cursor. It descends a directory at that path. A cut passage continues at its
+last emitted line plus one. A result with a `kb://` passage carries the
+closed Knowledge untrusted-content notice, which `grep-results.ts` adds.
 
 ### D7. `fs.grep` on the Machine daemon
 
@@ -237,8 +256,9 @@ The daemon returns at most one page per request. The request budget also
 carries the remaining `limit` and page units. The API cuts an oversized
 daemon page, abandons the request at the remaining deadline, and builds its
 cursor from the last passage it emitted. On resume the API passes that
-passage as the daemon cursor. A method-not-found error maps to the Machine
-unusable result.
+cursor to the daemon. A daemon stop at a bound returns the same cursor
+kinds, and the API passes that cursor through. A method-not-found error maps
+to the Machine unusable result.
 
 ### D8. Advertisement
 
@@ -265,7 +285,8 @@ under `{{#if tools.grep}}`.
 | Deadline            | 30 s              |
 
 They are not operator knobs. The Knowledge values are reused where they
-exist.
+exist. The walk reads the file that crosses the byte bound in full, because
+a file is one unit of work. A call then reads at most 1 MiB past that bound.
 
 ## Risks / Trade-offs
 

@@ -234,10 +234,13 @@ The result MUST NOT tell the model how many files the `read` group refused.
 The completion audit, which the owner sees, MUST carry that count. The
 `tool-call-permissions` capability defines how the decisions are recorded.
 
-When a scope with no glob names one path, the tool MUST evaluate the `read`
-group on that path before any probe. When the `read` group refuses it, the
-tool MUST return the same `not_found` result as for a missing path. The
-result then does not reveal whether the file exists.
+When a scope has no glob operator, the tool MUST probe that path first. The
+exact-path `read` check and the `not_found` answer apply only when that path
+is one regular file. When the `read` group refuses that file, the tool MUST
+return the same `not_found` result as for a missing path. The result then
+does not reveal whether the file exists. The tool MUST walk a directory scope
+with a `read` check per file, for every scheme. The tool MUST NOT count that
+directory as a refused file.
 
 An ignore file that the walker reads as walk policy is not a candidate. The
 walker MUST NOT emit its content and needs no `read` decision for it.
@@ -252,6 +255,11 @@ A `kb://` hit MUST carry the logical Knowledge locator. A `machine://` hit MUST 
 the Machine locator. A hit MUST NOT carry a configured root or a Machine host
 path.
 
+A result with at least one `kb://` passage MUST carry `notice`. The value
+MUST be the closed Knowledge untrusted-content notice. That notice MUST be
+the text that `read` and `knowledge_search` carry. A result with no `kb://`
+passage MUST NOT carry `notice`.
+
 #### Scenario: A read reject hides a file beneath an admitted scope
 
 - **WHEN** the `grep` group allows `/home/u/repo/` and the `read` group rejects `regex: "\\.env$"` on `path`
@@ -264,6 +272,19 @@ path.
 - **WHEN** the `read` group rejects `/home/u/.ssh/` and a scope is `/home/u/.ssh/id_ed25519`
 - **THEN** the tool returns `not_found`
 - **AND** the result is identical for `/home/u/.ssh/absent`
+
+#### Scenario: A refused directory scope is still walked
+
+- **WHEN** the `read` group allows `literal: "/home/u/repo/"` and a scope is `/home/u/repo`
+- **THEN** the tool walks that directory
+- **AND** a file beneath it contributes a passage
+- **AND** the completion audit counts no refused file for the directory
+
+#### Scenario: A Knowledge passage carries the notice
+
+- **WHEN** a result holds one passage of `kb://<id>/notes/a.md`
+- **THEN** the result carries `notice` with the closed Knowledge untrusted-content notice
+- **AND** a result with no `kb://` passage carries no `notice`
 
 #### Scenario: A hit is a valid read argument
 
@@ -296,15 +317,21 @@ For every scheme, the walk MUST obey these rules:
 - The walk MUST stop after it listed 20,000 directory entries.
 - The walk MUST stop after it read 32 MiB across the call.
 
-The bounds apply across every scope of one call. When a walk stops at a
-bound, the result MUST carry `complete: false` and a `warnings` entry that
-names the bound. The result MUST carry a `cursor` when at least one passage
-was emitted.
+The bounds apply across every scope of one call. The walk MUST search the
+file that crosses the byte bound whole. A call then reads at most 1 MiB past
+that bound. When a walk stops at a bound, the result MUST carry
+`complete: false` and a `warnings` entry that names the bound. The result
+MUST also carry a `cursor`.
+
+The cursor MUST name the last entry the walk reached in canonical order. It
+names that entry even when the walk emitted no passage. A later call MUST
+list the entries up to and including that entry without opening them. It
+MUST then continue the walk after that entry.
 
 The call MUST stop after 30 seconds of wall time across every scope. It MUST
 then return the passages found so far with `complete: false` and a
-`deadline` entry in `warnings`. The result MUST carry a `cursor` when at
-least one passage was emitted.
+`deadline` entry in `warnings`. The result MUST carry a `cursor` under the
+same rule.
 
 #### Scenario: Binary file is skipped and counted
 
@@ -316,7 +343,14 @@ least one passage was emitted.
 
 - **WHEN** a scope holds 6,000 candidate files and the first 5,000 give no match
 - **THEN** the walk stops at 5,000 examined files
-- **AND** the result carries `complete: false`, a `warnings` entry that names the file bound, and no `cursor`
+- **AND** the result carries `complete: false`, a `warnings` entry that names the file bound, and a `cursor`
+- **AND** a later call with that `cursor` starts after the last file the first call examined
+
+#### Scenario: A bound before the first match returns a cursor
+
+- **WHEN** the entry bound stops the walk before any passage is emitted
+- **THEN** the result carries `complete: false`, the entry bound warning, and a `cursor`
+- **AND** a later call with that `cursor` opens no entry the first call listed
 
 #### Scenario: Deadline returns a partial page
 
@@ -442,7 +476,7 @@ the window. The tool MUST NOT report match columns, scores, or counts beyond
 
 ### Requirement: Results are ordered, bounded, and paged by a keyset cursor
 
-The tool MUST order passages by submitted scope index, then by canonical
+The tool MUST order passages by resolved scope ordinal, then by canonical
 order of the walk, then by passage start line. One page MUST hold at most
 `limit` files and at most 20 passages per file. A file with more than 20
 passages MUST contribute its first 20 in canonical order and
@@ -451,19 +485,32 @@ twentieth are not reachable through a cursor. A later `read` of the file
 reaches them. A cursor that names a twentieth passage resumes at the next
 file in canonical order.
 
+The ordinal of a scope is its position in the resolved scope list.
+Submitted scopes keep their submitted order. A bare `kb://` scope expands
+in byte order of the Space identifier. A bare `skill://` scope expands in
+byte order of the package name. Each expansion takes its own ordinal. A
+Machine scope takes its ordinal from the same counter.
+
 The tool MUST keep the result under a budget of 15,000 UTF-16 code units.
 It MUST emit whole passages in order while the next passage fits. When the
 first passage of a page does not fit, the tool MUST cut that passage at a
 line boundary and mark it `truncated: true`. That passage ends the page. The
 page MUST end before the budget, so the tool loop never cuts the result.
 
+When the tool cuts a passage, the cursor MUST name that passage and its last
+emitted line. A later call with that cursor MUST emit the rest of that
+passage first. It MUST start at the line after the last emitted line. It
+MUST repeat no line. It MUST then continue in canonical order. A cut
+passage that is also the twentieth passage of its file keeps the twentieth
+rule after that call emits its rest.
+
 When passages remain after a page, the result MUST carry `complete: false`
 and an opaque keyset `cursor`. The cursor names the last emitted passage by
-scope index, canonical file locator, and start line. It also carries a hash
-of the resolved search inputs: the patterns, the projected scopes, the
-Space identifiers and package names a bare scope resolved to, `literal`,
-and `ignoreCase`. A later call with that `cursor` MUST resume after the
-named passage.
+resolved scope ordinal, canonical file locator, and start line. It also
+carries a hash of the resolved search inputs: the patterns, the projected
+scopes, the Space identifiers and package names a bare scope resolved to,
+`literal`, and `ignoreCase`. A later call with that `cursor` MUST resume
+after the named passage.
 
 The tool MUST refuse a `cursor` whose hash differs from the current resolved
 inputs as `invalid_input`. A Workspace change then invalidates an old
@@ -474,6 +521,11 @@ them. Those entries do not count toward the 20,000-entry bound. Entries at
 or after the cursor count. Opened files count toward the 5,000-file bound.
 A file that a `read` reject refuses is listed, not examined, except on a
 Machine.
+
+A position cursor names the last entry the walk reached. On resume, the
+walk MUST list the entries up to and including that entry without an open.
+It MUST descend a directory named by that entry. It MUST NOT examine the
+file named by that entry again.
 
 A result with no passage MUST return `results: []` and `complete: true`
 when no bound stopped the walk.
@@ -509,6 +561,19 @@ when no bound stopped the walk.
 
 - **WHEN** the eleventh passage of a page does not fit under 15,000 code units
 - **THEN** the page holds ten passages and a `cursor` that names the tenth
+
+#### Scenario: A cut passage continues on the next call
+
+- **WHEN** the first passage of a page does not fit and the tool cuts it at line 40
+- **THEN** the cursor names that passage and line 40
+- **AND** the next call emits the rest of that passage from line 41
+- **AND** no line of that passage is repeated
+
+#### Scenario: Each expansion of a bare scope takes its own ordinal
+
+- **WHEN** `kb://` resolves to Spaces `a` and `b`, and `/home/u/repo/**` follows
+- **THEN** the Spaces take ordinals 0 and 1, and the host scope takes ordinal 2
+- **AND** the passage order and the cursor use those ordinals
 
 #### Scenario: No match
 

@@ -75,7 +75,9 @@ model calls, and every hit is a locator that `read` accepts.
 ### Modified Capabilities
 
 - `tool-calling`: the registry requirement names `grep` in the initial native
-  set and gives the candidate resolver its admission rule.
+  set and gives the candidate resolver its admission rule. The Knowledge
+  result requirement extends the cleared-payload `incomplete` outcome to a
+  `grep` result with `complete: false`.
 - `instance-config`: the unknown-predicate scenario uses an unregistered id
   that is not `grep`, because `grep` becomes registered.
 - `tool-prompt-templates`: the uninstalled-tool scenario uses an unregistered
@@ -135,6 +137,16 @@ model calls, and every hit is a locator that `read` accepts.
 
 ## Revision history
 
+- **v4 (2026-10-22):** Review round 3.
+  - A bound or a deadline stop returns a cursor that names the last reached entry.
+  - A cut first passage continues from its last emitted line on the next call.
+  - The walk reads the file that crosses the byte bound whole.
+  - The exact-path `read` check applies only to a regular file.
+  - The tool walks a directory scope with a per-file check.
+  - A result with a `kb://` passage carries the Knowledge untrusted-content notice.
+  - An incomplete `grep` result replays as `incomplete` after payload clearing.
+  - The order and the cursor use the resolved scope ordinal.
+  - D3 defines per-segment matchers. Task 2.7 names the tool reference page.
 - **v3 (2026-10-21):** Review round 2.
   - `scopes` is an accepted array-valued clause field for the `grep` group.
   - An omitted `scopes` is evaluated as the Workspace root.
