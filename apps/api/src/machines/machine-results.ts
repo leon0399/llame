@@ -350,7 +350,8 @@ export function readMcpOpenResult(value: JsonValue): McpOpenResult | undefined {
  * searched.
  */
 function isScopeRelativePath(value: string): boolean {
-  if (value.includes('\u0000') || value.startsWith('/')) return false;
+  if (value.includes('\u0000')) return false;
+  // A leading `/` yields an empty first segment, which the rule below refuses.
   if (value === '') return true;
   return value
     .split('/')
