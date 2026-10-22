@@ -51,6 +51,9 @@ function scopesOf(outcome: ScopeOutcome) {
   if ('result' in outcome) {
     throw new Error(`expected scopes, received ${outcome.result.type}`);
   }
+  if ('machine' in outcome) {
+    throw new Error('expected scopes, received one Machine scope');
+  }
   return outcome;
 }
 

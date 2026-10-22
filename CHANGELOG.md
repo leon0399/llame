@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-21
 
+- `grep` searches a remote Machine. A `machine://` scope is walked by the
+  `llame-machine` daemon through a new `fs.grep` method, under the same file,
+  entry, byte, time, and page bounds as a local search, and every hit is a
+  `machine://` locator. A daemon without the method fails the call as Machine
+  unusable. See [native files](docs/product/operator/native-files.md).
+
 - **Experimental:** `ssh://` reads and `bash` working directories. With a
   top-level `ssh` section in the instance configuration, a Run reads a file or
   one directory level on any host the operator's own SSH configuration reaches,

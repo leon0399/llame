@@ -35,6 +35,8 @@ export {
 export type { Frame, FrameDecodeResult } from "./frame";
 export { createHeartbeat } from "./heartbeat";
 export type { Heartbeat, HeartbeatOptions } from "./heartbeat";
+export { fsGrepCursorKey } from "./grep";
+export type { FsGrepCursorInputs } from "./grep";
 export {
   isJsonRpcError,
   isJsonRpcNotification,
@@ -60,6 +62,7 @@ export {
   CANCEL_NOTIFICATION,
   FS_BYTES_METHOD,
   FS_EDIT_METHOD,
+  FS_GREP_METHOD,
   FS_LIST_METHOD,
   FS_READ_METHOD,
   FS_STAT_METHOD,
@@ -91,6 +94,14 @@ export type {
   FsBytesChunk,
   FsBytesParams,
   FsBytesResult,
+  FsGrepBudget,
+  FsGrepConsumed,
+  FsGrepParams,
+  FsGrepPassage,
+  FsGrepResult,
+  FsGrepSuccess,
+  FsGrepWarning,
+  FsGrepWarningKind,
   FsListEntry,
   FsListEntryKind,
   FsListParams,

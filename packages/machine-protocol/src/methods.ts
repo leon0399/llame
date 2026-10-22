@@ -8,6 +8,7 @@ export const FS_READ_METHOD = "fs.read";
 export const FS_EDIT_METHOD = "fs.edit";
 export const FS_WRITE_METHOD = "fs.write";
 export const FS_BYTES_METHOD = "fs.bytes";
+export const FS_GREP_METHOD = "fs.grep";
 export const BYTES_NOTIFICATION = "bytes";
 export const PROC_BASH_METHOD = "proc.bash";
 export const PROC_CANCEL_METHOD = "proc.cancel";

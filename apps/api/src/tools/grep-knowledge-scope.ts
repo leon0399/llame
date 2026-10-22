@@ -104,7 +104,7 @@ async function resolveEverySpace(
       index,
       admission,
     });
-    if ('result' in outcome) return outcome;
+    if ('result' in outcome || 'machine' in outcome) return outcome;
     scopes.push(...outcome.scopes);
   }
   return { scopes, roots: spaces.ids };

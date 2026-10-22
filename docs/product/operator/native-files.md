@@ -125,6 +125,28 @@ A host walk follows these rules:
   precedence.
 - It searches an exact file scope even when an ignore rule matches it.
 
+### On a Machine
+
+A `machine://` scope runs on the Machine. The `llame-machine` daemon performs
+the walk, the match, and the bounds, through the `fs.grep` method. It resolves
+the scope prefix through its registered roots first. Any other prefix returns
+`path_not_registered`, and the daemon opens no file.
+
+The daemon answers passages relative to the scope prefix. Every result is
+therefore a `machine://` locator, and no host path reaches the model. Read one
+locator, or submit it as a later scope.
+
+One call shares its file, entry, byte, time, and page budget across every
+scope. A second Machine scope receives what the first one left.
+
+The daemon opens each candidate under its own authority. The API then applies
+the `read` group to every returned file. It drops the passages of a refused
+file and counts them for the completion audit. A position cursor can name a
+refused file as the point to resume after. It never names a passage of it.
+
+A daemon without the `fs.grep` method fails the call as Machine unusable. An
+unknown Machine returns `machine_not_found` and no other scope is searched.
+
 ## Permission modes
 
 `tools.permissionModes` is an ordered list of per-Run modes. It defaults to

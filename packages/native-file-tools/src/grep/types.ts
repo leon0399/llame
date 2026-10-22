@@ -100,6 +100,39 @@ export interface GrepScanResult {
   /** For the audit only; the caller must not put it in the model result. */
   readRefused: number;
   consumed: { files: number; entries: number; bytes: number };
+  /**
+   * The page ends where `last` names a passage it emitted, or `position` names
+   * the last entry a bound stopped the walk at. Both serve a caller that pages
+   * across walks of its own (the tool and the Machine daemon do).
+   */
+  last?: GrepPageEnd;
+  position?: GrepPosition;
+  /** The passages that are their file's twentieth, which a caller may mark. */
+  capped?: ReadonlyArray<GrepCappedPassage>;
+}
+
+/** Where a page ended: the passage it emitted last, and its file's state. */
+export interface GrepPageEnd {
+  scopeIndex: number;
+  rel: string;
+  startLine: number;
+  /** Last line the page emitted of that passage; present only when it cut it. */
+  endLine?: number;
+  /** The passage was its file's twentieth, so the file is exhausted. */
+  capped: boolean;
+}
+
+/** The last entry a stopped walk reached; a resume continues after it. */
+export interface GrepPosition {
+  scopeIndex: number;
+  rel: string;
+}
+
+/** One passage that is its file's twentieth: the file ends with it. */
+export interface GrepCappedPassage {
+  scopeIndex: number;
+  rel: string;
+  startLine: number;
 }
 
 export interface GrepScanInput {

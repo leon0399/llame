@@ -100,6 +100,9 @@ function scopesOf(outcome: ScopeOutcome) {
   if ('result' in outcome) {
     throw new Error(`expected scopes, received ${outcome.result.type}`);
   }
+  if ('machine' in outcome) {
+    throw new Error('expected scopes, received one Machine scope');
+  }
   return outcome;
 }
 
@@ -410,6 +413,7 @@ describe('resolveScopes', () => {
     expect(await resolveScopes(contextOf(), ['skill://'], admission)).toEqual({
       scopes: [],
       roots: [],
+      machines: [],
     });
   });
 
@@ -458,7 +462,12 @@ describe('refuseUnsearchableGrepScopes', () => {
   });
 
   it('refuses a bare Machine scope and a remote file: alias', () => {
-    expect(refused(['machine://'])).toEqual(machineUnsupportedResult());
+    expect(refused(['machine://'])).toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+    });
+    // A well-formed Machine scope is searchable on this layer.
+    expect(refused(['machine://build/srv/app/**'])).toBeUndefined();
     expect(refused(['file://nas/share'])).toEqual({
       status: 'error',
       type: 'invalid_path',

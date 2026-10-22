@@ -12,6 +12,10 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  isSerializableRecord,
+  type SerializableRecord,
+} from '@workspace/machine-protocol';
+import {
   KnowledgeFilesystemAdapter,
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
@@ -204,6 +208,18 @@ function warningsOf(result: ToolResult): ReadonlyArray<unknown> {
 function cursorOf(result: ToolResult): string | undefined {
   const cursor = success(result).cursor;
   return isString(cursor) ? cursor : undefined;
+}
+
+/** The decoded payload of an opaque grep cursor, which a test may read. */
+function cursorPayload(result: ToolResult): SerializableRecord {
+  const cursor = cursorOf(result);
+  if (cursor === undefined) throw new Error('the page carries a cursor');
+  const payload: unknown = JSON.parse(
+    Buffer.from(cursor, 'base64url').toString('utf8'),
+  );
+  if (!isSerializableRecord(payload))
+    throw new Error('the cursor is an object');
+  return payload;
 }
 
 function run(context: ToolContext, args: unknown) {
@@ -735,6 +751,43 @@ describe('paging', () => {
     });
     // The fixture creates and walks 5,000 files, which is the bound it proves.
   }, 30_000);
+  it('mints a position cursor when the deadline stops a walk before any passage', async () => {
+    await withRoot(async (root) => {
+      const space = await spaceFixture(root, SPACE_A, {
+        'a.md': lineNumbered('miss'),
+        'b.md': lineNumbered('needle'),
+      });
+      const context = contextOf({
+        resolver: knowledgeResolver(new Map([[SPACE_A, space.binding]])),
+      });
+      const started = Date.now();
+      let calls = 0;
+      // The call's own deadline, then the first file's check, pass at once;
+      // the second file's check finds the deadline gone.
+      const now = vi.spyOn(Date, 'now').mockImplementation(() => {
+        calls += 1;
+        return calls <= 4 ? started : started + 31_000;
+      });
+      try {
+        const result = await run(context, {
+          patterns: ['needle'],
+          scopes: [`kb://${SPACE_A}`],
+        });
+        expect(result).toMatchObject({ status: 'success', complete: false });
+        expect(locatorsOf(result)).toEqual([]);
+        expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
+        // The cursor names the last entry the walk reached, never a file it
+        // did not examine.
+        expect(cursorPayload(result)).toMatchObject({
+          kind: 'position',
+          scopeIndex: 0,
+          rel: 'a.md',
+        });
+      } finally {
+        now.mockRestore();
+      }
+    });
+  });
 
   it('resumes after the cursor and refuses a cursor from other inputs', async () => {
     await withRoot(async (root) => {

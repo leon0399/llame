@@ -19,6 +19,7 @@ import {
   statOperation,
   writeOperation,
 } from "./files";
+import { grepOperation } from "./grep";
 import { openOperation, serversOperation } from "./mcp";
 import { bashOperation } from "./proc";
 
@@ -37,6 +38,7 @@ const OPERATIONS: OperationTable = {
   "fs.edit": editOperation,
   "fs.write": writeOperation,
   "fs.bytes": bytesOperation,
+  "fs.grep": grepOperation,
   [PROC_BASH_METHOD]: bashOperation,
   [MCP_SERVERS_METHOD]: serversOperation,
   [MCP_OPEN_METHOD]: openOperation,
