@@ -256,6 +256,27 @@ describe('host walk policy', () => {
     });
   });
 
+  it('reports a glob scope whose root is a link or a file as not_found', async () => {
+    await withRoot(async (root) => {
+      const outside = path.join(root, 'outside');
+      await writeAt(outside, 'far.md', 'needle\n');
+      const link = path.join(root, 'link');
+      await symlink(outside, link, 'dir');
+      const linked = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${link}/**`],
+      });
+      expect(linked).toMatchObject({ status: 'error', type: 'not_found' });
+
+      await writeAt(root, 'one.md', 'needle\n');
+      const fileRoot = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/one.md/**`],
+      });
+      expect(fileRoot).toMatchObject({ status: 'error', type: 'not_found' });
+    });
+  });
+
   it('searches a single file scope without walking a directory', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'one.md', 'needle\n');

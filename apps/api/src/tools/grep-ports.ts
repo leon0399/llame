@@ -7,14 +7,7 @@
  */
 
 import { constants, type Dirent } from 'node:fs';
-import {
-  lstat,
-  open,
-  readdir,
-  readFile,
-  realpath,
-  stat,
-} from 'node:fs/promises';
+import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
 import { type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -73,7 +66,7 @@ export async function readBoundedFileBytes(
   file: BoundedFileReader,
   maxBytes: number,
   signal: AbortSignal | undefined,
-): Promise<Uint8Array> {
+): Promise<Buffer> {
   const chunks: Array<Uint8Array> = [];
   let totalBytes = 0;
   while (totalBytes <= maxBytes) {
@@ -128,7 +121,7 @@ export function createHostWalkPort(
     followsLinks: false,
     list: (rel) => listHostDirectory(root, rel, signal),
     read: (rel, maxBytes) => readHostFile(root, rel, maxBytes, signal),
-    ignoreFile: (rel) => readIgnoreFile(root, rel),
+    ignoreFile: (rel) => readIgnoreFile(root, rel, signal),
   };
 }
 
@@ -139,9 +132,11 @@ async function listHostDirectory(
   signal: AbortSignal | undefined,
 ): Promise<ReadonlyArray<GrepEntry>> {
   signal?.throwIfAborted();
+  const directory = hostPath(root, rel);
+  if (rel.length === 0) await refuseNonDirectoryRoot(directory);
   let dirents: Array<Dirent>;
   try {
-    dirents = await readdir(hostPath(root, rel), { withFileTypes: true });
+    dirents = await readdir(directory, { withFileTypes: true });
   } catch (error) {
     // A subdirectory the process cannot list, or one that vanished mid-walk,
     // contributes nothing; only the scope root itself fails the call.
@@ -168,6 +163,22 @@ async function listHostDirectory(
   );
 }
 
+/**
+ * Refuse a scope root that is not a directory of its own: a listing reports a
+ * link as a link and never enters it, so lstat is the view that names the link
+ * instead of the tree behind it. An lstat the process cannot make decides
+ * nothing, and the listing that follows reports that refusal as it always has.
+ */
+async function refuseNonDirectoryRoot(target: string): Promise<void> {
+  let ownDirectory: boolean;
+  try {
+    ownDirectory = (await lstat(target)).isDirectory();
+  } catch {
+    return;
+  }
+  if (!ownDirectory) throw new GrepScopeFailure(notFoundResult());
+}
+
 /** One host file, opened without following a link or blocking on a FIFO. */
 async function readHostFile(
   root: string,
@@ -185,7 +196,9 @@ async function readHostFile(
     const stats = await handle.stat();
     if (!stats.isFile()) return { kind: 'unreadable' };
     if (stats.size > maxBytes) return { kind: 'oversized' };
-    const bytes = await handle.readFile();
+    // Only the bound reaches memory: a file that grew past its declared size
+    // is refused on the extra byte instead of being buffered whole.
+    const bytes = await readBoundedFileBytes(handle, maxBytes, signal);
     return bytes.byteLength > maxBytes ? { kind: 'oversized' } : bytes;
   } catch {
     return { kind: 'unreadable' };
@@ -202,16 +215,29 @@ function hostPath(root: string, rel: string): string {
 async function readIgnoreFile(
   root: string,
   rel: string,
+  signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
   const file = path.join(hostPath(root, rel), '.gitignore');
+  let handle: FileHandle | undefined;
   try {
-    // Policy comes from a real file only: a link is never followed here, as
-    // the walk never follows one.
-    const stats = await lstat(file);
-    if (!stats.isFile() || stats.size > IGNORE_FILE_BYTES) return undefined;
-    return await readFile(file, 'utf8');
+    // Policy comes from a real file only, opened by the walk's own rule: a
+    // link is never followed and a FIFO never blocks the walk.
+    handle = await open(
+      file,
+      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+    );
+    const stats = await handle.stat();
+    if (!stats.isFile()) return undefined;
+    // The cap applies to the bytes read, so a file that announced the wrong
+    // size applies no rules either way.
+    const bytes = await readBoundedFileBytes(handle, IGNORE_FILE_BYTES, signal);
+    return bytes.byteLength > IGNORE_FILE_BYTES
+      ? undefined
+      : bytes.toString('utf8');
   } catch {
     return undefined;
+  } finally {
+    await handle?.close();
   }
 }
 

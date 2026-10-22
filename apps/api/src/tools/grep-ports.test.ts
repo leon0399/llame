@@ -1,6 +1,9 @@
+import { execFile } from 'node:child_process';
 import {
+  type FileHandle,
   mkdir,
   mkdtemp,
+  open,
   readdir,
   realpath,
   rm,
@@ -9,8 +12,9 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { type KnowledgeFilesystemBinding } from '../knowledge/knowledge-filesystem';
 import {
@@ -189,6 +193,21 @@ describe('createHostWalkPort', () => {
     });
   });
 
+  it('refuses a scope root that is a symbolic link, before any listing', async () => {
+    await withTree(async (root) => {
+      const tree = path.join(root, 'tree');
+      await mkdir(tree);
+      await writeFile(path.join(tree, 'note.md'), 'needle\n');
+      const link = path.join(root, 'link');
+      await symlink(tree, link, 'dir');
+
+      const port = createHostWalkPort(link, undefined);
+      await expect(port.list('')).rejects.toMatchObject({
+        result: NOT_FOUND_RESULT,
+      });
+    });
+  });
+
   it('refuses a file that is not a regular file', async () => {
     // A character device reports size 0, so only the regular-file rule can
     // refuse it rather than reading its (empty) bytes.
@@ -211,12 +230,29 @@ describe('createHostWalkPort', () => {
     });
   });
 
-  it('refuses bytes past the bound that the declared size did not announce', async () => {
+  it('reads only up to the bound when the declared size hides the bytes', async () => {
     // procfs reports size 0 for a file with content: the declared size clears
-    // the first check, so only the bytes actually read can refuse it.
-    await expect(
-      createHostWalkPort('/proc/self/status', undefined).read('', 64),
-    ).resolves.toStrictEqual({ kind: 'oversized' });
+    // the first check, so only the bytes actually read can refuse it. A real
+    // handle names the prototype that holds the read operations.
+    const opened = await open('/proc/self/status', 'r');
+    // SAFETY: an open handle's prototype is the FileHandle prototype that
+    // carries `read` and `readFile`; the spies intercept that same prototype.
+    // eslint-disable-next-line typescript/no-unsafe-type-assertion
+    const handlePrototype = Object.getPrototypeOf(opened) as FileHandle;
+    const wholeFileRead = vi.spyOn(handlePrototype, 'readFile');
+    const chunkRead = vi.spyOn(handlePrototype, 'read');
+    await opened.close();
+    try {
+      await expect(
+        createHostWalkPort('/proc/self/status', undefined).read('', 64),
+      ).resolves.toStrictEqual({ kind: 'oversized' });
+      // The bound, not the file, decides how much reaches memory.
+      expect(wholeFileRead).not.toHaveBeenCalled();
+      expect(chunkRead).toHaveBeenCalled();
+    } finally {
+      wholeFileRead.mockRestore();
+      chunkRead.mockRestore();
+    }
   });
 
   it('closes the handle after every read, so a scan cannot exhaust the process', async () => {
@@ -263,6 +299,18 @@ describe('createHostWalkPort', () => {
       await expect(ignoreReader(root)('')).resolves.toBeUndefined();
     });
   });
+
+  it.runIf(process.platform !== 'win32')(
+    'applies no ignore policy from a FIFO, which never blocks the walk',
+    async () => {
+      await withTree(async (root) => {
+        // Node cannot create a FIFO, so the host's own `mkfifo` does; the
+        // guard keeps the case off platforms that have neither.
+        await promisify(execFile)('mkfifo', [path.join(root, '.gitignore')]);
+        await expect(ignoreReader(root)('')).resolves.toBeUndefined();
+      });
+    },
+  );
 
   it('reads a .gitignore that is exactly at the size bound', async () => {
     await withTree(async (root) => {
