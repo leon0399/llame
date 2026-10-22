@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-const DEFAULT_DEV_API_URL = "http://localhost:3001";
+const DEV_API_PORT = "3001";
 const CREDENTIAL_SUBMISSION_PATHS = ["/auth/v1/login", "/auth/v1/register"];
 
 let queryClient: QueryClient | undefined;
@@ -10,11 +10,23 @@ export function registerApiQueryClient(client: QueryClient): void {
   queryClient = client;
 }
 
+/**
+ * In development without NEXT_PUBLIC_API_URL, the API is assumed on the same
+ * host as the page: a browser that opened the app at a LAN or Tailscale
+ * address reaches the API there too, and the session cookie stays on the
+ * host the page was served from. The server side uses localhost.
+ */
+function defaultDevApiUrl(): string {
+  const hostname =
+    typeof window === "undefined" ? "localhost" : window.location.hostname;
+  return `http://${hostname}:${DEV_API_PORT}`;
+}
+
 export function getApiUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
   const apiUrl =
     configured ||
-    (process.env.NODE_ENV !== "production" ? DEFAULT_DEV_API_URL : undefined);
+    (process.env.NODE_ENV !== "production" ? defaultDevApiUrl() : undefined);
 
   if (!apiUrl) {
     throw new Error("NEXT_PUBLIC_API_URL is required");

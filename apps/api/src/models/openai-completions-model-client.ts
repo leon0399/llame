@@ -7,6 +7,7 @@ import {
   JSONParseError,
   TypeValidationError,
   type LanguageModelV3,
+  type LanguageModelV3Message,
 } from '@ai-sdk/provider';
 import {
   RetryError,
@@ -15,10 +16,12 @@ import {
   type StreamTextOnErrorCallback,
   type StreamTextResult,
   type ToolSet,
+  wrapLanguageModel,
 } from 'ai';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
+  agentTelemetry,
   type BillingMode,
   type ChatIdentity,
   createModelStreamFinishCallback,
@@ -367,6 +370,57 @@ function applyChunkDelivery(
   };
 }
 
+/**
+ * In thinking mode, DeepSeek rejects a request whose current turn holds an
+ * assistant tool-call message without `reasoning_content` ("must be passed
+ * back"). A gateway such as OpenCode Go balances one model across upstreams,
+ * and some of them answer a tool-call step with no reasoning at all; the
+ * adapter then omits the field, and the next step fails whenever it lands on
+ * an upstream that enforces the rule. An empty `reasoning_content` satisfies
+ * it. Only a request carrying an effort asks for thinking, so other
+ * endpoints never receive the field.
+ */
+function markReasoninglessToolCalls(
+  message: LanguageModelV3Message,
+): LanguageModelV3Message {
+  if (
+    message.role !== 'assistant' ||
+    !message.content.some((part) => part.type === 'tool-call') ||
+    message.content.some(
+      (part) => part.type === 'reasoning' && part.text.length > 0,
+    )
+  ) {
+    return message;
+  }
+  const options = message.providerOptions;
+  return {
+    ...message,
+    providerOptions: {
+      ...options,
+      // The adapter spreads this namespace onto the serialized message.
+      openaiCompatible: { ...options?.openaiCompatible, reasoning_content: '' },
+    },
+  };
+}
+
+function applyToolCallReasoningReplay(
+  streamOptions: StreamOptions,
+  input: ModelStreamInput,
+): void {
+  if (input.effort === undefined) return;
+  streamOptions.model = wrapLanguageModel({
+    model: streamOptions.model,
+    middleware: {
+      specificationVersion: 'v3',
+      transformParams: ({ params }) =>
+        Promise.resolve({
+          ...params,
+          prompt: params.prompt.map(markReasoninglessToolCalls),
+        }),
+    },
+  });
+}
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -386,6 +440,7 @@ function runOpenAICompatibleStream(
     onFinish: createModelStreamFinishCallback(input.onFinish),
     // llame's identity, per call (design D6).
     headers: perCallHeaders(config, input.chat),
+    experimental_telemetry: agentTelemetry(input.chat),
     ...providerOptions,
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
@@ -401,6 +456,7 @@ function runOpenAICompatibleStream(
   installStepPreparation(streamOptions, input, config, {
     moveToolMedia: true,
   });
+  applyToolCallReasoningReplay(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   applyChunkDelivery(streamOptions, input, gate);

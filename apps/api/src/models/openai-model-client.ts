@@ -3,6 +3,7 @@ import type { LanguageModelV3 } from '@ai-sdk/provider';
 import { generateText, stepCountIs, streamText, tool, type ToolSet } from 'ai';
 
 import {
+  agentTelemetry,
   type BillingMode,
   type ChatIdentity,
   createModelStreamFinishCallback,
@@ -501,6 +502,7 @@ function applyRequestOptions(
   input: ModelStreamInput,
 ): void {
   streamOptions.headers = perCallHeaders(config, input.chat);
+  streamOptions.experimental_telemetry = agentTelemetry(input.chat);
   const { providerOptions } = responsesProviderOptions(
     composeProviderOptions({
       defaults: { reasoningSummary: 'auto' },
@@ -664,6 +666,7 @@ export async function generateToolBoundObject<OBJECT>(
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
+    experimental_telemetry: agentTelemetry(input.chat),
     ...callSettings,
     tools: {
       [toolName]: tool({

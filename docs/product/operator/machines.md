@@ -121,6 +121,9 @@ stable. On jump hosts, allow forwarding only to the next hop, for example
 `restrict,port-forwarding,permitopen="box:22"`. Set sshd's
 `ClientAliveInterval` so a box notices a vanished hub.
 
+To report the daemon's errors and traces to Sentry, set its variables in the
+same forced command; see [observability](observability.md#machine-daemon).
+
 ## Register roots
 
 On the box, as the daemon's user:

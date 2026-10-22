@@ -1,9 +1,13 @@
+// Must stay the first import: see instrument.ts.
+import './instrument';
+import * as Sentry from '@sentry/nestjs';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { configureApp, setupOpenApi } from './app.setup';
 import { InstanceConfigService } from './instance-config/instance-config.service';
 
 async function bootstrap() {
+  Sentry.getGlobalScope().setTag('llame.process', 'api');
   const app = await NestFactory.create(AppModule);
   const instanceConfig = app.get(InstanceConfigService);
   configureApp(app, instanceConfig.config.http.trustProxy);

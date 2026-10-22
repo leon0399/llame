@@ -718,6 +718,121 @@ describe('createOpenAICompletionsModelClient — streaming usage (run-usage-acco
   });
 });
 
+describe('createOpenAICompletionsModelClient — reasoning_content on tool-call turns', () => {
+  // DeepSeek's thinking mode rejects a current-turn tool-call message without
+  // `reasoning_content`, and a load-balancing gateway's upstream may answer a
+  // tool-call step with no reasoning to replay.
+  const history = [
+    { role: 'user', content: 'Run date twice.' },
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-a',
+          toolName: 'bash',
+          input: {},
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'call-a',
+          toolName: 'bash',
+          output: { type: 'text', value: 'Thu' },
+        },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: 'once more' },
+        {
+          type: 'tool-call',
+          toolCallId: 'call-b',
+          toolName: 'bash',
+          input: {},
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'call-b',
+          toolName: 'bash',
+          output: { type: 'text', value: 'Thu' },
+        },
+      ],
+    },
+  ] satisfies Array<ModelMessage>;
+
+  async function sentAssistantMessages(
+    effort: 'high' | undefined,
+  ): Promise<Array<unknown>> {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+    try {
+      const client = createOpenAICompletionsModelClient({
+        credential: 'sk-test',
+        providerModelId: 'deepseek-chat',
+        modelId: 'system:deepseek:deepseek-chat',
+        contextWindowTokens: 128_000,
+        baseUrl: 'https://api.deepseek.com/v1',
+        userAgent: USER_AGENT,
+        requestHeaders: {},
+      });
+      await expect(
+        client.streamText({
+          chat: CHAT,
+          messages: history,
+          ...(effort !== undefined && { effort }),
+        }).text,
+      ).resolves.toBe('done');
+      const call = fetchMock.mock.calls[0];
+      if (call === undefined) {
+        throw new TypeError('no fetch call was recorded');
+      }
+      const sent = (await sentBody(...call))['messages'];
+      if (!Array.isArray(sent)) throw new TypeError('expected messages');
+      const assistant: Array<unknown> = sent.filter(
+        (message) => isRecord(message) && message['role'] === 'assistant',
+      );
+      return assistant;
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  }
+
+  it('sends an empty reasoning_content for a reasoningless tool call when thinking is requested', async () => {
+    const [unreasoned, reasoned] = await sentAssistantMessages('high');
+
+    expect(unreasoned).toMatchObject({ reasoning_content: '' });
+    expect(reasoned).toMatchObject({ reasoning_content: 'once more' });
+  });
+
+  it('adds no reasoning_content when the request carries no effort', async () => {
+    const [unreasoned] = await sentAssistantMessages(undefined);
+
+    expect(unreasoned).not.toHaveProperty('reasoning_content');
+  });
+});
+
 describe('createOpenAICompletionsModelClient — configured provider name (design D2)', () => {
   it("composes the operator's options under the namespace the adapter derives from that name", async () => {
     const model = scriptedModel([textResponse('answer')]);

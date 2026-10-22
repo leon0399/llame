@@ -5,6 +5,7 @@ import {
   type HelloParams,
   type NativeDisplayOptions,
   type RequestEnvelope,
+  type RequestTrace,
   type SerializableRecord,
   type SerializableValue,
 } from "@workspace/machine-protocol";
@@ -157,6 +158,20 @@ export function optionalEnvironment(
 
 /** The longest delay `setTimeout` honours (2^31 − 1 ms, about 24.8 days). */
 const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * The hub's trace, when the envelope carries a well-formed one. Tracing is
+ * diagnostics, so a malformed trace is dropped rather than refusing the call.
+ */
+function optionalTrace(envelope: SerializableRecord): RequestTrace | undefined {
+  const trace = envelope["trace"];
+  if (!isSerializableRecord(trace)) return undefined;
+  const sentryTrace = trace["sentryTrace"];
+  const baggage = trace["baggage"];
+  if (!isStringValue(sentryTrace)) return undefined;
+  return { sentryTrace, ...(isStringValue(baggage) && { baggage }) };
+}
+
 export function readEnvelope(
   value: SerializableValue,
   method: string,
@@ -179,6 +194,7 @@ export function readEnvelope(
     attemptId: optionalString(envelope, "attemptId", method),
     toolCallId: optionalString(envelope, "toolCallId", method),
     deliverySeq: optionalInteger(envelope, "deliverySeq", method),
+    trace: optionalTrace(envelope),
   };
 }
 

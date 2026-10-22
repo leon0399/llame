@@ -26,6 +26,7 @@ import {
   statHostPath,
 } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import {
   tool,
   type LanguageModelUsage,
@@ -925,6 +926,10 @@ export class RunExecutionService {
   async executeRun(
     request: ExecuteRunInput,
   ): Promise<ReturnType<ModelClient['streamText']>> {
+    // Agent tracing: every model call of this Chat joins one conversation,
+    // attributed to its owner's opaque id, on the job's isolation scope.
+    Sentry.setConversationId(request.chatId);
+    Sentry.setUser({ id: request.userId });
     const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
       ? new AbortController()
       : undefined;
@@ -2018,6 +2023,15 @@ export class RunExecutionService {
           const status = input.abortSignal?.aborted
             ? classifyAbortedRun(input.abortSignal)
             : 'failed';
+          // A cancelled or superseded Run is not a fault.
+          if (status === 'failed') {
+            Sentry.captureException(error, {
+              tags: {
+                'llame.run_id': input.runId,
+                'llame.chat_id': input.chatId,
+              },
+            });
+          }
           const assistantTelemetry = buildAssistantTelemetry(
             null,
             turnStatusForTerminalRun(status),

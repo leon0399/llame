@@ -54,6 +54,9 @@ below state additional ordering where a change needs it.
   entries for vLLM-served models, token usage, and reasoning effort.
 - [Horizontal scaling](scaling.md): API and worker topology, worker profiles,
   and capacity.
+- [Observability](observability.md): Sentry DSNs and environments per
+  process, what is reported, traces across web, API, queue, and Machines,
+  and the data sent.
 - [Media store](media.md): owner images and PDFs in Postgres, ingest bounds,
   PDF parsing bounds, upload and fetch routes, the `sharp` native dependency,
   and the no-deletion gap.

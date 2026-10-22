@@ -257,6 +257,13 @@ describe('PgBossQueueService queue operations', () => {
     expect(send).toHaveBeenNthCalledWith(2, 'work', { value: 'second' }, {});
   });
 
+  // What pg-boss adds to a job under `includeMetadata`.
+  const JOB_METADATA = {
+    retryCount: 0,
+    createdOn: new Date(0),
+    startedOn: new Date(5),
+  };
+
   it('consumes parsed jobs with metadata and defaults to one local worker', async () => {
     const { service, work } = makeQueueService();
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- this parser intentionally models the queue's unknown cross-process payload boundary
@@ -290,6 +297,7 @@ describe('PgBossQueueService queue operations', () => {
       {
         batchSize: 1,
         localConcurrency: 3,
+        includeMetadata: true,
         pollingIntervalSeconds: 7,
       },
       expect.any(Function),
@@ -302,8 +310,8 @@ describe('PgBossQueueService queue operations', () => {
     }
     // eslint-disable-next-line typescript/no-unsafe-call -- the preceding guard narrows the mocked callback
     await firstCallback([
-      { id: 'job-1', data: { value: 'first' } },
-      { id: 'job-2', data: { value: 'second' } },
+      { ...JOB_METADATA, id: 'job-1', data: { value: 'first' } },
+      { ...JOB_METADATA, id: 'job-2', data: { value: 'second' } },
     ]);
     expect(parse).toHaveBeenNthCalledWith(1, { value: 'first' });
     expect(parse).toHaveBeenNthCalledWith(2, { value: 'second' });
@@ -330,7 +338,7 @@ describe('PgBossQueueService queue operations', () => {
     expect(work).toHaveBeenNthCalledWith(
       2,
       'plain',
-      { batchSize: 1, localConcurrency: 1 },
+      { batchSize: 1, localConcurrency: 1, includeMetadata: true },
       expect.any(Function),
     );
     // eslint-disable-next-line typescript/no-unsafe-assignment -- Vitest's untyped mock call tuple is narrowed by the guard below
@@ -340,7 +348,9 @@ describe('PgBossQueueService queue operations', () => {
       throw new Error('expected pg-boss work callback');
     }
     // eslint-disable-next-line typescript/no-unsafe-call -- the preceding guard narrows the mocked callback
-    await secondCallback([{ id: 'job-3', data: { value: 'plain' } }]);
+    await secondCallback([
+      { ...JOB_METADATA, id: 'job-3', data: { value: 'plain' } },
+    ]);
     expect(plainHandler).toHaveBeenCalledWith(
       { value: 'plain' },
       { id: 'job-3', queue: 'plain' },

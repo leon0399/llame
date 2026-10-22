@@ -7,6 +7,7 @@ import type {
   ProviderMetadata,
   StreamTextOnErrorCallback,
   StreamTextResult,
+  TelemetrySettings,
   ToolChoice,
   ToolSet,
 } from 'ai';
@@ -44,6 +45,17 @@ export type ChatIdentity = {
   id: string;
   lane: ChatLane;
 };
+
+/**
+ * The AI SDK telemetry settings of a request for `chat`. Sentry's agent
+ * tracing names the agent after `functionId`, so each lane is one agent:
+ * `chat-main` (turns and compaction), `chat-title`, `chat-search`. No
+ * `isEnabled`: the AI SDK's own OpenTelemetry export stays off, and Sentry
+ * reads the calls through its own instrumentation.
+ */
+export function agentTelemetry(chat: ChatIdentity): TelemetrySettings {
+  return { functionId: `chat-${chat.lane}` };
+}
 
 /** One step of a tool-calling stream, as the SDK is about to run it. */
 export interface ModelStepStart {

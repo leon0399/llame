@@ -13,6 +13,8 @@
 
 import type { Readable, Writable } from 'node:stream';
 
+import * as Sentry from '@sentry/nestjs';
+
 import {
   createFrameMultiplexer,
   createHeartbeat,
@@ -65,6 +67,26 @@ export type MachineRequestOptions = {
   readonly budgetMs?: number;
   readonly envelope?: MachineRequestEnvelope;
 };
+
+/**
+ * The call's params with the active trace in their envelope, so the daemon's
+ * spans join the trace that issued the call. Without an active trace, or for
+ * a method that carries no envelope, the params are unchanged.
+ */
+function tracedParams<M extends MachineMethod>(
+  call: MachineCall<M>,
+): MachineMethodParams[M] {
+  const { 'sentry-trace': sentryTrace, baggage } = Sentry.getTraceData();
+  const params = call.params;
+  if (sentryTrace === undefined || !('envelope' in params)) return params;
+  return {
+    ...params,
+    envelope: {
+      ...params.envelope,
+      trace: { sentryTrace, ...(baggage !== undefined && { baggage }) },
+    },
+  };
+}
 
 /**
  * One method invocation: the wire name and its params, INCLUDING the envelope.
@@ -205,20 +227,36 @@ export class MachineSession {
     // protocol's stream request only observes aborts after it is written, so a
     // pre-aborted signal must fail here rather than reach it.
     options.signal?.throwIfAborted();
-    const channel = this.openStream();
-    let sent = false;
-    try {
-      const before = this.framesWritten;
-      const answer = channel.request(call.method, call.params, {
-        signal: options.signal,
-      });
-      sent = this.framesWritten > before;
-      return await answer;
-    } catch (error) {
-      throw this.failure(error, sent, options.signal);
-    } finally {
-      channel.close();
-    }
+    return Sentry.startSpan(
+      {
+        // Sentry's `rpc` op and its rpc/jsonrpc semantic conventions; the
+        // daemon's server span uses the same service and method.
+        name: `llame-machine/${call.method}`,
+        op: 'rpc',
+        attributes: {
+          'rpc.system.name': 'jsonrpc',
+          'rpc.service': 'llame-machine',
+          'rpc.method': call.method,
+          'jsonrpc.protocol.version': '2.0',
+        },
+      },
+      async () => {
+        const channel = this.openStream();
+        let sent = false;
+        try {
+          const before = this.framesWritten;
+          const answer = channel.request(call.method, tracedParams(call), {
+            signal: options.signal,
+          });
+          sent = this.framesWritten > before;
+          return await answer;
+        } catch (error) {
+          throw this.failure(error, sent, options.signal);
+        } finally {
+          channel.close();
+        }
+      },
+    );
   }
 
   /** Open a stream that stays open after its answer (a Workspace MCP channel). */
@@ -229,7 +267,7 @@ export class MachineSession {
     options.signal?.throwIfAborted();
     const channel = this.openStream();
     const before = this.framesWritten;
-    const answer = channel.request(call.method, call.params, {
+    const answer = channel.request(call.method, tracedParams(call), {
       signal: options.signal,
     });
     const sent = this.framesWritten > before;

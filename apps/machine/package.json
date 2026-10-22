@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "catalog:",
+    "@sentry/node": "~11.7.0",
     "@workspace/bash-executor": "workspace:*",
     "@workspace/machine-protocol": "workspace:*",
     "@workspace/mcp-workspace": "workspace:*",
@@ -27,10 +28,10 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",
+    "esbuild": "0.25.12",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "esbuild": "0.25.12"
+    "vitest": "catalog:"
   }
 }

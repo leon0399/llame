@@ -40,10 +40,11 @@ export function proxy(req: NextRequest) {
 }
 
 // UX-only cookie presence gate. apps/api SessionAuthGuard is the data boundary.
-// Page-only: exclude api/trpc and static/_next so non-page requests are never
-// redirected to /login. Proxy always runs on the Node.js runtime (Next 16),
-// so the former `runtime` option is gone.
+// Page-only: exclude api/trpc, static/_next, and Sentry's tunnel route
+// (`tunnelRoute` in next.config.mjs) so non-page requests are never redirected
+// to /login. Proxy always runs on the Node.js runtime (Next 16), so the former
+// `runtime` option is gone.
 export const config = {
   // oxlint-disable-next-line unicorn/prefer-string-raw -- Next statically parses this export and rejects tagged templates.
-  matcher: ["/((?!api|trpc|_next|.+\\.[\\w]+$).*)", "/"],
+  matcher: ["/((?!api|trpc|_next|monitoring|.+\\.[\\w]+$).*)", "/"],
 };
