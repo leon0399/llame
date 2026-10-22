@@ -118,13 +118,15 @@ stdin, with empty stdin for the command itself:
   the permission rules matched.
 - Output and stderr are bounded and truncated as a local command's are. The call
   shares the `bash` time budget. A call that ends before its process starts is
-  `cancelled` or `timed_out`, as locally. Only a pre-session failure is a known
-  refusal: `ssh_unavailable` with `client_missing`, `host_key_mismatch`,
-  `auth_failed`, `unreachable`, or `config` (the destination did not resolve),
-  and `ssh_unsupported_host` for a host that cannot run the script. Every other
-  end after SSH starts without the end trailer — timeout, cancellation, or a
-  dropped session — is `outcome_unknown` and is never replayed. A remote
-  command never reports `session_lost`.
+  `cancelled` or `timed_out`, as locally. Two ends are known refusals: a
+  pre-session failure — `ssh_unavailable` with `client_missing`,
+  `host_key_mismatch`, `auth_failed`, `unreachable`, or `config` (the
+  destination did not resolve), and `ssh_unsupported_host` for a host that
+  cannot run the script — and a refusal the script writes before the command,
+  such as the unusable working directory above. Every other end after SSH starts
+  without the end trailer — timeout, cancellation, or a dropped session — is
+  `outcome_unknown` and is never replayed. A remote command never reports
+  `session_lost`.
 
 The attempt is recorded before SSH starts and its result once afterwards, both
 under the calling Run, so a retry replays the settled outcome instead of
