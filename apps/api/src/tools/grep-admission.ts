@@ -187,7 +187,8 @@ export function createGrepReadAdmission(
       return refused;
     },
     recordRefusals() {
-      if (refused === 0 || firstRejection === undefined) return;
+      // Set exactly when a file was refused.
+      if (firstRejection === undefined) return;
       context.onDerivedDecision?.({
         kind: 'grep-file',
         url: '',
