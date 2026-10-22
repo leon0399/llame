@@ -164,6 +164,7 @@ describe('createKnowledgeWalkPort', () => {
           deadlineMs: GREP_LIMITS.deadlineMs,
           limit: GREP_LIMITS.filesPerPage,
           pageUnits: GREP_LIMITS.pageCodeUnits,
+          fixedReserve: 0,
         },
         inputHash: 'input-hash',
         now: Date.now,

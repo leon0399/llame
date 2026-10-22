@@ -680,6 +680,62 @@ describe('paging', () => {
     });
   });
 
+  it('never walks a scope twice when a page fills near the budget', async () => {
+    await withRoot(async (root) => {
+      // The page fills only after the walk examined every missing file, so a
+      // call that pages itself again is visible as more than 5,000 reads.
+      const space = path.join(root, SPACE_A);
+      await mkdir(space, { recursive: true });
+      const misses = Array.from(
+        { length: 4999 },
+        (_, index) => `f${String(index).padStart(4, '0')}.md`,
+      );
+      await Promise.all(
+        misses.map((name) => writeFile(path.join(space, name), 'miss\n')),
+      );
+      // A path near the Knowledge byte bound makes the cursor large, and one
+      // passage per four lines fills the page beside it.
+      const directory = Array.from(
+        { length: 28 },
+        (_, index) => `z${String(index).padStart(2, '0')}${'d'.repeat(26)}`,
+      ).join('/');
+      await mkdir(path.join(space, ...directory.split('/')), {
+        recursive: true,
+      });
+      const matched = `${'x'.repeat(228)}needle`;
+      const lines: Array<string> = [];
+      for (let index = 0; index < 20; index += 1)
+        lines.push('ctx', matched, 'ctx', 'ctx');
+      await writeFile(
+        path.join(space, ...`${directory}/note.md`.split('/')),
+        lineNumbered(...lines),
+      );
+
+      const reads = vi.spyOn(KnowledgeFilesystemAdapter.prototype, 'readWalk');
+      try {
+        const result = await run(
+          contextOf({
+            resolver: knowledgeResolver(
+              new Map([
+                [
+                  SPACE_A,
+                  { id: SPACE_A, name: SPACE_A, root, directory: space },
+                ],
+              ]),
+            ),
+          }),
+          { patterns: ['needle'], scopes: [`kb://${SPACE_A}`] },
+        );
+        expect(result).toMatchObject({ status: 'success', complete: false });
+        expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(15_000);
+        expect(reads.mock.calls.length).toBeLessThanOrEqual(5000);
+      } finally {
+        reads.mockRestore();
+      }
+    });
+    // The fixture creates and walks 5,000 files, which is the bound it proves.
+  }, 30_000);
+
   it('resumes after the cursor and refuses a cursor from other inputs', async () => {
     await withRoot(async (root) => {
       const pkg = path.join(root, 'pdf');
