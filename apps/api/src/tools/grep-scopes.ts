@@ -38,7 +38,11 @@ import {
   resolveKnowledgeScope,
   refuseUnsearchableKnowledgeScope,
 } from './grep-knowledge-scope';
-import { resolveMachineScope, type MachineGrepScope } from './grep-machine';
+import {
+  machineScopeOf,
+  resolveMachineScope,
+  type MachineGrepScope,
+} from './grep-machine';
 import { decodeFileAlias, isFileAlias } from './permissions/file-alias';
 import {
   createHostWalkPort,
@@ -113,6 +117,10 @@ function refuseUnsearchableScope(scope: string): GrepToolError | undefined {
       return refuseUnsearchableKnowledgeScope(scheme.rest);
     case SKILL_SCHEME:
       return refuseUnsearchableSkillScope(scheme.rest);
+    case MACHINE_SCHEME: {
+      const parsed = machineScopeOf(scope, 0);
+      return 'status' in parsed ? parsed : undefined;
+    }
     default:
       return unsearchableSchemeResult(scheme.scheme);
   }
@@ -121,8 +129,6 @@ function refuseUnsearchableScope(scope: string): GrepToolError | undefined {
 /** The closed result a scheme without a backend on this process returns. */
 function unsearchableSchemeResult(scheme: string): GrepToolError {
   switch (scheme) {
-    case MACHINE_SCHEME:
-      return machineUnsupportedResult();
     case MEDIA_LOCATOR_SCHEME:
       return invalidPathResult('A media:// locator holds no text to search.');
     case 'http':

@@ -462,7 +462,12 @@ describe('refuseUnsearchableGrepScopes', () => {
   });
 
   it('refuses a bare Machine scope and a remote file: alias', () => {
-    expect(refused(['machine://'])).toEqual(machineUnsupportedResult());
+    expect(refused(['machine://'])).toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+    });
+    // A well-formed Machine scope is searchable on this layer.
+    expect(refused(['machine://build/srv/app/**'])).toBeUndefined();
     expect(refused(['file://nas/share'])).toEqual({
       status: 'error',
       type: 'invalid_path',

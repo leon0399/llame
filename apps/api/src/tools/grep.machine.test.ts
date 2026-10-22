@@ -1033,14 +1033,14 @@ describe('Machine page bounds', () => {
     expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
   });
 
-  it('keeps a passage that fills the page exactly and drops one unit more', async () => {
+  it('keeps a passage whose whole result fits the page and drops one that overflows it', async () => {
     const filled = fixture({
       answers: {
         'fs.grep': {
           value: page([
             {
               ...passage('a.go', 1, 1),
-              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_998),
+              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_900),
             },
           ]),
         },
@@ -1052,6 +1052,7 @@ describe('Machine page bounds', () => {
     });
     expect(kept).toMatchObject({ status: 'success', complete: true });
     expect(locatorsOf(kept)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(measureNativeModelOutput(kept)).toBeLessThanOrEqual(15_000);
 
     const over = fixture({
       answers: {

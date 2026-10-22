@@ -213,7 +213,8 @@ const BAD_PATH_MESSAGE = 'The Machine scope path is invalid.';
 /** What the daemon answers for a path that does not exist. */
 const NOT_FOUND_MESSAGE = 'The target does not exist.';
 
-function machineScopeOf(
+/** The text parse of a `machine://` scope; also the pre-admission shape check. */
+export function machineScopeOf(
   scope: string,
   index: number,
 ): MachineGrepScope | GrepToolError {

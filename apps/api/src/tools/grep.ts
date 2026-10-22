@@ -33,6 +33,7 @@ import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   createGrepReadAdmission,
+  memoizedAdmission,
   grepScopeStrings,
   projectGrepScope,
   type GrepReadAdmission,
@@ -168,22 +169,58 @@ type PageState = {
 
 /** Page the call's scopes in submitted order; the caller records what policy hid. */
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
-  const { input, patterns, resolved } = request;
+  const { input, resolved } = request;
   const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
   const cursor = resolveCursor(input.cursor, inputHash);
   if ('result' in cursor) return cursor.result;
 
   const budget = grepBudget(input.limit);
   const deadlineAt = Date.now() + budget.deadlineMs;
+  const pass: PagePass = {
+    request: { ...request, admission: memoizedAdmission(request.admission) },
+    inputHash,
+    cursor: cursor.cursor,
+    deadlineAt,
+  };
+  // The engine bounds the `results` array alone; the cursor, the warnings,
+  // and the Knowledge notice travel beside it, and the runner's 16,000-unit
+  // cap must never shorten them. A page whose whole result overflows the
+  // budget is paged again with that overflow taken off the passage bound;
+  // each pass lowers the bound by at least one unit, which ends the loop.
+  let pageUnits = budget.pageUnits;
+  for (;;) {
+    const page = await pagePass(pass, { ...budget, pageUnits });
+    if (page.status === 'error') return page;
+    const overflow = measureNativeModelOutput(page) - budget.pageUnits;
+    if (overflow <= 0 || pageUnits <= 1) return page;
+    pageUnits = Math.max(1, pageUnits - overflow);
+  }
+}
+
+/** What every pass of one call shares. */
+type PagePass = {
+  readonly request: ScanRequest;
+  readonly inputHash: string;
+  readonly cursor: DecodedGrepCursor | undefined;
+  readonly deadlineAt: number;
+};
+
+/** One page of the call's scopes in submitted order, under `budget`. */
+async function pagePass(
+  pass: PagePass,
+  budget: GrepBudget,
+): Promise<ToolResult> {
+  const { request, inputHash, cursor, deadlineAt } = pass;
+  const { patterns, resolved } = request;
   const state = createPageState();
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
     // The engine skips local scopes before the cursor itself; a Machine scope
     // is skipped here, before any request leaves for its box.
     if (
-      cursor.cursor !== undefined &&
+      cursor !== undefined &&
       'machine' in segment &&
-      segment.index < cursor.cursor.scopeIndex
+      segment.index < cursor.scopeIndex
     )
       continue;
     const remaining = remainingBudget(budget, state, deadlineAt);
@@ -199,7 +236,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
       inputHash,
       segment,
       budget: remaining,
-      cursor: cursor.cursor,
+      cursor,
     });
     if ('result' in outcome) return outcome.result;
     appendSegment(state, budget, outcome.page);
