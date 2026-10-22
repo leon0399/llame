@@ -226,13 +226,16 @@ function remainder(
   const passageEnd = passageEndLine(passage.locator);
   if (endLine >= passageEnd) return undefined;
   const start = endLine + 1;
+  const matches = passage.matches.filter((line) => line >= start);
+  // Context lines alone after the cut are no passage: every passage holds a match.
+  if (matches.length === 0) return undefined;
   return {
     locator: `${fileLocator}:${start}-${passageEnd}`,
     content: passage.content
       .split("\n")
       .slice(start - passageStartLine(passage.locator))
       .join("\n"),
-    matches: passage.matches.filter((line) => line >= start),
+    matches,
     ...(passage.truncated === true && { truncated: true as const }),
   };
 }

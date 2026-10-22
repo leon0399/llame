@@ -553,6 +553,23 @@ describe("grep paging", () => {
     expect(second.complete).toBe(true);
   });
 
+  it("emits no rest when only context lines follow the cut", async () => {
+    const port = createMemoryPort({ "a.md": file("hit\nctx\n") });
+    const scope = memoryScope(0, "/repo/", port);
+    const second = await runMemoryScan([scope], ["hit"], {
+      cursor: {
+        kind: "passage",
+        scopeIndex: 0,
+        rel: "a.md",
+        startLine: 1,
+        endLine: 1,
+        inputHash: "test-hash",
+      },
+    });
+    expect(second.results).toEqual([]);
+    expect(second.complete).toBe(true);
+  });
+
   it("returns an empty complete result when nothing matches", async () => {
     const port = createMemoryPort({
       "bin.md": binary(Uint8Array.of(0x00)),
