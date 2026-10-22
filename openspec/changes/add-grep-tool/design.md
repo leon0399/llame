@@ -109,8 +109,9 @@ Rejected alternatives:
 
 The engine recognizes glob operators in the submitted text before any
 percent-decoding, so `%2A` stays a literal asterisk. Emitted `kb://` and
-`skill://` locators encode `*` and `?`, so a hit returns as a scope without
-a glob. A host file whose name holds `*` or `?` is reachable only through a
+`skill://` locators use the canonical formatter of their scheme, which encodes
+`?` but leaves `*` literal. The model writes `%2A` to use such a hit as a
+scope. A host file whose name holds `*` or `?` is reachable only through a
 glob. That ceiling is recorded here.
 
 The engine splits a scope into the literal prefix and the glob suffix at the
@@ -209,9 +210,10 @@ Rejected alternatives:
 ```
 
 Passages of one file are adjacent in `results`. A file with more than 20
-passages adds `truncated: true` on its twentieth passage. The page is
-budgeted at 15,000 UTF-16 code units before the runner's 16,000-character
-cap, so the cursor is never cut away.
+passages adds `truncated: true` on its twentieth passage. The page holds at
+most 15,000 `measureNativeModelOutput` units of the whole result. The `cursor`,
+`warnings`, and `notice` are included in that measure. The runner's
+16,000-character cap then never cuts the cursor away.
 
 The walk order is depth-first with byte-ordered names per directory. A bare
 `kb://` visits Spaces by identifier and a bare `skill://` visits packages by

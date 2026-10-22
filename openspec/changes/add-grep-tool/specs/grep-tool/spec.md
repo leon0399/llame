@@ -1,3 +1,11 @@
+## Purpose
+
+Gives a Run bounded regular-expression content search over the locators that
+it can walk: host paths, `machine://`, `kb://`, and `skill://`. The tool admits
+each scope against the `grep` group and each file against the `read` group. It
+returns line-ranged passages whose locators are valid `read` arguments, paged
+by a stateless keyset cursor.
+
 ## ADDED Requirements
 
 ### Requirement: The grep tool accepts one strict input object
@@ -84,10 +92,11 @@ tool searches a directory recursively. The scheme, the Machine name, the
 Space identifier, and the skill name MUST NOT contain a glob operator.
 
 The tool MUST NOT parse a read selector on a scope. In a host or Machine
-scope, a colon is part of the path. In a `kb://` scope, a literal colon is
-written `%3A`, as `read` requires. The tool MUST refuse a colon in a
-`skill://` scope as `invalid_path`. The tool MUST refuse these scopes as
-`invalid_path` before admission:
+scope, a colon is part of the path. A grep scope is not a `read` locator. In
+its path part a literal `*` or `?` is a glob operator, and `%2A` or `%3F`
+names the literal character. In a `kb://` or `skill://` scope the tool MUST
+refuse a literal colon as `invalid_path` and name the `%3A` spelling. The tool
+MUST refuse these scopes as `invalid_path` before admission:
 
 - a `media://` scope,
 - an `http://` or `https://` scope,
@@ -248,8 +257,10 @@ walker MUST NOT emit its content and needs no `read` decision for it.
 Every emitted `locator` MUST have the form
 `<canonical file locator>:<start>-<end>` with a one-based inclusive line
 range. The value is directly a valid `read` argument. In a `kb://` or
-`skill://` locator the tool MUST encode a literal `*` as `%2A` and a literal
-`?` as `%3F`. The locator can then return as a scope without a glob.
+`skill://` locator the tool MUST spell each segment as the canonical
+formatter of that scheme does. So a literal `*` stays `*` and a literal `?`
+becomes `%3F`. To use such a locator as a later scope, the model writes `%2A`
+for a literal `*`.
 
 A `kb://` hit MUST carry the logical Knowledge locator. A `machine://` hit MUST carry
 the Machine locator. A hit MUST NOT carry a configured root or a Machine host
@@ -295,7 +306,7 @@ passage MUST NOT carry `notice`.
 #### Scenario: A Knowledge file named with an asterisk returns as a scope
 
 - **WHEN** line 3 of the Knowledge file `notes/a*.md` matches
-- **THEN** the hit locator is `kb://<id>/notes/a%2A.md:2-4`
+- **THEN** the hit locator is `kb://<id>/notes/a*.md:2-4`
 - **AND** `kb://<id>/notes/a%2A.md` as a later scope searches that one file
 
 #### Scenario: Another owner's Space is not found
@@ -491,8 +502,9 @@ in byte order of the Space identifier. A bare `skill://` scope expands in
 byte order of the package name. Each expansion takes its own ordinal. A
 Machine scope takes its ordinal from the same counter.
 
-The tool MUST keep the result under a budget of 15,000 UTF-16 code units.
-It MUST emit whole passages in order while the next passage fits. When the
+The tool MUST keep `measureNativeModelOutput` of the whole result, `cursor`,
+`warnings`, and `notice` included, at or under 15,000 UTF-16 code units. It
+MUST emit whole passages in order while the next passage fits. When the
 first passage of a page does not fit, the tool MUST cut that passage at a
 line boundary and mark it `truncated: true`. That passage ends the page. The
 page MUST end before the budget, so the tool loop never cuts the result.
@@ -590,9 +602,12 @@ scope for an owner with zero Spaces MUST fail as
 `knowledge_space_not_configured`. A bare `kb://` scope MUST re-check access
 to each Space before the walk enters it.
 
-A `skill://` scope on a Chat with no effective skill source MUST return no
-passage for that scope. A failure of one scope MUST fail the whole call. A
-partial result MUST NOT hide a scope that the tool did not search.
+A bare `skill://` scope on a Chat with no effective skill source names zero
+packages. The tool searches it, and it returns no passage and no failure. A
+`skill://<name>` scope there, or any `skill://` scope whose catalog snapshot
+is unavailable, MUST fail as `skill_catalog_unavailable`. A failure of one
+scope MUST fail the whole call. A partial result MUST NOT hide a scope that
+the tool did not search.
 
 A `machine://` scope MUST run on the named Machine through the `fs.grep`
 protocol method. The daemon MUST resolve the prefix through its registered
@@ -624,8 +639,13 @@ call as Machine unusable.
 
 #### Scenario: Skill scope without a source
 
-- **WHEN** a scope is `skill://` and the Chat has no effective skill source
+- **WHEN** a scope is a bare `skill://` and the Chat has no effective skill source
 - **THEN** the result holds no passage for that scope and `complete: true`
+
+#### Scenario: Named skill scope without a catalog snapshot
+
+- **WHEN** a scope is `skill://reviewer` and the catalog snapshot of the Chat is unavailable
+- **THEN** the tool returns `skill_catalog_unavailable`
 
 #### Scenario: Machine search runs on the Machine
 

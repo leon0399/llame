@@ -137,6 +137,13 @@ model calls, and every hit is a locator that `read` accepts.
 
 ## Revision history
 
+- **v5 (2026-10-22):** Review round 4.
+  - The `grep` scope projection and the per-file `read` evaluation are named exceptions of the canonical string-matching requirement.
+  - A literal colon in a `kb://` or `skill://` scope is `invalid_path`, and the message names the `%3A` spelling.
+  - A bare `skill://` scope on a Chat without a skill source returns no passage. A named scope, or any scope with an unavailable catalog snapshot, fails as `skill_catalog_unavailable`.
+  - The emitted `kb://` and `skill://` locators use the canonical formatter of their scheme.
+  - The page budget measures the whole result, `cursor`, `warnings`, and `notice` included.
+  - The `grep-tool` delta states its `## Purpose`, and task 2.7 names the tool index row.
 - **v4 (2026-10-22):** Review round 3.
   - A bound or a deadline stop returns a cursor that names the last reached entry.
   - A cut first passage continues from its last emitted line on the next call.
