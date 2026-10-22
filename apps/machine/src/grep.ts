@@ -11,7 +11,6 @@
 import {
   FS_GREP_METHOD,
   fsGrepCursorKey,
-  type FsGrepBudget,
   type FsGrepPassage,
   type FsGrepResult,
   type NativeFailureResult,
@@ -24,6 +23,7 @@ import {
   decodeGrepCursor,
   GREP_LIMITS,
   runGrepScan,
+  type GrepBudget,
   type GrepPassage,
   type GrepScanResult,
   type GrepScope,
@@ -63,18 +63,21 @@ type GrepRequest = {
   readonly literal: boolean;
   readonly ignoreCase: boolean;
   readonly cursor: string | undefined;
-  readonly budget: FsGrepBudget;
+  readonly budget: GrepBudget;
 };
 
-function readBudget(source: SerializableRecord): FsGrepBudget {
+function readBudget(source: SerializableRecord): GrepBudget {
   const budget = requireRecord(source, "budget", FS_GREP_METHOD);
   return {
+    // The wire budget is the page the hub has left for passages; the fields
+    // beside the daemon's own result travel on the hub, never here.
     files: requireCount(budget, "files", FS_GREP_METHOD),
     entries: requireCount(budget, "entries", FS_GREP_METHOD),
     bytes: requireCount(budget, "bytes", FS_GREP_METHOD),
     deadlineMs: requireCount(budget, "deadlineMs", FS_GREP_METHOD),
     limit: requireCount(budget, "limit", FS_GREP_METHOD),
     pageUnits: requireCount(budget, "pageUnits", FS_GREP_METHOD),
+    fixedReserve: 0,
   };
 }
 

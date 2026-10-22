@@ -18,8 +18,10 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
+  grepCursorFieldUnits,
   measureNativeModelOutput,
   runGrepScan,
+  type GrepBudget,
   type GrepWalkPort,
 } from "@workspace/native-file-tools";
 import { isBoolean } from "@workspace/runtime-safety";
@@ -31,13 +33,16 @@ import { envelope, startDaemon, type TestDaemon } from "./testing/harness";
 let fixture: RootFixture;
 let daemon: TestDaemon;
 
-const BUDGET: FsGrepBudget = {
+/** The wire budget, and the engine budget the daemon runs it under. */
+const BUDGET: FsGrepBudget & GrepBudget = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
   deadlineMs: 30_000,
   limit: 20,
   pageUnits: 15_000,
+  // The hub's own result fields never travel on the daemon's page.
+  fixedReserve: 0,
 };
 
 beforeEach(async () => {
@@ -66,6 +71,11 @@ function spacedMatches(count: number): string {
   for (let index = 0; index < count; index += 1)
     lines.push("needle", "filler", "filler", "filler");
   return lines.join("\n");
+}
+
+/** A page bound that leaves `room` units for one file's passages. */
+function pageRoom(rel: string, startLine: number, room: number): number {
+  return grepCursorFieldUnits({ scopeIndex: 0, rel, startLine }) + room;
 }
 
 /** The page units a run of daemon passages takes, its array brackets included. */
@@ -346,7 +356,17 @@ describe("fs.grep", () => {
     // where a per-page count would lose the mark.
     const split = await grep(
       request(prefix, {
-        budget: { ...BUDGET, pageUnits: unitsOf(whole.results.slice(0, 10)) },
+        // Ten passages and the cursor field that names the tenth.
+        budget: {
+          ...BUDGET,
+          pageUnits:
+            unitsOf(whole.results.slice(0, 10)) +
+            grepCursorFieldUnits({
+              scopeIndex: 0,
+              rel: "a.go",
+              startLine: whole.results[9].startLine,
+            }),
+        },
       }),
     );
     expect(split.results).toHaveLength(10);
@@ -368,7 +388,13 @@ describe("fs.grep", () => {
     await writeAt("project/a.go", `${long}\n`);
     const prefix = join(fixture.root, "project");
     const first = await grep(
-      request(prefix, { budget: { ...BUDGET, pageUnits: 400 } }),
+      request(prefix, {
+        // A page that leaves 400 units for the passages themselves.
+        budget: {
+          ...BUDGET,
+          pageUnits: pageRoom("a.go", 1, 400),
+        },
+      }),
     );
     expect(first.results).toHaveLength(1);
     expect(first.results[0]).toMatchObject({

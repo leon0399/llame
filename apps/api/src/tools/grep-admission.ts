@@ -207,26 +207,3 @@ export function createGrepReadAdmission(
     },
   };
 }
-
-/**
- * One verdict per candidate file for the whole call, whichever pass asks, so
- * a pass the page budget cut short never counts a refusal twice.
- */
-export function memoizedAdmission(
-  admission: GrepReadAdmission,
-): GrepReadAdmission {
-  const verdicts = new Map<string, boolean>();
-  return {
-    admit(locator) {
-      const known = verdicts.get(locator);
-      if (known !== undefined) return known;
-      const allowed = admission.admit(locator);
-      verdicts.set(locator, allowed);
-      return allowed;
-    },
-    get refused() {
-      return admission.refused;
-    },
-    recordRefusals: () => admission.recordRefusals(),
-  };
-}

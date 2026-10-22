@@ -460,6 +460,7 @@ function spent(
     bytes: Math.max(0, budget.bytes - consumed.bytes),
     limit: budget.limit,
     pageUnits: budget.pageUnits,
+    fixedReserve: budget.fixedReserve,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
   };
 }

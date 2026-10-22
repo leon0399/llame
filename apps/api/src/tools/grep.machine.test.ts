@@ -18,6 +18,7 @@ import {
   encodeGrepCursor,
   hashGrepInputs,
   measureNativeModelOutput,
+  type GrepBudget,
 } from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi } from 'vitest';
@@ -57,13 +58,16 @@ const MACHINES = {
 
 const STATUS: ReadonlyArray<MachineStatusView> = [];
 
-const BUDGET: FsGrepBudget = {
+/** The wire budget, and the engine budget the hub hands the segment with it. */
+const BUDGET: FsGrepBudget & GrepBudget = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
   deadlineMs: 30_000,
   limit: 20,
   pageUnits: 15_000,
+  // The hub's own result fields travel outside the daemon's page.
+  fixedReserve: 0,
 };
 
 type Fixture = {
@@ -929,6 +933,53 @@ describe('Machine page bounds', () => {
     expect(JSON.stringify(result)).not.toContain('hidden.go');
   });
 
+  it('carries a passage cursor when a later scope only reached a refused entry', async () => {
+    const scopes = ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'];
+    const stopped = encodeGrepCursor({
+      kind: 'position',
+      scopeIndex: 0,
+      rel: 'hidden.go',
+      inputHash: fsGrepCursorKey({
+        path: '/srv/b',
+        globSuffix: '**',
+        patterns: ['needle'],
+        literal: false,
+        ignoreCase: false,
+      }),
+    });
+    const { connector } = fixture({
+      answer: answeredByPath({
+        '/srv/a': page([passage('a.go', 1, 1)]),
+        // The second scope's only passage is refused and its file budget is
+        // spent, so its own page stops at a position cursor.
+        '/srv/b': page([passage('hidden.go', 1, 1)], {
+          complete: false,
+          cursor: stopped,
+          consumed: { files: 5000, entries: 1, bytes: 0 },
+        }),
+      }),
+    });
+    const result = await run(
+      context(connector, {
+        permissionPolicy: compileToolPermissionMap(
+          readingRejects('machine://devl/srv/b/hidden.go'),
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes },
+    );
+    expect(result).toMatchObject({ status: 'success', complete: false });
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:1-1']);
+    // The page emitted a passage, so its cursor is that passage's; the second
+    // scope's entry is reached again under the next call's own budget.
+    expect(cursorPayloadOf(result)).toMatchObject({
+      kind: 'passage',
+      scopeIndex: 0,
+      rel: 'a.go',
+    });
+    expect(JSON.stringify(result)).not.toContain('hidden.go');
+  });
+
   it('stops after a scope whose page is incomplete', async () => {
     const { peer, connector } = fixture({
       answer: answeredByPath({
@@ -1034,13 +1085,15 @@ describe('Machine page bounds', () => {
   });
 
   it('keeps a passage whose whole result fits the page and drops one that overflows it', async () => {
+    // 14,294 units is the largest passage that fits beside its own cursor
+    // field and the fields a result carries: 2 + 14,294 + 198 + 506 = 15,000.
     const filled = fixture({
       answers: {
         'fs.grep': {
           value: page([
             {
               ...passage('a.go', 1, 1),
-              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_900),
+              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_294),
             },
           ]),
         },
@@ -1060,7 +1113,7 @@ describe('Machine page bounds', () => {
           value: page([
             {
               ...passage('a.go', 1, 1),
-              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_999),
+              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_295),
             },
           ]),
         },

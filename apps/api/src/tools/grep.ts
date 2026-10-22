@@ -10,6 +10,7 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
+  grepCursorFieldUnits,
   GREP_LIMITS,
   GREP_WARNING_KINDS,
   hashGrepInputs,
@@ -33,7 +34,6 @@ import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   createGrepReadAdmission,
-  memoizedAdmission,
   grepScopeStrings,
   projectGrepScope,
   type GrepReadAdmission,
@@ -169,58 +169,23 @@ type PageState = {
 
 /** Page the call's scopes in submitted order; the caller records what policy hid. */
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
-  const { input, resolved } = request;
+  const { input, patterns, resolved } = request;
   const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
   const cursor = resolveCursor(input.cursor, inputHash);
   if ('result' in cursor) return cursor.result;
 
   const budget = grepBudget(input.limit);
   const deadlineAt = Date.now() + budget.deadlineMs;
-  const pass: PagePass = {
-    request: { ...request, admission: memoizedAdmission(request.admission) },
-    inputHash,
-    cursor: cursor.cursor,
-    deadlineAt,
-  };
-  // The engine bounds the `results` array alone; the cursor, the warnings,
-  // and the Knowledge notice travel beside it, and the runner's 16,000-unit
-  // cap must never shorten them. A page whose whole result overflows the
-  // budget is paged again with that overflow taken off the passage bound;
-  // each pass lowers the bound by at least one unit, which ends the loop.
-  let pageUnits = budget.pageUnits;
-  for (;;) {
-    const page = await pagePass(pass, { ...budget, pageUnits });
-    if (page.status === 'error') return page;
-    const overflow = measureNativeModelOutput(page) - budget.pageUnits;
-    if (overflow <= 0 || pageUnits <= 1) return page;
-    pageUnits = Math.max(1, pageUnits - overflow);
-  }
-}
-
-/** What every pass of one call shares. */
-type PagePass = {
-  readonly request: ScanRequest;
-  readonly inputHash: string;
-  readonly cursor: DecodedGrepCursor | undefined;
-  readonly deadlineAt: number;
-};
-
-/** One page of the call's scopes in submitted order, under `budget`. */
-async function pagePass(
-  pass: PagePass,
-  budget: GrepBudget,
-): Promise<ToolResult> {
-  const { request, inputHash, cursor, deadlineAt } = pass;
-  const { patterns, resolved } = request;
+  const resume = cursor.cursor;
   const state = createPageState();
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
     // The engine skips local scopes before the cursor itself; a Machine scope
     // is skipped here, before any request leaves for its box.
     if (
-      cursor !== undefined &&
+      resume !== undefined &&
       'machine' in segment &&
-      segment.index < cursor.scopeIndex
+      segment.index < resume.scopeIndex
     )
       continue;
     const remaining = remainingBudget(budget, state, deadlineAt);
@@ -236,7 +201,7 @@ async function pagePass(
       inputHash,
       segment,
       budget: remaining,
-      cursor,
+      cursor: resume,
     });
     if ('result' in outcome) return outcome.result;
     appendSegment(state, budget, outcome.page);
@@ -421,7 +386,7 @@ function appendSegment(
   state.consumed.entries += page.consumed.entries;
   state.consumed.bytes += page.consumed.bytes;
   for (const entry of page.entries) {
-    if (!fitsPage(state, budget, entry.passage)) {
+    if (!fitsPage(state, budget, entry)) {
       state.complete = false;
       return;
     }
@@ -435,22 +400,33 @@ function appendSegment(
   // kept: it is the furthest point the segment itself reached.
   if (page.last !== undefined)
     state.resume = { kind: 'passage', end: page.last };
-  else if (page.position !== undefined)
+  else if (page.position !== undefined && state.results.length === 0)
+    // A page that emitted a passage carries a passage cursor; a position
+    // cursor is the empty page's only way to resume.
     state.resume = { kind: 'position', ...page.position };
 }
 
+/**
+ * Whether one more entry fits the page. The local engine already kept its own
+ * cursor and the fixed fields back; a Machine entry names the point the call
+ * would resume at, so its cursor field and those fields are added here.
+ */
 function fitsPage(
   state: PageState,
   budget: GrepBudget,
-  passage: GrepPassage,
+  entry: SegmentEntry,
 ): boolean {
-  if (
-    !state.files.has(fileOf(passage.locator)) &&
-    state.files.size >= budget.limit
-  )
-    return false;
+  const file = fileOf(entry.passage.locator);
+  if (!state.files.has(file) && state.files.size >= budget.limit) return false;
   const separator = state.results.length === 0 ? 0 : 1;
-  return state.units + separator + passageUnits(passage) <= budget.pageUnits;
+  const reserve =
+    entry.end === undefined
+      ? 0
+      : grepCursorFieldUnits(entry.end) + budget.fixedReserve;
+  return (
+    state.units + separator + passageUnits(entry.passage) + reserve <=
+    budget.pageUnits
+  );
 }
 
 function pushPassage(state: PageState, passage: GrepPassage): void {
