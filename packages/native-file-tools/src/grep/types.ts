@@ -57,6 +57,12 @@ export interface GrepBudget {
   deadlineMs: number;
   limit: number;
   pageUnits: number;
+  /**
+   * Units the caller's own result fields take beside the passages: the status
+   * and completeness envelope, its warnings, and its notice. A page keeps them
+   * back before it admits a passage, so it never needs a second walk.
+   */
+  fixedReserve: number;
 }
 
 export interface GrepPassage {
@@ -66,16 +72,20 @@ export interface GrepPassage {
   truncated?: true;
 }
 
-export type GrepWarningKind =
-  | "binary"
-  | "invalid_utf8"
-  | "oversized"
-  | "unreadable"
-  | "link"
-  | "file_bound"
-  | "entry_bound"
-  | "byte_bound"
-  | "deadline";
+/** Every kind of skip or bound a walk can report, so a caller may size them. */
+export const GREP_WARNING_KINDS = [
+  "binary",
+  "invalid_utf8",
+  "oversized",
+  "unreadable",
+  "link",
+  "file_bound",
+  "entry_bound",
+  "byte_bound",
+  "deadline",
+] as const;
+
+export type GrepWarningKind = (typeof GREP_WARNING_KINDS)[number];
 
 export interface GrepWarning {
   kind: GrepWarningKind;

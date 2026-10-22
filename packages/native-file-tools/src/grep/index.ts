@@ -11,17 +11,23 @@ export type {
   GrepScopeSplit,
   GrepScopeSplitResult,
 } from "./scope";
-export { decodeGrepCursor, encodeGrepCursor, hashGrepInputs } from "./cursor";
+export {
+  decodeGrepCursor,
+  encodeGrepCursor,
+  grepCursorFieldUnits,
+  hashGrepInputs,
+} from "./cursor";
 export type {
   DecodedGrepCursor,
   GrepCursorDecodeResult,
   GrepCursorInput,
+  GrepCursorPoint,
   GrepHashInputs,
   GrepPassageCursor,
   GrepPositionCursor,
 } from "./cursor";
 export { runGrepScan } from "./scan";
-export { GrepPortError } from "./types";
+export { GREP_WARNING_KINDS, GrepPortError } from "./types";
 export type {
   GrepBudget,
   GrepEntry,

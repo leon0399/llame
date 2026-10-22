@@ -1,6 +1,15 @@
-import { encodeGrepCursor, type GrepPassageCursor } from "./cursor";
+import {
+  encodeGrepCursor,
+  grepCursorFieldUnits,
+  type GrepPassageCursor,
+} from "./cursor";
 import { GREP_LIMITS } from "./limits";
-import { appendGrepFile, createGrepPage, type GrepPage } from "./page";
+import {
+  appendGrepFile,
+  createGrepPage,
+  type GrepPage,
+  type GrepPageLimits,
+} from "./page";
 import { grepFilePassages, passageEndLine, passageStartLine } from "./passages";
 import type {
   GrepPassage,
@@ -21,6 +30,10 @@ type GrepResume = {
 type ScanState = {
   readonly input: GrepScanInput;
   readonly page: GrepPage;
+  /** What the page may serialize to, and what it keeps for its caller. */
+  readonly limits: GrepPageLimits;
+  /** The widest scope ordinal, which a position cursor may name. */
+  readonly widestIndex: number;
   readonly warnings: Map<GrepWarningKind, number>;
   readonly consumed: { files: number; entries: number; bytes: number };
   readonly deadlineAt: number;
@@ -44,6 +57,16 @@ export async function runGrepScan(
   const state: ScanState = {
     input,
     page: createGrepPage(),
+    limits: {
+      pageUnits: input.budget.pageUnits,
+      fixedReserve: input.budget.fixedReserve,
+    },
+    // A position cursor names the scope its walk stopped in; the widest
+    // ordinal reserves the digits every one of them can take.
+    widestIndex: input.scopes.reduce(
+      (widest, scope) => Math.max(widest, scope.index),
+      0,
+    ),
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     deadlineAt: input.now() + input.budget.deadlineMs,
@@ -82,6 +105,15 @@ async function scanScope(state: ScanState, scope: GrepScope): Promise<void> {
     onLink: () => addWarning(state, "link"),
     onReach: (reached) => {
       state.position = { scopeIndex: scope.index, rel: reached };
+      // A stop before a passage ends the page at this entry, so the page
+      // keeps the room its position cursor takes.
+      state.page.reserveFloor = Math.max(
+        state.page.reserveFloor,
+        grepCursorFieldUnits({
+          scopeIndex: state.widestIndex,
+          rel: reached,
+        }),
+      );
     },
   })) {
     const fileResume =
@@ -172,7 +204,7 @@ function emitPassages(
   const twentiethAt = capped
     ? passageStartLine(firstTwenty[GREP_LIMITS.passagesPerFile - 1].locator)
     : undefined;
-  appendGrepFile(state.page, state.input.budget.pageUnits, {
+  appendGrepFile(state.page, state.limits, {
     scopeIndex: file.scopeIndex,
     rel: file.rel,
     fileLocator: file.fileLocator,

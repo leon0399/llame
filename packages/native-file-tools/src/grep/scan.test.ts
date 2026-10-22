@@ -1,4 +1,6 @@
-import { decodeGrepCursor } from "./cursor";
+import { measureNativeModelOutput } from "../serialization";
+
+import { decodeGrepCursor, grepCursorFieldUnits } from "./cursor";
 import type { DecodedGrepCursor, GrepPassageCursor } from "./cursor";
 import {
   createMemoryPort,
@@ -36,6 +38,11 @@ function passageCursor(cursor: string | undefined): GrepPassageCursor {
   const decoded = decode(cursor);
   if (decoded.kind !== "passage") throw new Error("expected a passage cursor");
   return decoded;
+}
+
+/** A page bound that leaves `room` units for passages beside the page's own. */
+function reservedRoom(rel: string, room: number): number {
+  return grepCursorFieldUnits({ scopeIndex: 0, rel, startLine: 1 }) + room;
 }
 
 function matchingChildren(count: number): MemoryTree {
@@ -590,7 +597,7 @@ describe("grep paging", () => {
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
     const scope = memoryScope(0, "/repo/", port);
     const first = await runMemoryScan([scope], ["hit"], {
-      budget: { pageUnits: 200 },
+      budget: { pageUnits: reservedRoom("a.md", 200) },
     });
     expect(first.results).toHaveLength(2);
     expect(first.complete).toBe(false);
@@ -601,6 +608,22 @@ describe("grep paging", () => {
     expect(second.complete).toBe(true);
   });
 
+  it("keeps its cursor and the caller's fields inside the page bound", async () => {
+    const text = Array.from({ length: 60 }, (_, index) =>
+      (index + 1) % 5 === 1 ? "hit" : "x",
+    ).join("\n");
+    const port = createMemoryPort({ "a.md": file(`${text}\n`) });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+      { budget: { pageUnits: 1400, fixedReserve: 600 } },
+    );
+    expect(result.complete).toBe(false);
+    expect(result.results.length).toBeGreaterThan(0);
+    const page = { results: result.results, cursor: result.cursor };
+    expect(measureNativeModelOutput(page) + 600).toBeLessThanOrEqual(1400);
+  });
+
   it("cuts a first passage that does not fit at a line boundary", async () => {
     const text = Array.from({ length: 30 }, () => "hit").join("\n");
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
@@ -608,7 +631,7 @@ describe("grep paging", () => {
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       {
-        budget: { pageUnits: 150 },
+        budget: { pageUnits: reservedRoom("a.md", 150) },
       },
     );
     expect(result.results).toHaveLength(1);
@@ -627,7 +650,7 @@ describe("grep paging", () => {
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
     const scope = memoryScope(0, "/repo/", port);
     const first = await runMemoryScan([scope], ["hit"], {
-      budget: { pageUnits: 150 },
+      budget: { pageUnits: reservedRoom("a.md", 150) },
     });
     const cursor = passageCursor(first.cursor);
     const emittedEnd = cursor.endLine;

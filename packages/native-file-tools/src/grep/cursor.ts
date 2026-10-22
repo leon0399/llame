@@ -55,6 +55,52 @@ export type GrepCursorInput =
       readonly inputHash: string;
     };
 
+/**
+ * One cursor point a page can end at, in the shape every caller holds: a
+ * passage point carries its start line, a position point names a bare entry.
+ */
+export interface GrepCursorPoint {
+  readonly scopeIndex: number;
+  readonly rel: string;
+  /** Absent only for a position cursor. */
+  readonly startLine?: number;
+  readonly endLine?: number;
+  readonly capped?: boolean;
+}
+
+/** The units a `cursor` property adds to a result, its comma included. */
+export const GREP_CURSOR_FIELD_OVERHEAD = ',"cursor":""'.length;
+
+/** A hash of a real cursor's length, standing in for the call's input hash. */
+const CURSOR_HASH_PLACEHOLDER = "0".repeat(64);
+
+/**
+ * The exact serialized size of the `cursor` field that names this point, so a
+ * page can keep that room back before it admits a passage. The encoded cursor
+ * is the one a result would carry: a base64url length depends only on the
+ * payload's bytes, and every call's hash is a sha256 hex of this length.
+ */
+export function grepCursorFieldUnits(point: GrepCursorPoint): number {
+  const inputHash = CURSOR_HASH_PLACEHOLDER;
+  const cursor: GrepCursorInput =
+    point.startLine === undefined
+      ? {
+          kind: "position",
+          scopeIndex: point.scopeIndex,
+          rel: point.rel,
+          inputHash,
+        }
+      : {
+          scopeIndex: point.scopeIndex,
+          rel: point.rel,
+          startLine: point.startLine,
+          endLine: point.endLine,
+          truncated: point.capped === true ? true : undefined,
+          inputHash,
+        };
+  return GREP_CURSOR_FIELD_OVERHEAD + encodeGrepCursor(cursor).length;
+}
+
 /** The resolved inputs a cursor is only valid against. */
 export interface GrepHashInputs {
   readonly patterns: ReadonlyArray<string>;

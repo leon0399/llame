@@ -184,6 +184,7 @@ export function memoryBudget(overrides: Partial<GrepBudget> = {}): GrepBudget {
     deadlineMs: GREP_LIMITS.deadlineMs,
     limit: GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,
+    fixedReserve: 0,
     ...overrides,
   };
 }
