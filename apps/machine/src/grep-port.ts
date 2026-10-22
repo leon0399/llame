@@ -16,6 +16,7 @@ import {
   type GrepEntry,
   type GrepWalkPort,
 } from "@workspace/native-file-tools";
+import type { RootGuard } from "./guard";
 
 /** The largest `.gitignore` the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
@@ -39,26 +40,54 @@ function failure(
   return { status: "error", type, message };
 }
 
+/**
+ * What every call of one port shares: the prefix as submitted, the prefix as
+ * the roots resolved it, and the guard that re-verifies each address.
+ */
+type Walk = {
+  readonly root: string;
+  readonly canonical: string;
+  readonly guard: RootGuard;
+  readonly signal: AbortSignal | undefined;
+};
+
 export function createGrepWalkPort(
   root: string,
+  canonical: string,
+  guard: RootGuard,
   signal: AbortSignal | undefined,
 ): GrepWalkPort {
+  const walk: Walk = { root, canonical, guard, signal };
   return {
     followsLinks: false,
-    list: (rel) => listDirectory(root, rel, signal),
-    read: (rel, maxBytes) => readFileAt(root, rel, maxBytes, signal),
-    ignoreFile: (rel) => readIgnoreFile(root, rel),
+    list: (rel) => listDirectory(walk, rel),
+    read: (rel, maxBytes) => readFileAt(walk, rel, maxBytes),
+    ignoreFile: (rel) => readIgnoreFile(walk, rel),
   };
+}
+
+/**
+ * The contract's re-verification after the call: the same address must still
+ * resolve to the same canonical location inside the roots once the effect has
+ * run. A directory or file swapped for a symbolic link in the meantime — even
+ * one that points back inside the roots — resolves elsewhere and is refused,
+ * as every other daemon operation refuses it with `verifyUnchanged`.
+ */
+async function unchanged(walk: Walk, rel: string): Promise<boolean> {
+  const target = at(walk.canonical, rel);
+  // The guard refuses a path outside the roots and any link hop that resolves
+  // outside them; both arrive here as an absent result.
+  const after = await walk.guard.resolvePath(target).catch(() => undefined);
+  return after !== undefined && !after.isLink && after.canonical === target;
 }
 
 /** One directory, with links reported and never entered. */
 async function listDirectory(
-  root: string,
+  walk: Walk,
   rel: string,
-  signal: AbortSignal | undefined,
 ): Promise<ReadonlyArray<GrepEntry>> {
-  signal?.throwIfAborted();
-  const target = at(root, rel);
+  walk.signal?.throwIfAborted();
+  const target = at(walk.root, rel);
   let dirents: Array<Dirent>;
   try {
     dirents = await readdir(target, { withFileTypes: true });
@@ -76,6 +105,9 @@ async function listDirectory(
           : failure("executor_unavailable", LISTING_FAILED_MESSAGE),
     );
   }
+  // A directory swapped for a link after the listing keeps no entries: the
+  // names it returned describe a tree the roots no longer hold.
+  if (!(await unchanged(walk, rel))) return [];
   return dirents.map(
     (dirent): GrepEntry => ({
       name: dirent.name,
@@ -92,16 +124,15 @@ async function listDirectory(
 
 /** One file, opened without following a link or blocking on a FIFO. */
 async function readFileAt(
-  root: string,
+  walk: Walk,
   rel: string,
   maxBytes: number,
-  signal: AbortSignal | undefined,
 ): Promise<Uint8Array | { readonly kind: "oversized" | "unreadable" }> {
-  signal?.throwIfAborted();
+  walk.signal?.throwIfAborted();
   let handle: FileHandle | undefined;
   try {
     handle = await open(
-      at(root, rel),
+      at(walk.root, rel),
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
     const stats = await handle.stat();
@@ -109,7 +140,10 @@ async function readFileAt(
     if (stats.size > maxBytes) return { kind: "oversized" };
     // Only the bound reaches memory: a file that grew past its declared size
     // is refused on the extra byte instead of being buffered whole.
-    const bytes = await readBounded(handle, maxBytes, signal);
+    const bytes = await readBounded(handle, maxBytes, walk.signal);
+    // A file reached through a directory swapped for a link after it was
+    // listed came from outside the roots; its content is thrown away.
+    if (!(await unchanged(walk, rel))) return { kind: "unreadable" };
     return bytes.byteLength > maxBytes ? { kind: "oversized" } : bytes;
   } catch {
     return { kind: "unreadable" };
@@ -144,21 +178,25 @@ async function readBounded(
 
 /** One directory's ignore text, when it is a bounded regular file. */
 async function readIgnoreFile(
-  root: string,
+  walk: Walk,
   rel: string,
 ): Promise<string | undefined> {
-  const file = path.join(at(root, rel), ".gitignore");
+  const ignoreRel =
+    rel.length === 0 ? ".gitignore" : path.join(rel, ".gitignore");
   let handle: FileHandle | undefined;
   try {
     // Policy comes from a real file only, under the walk's own rule: a link is
     // never followed and a FIFO never blocks the walk.
     handle = await open(
-      file,
+      at(walk.root, ignoreRel),
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
     const stats = await handle.stat();
     if (!stats.isFile() || stats.size > IGNORE_FILE_BYTES) return undefined;
     const bytes = await readBounded(handle, IGNORE_FILE_BYTES, undefined);
+    // An ignore file reached through a swapped directory or replaced by a
+    // link applies no rules, exactly as a link at the address would not.
+    if (!(await unchanged(walk, ignoreRel))) return undefined;
     return bytes.byteLength > IGNORE_FILE_BYTES
       ? undefined
       : bytes.toString("utf8");

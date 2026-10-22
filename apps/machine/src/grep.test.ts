@@ -1,4 +1,4 @@
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -15,12 +15,16 @@ import {
   type SerializableValue,
 } from "@workspace/machine-protocol";
 import {
+  compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
   measureNativeModelOutput,
+  runGrepScan,
+  type GrepWalkPort,
 } from "@workspace/native-file-tools";
 import { isBoolean } from "@workspace/runtime-safety";
 import { createGrepWalkPort } from "./grep-port";
+import { createRootGuard } from "./guard";
 import { createRootFixture, type RootFixture } from "./testing/fixtures";
 import { envelope, startDaemon, type TestDaemon } from "./testing/harness";
 
@@ -383,7 +387,12 @@ describe("fs.grep", () => {
   it("reads a file exactly at the bound and refuses one byte more", async () => {
     await writeAt("exact.md", "0123456789");
     await writeAt("over.md", "0123456789a");
-    const port = createGrepWalkPort(fixture.root, undefined);
+    const port = createGrepWalkPort(
+      fixture.root,
+      await realpath(fixture.root),
+      createRootGuard([fixture.root]),
+      undefined,
+    );
     const exact = await port.read("exact.md", 10);
     if (!(exact instanceof Uint8Array))
       throw new Error("a file at the bound is read");
@@ -415,5 +424,81 @@ describe("fs.grep", () => {
       "a.go",
       "ignored/b.go",
     ]);
+  });
+
+  it("drops a subtree swapped for a link outside the roots between list and read", async () => {
+    const prefix = join(fixture.root, "project");
+    await writeAt("project/sub/inside.md", "plain\n");
+    await writeFile(join(fixture.outside, "inside.md"), "needle outside\n");
+    const guard = createRootGuard([fixture.root]);
+    const guarded = await guard.resolvePath(prefix);
+    const port = createGrepWalkPort(
+      guarded.path,
+      guarded.canonical,
+      guard,
+      undefined,
+    );
+    // The listing is genuine; the swap lands before the engine reads below it.
+    let swapped = false;
+    const swapping: GrepWalkPort = {
+      ...port,
+      list: async (rel) => {
+        const entries = await port.list(rel);
+        if (!swapped && rel === "sub") {
+          swapped = true;
+          await rm(join(prefix, "sub"), { recursive: true, force: true });
+          await symlink(fixture.outside, join(prefix, "sub"));
+        }
+        return entries;
+      },
+    };
+    const compiled = compileGrepPatterns({
+      patterns: ["needle"],
+      literal: false,
+      ignoreCase: false,
+    });
+    if (!compiled.ok) throw new Error(compiled.message);
+    const scan = await runGrepScan({
+      scopes: [
+        {
+          index: 0,
+          locatorPrefix: `${prefix}/`,
+          port: swapping,
+          glob: undefined,
+          singleFile: false,
+          locatorFor: (rel) => rel,
+        },
+      ],
+      patterns: compiled.compiled,
+      onCandidate: () => Promise.resolve(true),
+      budget: BUDGET,
+      inputHash: "swapped-subtree",
+      now: () => Date.now(),
+    });
+    expect(swapped).toBe(true);
+    expect(scan.results).toEqual([]);
+    expect(scan.warnings).toEqual([{ kind: "unreadable", count: 1 }]);
+    // A listed name in the swapped tree reaches no file either.
+    expect(await port.list("sub")).toEqual([]);
+  });
+
+  it("applies no ignore rules from a directory swapped for a link", async () => {
+    const prefix = join(fixture.root, "project");
+    await writeAt("project/sub/inside.md", "plain\n");
+    await writeFile(join(fixture.outside, ".gitignore"), "inside.md\n");
+    const guard = createRootGuard([fixture.root]);
+    const guarded = await guard.resolvePath(prefix);
+    const port = createGrepWalkPort(
+      guarded.path,
+      guarded.canonical,
+      guard,
+      undefined,
+    );
+    await rm(join(prefix, "sub"), { recursive: true, force: true });
+    await symlink(fixture.outside, join(prefix, "sub"));
+    if (port.ignoreFile === undefined)
+      throw new Error("the walk reads ignore files");
+    expect(await port.ignoreFile("sub")).toBeUndefined();
+    expect(await port.list("sub")).toEqual([]);
   });
 });
