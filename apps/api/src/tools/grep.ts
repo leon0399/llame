@@ -20,6 +20,8 @@ import {
 } from '@workspace/native-file-tools';
 import { z } from 'zod';
 
+import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
+import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   createGrepReadAdmission,
@@ -74,18 +76,24 @@ async function executeGrep(
   if ('status' in patterns) return patterns;
 
   const admission = createGrepReadAdmission(context);
-  const resolved = await resolveScopes(context, submitted, admission);
-  if ('result' in resolved) return resolved.result;
+  try {
+    const resolved = await resolveScopes(context, submitted, admission);
+    if ('result' in resolved) return resolved.result;
 
-  return scanPassages({
-    input,
-    patterns,
-    admission,
-    resolved,
-    projectedScopes: submitted.map(
-      (scope) => projectGrepScope(scope, root).prefix,
-    ),
-  });
+    return await scanPassages({
+      input,
+      patterns,
+      admission,
+      resolved,
+      projectedScopes: submitted.map(
+        (scope) => projectGrepScope(scope, root).prefix,
+      ),
+    });
+  } finally {
+    // A scope refusal can have counted files too, so the audit sees them on
+    // every exit after resolution began, not only on a completed page.
+    admission.recordRefusals();
+  }
 }
 
 type ScanRequest = {
@@ -96,7 +104,7 @@ type ScanRequest = {
   readonly projectedScopes: ReadonlyArray<string>;
 };
 
-/** Page the engine over the resolved scopes, then record what policy hid. */
+/** Page the engine over the resolved scopes; the caller records what hid. */
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const { input, patterns, admission, resolved } = request;
   const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
@@ -119,16 +127,29 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     if (error instanceof GrepScopeFailure) return error.result;
     throw error;
   }
-  admission.recordRefusals();
   const result: ToolResult = {
     status: 'success',
     results: scan.results,
     complete: scan.complete,
     warnings: scan.warnings,
+    ...(carriesKnowledgePassage(scan.results) && {
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    }),
   };
   return scan.cursor === undefined
     ? result
     : { ...result, cursor: scan.cursor };
+}
+
+/**
+ * Whether the page holds a Knowledge passage. Knowledge content is untrusted
+ * in the same way a `kb://` read is, so the whole page carries the closed
+ * notice, exactly as `read` and `knowledge_search` do.
+ */
+function carriesKnowledgePassage(results: GrepScanResult['results']): boolean {
+  return results.some((passage) =>
+    passage.locator.startsWith(`${KNOWLEDGE_LOCATOR_SCHEME}://`),
+  );
 }
 
 /** Compile the disjunction, or the refusal that names the offending index. */

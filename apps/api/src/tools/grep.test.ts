@@ -15,6 +15,7 @@ import {
   KnowledgeFilesystemAdapter,
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
+import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { MachineConnector } from '../machines/machine-connector.service';
 import {
   TOOL_PROMPT_IDS,
@@ -509,6 +510,60 @@ describe('Knowledge scopes', () => {
       expect(derived[0]).toMatchObject({ kind: 'grep-file', count: 1 });
     });
   });
+
+  it('records the refusal an exact-path scope ended with', async () => {
+    await withRoot(async (root) => {
+      const a = await spaceFixture(root, SPACE_A, {
+        'secret.md': lineNumbered('needle'),
+      });
+      const derived: Array<DerivedDecision> = [];
+      const result = await run(
+        contextOf({
+          resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
+          map: {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', regex: 'secret\\.md$' }],
+            },
+          },
+          onDerivedDecision: (decision) => derived.push(decision),
+        }),
+        { patterns: ['needle'], scopes: [`kb://${SPACE_A}/secret.md`] },
+      );
+
+      // The call ends at the refused file, and the audit still learns how many
+      // files policy hid instead of losing the count with the early return.
+      expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+      expect(derived).toHaveLength(1);
+      expect(derived[0]).toMatchObject({ kind: 'grep-file', count: 1 });
+    });
+  });
+
+  it('carries the Knowledge notice only when the page holds a kb:// passage', async () => {
+    await withRoot(async (root) => {
+      const a = await spaceFixture(root, SPACE_A, {
+        'note.md': lineNumbered('needle'),
+      });
+      const pkg = path.join(root, 'pdf');
+      await mkdir(pkg);
+      await writeFile(path.join(pkg, 'SKILL.md'), lineNumbered('needle'));
+
+      const knowledge = await run(
+        contextOf({
+          resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
+        }),
+        { patterns: ['needle'], scopes: [`kb://${SPACE_A}`] },
+      );
+      expect(success(knowledge).notice).toBe(KNOWLEDGE_CONTENT_NOTICE);
+
+      const skill = await run(
+        contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
+        { patterns: ['needle'], scopes: ['skill://pdf'] },
+      );
+      expect(success(skill)).not.toHaveProperty('notice');
+    });
+  });
 });
 
 describe('skill scopes', () => {
@@ -620,6 +675,83 @@ describe('paging', () => {
         cursor,
       });
       expect(foreign).toMatchObject({ status: 'error', type: 'invalid_input' });
+    });
+  });
+
+  it('resumes a bare kb:// page in the Space the cursor ended in', async () => {
+    await withRoot(async (root) => {
+      const a = await spaceFixture(root, SPACE_A, {
+        'note.md': lineNumbered('needle'),
+      });
+      const b = await spaceFixture(root, SPACE_B, {
+        'note.md': lineNumbered('needle'),
+      });
+      const context = contextOf({
+        resolver: knowledgeResolver(
+          new Map([
+            [SPACE_A, a.binding],
+            [SPACE_B, b.binding],
+          ]),
+        ),
+      });
+
+      const first = await run(context, {
+        patterns: ['needle'],
+        scopes: ['kb://'],
+        limit: 1,
+      });
+      expect(locatorsOf(first)).toEqual([`kb://${SPACE_A}/note.md:1-1`]);
+      const cursor = cursorOf(first);
+      if (cursor === undefined)
+        throw new Error('the first page carries a cursor');
+
+      // Every expanded Space is its own scope, so the cursor of the first page
+      // hides only that Space's file, not the identically named file of the
+      // next one.
+      const second = await run(context, {
+        patterns: ['needle'],
+        scopes: ['kb://'],
+        limit: 1,
+        cursor,
+      });
+      expect(locatorsOf(second)).toEqual([`kb://${SPACE_B}/note.md:1-1`]);
+    });
+  });
+
+  it('resumes a bare skill:// page in the package the cursor ended in', async () => {
+    await withRoot(async (root) => {
+      for (const name of ['alpha', 'pdf']) {
+        const directory = path.join(root, name);
+        await mkdir(directory);
+        await writeFile(
+          path.join(directory, 'SKILL.md'),
+          lineNumbered('needle'),
+        );
+      }
+      const context = contextOf({
+        catalog: catalogOf([
+          packageEntry('pdf', path.join(root, 'pdf')),
+          packageEntry('alpha', path.join(root, 'alpha')),
+        ]),
+      });
+
+      const first = await run(context, {
+        patterns: ['needle'],
+        scopes: ['skill://'],
+        limit: 1,
+      });
+      expect(locatorsOf(first)).toEqual(['skill://alpha/SKILL.md:1-1']);
+      const cursor = cursorOf(first);
+      if (cursor === undefined)
+        throw new Error('the first page carries a cursor');
+
+      const second = await run(context, {
+        patterns: ['needle'],
+        scopes: ['skill://'],
+        limit: 1,
+        cursor,
+      });
+      expect(locatorsOf(second)).toEqual(['skill://pdf/SKILL.md:1-1']);
     });
   });
 

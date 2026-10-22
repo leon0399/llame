@@ -181,16 +181,29 @@ describe('buildScope', () => {
     expect(outcome).toEqual({ result });
   });
 
-  it('treats a prefix the read group refuses as missing, without probing', async () => {
+  it('probes a prefix first and hides a file the read group refuses', async () => {
     const probe = vi.fn(() => Promise.resolve({ kind: 'file' as const }));
     const outcome = await buildScope(
       draft({ admission: admission(false), probe }),
     );
 
+    expect(probe).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({
       result: { status: 'error', type: 'not_found' },
     });
-    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('walks a directory the read group would refuse without checking it', async () => {
+    const readGroup = admission(false);
+    const outcome = scopesOf(await buildScope(draft({ admission: readGroup })));
+
+    // Only a regular file is an exact path: a directory is walked, and the
+    // directory itself is never counted as a refused file.
+    expect(readGroup.admitted).toEqual([]);
+    expect(outcome.scopes[0]).toMatchObject({
+      locatorPrefix: 'p/',
+      singleFile: false,
+    });
   });
 
   it('refuses a file that the submitted scope wrote with a trailing separator', async () => {

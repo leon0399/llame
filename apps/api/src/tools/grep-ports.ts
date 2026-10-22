@@ -35,6 +35,49 @@ export function joinedPath(prefix: string, rel: string): string {
   return `${prefix}/${rel}`;
 }
 
+/** The chunk a bounded read asks a handle for, so no file is held whole. */
+const READ_CHUNK_BYTES = 64 * 1024;
+
+/** The one file-handle operation a bounded read needs. */
+type BoundedFileReader = {
+  read(
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }>;
+};
+
+/**
+ * Read an open file up to `maxBytes` + 1 bytes, so a caller can tell a file
+ * that overflows the bound from one exactly at it. The read stops at the extra
+ * byte: a file far larger than the bound is never buffered beyond it.
+ */
+export async function readBoundedFileBytes(
+  file: BoundedFileReader,
+  maxBytes: number,
+  signal: AbortSignal | undefined,
+): Promise<Uint8Array> {
+  const chunks: Array<Uint8Array> = [];
+  let totalBytes = 0;
+  while (totalBytes <= maxBytes) {
+    signal?.throwIfAborted();
+    const chunk = Buffer.allocUnsafe(
+      Math.min(READ_CHUNK_BYTES, maxBytes + 1 - totalBytes),
+    );
+    const { bytesRead } = await file.read(
+      chunk,
+      0,
+      chunk.byteLength,
+      totalBytes,
+    );
+    if (!Number.isInteger(bytesRead) || bytesRead <= 0) break;
+    chunks.push(chunk.subarray(0, Math.min(bytesRead, chunk.byteLength)));
+    totalBytes += bytesRead;
+  }
+  return Buffer.concat(chunks, Math.min(totalBytes, maxBytes + 1));
+}
+
 export function createKnowledgeWalkPort(
   binding: KnowledgeFilesystemBinding,
   prefixPath: string,
@@ -116,7 +159,7 @@ export function createSkillWalkPort(
         const stats = await handle.stat();
         if (!stats.isFile()) return { kind: 'unreadable' as const };
         if (stats.size > maxBytes) return { kind: 'oversized' as const };
-        const bytes = await handle.readFile();
+        const bytes = await readBoundedFileBytes(handle, maxBytes, signal);
         return bytes.byteLength > maxBytes
           ? { kind: 'oversized' as const }
           : bytes;

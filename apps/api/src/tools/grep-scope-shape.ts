@@ -81,8 +81,11 @@ export function splitScopePath(
 }
 
 /**
- * Whether a glob-free scope names one file, after the `read` group admits its
- * exact locator: a refused path looks missing, exactly as an absent one does.
+ * Whether a glob-free scope names one file. The probe comes first, so only a
+ * path that really is a regular file is checked against the `read` group: a
+ * directory scope is walked with a per-file check, and the directory itself is
+ * never counted as a refused file. A refused file looks missing, exactly as an
+ * absent one does.
  */
 async function decideScopeKind(
   locator: string,
@@ -90,13 +93,11 @@ async function decideScopeKind(
   admission: GrepReadAdmission,
   probe: () => Promise<ScopeProbe>,
 ): Promise<ScopeProbe> {
-  if (!admission.admit(locator)) return { kind: 'missing' };
   const probed = await probe();
   if ('result' in probed) return probed;
-  if (probed.kind === 'missing') return probed;
-  return probed.kind === 'file' && endsWithSeparator
-    ? { kind: 'missing' }
-    : probed;
+  if (probed.kind !== 'file') return probed;
+  if (endsWithSeparator) return { kind: 'missing' };
+  return admission.admit(locator) ? probed : { kind: 'missing' };
 }
 
 /** Everything one scheme settles before the shared probe runs. */

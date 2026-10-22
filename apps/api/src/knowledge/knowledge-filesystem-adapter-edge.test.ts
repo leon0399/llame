@@ -1,5 +1,6 @@
 import {
   KnowledgeFilesystemAdapter,
+  KNOWLEDGE_MAX_ENTRIES,
   KNOWLEDGE_MAX_SEARCH_FILE_BYTES,
   type KnowledgeFilesystemDirectory,
   type KnowledgeFilesystemDirent,
@@ -314,6 +315,23 @@ function walkPort(options: WalkPortOptions = {}): KnowledgeFilesystemPort {
 }
 
 describe('Knowledge filesystem walk entries', () => {
+  it('lists one entry past the bound instead of failing the directory', async () => {
+    const entries = Array.from(
+      { length: KNOWLEDGE_MAX_ENTRIES + 1 },
+      (_value, index) => fileEntry(`f${String(index)}.md`),
+    );
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({ entries }),
+    );
+
+    const listed = await adapter.listWalk('');
+
+    // The walk counts the extra entry and reports its own bound; a very large
+    // directory is a partial page, never a refused call.
+    expect(listed).toHaveLength(KNOWLEDGE_MAX_ENTRIES + 1);
+  });
+
   it('classifies a link, a directory, a file, a non-file, and an unaddressable name', async () => {
     const fileSystem = walkPort({
       entries: [
@@ -394,6 +412,26 @@ describe('Knowledge filesystem walk probes', () => {
       }),
     );
 
+    await expect(adapter.readWalk('note.md', 64)).resolves.toStrictEqual({
+      kind: 'unreadable',
+    });
+  });
+
+  it('reports a file that vanished between the listing and the read as unreadable', async () => {
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        holdStat: (filePath) =>
+          filePath === `${DIRECTORY}/note.md`
+            ? Promise.reject(
+                Object.assign(new Error('gone'), { code: 'ENOENT' }),
+              )
+            : undefined,
+      }),
+    );
+
+    // The walk was already walking this file: its disappearance is one skip,
+    // not a result that ends the call for every other file.
     await expect(adapter.readWalk('note.md', 64)).resolves.toStrictEqual({
       kind: 'unreadable',
     });

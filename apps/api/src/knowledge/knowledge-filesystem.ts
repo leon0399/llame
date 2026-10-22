@@ -26,6 +26,7 @@ import {
   closeDirectoryAndTranslateFailure,
   closeFileAndTranslateFailure,
   readAllDirectoryEntries,
+  readDirectoryEntriesUpTo,
   readWholeFileBytes,
 } from './knowledge-filesystem-read';
 import {
@@ -263,10 +264,9 @@ export class KnowledgeFilesystemAdapter {
     while (pending.length > 0) {
       throwIfAborted(ctx.signal);
       const current = pending.pop()!;
-      const directoryResult = await this.readDirectory(
+      const directoryResult = await this.readSearchDirectory(
         current.absolutePath,
-        ctx.budget.remainingEntries,
-        ctx.signal,
+        ctx,
       );
       ctx.budget.remainingEntries -= directoryResult.count;
       const entries = directoryResult.entries;
@@ -423,6 +423,9 @@ export class KnowledgeFilesystemAdapter {
   /**
    * List one directory of a content walk. A name the Space rules cannot
    * address is reported as `other`, so the walk lists it without opening it.
+   * The listing stops one entry past the bound instead of failing: the walk
+   * counts that entry and reports its own `entry_bound`, so one very large
+   * directory yields a partial page rather than a refused call.
    */
   async listWalk(
     relativePath: string,
@@ -431,7 +434,8 @@ export class KnowledgeFilesystemAdapter {
     const hostPath = await this.walkHostPath(relativePath, signal);
     const result = await this.readDirectory(
       hostPath,
-      KNOWLEDGE_MAX_ENTRIES,
+      (directory) =>
+        readDirectoryEntriesUpTo(directory, KNOWLEDGE_MAX_ENTRIES + 1, signal),
       signal,
     );
     return result.entries.map(walkEntry);
@@ -440,15 +444,16 @@ export class KnowledgeFilesystemAdapter {
   /**
    * Read one file of a content walk under its per-file byte bound. A file over
    * the bound and a file the walk cannot open are skips, never failures of the
-   * walk: the caller counts them.
+   * walk: the caller counts them. A file that vanished between the listing and
+   * this read is one of those skips, not a result that ends the call.
    */
   async readWalk(
     relativePath: string,
     maxBytes: number,
     signal?: AbortSignal,
   ): Promise<Buffer | KnowledgeWalkReadRefusal> {
-    const hostPath = await this.walkHostPath(relativePath, signal);
     try {
+      const hostPath = await this.walkHostPath(relativePath, signal);
       return await this.readFile(hostPath, maxBytes, signal);
     } catch (error) {
       if (
@@ -487,9 +492,31 @@ export class KnowledgeFilesystemAdapter {
     });
   }
 
+  /**
+   * One directory of a search walk: the entries it may still list, under the
+   * search's own entry budget, which is a failure when it runs out.
+   */
+  private readSearchDirectory(
+    directoryPath: string,
+    ctx: KnowledgeSearchWalkContext,
+  ): Promise<DirectoryReadResult> {
+    return this.readDirectory(
+      directoryPath,
+      (directory) =>
+        readAllDirectoryEntries(
+          directory,
+          ctx.budget.remainingEntries,
+          ctx.signal,
+        ),
+      ctx.signal,
+    );
+  }
+
   private async readDirectory(
     directoryPath: string,
-    remainingEntries: number,
+    readEntries: (
+      directory: KnowledgeFilesystemDirectory,
+    ) => Promise<Array<KnowledgeFilesystemDirent>>,
     signal: AbortSignal | undefined,
   ): Promise<DirectoryReadResult> {
     const stats = await this.lstat(
@@ -508,11 +535,7 @@ export class KnowledgeFilesystemAdapter {
         () => this.fileSystem.opendir(directoryPath),
         signal,
       );
-      entries = await readAllDirectoryEntries(
-        directory,
-        remainingEntries,
-        signal,
-      );
+      entries = await readEntries(directory);
     } catch (error) {
       failure = error;
     }

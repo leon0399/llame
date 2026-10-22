@@ -132,6 +132,8 @@ describe('resolveKnowledgeScope', () => {
 
       expect(seen).toHaveLength(2);
       expect(outcome.roots).toEqual([SPACE_A, SPACE_B]);
+      // The expansion keeps the submitted index here; `resolveScopes` gives
+      // each expansion its own ordinal before the engine ever sees them.
       expect(outcome.scopes.map((scope) => scope.index)).toEqual([0, 0]);
     });
   });

@@ -55,10 +55,17 @@ export async function resolveScopes(
 ): Promise<ScopeOutcome> {
   const scopes: Array<GrepScope> = [];
   const roots: Array<string> = [];
+  // A bare `kb://` or `skill://` scope expands to one scope per Space or
+  // package. Each expansion is its own scope, so it takes its own ordinal:
+  // a cursor names exactly one of them, and a page resumes after that one.
+  let ordinal = 0;
   for (const [index, scope] of submitted.entries()) {
     const outcome = await resolveScope(context, scope, index, admission);
     if ('result' in outcome) return outcome;
-    scopes.push(...outcome.scopes);
+    for (const resolved of outcome.scopes) {
+      scopes.push({ ...resolved, index: ordinal });
+      ordinal += 1;
+    }
     roots.push(...outcome.roots);
   }
   return { scopes, roots };

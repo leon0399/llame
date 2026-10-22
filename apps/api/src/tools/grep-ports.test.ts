@@ -25,6 +25,7 @@ import {
   joinedPath,
   probeKnowledgePath,
   probeSkillPath,
+  readBoundedFileBytes,
 } from './grep-ports';
 
 const SPACE_ID = '11111111-1111-4111-8111-111111111111';
@@ -71,6 +72,57 @@ describe('joinedPath', () => {
     expect(joinedPath('', 'a.md')).toBe('a.md');
     expect(joinedPath('notes', '')).toBe('notes');
     expect(joinedPath('notes', 'a.md')).toBe('notes/a.md');
+  });
+});
+
+describe('readBoundedFileBytes', () => {
+  it('reads one byte past the bound and never buffers the rest', async () => {
+    const positions: Array<number> = [];
+    const bytes = await readBoundedFileBytes(
+      {
+        read: (buffer, offset, length, position) => {
+          positions.push(position);
+          // Fill the chunk so the helper has to decide where to stop.
+          buffer.fill(0x61, offset, offset + length);
+          return Promise.resolve({ bytesRead: length });
+        },
+      },
+      10,
+      undefined,
+    );
+
+    // The extra byte is how a caller tells a file of exactly 10 from a larger
+    // one, so a file far past the bound still reads only 11 bytes.
+    expect(bytes.byteLength).toBe(11);
+    expect(positions).toEqual([0]);
+  });
+
+  it('stops when the handle runs out of bytes and when the signal aborts', async () => {
+    let reads = 0;
+    const shortReads = await readBoundedFileBytes(
+      {
+        read: (buffer, offset, length) => {
+          reads += 1;
+          const bytesRead = Math.min(4, length);
+          buffer.fill(0x61, offset, offset + bytesRead);
+          return Promise.resolve({ bytesRead });
+        },
+      },
+      10,
+      undefined,
+    );
+    expect(shortReads.byteLength).toBe(11);
+    expect(reads).toBe(3);
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      readBoundedFileBytes(
+        { read: () => Promise.resolve({ bytesRead: 0 }) },
+        10,
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
 
@@ -137,12 +189,14 @@ describe('createKnowledgeWalkPort', () => {
     });
   });
 
-  it('carries a read failure as the closed result of the call', async () => {
+  it('reads a file that vanished between the listing and the read as a skip', async () => {
     await withTree(async (root) => {
       await mkdir(path.join(root, SPACE_ID), { recursive: true });
       const port = createKnowledgeWalkPort(bindingOf(root), '', undefined);
-      await expect(port.read('absent.md', 64)).rejects.toMatchObject({
-        result: { status: 'error', type: 'not_found' },
+      // The walk never fails for one file the listing named: the engine counts
+      // it as an `unreadable` skip and keeps searching.
+      await expect(port.read('absent.md', 64)).resolves.toStrictEqual({
+        kind: 'unreadable',
       });
     });
   });

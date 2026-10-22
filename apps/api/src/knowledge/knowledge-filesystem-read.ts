@@ -109,6 +109,26 @@ export async function readAllDirectoryEntries(
 }
 
 /**
+ * Enumerate at most `limit` entries of an already-open directory. Unlike the
+ * search walk's bound, a content walk stops at the count instead of failing:
+ * the walk itself counts the extra entry and reports its own bound.
+ */
+export async function readDirectoryEntriesUpTo(
+  directory: KnowledgeFilesystemDirectory,
+  limit: number,
+  signal: AbortSignal | undefined,
+): Promise<Array<KnowledgeFilesystemDirent>> {
+  const entries: Array<KnowledgeFilesystemDirent> = [];
+  while (entries.length < limit) {
+    throwIfAborted(signal);
+    const entry = await observe(directory.read(), signal);
+    if (entry === null) break;
+    entries.push(entry);
+  }
+  return entries;
+}
+
+/**
  * Shared `readDirectory` cleanup: close the opened directory (best-effort —
  * a close error only replaces an absent enumeration failure) and translate
  * whatever failure remains. Unlike the file variant, an unexpected ENOENT
