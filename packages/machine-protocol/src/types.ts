@@ -229,6 +229,18 @@ export type FsGrepPassage = {
   readonly content: string;
   readonly matches: ReadonlyArray<number>;
   readonly truncated?: true;
+  /**
+   * The passage is its file's twentieth, by the file's own passage order. The
+   * hub needs the absolute position: it counts no passages of its own, so a
+   * page that starts mid-file would otherwise lose the marker.
+   */
+  readonly capped?: true;
+  /**
+   * The page cut this passage at a line boundary, so `endLine` is the last
+   * line it emitted rather than the passage's own end. A resume continues the
+   * rest of the passage from that line.
+   */
+  readonly cut?: true;
 };
 
 export type FsGrepSuccess = {

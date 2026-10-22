@@ -127,27 +127,50 @@ async function scopeOf(
   };
 }
 
-/** One engine passage as the wire carries it: a relative path and a line range. */
-function passageOf(passage: GrepPassage): FsGrepPassage {
+/**
+ * One engine passage as the wire carries it: a relative path, a line range,
+ * and the marks the hub paginates on. The engine's page end names the only
+ * passage a page can cut — the first one, which then ends that page — so its
+ * start line is the cut marker the hub reads.
+ */
+function passageOf(
+  passage: GrepPassage,
+  capped: ReadonlySet<string>,
+  cutAt: number | undefined,
+): FsGrepPassage {
   const separator = passage.locator.lastIndexOf(":");
   const [startLine, endLine] = passage.locator
     .slice(separator + 1)
     .split("-")
     .map(Number);
+  const path = passage.locator.slice(0, separator);
   return {
-    path: passage.locator.slice(0, separator),
+    path,
     startLine,
     endLine,
     content: passage.content,
     matches: [...passage.matches],
     ...(passage.truncated === true && { truncated: true as const }),
+    ...(capped.has(`${path}\u0000${String(startLine)}`) && {
+      capped: true as const,
+    }),
+    ...(startLine === cutAt && { cut: true as const }),
   };
 }
 
 function resultOf(scan: GrepScanResult): FsGrepResult {
+  // The engine names the twentieth passage of each file by its absolute
+  // position, so a page that starts mid-file still marks it.
+  const capped = new Set(
+    (scan.capped ?? []).map(
+      (entry) => `${entry.rel}\u0000${String(entry.startLine)}`,
+    ),
+  );
+  const cutAt =
+    scan.last?.endLine === undefined ? undefined : scan.last.startLine;
   const result = {
     ok: true as const,
-    results: scan.results.map(passageOf),
+    results: scan.results.map((passage) => passageOf(passage, capped, cutAt)),
     complete: scan.complete,
     warnings: scan.warnings.map((warning) => ({ ...warning })),
     consumed: { ...scan.consumed },

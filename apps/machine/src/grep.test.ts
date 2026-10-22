@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -14,8 +14,13 @@ import {
   type JsonValue,
   type SerializableValue,
 } from "@workspace/machine-protocol";
-import { encodeGrepCursor } from "@workspace/native-file-tools";
+import {
+  decodeGrepCursor,
+  encodeGrepCursor,
+  measureNativeModelOutput,
+} from "@workspace/native-file-tools";
 import { isBoolean } from "@workspace/runtime-safety";
+import { createGrepWalkPort } from "./grep-port";
 import { createRootFixture, type RootFixture } from "./testing/fixtures";
 import { envelope, startDaemon, type TestDaemon } from "./testing/harness";
 
@@ -51,6 +56,31 @@ async function writeAt(relative: string, content: string): Promise<string> {
   return target;
 }
 
+/** A file whose lines match every fourth line, starting at line 1. */
+function spacedMatches(count: number): string {
+  const lines: Array<string> = [];
+  for (let index = 0; index < count; index += 1)
+    lines.push("needle", "filler", "filler", "filler");
+  return lines.join("\n");
+}
+
+/** The page units a run of daemon passages takes, its array brackets included. */
+function unitsOf(passages: ReadonlyArray<FsGrepPassage>): number {
+  return passages.reduce(
+    (total, passage, index) =>
+      total +
+      // The engine pages a passage as its locator, content, and matches.
+      measureNativeModelOutput({
+        locator: `${passage.path}:${String(passage.startLine)}-${String(passage.endLine)}`,
+        content: passage.content,
+        matches: passage.matches,
+      }) -
+      2 +
+      (index === 0 ? 0 : 1),
+    2,
+  );
+}
+
 function request(
   path: string,
   overrides: Partial<FsGrepParams> = {},
@@ -84,7 +114,8 @@ type GrepPage = {
 
 function parsePassage(value: SerializableValue): FsGrepPassage {
   if (!isSerializableRecord(value)) throw new Error("a passage is an object");
-  const { path, startLine, endLine, content, matches, truncated } = value;
+  const { path, startLine, endLine, content, matches, truncated, capped, cut } =
+    value;
   if (!isStringValue(path) || !isStringValue(content)) {
     throw new Error("a passage carries its path and content");
   }
@@ -101,6 +132,8 @@ function parsePassage(value: SerializableValue): FsGrepPassage {
     content,
     matches: [...lines],
     ...(truncated === true && { truncated: true }),
+    ...(capped === true && { capped: true }),
+    ...(cut === true && { cut: true }),
   };
 }
 
@@ -261,5 +294,126 @@ describe("fs.grep", () => {
     expect(page.consumed).toEqual({ files: 1, entries: 2, bytes: 7 });
     expect(page.complete).toBe(false);
     expect(page.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
+  });
+
+  it("resumes after the entry a position cursor names", async () => {
+    await writeAt("project/a.md", "nothing here\n");
+    await writeAt("project/b.md", "needle\n");
+    const prefix = join(fixture.root, "project");
+    const first = await grep(
+      request(prefix, { budget: { ...BUDGET, files: 1 } }),
+    );
+    expect(pathsOf(first)).toEqual([]);
+    expect(first.complete).toBe(false);
+    if (first.cursor === undefined)
+      throw new Error("the page carries a cursor");
+    expect(
+      decodeGrepCursor(
+        first.cursor,
+        fsGrepCursorKey({
+          path: prefix,
+          patterns: ["needle"],
+          literal: false,
+          ignoreCase: false,
+        }),
+      ),
+    ).toMatchObject({ kind: "position", rel: "a.md" });
+
+    const second = await grep(request(prefix, { cursor: first.cursor }));
+    expect(pathsOf(second)).toEqual(["b.md"]);
+    expect(second.complete).toBe(true);
+  });
+
+  it("marks the file's twentieth passage and hides the rest", async () => {
+    await writeAt("project/a.go", spacedMatches(21));
+    const page = await grep(request(join(fixture.root, "project")));
+    expect(page.results).toHaveLength(20);
+    expect(page.results.filter((passage) => passage.capped === true)).toEqual([
+      page.results[19],
+    ]);
+    expect(page.results[19]).toMatchObject({ truncated: true, capped: true });
+  });
+
+  it("marks the twentieth passage of a file that spans pages", async () => {
+    await writeAt("project/a.go", spacedMatches(21));
+    const prefix = join(fixture.root, "project");
+    const whole = await grep(request(prefix));
+    // A page that holds ten passages leaves the twentieth to the next page,
+    // where a per-page count would lose the mark.
+    const split = await grep(
+      request(prefix, {
+        budget: { ...BUDGET, pageUnits: unitsOf(whole.results.slice(0, 10)) },
+      }),
+    );
+    expect(split.results).toHaveLength(10);
+    if (split.cursor === undefined)
+      throw new Error("the page carries a cursor");
+    const rest = await grep(request(prefix, { cursor: split.cursor }));
+    expect(rest.results.at(-1)).toMatchObject({
+      startLine: whole.results[19].startLine,
+      truncated: true,
+      capped: true,
+    });
+  });
+
+  it("marks a cut passage and continues it on resume", async () => {
+    const long = Array.from(
+      { length: 8 },
+      () => `needle ${"x".repeat(200)}`,
+    ).join("\n");
+    await writeAt("project/a.go", `${long}\n`);
+    const prefix = join(fixture.root, "project");
+    const first = await grep(
+      request(prefix, { budget: { ...BUDGET, pageUnits: 400 } }),
+    );
+    expect(first.results).toHaveLength(1);
+    expect(first.results[0]).toMatchObject({
+      startLine: 1,
+      truncated: true,
+      cut: true,
+    });
+    const cutEnd = first.results[0]?.endLine ?? 0;
+    expect(cutEnd).toBeLessThan(8);
+    if (first.cursor === undefined)
+      throw new Error("the page carries a cursor");
+    const rest = await grep(request(prefix, { cursor: first.cursor }));
+    expect(rest.results[0]).toMatchObject({ startLine: cutEnd + 1 });
+  });
+
+  it("reads a file exactly at the bound and refuses one byte more", async () => {
+    await writeAt("exact.md", "0123456789");
+    await writeAt("over.md", "0123456789a");
+    const port = createGrepWalkPort(fixture.root, undefined);
+    const exact = await port.read("exact.md", 10);
+    if (!(exact instanceof Uint8Array))
+      throw new Error("a file at the bound is read");
+    expect(new TextDecoder().decode(exact)).toBe("0123456789");
+    expect(await port.read("over.md", 10)).toEqual({ kind: "oversized" });
+  });
+
+  it("skips a file over the walk's file bound and counts it", async () => {
+    await writeAt("project/big.go", `${"x".repeat(1024 * 1024)}\nneedle\n`);
+    const page = await grep(request(join(fixture.root, "project")));
+    expect(page.results).toEqual([]);
+    expect(page.warnings).toEqual([{ kind: "oversized", count: 1 }]);
+  });
+
+  it("applies no rules from an ignore file the walk will not read", async () => {
+    const prefix = join(fixture.root, "project");
+    await writeAt("project/ignored/b.go", "needle\n");
+    await writeAt("project/a.go", "needle\n");
+    // A link is never followed, exactly as the walk never follows one.
+    await writeAt("rules.txt", "ignored/\n");
+    await symlink(join(fixture.root, "rules.txt"), join(prefix, ".gitignore"));
+    expect(pathsOf(await grep(request(prefix)))).toEqual([
+      "a.go",
+      "ignored/b.go",
+    ]);
+    // A file over the ignore bound applies no rules either.
+    await writeAt("project/.gitignore", `ignored/\n${"#".repeat(256 * 1024)}`);
+    expect(pathsOf(await grep(request(prefix)))).toEqual([
+      "a.go",
+      "ignored/b.go",
+    ]);
   });
 });

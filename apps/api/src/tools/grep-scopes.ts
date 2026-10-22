@@ -188,7 +188,7 @@ async function resolveScope(
     case SKILL_SCHEME:
       return resolveSkillScope(context, scheme.rest, index, admission);
     case MACHINE_SCHEME:
-      return resolveMachineScope(context, scope, index);
+      return resolveMachineScope(context, scope, index, admission);
     default:
       return { result: unsearchableSchemeResult(scheme.scheme) };
   }
@@ -236,7 +236,7 @@ async function resolveHostScope(
     // An absolute path inside a Machine Workspace becomes that Machine's
     // locator, so it goes to the Machine backend like a submitted one.
     return scheme.scheme === MACHINE_SCHEME
-      ? resolveMachineScope(context, placed, index)
+      ? resolveMachineScope(context, placed, index, admission)
       : { result: invalidPathResult('This path scheme cannot be searched.') };
   }
   return buildHostScope(context, placed, index, admission);

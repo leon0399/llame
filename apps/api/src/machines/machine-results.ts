@@ -360,7 +360,8 @@ function isScopeRelativePath(value: string): boolean {
 
 function readGrepPassage(value: SerializableValue): FsGrepPassage | undefined {
   if (!isSerializableRecord(value)) return undefined;
-  const { path, startLine, endLine, content, matches, truncated } = value;
+  const { path, startLine, endLine, content, matches, truncated, capped, cut } =
+    value;
   if (!isText(path) || !isScopeRelativePath(path)) return undefined;
   if (!isCount(startLine) || startLine < 1) return undefined;
   if (!isCount(endLine) || endLine < startLine) return undefined;
@@ -373,14 +374,18 @@ function readGrepPassage(value: SerializableValue): FsGrepPassage | undefined {
     lines.push(match);
   }
   if (truncated !== undefined && truncated !== true) return undefined;
-  const passage: FsGrepPassage = {
+  if (capped !== undefined && capped !== true) return undefined;
+  if (cut !== undefined && cut !== true) return undefined;
+  return {
     path,
     startLine,
     endLine,
     content,
     matches: lines,
+    ...(truncated === true && { truncated: true as const }),
+    ...(capped === true && { capped: true as const }),
+    ...(cut === true && { cut: true as const }),
   };
-  return truncated === true ? { ...passage, truncated: true } : passage;
 }
 
 function readGrepPassages(

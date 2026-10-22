@@ -12,6 +12,7 @@ import {
 } from "./page";
 import { grepFilePassages, passageEndLine, passageStartLine } from "./passages";
 import type {
+  GrepCappedPassage,
   GrepPassage,
   GrepScanInput,
   GrepScanResult,
@@ -37,6 +38,8 @@ type ScanState = {
   readonly warnings: Map<GrepWarningKind, number>;
   readonly consumed: { files: number; entries: number; bytes: number };
   readonly deadlineAt: number;
+  /** The passages that are their file's twentieth and reached the page. */
+  readonly capped: Array<GrepCappedPassage>;
   readRefused: number;
   stop: GrepWarningKind | undefined;
   /** The last entry the walk finished handling, for a bound-stop cursor. */
@@ -70,6 +73,7 @@ export async function runGrepScan(
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     deadlineAt: input.now() + input.budget.deadlineMs,
+    capped: [],
     readRefused: 0,
     stop: undefined,
     position: undefined,
@@ -204,12 +208,41 @@ function emitPassages(
   const twentiethAt = capped
     ? passageStartLine(firstTwenty[GREP_LIMITS.passagesPerFile - 1].locator)
     : undefined;
-  appendGrepFile(state.page, state.limits, {
+  const cappedAt = exhaustedAt(resume, visible) ?? twentiethAt;
+  const emitted = appendGrepFile(state.page, state.limits, {
     scopeIndex: file.scopeIndex,
     rel: file.rel,
     fileLocator: file.fileLocator,
     passages: visible,
-    cappedAt: exhaustedAt(resume, visible) ?? twentiethAt,
+    cappedAt,
+  });
+  cappedMark(state, { file, visible, cappedAt, emitted });
+}
+
+/** Where one file's twentieth passage stands among the passages it emitted. */
+type CappedMark = {
+  readonly file: { readonly scopeIndex: number; readonly rel: string };
+  readonly visible: ReadonlyArray<GrepPassage>;
+  readonly cappedAt: number | undefined;
+  readonly emitted: number;
+};
+
+/**
+ * Remember the passage a caller may mark as its file's twentieth. The page
+ * keeps passages in order and a cut one keeps its start line, so the capped
+ * passage reached the page exactly when it sits before the emitted count.
+ */
+function cappedMark(state: ScanState, mark: CappedMark): void {
+  const { file, visible, cappedAt, emitted } = mark;
+  if (cappedAt === undefined) return;
+  const index = visible.findIndex(
+    (passage) => passageStartLine(passage.locator) === cappedAt,
+  );
+  if (index === -1 || index >= emitted) return;
+  state.capped.push({
+    scopeIndex: file.scopeIndex,
+    rel: file.rel,
+    startLine: cappedAt,
   });
 }
 
@@ -307,6 +340,8 @@ function addWarning(state: ScanState, kind: GrepWarningKind): void {
 
 function buildResult(state: ScanState): GrepScanResult {
   const complete = state.stop === undefined && !state.page.full;
+  const last = state.page.last;
+  const position = state.position;
   return {
     results: state.page.results,
     complete,
@@ -315,6 +350,10 @@ function buildResult(state: ScanState): GrepScanResult {
     readRefused: state.readRefused,
     consumed: { ...state.consumed },
     ...(last !== undefined && { last: { ...last } }),
+    ...(position !== undefined && { position: { ...position } }),
+    ...(state.capped.length > 0 && {
+      capped: state.capped.map((entry) => ({ ...entry })),
+    }),
   };
 }
 

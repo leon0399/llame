@@ -140,7 +140,18 @@ type SegmentPage = {
   readonly consumed: { files: number; entries: number; bytes: number };
   /** The walk's own page end, when every entry of the segment is a kept one. */
   readonly last?: GrepPageEnd;
+  /** Where a segment that emitted nothing stopped, for a bound-stop cursor. */
+  readonly position?: { readonly scopeIndex: number; readonly rel: string };
 };
+
+/** Where the call resumes: the last passage it emitted, or the last entry. */
+type ResumePoint =
+  | { readonly kind: 'passage'; readonly end: GrepPageEnd }
+  | {
+      readonly kind: 'position';
+      readonly scopeIndex: number;
+      readonly rel: string;
+    };
 
 /** Everything one call accumulates across its segments. */
 type PageState = {
@@ -152,12 +163,12 @@ type PageState = {
   /** Code units the results array serializes to, brackets included. */
   units: number;
   complete: boolean;
-  last: GrepPageEnd | undefined;
+  resume: ResumePoint | undefined;
 };
 
 /** Page the call's scopes in submitted order; the caller records what policy hid. */
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
-  const { input, patterns, admission, resolved } = request;
+  const { input, patterns, resolved } = request;
   const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
   const cursor = resolveCursor(input.cursor, inputHash);
   if ('result' in cursor) return cursor.result;
@@ -268,6 +279,9 @@ async function runMachineSegment(
           complete: machine.complete,
           warnings: machine.warnings,
           consumed: machine.consumed,
+          ...(machine.position !== undefined && {
+            position: machine.position,
+          }),
         },
       };
 }
@@ -297,13 +311,14 @@ async function runLocalSegment(
 
 /** The engine's own page, as the call's segment shape. */
 function localPage(scan: GrepScanResult): SegmentPage {
-  const page: SegmentPage = {
+  return {
     entries: scan.results.map((passage) => ({ passage })),
     complete: scan.complete,
     warnings: scan.warnings,
     consumed: scan.consumed,
+    ...(scan.last !== undefined && { last: scan.last }),
+    ...(scan.position !== undefined && { position: scan.position }),
   };
-  return scan.last === undefined ? page : { ...page, last: scan.last };
 }
 
 function searchArgumentsOf(input: GrepArguments): GrepSearchArguments {
@@ -323,7 +338,7 @@ function createPageState(): PageState {
     // An array of no element serializes as `[]`.
     units: 2,
     complete: true,
-    last: undefined,
+    resume: undefined,
   };
 }
 
@@ -374,10 +389,17 @@ function appendSegment(
       return;
     }
     pushPassage(state, entry.passage);
-    if (entry.end !== undefined) state.last = entry.end;
+    // A Machine entry names its own cursor point, so a page the call cuts
+    // short still resumes from the last passage it kept.
+    if (entry.end !== undefined)
+      state.resume = { kind: 'passage', end: entry.end };
   }
-  // A walk's own page end is trusted only when every passage it named was kept.
-  if (page.last !== undefined) state.last = page.last;
+  // A walk's own page end is trusted only when every passage it named was
+  // kept: it is the furthest point the segment itself reached.
+  if (page.last !== undefined)
+    state.resume = { kind: 'passage', end: page.last };
+  else if (page.position !== undefined)
+    state.resume = { kind: 'position', ...page.position };
 }
 
 function fitsPage(
@@ -428,18 +450,33 @@ function pageResult(state: PageState, inputHash: string): ToolResult {
       notice: KNOWLEDGE_CONTENT_NOTICE,
     }),
   };
-  const last = state.last;
-  if (state.complete || last === undefined) return result;
-  return {
-    ...result,
-    cursor: encodeGrepCursor({
-      scopeIndex: last.scopeIndex,
-      rel: last.rel,
-      startLine: last.startLine,
-      ...(last.capped && { truncated: true as const }),
+  const resume = state.resume;
+  if (state.complete || resume === undefined) return result;
+  return { ...result, cursor: resumeCursor(resume, inputHash) };
+}
+
+/**
+ * The opaque cursor of one resume point: a position continues after the entry
+ * a bound stopped at, a passage continues that passage — from the line after
+ * the page's cut, when it cut one — and then in canonical order.
+ */
+function resumeCursor(resume: ResumePoint, inputHash: string): string {
+  if (resume.kind === 'position')
+    return encodeGrepCursor({
+      kind: 'position',
+      scopeIndex: resume.scopeIndex,
+      rel: resume.rel,
       inputHash,
-    }),
-  };
+    });
+  const end = resume.end;
+  return encodeGrepCursor({
+    scopeIndex: end.scopeIndex,
+    rel: end.rel,
+    startLine: end.startLine,
+    ...(end.endLine !== undefined && { endLine: end.endLine }),
+    ...(end.capped && { truncated: true as const }),
+    inputHash,
+  });
 }
 
 /**

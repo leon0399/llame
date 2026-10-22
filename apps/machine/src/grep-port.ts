@@ -7,13 +7,7 @@
  */
 
 import { constants, type Dirent } from "node:fs";
-import {
-  lstat,
-  open,
-  readdir,
-  readFile,
-  type FileHandle,
-} from "node:fs/promises";
+import { open, readdir, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import type { NativeFailureResult } from "@workspace/machine-protocol";
@@ -25,6 +19,8 @@ import {
 
 /** The largest `.gitignore` the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
+/** One read of a file at a time; a file never reaches memory whole. */
+const READ_CHUNK_BYTES = 64 * 1024;
 const NOT_FOUND_MESSAGE = "The target does not exist.";
 const NOT_DIRECTORY_MESSAGE = "The target is not a directory.";
 const LISTING_FAILED_MESSAGE = "The directory could not be listed.";
@@ -111,7 +107,9 @@ async function readFileAt(
     const stats = await handle.stat();
     if (!stats.isFile()) return { kind: "unreadable" };
     if (stats.size > maxBytes) return { kind: "oversized" };
-    const bytes = await handle.readFile();
+    // Only the bound reaches memory: a file that grew past its declared size
+    // is refused on the extra byte instead of being buffered whole.
+    const bytes = await readBounded(handle, maxBytes, signal);
     return bytes.byteLength > maxBytes ? { kind: "oversized" } : bytes;
   } catch {
     return { kind: "unreadable" };
@@ -120,20 +118,54 @@ async function readFileAt(
   }
 }
 
+/**
+ * At most `maxBytes + 1` bytes of a handle, so a caller can tell an exact fit
+ * from an over-long file without ever reading past that byte. A file that
+ * announces a small size and then grows is cut at the same place.
+ */
+async function readBounded(
+  handle: FileHandle,
+  maxBytes: number,
+  signal: AbortSignal | undefined,
+): Promise<Buffer> {
+  const chunks: Array<Buffer> = [];
+  let total = 0;
+  while (total <= maxBytes) {
+    signal?.throwIfAborted();
+    const room = Math.min(READ_CHUNK_BYTES, maxBytes + 1 - total);
+    const chunk = Buffer.allocUnsafe(room);
+    const { bytesRead } = await handle.read(chunk, 0, room, null);
+    if (bytesRead === 0) break;
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+  }
+  return Buffer.concat(chunks, total);
+}
+
 /** One directory's ignore text, when it is a bounded regular file. */
 async function readIgnoreFile(
   root: string,
   rel: string,
 ): Promise<string | undefined> {
   const file = path.join(at(root, rel), ".gitignore");
+  let handle: FileHandle | undefined;
   try {
-    // Policy comes from a real file only: a link is never followed here, as
-    // the walk never follows one.
-    const stats = await lstat(file);
+    // Policy comes from a real file only, under the walk's own rule: a link is
+    // never followed and a FIFO never blocks the walk.
+    handle = await open(
+      file,
+      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+    );
+    const stats = await handle.stat();
     if (!stats.isFile() || stats.size > IGNORE_FILE_BYTES) return undefined;
-    return await readFile(file, "utf8");
+    const bytes = await readBounded(handle, IGNORE_FILE_BYTES, undefined);
+    return bytes.byteLength > IGNORE_FILE_BYTES
+      ? undefined
+      : bytes.toString("utf8");
   } catch {
     return undefined;
+  } finally {
+    await handle?.close();
   }
 }
 

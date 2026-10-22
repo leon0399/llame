@@ -482,6 +482,37 @@ describe('readFsGrepResult', () => {
     });
   });
 
+  it('keeps the capped and cut flags apart', () => {
+    expect(
+      readFsGrepResult(
+        pageBody([passageBody({ truncated: true, capped: true, cut: true })]),
+      ),
+    ).toMatchObject({
+      ok: true,
+      results: [
+        {
+          path: 'nested/a.go',
+          startLine: 2,
+          endLine: 3,
+          matches: [2, 3],
+          truncated: true,
+          capped: true,
+          cut: true,
+        },
+      ],
+    });
+    // A twentieth passage is marked even when the page did not cut it.
+    expect(
+      readFsGrepResult(pageBody([passageBody({ capped: true })])),
+    ).toMatchObject({
+      ok: true,
+      results: [{ capped: true }],
+    });
+    expect(
+      readFsGrepResult(pageBody([passageBody({ cut: true })])),
+    ).toMatchObject({ ok: true, results: [{ cut: true }] });
+  });
+
   it.each([
     ['a NUL in the path', { path: 'a\u0000b' }],
     ['an empty middle segment', { path: 'a//b' }],
@@ -492,6 +523,8 @@ describe('readFsGrepResult', () => {
     ['a match before the window', { matches: [1] }],
     ['a match after the window', { matches: [4] }],
     ['a truncation flag that is not true', { truncated: false }],
+    ['a capped flag that is not true', { capped: false }],
+    ['a cut flag that is not true', { cut: false }],
     ['content that is not text', { content: 7 }],
   ])('refuses a passage with %s', (_case, overrides) => {
     expect(

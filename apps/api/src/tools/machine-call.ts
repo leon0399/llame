@@ -154,7 +154,7 @@ export function machineUnusableResult(name: string): MachineFailureResult {
 export function machineProtocolFailureResult(
   name: string,
   error: MachineProtocolError,
-): ToolResult {
+): MachineFailureResult {
   if (error.code === 'path_not_registered')
     return {
       status: 'error',
