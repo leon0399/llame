@@ -61,12 +61,11 @@ async function* walkDirectory(
       ? undefined
       : await loadIgnoreLayer(state, rel);
   if (layer !== undefined) state.layers.push(layer);
-  const entries = [...(await scope.port.list(rel))].sort((left, right) =>
-    Buffer.compare(
-      Buffer.from(left.name, "utf8"),
-      Buffer.from(right.name, "utf8"),
-    ),
-  );
+  // Encode each name once; a comparator that encodes allocates per comparison.
+  const entries = (await scope.port.list(rel))
+    .map((entry) => ({ entry, key: Buffer.from(entry.name, "utf8") }))
+    .sort((left, right) => Buffer.compare(left.key, right.key))
+    .map(({ entry }) => entry);
   for (const entry of entries) {
     const childRel = rel.length === 0 ? entry.name : `${rel}/${entry.name}`;
     const position = cursorPosition(childRel, state.walk.cursorRel);
