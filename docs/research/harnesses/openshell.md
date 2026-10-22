@@ -21,9 +21,6 @@ sources:
   - id: readme-l39
     resource: "https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/README.md#L39"
     title: "The default sandbox image ships no agent"
-  - id: readme-l14
-    resource: "https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/README.md#L14"
-    title: "README badge points at the live docs site"
   - id: readme-l52-l60
     resource: "https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/README.md#L52-L60"
     title: "Public skills teach another agent to drive the CLI, write policy, and debug gateways"
@@ -36,9 +33,6 @@ sources:
   - id: cargo-tonic-l22
     resource: "https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/Cargo.toml#L22"
     title: "Workspace depends on tonic"
-  - id: tags-listing
-    resource: "https://github.com/NVIDIA/OpenShell/tags"
-    title: "Unpinned tags listing; v0.1.5 was not diffed against this commit"
   - id: cli-workspace-l467-l476
     resource: "https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/crates/openshell-cli/src/main.rs#L467-L476"
     title: "Global workspace flag defaults to default"
@@ -291,7 +285,7 @@ sources:
 
 - **Stack:** Rust workspace (`tonic` gRPC, Landlock, seccomp user notification); Apache-2.0.[^cargo-tonic-l22][^license-l1-l5][^cargo-l12]
 
-**Status:** Source inspection of `07b7a74b62a42b9ab1dcc14cb224731108978dd9` on `main`. The program was not run. No sandbox was created, and no Landlock, seccomp, Docker, Podman, Kubernetes, or QEMU fence was executed. A GitHub tags listing, which is a live unpinned page, names release `v0.1.5` at `bdb956f2cd65a635f1294fccf1d138d263bf650f`. This shallow clone does not contain that tag, and this note does not diff the two commits.[^tags-listing] The README badge points at `https://docs.nvidia.com/openshell/latest/index.html`. That site is a live unpinned page and was not used as evidence.[^readme-l14]
+**Status:** Source inspection only. The program was not run. No sandbox was created, and no Landlock, seccomp, Docker, Podman, Kubernetes, or QEMU fence was executed.
 
 OpenShell is a sandbox and execution runtime for a guest agent process. The README describes a runtime that gives agents file, package, API, and credential use under a declared policy.[^readme-l19] The following README section says OpenShell instruments the kernel for file, syscall, and network checks, and uses formal verification before a policy change is applied. It also says agents never see real credentials.[^readme-how-l23-l27] The default sandbox image is minimal Ubuntu and ships no agent. A real agent is something the operator installs and starts inside the sandbox.[^readme-l39] The gateway, supervisor, and sandbox paths read for this note do not implement a chat transcript or a model tool schema. The architecture page says the agent shares the sandbox side of the boundary and that the sandbox holds no provider credentials.[^architecture-agent-l176-l179] OpenShell owns the gateway, the trusted supervisor, and the isolation boundary around that guest. This reference sits under harnesses because that index holds software that hosts agent execution, including the other sandbox control planes. The tools index is for components a hosting harness calls.
 
@@ -318,8 +312,6 @@ The architecture page says the agent shares the sandbox side of the boundary and
 
 [^readme-l39]: [The default sandbox image ships no agent](https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/README.md#L39)
 
-[^readme-l14]: [README badge points at the live docs site](https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/README.md#L14)
-
 [^readme-l52-l60]: [Public skills teach another agent to drive the CLI, write policy, and debug gateways](https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/README.md#L52-L60)
 
 [^license-l1-l5]: [Apache License 2.0 heading](https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/LICENSE#L1-L5)
@@ -327,8 +319,6 @@ The architecture page says the agent shares the sandbox side of the boundary and
 [^cargo-l12]: [Workspace package license is Apache-2.0](https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/Cargo.toml#L12)
 
 [^cargo-tonic-l22]: [Workspace depends on tonic](https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/Cargo.toml#L22)
-
-[^tags-listing]: [Unpinned tags listing; v0.1.5 was not diffed against this commit](https://github.com/NVIDIA/OpenShell/tags)
 
 [^cli-workspace-l467-l476]: [Global workspace flag defaults to default](https://github.com/NVIDIA/OpenShell/blob/07b7a74b62a42b9ab1dcc14cb224731108978dd9/crates/openshell-cli/src/main.rs#L467-L476)
 
