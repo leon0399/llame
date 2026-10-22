@@ -312,7 +312,10 @@ function requestOf(
       bytes: budget.bytes,
       deadlineMs: budget.deadlineMs,
       limit: budget.limit,
-      pageUnits: budget.pageUnits,
+      // The daemon reserves its own cursor field only; the hub's warnings,
+      // notice, and envelope must also fit, or a daemon page the hub then
+      // drops whole would come back unchanged on every resume.
+      pageUnits: Math.max(0, budget.pageUnits - budget.fixedReserve),
     },
   };
 }

@@ -576,7 +576,7 @@ function grepBudget(limit: number | undefined): GrepBudget {
  * count, and the Knowledge notice. The engine keeps exactly this much back
  * from the page's bound, and adds its own cursor to that reservation.
  */
-function pageFixedReserve(): number {
+export function pageFixedReserve(): number {
   return (
     measureNativeModelOutput({
       status: 'success',

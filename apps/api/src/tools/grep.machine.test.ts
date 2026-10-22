@@ -38,7 +38,7 @@ import {
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { grepInputSchema, nativeGrepTool } from './grep';
+import { grepInputSchema, nativeGrepTool, pageFixedReserve } from './grep';
 import { createGrepReadAdmission, projectGrepScope } from './grep-admission';
 import { executeMachineScope, type MachineGrepSearch } from './grep-machine';
 import { machineNotFoundResult } from './machine-call';
@@ -802,7 +802,7 @@ describe('Machine page bounds', () => {
         entries: 19_998,
         bytes: 32 * 1024 * 1024 - 100,
         limit: 19,
-        pageUnits: 15_000 - rendered,
+        pageUnits: 15_000 - rendered - pageFixedReserve(),
       },
     });
     const budget = budgetOf(session.calls[1].params);
@@ -825,7 +825,7 @@ describe('Machine page bounds', () => {
       matches: [1],
     });
     expect(budgetOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 15_000 - rendered - 1,
+      pageUnits: 15_000 - rendered - 1 - pageFixedReserve(),
     });
   });
 
@@ -839,7 +839,7 @@ describe('Machine page bounds', () => {
     });
     const session = await peer.session(0);
     expect(budgetOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 14_998,
+      pageUnits: 14_998 - pageFixedReserve(),
       limit: 20,
     });
   });
