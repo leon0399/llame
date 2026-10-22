@@ -41,23 +41,23 @@ function failure(
 }
 
 /**
- * What every call of one port shares: the prefix as submitted, the prefix as
- * the roots resolved it, and the guard that re-verifies each address.
+ * What every call of one port shares: the prefix as the roots resolved it,
+ * which is the address every call opens, and the guard that re-verifies it.
+ * Opening the submitted spelling instead would follow an ancestor link that
+ * was repointed after the guard ran, while the check still passed.
  */
 type Walk = {
-  readonly root: string;
   readonly canonical: string;
   readonly guard: RootGuard;
   readonly signal: AbortSignal | undefined;
 };
 
 export function createGrepWalkPort(
-  root: string,
   canonical: string,
   guard: RootGuard,
   signal: AbortSignal | undefined,
 ): GrepWalkPort {
-  const walk: Walk = { root, canonical, guard, signal };
+  const walk: Walk = { canonical, guard, signal };
   return {
     followsLinks: false,
     list: (rel) => listDirectory(walk, rel),
@@ -87,7 +87,7 @@ async function listDirectory(
   rel: string,
 ): Promise<ReadonlyArray<GrepEntry>> {
   walk.signal?.throwIfAborted();
-  const target = at(walk.root, rel);
+  const target = at(walk.canonical, rel);
   let dirents: Array<Dirent>;
   try {
     dirents = await readdir(target, { withFileTypes: true });
@@ -132,7 +132,7 @@ async function readFileAt(
   let handle: FileHandle | undefined;
   try {
     handle = await open(
-      at(walk.root, rel),
+      at(walk.canonical, rel),
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
     const stats = await handle.stat();
@@ -188,7 +188,7 @@ async function readIgnoreFile(
     // Policy comes from a real file only, under the walk's own rule: a link is
     // never followed and a FIFO never blocks the walk.
     handle = await open(
-      at(walk.root, ignoreRel),
+      at(walk.canonical, ignoreRel),
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
     const stats = await handle.stat();

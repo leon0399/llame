@@ -141,8 +141,8 @@ scope. A second Machine scope receives what the first one left.
 
 The daemon opens each candidate under its own authority. The API then applies
 the `read` group to every returned file. It drops the passages of a refused
-file, counts them for the completion audit, and never names that file in the
-cursor.
+file and counts them for the completion audit. A position cursor can name a
+refused file as the point to resume after. It never names a passage of it.
 
 A daemon without the `fs.grep` method fails the call as Machine unusable. An
 unknown Machine returns `machine_not_found` and no other scope is searched.

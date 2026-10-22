@@ -118,12 +118,7 @@ async function scopeOf(
   return {
     index: SCOPE_INDEX,
     locatorPrefix: prefix === "/" ? "/" : `${prefix}/`,
-    port: createGrepWalkPort(
-      prefix,
-      guarded.canonical,
-      context.guard,
-      context.signal,
-    ),
+    port: createGrepWalkPort(guarded.canonical, context.guard, context.signal),
     glob:
       request.globSuffix === undefined
         ? undefined

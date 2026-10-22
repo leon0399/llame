@@ -414,7 +414,6 @@ describe("fs.grep", () => {
     await writeAt("exact.md", "0123456789");
     await writeAt("over.md", "0123456789a");
     const port = createGrepWalkPort(
-      fixture.root,
       await realpath(fixture.root),
       createRootGuard([fixture.root]),
       undefined,
@@ -458,12 +457,7 @@ describe("fs.grep", () => {
     await writeFile(join(fixture.outside, "inside.md"), "needle outside\n");
     const guard = createRootGuard([fixture.root]);
     const guarded = await guard.resolvePath(prefix);
-    const port = createGrepWalkPort(
-      guarded.path,
-      guarded.canonical,
-      guard,
-      undefined,
-    );
+    const port = createGrepWalkPort(guarded.canonical, guard, undefined);
     // The listing is genuine; the swap lands before the engine reads below it.
     let swapped = false;
     const swapping: GrepWalkPort = {
@@ -514,17 +508,27 @@ describe("fs.grep", () => {
     await writeFile(join(fixture.outside, ".gitignore"), "inside.md\n");
     const guard = createRootGuard([fixture.root]);
     const guarded = await guard.resolvePath(prefix);
-    const port = createGrepWalkPort(
-      guarded.path,
-      guarded.canonical,
-      guard,
-      undefined,
-    );
+    const port = createGrepWalkPort(guarded.canonical, guard, undefined);
     await rm(join(prefix, "sub"), { recursive: true, force: true });
     await symlink(fixture.outside, join(prefix, "sub"));
     if (port.ignoreFile === undefined)
       throw new Error("the walk reads ignore files");
     expect(await port.ignoreFile("sub")).toBeUndefined();
     expect(await port.list("sub")).toEqual([]);
+  });
+
+  it("reads the resolved prefix when an ancestor link is repointed outside the roots", async () => {
+    await writeAt("real/a.md", "needle inside\n");
+    await writeFile(join(fixture.outside, "a.md"), "needle outside\n");
+    await symlink(join(fixture.root, "real"), join(fixture.root, "alias"));
+    const guard = createRootGuard([fixture.root]);
+    const guarded = await guard.resolvePath(join(fixture.root, "alias"));
+    const port = createGrepWalkPort(guarded.canonical, guard, undefined);
+    // The ancestor the request named now points outside every root.
+    await rm(join(fixture.root, "alias"));
+    await symlink(fixture.outside, join(fixture.root, "alias"));
+    const bytes = await port.read("a.md", 1024);
+    if (!(bytes instanceof Uint8Array)) throw new Error("the file is read");
+    expect(new TextDecoder().decode(bytes)).toBe("needle inside\n");
   });
 });
