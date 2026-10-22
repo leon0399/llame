@@ -741,6 +741,35 @@ describe('runTool permission gate', () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
+  it('refuses an unsearchable grep scope before recording a decision', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const grepTool: Tool<{ scopes: Array<string> }> = {
+      id: 'grep',
+      description: 'searches the scopes it names',
+      classification: 'read_only',
+      inputSchema: z.strictObject({ scopes: z.array(z.string()).min(1) }),
+      execute,
+    };
+    const admitted = vi.fn();
+
+    const result = await runTool(
+      grepTool,
+      { scopes: ['https://example.test/docs'] },
+      // Rejecting every grep call: policy would answer `permission_denied`.
+      contextWith({ grep: { reject: true } }),
+      5,
+      admitted,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'A web locator is fetched, not searched; read one page instead.',
+    });
+    expect(admitted).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('fails closed when no trusted policy is supplied', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
     const tool: Tool = { ...echoTool, execute };

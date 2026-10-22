@@ -51,6 +51,17 @@ export function invalidPathResult(message: string): GrepToolError {
   return { status: 'error', type: 'invalid_path', message };
 }
 
+/**
+ * The one refusal for a selector-shaped colon in a `kb://` or `skill://`
+ * scope: grep parses no selector, so the message names the escape that keeps
+ * the colon literal text.
+ */
+export function selectorColonResult(scheme: 'kb' | 'skill'): GrepToolError {
+  return invalidPathResult(
+    `Write a literal colon in a ${scheme}:// scope as %3A; grep parses no selector.`,
+  );
+}
+
 export function unsupportedGlobResult(operator: string): GrepToolError {
   return invalidPathResult(
     `The glob operator \`${operator}\` is not supported; write \`*\`, \`**\`, and \`?\` instead.`,

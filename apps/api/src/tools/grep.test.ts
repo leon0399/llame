@@ -30,6 +30,7 @@ import {
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
 import { isRecord, isString } from '@workspace/runtime-safety';
+import { measureNativeModelOutput } from '@workspace/native-file-tools';
 import { type ToolResult } from './types';
 import { type KnowledgeToolResolver, type ToolContext } from './types';
 import { grepInputSchema, nativeGrepTool } from './grep';
@@ -426,7 +427,7 @@ describe('Knowledge scopes', () => {
     });
   });
 
-  it('encodes a literal asterisk so the hit returns as a scope', async () => {
+  it('emits the canonical locator, which an encoded scope searches as one file', async () => {
     await withRoot(async (root) => {
       const a = await spaceFixture(root, SPACE_A, {
         'notes/a*.md': lineNumbered('one', 'two', 'needle', 'four'),
@@ -437,13 +438,14 @@ describe('Knowledge scopes', () => {
         scopes: [`kb://${SPACE_A}/notes`],
       });
       const hit = passageOf(first, 0).locator;
-      expect(hit).toBe(`kb://${SPACE_A}/notes/a%2A.md:2-4`);
+      // The scheme's formatter encodes no glob character: `*` stays as written.
+      expect(hit).toBe(`kb://${SPACE_A}/notes/a*.md:2-4`);
 
       const second = await run(contextOf({ resolver }), {
         patterns: ['needle'],
-        scopes: [hit.slice(0, hit.lastIndexOf(':'))],
+        scopes: [`kb://${SPACE_A}/notes/a%2A.md`],
       });
-      expect(locatorsOf(second)).toEqual([`kb://${SPACE_A}/notes/a%2A.md:2-4`]);
+      expect(locatorsOf(second)).toEqual([`kb://${SPACE_A}/notes/a*.md:2-4`]);
     });
   });
 
@@ -639,6 +641,45 @@ describe('skill scopes', () => {
 });
 
 describe('paging', () => {
+  it('reserves the cursor and the notice inside the 15,000-unit page', async () => {
+    await withRoot(async (root) => {
+      // A path near the Knowledge byte bound makes the cursor large: a page
+      // that filled the budget with passages alone would push the cursor past
+      // the runner's 16,000-unit cap, which shortens it in place.
+      const directory = Array.from(
+        { length: 28 },
+        (_, index) => `${String(index).padStart(2, '0')}${'d'.repeat(28)}`,
+      ).join('/');
+      // Three lines between matches keep every window its own passage.
+      const matched = `${'x'.repeat(480)}needle`;
+      const lines: Array<string> = [];
+      for (let index = 0; index < 14; index += 1)
+        lines.push('ctx', 'ctx', 'ctx', matched);
+      const a = await spaceFixture(root, SPACE_A, {
+        [`${directory}/note.md`]: lineNumbered(...lines),
+      });
+      const context = contextOf({
+        resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
+      });
+      const scopes = [`kb://${SPACE_A}/${directory}`];
+
+      const first = await run(context, { patterns: ['needle'], scopes });
+      expect(first).toMatchObject({ status: 'success', complete: false });
+      expect(measureNativeModelOutput(first)).toBeLessThanOrEqual(15_000);
+      const cursor = cursorOf(first);
+      if (cursor === undefined) throw new Error('the page carries a cursor');
+
+      // The cursor survives the cap intact, so it still resumes the walk.
+      const second = await run(context, {
+        patterns: ['needle'],
+        scopes,
+        cursor,
+      });
+      expect(second).toMatchObject({ status: 'success' });
+      expect(locatorsOf(second).length).toBeGreaterThan(0);
+    });
+  });
+
   it('resumes after the cursor and refuses a cursor from other inputs', async () => {
     await withRoot(async (root) => {
       const pkg = path.join(root, 'pdf');

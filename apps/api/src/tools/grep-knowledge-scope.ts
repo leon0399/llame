@@ -19,7 +19,7 @@ import {
   knowledgeUnavailableResult,
 } from '../knowledge/knowledge-results';
 import { type KnowledgeSpaceCursor } from '../knowledge/knowledge-space.cursor';
-import { type GrepScope } from '@workspace/native-file-tools';
+import { splitGrepScope, type GrepScope } from '@workspace/native-file-tools';
 
 import { type GrepReadAdmission } from './grep-admission';
 import {
@@ -30,16 +30,41 @@ import {
 import {
   isGrepToolError,
   invalidPathResult,
+  selectorColonResult,
+  unsupportedGlobResult,
   type GrepToolError,
 } from './grep-results';
 import {
   buildScope,
-  encodeSearchLocator,
   hasGlobOperator,
   splitScopePath,
   type ScopeOutcome,
 } from './grep-scope-shape';
 import { type ToolContext } from './types';
+
+/**
+ * The text checks a `kb://` scope passes before any probe or permission
+ * decision: a glob in the Space identifier, a selector-shaped colon in the
+ * path, and a glob operator the engine refuses. Pure and synchronous, so a
+ * scope that can never be searched never reaches policy.
+ */
+export function refuseUnsearchableKnowledgeScope(
+  rest: string,
+): GrepToolError | undefined {
+  if (rest.length === 0) return undefined;
+  const separator = rest.indexOf('/');
+  const spaceId = separator < 0 ? rest : rest.slice(0, separator);
+  const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
+  if (hasGlobOperator(spaceId)) {
+    return invalidPathResult(
+      'A Knowledge Space identifier cannot hold a glob.',
+    );
+  }
+  // A colon is path text here: grep parses no read selector.
+  if (rawPath.includes(':')) return selectorColonResult('kb');
+  const split = splitGrepScope(rawPath);
+  return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
+}
 
 export async function resolveKnowledgeScope(
   context: ToolContext,
@@ -48,16 +73,11 @@ export async function resolveKnowledgeScope(
   admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
   if (rest.length === 0) return resolveEverySpace(context, index, admission);
+  const refused = refuseUnsearchableKnowledgeScope(rest);
+  if (refused !== undefined) return { result: refused };
   const separator = rest.indexOf('/');
   const spaceId = separator < 0 ? rest : rest.slice(0, separator);
   const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
-  if (hasGlobOperator(spaceId)) {
-    return {
-      result: invalidPathResult(
-        'A Knowledge Space identifier cannot hold a glob.',
-      ),
-    };
-  }
   // `read` refuses a Space that is not a current id of the owner, and so does
   // this: another owner's Space is indistinguishable from an absent one.
   if (!isKnowledgeSpaceId(spaceId))
@@ -134,13 +154,6 @@ async function resolveKnowledgeSpace(
   input: KnowledgeScopeInput,
 ): Promise<ScopeOutcome> {
   const { context, spaceId, rawPath, index, admission } = input;
-  if (rawPath.includes(':')) {
-    return {
-      result: invalidPathResult(
-        'Write a literal colon in a kb:// scope as %3A; grep parses no selector.',
-      ),
-    };
-  }
   const parsed = splitScopePath(rawPath, isKnowledgePath);
   if ('status' in parsed) return { result: parsed };
 
@@ -179,12 +192,10 @@ function isKnowledgePath(relativePath: string): boolean {
 function knowledgeLocatorFor(spaceId: string, prefixPath: string) {
   return (rel: string) => {
     const relativePath = joinedPath(prefixPath, rel);
-    return encodeSearchLocator(
-      formatKnowledgeLocator(
-        relativePath.length === 0
-          ? { knowledgeSpaceId: spaceId }
-          : { knowledgeSpaceId: spaceId, relativePath },
-      ),
+    return formatKnowledgeLocator(
+      relativePath.length === 0
+        ? { knowledgeSpaceId: spaceId }
+        : { knowledgeSpaceId: spaceId, relativePath },
     );
   };
 }

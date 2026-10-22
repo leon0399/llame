@@ -45,7 +45,7 @@ export interface GrepScope {
   readonly glob: CompiledGlob | undefined;
   /** The prefix names one regular file (no walk). */
   readonly singleFile: boolean;
-  /** Format a rel path into the emitted canonical locator (encode * and ? for kb/skill). */
+  /** Format a rel path into the canonical locator of the scheme. */
   readonly locatorFor: (rel: string) => string;
 }
 

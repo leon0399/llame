@@ -7,7 +7,12 @@
 
 import path from 'node:path';
 
-import { parsePathScheme, type GrepScope } from '@workspace/native-file-tools';
+import {
+  parsePathScheme,
+  splitGrepScope,
+  type GrepScope,
+} from '@workspace/native-file-tools';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 
 import { MACHINE_SCHEME } from '../machines/machine-locator';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
@@ -26,19 +31,23 @@ import {
   type SkillSelection,
 } from '../skills/skill-target';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
-import { type GrepReadAdmission } from './grep-admission';
-import { resolveKnowledgeScope } from './grep-knowledge-scope';
+import { type GrepReadAdmission, grepScopeStrings } from './grep-admission';
+import {
+  resolveKnowledgeScope,
+  refuseUnsearchableKnowledgeScope,
+} from './grep-knowledge-scope';
 import { decodeFileAlias, isFileAlias } from './permissions/file-alias';
 import { createSkillWalkPort, joinedPath, probeSkillPath } from './grep-ports';
 import {
   executorUnavailableResult,
   invalidPathResult,
   machineUnsupportedResult,
+  selectorColonResult,
+  unsupportedGlobResult,
   type GrepToolError,
 } from './grep-results';
 import {
   buildScope,
-  encodeSearchLocator,
   hasGlobOperator,
   splitScopePath,
   type ScopeOutcome,
@@ -47,6 +56,61 @@ import { type ToolContext } from './types';
 
 const KNOWLEDGE_SCHEME = 'kb';
 const SKILL_SCHEME = 'skill';
+
+/**
+ * The shape checks every scope passes before the runner asks policy: a scheme
+ * this process cannot search, a `file:` alias that does not decode, the glob
+ * operator the engine refuses, and a selector-shaped colon in a `kb://` or
+ * `skill://` scope. Pure and synchronous, so a scope that can never be
+ * searched yields its `invalid_path` without a recorded permission decision.
+ */
+export function refuseUnsearchableGrepScopes(
+  args: UnknownRecord,
+  context: ToolContext,
+): GrepToolError | undefined {
+  const scopes = grepScopeStrings(args, context.workspaceRoot?.current());
+  if (scopes === undefined) return undefined;
+  for (const scope of scopes) {
+    const refused = refuseUnsearchableScope(scope);
+    if (refused !== undefined) return refused;
+  }
+  return undefined;
+}
+
+/** One scope's text refusal, shared with its resolution. */
+function refuseUnsearchableScope(scope: string): GrepToolError | undefined {
+  if (isFileAlias(scope)) {
+    const alias = decodeFileAlias(scope);
+    return alias.ok ? undefined : invalidPathResult(alias.message);
+  }
+  const scheme = parsePathScheme(scope);
+  if (scheme === undefined) return undefined;
+  switch (scheme.scheme) {
+    case KNOWLEDGE_SCHEME:
+      return refuseUnsearchableKnowledgeScope(scheme.rest);
+    case SKILL_SCHEME:
+      return refuseUnsearchableSkillScope(scheme.rest);
+    default:
+      return unsearchableSchemeResult(scheme.scheme);
+  }
+}
+
+/** The closed result a scheme without a backend on this process returns. */
+function unsearchableSchemeResult(scheme: string): GrepToolError {
+  switch (scheme) {
+    case MACHINE_SCHEME:
+      return machineUnsupportedResult();
+    case MEDIA_LOCATOR_SCHEME:
+      return invalidPathResult('A media:// locator holds no text to search.');
+    case 'http':
+    case 'https':
+      return invalidPathResult(
+        'A web locator is fetched, not searched; read one page instead.',
+      );
+    default:
+      return invalidPathResult('This path scheme cannot be searched.');
+  }
+}
 
 export async function resolveScopes(
   context: ToolContext,
@@ -89,26 +153,22 @@ async function resolveScope(
       return resolveKnowledgeScope(context, scheme.rest, index, admission);
     case SKILL_SCHEME:
       return resolveSkillScope(context, scheme.rest, index, admission);
-    case MACHINE_SCHEME:
-      return { result: machineUnsupportedResult() };
-    case MEDIA_LOCATOR_SCHEME:
-      return {
-        result: invalidPathResult(
-          'A media:// locator holds no text to search.',
-        ),
-      };
-    case 'http':
-    case 'https':
-      return {
-        result: invalidPathResult(
-          'A web locator is fetched, not searched; read one page instead.',
-        ),
-      };
     default:
-      return {
-        result: invalidPathResult('This path scheme cannot be searched.'),
-      };
+      return { result: unsearchableSchemeResult(scheme.scheme) };
   }
+}
+
+/** The text checks a `skill://` scope passes before any catalog lookup. */
+function refuseUnsearchableSkillScope(rest: string): GrepToolError | undefined {
+  const separator = rest.indexOf('/');
+  const name = separator < 0 ? rest : rest.slice(0, separator);
+  const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
+  if (name.includes(':') || rawPath.includes(':'))
+    return selectorColonResult('skill');
+  if (hasGlobOperator(name))
+    return invalidPathResult('A skill name cannot hold a glob.');
+  const split = splitGrepScope(rawPath);
+  return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
 }
 
 async function resolveSkillScope(
@@ -118,19 +178,11 @@ async function resolveSkillScope(
   admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
   if (rest.length === 0) return resolveEverySkill(context, index, admission);
+  const refused = refuseUnsearchableSkillScope(rest);
+  if (refused !== undefined) return { result: refused };
   const separator = rest.indexOf('/');
   const name = separator < 0 ? rest : rest.slice(0, separator);
   const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
-  if (name.includes(':') || rawPath.includes(':')) {
-    return {
-      result: invalidPathResult(
-        'A skill:// scope takes no selector; a colon is refused.',
-      ),
-    };
-  }
-  if (hasGlobOperator(name)) {
-    return { result: invalidPathResult('A skill name cannot hold a glob.') };
-  }
   if (!isValidSkillName(name)) {
     return { result: invalidPathResult('The skill locator is invalid.') };
   }
@@ -258,12 +310,10 @@ async function resolveSkillPackage(
     index: input.index,
     locatorFor: (rel) => {
       const relativePath = joinedPath(parsed.prefixPath, rel);
-      return encodeSearchLocator(
-        formatSkillLocator(
-          relativePath.length === 0
-            ? { name: input.name }
-            : { name: input.name, relativePath },
-        ),
+      return formatSkillLocator(
+        relativePath.length === 0
+          ? { name: input.name }
+          : { name: input.name, relativePath },
       );
     },
     glob: parsed.glob,

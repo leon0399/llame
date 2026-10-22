@@ -6,7 +6,6 @@ import { type GrepReadAdmission } from './grep-admission';
 import { type GrepToolError } from './grep-results';
 import {
   buildScope,
-  encodeSearchLocator,
   hasGlobOperator,
   splitScopePath,
   type ScopeDraft,
@@ -65,14 +64,6 @@ describe('hasGlobOperator', () => {
 
   it('ignores a literal path', () => {
     expect(hasGlobOperator('notes/a.md')).toBe(false);
-  });
-});
-
-describe('encodeSearchLocator', () => {
-  it('encodes a literal glob character as the scope parser reads it back', () => {
-    expect(encodeSearchLocator('skill://pdf/a*b?.md')).toBe(
-      'skill://pdf/a%2Ab%3F.md',
-    );
   });
 });
 

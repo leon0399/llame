@@ -60,8 +60,9 @@ a glob. The tool refuses `{a,b}`, `[ab]`, and any other operator as
 
 The scheme, a Machine name, a Space identifier, and a skill name never hold a
 glob operator. `grep` parses no read selector. In a host or Machine scope a
-colon is part of the path. In a `kb://` scope you MUST write a literal colon
-as `%3A`. A colon in a `skill://` scope is refused.
+colon is part of the path. In a `kb://` or `skill://` scope a literal colon is
+refused as `invalid_path`, and the message names `%3A`, the escape that keeps
+it literal text.
 
 `grep` refuses a `media://` or `http(s)://` scope and a `file://` alias with a
 remote host, because they hold no text to search. It refuses an unknown
@@ -95,8 +96,11 @@ that touch merge into one passage. `content` carries the ordinary one-based
 `N:` line prefixes. `matches` lists the matched line numbers in the window.
 
 A hit locator is `<file locator>:<start>-<end>`. It is directly a `read`
-argument. In a `kb://` or `skill://` locator, `grep` writes a literal `*` as
-`%2A` and `?` as `%3F`, so the locator can return as a scope.
+argument. In a `kb://` or `skill://` locator, `grep` spells each segment the
+way that scheme's canonical formatter does. A returned locator holds no glob
+operator punctuation beyond what the file name itself holds, so a `*` in it is
+a literal file name for `read` and a glob operator for `grep`: to search that
+one file again, submit the scope with the character written as `%2A`.
 
 The order is the submitted scope order, then the walk order, then the start
 line. The walk order is depth-first with names in byte order. A bare
@@ -109,6 +113,12 @@ The operator's `tools.permissions.grep` group admits every scope once, before
 `grep` opens a file. The group matches the literal prefix of the scope. The
 prefix removes every segment from the first segment that holds a glob
 operator, so a clause sees no glob.
+
+A scope whose shape this process cannot search is refused as `invalid_path`
+before policy is asked, so such a call records no permission decision: a
+scheme with no backend here, a `file:` alias with a remote host, a bare
+`machine://`, a glob operator the engine refuses, and a selector-shaped colon
+in a `kb://` or `skill://` scope.
 
 The `read` group then admits every candidate file on its canonical locator.
 A file that `read` refuses contributes no hit, no count, and no name. The
@@ -135,10 +145,11 @@ a refused file.
 | Size of one file     | 1 MiB          |
 | Call wall time       | 30 s           |
 
-A page holds at most `limit` files and 15,000 code units of results. When
-passages remain, the result carries `complete: false` and a `cursor`. Submit
-the same arguments with that cursor to continue. A cursor from other inputs is
-refused as `invalid_input`.
+A page holds at most `limit` files. Its whole serialized result, `results`,
+`warnings`, `notice`, and `cursor` included, fits 15,000 UTF-16 code units, so
+a returned `cursor` is never shortened. When passages remain, the result
+carries `complete: false` and a `cursor`. Submit the same arguments with that
+cursor to continue. A cursor from other inputs is refused as `invalid_input`.
 
 A file with more than 20 passages returns its first 20 and marks its
 twentieth `truncated`. A later `read` reaches the rest.

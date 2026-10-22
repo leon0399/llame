@@ -37,14 +37,6 @@ export function hasGlobOperator(text: string): boolean {
   return GLOB_OPERATORS.some((operator) => text.includes(operator));
 }
 
-/**
- * The canonical locator with a literal glob character encoded, so a hit or a
- * prefix returns as a scope that applies no glob.
- */
-export function encodeSearchLocator(locator: string): string {
-  return locator.replaceAll('*', '%2A').replaceAll('?', '%3F');
-}
-
 /** One raw scope path, split at its first glob segment and decoded. */
 type ParsedScopePath = {
   readonly prefixPath: string;

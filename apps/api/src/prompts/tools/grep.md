@@ -6,7 +6,7 @@ Search file contents for a pattern and return line-ranged locators that `read` a
 - `scopes` names what to search. Without it, an entered Workspace is searched from its root.
 - A scope is one of: an absolute host path, a `machine://<name><absolute path>` locator on an operator-configured Machine{{#if tools.knowledge_search}}, a `kb://<knowledgeSpaceId>/<path>` locator, bare `kb://` for every Knowledge Space you own{{/if}}, a `skill://<name>` or `skill://<name>/<path>` locator, or bare `skill://` for every installed package.
 - A scope with no glob operator names one directory, searched recursively, or one file. A scope with a glob uses `*` and `?` inside one path segment and `**` for any number of segments, for example `src/**/*.ts`. A percent-encoded `%2A` or `%3F` is the literal character and never a glob. `{a,b}` and `[ab]` are refused.
-- grep parses no read selector. In a host or Machine scope a colon is part of the path; in a `kb://` scope write a literal colon as `%3A`; a colon in a `skill://` scope is refused.
+- grep parses no read selector. In a host or Machine scope a colon is part of the path; in a `kb://` or `skill://` scope a literal colon must be written as `%3A`, or the scope is refused.
 - A `kb://` walk refuses symbolic links and a `skill://` walk follows them. A host walk skips `.git` and honors `.gitignore`.
 </instruction>
 

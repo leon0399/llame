@@ -11,6 +11,7 @@ import {
   decodeGrepCursor,
   GREP_LIMITS,
   hashGrepInputs,
+  measureNativeModelOutput,
   runGrepScan,
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
@@ -111,22 +112,71 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const cursor = resolveCursor(input.cursor, inputHash);
   if ('result' in cursor) return cursor.result;
 
+  const budget = grepBudget(input.limit);
+  const deadlineAt = Date.now() + budget.deadlineMs;
+  // One verdict per candidate file for the whole call, whichever pass asks:
+  // a pass a page budget cut short must not count a refusal twice.
+  const verdicts = new Map<string, boolean>();
   const scanInput: GrepScanInput = {
     scopes: resolved.scopes,
     patterns,
-    onCandidate: (locator) => Promise.resolve(admission.admit(locator)),
-    budget: grepBudget(input.limit),
+    onCandidate: (locator) => {
+      const known = verdicts.get(locator);
+      if (known !== undefined) return Promise.resolve(known);
+      const allowed = admission.admit(locator);
+      verdicts.set(locator, allowed);
+      return Promise.resolve(allowed);
+    },
+    budget,
     inputHash,
     now: Date.now,
   };
   if (cursor.cursor !== undefined) scanInput.cursor = cursor.cursor;
-  let scan: GrepScanResult;
   try {
-    scan = await runGrepScan(scanInput);
+    return await pageWithinBudget(scanInput, deadlineAt);
   } catch (error) {
     if (error instanceof GrepScopeFailure) return error.result;
     throw error;
   }
+}
+
+/**
+ * One call's page, bounded by the budget the whole serialized result has.
+ *
+ * The engine bounds the `results` array alone; the cursor, the warnings, and
+ * the Knowledge notice travel beside it, and the runner's 16,000-unit cap MUST
+ * never shorten them. A page whose whole result overflows the budget is walked
+ * again with that overflow taken off the engine's bound, so nothing beside the
+ * results is ever cut. Each pass lowers the bound by at least one unit, which
+ * ends the walk.
+ */
+async function pageWithinBudget(
+  scanInput: GrepScanInput,
+  deadlineAt: number,
+): Promise<ToolResult> {
+  const pageUnits = scanInput.budget.pageUnits;
+  let bound = pageUnits;
+  for (;;) {
+    const scan = await runGrepScan({
+      ...scanInput,
+      budget: {
+        ...scanInput.budget,
+        pageUnits: bound,
+        // The retries share the call's deadline, not one each.
+        deadlineMs: Math.max(0, deadlineAt - Date.now()),
+      },
+    });
+    const result = pageResult(scan);
+    const overflow = measureNativeModelOutput(result) - pageUnits;
+    // A page the engine cannot page smaller is the floor: nothing is left to
+    // reserve, so the result travels as the bounds allowed it.
+    if (overflow <= 0 || bound <= 1) return result;
+    bound = Math.max(1, bound - overflow);
+  }
+}
+
+/** The page as the model sees it, notice and resume point included. */
+function pageResult(scan: GrepScanResult): ToolResult {
   const result: ToolResult = {
     status: 'success',
     results: scan.results,

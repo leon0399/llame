@@ -13,7 +13,7 @@ import {
   executorUnavailableResult,
   machineUnsupportedResult,
 } from './grep-results';
-import { resolveScopes } from './grep-scopes';
+import { resolveScopes, refuseUnsearchableGrepScopes } from './grep-scopes';
 import { type ScopeOutcome } from './grep-scope-shape';
 import { type ToolContext } from './types';
 import { createWorkspaceRootCell } from './workspace-path';
@@ -226,7 +226,6 @@ describe('resolveScopes', () => {
 
   it('places a file: alias on the host layer that owns it', async () => {
     const context = contextOf({ root: '/home/u/repo' });
-
     expect(
       await resolveScopes(context, ['file://localhost/etc/x'], admission),
     ).toEqual({ result: executorUnavailableResult() });
@@ -253,7 +252,8 @@ describe('resolveScopes', () => {
       result: {
         status: 'error',
         type: 'invalid_path',
-        message: 'A skill:// scope takes no selector; a colon is refused.',
+        message:
+          'Write a literal colon in a skill:// scope as %3A; grep parses no selector.',
       },
     });
     expect(
@@ -262,7 +262,8 @@ describe('resolveScopes', () => {
       result: {
         status: 'error',
         type: 'invalid_path',
-        message: 'A skill:// scope takes no selector; a colon is refused.',
+        message:
+          'Write a literal colon in a skill:// scope as %3A; grep parses no selector.',
       },
     });
     expect(await resolveScopes(context, ['skill://pd*'], admission)).toEqual({
@@ -391,5 +392,76 @@ describe('resolveScopes', () => {
     expect(outcome).toMatchObject({
       result: { type: 'skill_catalog_unavailable' },
     });
+  });
+});
+
+describe('refuseUnsearchableGrepScopes', () => {
+  const SPACE = '11111111-1111-4111-8111-111111111111';
+
+  /** The refusal of one submitted scope set, or `undefined` for a usable one. */
+  function refused(
+    scopes: ReadonlyArray<string>,
+    root?: string,
+  ): ReturnType<typeof refuseUnsearchableGrepScopes> {
+    return refuseUnsearchableGrepScopes(
+      { scopes },
+      root === undefined ? contextOf() : contextOf({ root }),
+    );
+  }
+
+  it('refuses a scheme this process cannot search', () => {
+    expect(refused(['https://example.test/docs'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'A web locator is fetched, not searched; read one page instead.',
+    });
+    expect(refused(['media://voice/a'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'A media:// locator holds no text to search.',
+    });
+    expect(refused(['ftp://host/path'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme cannot be searched.',
+    });
+  });
+
+  it('refuses a bare Machine scope and a remote file: alias', () => {
+    expect(refused(['machine://'])).toEqual(machineUnsupportedResult());
+    expect(refused(['file://nas/share'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'A file:// URL with a host other than localhost names another machine. ' +
+        "Only this host's files are readable; write the absolute path instead.",
+    });
+  });
+
+  it('refuses an unsupported glob operator and a selector colon', () => {
+    expect(refused([`kb://${SPACE}/notes/{a,b}`])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'The glob operator `{` is not supported; write `*`, `**`, and `?` instead.',
+    });
+    expect(refused([`kb://${SPACE}/notes/a.md:3-5`])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'Write a literal colon in a kb:// scope as %3A; grep parses no selector.',
+    });
+    expect(refused(['skill://pdf/SKILL.md:3'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'Write a literal colon in a skill:// scope as %3A; grep parses no selector.',
+    });
+  });
+
+  it('passes a searchable shape, including a placed host scope', () => {
+    expect(refused([`kb://${SPACE}/notes/**`])).toBeUndefined();
+    expect(refused(['skill://pdf'])).toBeUndefined();
+    expect(refused(['src/**'], '/home/u/repo')).toBeUndefined();
   });
 });
