@@ -57,10 +57,9 @@ type CursorPosition = "before" | "ancestor" | "at" | "after";
  */
 export async function* walkGrepScope(walk: GrepWalk): AsyncGenerator<string> {
   if (walk.scope.singleFile) {
+    // No resume point is recorded: `(scope, "")` restarts a scope, so a stop
+    // after this file names the next scope, which the resumed call reaches.
     yield "";
-    // The scope holds one entry: once the consumer examined it, the walk has
-    // reached its end and a later stop names it as the resume point.
-    walk.onReach("");
     return;
   }
   yield* walkDirectory(

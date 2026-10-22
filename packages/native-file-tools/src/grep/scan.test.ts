@@ -483,6 +483,52 @@ describe("grep walk bounds", () => {
     expect(second.complete).toBe(true);
   });
 
+  it("never re-opens a single-file scope after a later scope stops at a bound", async () => {
+    const solo = createSingleFilePort(file("miss\n"));
+    const rest = createMemoryPort({ "a.md": hit() });
+    const scopes = [
+      memoryScope(0, "/repo/solo.md", solo, { singleFile: true }),
+      memoryScope(1, "/repo/dir/", rest),
+    ];
+    const first = await runMemoryScan(scopes, ["hit"], {
+      budget: { files: 1 },
+    });
+    expect(first.complete).toBe(false);
+    expect(solo.reads).toEqual([""]);
+    expect(decode(first.cursor)).toMatchObject({
+      kind: "position",
+      scopeIndex: 1,
+      rel: "",
+    });
+    const second = await runMemoryScan(scopes, ["hit"], {
+      cursor: decode(first.cursor),
+    });
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      "/repo/dir/a.md:1-1",
+    ]);
+    expect(solo.reads).toEqual([""]);
+  });
+
+  it("hands back its own cursor when a resumed call stops before any progress", async () => {
+    const text = Array.from({ length: 30 }, () => "hit").join("\n");
+    const port = createMemoryPort({ "a.md": file(`${text}\n`) });
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { pageUnits: 150 },
+    });
+    const cursor = passageCursor(first.cursor);
+    let clock = 0;
+    const stalled = await runMemoryScan([scope], ["hit"], {
+      cursor,
+      budget: { deadlineMs: 2500 },
+      now: () => (clock += 5000),
+    });
+    expect(stalled.results).toEqual([]);
+    expect(stalled.complete).toBe(false);
+    // Never behind the cursor it was given: no replay of the first page.
+    expect(decode(stalled.cursor)).toEqual(cursor);
+  });
+
   it("advances a directory position on resume", async () => {
     const port = createMemoryPort({
       d: directory({ "a.md": file("miss\n"), "b.md": file("miss\n") }),

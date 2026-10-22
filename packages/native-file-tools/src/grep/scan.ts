@@ -338,6 +338,15 @@ function cursorOf(state: ScanState): string | undefined {
   }
   const position = state.position;
   if (position === undefined) {
+    // A resumed call that stopped before it reached anything past its own
+    // cursor hands that cursor back: a scope restart would move behind it.
+    const incoming = state.input.cursor;
+    if (
+      incoming !== undefined &&
+      (state.scopeIndex === undefined ||
+        state.scopeIndex <= incoming.scopeIndex)
+    )
+      return encodeGrepCursor(incoming);
     if (state.scopeIndex === undefined) return undefined;
     return encodeGrepCursor({
       kind: "position",
