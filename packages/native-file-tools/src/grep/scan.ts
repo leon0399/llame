@@ -1,7 +1,7 @@
-import { encodeGrepCursor, type DecodedGrepCursor } from "./cursor";
+import { encodeGrepCursor, type GrepPassageCursor } from "./cursor";
 import { GREP_LIMITS } from "./limits";
 import { appendGrepFile, createGrepPage, type GrepPage } from "./page";
-import { grepFilePassages, passageStartLine } from "./passages";
+import { grepFilePassages, passageEndLine, passageStartLine } from "./passages";
 import type {
   GrepPassage,
   GrepScanInput,
@@ -13,7 +13,7 @@ import { walkGrepScope } from "./walk";
 
 /** One scope's resume point, once it is known to belong to that scope. */
 type GrepResume = {
-  readonly cursor: DecodedGrepCursor;
+  readonly cursor: GrepPassageCursor;
   readonly rel: string;
 };
 
@@ -26,12 +26,15 @@ type ScanState = {
   readonly deadlineAt: number;
   readRefused: number;
   stop: GrepWarningKind | undefined;
+  /** The last entry the walk finished handling, for a bound-stop cursor. */
+  position: { readonly scopeIndex: number; readonly rel: string } | undefined;
 };
 
 /**
  * Walk every scope in submitted order and page the passages. Bounds hold
  * across the whole call; a stopped walk reports `complete: false` and a
- * cursor whenever it emitted at least one passage.
+ * cursor naming the last passage it emitted, or the last entry it reached
+ * when it emitted none.
  */
 export async function runGrepScan(
   input: GrepScanInput,
@@ -44,6 +47,7 @@ export async function runGrepScan(
     deadlineAt: input.now() + input.budget.deadlineMs,
     readRefused: 0,
     stop: undefined,
+    position: undefined,
   };
   for (const scope of [...input.scopes].sort(
     (left, right) => left.index - right.index,
@@ -56,24 +60,38 @@ export async function runGrepScan(
   return buildResult(state);
 }
 
-function resumeFor(scope: GrepScope, cursor: DecodedGrepCursor | undefined) {
-  if (cursor === undefined || cursor.scopeIndex !== scope.index)
-    return undefined;
-  return { cursor, rel: cursor.rel };
-}
-
 async function scanScope(state: ScanState, scope: GrepScope): Promise<void> {
-  const resume = resumeFor(scope, state.input.cursor);
+  const cursor = state.input.cursor;
+  const scopeCursor =
+    cursor !== undefined && cursor.scopeIndex === scope.index
+      ? cursor
+      : undefined;
+  const resume =
+    scopeCursor?.kind === "passage"
+      ? { cursor: scopeCursor, rel: scopeCursor.rel }
+      : undefined;
   for await (const rel of walkGrepScope({
     scope,
-    cursorRel: resume?.rel,
+    cursorRel: scopeCursor?.rel,
+    cursorKind: scopeCursor?.kind,
     onEntry: () => countEntry(state),
     onLink: () => addWarning(state, "link"),
+    onReach: (reached) => {
+      state.position = { scopeIndex: scope.index, rel: reached };
+    },
   })) {
+    const fileResume =
+      resume !== undefined && rel === resume.rel ? resume : undefined;
+    // The cursor's file is exhausted: its twentieth passage hides the rest.
+    if (
+      fileResume?.cursor.truncated === true &&
+      fileResume.cursor.endLine === undefined
+    )
+      continue;
+    await scanFile(state, scope, rel, fileResume);
+    // A stopped or full page ends the walk here, before the walker records
+    // this file as reached: a later call must examine it again.
     if (state.stop !== undefined || state.page.full) return;
-    if (resume?.cursor.truncated === true && rel === resume.rel) continue;
-    // Only the cursor's own file hides the passages a page already returned.
-    await scanFile(state, scope, rel, rel === resume?.rel ? resume : undefined);
   }
 }
 
@@ -124,8 +142,8 @@ function pageHasFileRoom(state: ScanState): boolean {
 
 /**
  * A file contributes its first 20 passages and no more; the twentieth is
- * marked so the cursor moves past the whole file. A resumed page hides the
- * passages the previous page already emitted, without freeing their slots.
+ * marked so the cursor moves past the whole file. A resumed page continues a
+ * cut passage before it emits the passages after it, without repeating a line.
  */
 function emitPassages(
   state: ScanState,
@@ -146,19 +164,77 @@ function emitPassages(
   const visible =
     resume === undefined
       ? firstTwenty
-      : firstTwenty.filter(
-          (passage) =>
-            passageStartLine(passage.locator) > resume.cursor.startLine,
-        );
+      : continuation(resume, firstTwenty, file.fileLocator);
+  const twentiethAt = capped
+    ? passageStartLine(firstTwenty[GREP_LIMITS.passagesPerFile - 1].locator)
+    : undefined;
   appendGrepFile(state.page, state.input.budget.pageUnits, {
     scopeIndex: file.scopeIndex,
     rel: file.rel,
     fileLocator: file.fileLocator,
     passages: visible,
-    cappedAt: capped
-      ? passageStartLine(firstTwenty[GREP_LIMITS.passagesPerFile - 1].locator)
-      : undefined,
+    cappedAt: exhaustedAt(resume, visible) ?? twentiethAt,
   });
+}
+
+/**
+ * The line the cursor file is exhausted at: the rest of its twentieth passage
+ * carries the twentieth semantics, so a page that ends there names it as such.
+ */
+function exhaustedAt(
+  resume: GrepResume | undefined,
+  visible: ReadonlyArray<GrepPassage>,
+): number | undefined {
+  if (resume?.cursor.truncated !== true || visible.length === 0)
+    return undefined;
+  return passageStartLine(visible[0].locator);
+}
+
+/**
+ * The passages a resumed page still owes: the rest of a cut passage first,
+ * then the passages after the cursor. A passage the walk no longer renders as
+ * the cursor names it — the file changed between calls — falls back to the
+ * lines after the cursor's start.
+ */
+function continuation(
+  resume: GrepResume,
+  passages: ReadonlyArray<GrepPassage>,
+  fileLocator: string,
+): Array<GrepPassage> {
+  const { cursor } = resume;
+  const index = passages.findIndex(
+    (passage) =>
+      passageStartLine(passage.locator) <= cursor.startLine &&
+      cursor.startLine <= passageEndLine(passage.locator),
+  );
+  if (index === -1)
+    return passages.filter(
+      (passage) => passageStartLine(passage.locator) > cursor.startLine,
+    );
+  const rest = remainder(passages[index], fileLocator, cursor.endLine);
+  const tail = cursor.truncated === true ? [] : passages.slice(index + 1);
+  return rest === undefined ? tail : [rest, ...tail];
+}
+
+/** The lines of a passage after the line the previous page emitted. */
+function remainder(
+  passage: GrepPassage,
+  fileLocator: string,
+  endLine: number | undefined,
+): GrepPassage | undefined {
+  if (endLine === undefined) return undefined;
+  const passageEnd = passageEndLine(passage.locator);
+  if (endLine >= passageEnd) return undefined;
+  const start = endLine + 1;
+  return {
+    locator: `${fileLocator}:${start}-${passageEnd}`,
+    content: passage.content
+      .split("\n")
+      .slice(start - passageStartLine(passage.locator))
+      .join("\n"),
+    matches: passage.matches.filter((line) => line >= start),
+    ...(passage.truncated === true && { truncated: true as const }),
+  };
 }
 
 function decodeUtf8(bytes: Uint8Array): string | undefined {
@@ -172,6 +248,7 @@ function decodeUtf8(bytes: Uint8Array): string | undefined {
 }
 
 function countEntry(state: ScanState): boolean {
+  if (state.stop !== undefined) return false;
   if (state.consumed.entries >= state.input.budget.entries) {
     stopAt(state, "entry_bound");
     return false;
@@ -191,22 +268,35 @@ function addWarning(state: ScanState, kind: GrepWarningKind): void {
 
 function buildResult(state: ScanState): GrepScanResult {
   const complete = state.stop === undefined && !state.page.full;
-  const last = state.page.last;
   return {
     results: state.page.results,
     complete,
-    cursor:
-      complete || last === undefined
-        ? undefined
-        : encodeGrepCursor({
-            scopeIndex: last.scopeIndex,
-            rel: last.rel,
-            startLine: last.startLine,
-            truncated: last.capped ? true : undefined,
-            inputHash: state.input.inputHash,
-          }),
+    cursor: complete ? undefined : cursorOf(state),
     warnings: [...state.warnings].map(([kind, count]) => ({ kind, count })),
     readRefused: state.readRefused,
     consumed: { ...state.consumed },
   };
+}
+
+/** The last emitted passage, or the last reached entry when none was emitted. */
+function cursorOf(state: ScanState): string | undefined {
+  const last = state.page.last;
+  if (last !== undefined) {
+    return encodeGrepCursor({
+      scopeIndex: last.scopeIndex,
+      rel: last.rel,
+      startLine: last.startLine,
+      endLine: last.endLine,
+      truncated: last.capped ? true : undefined,
+      inputHash: state.input.inputHash,
+    });
+  }
+  const position = state.position;
+  if (position === undefined) return undefined;
+  return encodeGrepCursor({
+    kind: "position",
+    scopeIndex: position.scopeIndex,
+    rel: position.rel,
+    inputHash: state.input.inputHash,
+  });
 }

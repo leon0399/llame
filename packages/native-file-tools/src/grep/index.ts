@@ -15,7 +15,10 @@ export { decodeGrepCursor, encodeGrepCursor, hashGrepInputs } from "./cursor";
 export type {
   DecodedGrepCursor,
   GrepCursorDecodeResult,
+  GrepCursorInput,
   GrepHashInputs,
+  GrepPassageCursor,
+  GrepPositionCursor,
 } from "./cursor";
 export { runGrepScan } from "./scan";
 export { GrepPortError } from "./types";

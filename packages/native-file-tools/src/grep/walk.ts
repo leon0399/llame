@@ -16,22 +16,34 @@ type IgnoreLayer = {
   readonly rules: IgnoreRules;
 };
 
+/** What a resume point names: a file the page ended in, or a reached entry. */
+export type GrepCursorKind = "passage" | "position";
+
 /** One scope's walk: the port, the resume point, and the bound callbacks. */
 export interface GrepWalk {
   readonly scope: GrepScope;
   /** Decoded path of the file the previous page ended at, relative to the prefix. */
   readonly cursorRel: string | undefined;
+  /** Which entry the resume point names; undefined without a cursor. */
+  readonly cursorKind: GrepCursorKind | undefined;
   /** Count one listed entry; false once the entry bound is reached. */
   readonly onEntry: () => boolean;
   /** Record one skipped link. */
   readonly onLink: () => void;
+  /** Record one entry the walk finished handling, for a later position cursor. */
+  readonly onReach: (rel: string) => void;
 }
+
+/** No layer's verdict is void below this directory. */
+const NOTHING_VOIDED: ReadonlySet<number> = new Set();
 
 type WalkState = {
   readonly walk: GrepWalk;
   readonly layers: Array<IgnoreLayer>;
   /** Canonical identities of the directories on the current path (skill loops). */
   readonly ancestors: Set<string>;
+  /** Layer indices a re-included directory put aside for its whole subtree. */
+  readonly voided: ReadonlySet<number>;
 };
 
 /** Where an entry sits relative to the resume point. */
@@ -48,7 +60,10 @@ export async function* walkGrepScope(walk: GrepWalk): AsyncGenerator<string> {
     yield "";
     return;
   }
-  yield* walkDirectory({ walk, layers: [], ancestors: new Set() }, "");
+  yield* walkDirectory(
+    { walk, layers: [], ancestors: new Set(), voided: NOTHING_VOIDED },
+    "",
+  );
 }
 
 async function* walkDirectory(
@@ -69,7 +84,7 @@ async function* walkDirectory(
   for (const entry of entries) {
     const childRel = rel.length === 0 ? entry.name : `${rel}/${entry.name}`;
     const position = cursorPosition(childRel, state.walk.cursorRel);
-    const counted = position === "at" || position === "after";
+    const counted = countsEntry(state.walk.cursorKind, position);
     if (counted && !state.walk.onEntry()) break;
     if (entry.kind === "link") {
       if (scope.port.followsLinks) state.walk.onLink();
@@ -79,9 +94,23 @@ async function* walkDirectory(
       yield* walkDirectoryEntry(state, childRel, entry, position);
       continue;
     }
-    if (isCandidate(state, entry, childRel, position)) yield childRel;
+    if (isCandidate(state, entry, childRel, counted)) yield childRel;
+    if (counted) state.walk.onReach(childRel);
   }
   if (layer !== undefined) state.layers.pop();
+}
+
+/**
+ * A position cursor names an entry a stopped walk already handled, so entries
+ * at it are listed but not counted. A passage cursor names the file a page
+ * ended in, which a resume re-opens and counts.
+ */
+function countsEntry(
+  kind: GrepCursorKind | undefined,
+  position: CursorPosition,
+): boolean {
+  if (position === "after") return true;
+  return position === "at" && kind === "passage";
 }
 
 /** Whether a listed entry is a file this scope would search. */
@@ -89,15 +118,14 @@ function isCandidate(
   state: WalkState,
   entry: GrepEntry,
   rel: string,
-  position: CursorPosition,
+  counted: boolean,
 ): boolean {
-  if (entry.kind !== "file") return false;
-  if (position === "before" || position === "ancestor") return false;
+  if (entry.kind !== "file" || !counted) return false;
   const { scope } = state.walk;
   if (scope.port.ignoreFile !== undefined && entry.name === ".gitignore")
     return false;
   if (scope.glob !== undefined && !scope.glob.matchesFile(rel)) return false;
-  return !isIgnored(state.layers, rel, false);
+  return !isIgnored(state, rel, false);
 }
 
 async function* walkDirectoryEntry(
@@ -108,7 +136,7 @@ async function* walkDirectoryEntry(
 ): AsyncGenerator<string> {
   const { scope } = state.walk;
   if (entry.name === ".git" || position === "before") return;
-  if (isIgnored(state.layers, rel, true)) return;
+  if (isIgnored(state, rel, true)) return;
   if (scope.glob !== undefined && !scope.glob.mayDescend(rel)) return;
   const identity = entry.identity;
   if (identity !== undefined) {
@@ -118,7 +146,11 @@ async function* walkDirectoryEntry(
     }
     state.ancestors.add(identity);
   }
-  yield* walkDirectory(state, rel);
+  // A directory counts as reached before it is descended: its own contents
+  // overwrite this position as they are handled.
+  if (position !== "ancestor") state.walk.onReach(rel);
+  const voided = reIncludedLayers(state, rel);
+  yield* walkDirectory({ ...state, voided }, rel);
   if (identity !== undefined) state.ancestors.delete(identity);
 }
 
@@ -130,30 +162,62 @@ async function loadIgnoreLayer(
   if (port.ignoreFile === undefined) return undefined;
   const text = await port.ignoreFile(rel);
   if (text === undefined) return undefined;
-  return { base: rel, rules: ignore().add(text) };
+  return { base: rel, rules: ignore({ ignorecase: false }).add(text) };
 }
 
 /**
  * A layer's rules see the path relative to that layer's directory. Later
- * layers sit deeper, so their verdict — including a negation — wins.
+ * layers sit deeper, so their verdict — including a negation — wins. A layer a
+ * re-included directory set aside takes no part in its subtree's verdicts.
  */
-function isIgnored(
-  layers: ReadonlyArray<IgnoreLayer>,
-  rel: string,
-  directory: boolean,
-): boolean {
+function isIgnored(state: WalkState, rel: string, directory: boolean): boolean {
   const pathname = directory ? `${rel}/` : rel;
   let ignored = false;
-  for (const layer of layers) {
-    const relative =
-      layer.base.length === 0
-        ? pathname
-        : pathname.slice(layer.base.length + 1);
-    const result = layer.rules.test(relative);
+  for (const [index, layer] of state.layers.entries()) {
+    if (state.voided.has(index)) continue;
+    const result = layer.rules.test(pathRelativeTo(layer, pathname));
     if (result.ignored) ignored = true;
     else if (result.unignored) ignored = false;
   }
   return ignored;
+}
+
+/**
+ * The layers a re-included directory voids for its subtree. The walker only
+ * descends a directory a deeper layer re-included, so a layer that ignored it
+ * must not decide the files inside it.
+ */
+function reIncludedLayers(state: WalkState, rel: string): ReadonlySet<number> {
+  const pathname = `${rel}/`;
+  let voided: Set<number> | undefined;
+  for (const [index, layer] of state.layers.entries()) {
+    if (state.voided.has(index)) continue;
+    if (!layer.rules.test(pathRelativeTo(layer, pathname)).ignored) continue;
+    if (!reIncludedByDeeperLayer(state.layers, index, pathname)) continue;
+    voided ??= new Set(state.voided);
+    voided.add(index);
+  }
+  return voided ?? state.voided;
+}
+
+/** Whether any layer below `index` re-includes the same directory. */
+function reIncludedByDeeperLayer(
+  layers: ReadonlyArray<IgnoreLayer>,
+  index: number,
+  pathname: string,
+): boolean {
+  for (let below = index + 1; below < layers.length; below += 1) {
+    const layer = layers[below];
+    if (layer.rules.test(pathRelativeTo(layer, pathname)).unignored)
+      return true;
+  }
+  return false;
+}
+
+function pathRelativeTo(layer: IgnoreLayer, pathname: string): string {
+  return layer.base.length === 0
+    ? pathname
+    : pathname.slice(layer.base.length + 1);
 }
 
 function cursorPosition(

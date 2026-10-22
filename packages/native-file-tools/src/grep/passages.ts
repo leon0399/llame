@@ -44,6 +44,11 @@ export function passageStartLine(locator: string): number {
   return Number(locator.slice(locator.lastIndexOf(":") + 1).split("-")[0]);
 }
 
+/** One-based last line of an emitted passage locator. */
+export function passageEndLine(locator: string): number {
+  return Number(locator.slice(locator.lastIndexOf(":") + 1).split("-")[1]);
+}
+
 async function matchLines(
   lines: ReadonlyArray<string>,
   patterns: CompiledGrepPatterns,

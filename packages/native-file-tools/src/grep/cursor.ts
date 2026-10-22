@@ -7,18 +7,53 @@ import { isNumber, isRecord, isString } from "@workspace/runtime-safety";
  * to. `rel` is the file's path relative to its scope prefix, so resume never
  * re-derives a filename from an encoded locator.
  */
-export interface DecodedGrepCursor {
+export interface GrepPassageCursor {
+  readonly kind: "passage";
   readonly scopeIndex: number;
   readonly rel: string;
   readonly startLine: number;
+  /** Last line the page emitted of that passage; present only when it cut it. */
+  readonly endLine?: number;
   /** The named passage was a file's twentieth, so the file is exhausted. */
   readonly truncated?: true;
   readonly inputHash: string;
 }
 
+/**
+ * A keyset cursor naming the last entry a stopped walk reached. A later call
+ * lists that entry without opening it and resumes after it, except that a
+ * directory is descended.
+ */
+export interface GrepPositionCursor {
+  readonly kind: "position";
+  readonly scopeIndex: number;
+  readonly rel: string;
+  readonly inputHash: string;
+}
+
+export type DecodedGrepCursor = GrepPassageCursor | GrepPositionCursor;
+
 export type GrepCursorDecodeResult =
   | DecodedGrepCursor
   | { readonly error: "invalid_cursor" };
+
+/** One cursor to encode; a passage cursor without `kind` is the default. */
+export type GrepCursorInput =
+  | {
+      readonly kind?: "passage";
+      readonly scopeIndex: number;
+      readonly rel: string;
+      readonly startLine: number;
+      readonly endLine?: number;
+      readonly truncated?: true;
+      readonly inputHash: string;
+    }
+  | {
+      readonly kind: "position";
+      readonly scopeIndex: number;
+      readonly rel: string;
+      readonly inputHash: string;
+    };
 
 /** The resolved inputs a cursor is only valid against. */
 export interface GrepHashInputs {
@@ -30,14 +65,24 @@ export interface GrepHashInputs {
 }
 
 /** One opaque page key; base64url so it survives a query string untouched. */
-export function encodeGrepCursor(cursor: DecodedGrepCursor): string {
-  const payload = {
-    scopeIndex: cursor.scopeIndex,
-    rel: cursor.rel,
-    startLine: cursor.startLine,
-    truncated: cursor.truncated,
-    inputHash: cursor.inputHash,
-  };
+export function encodeGrepCursor(cursor: GrepCursorInput): string {
+  const payload =
+    cursor.kind === "position"
+      ? {
+          kind: cursor.kind,
+          scopeIndex: cursor.scopeIndex,
+          rel: cursor.rel,
+          inputHash: cursor.inputHash,
+        }
+      : {
+          kind: "passage" as const,
+          scopeIndex: cursor.scopeIndex,
+          rel: cursor.rel,
+          startLine: cursor.startLine,
+          endLine: cursor.endLine,
+          truncated: cursor.truncated,
+          inputHash: cursor.inputHash,
+        };
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
 
@@ -77,11 +122,23 @@ export function hashGrepInputs(inputs: GrepHashInputs): string {
 
 function readCursor(value: unknown): DecodedGrepCursor | undefined {
   if (!isRecord(value)) return undefined;
-  const { scopeIndex, rel, startLine, truncated, inputHash } = value;
+  const { kind, scopeIndex, rel, startLine, endLine, truncated, inputHash } =
+    value;
   if (!isNumber(scopeIndex) || !Number.isInteger(scopeIndex)) return undefined;
-  if (scopeIndex < 0 || !isString(rel)) return undefined;
+  if (scopeIndex < 0 || !isString(rel) || !isString(inputHash))
+    return undefined;
+  if (kind === "position") {
+    if (startLine !== undefined || endLine !== undefined) return undefined;
+    if (truncated !== undefined) return undefined;
+    return { kind, scopeIndex, rel, inputHash };
+  }
+  if (kind !== "passage") return undefined;
   if (!isNumber(startLine) || !Number.isInteger(startLine)) return undefined;
-  if (startLine < 1 || !isString(inputHash)) return undefined;
+  if (startLine < 1) return undefined;
+  if (endLine !== undefined) {
+    if (!isNumber(endLine) || !Number.isInteger(endLine)) return undefined;
+    if (endLine < startLine) return undefined;
+  }
   if (truncated !== undefined && truncated !== true) return undefined;
-  return { scopeIndex, rel, startLine, truncated, inputHash };
+  return { kind, scopeIndex, rel, startLine, endLine, truncated, inputHash };
 }

@@ -1,5 +1,5 @@
 import { measureNativeModelOutput } from "../serialization";
-import { passageStartLine } from "./passages";
+import { passageEndLine, passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
 /** The passage a page ends at; the next call resumes after it. */
@@ -7,6 +7,8 @@ export interface GrepPageKey {
   readonly scopeIndex: number;
   readonly rel: string;
   readonly startLine: number;
+  /** Last line the page emitted of that passage; present only when it cut it. */
+  readonly endLine?: number;
   /** The named passage was its file's twentieth, so the file is exhausted. */
   readonly capped: boolean;
 }
@@ -63,7 +65,10 @@ export function appendGrepFile(
       page.results.push(cut);
       page.units += measurePassage(cut);
       emitted += 1;
-      page.last = { ...pageKey(emission, cut), capped: false };
+      page.last = {
+        ...pageKey(emission, cut),
+        endLine: passageEndLine(cut.locator),
+      };
     }
     page.full = true;
     break;

@@ -1,5 +1,5 @@
 import { decodeGrepCursor } from "./cursor";
-import type { DecodedGrepCursor } from "./cursor";
+import type { DecodedGrepCursor, GrepPassageCursor } from "./cursor";
 import {
   createMemoryPort,
   createSingleFilePort,
@@ -29,6 +29,12 @@ function decode(cursor: string | undefined): DecodedGrepCursor {
   if (cursor === undefined) throw new Error("expected a cursor");
   const decoded = decodeGrepCursor(cursor, "input-hash");
   if ("error" in decoded) throw new Error(decoded.error);
+  return decoded;
+}
+
+function passageCursor(cursor: string | undefined): GrepPassageCursor {
+  const decoded = decode(cursor);
+  if (decoded.kind !== "passage") throw new Error("expected a passage cursor");
   return decoded;
 }
 
@@ -207,6 +213,39 @@ describe("grep walk order and ignore rules", () => {
     ]);
     expect(result.results[0].matches).toEqual([3]);
   });
+
+  it("matches ignore rules case-sensitively like Git", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("*.LOG\n"),
+      "x.log": hit(),
+      "y.LOG": hit(),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/x.log:1-1",
+    ]);
+  });
+
+  it("keeps files under a directory a deeper layer re-included", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("build/\n"),
+      sub: directory({
+        ".gitignore": file("!build/\n"),
+        build: directory({ "keep.js": hit() }),
+      }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/sub/build/keep.js:1-1",
+    ]);
+    expect(result.complete).toBe(true);
+  });
 });
 
 describe("grep walk bounds", () => {
@@ -271,6 +310,57 @@ describe("grep walk bounds", () => {
     expect(decode(result.cursor).rel).toBe("b.md");
   });
 
+  it("names the last reached file when the file bound stops a walk without a passage", async () => {
+    const port = createMemoryPort({
+      "a.md": file("miss\n"),
+      "b.md": file("miss\n"),
+      "c.md": hit(),
+    });
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { files: 2 },
+    });
+    expect(first.results).toEqual([]);
+    expect(first.complete).toBe(false);
+    expect(first.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
+    const cursor = decode(first.cursor);
+    expect(cursor).toMatchObject({
+      kind: "position",
+      scopeIndex: 0,
+      rel: "b.md",
+    });
+    const second = await runMemoryScan([scope], ["hit"], { cursor });
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      "/repo/c.md:1-1",
+    ]);
+    expect(second.complete).toBe(true);
+    expect(port.reads).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
+  it("names the last reached file when the deadline stops a walk without a passage", async () => {
+    const port = createMemoryPort({
+      "a.md": file("miss\n"),
+      "b.md": file("miss\n"),
+      "c.md": hit(),
+    });
+    let clock = 0;
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+      {
+        budget: { deadlineMs: 2500 },
+        now: () => (clock += 1000),
+      },
+    );
+    expect(result.results).toEqual([]);
+    expect(result.complete).toBe(false);
+    expect(result.warnings).toEqual([{ kind: "deadline", count: 1 }]);
+    expect(decode(result.cursor)).toMatchObject({
+      kind: "position",
+      rel: "b.md",
+    });
+  });
+
   it("stops at the entry bound", async () => {
     const port = createMemoryPort({
       "a.md": hit(),
@@ -289,6 +379,28 @@ describe("grep walk bounds", () => {
     ]);
     expect(result.warnings).toEqual([{ kind: "entry_bound", count: 1 }]);
     expect(result.complete).toBe(false);
+  });
+
+  it("counts one entry-bound warning when nested directories stop", async () => {
+    const port = createMemoryPort({
+      d1: directory({ "a.md": hit() }),
+      d2: directory({ "b.md": hit() }),
+      d3: directory({ "c.md": hit() }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+      {
+        budget: { entries: 1 },
+      },
+    );
+    expect(result.results).toEqual([]);
+    expect(result.warnings).toEqual([{ kind: "entry_bound", count: 1 }]);
+    expect(result.complete).toBe(false);
+    expect(decode(result.cursor)).toMatchObject({
+      kind: "position",
+      rel: "d1",
+    });
   });
 
   it("stops at the byte bound before opening a file", async () => {
@@ -411,7 +523,34 @@ describe("grep paging", () => {
     expect(result.results[0].truncated).toBe(true);
     expect(result.complete).toBe(false);
     expect(result.results[0].locator).not.toBe("/repo/a.md:1-30");
-    expect(result.cursor).toBeDefined();
+    const cursor = passageCursor(result.cursor);
+    expect(cursor).toMatchObject({ rel: "a.md", startLine: 1 });
+    expect(cursor.endLine).toBe(
+      Number(result.results[0].locator.split(":")[1].split("-")[1]),
+    );
+  });
+
+  it("resumes a cut passage after its last emitted line", async () => {
+    const text = Array.from({ length: 30 }, () => "hit").join("\n");
+    const port = createMemoryPort({ "a.md": file(`${text}\n`) });
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { pageUnits: 150 },
+    });
+    const cursor = passageCursor(first.cursor);
+    const emittedEnd = cursor.endLine;
+    if (emittedEnd === undefined) throw new Error("expected a cut line");
+    expect(emittedEnd).toBeGreaterThanOrEqual(1);
+    expect(emittedEnd).toBeLessThan(30);
+    const second = await runMemoryScan([scope], ["hit"], { cursor });
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      `/repo/a.md:${emittedEnd + 1}-30`,
+    ]);
+    expect(second.results[0].content.split("\n")[0]).toBe(
+      `${emittedEnd + 1}: hit`,
+    );
+    expect(second.results[0].content.split("\n")).toHaveLength(30 - emittedEnd);
+    expect(second.complete).toBe(true);
   });
 
   it("returns an empty complete result when nothing matches", async () => {

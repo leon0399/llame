@@ -17,16 +17,34 @@ describe("grep cursor codec", () => {
       inputHash: "abc",
     });
     expect(decodeGrepCursor(cursor, "abc")).toEqual({
+      kind: "passage",
       scopeIndex: 2,
       rel: "notes/a.md",
       startLine: 12,
+      endLine: undefined,
       truncated: undefined,
       inputHash: "abc",
     });
   });
 
+  it("keeps the last line of a cut passage", () => {
+    const cursor = encodeGrepCursor({
+      scopeIndex: 0,
+      rel: "a.md",
+      startLine: 4,
+      endLine: 9,
+      inputHash: "abc",
+    });
+    expect(decodeGrepCursor(cursor, "abc")).toMatchObject({
+      kind: "passage",
+      startLine: 4,
+      endLine: 9,
+    });
+  });
+
   it("keeps the file-exhausted flag", () => {
     const cursor = encodeGrepCursor({
+      kind: "passage",
       scopeIndex: 0,
       rel: "a.md",
       startLine: 40,
@@ -34,6 +52,21 @@ describe("grep cursor codec", () => {
       inputHash: "abc",
     });
     expect(decodeGrepCursor(cursor, "abc")).toMatchObject({ truncated: true });
+  });
+
+  it("round-trips a position key", () => {
+    const cursor = encodeGrepCursor({
+      kind: "position",
+      scopeIndex: 1,
+      rel: "src/a.md",
+      inputHash: "abc",
+    });
+    expect(decodeGrepCursor(cursor, "abc")).toEqual({
+      kind: "position",
+      scopeIndex: 1,
+      rel: "src/a.md",
+      inputHash: "abc",
+    });
   });
 
   it("refuses a cursor issued for other inputs", () => {
@@ -56,7 +89,12 @@ describe("grep cursor codec", () => {
       error: "invalid_cursor",
     });
     const missingHash = Buffer.from(
-      JSON.stringify({ scopeIndex: 0, rel: "a", startLine: 1 }),
+      JSON.stringify({
+        kind: "passage",
+        scopeIndex: 0,
+        rel: "a",
+        startLine: 1,
+      }),
       "utf8",
     ).toString("base64url");
     expect(decodeGrepCursor(missingHash, "abc")).toEqual({
@@ -64,6 +102,7 @@ describe("grep cursor codec", () => {
     });
     const badStart = Buffer.from(
       JSON.stringify({
+        kind: "passage",
         scopeIndex: 0,
         rel: "a",
         startLine: 0,
@@ -72,6 +111,32 @@ describe("grep cursor codec", () => {
       "utf8",
     ).toString("base64url");
     expect(decodeGrepCursor(badStart, "abc")).toEqual({
+      error: "invalid_cursor",
+    });
+    const unknownKind = Buffer.from(
+      JSON.stringify({
+        kind: "line",
+        scopeIndex: 0,
+        rel: "a",
+        startLine: 1,
+        inputHash: "abc",
+      }),
+      "utf8",
+    ).toString("base64url");
+    expect(decodeGrepCursor(unknownKind, "abc")).toEqual({
+      error: "invalid_cursor",
+    });
+    const positionWithLine = Buffer.from(
+      JSON.stringify({
+        kind: "position",
+        scopeIndex: 0,
+        rel: "a",
+        startLine: 1,
+        inputHash: "abc",
+      }),
+      "utf8",
+    ).toString("base64url");
+    expect(decodeGrepCursor(positionWithLine, "abc")).toEqual({
       error: "invalid_cursor",
     });
   });
