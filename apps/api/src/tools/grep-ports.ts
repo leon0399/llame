@@ -1,12 +1,13 @@
 /**
- * The two schemas this layer can walk: one bound Knowledge Space and one
- * installed skill package. Each port adapts its own trusted source to the
- * engine's `GrepWalkPort`, and each keeps its own link rule — Knowledge never
- * follows a link, and a skill package follows one exactly as agent-skills does.
+ * Every source this layer can walk: the host filesystem, one bound Knowledge
+ * Space, and one installed skill package. Each port adapts its own trusted
+ * source to the engine's `GrepWalkPort`, and each keeps its own link rule —
+ * the host and Knowledge never follow a link, and a skill package follows one
+ * exactly as agent-skills does. Only the host port honors `.gitignore`.
  */
 
-import { open, readdir, realpath, stat } from 'node:fs/promises';
-import { type Dirent } from 'node:fs';
+import { constants, type Dirent } from 'node:fs';
+import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
 import { type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -21,12 +22,20 @@ import {
 } from '../knowledge/knowledge-filesystem';
 import { mapKnowledgeResolutionFailure } from '../knowledge/knowledge-locator';
 import { skillUnavailableResult } from '../skills/skill-target';
-import { GrepScopeFailure, type GrepToolError } from './grep-results';
+import {
+  GrepScopeFailure,
+  hostPathFailureResult,
+  notFoundResult,
+  type GrepToolError,
+} from './grep-results';
 
 /** What one scope path is on its own scheme, or the result that ends the call. */
 export type ScopeProbe =
   | { readonly kind: 'file' | 'directory' | 'missing' }
   | { readonly result: GrepToolError };
+
+/** What the host port returns instead of bytes it will not hand over. */
+type HostReadRefusal = { readonly kind: 'oversized' | 'unreadable' };
 
 /** The path two relative parts join to, with no separator for an empty part. */
 export function joinedPath(prefix: string, rel: string): string {
@@ -57,7 +66,7 @@ export async function readBoundedFileBytes(
   file: BoundedFileReader,
   maxBytes: number,
   signal: AbortSignal | undefined,
-): Promise<Uint8Array> {
+): Promise<Buffer> {
   const chunks: Array<Uint8Array> = [];
   let totalBytes = 0;
   while (totalBytes <= maxBytes) {
@@ -76,6 +85,160 @@ export async function readBoundedFileBytes(
     totalBytes += bytesRead;
   }
   return Buffer.concat(chunks, Math.min(totalBytes, maxBytes + 1));
+}
+
+/** The largest `.gitignore` the walk reads; a larger one applies no rules. */
+const IGNORE_FILE_BYTES = 256 * 1024;
+
+/**
+ * One host path as the process sees it: a symbolic link is never one of the
+ * two things a scope may name, because a host walk never follows one.
+ */
+export async function probeHostPath(
+  root: string,
+  signal: AbortSignal | undefined,
+): Promise<ScopeProbe> {
+  signal?.throwIfAborted();
+  try {
+    const stats = await lstat(root);
+    if (stats.isDirectory()) return { kind: 'directory' };
+    return stats.isFile() ? { kind: 'file' } : { kind: 'missing' };
+  } catch {
+    return { kind: 'missing' };
+  }
+}
+
+/**
+ * The host tree as the operating system reports it. A link is reported as a
+ * link and never entered, hidden entries stay visible, and each directory's
+ * `.gitignore` becomes walk policy; the engine prunes `.git` itself.
+ */
+export function createHostWalkPort(
+  root: string,
+  signal: AbortSignal | undefined,
+): GrepWalkPort {
+  return {
+    followsLinks: false,
+    list: (rel) => listHostDirectory(root, rel, signal),
+    read: (rel, maxBytes) => readHostFile(root, rel, maxBytes, signal),
+    ignoreFile: (rel) => readIgnoreFile(root, rel, signal),
+  };
+}
+
+/** One directory of the host tree, with links reported and never entered. */
+async function listHostDirectory(
+  root: string,
+  rel: string,
+  signal: AbortSignal | undefined,
+): Promise<ReadonlyArray<GrepEntry>> {
+  signal?.throwIfAborted();
+  const directory = hostPath(root, rel);
+  if (rel.length === 0) await refuseNonDirectoryRoot(directory);
+  let dirents: Array<Dirent>;
+  try {
+    dirents = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    // A subdirectory the process cannot list, or one that vanished mid-walk,
+    // contributes nothing; only the scope root itself fails the call.
+    if (rel.length > 0) return [];
+    const code =
+      error instanceof Error && 'code' in error ? String(error.code) : '';
+    throw new GrepScopeFailure(
+      code === 'ENOENT' || code === 'ENOTDIR'
+        ? notFoundResult()
+        : hostPathFailureResult(),
+    );
+  }
+  return dirents.map(
+    (dirent): GrepEntry => ({
+      name: dirent.name,
+      kind: dirent.isSymbolicLink()
+        ? 'link'
+        : dirent.isDirectory()
+          ? 'directory'
+          : dirent.isFile()
+            ? 'file'
+            : 'other',
+    }),
+  );
+}
+
+/**
+ * Refuse a scope root that is not a directory of its own: a listing reports a
+ * link as a link and never enters it, so lstat is the view that names the link
+ * instead of the tree behind it. An lstat the process cannot make decides
+ * nothing, and the listing that follows reports that refusal as it always has.
+ */
+async function refuseNonDirectoryRoot(target: string): Promise<void> {
+  let ownDirectory: boolean;
+  try {
+    ownDirectory = (await lstat(target)).isDirectory();
+  } catch {
+    return;
+  }
+  if (!ownDirectory) throw new GrepScopeFailure(notFoundResult());
+}
+
+/** One host file, opened without following a link or blocking on a FIFO. */
+async function readHostFile(
+  root: string,
+  rel: string,
+  maxBytes: number,
+  signal: AbortSignal | undefined,
+): Promise<Uint8Array | HostReadRefusal> {
+  signal?.throwIfAborted();
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(
+      hostPath(root, rel),
+      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+    );
+    const stats = await handle.stat();
+    if (!stats.isFile()) return { kind: 'unreadable' };
+    if (stats.size > maxBytes) return { kind: 'oversized' };
+    // Only the bound reaches memory: a file that grew past its declared size
+    // is refused on the extra byte instead of being buffered whole.
+    const bytes = await readBoundedFileBytes(handle, maxBytes, signal);
+    return bytes.byteLength > maxBytes ? { kind: 'oversized' } : bytes;
+  } catch {
+    return { kind: 'unreadable' };
+  } finally {
+    await handle?.close();
+  }
+}
+
+function hostPath(root: string, rel: string): string {
+  return rel.length === 0 ? root : path.join(root, rel);
+}
+
+/** One directory's ignore text, when it is a bounded regular file. */
+async function readIgnoreFile(
+  root: string,
+  rel: string,
+  signal: AbortSignal | undefined,
+): Promise<string | undefined> {
+  const file = path.join(hostPath(root, rel), '.gitignore');
+  let handle: FileHandle | undefined;
+  try {
+    // Policy comes from a real file only, opened by the walk's own rule: a
+    // link is never followed and a FIFO never blocks the walk.
+    handle = await open(
+      file,
+      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+    );
+    const stats = await handle.stat();
+    if (!stats.isFile()) return undefined;
+    // The cap applies to the bytes read, so a file that announced the wrong
+    // size applies no rules either way.
+    const bytes = await readBoundedFileBytes(handle, IGNORE_FILE_BYTES, signal);
+    return bytes.byteLength > IGNORE_FILE_BYTES
+      ? undefined
+      : bytes.toString('utf8');
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
 }
 
 export function createKnowledgeWalkPort(

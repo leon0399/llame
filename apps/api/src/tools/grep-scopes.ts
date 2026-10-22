@@ -1,13 +1,15 @@
 /**
  * The `grep` scope dispatch: a scheme becomes a walkable engine scope, or the
- * closed result that ends the call. A host or `machine://` scope has no backend
- * on this layer and fails with the result its own layer owns; Knowledge and
- * skill scopes are resolved by their own modules.
+ * closed result that ends the call. Knowledge and skill scopes are resolved by
+ * their own modules, a host path by this one, and a `machine://` scope fails
+ * with the result its own layer owns.
  */
 
 import path from 'node:path';
 
 import {
+  compileGlob,
+  normalizeHostScope,
   parsePathScheme,
   splitGrepScope,
   type GrepScope,
@@ -37,7 +39,13 @@ import {
   refuseUnsearchableKnowledgeScope,
 } from './grep-knowledge-scope';
 import { decodeFileAlias, isFileAlias } from './permissions/file-alias';
-import { createSkillWalkPort, joinedPath, probeSkillPath } from './grep-ports';
+import {
+  createHostWalkPort,
+  createSkillWalkPort,
+  joinedPath,
+  probeHostPath,
+  probeSkillPath,
+} from './grep-ports';
 import {
   executorUnavailableResult,
   invalidPathResult,
@@ -53,6 +61,11 @@ import {
   type ScopeOutcome,
 } from './grep-scope-shape';
 import { type ToolContext } from './types';
+import {
+  isWorkspaceRelative,
+  mapToWorkspaceHost,
+  resolveWorkspacePath,
+} from './workspace-path';
 
 const KNOWLEDGE_SCHEME = 'kb';
 const SKILL_SCHEME = 'skill';
@@ -153,10 +166,14 @@ async function resolveScope(
   if (isFileAlias(scope)) {
     const alias = decodeFileAlias(scope);
     if (!alias.ok) return { result: invalidPathResult(alias.message) };
-    return { result: executorUnavailableResult() };
+    // A local alias is a host path that the Workspace rule never re-places,
+    // exactly as `read` and the grep scope projection treat it.
+    return buildHostScope(context, alias.hostPath, index, admission);
   }
   const scheme = parsePathScheme(scope);
-  if (scheme === undefined) return { result: executorUnavailableResult() };
+  if (scheme === undefined) {
+    return resolveHostScope(context, scope, index, admission);
+  }
   switch (scheme.scheme) {
     case KNOWLEDGE_SCHEME:
       return resolveKnowledgeScope(context, scheme.rest, index, admission);
@@ -178,6 +195,89 @@ function refuseUnsearchableSkillScope(rest: string): GrepToolError | undefined {
     return invalidPathResult('A skill name cannot hold a glob.');
   const split = splitGrepScope(rawPath);
   return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
+}
+
+/**
+ * One host scope: the Workspace rule places it, lexical normalization settles
+ * `.` and `..` before any policy text is read, and the glob split sets where
+ * the walk starts. A host scope needs the same accepted native host authority
+ * `read` needs; grep records no native attempt because it changes nothing.
+ */
+async function resolveHostScope(
+  context: ToolContext,
+  scope: string,
+  index: number,
+  admission: GrepReadAdmission,
+): Promise<ScopeOutcome> {
+  const root = context.workspaceRoot?.current();
+  if (root === undefined && isWorkspaceRelative(scope)) {
+    return {
+      result: invalidPathResult('A relative scope needs an entered Workspace.'),
+    };
+  }
+  const placed =
+    root === undefined
+      ? scope
+      : isWorkspaceRelative(scope)
+        ? resolveWorkspacePath(root, scope)
+        : mapToWorkspaceHost(root, scope);
+  const scheme = parsePathScheme(placed);
+  if (scheme !== undefined) {
+    // An absolute path inside a Machine Workspace becomes that Machine's
+    // locator, which only the Machine layer can serve.
+    return {
+      result:
+        scheme.scheme === MACHINE_SCHEME
+          ? machineUnsupportedResult()
+          : invalidPathResult('This path scheme cannot be searched.'),
+    };
+  }
+  return buildHostScope(context, placed, index, admission);
+}
+
+/**
+ * One host path, already decoded from a `file:` alias or placed by the
+ * Workspace rule. The authority gate comes first, as it does for `read`.
+ */
+async function buildHostScope(
+  context: ToolContext,
+  hostPath: string,
+  index: number,
+  admission: GrepReadAdmission,
+): Promise<ScopeOutcome> {
+  if (context.runId === undefined || context.nativeExecutorId === undefined) {
+    return { result: executorUnavailableResult() };
+  }
+  const normalized = normalizeHostScope(hostPath);
+  if (!path.isAbsolute(normalized) || normalized.includes('\0')) {
+    return { result: invalidPathResult('The scope path is invalid.') };
+  }
+  // A colon is path text here: grep parses no read selector.
+  const split = splitGrepScope(normalized);
+  if ('error' in split)
+    return { result: unsupportedGlobResult(split.operator) };
+  const prefixPath =
+    split.prefix.endsWith('/') && split.prefix !== '/'
+      ? split.prefix.slice(0, -1)
+      : split.prefix;
+  return buildScope({
+    index,
+    locatorFor: (rel) =>
+      rel.length === 0
+        ? prefixPath
+        : prefixPath === '/'
+          ? `/${rel}`
+          : `${prefixPath}/${rel}`,
+    glob:
+      split.globSuffix === undefined
+        ? undefined
+        : compileGlob(split.globSuffix),
+    port: () => createHostWalkPort(prefixPath, context.abortSignal),
+    probe: () => probeHostPath(prefixPath, context.abortSignal),
+    endsWithSeparator: split.endsWithSeparator,
+    admission,
+    root: prefixPath,
+  });
 }
 
 async function resolveSkillScope(

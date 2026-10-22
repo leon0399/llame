@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   executorUnavailableResult,
+  hostPathFailureResult,
   invalidCursorResult,
   invalidInputResult,
   invalidPathResult,
@@ -60,6 +61,11 @@ describe('grep results', () => {
       status: 'error',
       type: 'invalid_path',
       message: 'Machine locators cannot be searched on this process yet.',
+    });
+    expect(hostPathFailureResult()).toEqual({
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'The host path could not be read.',
     });
   });
 });

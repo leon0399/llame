@@ -74,9 +74,11 @@ export function grepScopeStrings(
 /**
  * Project one scope to the literal prefix policy matches. A relative or bare
  * absolute host scope is first placed by the Workspace rule, host and Machine
- * paths are normalized lexically, and the prefix is cut at the first glob
- * segment of the submitted text before any decoding; `kb://`, `skill://`, and
- * `machine://` prefixes then take the canonical spelling `read` matches.
+ * paths are normalized lexically, and a `file:` alias is decoded before that
+ * normalization, so its `..` text is matched as the path it resolves to. Any
+ * other prefix is cut at the first glob segment of the submitted text before
+ * decoding; `kb://`, `skill://`, and `machine://` prefixes then take the
+ * canonical spelling `read` matches.
  */
 export function projectGrepScope(
   scope: string,
@@ -90,9 +92,9 @@ export function projectGrepScope(
         : mapToWorkspaceHost(root, scope);
   const scheme = parsePathScheme(placed);
   if (scheme === undefined || !Object.hasOwn(LOGICAL_SCHEMES, scheme.scheme)) {
-    const normalized = isFileAlias(placed)
-      ? projectNativeFilePath(placed)
-      : normalizeHostScope(placed);
+    // A `file:` alias is decoded first, then normalized like any host path, so
+    // `..` text it carried cannot be matched by policy as written.
+    const normalized = normalizeHostScope(projectNativeFilePath(placed));
     return { submitted: scope, prefix: prefixOf(normalized) };
   }
   const head = placed.slice(0, placed.length - scheme.rest.length);

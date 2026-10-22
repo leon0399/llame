@@ -92,6 +92,12 @@ describe('projectGrepScope', () => {
     );
   });
 
+  it('normalizes a decoded file alias before the glob cut', () => {
+    expect(
+      projectGrepScope('file:///srv/public/../secrets/**', undefined).prefix,
+    ).toBe('/srv/secrets/');
+  });
+
   it('keeps a colon in a host scope as path text', () => {
     expect(projectGrepScope('/repo/v:1/**', undefined).prefix).toBe(
       '/repo/v:1/',

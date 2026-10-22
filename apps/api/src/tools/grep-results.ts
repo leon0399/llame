@@ -73,12 +73,24 @@ export function notFoundResult(): GrepToolError {
   return { status: 'error', type: 'not_found', message: 'File not found.' };
 }
 
-/** This layer has no host backend; the host layer replaces this branch. */
+/** A host scope on a process with no accepted native host authority. */
 export function executorUnavailableResult(): GrepToolError {
   return {
     status: 'error',
     type: 'executor_unavailable',
     message: 'Native host authority is unavailable.',
+  };
+}
+
+/**
+ * The one closed result a host walk fails with when the operating system
+ * refuses a directory it admitted; `read` maps the same failure the same way.
+ */
+export function hostPathFailureResult(): GrepToolError {
+  return {
+    status: 'error',
+    type: 'executor_unavailable',
+    message: 'The host path could not be read.',
   };
 }
 

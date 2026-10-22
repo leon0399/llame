@@ -345,6 +345,27 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
+  it('admits grep on a native executor alone', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+      },
+    });
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['grep'],
+        codeOwnedTools: [nativeGrepTool],
+      }),
+    ).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeGrepTool,
+      },
+    ]);
+  });
+
   it('admits grep on an operator skill source alone', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: {
