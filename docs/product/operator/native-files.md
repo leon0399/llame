@@ -55,10 +55,12 @@ still gates each tool id. A process with `knowledge.root` and no
 locator — an absolute path argument on that process fails closed with
 `executor_unavailable` instead of resolving through the Knowledge root.
 
-`ssh://` locators need only the top-level `ssh` section, described in
-[SSH locators](ssh.md); they do not need `tools.nativeExecutorId`, and a
-process with the section but no local executor still serves them. `read`
-accepts an `ssh://` path and `bash` accepts one as its `cwd`, which runs the
+`ssh://` locators replace only the executor prerequisite: they need the
+top-level `ssh` section, described in [SSH locators](ssh.md), instead of
+`tools.nativeExecutorId`, and a process with the section but no local executor
+still serves them. `tools.allowed` and the `read` and `bash` permission groups
+still decide every `ssh://` call. `read` accepts an `ssh://` path and `bash`
+accepts one as its `cwd`, which runs the
 command on that host; `edit` and `write` refuse it with
 `unsupported_operation`, and `enter_workspace` refuses it with `invalid_path`.
 

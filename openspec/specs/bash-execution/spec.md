@@ -126,7 +126,7 @@ command/result contract.
 
 ### Requirement: The bash description tells the model to use cwd
 
-The `bash` description MUST tell the model to set the directory of the command with `cwd`, and not with a `cd` in `command`. In an entered Workspace, the model gives no `cwd` or a path relative to the Workspace root. If no Workspace is entered, the model gives an absolute `cwd`. This text MUST NOT have an effect on how the hub resolves `cwd` or how permissions match `command`.
+The `bash` description MUST tell the model to set the directory of the command with `cwd`, and not with a `cd` in `command`. In an entered Workspace, the model gives no `cwd` or a path relative to the Workspace root. If no Workspace is entered, the model gives an absolute `cwd`. A `machine://` or `ssh://` `cwd` is accepted in both cases. This text MUST NOT have an effect on how the hub resolves `cwd` or how permissions match `command`.
 
 #### Scenario: Description has the directory instructions
 

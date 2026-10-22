@@ -1,7 +1,7 @@
 /**
- * `ssh` instance-configuration tests (openspec/changes/ssh-locator, tasks 3.1
- * and 3.2 — "ssh locators are available only with an ssh section" and "SSH
- * settings are validated at startup").
+ * `ssh` instance-configuration tests (openspec/specs/ssh-locator — "ssh
+ * locators are available only with an ssh section" and "SSH settings are
+ * validated at startup").
  */
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
