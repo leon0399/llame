@@ -58,6 +58,9 @@ type CursorPosition = "before" | "ancestor" | "at" | "after";
 export async function* walkGrepScope(walk: GrepWalk): AsyncGenerator<string> {
   if (walk.scope.singleFile) {
     yield "";
+    // The scope holds one entry: once the consumer examined it, the walk has
+    // reached its end and a later stop names it as the resume point.
+    walk.onReach("");
     return;
   }
   yield* walkDirectory(
@@ -88,6 +91,7 @@ async function* walkDirectory(
     if (counted && !state.walk.onEntry()) break;
     if (entry.kind === "link") {
       if (scope.port.followsLinks) state.walk.onLink();
+      if (counted) state.walk.onReach(childRel);
       continue;
     }
     if (entry.kind === "directory") {
@@ -135,13 +139,30 @@ async function* walkDirectoryEntry(
   position: CursorPosition,
 ): AsyncGenerator<string> {
   const { scope } = state.walk;
-  if (entry.name === ".git" || position === "before") return;
-  if (isIgnored(state, rel, true)) return;
-  if (scope.glob !== undefined && !scope.glob.mayDescend(rel)) return;
+  const counted = countsEntry(state.walk.cursorKind, position);
+  // A counted directory the walk does not descend still moves the resume
+  // point: a later stop names it instead of the entry before it.
+  const reach = (): void => {
+    if (counted) state.walk.onReach(rel);
+  };
+  if (entry.name === ".git") {
+    reach();
+    return;
+  }
+  if (position === "before") return;
+  if (isIgnored(state, rel, true)) {
+    reach();
+    return;
+  }
+  if (scope.glob !== undefined && !scope.glob.mayDescend(rel)) {
+    reach();
+    return;
+  }
   const identity = entry.identity;
   if (identity !== undefined) {
     if (state.ancestors.has(identity)) {
       if (scope.port.followsLinks) state.walk.onLink();
+      reach();
       return;
     }
     state.ancestors.add(identity);
@@ -220,6 +241,10 @@ function pathRelativeTo(layer: IgnoreLayer, pathname: string): string {
     : pathname.slice(layer.base.length + 1);
 }
 
+/**
+ * An empty resume point names the start of the scope: every entry sorts after
+ * it, so a resumed walk lists the scope again and counts every entry.
+ */
 function cursorPosition(
   rel: string,
   cursorRel: string | undefined,

@@ -28,6 +28,8 @@ type ScanState = {
   stop: GrepWarningKind | undefined;
   /** The last entry the walk finished handling, for a bound-stop cursor. */
   position: { readonly scopeIndex: number; readonly rel: string } | undefined;
+  /** The scope whose walk is running, for a stop before any entry was reached. */
+  scopeIndex: number | undefined;
 };
 
 /**
@@ -48,6 +50,7 @@ export async function runGrepScan(
     readRefused: 0,
     stop: undefined,
     position: undefined,
+    scopeIndex: undefined,
   };
   for (const scope of [...input.scopes].sort(
     (left, right) => left.index - right.index,
@@ -61,6 +64,7 @@ export async function runGrepScan(
 }
 
 async function scanScope(state: ScanState, scope: GrepScope): Promise<void> {
+  state.scopeIndex = scope.index;
   const cursor = state.input.cursor;
   const scopeCursor =
     cursor !== undefined && cursor.scopeIndex === scope.index
@@ -281,7 +285,13 @@ function buildResult(state: ScanState): GrepScanResult {
   };
 }
 
-/** The last emitted passage, or the last reached entry when none was emitted. */
+/**
+ * The last emitted passage, the last reached entry when none was emitted, or
+ * — when a stop came before the walk reached anything — the first scope that
+ * has not been scanned, named with an empty `rel` so its walk lists from the
+ * start. Entries then count again, but a file or byte bound and the deadline
+ * are fresh, so the call after it makes progress.
+ */
 function cursorOf(state: ScanState): string | undefined {
   const last = state.page.last;
   if (last !== undefined) {
@@ -295,7 +305,15 @@ function cursorOf(state: ScanState): string | undefined {
     });
   }
   const position = state.position;
-  if (position === undefined) return undefined;
+  if (position === undefined) {
+    if (state.scopeIndex === undefined) return undefined;
+    return encodeGrepCursor({
+      kind: "position",
+      scopeIndex: state.scopeIndex,
+      rel: "",
+      inputHash: state.input.inputHash,
+    });
+  }
   return encodeGrepCursor({
     kind: "position",
     scopeIndex: position.scopeIndex,

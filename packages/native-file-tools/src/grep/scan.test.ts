@@ -403,19 +403,111 @@ describe("grep walk bounds", () => {
     });
   });
 
-  it("stops at the byte bound before opening a file", async () => {
+  it("stops at the byte bound before opening a file and restarts the scope", async () => {
     const port = createMemoryPort({ "a.md": hit() });
-    const result = await runMemoryScan(
-      [memoryScope(0, "/repo/", port)],
-      ["hit"],
-      {
-        budget: { bytes: 0 },
-      },
-    );
+    const scope = memoryScope(0, "/repo/", port);
+    const result = await runMemoryScan([scope], ["hit"], {
+      budget: { bytes: 0 },
+    });
     expect(result.results).toEqual([]);
+    expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
-    expect(result.cursor).toBeUndefined();
     expect(port.reads).toEqual([]);
+    // No entry was reached, so the cursor names the scope before its start.
+    const cursor = decode(result.cursor);
+    expect(cursor).toMatchObject({
+      kind: "position",
+      scopeIndex: 0,
+      rel: "",
+    });
+    const second = await runMemoryScan([scope], ["hit"], { cursor });
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      "/repo/a.md:1-1",
+    ]);
+    expect(second.complete).toBe(true);
+  });
+
+  it("resumes past 20,000 unopened link entries", async () => {
+    const tree: Record<string, MemoryNode> = {};
+    for (let index = 0; index <= 20_000; index += 1)
+      tree[`l${String(index).padStart(5, "0")}`] = { kind: "link" };
+    tree["z.md"] = hit();
+    const port = createMemoryPort(tree);
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { entries: 20_000 },
+    });
+    expect(first.results).toEqual([]);
+    expect(first.complete).toBe(false);
+    expect(first.warnings).toEqual([{ kind: "entry_bound", count: 1 }]);
+    // The bound stopped before the file, but every link it counted was reached.
+    const cursor = decode(first.cursor);
+    expect(cursor).toMatchObject({ kind: "position", rel: "l19999" });
+    const second = await runMemoryScan([scope], ["hit"], {
+      cursor: decode(first.cursor),
+    });
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      "/repo/z.md:1-1",
+    ]);
+    expect(second.complete).toBe(true);
+    // The re-listed links are exempt from the bound: only the two after it count.
+    expect(second.consumed.entries).toBe(2);
+    expect(port.reads).toEqual(["z.md"]);
+  });
+
+  it("restarts the scope when the deadline stops the walk before the first file", async () => {
+    const port = createMemoryPort({ "a.md": hit() });
+    const scope = memoryScope(0, "/repo/", port);
+    let clock = 0;
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { deadlineMs: 2500 },
+      now: () => (clock += 5000),
+    });
+    expect(first.results).toEqual([]);
+    expect(first.complete).toBe(false);
+    expect(first.warnings).toEqual([{ kind: "deadline", count: 1 }]);
+    expect(port.reads).toEqual([]);
+    const cursor = decode(first.cursor);
+    expect(cursor).toMatchObject({ kind: "position", scopeIndex: 0, rel: "" });
+    const second = await runMemoryScan([scope], ["hit"], { cursor });
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      "/repo/a.md:1-1",
+    ]);
+    expect(second.complete).toBe(true);
+  });
+
+  it("advances a directory position on resume", async () => {
+    const port = createMemoryPort({
+      d: directory({ "a.md": file("miss\n"), "b.md": file("miss\n") }),
+      "z.md": hit(),
+    });
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { entries: 1 },
+    });
+    // The directory was reached before it was descended, so the cursor names it.
+    expect(decode(first.cursor)).toMatchObject({
+      kind: "position",
+      rel: "d",
+    });
+    const second = await runMemoryScan([scope], ["hit"], {
+      cursor: decode(first.cursor),
+      budget: { entries: 1 },
+    });
+    expect(second.results).toEqual([]);
+    // The first child it opened moves the resume point past the directory.
+    expect(decode(second.cursor)).toMatchObject({
+      kind: "position",
+      rel: "d/a.md",
+    });
+    const third = await runMemoryScan([scope], ["hit"], {
+      cursor: decode(second.cursor),
+    });
+    expect(third.results.map((passage) => passage.locator)).toEqual([
+      "/repo/z.md:1-1",
+    ]);
+    expect(third.complete).toBe(true);
+    expect(port.reads).toEqual(["d/a.md", "d/b.md", "z.md"]);
   });
 
   it("returns a partial page with a cursor at the deadline", async () => {
