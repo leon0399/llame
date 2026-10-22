@@ -258,9 +258,10 @@ The daemon returns at most one page per request. The request budget also
 carries the remaining `limit` and page units. The API cuts an oversized
 daemon page, abandons the request at the remaining deadline, and builds its
 cursor from the last passage it emitted. On resume the API passes that
-cursor to the daemon. A daemon stop at a bound returns the same cursor
-kinds, and the API passes that cursor through. A method-not-found error maps
-to the Machine unusable result.
+cursor to the daemon.
+
+A daemon stop at a bound returns a position. The API builds its own position
+cursor from it. A method-not-found error maps to the Machine unusable result.
 
 ### D8. Advertisement
 
@@ -300,6 +301,15 @@ a file is one unit of work. A call then reads at most 1 MiB past that bound.
 - The per-file `read` evaluation runs once per candidate. The evaluator is
   in-memory and bounded by the selection budget. 5,000 evaluations cost
   milliseconds.
+
+### Cursor contents
+
+- A position cursor holds the relative path of the last entry the walk
+  reached. That entry can be one the `read` group refused, and the cursor
+  then names it only as the point to resume after. The cursor never names a
+  passage of it. The payload is base64url JSON, so a reader can decode the
+  path. A resume identifier that omits the path needs durable state across
+  calls, which the tool does not keep.
 
 ### Compatibility
 

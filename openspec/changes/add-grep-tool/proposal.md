@@ -137,6 +137,12 @@ model calls, and every hit is a locator that `read` accepts.
 
 ## Revision history
 
+- **v6 (2026-10-22):** Review round 5.
+  - A bound or a deadline cursor is a passage cursor when the page emitted a passage, and a position cursor otherwise.
+  - A position cursor can name an entry that the `read` group refused, only as the point to resume after. The entries it lists again do not count toward the entry bound. The design records this known ceiling.
+  - A daemon stop at a bound returns a position, and the API builds its own position cursor from it.
+  - A `skill://<name>` scope on a Chat without a skill source fails as `not_found`, and a scenario covers it.
+  - A rest of a cut passage that holds no matched line is dropped, and a scenario covers it.
 - **v5 (2026-10-22):** Review round 4.
   - The `grep` scope projection and the per-file `read` evaluation are named exceptions of the canonical string-matching requirement.
   - A literal colon in a `kb://` or `skill://` scope is `invalid_path`, and the message names the `%3A` spelling.

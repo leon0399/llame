@@ -334,10 +334,11 @@ that bound. When a walk stops at a bound, the result MUST carry
 `complete: false` and a `warnings` entry that names the bound. The result
 MUST also carry a `cursor`.
 
-The cursor MUST name the last entry the walk reached in canonical order. It
-names that entry even when the walk emitted no passage. A later call MUST
-list the entries up to and including that entry without opening them. It
-MUST then continue the walk after that entry.
+When the page emitted a passage, the cursor MUST be a passage cursor as the
+paging requirement below defines. Otherwise the cursor MUST be a position
+cursor that names the last entry the walk reached in canonical order. A later
+call MUST list the entries up to and including that entry without opening
+them. It MUST then continue the walk after that entry.
 
 The call MUST stop after 30 seconds of wall time across every scope. It MUST
 then return the passages found so far with `complete: false` and a
@@ -512,9 +513,11 @@ page MUST end before the budget, so the tool loop never cuts the result.
 When the tool cuts a passage, the cursor MUST name that passage and its last
 emitted line. A later call with that cursor MUST emit the rest of that
 passage first. It MUST start at the line after the last emitted line. It
-MUST repeat no line. It MUST then continue in canonical order. A cut
-passage that is also the twentieth passage of its file keeps the twentieth
-rule after that call emits its rest.
+MUST repeat no line. It MUST then continue in canonical order.
+
+A rest with no matched line is dropped, as the partition rule drops one. A
+cut passage that is also the twentieth passage of its file keeps the
+twentieth rule after that call emits its rest.
 
 When passages remain after a page, the result MUST carry `complete: false`
 and an opaque keyset `cursor`. The cursor names the last emitted passage by
@@ -536,8 +539,13 @@ Machine.
 
 A position cursor names the last entry the walk reached. On resume, the
 walk MUST list the entries up to and including that entry without an open.
-It MUST descend a directory named by that entry. It MUST NOT examine the
-file named by that entry again.
+Those entries do not count toward the 20,000-entry bound. The walk MUST
+descend a directory named by that entry. It MUST NOT examine the file named
+by that entry again.
+
+The entry that a position cursor names can be one that the `read` group
+refused. The cursor names it only as the point to resume after. It never
+names a passage of that entry.
 
 A result with no passage MUST return `results: []` and `complete: true`
 when no bound stopped the walk.
@@ -581,6 +589,19 @@ when no bound stopped the walk.
 - **AND** the next call emits the rest of that passage from line 41
 - **AND** no line of that passage is repeated
 
+#### Scenario: A position cursor names a refused entry
+
+- **WHEN** a bound stops the walk on an entry that the `read` group refused and the page emitted no passage after it
+- **THEN** the position cursor names that entry as the point to resume after
+- **AND** the result holds no passage of that entry
+- **AND** the next call does not count that entry toward the 20,000-entry bound
+
+#### Scenario: A rest of context only is dropped
+
+- **WHEN** the tool cuts a passage at line 40 and every line after line 40 is context
+- **THEN** the next call emits no rest of that passage
+- **AND** it starts at the next file in canonical order
+
 #### Scenario: Each expansion of a bare scope takes its own ordinal
 
 - **WHEN** `kb://` resolves to Spaces `a` and `b`, and `/home/u/repo/**` follows
@@ -604,10 +625,10 @@ to each Space before the walk enters it.
 
 A bare `skill://` scope on a Chat with no effective skill source names zero
 packages. The tool searches it, and it returns no passage and no failure. A
-`skill://<name>` scope there, or any `skill://` scope whose catalog snapshot
-is unavailable, MUST fail as `skill_catalog_unavailable`. A failure of one
-scope MUST fail the whole call. A partial result MUST NOT hide a scope that
-the tool did not search.
+`skill://<name>` scope there MUST fail as `not_found`, as `read` does. A
+`skill://` scope whose catalog snapshot is unavailable MUST fail as
+`skill_catalog_unavailable`. A failure of one scope MUST fail the whole
+call. A partial result MUST NOT hide a scope that the tool did not search.
 
 A `machine://` scope MUST run on the named Machine through the `fs.grep`
 protocol method. The daemon MUST resolve the prefix through its registered
@@ -641,6 +662,11 @@ call as Machine unusable.
 
 - **WHEN** a scope is a bare `skill://` and the Chat has no effective skill source
 - **THEN** the result holds no passage for that scope and `complete: true`
+
+#### Scenario: Named skill scope without a source
+
+- **WHEN** a scope is `skill://reviewer` and the Chat has no effective skill source
+- **THEN** the tool returns `not_found`
 
 #### Scenario: Named skill scope without a catalog snapshot
 
