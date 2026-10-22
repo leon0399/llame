@@ -264,6 +264,17 @@ describe('createGrepReadAdmission', () => {
     });
   });
 
+  it('counts a refused file once however often the call meets it', () => {
+    const admission = createGrepReadAdmission(
+      contextWith({
+        read: { allow: true, reject: [{ field: 'path', regex: '\\.env$' }] },
+      }),
+    );
+    expect(admission.admit('/home/u/repo/.env')).toBe(false);
+    expect(admission.admit('/home/u/repo/.env')).toBe(false);
+    expect(admission.refused).toBe(1);
+  });
+
   it('admits nothing without a read group', () => {
     const admission = createGrepReadAdmission(
       contextWith({ grep: { allow: true } }),

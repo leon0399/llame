@@ -169,8 +169,13 @@ export function createGrepReadAdmission(
   const project = nativeFileProjection('read', root);
   let refused = 0;
   let firstRejection: PermissionDecision | undefined;
+  // One verdict per file for the whole call: overlapping scopes and a file a
+  // Machine returns on two pages must count one refused file once.
+  const verdicts = new Map<string, boolean>();
   return {
     admit(locator) {
+      const known = verdicts.get(locator);
+      if (known !== undefined) return known;
       const decision = admitPermission(context, (policy) =>
         evaluatePermission(policy, {
           toolId: 'read',
@@ -178,7 +183,9 @@ export function createGrepReadAdmission(
           projectFieldValue: project,
         }),
       );
-      if (decision?.decision === 'allow') return true;
+      const allowed = decision?.decision === 'allow';
+      verdicts.set(locator, allowed);
+      if (allowed) return true;
       refused += 1;
       firstRejection ??= decision;
       return false;
