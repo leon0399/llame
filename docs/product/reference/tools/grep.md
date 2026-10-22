@@ -43,7 +43,6 @@ A scope is one of these locators:
 
 - an absolute host path,
 - a relative host path, which resolves from the entered Workspace root,
-- a `machine://<name><absolute path>` locator,
 - a `kb://<space-id>/<path>` locator, or bare `kb://` for every Space of the
   owner,
 - a `skill://<name>` or `skill://<name>/<path>` locator, or bare `skill://`
@@ -116,8 +115,8 @@ operator, so a clause sees no glob.
 
 A scope whose shape this process cannot search is refused as `invalid_path`
 before policy is asked, so such a call records no permission decision: a
-scheme with no backend here, a `file:` alias with a remote host, a bare
-`machine://`, a glob operator the engine refuses, and a selector-shaped colon
+scheme with no backend here (`machine://` included), a `file:` alias with a
+remote host, a glob operator the engine refuses, and a selector-shaped colon
 in a `kb://` or `skill://` scope.
 
 The `read` group then admits every candidate file on its canonical locator.
@@ -190,5 +189,5 @@ that a matched line contains.
   configures the `grep` group that admits every scope and the `read` group that
   admits every candidate file.
 - [Native files](../../operator/native-files.md) enables the host executor that
-  the host scopes and `machine://` scopes need; without it they answer
-  `executor_unavailable`, as `read` does.
+  host scopes need; without it they answer `executor_unavailable`, as `read`
+  does.
