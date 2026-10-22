@@ -770,6 +770,36 @@ describe('runTool permission gate', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it('refuses an unsupported glob operator in a host scope before recording a decision', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const grepTool: Tool<{ scopes: Array<string> }> = {
+      id: 'grep',
+      description: 'searches the scopes it names',
+      classification: 'read_only',
+      inputSchema: z.strictObject({ scopes: z.array(z.string()).min(1) }),
+      execute,
+    };
+    const admitted = vi.fn();
+
+    const result = await runTool(
+      grepTool,
+      { scopes: ['/repo/{a,b}'] },
+      // Rejecting every grep call: policy would answer `permission_denied`.
+      contextWith({ grep: { reject: true } }),
+      5,
+      admitted,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'The glob operator `{` is not supported; write `*`, `**`, and `?` instead.',
+    });
+    expect(admitted).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('fails closed when no trusted policy is supplied', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
     const tool: Tool = { ...echoTool, execute };

@@ -81,10 +81,19 @@ export function refuseUnsearchableGrepScopes(
 function refuseUnsearchableScope(scope: string): GrepToolError | undefined {
   if (isFileAlias(scope)) {
     const alias = decodeFileAlias(scope);
-    return alias.ok ? undefined : invalidPathResult(alias.message);
+    if (!alias.ok) return invalidPathResult(alias.message);
+    // The decoded path is the text its own scope is split at, and a glob
+    // operator it carries is one the engine refuses.
+    const split = splitGrepScope(alias.hostPath);
+    return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
   }
   const scheme = parsePathScheme(scope);
-  if (scheme === undefined) return undefined;
+  if (scheme === undefined) {
+    // A scheme-less scope is a host path: grep parses no selector there, but
+    // a glob operator it carries is still the engine's to refuse.
+    const split = splitGrepScope(scope);
+    return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
+  }
   switch (scheme.scheme) {
     case KNOWLEDGE_SCHEME:
       return refuseUnsearchableKnowledgeScope(scheme.rest);

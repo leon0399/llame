@@ -459,9 +459,25 @@ describe('refuseUnsearchableGrepScopes', () => {
     });
   });
 
+  it('refuses an unsupported glob operator in a host scope or file: alias', () => {
+    expect(refused(['/repo/{a,b}'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'The glob operator `{` is not supported; write `*`, `**`, and `?` instead.',
+    });
+    expect(refused(['file://localhost/repo/[ab]'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'The glob operator `[` is not supported; write `*`, `**`, and `?` instead.',
+    });
+  });
+
   it('passes a searchable shape, including a placed host scope', () => {
     expect(refused([`kb://${SPACE}/notes/**`])).toBeUndefined();
     expect(refused(['skill://pdf'])).toBeUndefined();
     expect(refused(['src/**'], '/home/u/repo')).toBeUndefined();
+    expect(refused(['file://localhost/repo/src/**'])).toBeUndefined();
   });
 });
