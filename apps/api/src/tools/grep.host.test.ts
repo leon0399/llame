@@ -307,7 +307,11 @@ describe('host Workspace rule', () => {
       patterns: ['needle'],
       scopes: ['src/**'],
     });
-    expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'A relative scope needs an entered Workspace.',
+    });
   });
 
   it('refuses a cursor issued under another Workspace', async () => {

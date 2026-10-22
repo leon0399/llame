@@ -20,6 +20,7 @@ import {
 } from '@workspace/native-file-tools';
 
 import {
+  createHostWalkPort,
   createKnowledgeWalkPort,
   createSkillWalkPort,
   joinedPath,
@@ -27,6 +28,20 @@ import {
   probeSkillPath,
   readBoundedFileBytes,
 } from './grep-ports';
+
+/** What a scope root the process cannot list answers with; `read` refusals too. */
+const NOT_FOUND_RESULT = {
+  status: 'error',
+  type: 'not_found',
+  message: 'File not found.',
+};
+
+/** The closed refusal a host directory the operating system denies produces. */
+const HOST_REFUSAL_RESULT = {
+  status: 'error',
+  type: 'executor_unavailable',
+  message: 'The host path could not be read.',
+};
 
 const SPACE_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -123,6 +138,142 @@ describe('readBoundedFileBytes', () => {
         controller.signal,
       ),
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('createHostWalkPort', () => {
+  /** The ignore-policy reader of one host port; a host port always carries one. */
+  function ignoreReader(root: string) {
+    const port = createHostWalkPort(root, undefined);
+    return (rel: string) => {
+      if (port.ignoreFile === undefined)
+        throw new Error('a host port reads .gitignore');
+      return port.ignoreFile(rel);
+    };
+  }
+
+  it('never follows a symbolic link', () => {
+    expect(createHostWalkPort('/srv/repo', undefined).followsLinks).toBe(false);
+  });
+
+  it('treats a directory it cannot list below the scope as empty', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'plain.txt'), 'needle\n');
+      const port = createHostWalkPort(root, undefined);
+      await expect(port.list('plain.txt/nested')).resolves.toEqual([]);
+    });
+  });
+
+  it('fails the call only when the scope root itself cannot be listed', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'plain.txt'), 'needle\n');
+      const absent = createHostWalkPort(path.join(root, 'absent'), undefined);
+      await expect(absent.list('')).rejects.toMatchObject({
+        result: NOT_FOUND_RESULT,
+      });
+      // A path component that is a file: the same message a missing one gets.
+      const belowFile = createHostWalkPort(
+        path.join(root, 'plain.txt', 'child'),
+        undefined,
+      );
+      await expect(belowFile.list('')).rejects.toMatchObject({
+        result: NOT_FOUND_RESULT,
+      });
+      const tooLong = createHostWalkPort(
+        path.join(root, 'x'.repeat(300)),
+        undefined,
+      );
+      await expect(tooLong.list('')).rejects.toMatchObject({
+        result: HOST_REFUSAL_RESULT,
+      });
+    });
+  });
+
+  it('refuses a file that is not a regular file', async () => {
+    // A character device reports size 0, so only the regular-file rule can
+    // refuse it rather than reading its (empty) bytes.
+    await expect(
+      createHostWalkPort('/dev/null', undefined).read('', 64),
+    ).resolves.toStrictEqual({ kind: 'unreadable' });
+  });
+
+  it('keeps the size bound inclusive at the exact byte count', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'note.md'), 'needle\n');
+      const port = createHostWalkPort(root, undefined);
+
+      await expect(port.read('note.md', 7)).resolves.toEqual(
+        Buffer.from('needle\n'),
+      );
+      await expect(port.read('note.md', 6)).resolves.toStrictEqual({
+        kind: 'oversized',
+      });
+    });
+  });
+
+  it('refuses bytes past the bound that the declared size did not announce', async () => {
+    // procfs reports size 0 for a file with content: the declared size clears
+    // the first check, so only the bytes actually read can refuse it.
+    await expect(
+      createHostWalkPort('/proc/self/status', undefined).read('', 64),
+    ).resolves.toStrictEqual({ kind: 'oversized' });
+  });
+
+  it('closes the handle after every read, so a scan cannot exhaust the process', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'note.md'), 'needle\n');
+      const port = createHostWalkPort(root, undefined);
+      const openHandles = async () => (await readdir('/proc/self/fd')).length;
+      expect(await port.read('note.md', 64)).toEqual(Buffer.from('needle\n'));
+      const before = await openHandles();
+
+      for (let index = 0; index < 20; index += 1) {
+        await port.read('note.md', 64);
+      }
+      await port.read('absent.md', 64);
+
+      expect(await openHandles()).toBeLessThanOrEqual(before + 2);
+    });
+  });
+
+  it('reads ignore policy from a regular file below the size bound', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
+      const policy = ignoreReader(root);
+
+      await expect(policy('')).resolves.toBe('node_modules/\n');
+      await expect(policy('absent')).resolves.toBeUndefined();
+    });
+  });
+
+  it('applies no ignore policy from a link, a directory, or an oversized file', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'rules.txt'), 'node_modules/\n');
+      await symlink(
+        path.join(root, 'rules.txt'),
+        path.join(root, '.gitignore'),
+      );
+      await expect(ignoreReader(root)('')).resolves.toBeUndefined();
+    });
+    await withTree(async (root) => {
+      await writeFile(
+        path.join(root, '.gitignore'),
+        `node_modules/\n${'#'.repeat(257 * 1024)}`,
+      );
+      await expect(ignoreReader(root)('')).resolves.toBeUndefined();
+    });
+  });
+
+  it('reads a .gitignore that is exactly at the size bound', async () => {
+    await withTree(async (root) => {
+      await writeFile(
+        path.join(root, '.gitignore'),
+        `node_modules/\n${'#'.repeat(256 * 1024 - 14)}`,
+      );
+      const policy = await ignoreReader(root)('');
+
+      expect(policy).toHaveLength(256 * 1024);
+    });
   });
 });
 

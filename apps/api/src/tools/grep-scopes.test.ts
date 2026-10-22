@@ -74,6 +74,11 @@ function contextOf(
   };
 }
 
+/** A context holding the native host authority a Run on this host has. */
+function hostContext(options: { readonly root?: string } = {}): ToolContext {
+  return { ...contextOf(options), runId: 'run-a', nativeExecutorId: 'host-a' };
+}
+
 async function withPackage<T>(
   callback: (root: string, directory: string) => Promise<T>,
 ): Promise<T> {
@@ -299,6 +304,31 @@ describe('resolveScopes', () => {
     );
     expect(outcome).toMatchObject({
       result: { status: 'error', type: 'not_found' },
+    });
+  });
+
+  it('keeps the filesystem root as the prefix of every locator', async () => {
+    const outcome = scopesOf(
+      await resolveScopes(hostContext(), ['/**'], admission),
+    );
+    const scope = outcome.scopes[0];
+
+    expect(scope?.locatorFor('etc/hosts')).toBe('/etc/hosts');
+    // The walk starts at the root itself, not at an empty path that names
+    // nothing: an empty prefix would make this listing fail.
+    const listed = await scope?.port.list('');
+    expect(listed?.length).toBeGreaterThan(0);
+  });
+
+  it('refuses a host scope path that holds a NUL byte', async () => {
+    expect(
+      await resolveScopes(hostContext(), ['/tmp/a\u0000b'], admission),
+    ).toEqual({
+      result: {
+        status: 'error',
+        type: 'invalid_path',
+        message: 'The scope path is invalid.',
+      },
     });
   });
 
