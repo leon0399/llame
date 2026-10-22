@@ -60,7 +60,7 @@ describe('grep results', () => {
     expect(machineUnsupportedResult()).toEqual({
       status: 'error',
       type: 'invalid_path',
-      message: 'Machine locators cannot be searched on this process yet.',
+      message: 'Machine locators are not available on this process.',
     });
     expect(hostPathFailureResult()).toEqual({
       status: 'error',
