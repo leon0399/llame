@@ -33,20 +33,24 @@ rules:
       Distinguish deterministic safety tests from model-quality evaluations.
     - >-
       Write the requirement text and the scenario text in Simplified Technical
-      English (ASD-STE100). Use `MUST` and `MUST NOT`. Do not use `SHALL`,
-      `SHOULD`, or `MAY`. Use the active voice and the simple present tense.
-      Do not use the "-ing" form of a verb.
+      English (ASD-STE100). This rule has priority over the `SHALL` examples in
+      the schema and in the old specs. Use `MUST` and `MUST NOT` for mandatory
+      behavior. Use "can" for optional behavior, and do not use `SHALL`,
+      `SHOULD`, or `MAY`. Each requirement must also contain `MUST` or
+      `MUST NOT`, because strict validation requires it. Use the active voice
+      and the simple present tense, and do not use the "-ing" form of a verb.
     - >-
       Write a maximum of 25 words in each sentence, with one topic in each
       sentence. Use one name for one item in the full change. Keep technical
       names, identifiers, code, and quoted text as they are.
     - >-
-      Apply the two rules above to each added requirement and to each changed
-      sentence of a modified requirement. Do not change an unchanged sentence
-      of a canonical requirement only for these rules. Keep each requirement
-      text below 500 characters, because strict validation shows a message for
-      a longer text. If a requirement is too long, divide it into two
-      requirements.
+      The old specs move to STE one requirement at a time. Write each added
+      requirement in STE. If you modify a requirement, write all of its text
+      and its scenarios in STE, and keep its name, its behavior, and each
+      scenario. Do not change a requirement only for STE. Keep an added
+      requirement below 500 characters, or divide it into two requirements.
+      Do not divide a modified requirement, because a division changes its
+      identity.
   design:
     - >-
       Reuse repository, platform, and installed dependency capabilities first.
