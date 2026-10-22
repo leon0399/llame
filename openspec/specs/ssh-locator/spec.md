@@ -397,7 +397,7 @@ Each `env` key MUST match `[A-Za-z_][A-Za-z0-9_]*`. An `env` key MUST NOT be the
 
 ### Requirement: Remote bash outcomes after start are never replayed
 
-Before SSH starts, a remote `bash` call MUST record a native attempt, with the same owner rules as a local attempt. Only two ends give a known refusal: a pre-session failure (a missing client, a host key, authentication, a connect failure, or a missing interpreter) and a refusal frame that the host writes. The tool MUST return `outcome_unknown` for each other end of the call after SSH starts. This includes a start marker without an end trailer.
+Before SSH starts, a remote `bash` call MUST record a native attempt, with the same owner rules as a local attempt. Only these ends give a known refusal: an `ssh_unavailable` failure before the session, an `ssh_unsupported_host` result, and a refusal frame that the host writes. The tool MUST return `outcome_unknown` for each other end of the call after SSH starts. This includes a start marker without an end trailer.
 
 #### Scenario: Timeout gives an unknown outcome
 
