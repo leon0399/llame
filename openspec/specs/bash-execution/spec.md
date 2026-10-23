@@ -280,10 +280,4 @@ future executor adapter SHALL preserve this same-filesystem result contract.
 
 - **WHEN** bash changes a file and exits with a known result
 - **THEN** the next native read observes the current bytes
-- **AND** the result does not claim that Git or Knowledge submission occurred
-
-#### Scenario: Submit waits for a known workspace state
-
-- **WHEN** Knowledge submit targets a workspace with an active bash command
-- **THEN** submit waits for a known command result before staging
-- **AND** an unknown command outcome fences submit and prevents a concurrent commit
+- **AND** the result does not claim that a Git commit occurred

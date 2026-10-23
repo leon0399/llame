@@ -49,14 +49,15 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   operator-configured chain, with bounded normalized results. See
   [web search setup](docs/product/operator/web-search.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
-  (including uncommitted changes), plus `kb://` reads through the native
-  `read` tool, operator-configured and allowlisted.
+  (including uncommitted changes), plus `kb://` reads, edits, and writes
+  through the native file tools, operator-configured and allowlisted.
 - Optional owner-scoped chat recency digests: an owner opts in to send a bounded
   list of their other chats' titles and opening excerpts to the configured
   provider.
 
-Not yet shipped: agent-authored knowledge writes, Git-backed recovery, user
-BYOK, fine-grained tool permissions, subagents. See [ROADMAP.md](ROADMAP.md).
+Not yet shipped: llame-owned Git history for Knowledge (commits run through
+allowlisted host `bash` Git), user BYOK, fine-grained tool permissions,
+subagents. See [ROADMAP.md](ROADMAP.md).
 Operator setup: [docs/product/operator/conversation-recall.md](docs/product/operator/conversation-recall.md),
 [docs/product/operator/knowledge.md](docs/product/operator/knowledge.md).
 
