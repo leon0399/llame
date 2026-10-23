@@ -52,7 +52,7 @@ namespace SHALL be introduced. Per-call permission policy SHALL remain separate.
 
 #### Scenario: A shared template mentions an uninstalled tool
 
-- **WHEN** a valid template checks `tools.grep` and no grep tool is registered
+- **WHEN** a valid template checks `tools.never_registered` and no `never_registered` tool is registered
 - **THEN** worker startup succeeds and the predicate evaluates false
 - **AND** no tool is created or enabled by the reference
 

@@ -69,7 +69,8 @@ Trusted code creates `<root>/<stable-id>/` before committing its authority row.
 Callers cannot choose owner, ID, path, source, or directory. A DB failure may
 leave an unauthoritative directory; never reuse or delete it automatically.
 Trusted native hosts may edit these files through the generic file tools.
-Git submission remains separate work under #212.
+Commit those changes with allowlisted host `bash` Git; llame has no Knowledge
+submit tool.
 
 ## Instruction files and host authority
 

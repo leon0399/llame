@@ -13,7 +13,7 @@ credentials, Chat state, and the native effect fence.
 
 Decision provenance: the design was settled in a grilling session recorded
 against the
-[multi-device placement study](../../../docs/research/product-vision/2026-10-18-multi-device-execution-placement.md);
+[multi-device placement study](../../../../docs/research/product-vision/2026-10-18-multi-device-execution-placement.md);
 no issue tracks it because it ships as one experimental change.
 
 ## What Changes

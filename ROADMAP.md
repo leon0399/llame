@@ -88,11 +88,10 @@ product loop runs end to end.
 flowchart TD
     E0["#216 natural-cue recall proof"]
     Gate{"#39 combined release gate"}
-    K2["#212 owner-bound knowledge submit"]
     P0["#513 Profile Space"]
 
     E0 --> Gate
-    Gate --> K2 --> P0
+    Gate --> P0
 ```
 
 - [#216](https://github.com/leon0399/llame/issues/216) proves natural-cue recall
@@ -105,34 +104,27 @@ flowchart TD
   repository; the bash attempt fence already prevents replayed commits. The
   underlying MCP, multi-space, retrieval, and write components have shipped;
   the combined product proof remains open.
-- [#212](https://github.com/leon0399/llame/issues/212) is re-scoped to what
-  host bash cannot provide: a trusted owner-to-space bound `knowledge_submit`
-  with exact-path staging, Run provenance, and a `write_low_risk`
-  classification. It no longer gates #39 and is sequenced as the first task of
-  the Profile Space cut, whose exact-revision receipt is its first consumer.
 
 This milestone excludes shared Knowledge Spaces, project routing, embeddings,
 semantic facts, automatic prompt injection, Jujutsu workflows, full permission
 control, and child-agent orchestration.
 
-The owner-scoped filesystem boundary established by #213 and the owner-bound
-submit re-scoped in #212 are the prerequisites for agent-readable and
-agent-editable profile files. The profile cut does not assume that a personal
-Sandbox or local Node already exists.
+The owner-scoped filesystem boundary established by #213 is the prerequisite
+for agent-readable and agent-editable profile files. The profile cut does not
+assume that a personal Sandbox or local Node already exists.
 
 ### Git-backed Profile Space
 
 Tracking: [#513](https://github.com/leon0399/llame/issues/513), within
 [#515](https://github.com/leon0399/llame/issues/515). Selected after #39's release
-proof; the re-scoped #212 is its first task.
+proof.
 
 - Support one default Profile Space containing `USER.md`, `SOUL.md`, and
   `AGENTS.md` at an exact Git revision.
 - Let the user or an authorized agent edit those files through ordinary Git. No
-  profile editor UI is required for this cut; agent changes land through the
-  owner-bound `knowledge_submit` from #212, never through host bash, because
-  the receipt binds the exact revision and the change must carry Run
-  provenance.
+  profile editor UI is required for this cut. The receipt binds the exact
+  revision and an agent change must carry Run provenance; the focused design
+  decides how an agent change reaches a commit.
 - Bind the resource identity, commit OID, and rendered contributions into the
   Run's effective-context receipt.
 - Keep activation, inference egress, tool and Workspace permission, linked-source

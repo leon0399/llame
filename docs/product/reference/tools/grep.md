@@ -3,7 +3,7 @@ summary: "The native grep tool: patterns, locator scopes with globs, one page of
 read_when:
   - you need to know what grep searches, what a scope may name, or what a hit looks like
   - you need to know why a grep call was refused or why a page stopped early
-spec: native-file-tools
+spec: grep-tool
 configured_by:
   - ../../operator/native-files.md
   - ../../operator/knowledge.md

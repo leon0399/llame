@@ -64,8 +64,8 @@ Operator setup: [docs/product/operator/conversation-recall.md](docs/product/oper
 
 llame targets an assistant with external tools, a Git-backed Markdown knowledge
 base, prior-work recall, and self-improving context through recoverable writes.
-Knowledge currently reads live
-owner-scoped files; Git-backed writes begin in #212. Workspaces, artifacts, child
+Knowledge reads and writes live owner-scoped files, and a recoverable commit
+uses allowlisted host `bash` Git. Workspaces, artifacts, child
 agents, automation, peer harness adapters (ACP/A2A and similar), and messaging
 channels follow only after that core loop works. See [VISION.md](VISION.md).
 Prior art for those adapters:

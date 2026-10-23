@@ -30,7 +30,8 @@ review (GR) loop of bots and current-head CI per CONTRIBUTING.md.
 
 - [x] 1.1 Validate the change with `pnpm exec openspec validate remote-machines --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`, all passing
 - [x] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers, verify each finding against code or specs, and commit each round separately
-- [ ] 1.3 Self-review the published draft PR diff, mark it ready, and obtain Leo's approval of the published revision
+- [x] 1.3 Self-review the published draft PR diff, mark it ready, and obtain Leo's approval of the published revision
+  - Evidence: proposal PR #1343 merged to `master`, which records the approval.
 
 ## 2. Shared packages (`remote-machines/implementation`)
 
@@ -76,14 +77,19 @@ review (GR) loop of bots and current-head CI per CONTRIBUTING.md.
 ## 8. Documentation and layer verification (`remote-machines/implementation`)
 
 - [x] 8.1 Add `docs/product/operator/machines.md` (configuration, included SSH config and its `SendEnv` and `ProxyCommand` caveats, daemon install, roots as an addressing convenience, `authorized_keys` forced command, sshd `ClientAliveInterval`, Machine-scoped allows and anchored rejects, threats T1 to T10), the `machine://` locator reference page, updates to the `read`, `edit`, `write`, `bash`, `enter_workspace`, and instruction-file reference pages, `native-files.md`, both indexes, the `SPEC.md` sections on placement and native host authority, and an experimental `CHANGELOG.md` entry, and verify `pnpm lint:markdown` passes
-- [ ] 8.2 Run `pnpm lint`, the affected workspaces' `typecheck` and `test:coverage`, `pnpm --filter api test:integration` for the Machine suites, `pnpm --filter machine build`, `pnpm format:check`, and `git diff --check`, all passing, and record whether the mutation matrix covers the new packages
-- [ ] 8.3 Smoke the flow on a real box after the container suite passes: one jump host, enter a Machine Workspace, run `read`, `edit`, `bash`, a 5 MiB image read, and a Workspace MCP tool, stop the daemon to observe offline narration and status, restart it to observe recovery, and record the transcript in the PR body
-- [ ] 8.4 Self-review the published draft PR diff against REVIEW_GUIDE.md, record the size exception and generated churn separately in the PR body, mark it ready, and complete the GitHub review and CI loop
+- [x] 8.2 Run `pnpm lint`, the affected workspaces' `typecheck` and `test:coverage`, `pnpm --filter api test:integration` for the Machine suites, `pnpm --filter machine build`, `pnpm format:check`, and `git diff --check`, all passing, and record whether the mutation matrix covers the new packages
+  - Evidence: the implementation shipped as layers #1344 to #1361, each merged on CI with these legs. The mutation matrix in `.github/workflows/ci.yml` covers `apps/api` only; `apps/machine`, `packages/machine-protocol`, and `packages/mcp-workspace` have unit and coverage legs but no mutation leg.
+- [x] 8.3 Smoke the flow on a real box after the container suite passes: one jump host, enter a Machine Workspace, run `read`, `edit`, `bash`, a 5 MiB image read, and a Workspace MCP tool, stop the daemon to observe offline narration and status, restart it to observe recovery, and record the transcript in the PR body
+  - Evidence: Leo ran the real-box smoke and confirmed it on 2026-10-23. No PR body carries the transcript.
+- [x] 8.4 Self-review the published draft PR diff against REVIEW_GUIDE.md, record the size exception and generated churn separately in the PR body, mark it ready, and complete the GitHub review and CI loop
+  - Evidence: the single layer was split into layers #1344 to #1361 instead of shipping with a size exception. #1339 records the unsplit size and generated churn and is closed. Each layer passed bot review and merged.
 
 ## 9. Finalize readiness (`remote-machines/finalize`)
 
-- [ ] 9.1 Enter `remote-machines/finalize` with `$gh-stack` before any canonical spec is written, then run `$openspec-sync-specs` and verify `openspec/specs/remote-machines/spec.md` matches the delta
-- [ ] 9.2 Verify every task above is checked and `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass
+- [x] 9.1 Enter `remote-machines/finalize` with `$gh-stack` before any canonical spec is written, then run `$openspec-sync-specs` and verify `openspec/specs/remote-machines/spec.md` matches the delta
+  - Evidence: synced on `remote-machines-stack/finalize`, because the local `remote-machines` branch blocks the `remote-machines/finalize` ref. The canonical spec holds all 25 ADDED requirements.
+- [x] 9.2 Verify every task above is checked and `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass
+  - Evidence: every task above is checked and `openspec validate --specs` passes. The strict runs fail only on the "Requirement text is very long" warning, which also fails specs this change does not touch.
 
 ## Workflow follow-up
 

@@ -125,6 +125,18 @@ Instruction-import canonical-path evaluation is a fourth named exception: when a
 
 The silent pre-evaluation of a prompt or instruction import target before any probe SHALL record no decision of its own, because the audited `read` that follows records the call decision; in `bypass`, it SHALL admit without evaluating, like every other evaluation.
 
+The `grep` scope projection is a fifth named exception: each evaluation of the
+`grep` group SHALL see `scopes` as the one string that is the projected literal
+prefix of one scope, and an omitted `scopes` while a Workspace is entered SHALL
+be evaluated as the canonical Workspace root. All-fields rejection SHALL also
+traverse each projected prefix, so a reject matching either the submitted scope
+or its prefix refuses.
+
+A `grep` call's per-file evaluation is a sixth named exception: the `read`
+group SHALL evaluate each candidate file with `path` set to its canonical locator
+under the `read` projection; these file decisions SHALL NOT be recorded one by
+one.
+
 #### Scenario: Nested string triggers all-fields reject
 
 - **WHEN** a reject clause searches all fields for `PRIVATE_MARKER` and the call contains `{"items":[{"text":"PRIVATE_MARKER"}]}`
@@ -289,6 +301,19 @@ The silent pre-evaluation of a prompt or instruction import target before any pr
 - **WHEN** the silent pre-evaluation rejects a prompt or instruction import target
 - **THEN** exactly one decision is recorded, the audited `read`'s decision
 - **AND** the silent pre-evaluation records no decision of its own
+
+#### Scenario: A grep scope is evaluated as its projected prefix
+
+- **WHEN** the `grep` group allows `field: "scopes"` with `literal: "/work/project/src/"` and a call submits the scope `/work/project/src/**/*.ts`
+- **THEN** the `grep` group is evaluated with `scopes` set to `/work/project/src/`
+- **AND** the call is allowed
+
+#### Scenario: Each grep candidate file is evaluated as a read locator
+
+- **WHEN** the `grep` group allows the call and the `read` group rejects `path` matching `(^|/)\.env$`
+- **AND** the walk meets the file `/work/project/.env`
+- **THEN** the file contributes no passage
+- **AND** `tool.requested` records the call decision only, and the completion audit counts that file as refused
 
 ### Requirement: Literals and regex have explicit bounded text semantics
 
@@ -882,3 +907,60 @@ The recorded decisions also include the derived `canonical` decision attached to
 - **WHEN** a `bypass` attempt imports an instruction file whose canonical path differs from its resolved path
 - **THEN** the import's first page read call records a derived `canonical` decision with `allow`, reason `permission_mode_bypass`, the process's policy-instance ID, and no clause reference
 - **AND** the completion payload records it among its derived decisions when the call settles
+
+### Requirement: Grep scopes are admitted per scope and files per hit
+
+The system MUST evaluate a `grep` call against the `grep` group once per
+submitted scope, in scope order, before the tool opens any file. Each
+evaluation uses the `grep` scope projection of `Match submitted string values
+without serialization artifacts`, which the `grep-tool` capability defines. A
+field clause on `scopes` MUST match the projected prefix.
+
+Configuration validation MUST accept `scopes` as a declared field of the
+`grep` group. Its schema is an array of strings, and each evaluation
+substitutes one string. It is the only array-valued field that a clause can
+name. An omitted `scopes` while a Workspace is entered uses the omitted-scope
+exception of that requirement. The system MUST then evaluate the canonical
+Workspace root as the one scope.
+
+All-fields rejection MUST traverse `patterns`, `cursor`, each submitted scope,
+and each projected prefix, as that requirement defines. A reject written
+against a glob suffix or a pattern then still refuses. The call decision MUST
+be the first rejection in scope order, or the allow of the last scope when
+every scope is allowed. The system MUST record only that call decision on
+`tool.requested`.
+
+The per-file evaluation is the sixth named exception of that requirement: the
+system MUST evaluate each candidate file against the `read` group with `path`
+set to its canonical locator under the `read` projection of this capability.
+The system MUST NOT record these file decisions one by one. The completion
+audit MUST carry the count of files the `read` group refused. The tool result
+MUST NOT carry it. A bypassed Run MUST record one bypass decision for the call
+and no file decision.
+
+#### Scenario: All-fields reject sees the pattern
+
+- **WHEN** the `grep` group has `reject: [{ allFields: true, regex: "BEGIN RSA" }]` and a pattern is `BEGIN RSA`
+- **THEN** the call is refused
+- **AND** no scope is searched
+
+#### Scenario: All-fields reject sees the glob suffix
+
+- **WHEN** the `grep` group rejects `literal: ".env"` across all fields and a scope is `/repo/**/.env`
+- **THEN** the call is refused
+
+#### Scenario: File refusals are counted, not listed
+
+- **WHEN** the `read` group refuses 40 files beneath an admitted scope
+- **THEN** `tool.requested` carries one allow decision for the call
+- **AND** the completion audit reports 40 refused files and the result reports none
+
+#### Scenario: A scopes clause passes configuration validation
+
+- **WHEN** `tools.permissions.grep.allow` holds `{ field: "scopes", literal: "/home/u/" }`
+- **THEN** worker boot succeeds
+
+#### Scenario: An omitted scopes is evaluated as the Workspace root
+
+- **WHEN** the Chat entered `/home/u/repo` and the model submits `grep` without `scopes`
+- **AND** the `grep` group is evaluated once with `scopes` set to `/home/u/repo/`
