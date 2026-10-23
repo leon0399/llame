@@ -963,4 +963,4 @@ and no file decision.
 #### Scenario: An omitted scopes is evaluated as the Workspace root
 
 - **WHEN** the Chat entered `/home/u/repo` and the model submits `grep` without `scopes`
-- **AND** the `grep` group is evaluated once with `scopes` set to `/home/u/repo/`
+- **THEN** the `grep` group is evaluated once with `scopes` set to `/home/u/repo/`
