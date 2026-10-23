@@ -83,7 +83,8 @@ function tracedParams<M extends MachineMethod>(
     ...params,
     envelope: {
       ...params.envelope,
-      trace: { sentryTrace, ...(baggage !== undefined && { baggage }) },
+      // An absent baggage is dropped when the frame is serialized.
+      trace: { sentryTrace, baggage },
     },
   };
 }
