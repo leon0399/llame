@@ -27,7 +27,13 @@ pnpm --filter web typecheck
 ```
 
 Copy `.env.example` to `.env.local`; set `NEXT_PUBLIC_API_URL`. Sentry is
-optional.
+optional: set `NEXT_PUBLIC_SENTRY_DSN` to report. Events are tagged `local`
+unless the build sets `NEXT_PUBLIC_SENTRY_ENVIRONMENT` (`.env.example` sets
+`development`).
+To open `next dev` from another device (for example over Tailscale), set
+`ALLOWED_DEV_ORIGINS` to that host, leave `NEXT_PUBLIC_API_URL` unset (the
+browser then calls the API on its own host, port 3001), add the web origin
+to the API's `WEB_ORIGIN`, and run the API with `NODE_ENV=development`.
 
 ## Traps
 

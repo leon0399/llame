@@ -28,3 +28,22 @@ export function rootsFileFor(configDir: string = machineConfigDir()): string {
 export function machineEnvironment(): NodeJS.ProcessEnv {
   return process.env;
 }
+
+/**
+ * The daemon's Sentry identity from this box's environment, or nothing when
+ * `SENTRY_DSN` is unset. `SENTRY_RELEASE` is read by the SDK itself.
+ */
+export function sentryOptions():
+  | { readonly dsn: string; readonly environment: string }
+  | undefined {
+  const dsn = process.env["SENTRY_DSN"];
+  if (dsn === undefined || dsn.length === 0) return undefined;
+  const environment = process.env["SENTRY_ENVIRONMENT"];
+  return {
+    dsn,
+    environment:
+      environment === undefined || environment.length === 0
+        ? "local"
+        : environment,
+  };
+}

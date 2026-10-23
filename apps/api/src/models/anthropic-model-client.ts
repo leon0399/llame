@@ -8,6 +8,7 @@ import { generateObject, NoOutputGeneratedError, streamText } from 'ai';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
 import {
+  agentTelemetry,
   type BillingMode,
   createModelStreamFinishCallback,
   type ModelClient,
@@ -387,6 +388,7 @@ function buildStreamOptions(
       config.requestHeaders,
       input.chat,
     ),
+    experimental_telemetry: agentTelemetry(input.chat),
     ...messagesProviderOptions(composeMessagesOptions(config, input.effort)),
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
@@ -472,6 +474,7 @@ async function runAnthropicObject<OBJECT>(
         config.requestHeaders,
         input.chat,
       ),
+      experimental_telemetry: agentTelemetry(input.chat),
       ...(input.schemaName !== undefined && { schemaName: input.schemaName }),
       ...(input.schemaDescription !== undefined && {
         schemaDescription: input.schemaDescription,

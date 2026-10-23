@@ -1,3 +1,5 @@
+// Must stay the first import: see instrument.ts.
+import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { configureApp, setupOpenApi } from './app.setup';

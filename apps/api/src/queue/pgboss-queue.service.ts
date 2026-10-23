@@ -1,10 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
-// Structural subset of pg-boss's Job — a type-only import of pg-boss (ESM-only
-// package) from this CommonJS build needs resolution-mode gymnastics; the two
-// fields the adapter reads aren't worth it.
-type PgBossJob<T> = { id: string; data: T };
+import { processTraced, publishTraced, type TracedJob } from './job-trace';
+
+// Structural subset of pg-boss's JobWithMetadata — a type-only import of
+// pg-boss (ESM-only package) from this CommonJS build needs resolution-mode
+// gymnastics; the fields the adapter reads aren't worth it.
+type PgBossJob<T> = TracedJob & { data: T };
 
 import {
   deadLetterQueueName,
@@ -172,7 +174,9 @@ export class PgBossQueueService implements Queue {
     if (options?.singletonKey !== undefined) {
       sendOptions.singletonKey = options.singletonKey;
     }
-    return this.boss.send(queue.name, data, sendOptions);
+    return publishTraced(queue.name, data, (payload) =>
+      this.boss.send(queue.name, payload, sendOptions),
+    );
   }
 
   async jobState<T extends object>(
@@ -198,11 +202,13 @@ export class PgBossQueueService implements Queue {
     // workers under this ONE work() registration, each polling and settling
     // its own job — per-job settlement by construction, no manual ack. concurrency
     // omitted/1 is today's serial behavior.
-    return this.boss.work<PayloadOf<Q>>(
+    return this.boss.work(
       queue.name,
       {
         batchSize: 1,
         localConcurrency: options?.concurrency ?? 1,
+        // Retry count and timing for the job's `queue.process` span.
+        includeMetadata: true,
         ...(options?.pollingIntervalSeconds !== undefined && {
           pollingIntervalSeconds: options.pollingIntervalSeconds,
         }),
@@ -210,14 +216,16 @@ export class PgBossQueueService implements Queue {
       async (jobs: Array<PgBossJob<PayloadOf<Q>>>) => {
         const definition: QueueDefinition<PayloadOf<Q>> = queue;
         for (const job of jobs) {
-          // The definition's guard runs BEFORE domain code: a payload written
-          // by an older deploy (or corrupted in flight) fails the job here —
-          // retry policy, then dead letter — instead of surfacing as a
-          // confusing TypeError deep inside the handler.
-          const data: PayloadOf<Q> = definition.parse
-            ? definition.parse(job.data)
-            : job.data;
-          await handler(data, { id: job.id, queue: queue.name });
+          await processTraced(queue.name, job, async () => {
+            // The definition's guard runs BEFORE domain code: a payload
+            // written by an older deploy (or corrupted in flight) fails the
+            // job here — retry policy, then dead letter — instead of
+            // surfacing as a confusing TypeError deep inside the handler.
+            const data: PayloadOf<Q> = definition.parse
+              ? definition.parse(job.data)
+              : job.data;
+            await handler(data, { id: job.id, queue: queue.name });
+          });
         }
       },
     );

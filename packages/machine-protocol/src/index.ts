@@ -141,6 +141,7 @@ export type {
   ProcBashParams,
   ProcBashResult,
   RequestEnvelope,
+  RequestTrace,
   RootsListParams,
   RootsListResult,
 } from "./types";

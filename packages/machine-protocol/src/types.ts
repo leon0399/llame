@@ -1,5 +1,12 @@
 import type { JsonValue } from "./json-rpc";
 
+/** The hub's active trace, in the `sentry-trace` and `baggage` header
+ *  formats, so the daemon's work joins the trace that asked for it. */
+export type RequestTrace = {
+  readonly sentryTrace: string;
+  readonly baggage?: string;
+};
+
 /** The relative time budget and the durable identity a request carries. The
  *  daemon measures `budgetMs` from receipt on its own monotonic clock. */
 export type RequestEnvelope = {
@@ -8,6 +15,7 @@ export type RequestEnvelope = {
   readonly toolCallId?: string;
   readonly deliverySeq?: number;
   readonly budgetMs: number;
+  readonly trace?: RequestTrace;
 };
 
 export type HelloParams = {

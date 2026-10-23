@@ -4,8 +4,14 @@
 
 import * as Sentry from "@sentry/nextjs";
 
+import { getApiUrl } from "@/lib/api/fetch";
+
 Sentry.init({
-  dsn: "https://675247771592dd4b4f3b69558d2b86b4@o4509675784110080.ingest.de.sentry.io/4509675785289808",
+  // Unset disables reporting.
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  // The deployment names itself; a production build (`next build`, E2E,
+  // worktrees) is not a production deployment, so NODE_ENV is not used.
+  environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || "local",
 
   // Add optional integrations for additional features
   integrations: [
@@ -15,6 +21,9 @@ Sentry.init({
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,
+  // The API is another origin, so its requests carry the browser's trace
+  // headers only when listed here; the API continues that trace.
+  tracePropagationTargets: [getApiUrl()],
 
   // Define how likely Replay events are sampled.
   // This sets the sample rate to be 10%. You may want this to be 100% while

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -36,6 +37,8 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
 
 @Module({
   imports: [
+    // Traces Nest's guards, interceptors, and handlers; inert without a DSN.
+    SentryModule.forRoot(),
     // Config-as-code loading, DB_DEV, TenantDbService (core-infra.module.ts) —
     // shared with the dedicated worker entrypoint (worker.module.ts, #116).
     CoreInfraModule,
@@ -71,6 +74,9 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
   controllers: [AppController],
   providers: [
     AppService,
+    // Reports unhandled (5xx) errors, then answers as Nest's own filter does;
+    // HttpExceptions are control flow and are not reported.
+    { provide: APP_FILTER, useClass: SentryGlobalFilter },
     CanonicalSearchActivationService,
     // Guard order matters: rate limiting runs BEFORE session validation, so a
     // flood is rejected without paying the session lookup.

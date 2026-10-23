@@ -8,6 +8,8 @@
 
 import { PassThrough, Readable } from 'node:stream';
 
+import * as Sentry from '@sentry/nestjs';
+
 import {
   CANCEL_NOTIFICATION,
   CONTROL_STREAM_ID,
@@ -22,9 +24,11 @@ import {
   PING_NOTIFICATION,
   PROTOCOL_VERSION,
   StreamClosedError,
+  isSerializableRecord,
   type Frame,
   type JsonRpcError,
   type JsonRpcRequest,
+  type SerializableValue,
 } from '@workspace/machine-protocol';
 
 import {
@@ -39,6 +43,22 @@ import {
   type MachineSessionOptions,
 } from './machine-session';
 import type { MachineLinkEnd, MachineTransport } from './machine-transport';
+
+/** The span a channel's manual span hands to the session. */
+const span = { setStatus: vi.fn(), end: vi.fn() };
+
+type SpanOptions = Parameters<typeof Sentry.startSpanManual>[0];
+
+vi.mock('@sentry/nestjs', () => ({
+  getTraceData: vi.fn(() => ({})),
+  startSpan: vi.fn(
+    <T>(_options: SpanOptions, callback: () => T): T => callback(),
+  ),
+  startSpanManual: vi.fn(
+    <T>(_options: SpanOptions, callback: (active: typeof span) => T): T =>
+      callback(span),
+  ),
+}));
 
 const NAME = 'devl';
 const HUB_VERSION = '9.9.9';
@@ -805,5 +825,105 @@ describe('MachineSession unusable inbound lines', () => {
       reason: 'session_lost',
       established: false,
     });
+  });
+});
+
+describe('MachineSession tracing', () => {
+  const SENTRY_TRACE = '0123456789abcdef0123456789abcdef-0123456789abcdef-1';
+  const BAGGAGE = 'sentry-trace_id=0123456789abcdef0123456789abcdef';
+  const SPAN = {
+    name: 'llame-machine/fs.stat',
+    op: 'rpc',
+    attributes: {
+      'rpc.system.name': 'jsonrpc',
+      'rpc.service': 'llame-machine',
+      'rpc.method': 'fs.stat',
+      'jsonrpc.protocol.version': '2.0',
+    },
+  };
+
+  afterEach(() => {
+    vi.mocked(Sentry.getTraceData).mockReturnValue({});
+    vi.clearAllMocks();
+  });
+
+  /** The envelope the session wrote for one answered `fs.stat` request. */
+  async function sentEnvelope(): Promise<SerializableValue | undefined> {
+    const link = localLink();
+    const session = pipeSession(link);
+    const call = session.request(FS_STAT_CALL);
+    const request = await awaitFrame(link, isRequest('fs.stat'));
+    link.sendFrame({
+      s: request.s,
+      m: { jsonrpc: '2.0', id: request.m.id, result: { kind: 'missing' } },
+    });
+    await expect(call).resolves.toEqual({ kind: 'missing' });
+    const params = request.m.params;
+    return isSerializableRecord(params) ? params['envelope'] : undefined;
+  }
+
+  it('carries the active trace in the envelope inside an rpc span', async () => {
+    vi.mocked(Sentry.getTraceData).mockReturnValue({
+      'sentry-trace': SENTRY_TRACE,
+      baggage: BAGGAGE,
+    });
+
+    await expect(sentEnvelope()).resolves.toEqual({
+      ...ENVELOPE,
+      trace: { sentryTrace: SENTRY_TRACE, baggage: BAGGAGE },
+    });
+    expect(Sentry.startSpan).toHaveBeenCalledWith(SPAN, expect.any(Function));
+  });
+
+  it('carries a trace without baggage as just its sentry-trace', async () => {
+    vi.mocked(Sentry.getTraceData).mockReturnValue({
+      'sentry-trace': SENTRY_TRACE,
+    });
+
+    await expect(sentEnvelope()).resolves.toEqual({
+      ...ENVELOPE,
+      trace: { sentryTrace: SENTRY_TRACE },
+    });
+  });
+
+  it('leaves the envelope unchanged without an active trace', async () => {
+    await expect(sentEnvelope()).resolves.toEqual(ENVELOPE);
+  });
+
+  it("ends a channel's span with its answer, marking a failed one", async () => {
+    const link = localLink({ writeError: new Error('write EPIPE') });
+    const session = pipeSession(link);
+
+    const handle = session.openChannel(MCP_OPEN_CALL);
+    await failedCall(handle.result);
+    await settle();
+
+    expect(Sentry.startSpanManual).toHaveBeenCalledWith(
+      {
+        ...SPAN,
+        name: 'llame-machine/mcp.open',
+        attributes: { ...SPAN.attributes, 'rpc.method': 'mcp.open' },
+      },
+      expect.any(Function),
+    );
+    expect(span.setStatus).toHaveBeenCalledWith({ code: 2 });
+    expect(span.end).toHaveBeenCalledOnce();
+  });
+
+  it("ends an answered channel's span without an error status", async () => {
+    const link = localLink();
+    const session = pipeSession(link);
+
+    const handle = session.openChannel(MCP_OPEN_CALL);
+    const request = await awaitFrame(link, isRequest('mcp.open'));
+    link.sendFrame({
+      s: request.s,
+      m: { jsonrpc: '2.0', id: request.m.id, result: { protectedValues: [] } },
+    });
+    await expect(handle.result).resolves.toEqual({ protectedValues: [] });
+    await settle();
+
+    expect(span.setStatus).not.toHaveBeenCalled();
+    expect(span.end).toHaveBeenCalledOnce();
   });
 });

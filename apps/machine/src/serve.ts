@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+import * as Sentry from "@sentry/node";
 import {
   BUDGET_EXHAUSTED_MESSAGE,
   CONTROL_STREAM_ID,
@@ -67,6 +68,8 @@ const NO_HANDSHAKE_MESSAGE =
 const OVERSIZE_ANSWER_MESSAGE =
   "The Machine's answer exceeds the frame byte bound of this protocol.";
 const FAILED_OPERATION_MESSAGE = "The Machine operation failed.";
+/** The `rpc.service` both ends of a Machine call report. */
+const MACHINE_RPC_SERVICE = "llame-machine";
 
 type Session = {
   readonly input: Readable;
@@ -108,6 +111,7 @@ function reportError(
   }
   // A stack or a host path never reaches the hub; stderr is the operator's.
   console.error("llame-machine: operation failed", error);
+  Sentry.captureException(error);
   refuse(channel, "internal", FAILED_OPERATION_MESSAGE);
 }
 
@@ -139,6 +143,37 @@ function handleHello(
   });
 }
 
+/**
+ * Runs one operation as an `rpc` transaction continuing the hub's trace from
+ * its envelope, so the hub's span for the call contains the daemon's work.
+ * Name and attributes follow Sentry's rpc and jsonrpc semantic conventions.
+ */
+function withHubTrace<T>(
+  envelope: RequestEnvelope,
+  request: JsonRpcRequest,
+  work: () => Promise<T>,
+): Promise<T> {
+  const span = {
+    name: `${MACHINE_RPC_SERVICE}/${request.method}`,
+    op: "rpc",
+    forceTransaction: true,
+    attributes: {
+      "rpc.system.name": "jsonrpc",
+      "rpc.service": MACHINE_RPC_SERVICE,
+      "rpc.method": request.method,
+      "jsonrpc.protocol.version": request.jsonrpc,
+      "jsonrpc.request.id": String(request.id),
+    },
+  };
+  return Sentry.continueTrace(
+    {
+      sentryTrace: envelope.trace?.sentryTrace,
+      baggage: envelope.trace?.baggage,
+    },
+    () => Sentry.startSpan(span, work),
+  );
+}
+
 function runOperation(
   session: Session,
   channel: MachineChannel,
@@ -157,10 +192,12 @@ function runOperation(
     return;
   }
   const budget = startRequestBudget(envelope.budgetMs, channel.signal);
-  void executeOperation(
-    method,
-    request.params,
-    operationContext(session, channel, budget, envelope),
+  void withHubTrace(envelope, request, () =>
+    executeOperation(
+      method,
+      request.params,
+      operationContext(session, channel, budget, envelope),
+    ),
   )
     .then(
       (result) => {

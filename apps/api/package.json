@@ -58,6 +58,7 @@
     "@nestjs/platform-express": "^11.1.29",
     "@nestjs/swagger": "^11.4.6",
     "@nestjs/throttler": "^6.5.0",
+    "@sentry/nestjs": "~11.7.0",
     "@wavezync/nestjs-pgboss": "^6.0.0",
     "@workspace/bash-executor": "workspace:*",
     "@workspace/config-interpolation": "workspace:*",

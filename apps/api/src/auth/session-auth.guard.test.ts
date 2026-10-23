@@ -1,10 +1,13 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
+import * as Sentry from '@sentry/nestjs';
 import {
   SessionAuthGuard,
   type SessionAuthReflector,
 } from './session-auth.guard';
 import type { AuthService } from './auth.service';
+
+vi.mock('@sentry/nestjs', () => ({ setUser: vi.fn() }));
 
 describe('SessionAuthGuard', () => {
   function makeGuard(
@@ -43,6 +46,8 @@ describe('SessionAuthGuard', () => {
       userId: 'user-1',
       sessionId: 'session-1',
     });
+    // Error and trace events of this request name the user by opaque id only.
+    expect(Sentry.setUser).toHaveBeenCalledWith({ id: 'user-1' });
   });
 
   it('accepts a case-insensitive scheme and repeated whitespace (RFC 6750)', async () => {

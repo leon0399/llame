@@ -10,6 +10,12 @@ const nextConfig = {
   // markdown-linted file on every `next dev`; the bundled-docs pointer is
   // committed manually in apps/web/AGENTS.md instead.
   agentRules: false,
+  // `next dev` refuses its own assets to any host but localhost unless listed
+  // here, so a phone on the tailnet would get an unhydrated page. A
+  // comma-separated host list; production builds ignore it.
+  allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS?.split(",")
+    .map((host) => host.trim())
+    .filter(Boolean),
   turbopack: {
     // Monorepo root. Without this, Turbopack infers the workspace root from
     // lockfile locations, which picks the wrong directory in git worktrees.

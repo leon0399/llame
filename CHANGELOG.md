@@ -1,5 +1,38 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-22
+
+- Thinking-mode tool loops on Chat Completions providers no longer fail with
+  "The `reasoning_content` in the thinking mode must be passed back". OpenCode
+  Go balances DeepSeek V4.1 Flash across upstreams, and some answer a
+  tool-call step with no reasoning; the next step then failed whenever it
+  reached an upstream that requires the field. When a request carries an
+  effort, llame now sends an empty `reasoning_content` on every assistant
+  tool-call message that has none.
+
+- Web Sentry reads its DSN from `NEXT_PUBLIC_SENTRY_DSN` and its environment
+  from `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, defaulting to `local`; an unset DSN
+  disables reporting. The DSN was hard-coded, and the environment fell back
+  to `NODE_ENV`, so every local `next build`, including E2E and worktree runs,
+  reported as `production`. A deployed build must now set both variables.
+
+- The API, its workers, and the `llame-machine` daemon report to Sentry when
+  given a `SENTRY_DSN`: unhandled API errors, failed Runs, failed queue job
+  attempts, and unexpected Machine operation failures. One trace now follows
+  a request from the browser through the API, its pg-boss job, and the
+  Machine calls the job makes, with Sentry Queues spans for every queue and
+  `rpc` spans on both ends of a Machine call. Model calls appear in Sentry's
+  agent tracing, one conversation per Chat; their prompts, outputs, and tool
+  calls are sent, while request bodies, headers, queue payloads, and query
+  data are not. See [observability](docs/product/operator/observability.md).
+
+- `next dev` can be opened from another device, such as a phone over
+  Tailscale: `ALLOWED_DEV_ORIGINS` lists the hosts allowed to load its assets,
+  and without `NEXT_PUBLIC_API_URL` the browser calls the API on its own host
+  at port 3001, so the session cookie stays on the host that served the page.
+  The auth redirect no longer catches Sentry's `/monitoring` tunnel, which had
+  sent the browser's events to the login page.
+
 # 2026-10-21
 
 - `grep` searches a remote Machine. A `machine://` scope is walked by the

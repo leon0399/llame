@@ -13,6 +13,7 @@ import { InvalidArgumentError, type JSONValue } from '@ai-sdk/provider';
 import { z } from 'zod';
 
 import {
+  agentTelemetry,
   MissingModelCredentialError,
   resolveModelCredential,
   type ChatIdentity,
@@ -1065,5 +1066,16 @@ describe('model-client input contracts — the Chat identity is required (design
     };
 
     expect([streamInput, objectInput]).toHaveLength(2);
+  });
+});
+
+describe('agentTelemetry', () => {
+  it("names each lane's requests as one agent for agent tracing", () => {
+    expect(agentTelemetry({ id: 'chat-1', lane: 'main' })).toEqual({
+      functionId: 'chat-main',
+    });
+    expect(agentTelemetry({ id: 'chat-1', lane: 'title' })).toEqual({
+      functionId: 'chat-title',
+    });
   });
 });

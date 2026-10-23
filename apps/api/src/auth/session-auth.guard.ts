@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import * as Sentry from '@sentry/nestjs';
 import { AuthContext, type AuthenticatedRequest } from './auth-context';
 import { AuthService } from './auth.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
@@ -46,6 +47,8 @@ export class SessionAuthGuard implements CanActivate {
     }
 
     request.authContext = new AuthContext(session.userId, session.sessionId);
+    // Scoped to this request's isolation scope; the opaque id only.
+    Sentry.setUser({ id: session.userId });
 
     return true;
   }

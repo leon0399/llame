@@ -32,6 +32,14 @@ info:
     field, removing a field or changing a field's type fails jobs written by
     the other deploy; such a change moves the queue to a new address.
 
+    ## Trace context
+
+    When Sentry is configured, the sender adds `_trace`, an object holding
+    the `sentry-trace` and `baggage` values of its active trace, to every
+    payload it sends, and the consumer continues that trace. The field is
+    engine metadata like the pg-boss envelope: no schema below declares it,
+    and the consume-boundary validation strips it before the handler runs.
+
     ## Queue options
 
     `x-llame-queue` on a channel declares the queue's static options in
