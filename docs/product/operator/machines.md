@@ -23,7 +23,7 @@ the local executor, addressed as `machine://<name><absolute path>`. The hub
 keeps the Run loop, provider credentials, and the native effect fence; the box
 runs the `llame-machine` daemon, which hub workers start over SSH for each
 session. The behavior contract is the
-[remote-machines spec](../../../openspec/changes/remote-machines/specs/remote-machines/spec.md).
+[remote-machines spec](../../../openspec/specs/remote-machines/spec.md).
 
 Machines and the local executor (`tools.nativeExecutorId`) are independent:
 configure either, both, or neither. Machines are operator-wide: every user

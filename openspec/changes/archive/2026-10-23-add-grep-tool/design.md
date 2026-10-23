@@ -296,8 +296,13 @@ a file is one unit of work. A call then reads at most 1 MiB past that bound.
 ### Performance
 
 - `re2js` is slower than native RE2. A 32 MiB scan of short lines costs
-  seconds, not minutes. The deadline bounds the worst case. A bounded spike in
-  the engine layer records the measured time for 32 MiB of Markdown.
+  seconds, not minutes. The deadline bounds the worst case. Measured on
+  2026-10-23 with `re2js` 2.8.6, Node 22.23.3, and a Ryzen 7 5800HS: one
+  `runGrepScan` call over an in-memory port of 33 Markdown files, each just
+  under 1 MiB (34.5 MB read, the byte bound crossed by one whole file), with
+  no match so every line is scanned. A literal took 0.5 s, a
+  case-insensitive alternation 1.7 s, and `\bdecision\s+\d{7,}\b` 2.3 s.
+  Disk and daemon I/O are excluded.
 - The per-file `read` evaluation runs once per candidate. The evaluator is
   in-memory and bounded by the selection budget. 5,000 evaluations cost
   milliseconds.

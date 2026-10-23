@@ -40,7 +40,7 @@ See proposal.md for motivation. Current state that shapes the approach:
 - Live updates are owner-routed only.
 
 Decision provenance is the grilling record behind the
-[multi-device placement study](../../../docs/research/product-vision/2026-10-18-multi-device-execution-placement.md).
+[multi-device placement study](../../../../docs/research/product-vision/2026-10-18-multi-device-execution-placement.md).
 
 ## Goals / Non-Goals
 

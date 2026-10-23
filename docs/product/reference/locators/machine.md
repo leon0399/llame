@@ -3,7 +3,7 @@ summary: "machine:// locators: files, directories, and shell commands on an oper
 read_when:
   - you are passing a machine:// locator to a native tool or as a bash cwd
   - you need to know what a Machine result reports or why a Machine call failed
-spec: native-file-tools
+spec: remote-machines
 configured_by: ../../operator/machines.md
 ---
 
@@ -11,10 +11,7 @@ configured_by: ../../operator/machines.md
 
 **Experimental.** A Machine extends the native file interface below to a remote
 box the operator configured, addressed over SSH. The Machine contract itself is
-the still-experimental [remote-machines
-spec](../../../../openspec/changes/remote-machines/specs/remote-machines/spec.md),
-so the capability named above is the closest one already synced into
-`openspec/specs`.
+the [remote-machines spec](../../../../openspec/specs/remote-machines/spec.md).
 
 ## Form
 

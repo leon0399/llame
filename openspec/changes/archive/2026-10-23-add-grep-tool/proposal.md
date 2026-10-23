@@ -93,8 +93,6 @@ model calls, and every hit is a locator that `read` accepts.
 - The `machine://` backend depends on the `remote-machines` change. Its
   Machine locator, registered-root, and canonical-locator permission rules
   are cited here and must be canonical before the Machine layer archives.
-- The active `knowledge-submit` change modifies the same `tool-calling`
-  registry requirement. The second change to archive must carry both edits.
 - The shipped `llame.config.jsonc.example` documents nine permission groups
   by spec. `grep` joins the operator docs, not the example, like
   `web_search`.

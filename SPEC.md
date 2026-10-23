@@ -32,7 +32,7 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 1.1 Distributed direction is not current architecture
 
-The future Surface, Node, Personal Realm, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. An entered Workspace is the current-runtime exception: it is an owner-scoped binding on the configured native executor or on an operator-configured remote Machine, represented by a canonical root (an absolute host path or a `machine://` locator), executor identity, and generation. Remote Machines are experimental: hub workers reach them over SSH and only tool execution crosses to them; the Run loop, credentials, and native effect fence stay on the hub (see [`remote-machines`](openspec/changes/remote-machines/specs/remote-machines/spec.md) and [docs/product/operator/machines.md](docs/product/operator/machines.md)). No Workspace registry, Node enrollment, cross-node execution placement or handoff, or foreign-authority mount ships.
+The future Surface, Node, Personal Realm, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. An entered Workspace is the current-runtime exception: it is an owner-scoped binding on the configured native executor or on an operator-configured remote Machine, represented by a canonical root (an absolute host path or a `machine://` locator), executor identity, and generation. Remote Machines are experimental: hub workers reach them over SSH and only tool execution crosses to them; the Run loop, credentials, and native effect fence stay on the hub (see [`remote-machines`](openspec/specs/remote-machines/spec.md) and [docs/product/operator/machines.md](docs/product/operator/machines.md)). No Workspace registry, Node enrollment, cross-node execution placement or handoff, or foreign-authority mount ships.
 
 No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, or foreign-authority mount ships. The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
 
@@ -373,8 +373,8 @@ content hash, expected hash, revision, or host path. Historical
 `knowledge_read` results retain their earlier hash-bearing shape and remain
 immutable; the tool itself is deleted, and no attempt admits it.
 
-Git history, versioned publication, accepted revisions, and synchronization
-begin in #212 or later capabilities. No Knowledge index or embedding projection,
+Git history, versioned publication, accepted revisions, and synchronization are
+not part of this capability. No Knowledge index or embedding projection,
 heading-aware search, table of contents, generated synopsis, stable citation or
 Git revision contract, OKF/OpenWiki behavior, management UI, upload/import flow,
 delete lifecycle, portable resource schemes, Workspace, Sandbox, local Node, or
