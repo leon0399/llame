@@ -16,8 +16,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat already bound to the path. Registration runs git only when
   `tools.nativeExecutorId` is set, `enter_workspace` is in `tools.allowed`, and
   the `enter_workspace` permission group allows the submitted path, its
-  canonical form, and the inspected main clone; failures answer typed 403, 404,
-  409, 422, 502, or 503 codes, and a `machine://` locator answers
+  canonical form, the toplevel the row is stored at, and the inspected main
+  clone; failures answer typed 403, 404, 409, 422, 502, or 503 codes, and a
+  `machine://` locator answers
   `executor_unavailable` until Machines answer the git methods. Deleting a
   repository or checkout deletes rows only, never a directory, and every table
   is owner-isolated with forced RLS. See

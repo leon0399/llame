@@ -399,6 +399,37 @@ describe('CheckoutRegistrationService gates', () => {
     expect(inspect).toHaveBeenCalledWith('/work/wt');
     expect(data.createCheckout).not.toHaveBeenCalled();
   });
+
+  it('decides the toplevel of a worktree registered through a subdirectory', async () => {
+    const { service, inspect } = makeService({
+      group: {
+        allow: [{ field: 'path', regex: '^/' }],
+        // Anchored: a literal is a substring search, so `/work/wt` would also
+        // match the subdirectory this case submits.
+        reject: [{ field: 'path', regex: '^/work/wt$' }],
+      },
+      inspection: inspected({
+        toplevel: '/work/wt',
+        linked: true,
+        mainWorktree: '/work/proj',
+      }),
+    });
+    vi.mocked(realpath).mockResolvedValue('/work/wt/sub');
+
+    // The submitted and canonical paths are this worktree's subdirectory and
+    // its main clone is another directory, so only the inspected toplevel is
+    // rejected — the row would have been stored at a path the operator refused.
+    await expect(
+      failureOf(service.register(OWNER, { path: '/work/wt/sub' })),
+    ).resolves.toEqual({
+      statusCode: 403,
+      error: 'Forbidden',
+      message: 'The host access policy does not allow this path.',
+      code: 'permission_denied',
+    });
+    expect(inspect).toHaveBeenCalledWith('/work/wt/sub');
+    expect(data.createCheckout).not.toHaveBeenCalled();
+  });
 });
 
 describe('canonical directory probes', () => {
