@@ -19,9 +19,9 @@ const FIXED_ENVIRONMENT = {
 
 const INHERITED_ENVIRONMENT_NAMES = ["PATH", "HOME", "TMPDIR"] as const;
 
-export function gitEnvironment(source: NodeJS.ProcessEnv = process.env) {
+export function gitEnvironment(): Record<string, string> {
   const inherited = INHERITED_ENVIRONMENT_NAMES.flatMap((name) => {
-    const value = source[name];
+    const value = process.env[name];
     return value === undefined ? [] : [[name, value] as const];
   });
   return Object.fromEntries([
