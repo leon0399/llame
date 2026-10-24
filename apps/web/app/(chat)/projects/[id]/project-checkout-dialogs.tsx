@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 
+import { DialogFrame } from "@/components/dialog-frame";
 import {
   useRegisterCheckout,
   type RegisterCheckoutInput,
@@ -14,7 +15,6 @@ import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 
 import {
   DialogFormFooter,
-  RepositoryDialogFrame,
   RepositoryField,
 } from "./project-repository-dialog-parts";
 
@@ -125,13 +125,13 @@ export function RegisterCheckoutDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <RepositoryDialogFrame
+    <DialogFrame
       open={open}
       onOpenChange={onOpenChange}
       title="Register checkout"
     >
       <RegisterCheckoutForm onClose={() => onOpenChange(false)} />
-    </RepositoryDialogFrame>
+    </DialogFrame>
   );
 }
 
