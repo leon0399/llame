@@ -21,8 +21,16 @@ import type { GitStatusResult } from "@workspace/machine-protocol";
 async function statusWithin(git: GitRunner): Promise<GitStatusResult> {
   const head = await git(["rev-parse", "--verify", "--quiet", "HEAD"]);
   // An unborn branch exits 1 with no message; that is a repository whose HEAD
-  // names no commit yet, not a failed call.
+  // names no commit yet, not a failed call. Any other ended call — a timeout,
+  // another exit code, or a message — is a failure, and answering it as
+  // `head: null` would call a broken repository merely unborn.
   if (head.status === "timed_out") return processFailure(head);
+  if (
+    head.status === "failed" &&
+    (head.exitCode !== 1 || head.stderr.trim() !== "")
+  ) {
+    return processFailure(head);
+  }
 
   const tracking = await git([
     "rev-parse",

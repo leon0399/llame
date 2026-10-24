@@ -2,6 +2,7 @@ import {
   readGitInspectResult,
   readGitStatusResult,
   readGitWorktreeAddResult,
+  readGitWorktreeListResult,
   readGitWorktreeRemoveResult,
 } from './git-results';
 
@@ -247,6 +248,100 @@ describe('readGitWorktreeAddResult', () => {
         MACHINE,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe('readGitWorktreeListResult', () => {
+  it('accepts every worktree and re-encodes its raw path', () => {
+    expect(
+      readGitWorktreeListResult(
+        {
+          status: 'ok',
+          worktrees: [
+            {
+              path: 'machine://devl/srv/app',
+              branch: 'main',
+              head: 'a'.repeat(40),
+              locked: false,
+              prunable: false,
+            },
+            {
+              path: 'machine://devl/srv/trees/100%',
+              branch: null,
+              head: null,
+              locked: true,
+              prunable: true,
+            },
+          ],
+        },
+        MACHINE,
+      ),
+    ).toEqual({
+      status: 'ok',
+      worktrees: [
+        {
+          path: 'machine://devl/srv/app',
+          branch: 'main',
+          head: 'a'.repeat(40),
+          locked: false,
+          prunable: false,
+        },
+        {
+          path: 'machine://devl/srv/trees/100%25',
+          branch: null,
+          head: null,
+          locked: true,
+          prunable: true,
+        },
+      ],
+    });
+  });
+
+  it('refuses an entry outside the Machine prefix', () => {
+    expect(
+      readGitWorktreeListResult(
+        {
+          status: 'ok',
+          worktrees: [
+            {
+              path: 'machine://host/srv/app',
+              branch: 'main',
+              head: null,
+              locked: false,
+              prunable: false,
+            },
+          ],
+        },
+        MACHINE,
+      ),
+    ).toBeUndefined();
+  });
+
+  it.each([
+    [{}],
+    [{ status: 'ok' }],
+    [{ status: 'ok', worktrees: {} }],
+    [
+      {
+        status: 'ok',
+        worktrees: [{ path: 'machine://devl/srv/app', branch: 'main' }],
+      },
+    ],
+    [
+      {
+        status: 'ok',
+        worktrees: [
+          {
+            path: 'machine://devl/srv/app',
+            branch: 'main',
+            head: null,
+            locked: false,
+          },
+        ],
+      },
+    ],
+  ])('refuses %j', (value) => {
+    expect(readGitWorktreeListResult(value, MACHINE)).toBeUndefined();
   });
 });
 

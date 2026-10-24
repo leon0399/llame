@@ -5,18 +5,21 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   addWorktree,
   inspectRepository,
+  listWorktrees,
   removeWorktree,
   statusRepository,
   WORKTREE_ADD_TIMEOUT_MS,
   type GitInspectResult,
   type GitStatusResult,
   type GitWorktreeAddResult,
+  type GitWorktreeListResult,
   type GitWorktreeRemoveResult,
 } from '@workspace/git-executor';
 import {
   GIT_INSPECT_METHOD,
   GIT_STATUS_METHOD,
   GIT_WORKTREE_ADD_METHOD,
+  GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
   MachineProtocolError,
   type FsStatResult,
@@ -45,6 +48,7 @@ import {
   readGitInspectResult,
   readGitStatusResult,
   readGitWorktreeAddResult,
+  readGitWorktreeListResult,
   readGitWorktreeRemoveResult,
 } from './git-results';
 
@@ -71,6 +75,7 @@ export type LocalGit = {
   readonly inspect: typeof inspectRepository;
   readonly status: typeof statusRepository;
   readonly worktreeAdd: typeof addWorktree;
+  readonly listWorktrees: typeof listWorktrees;
   readonly removeWorktree: typeof removeWorktree;
 };
 
@@ -79,6 +84,7 @@ export function localGitSurface(): LocalGit {
     inspect: inspectRepository,
     status: statusRepository,
     worktreeAdd: addWorktree,
+    listWorktrees,
     removeWorktree,
   };
 }
@@ -380,6 +386,24 @@ export class ExecutorGit {
         directory: this.executorPath(target, input.directory),
       }),
       readGitWorktreeAddResult,
+    );
+  }
+
+  async worktreeList(
+    target: ExecutorTarget,
+    address: string,
+  ): Promise<GitWorktreeListResult> {
+    if (target.machine === undefined)
+      return this.local.listWorktrees({ path: address });
+    return this.ask(
+      target.machine,
+      GIT_WORKTREE_LIST_METHOD,
+      (envelope, options) => ({
+        envelope,
+        options,
+        source: this.executorPath(target, address),
+      }),
+      readGitWorktreeListResult,
     );
   }
 

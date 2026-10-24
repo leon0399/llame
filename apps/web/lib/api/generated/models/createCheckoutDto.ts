@@ -10,7 +10,7 @@ import type { CreateCheckoutDtoRepositoryId } from "./createCheckoutDtoRepositor
 
 export interface CreateCheckoutDto {
   /**
-   * One absolute local path.
+   * An absolute local path or a configured `machine://` locator.
    * @maxLength 4096
    */
   path: string;

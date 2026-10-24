@@ -8,6 +8,7 @@ import {
   initRepository,
   runGit,
   tempDirectory,
+  withGitShim,
   withSlowGit,
 } from "./testing";
 
@@ -96,6 +97,49 @@ describe("statusRepository", () => {
       ahead: 0,
       head: null,
     });
+  });
+
+  it("does not read a failed head lookup as an unborn branch", async () => {
+    const directory = initRepository(tempDirectory());
+    commitFile(directory, "README.md");
+
+    await withGitShim(
+      `for arg in "$@"; do
+  if [ "$arg" = "HEAD" ]; then
+    echo "fatal: Needed a single revision" >&2
+    exit 128
+  fi
+done
+exec "$REAL_GIT" "$@"`,
+      async () => {
+        await expect(statusRepository({ path: directory })).resolves.toEqual({
+          status: "error",
+          type: "git_failed",
+          stderr: "fatal: Needed a single revision",
+        });
+      },
+    );
+  });
+
+  it("does not read another silent exit as an unborn branch", async () => {
+    const directory = initRepository(tempDirectory());
+    commitFile(directory, "README.md");
+
+    await withGitShim(
+      `for arg in "$@"; do
+  if [ "$arg" = "HEAD" ]; then
+    exit 2
+  fi
+done
+exec "$REAL_GIT" "$@"`,
+      async () => {
+        await expect(statusRepository({ path: directory })).resolves.toEqual({
+          status: "error",
+          type: "git_failed",
+          stderr: "",
+        });
+      },
+    );
   });
 
   it("reports a path that holds no repository", async () => {

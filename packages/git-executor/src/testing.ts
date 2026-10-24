@@ -73,16 +73,25 @@ export function repositoryWithCommit(): string {
 }
 
 /**
- * Run `work` with a `git` on PATH that sleeps instead of doing anything, for a
- * timeout or cancellation test. The shim `exec`s the sleeper, so the process
- * the deadline kills is the sleeper itself and not a shell whose child would
- * keep the pipes open past the deadline.
+ * Run `work` with a `git` on PATH that runs `body` and hands everything it does
+ * not intercept to the real binary as `"$REAL_GIT" "$@"`. That is how a test
+ * reaches one subcommand's failure without breaking the rest of the session.
  */
-export async function withSlowGit<T>(work: () => Promise<T>): Promise<T> {
-  const shim = tempDirectory("git-slow-");
-  writeFileSync(join(shim, "git"), "#!/bin/sh\nexec sleep 30\n", {
-    mode: 0o755,
-  });
+export async function withGitShim<T>(
+  body: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  // The real binary is resolved before the shim directory joins PATH, so the
+  // script can hand every call it does not intercept back to it.
+  const realGit = execFileSync("sh", ["-c", "command -v git"], {
+    encoding: "utf8",
+  }).trim();
+  const shim = tempDirectory("git-shim-");
+  writeFileSync(
+    join(shim, "git"),
+    `#!/bin/sh\nREAL_GIT='${realGit}'\n${body}\n`,
+    { mode: 0o755 },
+  );
   const previousPath = process.env["PATH"];
   process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
   try {
@@ -90,6 +99,16 @@ export async function withSlowGit<T>(work: () => Promise<T>): Promise<T> {
   } finally {
     process.env["PATH"] = previousPath;
   }
+}
+
+/**
+ * Run `work` with a `git` on PATH that sleeps instead of doing anything, for a
+ * timeout or cancellation test. The shim `exec`s the sleeper, so the process
+ * the deadline kills is the sleeper itself and not a shell whose child would
+ * keep the pipes open past the deadline.
+ */
+export function withSlowGit<T>(work: () => Promise<T>): Promise<T> {
+  return withGitShim("exec sleep 30", work);
 }
 
 /** Remove every temp directory this fixture created. */

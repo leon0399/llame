@@ -5252,7 +5252,7 @@
           "path": {
             "type": "string",
             "maxLength": 4096,
-            "description": "One absolute local path."
+            "description": "An absolute local path or a configured `machine://` locator."
           },
           "repositoryId": {
             "type": "object",

@@ -16,6 +16,8 @@ import {
   type GitRepositoryRemote,
   type GitStatusResult,
   type GitWorktreeAddResult,
+  type GitWorktreeEntry,
+  type GitWorktreeListResult,
   type GitWorktreeRemoveResult,
   type JsonValue,
   type SerializableValue,
@@ -162,6 +164,44 @@ export function readGitWorktreeAddResult(
   const { branch, head } = value;
   if (path === undefined || !isText(branch) || !isText(head)) return undefined;
   return { status: 'ok', path: path.value, branch, head };
+}
+
+/** A `git.worktreeList` answer: each worktree as a locator, or a typed failure. */
+export function readGitWorktreeListResult(
+  value: JsonValue,
+  machine: string,
+): GitWorktreeListResult | undefined {
+  const failure = readGitFailure(value);
+  if (failure !== undefined) return failure;
+  if (!isSerializableRecord(value) || value['status'] !== 'ok')
+    return undefined;
+  const entries = value['worktrees'];
+  if (!Array.isArray(entries)) return undefined;
+  const worktrees: Array<GitWorktreeEntry> = [];
+  for (const entry of entries) {
+    if (!isSerializableRecord(entry)) return undefined;
+    const path = readLocatorPath(machine, entry['path']);
+    const branch = readOptionalText(entry['branch']);
+    const head = readOptionalText(entry['head']);
+    const locked = entry['locked'];
+    const prunable = entry['prunable'];
+    if (
+      path === undefined ||
+      branch === undefined ||
+      head === undefined ||
+      !isFlag(locked) ||
+      !isFlag(prunable)
+    )
+      return undefined;
+    worktrees.push({
+      path: path.value,
+      branch: branch.value,
+      head: head.value,
+      locked,
+      prunable,
+    });
+  }
+  return { status: 'ok', worktrees };
 }
 
 /** A `git.worktreeRemove` answer: success, or a typed failure. */

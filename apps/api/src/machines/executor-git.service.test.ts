@@ -8,7 +8,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { type GitInspectSuccess } from '@workspace/git-executor';
+import {
+  type GitInspectSuccess,
+  type GitWorktreeListResult,
+} from '@workspace/git-executor';
 
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
 import {
@@ -431,6 +434,118 @@ describe('ExecutorGit.worktreeAdd', () => {
       directory: '/srv/trees/shop',
       options: { displayPrefix: `machine://${NAS}` },
     });
+  });
+});
+
+describe('ExecutorGit.worktreeList', () => {
+  const LISTED: GitWorktreeListResult = {
+    status: 'ok',
+    worktrees: [
+      {
+        path: '/srv/app',
+        branch: 'main',
+        head: 'a'.repeat(40),
+        locked: false,
+        prunable: false,
+      },
+    ],
+  };
+
+  it('lists a local repository in process', async () => {
+    const listWorktrees = vi.fn(() => Promise.resolve(LISTED));
+    const { executors } = hub({}, { ...localGitSurface(), listWorktrees });
+    const target = executors.locate('/srv/app');
+
+    await expect(executors.worktreeList(target, '/srv/app')).resolves.toEqual(
+      LISTED,
+    );
+    expect(listWorktrees).toHaveBeenCalledWith({ path: '/srv/app' });
+  });
+
+  it('answers the daemon worktrees as locators for a Machine path', async () => {
+    const { executors, peer } = hub({
+      methods: ['git.worktreeList'],
+      answers: {
+        'git.worktreeList': {
+          value: {
+            status: 'ok',
+            worktrees: [
+              {
+                path: `machine://${NAS}${MACHINE_PATH}`,
+                branch: 'main',
+                head: 'a'.repeat(40),
+                locked: false,
+                prunable: false,
+              },
+              {
+                path: `machine://${NAS}/srv/trees/shop`,
+                branch: null,
+                head: null,
+                locked: true,
+                prunable: true,
+              },
+            ],
+          },
+        },
+      },
+    });
+    const target = executors.locate(LOCATOR);
+
+    await expect(executors.worktreeList(target, LOCATOR)).resolves.toEqual({
+      status: 'ok',
+      worktrees: [
+        {
+          path: LOCATOR,
+          branch: 'main',
+          head: 'a'.repeat(40),
+          locked: false,
+          prunable: false,
+        },
+        {
+          path: `machine://${NAS}/srv/trees/shop`,
+          branch: null,
+          head: null,
+          locked: true,
+          prunable: true,
+        },
+      ],
+    });
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.worktreeList')?.params,
+    ).toMatchObject({
+      source: MACHINE_PATH,
+      envelope: { budgetMs: MACHINE_GIT_BUDGET_MS },
+      options: { displayPrefix: `machine://${NAS}` },
+    });
+  });
+
+  it('fails as git_failed on a worktree outside the Machine prefix', async () => {
+    const { executors } = hub({
+      methods: ['git.worktreeList'],
+      answers: {
+        'git.worktreeList': {
+          value: {
+            status: 'ok',
+            worktrees: [
+              {
+                path: 'machine://other/srv/app',
+                branch: 'main',
+                head: 'a'.repeat(40),
+                locked: false,
+                prunable: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+    const target = executors.locate(LOCATOR);
+
+    const error = await rejectionOf(executors.worktreeList(target, LOCATOR));
+
+    expect(error.code).toBe('git_failed');
+    expect(error.message).toContain('unusable');
   });
 });
 
