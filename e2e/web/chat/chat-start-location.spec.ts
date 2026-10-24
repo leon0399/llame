@@ -326,9 +326,11 @@ test.describe("chat start location (browser, full stack)", () => {
     // The chip names a failed create's sentence only for a location that
     // resolves, and the Machine level lists an executor only while it holds a
     // `main` checkout of the repository — so the daemon needs a row of its own
-    // for both the warning and the disabled option to be observable.
+    // for both the warning and the disabled option to be observable. The path
+    // is distinct from the offline case's: (owner, executor, path) is unique,
+    // and both tests share the worker's account when they land in one worker.
     runSeedSql(
-      `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${MACHINE_OFFLINE}', '${MACHINE_OFFLINE}/srv/src/llame-e2e', 'main', 'main', 'registered');`,
+      `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${MACHINE_OFFLINE}', '${MACHINE_OFFLINE}/srv/src/llame-e2e-outdated', 'main', 'main', 'registered');`,
       account.id,
     );
     const daemonWarning =
