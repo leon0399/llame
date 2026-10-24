@@ -3,21 +3,10 @@ import { expect, fn, screen, waitFor, within } from "storybook/test";
 
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { ReadTool, type ReadToolProps } from "./read.js";
 
 const markdownRenderer: ReadToolProps["Markdown"] = MessageResponse;
-
-// The Parameters panel renders through the shared Shiki CodeBlock, whose
-// built-in "one-light" palette ships token colors below WCAG AA color-contrast.
-// Same third-party-theme defect web-search.stories.tsx suppresses; only the
-// color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: {
-    config: {
-      rules: [{ id: "color-contrast", enabled: false }],
-    },
-  },
-};
 
 const fileOutput = {
   status: "success" as const,
@@ -33,7 +22,7 @@ const fileOutput = {
 
 const meta = {
   component: ReadTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -59,7 +48,8 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * Use the file view for a host, `kb://`, or `skill://` read: the path, the
- * numbered lines exactly as the model received them, and the lines shown.
+ * lines the model received with their numbers in a gutter, and the lines
+ * shown.
  *
  * @summary for a completed line-range read of a host file
  */
@@ -68,8 +58,12 @@ export const Basic: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
     await expect(canvas.getByText(fileOutput.path)).toBeInTheDocument();
+    const contents = canvas.getByRole("group", { name: "File contents" });
+    // The line number sits in its own gutter, never inside the line text.
+    await expect(contents).toHaveTextContent("async function bootstrap() {");
+    await expect(contents).not.toHaveTextContent("5: async");
     await expect(
-      canvas.getByText(/5: async function bootstrap\(\) \{/u),
+      within(contents).getByText("5", { selector: "[aria-hidden]" }),
     ).toBeInTheDocument();
     await expect(canvas.getByText("3–4")).toBeInTheDocument();
     await expect(canvas.getByText("2–5")).toBeInTheDocument();
@@ -119,11 +113,8 @@ export const LongLine: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
-    const block = canvas.getByText(
-      (_, element) =>
-        element?.tagName === "PRE" &&
-        element.textContent.startsWith("1: minified-bundle-token"),
-    );
+    const block = canvas.getByRole("group", { name: "File contents" });
+    await expect(block).toHaveTextContent("minified-bundle-token");
     await expect(block.scrollWidth).toBeLessThanOrEqual(block.clientWidth);
   },
 };
@@ -160,6 +151,8 @@ export const Truncated: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
     await expect(canvas.getByText("1–2, 21–22")).toBeInTheDocument();
     await expect(canvas.getByText(/continues at line 23/u)).toBeInTheDocument();
+    // Lines 2 and 21 are not adjacent, so a gap marker separates them.
+    await expect(canvas.getByText("⋯")).toBeInTheDocument();
   },
 };
 
@@ -414,7 +407,11 @@ export const UnstoredPdfResult: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
-    await expect(canvas.getByText("/docs/paper.pdf")).toBeInTheDocument();
+    // The header summary repeats the submitted locator; the source line is
+    // the paragraph under it.
+    await expect(
+      canvas.getByText("/docs/paper.pdf", { selector: "p" }),
+    ).toBeInTheDocument();
     await expect(canvas.getByText("paper.pdf")).toBeInTheDocument();
     await expect(canvas.getByText("15 pages · 2.1 MiB")).toBeInTheDocument();
     await expect(canvas.queryByRole("link")).not.toBeInTheDocument();
@@ -607,6 +604,8 @@ export const UnsafeUrl: Story = {
  */
 export const Error: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "The path does not exist.",

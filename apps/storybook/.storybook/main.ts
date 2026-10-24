@@ -96,6 +96,8 @@ const preBundledStoryDeps = [
   "@radix-ui/react-use-controllable-state",
   "motion/react",
   "use-stick-to-bottom",
+  // The edit tool row's line and word diff.
+  "diff",
   // Base UI primitives back the migrated @workspace/ui components. Vite
   // optimizes each subpath on first use, so listing the bare package isn't
   // enough — every un-pre-bundled subpath triggers a mid-run re-optimize
