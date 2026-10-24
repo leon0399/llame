@@ -1,6 +1,12 @@
 /* eslint-disable typescript/no-unsafe-assignment -- a run event's `payload` and a tool observation are stored JSONB, so each read is narrowed with `isRecord` before it is asserted on. */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,9 +17,10 @@ import {
 } from '@workspace/runtime-safety';
 
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { isContextItemPart } from '../chats/context-item';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
-import { RunEventsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type ScriptedBehavior } from '../runs/scripted-model-client';
 import {
   bootWorkerHarness,
@@ -136,7 +143,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     await harness.close();
   });
 
-  /** One run whose model calls `enter_workspace` once, waited to completion. */
+  /** One run whose model calls `enter_workspace` once, waited to settle. */
   async function runEntry(
     path: string,
     worktree: UnknownRecord | undefined,
@@ -153,19 +160,60 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
       modelId,
       ...(options.chatId !== undefined && { chatId: options.chatId }),
     });
-    await waitFor(
+    await settled(seed.runId);
+    return seed;
+  }
+
+  /**
+   * One plain-text turn in the Chat: the model answers, so the next prompt
+   * carries what the workspace producer narrates.
+   */
+  async function runTurn(chatId: string): Promise<string> {
+    modelSequence += 1;
+    const modelId = `worktree-turn-${modelSequence}`;
+    harness.models.register(modelId, { kind: 'complete', text: 'Noted.' });
+    const seed = await seedAndDispatchRun(harness, {
+      userId,
+      modelId,
+      chatId,
+    });
+    await settled(seed.runId);
+    return seed.runId;
+  }
+
+  /**
+   * Wait for one Run to reach a terminal status, and fail the test with the
+   * Run's own error when it did not complete. A wait on `run.completed` alone
+   * reports a failed or cancelled Run as a timeout and hides its cause.
+   */
+  async function settled(runId: string): Promise<void> {
+    const run = await waitFor(
       async () => {
-        const events = await harness.tenantDb.runAs(userId, (tx) =>
-          new RunEventsRepository(tx).listByRunId(seed.runId, userId),
+        const row = await harness.tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(runId, userId),
         );
-        return events.some((event) => event.eventType === 'run.completed')
-          ? true
+        return row !== undefined &&
+          ['completed', 'failed', 'cancelled', 'expired'].includes(row.status)
+          ? row
           : undefined;
       },
       60_000,
-      `run ${seed.runId} to complete`,
+      `run ${runId} to settle`,
     );
-    return seed;
+    if (run.status === 'completed') return;
+    const events = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, userId),
+    );
+    throw new Error(
+      `Run ${runId} ended ${run.status}: ${JSON.stringify(
+        events
+          .filter(
+            (event) =>
+              event.eventType === 'run.failed' || event.eventType === 'error',
+          )
+          .map((event) => event.payload),
+      )}`,
+    );
   }
 
   /** The observation the Run recorded for one tool call. */
@@ -312,9 +360,17 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
       result: expect.objectContaining({ status: 'success', root: directory }),
     });
     // The `workspace` producer narrates a changed binding on the next accepted
-    // turn, so the creating Run stores no item for it; the binding it would
-    // narrate is the root and generation asserted above.
+    // turn, so the creating Run stores no item for it.
     expect(await workspaceItems(chatId, runId)).toHaveLength(0);
+
+    const turn = await runTurn(chatId);
+    const snapshots = (await workspaceItems(chatId, turn)).filter(
+      (item) => item['form'] === 'snapshot',
+    );
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({ payload: { root: directory } });
+    expect(isString(snapshots[0]?.['text'])).toBe(true);
+    expect(String(snapshots[0]?.['text'])).toContain(directory);
   });
 
   it('reuses an adopted clone instead of recording it twice', async () => {
@@ -339,58 +395,61 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
         row.kind === 'worktree' && row.parentCheckoutId === mainRows[0]?.id,
     );
     expect(
-      worktrees.map((row) => row.branch).sort((a, b) => a.localeCompare(b)),
+      worktrees
+        .map((row) => row.branch)
+        .sort((a, b) => (a ?? '').localeCompare(b ?? '')),
     ).toStrictEqual(['llame/first', 'llame/second']);
   });
 
-  it('records one repository and one main checkout for two concurrent adopters', async () => {
-    const source = clone({ remote: 'git@github.com:leon0399/concurrent.git' });
-    modelSequence += 1;
-    const first = `worktree-concurrent-a-${modelSequence}`;
-    const second = `worktree-concurrent-b-${modelSequence}`;
-    harness.models.register(first, worktreeCall(source, { name: 'a' }));
-    harness.models.register(second, worktreeCall(source, { name: 'b' }));
-    const [runA, runB] = await Promise.all([
-      seedAndDispatchRun(harness, { userId, modelId: first }),
-      seedAndDispatchRun(harness, { userId, modelId: second }),
-    ]);
-    for (const run of [runA, runB]) {
-      await waitFor(
-        async () => {
-          const events = await harness.tenantDb.runAs(userId, (tx) =>
-            new RunEventsRepository(tx).listByRunId(run.runId, userId),
-          );
-          return events.some((event) => event.eventType === 'run.completed')
-            ? true
-            : undefined;
-        },
-        60_000,
-        `run ${run.runId} to complete`,
-      );
-    }
+  it.each([
+    ['a remote clone', 'git@github.com:leon0399/concurrent.git'],
+    ['a remote-less clone', undefined],
+  ] as const)(
+    'records one repository and one main checkout for two concurrent adopters of %s',
+    async (_label, remote) => {
+      const source = clone(remote === undefined ? {} : { remote });
+      const before = await catalog();
+      modelSequence += 1;
+      const first = `worktree-concurrent-a-${modelSequence}`;
+      const second = `worktree-concurrent-b-${modelSequence}`;
+      harness.models.register(first, worktreeCall(source, { name: 'a' }));
+      harness.models.register(second, worktreeCall(source, { name: 'b' }));
+      const [runA, runB] = await Promise.all([
+        seedAndDispatchRun(harness, { userId, modelId: first }),
+        seedAndDispatchRun(harness, { userId, modelId: second }),
+      ]);
+      for (const run of [runA, runB]) await settled(run.runId);
 
-    const rows = await catalog();
-    expect(
-      rows.repositories.filter(
-        (row) => row.canonicalRemote === 'github.com/leon0399/concurrent',
-      ),
-    ).toHaveLength(1);
-    const mains = rows.checkouts.filter(
-      (row) => row.path === source && row.kind === 'main',
-    );
-    expect(mains).toHaveLength(1);
-    const worktrees = rows.checkouts.filter(
-      (row) => row.parentCheckoutId === mains[0]?.id,
-    );
-    expect(worktrees).toHaveLength(2);
-    for (const run of [runA, runB]) {
-      const chat = await chatOf(run.chatId);
-      expect(chat.workspaceRoot).toContain(
-        join(source, '..', '.llame-worktrees'),
+      const rows = await catalog();
+      const mains = rows.checkouts.filter(
+        (row) => row.path === source && row.kind === 'main',
       );
-      expect(chat.workspaceGeneration).toBe(1);
-    }
-  });
+      expect(mains).toHaveLength(1);
+      const worktrees = rows.checkouts.filter(
+        (row) => row.parentCheckoutId === mains[0]?.id,
+      );
+      expect(worktrees).toHaveLength(2);
+      // Both children hang off the one repository their parent names: a
+      // remote-less loser must not keep the repository it inserted.
+      expect(new Set(worktrees.map((row) => row.repositoryId))).toStrictEqual(
+        new Set([mains[0]?.repositoryId]),
+      );
+      const added = rows.repositories.filter(
+        (row) => !before.repositories.some((known) => known.id === row.id),
+      );
+      expect(added).toHaveLength(1);
+      expect(added[0]?.canonicalRemote).toBe(
+        remote === undefined ? null : 'github.com/leon0399/concurrent',
+      );
+      for (const run of [runA, runB]) {
+        const chat = await chatOf(run.chatId);
+        expect(chat.workspaceRoot).toContain(
+          join(source, '..', '.llame-worktrees'),
+        );
+        expect(chat.workspaceGeneration).toBe(1);
+      }
+    },
+  );
 
   it('adopts a remote-less clone without a remote identity', async () => {
     const source = clone();
@@ -466,5 +525,135 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     const after = await catalog();
     expect(after.repositories).toHaveLength(before.repositories.length);
     expect(after.checkouts).toHaveLength(before.checkouts.length);
+  });
+
+  it('switches the bound root of a Chat already in the source clone', async () => {
+    const source = clone({ remote: 'git@github.com:leon0399/switch.git' });
+    const first = await runEntry(source, undefined);
+    expect(await chatOf(first.chatId)).toMatchObject({
+      workspaceRoot: source,
+      workspaceGeneration: 1,
+    });
+
+    const second = await runEntry(
+      source,
+      { name: 'switched' },
+      { chatId: first.chatId, callId: 'worktree-switch' },
+    );
+
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'switch',
+      'switched',
+    );
+    expect(await observationOf(second.runId, 'worktree-switch')).toMatchObject({
+      status: 'success',
+      root: directory,
+      state: 'switched',
+    });
+    expect(await chatOf(first.chatId)).toMatchObject({
+      workspaceRoot: directory,
+      workspaceGeneration: 2,
+    });
+  });
+
+  it('records no row when the path is already recorded', async () => {
+    const source = clone({ remote: 'git@github.com:leon0399/recorded.git' });
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'recorded',
+      'recorded',
+    );
+    // A worktree row already owns the directory this call would create, so the
+    // transaction adopts a main checkout and then conflicts on that path.
+    await harness.tenantDb.runAs(userId, async (tx) => {
+      const catalogOf = new RepositoriesRepository(tx);
+      const repository = await catalogOf.createRepository({
+        ownerUserId: userId,
+        displayName: 'recorded',
+        canonicalRemote: 'github.com/leon0399/recorded',
+      });
+      if (repository === undefined) throw new Error('No repository row.');
+      const main = await catalogOf.createCheckout({
+        ownerUserId: userId,
+        repositoryId: repository.id,
+        executorId: 'worktree-host',
+        path: join(tempDirectory('worktree-elsewhere-'), 'elsewhere'),
+        kind: 'main',
+        parentCheckoutId: null,
+        branch: null,
+        origin: 'adopted',
+      });
+      if (main === undefined) throw new Error('No main checkout row.');
+      await catalogOf.createCheckout({
+        ownerUserId: userId,
+        repositoryId: repository.id,
+        executorId: 'worktree-host',
+        path: directory,
+        kind: 'worktree',
+        parentCheckoutId: main.id,
+        branch: 'llame/elsewhere',
+        origin: 'created',
+      });
+    });
+    const before = await catalog();
+
+    const { chatId, runId } = await runEntry(source, { name: 'recorded' });
+
+    expect(await observationOf(runId, 'worktree-entry')).toMatchObject({
+      status: 'error',
+      type: 'worktree_failed',
+      message: 'This worktree path is already recorded.',
+    });
+    const after = await catalog();
+    expect(after.repositories).toHaveLength(before.repositories.length);
+    expect(after.checkouts).toHaveLength(before.checkouts.length);
+    expect(after.checkouts.filter((row) => row.path === source)).toHaveLength(
+      0,
+    );
+    expect(await chatOf(chatId)).toMatchObject({
+      workspaceRoot: null,
+      workspaceGeneration: 0,
+    });
+  });
+
+  it('rolls back every row when the fence is lost after the add', async () => {
+    const source = clone({ remote: 'git@github.com:leon0399/fenced.git' });
+    const before = await catalog();
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValueOnce({ status: 'fence_lost' });
+
+    const { chatId, runId } = await runEntry(source, { name: 'fenced' });
+
+    enter.mockRestore();
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'fenced',
+      'fenced',
+    );
+    expect(await observationOf(runId, 'worktree-entry')).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+      leftDirectory: directory,
+    });
+    // The directory the add created stays, and no row describes it.
+    expect(existsSync(directory)).toBe(true);
+    const after = await catalog();
+    expect(after.repositories).toHaveLength(before.repositories.length);
+    expect(after.checkouts).toHaveLength(before.checkouts.length);
+    expect(after.leases.filter((row) => row !== undefined)).toHaveLength(
+      before.leases.filter((row) => row !== undefined).length,
+    );
+    expect(await chatOf(chatId)).toMatchObject({
+      workspaceRoot: null,
+      workspaceGeneration: 0,
+    });
   });
 });

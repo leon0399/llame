@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -90,6 +91,29 @@ function worktree(source: string, branch: string) {
   const directory = join(tempDirectory(), branch.replaceAll('/', '-'));
   runGit(source, ['worktree', 'add', '--quiet', '-b', branch, directory]);
   return { directory, head: runGit(directory, ['rev-parse', 'HEAD']).trim() };
+}
+
+/**
+ * A clone whose own config asks for a file-system monitor and a checkout hook,
+ * each of which writes `marker` when it runs. Every git call the executor makes
+ * disables both, so the marker proves whether one started.
+ */
+function hostile(repository: string): string {
+  const marker = join(tempDirectory('worktree-marker-'), 'ran');
+  const script = `#!/bin/sh\n: > '${marker}'\n`;
+  const hooks = tempDirectory('worktree-hooks-');
+  writeFileSync(join(hooks, 'post-checkout'), script);
+  chmodSync(join(hooks, 'post-checkout'), 0o755);
+  const monitor = tempDirectory('worktree-monitor-');
+  writeFileSync(join(monitor, 'fsmonitor.sh'), script);
+  chmodSync(join(monitor, 'fsmonitor.sh'), 0o755);
+  runGit(repository, ['config', 'core.hooksPath', hooks]);
+  runGit(repository, [
+    'config',
+    'core.fsmonitor',
+    join(monitor, 'fsmonitor.sh'),
+  ]);
+  return marker;
 }
 
 function executors(tools: Partial<LlameConfig['tools']> = {}): ExecutorGit {
@@ -222,6 +246,24 @@ describe('WorktreeRemovalService', () => {
     expect(runGit(source, ['branch', '--list', 'llame/x'])).toContain(
       'llame/x',
     );
+  });
+
+  it('removes a worktree of a clone whose config asks for a monitor and a hook', async () => {
+    const source = clone();
+    const { directory } = worktree(source, 'llame/x');
+    runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
+    const marker = hostile(source);
+    rowOf(checkoutRow(directory));
+    const { removal, deleteCheckout } = service();
+
+    await expect(
+      removal.remove('owner-1', 'checkout-1'),
+    ).resolves.toBeUndefined();
+
+    expect(existsSync(directory)).toBe(false);
+    expect(deleteCheckout).toHaveBeenCalledOnce();
+    // Neither the repository's monitor nor its checkout hook started.
+    expect(existsSync(marker)).toBe(false);
   });
 
   it('keeps a dirty worktree', async () => {

@@ -496,6 +496,48 @@ describe('ExecutorGit.inspect', () => {
     expect(error.message).not.toContain('ssh:');
   });
 
+  it('marks only a mutation whose link dropped after sending as sent', async () => {
+    const added = hub({
+      methods: ['git.inspect', 'git.worktreeAdd'],
+      answer: (call) =>
+        call.method === 'git.worktreeAdd' ? { hold: true } : undefined,
+    });
+    const target = added.executors.locate(LOCATOR);
+    const add = added.executors.worktreeAdd(target, {
+      source: LOCATOR,
+      branch: 'llame/probe',
+      directory: `${LOCATOR}/.llame-worktrees/probe/probe`,
+    });
+    const addSession = await added.peer.session(0);
+    await addSession.awaitRequests(1);
+    addSession.drop();
+
+    // The daemon received the request, so the add may have happened.
+    await expect(add).rejects.toMatchObject({
+      code: 'machine_unavailable',
+      sent: true,
+    });
+
+    const read = hub({
+      methods: ['git.inspect'],
+      answer: (call) =>
+        call.method === 'git.inspect' ? { hold: true } : undefined,
+    });
+    const inspection = read.executors.inspect(
+      read.executors.locate(LOCATOR),
+      LOCATOR,
+    );
+    const readSession = await read.peer.session(0);
+    await readSession.awaitRequests(1);
+    readSession.drop();
+
+    // A read writes nothing, so its loss is never an unknown outcome.
+    await expect(inspection).rejects.toMatchObject({
+      code: 'machine_unavailable',
+      sent: false,
+    });
+  });
+
   it('keeps the daemon root refusal, and maps another refusal to git_failed', async () => {
     const refused = hub({
       methods: ['git.inspect'],

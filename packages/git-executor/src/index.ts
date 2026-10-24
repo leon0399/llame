@@ -3,6 +3,8 @@ export { statusRepository } from "./status";
 export type { WorktreeAddInput } from "./worktrees";
 export {
   addWorktree,
+  baseReference,
+  branchName,
   listWorktrees,
   removeWorktree,
   WORKTREE_ADD_TIMEOUT_MS,
