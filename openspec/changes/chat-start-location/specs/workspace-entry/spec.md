@@ -14,9 +14,10 @@ the owner's Run context, through `enter_workspace`, `exit_workspace`, or a
 detach, or the owner's chat-creation request for the chat it creates, changes the
 binding. A binding that chat creation establishes MUST increment the generation,
 as an entry that establishes a binding does. The owner's authenticated
-chat-creation request MUST establish the first binding of the Chat it creates.
-That binding MUST use the same ordered path decisions as `enter_workspace`. It
-MUST require `enter_workspace` in `tools.allowed`. It MUST require a configured
+chat-creation request can establish the first binding of the Chat it creates.
+When it establishes the binding, that binding MUST use the same ordered path
+decisions as `enter_workspace`. It MUST require `enter_workspace` in
+`tools.allowed`. It MUST require a configured
 native executor equal to the resolved local executor id, or a configured
 Machine. It MUST use `default` or an enabled `bypass` permission mode. An owner
 fork copies the binding, subject to the fork's first-Run re-check. The owner's

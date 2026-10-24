@@ -128,9 +128,11 @@ repository_id)` to `repositories`, `(owner_user_id, checkout_id)` to
   deleted checkout, an unlinked repository, and a deleted project therefore
   leave no default behind. Chats keep their path strings, because the existing
   per-attempt re-check owns detachment.
-- `chat_creation_records(owner_user_id, chat_id, decisions jsonb, created_at)`
+- `chat_creation_records(owner_user_id, chat_id, attempts jsonb, created_at)`
   with a composite owner foreign key to `chats`, FORCE RLS, and one row per
-  chat. It is the owner-only record of the decisions the create request took.
+  chat. `attempts` holds one entry per create or resend, and each entry carries
+  its decisions and its own `created_at`. It is the owner-only record of every
+  create attempt on the chat.
 - `projects.default_executor_id`, nullable, no foreign key to Machine status.
 - Deleting a project cascades links and defaults only.
 
@@ -210,9 +212,12 @@ Server order:
    `tools.permissionModes` does not enable answers 422. A `worktree.name` or
    `baseRef` that fails change 1's input rules answers 422. Any failure stores
    nothing.
-2. Take the per-chat advisory transaction lock. `pg_try_advisory_xact_lock`
-   runs on the chat id for the whole request. A concurrent create with the same
-   id answers 409 `creation_in_progress` and changes nothing.
+2. Take the per-chat session advisory lock. `pg_try_advisory_lock` runs on the
+   chat id, on one dedicated connection, and is held for the whole request. The
+   lock is released at the end of the request, or when that connection ends. A
+   concurrent create with the same id answers 409 `creation_in_progress` and
+   changes nothing. The steps keep their separate transactions, because the
+   session lock spans all of them.
 3. Validate the named ids and insert the chat row with `project_id` set, in one
    transaction. `projectId`, `repositoryId`, and `checkoutId` are read under
    owner RLS. A foreign or missing id answers 404 and stores nothing, so
@@ -230,13 +235,14 @@ Server order:
    lowest id that holds a main checkout of the repository. Checkout: the
    request, else the remembered default for the link and executor, else the
    only `main` checkout on that executor, else none. The implicit steps skip an
-   offline Machine. An explicit `executorId`, or a remembered default, that
-   names a configured offline Machine answers `machine_unavailable`. A local
-   executor is this process's `tools.nativeExecutorId`, and it is never
-   offline. Several linked repositories with no primary and no request answer
-   none; the chat is created unbound. The server never picks a primary. The
-   projects delta owns the defaults rule, "Project repository defaults remember
-   the last chosen checkout per executor".
+   offline Machine. An explicit `executorId`, a named `checkoutId`, or a
+   remembered default that names a configured offline Machine answers
+   `machine_unavailable`. A local executor is this process's
+   `tools.nativeExecutorId`, and it is never offline. Several linked
+   repositories with no primary and no request answer none; the chat is created
+   unbound. The server never picks a primary. The projects delta owns the
+   defaults rule, "Project repository defaults remember the last chosen checkout
+   per executor".
 5. Authorize the Workspace through change 1's decision function, in the order
    of `enter_workspace`:
    1. the submitted checkout path, before any filesystem probe;
@@ -246,19 +252,19 @@ Server order:
    4. the canonical worktree directory, before `git.worktreeAdd`.
       The mode is `message.permissionMode`, and `default` when the request omits
       it, evaluated against this process's config. Every decision runs in the
-      `enter_workspace` permission group, and every decision is recorded in the
-      chat's creation record. The step applies the availability gates too:
-      `enter_workspace` must be in `tools.allowed`, and a local root needs
-      `tools.nativeExecutorId` to equal the resolved executor id. A missing
-      allowlist entry answers `bind_failed` with `tool_not_allowed`, the same
-      code the registration routes use, and a missing native executor answers
-      `executor_unavailable`. This is a server-owned action: no tool call, no
-      model choice, no Run.
+      `enter_workspace` permission group, and the request appends one attempt,
+      with every decision, to the chat's creation record. The step applies the
+      availability gates too: `enter_workspace` must be in `tools.allowed`, and
+      a local root needs `tools.nativeExecutorId` to equal the resolved executor
+      id. A missing allowlist entry answers `bind_failed` with
+      `tool_not_allowed`, the same code the registration routes use, and a
+      missing native executor answers `executor_unavailable`. This is a
+      server-owned action: no tool call, no model choice, no Run.
 6. Create the worktree when `worktree` is present, through change 1's rules,
    with the registered `main` checkout as the source and no Run fence. The call
    runs `git.worktreeAdd` under the step 2 lock. The worktree checkout row, its
-   lease row, and the binding then commit in one transaction. The lease carries
-   `chat_id` and a null `tool_call_id`, so one creation lease exists per chat.
+   lease row, and the binding then commit in one transaction. The lease names
+   the chat and its worktree checkout, so one creation lease exists per chat.
    Adoption does not run, because the source checkout is registered.
 7. Store the binding: `workspace_root`, `workspace_executor_id`, and
    `workspace_generation + 1`, for the worktree path when one was created and
@@ -294,15 +300,16 @@ the two statuses that carry one:
 - `outcome_unknown` means the Machine link dropped after `git.worktreeAdd` was
   sent. It carries `leftDirectory` when known, and the step wrote no rows.
 
-A create on a stored chat that holds a message answers 409, and the client uses
-`POST /api/v1/chats/:id/messages` with the same message id, which is the
-durable-runs same-message retry. A same-owner create on a stored chat that
-holds no message is the resend: it re-runs validation, resolution, and the
-message step, and answers 201. A resend reuses the creation lease and the
-binding of this chat when they exist, and it never creates a second worktree. A
-resend into an archived chat or an archived project answers 409 and changes
-nothing. A resend whose `projectId` differs from the stored chat's project
-answers 409 `project_mismatch`. A stored id of another owner answers 404, as the
+A create on a stored chat that holds a message answers 409. A same-owner create
+on a stored chat that holds no message is the resend: it re-runs validation,
+resolution, and the message step, and answers 201. A resend reuses the creation
+lease and the binding of this chat when they exist, and it never creates a
+second worktree. An enqueue failure frees the single-flight slot of the failed
+Run. The client then sends the draft again as a new message, with a new
+`message.id`, through `POST /api/v1/chats/:id/messages`. A resend into an
+archived chat or an archived project answers 409 and changes nothing. A resend
+whose `projectId` differs from the stored chat's project answers 409
+`project_mismatch`. A stored id of another owner answers 404, as the
 first-message route does, so the id reveals nothing.
 
 A crash between `git.worktreeAdd` and the step 6 commit leaves a directory and
@@ -312,9 +319,9 @@ hand. The next resend creates a new worktree, because no creation lease exists.
 The `workspace-entry` MODIFIED block in this change is written against the
 `repositories` change's delta text for "The Workspace binding is Chat-scoped
 and persists across Runs". Finalize re-bases it on the canonical requirement
-before sync. Creation is the second binding writer that the block names, and it
-counts as an entry that establishes a binding, so the generation increments
-once.
+before sync. Creation is the second binding writer that the block names. When
+it establishes a binding, that binding counts as an entry that establishes a
+binding, so the generation increments once.
 
 Alternatives:
 
@@ -334,9 +341,9 @@ Alternatives:
 - Reusing `WorkspaceBindingRepository.enter`: it fences a Run
   (`workspace-binding.repository.ts:37`), so a create call would need a
   synthetic `runId` and a tool call id. Chosen: a Run-free creation path that
-  takes the chat's advisory lock, writes its own lease keyed by the chat, and
-  commits the worktree rows and the binding in one transaction. `enter` stays
-  unchanged for tools.
+  takes the chat's session advisory lock on one dedicated connection, writes
+  its own lease keyed by the chat, and commits the worktree rows and the
+  binding in one transaction. `enter` stays unchanged for tools.
 - Binding inside the first Run: this is the current behavior and it lets the
   model choose the location, which is the problem this change solves.
 - Streaming from the create call: the failure field has no place before the
@@ -412,10 +419,10 @@ rail, not the prompt.
   `executor_unknown`, and an offline Machine answers `machine_unavailable`,
   never a guessed fallback.
 - [Double creation on a retry] → the client uuid is the idempotency key and a
-  per-chat advisory lock serializes the request. A create on a chat that holds
-  no message re-runs the remaining steps and answers 201, and one on a chat
-  that holds a message answers 409; a concurrent same-id request answers 409
-  `creation_in_progress`. The composer keeps one id per draft.
+  per-chat session advisory lock serializes the request. A create on a chat
+  that holds no message re-runs the remaining steps and answers 201, and one on
+  a chat that holds a message answers 409; a concurrent same-id request answers
+  409 `creation_in_progress`. The composer keeps one id per draft.
 - [An offline Machine at creation] → the machine option is disabled with its
   reason, and a forced create answers `machine_unavailable` with the chat left
   filed.
@@ -436,8 +443,9 @@ rail, not the prompt.
   keep their path strings and detach only through the existing per-attempt
   re-check.
 - [Worktree creation is synchronous] → a slow `git worktree add` delays the
-  create response and holds the chat's advisory lock; the per-call timeout
-  bounds it, and a failed add is the `worktree_failed` status, not a lost chat.
+  create response and holds the chat's session advisory lock; the per-call
+  timeout bounds it, and a failed add is the `worktree_failed` status, not a
+  lost chat.
 
 ## Migration Plan
 

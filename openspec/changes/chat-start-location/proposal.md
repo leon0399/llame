@@ -33,22 +33,24 @@ and the typed git methods. Its implementation layers start only after
   client reads the reply from the existing resume stream.
 - The create request is a second writer of the Workspace binding, beside
   `enter_workspace`. It takes the same ordered path decisions, the same
-  `tools.allowed` rule, and the same native executor rule. Creation records
-  every decision in an owner-only creation record of the chat.
+  `tools.allowed` rule, and the same native executor rule. Each create or
+  resend appends one attempt to an owner-only creation record of the chat.
 - A failed bind or worktree leaves the chat filed and unbound. The response is
   201 with `workspace: {status, root?, executorId?, worktree?, code?, message?}`,
   and no Run is enqueued. The server stores no message, so the client keeps the
   draft. A same-owner resend on a chat that holds no message reuses the stored
   chat and answers 201; a chat that holds a message answers 409, and the client
-  uses the message route. A resend into an archived chat or project answers 409.
+  sends the draft as a new message. A resend into an archived chat or project
+  answers 409.
 - Every named owner id is checked before the chat is stored. A foreign or
   missing id answers 404 and stores nothing. An archived project answers 409
   and stores nothing. Another owner's chat id answers 404. An unconfigured
   executor id answers 422.
 - `POST /api/v1/chats/:id/messages` keeps its contract, including creating
-  unfiled chats for clients that never send a location. A per-chat advisory
-  lock serializes create requests, so a concurrent request with one id answers
-  409 `creation_in_progress`.
+  unfiled chats for clients that never send a location. A per-chat session
+  advisory lock, held on one dedicated connection for the whole request,
+  serializes create requests, so a concurrent request with one id answers 409
+  `creation_in_progress`.
 - Project repositories become an owner-only link with an alias, one primary,
   and an isolation policy (`inherit`, `always_worktree`, `never`). The policy
   selects the default that the composer shows, and the request's `worktree`
@@ -97,12 +99,13 @@ record behind the research note.
 - The Workspace step of creation uses `message.permissionMode`, and `default`
   when the request omits it. A `bypass` request on a process whose
   `tools.permissionModes` does not enable bypass fails with 422 before any
-  write. Creation records each decision in an owner-only creation record of the
-  chat, and the first Run attempt re-checks the binding.
-- An explicit `executorId`, or a remembered default that names an offline
-  Machine, answers `machine_unavailable`. Implicit steps skip offline Machines.
-  A local executor is this process's `tools.nativeExecutorId`, and "first"
-  means the online executor with the lowest id that holds a main checkout.
+  write. Creation appends one attempt, with each decision, to an owner-only
+  creation record of the chat, and the first Run attempt re-checks the binding.
+- An explicit `executorId`, a named `checkoutId`, or a remembered default that
+  names an offline Machine answers `machine_unavailable`. Implicit steps skip
+  offline Machines. A local executor is this process's
+  `tools.nativeExecutorId`, and "first" means the online executor with the
+  lowest id that holds a main checkout.
 - Explicit ids always override remembered defaults. A named checkout fixes its
   repository and its executor, and a disagreement answers 422.
 - Worktree naming, placement, and base ref reuse the `repositories` change's
@@ -119,13 +122,13 @@ Three points differ from the record. Each needs Leo's confirmation.
 
 - Resend: the record said that a second `POST /api/v1/chats` with an existing
   id answers 409. This change answers 409 only after the chat holds a message,
-  because an enqueue failure or a failed location must remain recoverable with
-  the same id.
+  because a failed location keeps the draft and the owner retries the same id.
+  After an enqueue failure the owner sends the draft as a new message instead.
 - Recorded decisions: the record expected creation to take path decisions
-  without a record. This change records every decision, including a bypass
-  decision, in an owner-only creation record of the chat. Canonical
-  `tool-call-permissions` requires a recorded decision for every evaluation,
-  and creation has no Run to attach one to.
+  without a record. This change appends one attempt, with every decision
+  including a bypass decision, to an owner-only creation record of the chat.
+  Canonical `tool-call-permissions` requires a recorded decision for every
+  evaluation, and creation has no Run to attach one to.
 - Request shape: `worktree` is an optional field of the create request, and the
   message is a nested `CreateChatMessageDto` with its own model, effort, and
   permission mode. The record described one create payload without these
@@ -149,13 +152,16 @@ and a later change can reverse it without a data migration.
 - A same-owner create that repeats a stored id succeeds while that chat holds
   no message; it reuses the stored worktree and binding and creates no second
   chat or worktree. Once the chat holds a message, the same id answers 409 and
-  the client uses the message route. A stored id of another owner answers 404.
+  the client sends the draft as a new message with a new id through the message
+  route. A stored id of another owner answers 404.
   A concurrent request with one id answers 409 `creation_in_progress`.
 - A named owner id that the owner cannot see answers 404 before any write. A
   named executor that no configuration carries answers 422, and an archived
   project answers 409.
 - An enqueue failure fails the Run and answers 5xx. The message and the Run row
-  stay stored, and the same-id create then answers 409.
+  stay stored, and the same-id create then answers 409. The failed Run frees the
+  single-flight slot, and the owner sends the draft as a new message with a new
+  id.
 - A defaults row is written only by a start that bound successfully. A failed
   start leaves the previous row unchanged.
 - Filing or moving an existing chat into a project resolves no location. Only
@@ -176,7 +182,8 @@ and a later change can reverse it without a data migration.
   - A chat can be created with its project and location in one request
   - Location resolution uses project defaults and never a silent primary
   - Executor resolution skips offline Machines on implicit steps
-  - Only an explicit executor or remembered default names an offline Machine
+  - Only an explicit executor, a named checkout, or a remembered default names
+    an offline Machine
   - A create request with a message validates it before any write
   - Creation runs its steps in one fixed order
   - Creation serializes requests for one chat id
@@ -208,17 +215,17 @@ and a later change can reverse it without a data migration.
   - Project repository links are owner-isolated
   - The owner reads a project's links and their defaults
 - `tool-call-permissions`: ADDED requirement "Chat-creation path decisions are
-  recorded with the chat". The create request has no Run, so it records every
-  decision, including a bypass decision, in an owner-only creation record of
-  the chat, with the provenance fields of a derived decision. The owner reads
-  the record through `GET /api/v1/chats/:id/creation-record`.
+  recorded with the chat". The create request has no Run, so it appends one
+  attempt, with every decision including a bypass decision, to an owner-only
+  creation record of the chat, with the provenance fields of a derived decision.
+  The owner reads the record through `GET /api/v1/chats/:id/creation-record`.
 - `workspace-entry`: MODIFIED requirement "The Workspace binding is Chat-scoped
   and persists across Runs". The owner's authenticated chat-creation request
   becomes a second binding writer beside `enter_workspace`, under the same
-  ordered path decisions and the same availability gates, and its binding
-  counts as an entry that establishes a binding. The requirement's text in this
-  change is written against the `repositories` change's delta and is re-based
-  on the canonical text at finalize.
+  ordered path decisions and the same availability gates. When it establishes a
+  binding, that binding counts as an entry that establishes a binding. The
+  requirement's text in this change is written against the `repositories`
+  change's delta and is re-based on the canonical text at finalize.
 
 ### Deliberately unchanged
 

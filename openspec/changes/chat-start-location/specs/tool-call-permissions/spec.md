@@ -4,11 +4,13 @@
 
 ### Requirement: Chat-creation path decisions are recorded with the chat
 
-The create request MUST record every path decision it takes in an owner-only
-creation record of the chat. Each record MUST carry the same provenance fields as
-a derived decision. The record MUST include a `bypass` decision. The owner MUST
-read the record through `GET /api/v1/chats/:id/creation-record`. Only the owner
-MUST read it, and another principal MUST receive 404.
+The create request MUST record each path decision in an owner-only creation
+record of the chat. The record MUST hold a list of attempts. Each attempt MUST
+carry its decisions and its `created_at`. Each create or resend MUST append one
+attempt in its own transaction. Each decision MUST carry the provenance fields of
+a derived decision, including a `bypass` decision. Only the owner MUST read the
+record through `GET /api/v1/chats/:id/creation-record`, and another principal
+MUST receive 404.
 
 #### Scenario: A bypass create records its decisions
 
@@ -23,6 +25,14 @@ MUST read it, and another principal MUST receive 404.
   paths
 - **THEN** the creation record holds both decisions with their clause and
   policy-instance provenance
+
+#### Scenario: A resend after a rejected decision keeps both attempts' decisions
+
+- **WHEN** a path decision rejects the first create and the owner resends the
+  same chat id
+- **THEN** the creation record holds two attempts, each with its decisions and
+  its `created_at`
+- **AND** the first attempt keeps its rejected decision
 
 #### Scenario: Another principal cannot read the creation record
 

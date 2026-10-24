@@ -93,17 +93,24 @@ executor MUST answer 422 with `code` `executor_unknown` and store nothing.
 - **THEN** the response is 422 with `code` `executor_unknown`
 - **AND** no chat, binding, or message is stored
 
-### Requirement: Only an explicit executor or remembered default names an offline Machine
+### Requirement: Only an explicit executor, a named checkout, or a remembered default names an offline Machine
 
-An explicit `executorId` or a remembered default that names an offline Machine
-MUST answer `workspace.status` `machine_unavailable`. A local executor is this
-process's `tools.nativeExecutorId` and is never offline.
+An explicit `executorId`, a named `checkoutId`, or a remembered default that
+names an offline Machine MUST answer `workspace.status` `machine_unavailable`. A
+local executor is this process's `tools.nativeExecutorId` and is never offline.
 
 #### Scenario: An explicit offline executor answers machine_unavailable
 
 - **WHEN** the request names the executor id of an offline Machine
 - **THEN** the response is 201 with `workspace.status` `machine_unavailable`
 - **AND** no worktree command starts and the message is not stored
+
+#### Scenario: A named checkout on an offline Machine answers machine_unavailable
+
+- **WHEN** the request names a `checkoutId` of a main checkout on an offline
+  Machine
+- **THEN** the response is 201 with `workspace.status` `machine_unavailable`
+- **AND** no git call starts and the message is not stored
 
 #### Scenario: A remembered default on an offline Machine answers machine_unavailable
 
@@ -190,20 +197,24 @@ decide worktree creation.
 
 The worktree checkout row, its lease, and the binding MUST commit in one
 transaction. A failure MUST leave no lease, no checkout row, and no binding. The
-lease MUST carry the chat id and a null `tool_call_id`, with one row per chat.
+lease MUST carry the chat id and the worktree checkout id, with one row per
+chat.
 
 #### Scenario: The creation rows commit together
 
 - **WHEN** the worktree add succeeds and the transaction commits
 - **THEN** the checkout row, its lease, and the binding are stored together
-- **AND** the lease names the chat and carries a null `tool_call_id`
+- **AND** the lease names the chat and the worktree checkout
 
 ### Requirement: Creation serializes requests for one chat id
 
-The server MUST hold a transaction advisory lock on the chat id for the whole
-request, through `pg_try_advisory_xact_lock`. A request that cannot take the lock
-MUST answer 409 with `code` `creation_in_progress` and change nothing. The lock
-MUST cover the location, worktree, binding, and message steps.
+The server MUST hold a session advisory lock on the chat id through
+`pg_try_advisory_lock`. The lock MUST run on one dedicated connection and MUST be
+held for the whole request. The server MUST release it at the end of the
+request, or when that connection ends. The steps MUST keep their separate
+transactions. A request that cannot take the lock MUST answer 409 with `code`
+`creation_in_progress` and change nothing. The lock MUST cover the location,
+worktree, binding, and message steps.
 
 #### Scenario: Two concurrent creates with one id create one worktree
 
@@ -382,8 +393,10 @@ MUST keep the message for a later send.
 The server MUST insert the message and its Run row in one transaction. It MUST
 enqueue the Run after that commit. An enqueue failure MUST fail the Run and
 answer 5xx. The message and the Run row MUST stay stored, and so MUST the chat
-and the binding. A later create request with the same chat id MUST answer 409,
-and the client MUST use the message route for its same-message retry.
+and the binding. The failed Run MUST free the single-flight slot. A later create
+request with the same chat id MUST answer 409. The client MUST then send the
+draft again as a new message, with a new `message.id`, through
+`POST /api/v1/chats/:id/messages`.
 
 #### Scenario: An enqueue failure keeps the message and its Run
 
@@ -395,7 +408,8 @@ and the client MUST use the message route for its same-message retry.
 
 - **WHEN** the owner resends the same chat id after an enqueue failure
 - **THEN** the request fails with 409
-- **AND** the same-message retry of the message route continues the Run
+- **AND** the owner sends the draft as a new message with a new id through the
+  message route, and a new Run starts
 
 ### Requirement: A resent create request reuses the stored chat and its binding
 
@@ -404,7 +418,8 @@ NOT create a second chat, worktree, lease, or binding. It MUST run the message
 validation and the message step. A stored binding MUST stay unchanged. A chat
 with no binding MUST run the location, worktree, and binding steps. A chat with a
 creation lease MUST reuse that worktree and binding. A stored chat that holds a
-message MUST answer 409, and the client MUST use the message route.
+message MUST answer 409, and the client MUST send the draft as a new message
+with a new id.
 
 #### Scenario: A resend after a failed workspace binds the corrected location
 
@@ -414,10 +429,11 @@ message MUST answer 409, and the client MUST use the message route.
   `workspace.status` `bound`
 - **AND** the message is stored and the Run starts
 
-#### Scenario: A worktree resend after an enqueue failure reuses the worktree
+#### Scenario: A worktree resend with a message reuses the worktree
 
-- **WHEN** the first request stored a creation lease and then failed the enqueue,
-  and the owner resends the same chat id with `worktree`
+- **WHEN** the first request carried `worktree` and no `message`, or failed
+  before storing a message, and stored a creation lease
+- **AND** the owner resends that chat id with `worktree` and a message
 - **THEN** the server reuses that worktree and binding and creates no second
   worktree
 - **AND** the message is stored and the Run starts
