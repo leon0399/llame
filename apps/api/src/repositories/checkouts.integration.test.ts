@@ -41,10 +41,10 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { LOCAL_GIT, localGitSurface } from '../machines/executor-git.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { type PermissionGroup } from '../tools/permissions/types';
-import { GIT_INSPECTOR } from './checkout-registration.service';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -162,9 +162,11 @@ async function boot(options: BootOptions): Promise<Harness> {
     .overrideProvider(InstanceConfigService)
     .useValue({ config: { ...BUILT_IN_DEFAULTS, tools: options.tools } });
   if (options.inspect !== undefined) {
-    builder
-      .overrideProvider(GIT_INSPECTOR)
-      .useValue({ inspect: options.inspect });
+    const { inspect } = options;
+    builder.overrideProvider(LOCAL_GIT).useValue({
+      ...localGitSurface(),
+      inspect: (input: { readonly path: string }) => inspect(input.path),
+    });
   }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
@@ -376,7 +378,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     expect(response.body).toMatchObject({ code: 'invalid_path' });
   });
 
-  it('refuses a machine:// path as executor_unavailable in this layer', async () => {
+  it('refuses a locator that names no configured Machine as executor_unavailable', async () => {
     const response = await post({ path: 'machine://nas/srv/app' }).expect(503);
 
     expect(response.body).toMatchObject({ code: 'executor_unavailable' });

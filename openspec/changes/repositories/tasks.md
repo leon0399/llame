@@ -138,14 +138,14 @@ local executor.
   - Cover `path_not_registered` before any git call, a dirty status, and a status with and without an upstream. Cover the `head` field in each status result.
   - Cover `worktreeAdd` success and a failure whose text holds no bare registered root.
   - Also cover `worktreeList`, `worktreeRemove`, and `inspect`, which reports locator paths ("Machine daemons answer typed git methods", "Machine git calls run in a sanitized environment", "Machine git results report locators and rewritten errors", "Worktree directories on a Machine lie inside a registered root").
-- [ ] 3.3 Implement the local executor side in `apps/api` over the same package, and dispatch by derived executor.
+- [x] 3.3 Implement the local executor side in `apps/api` over the same package, and dispatch by derived executor.
   - An absolute local path runs in-process on the `tools.nativeExecutorId` of the process that serves the API.
   - A `machine://<name>/<abs>` path reaches that Machine through the protocol.
   - An unset `tools.nativeExecutorId`, or a locator that names no configured Machine, fails as 503 `executor_unavailable`.
   - Verify integration tests with the daemon fixture for inspection on a Machine, and `machine_unavailable` when the session cannot open.
   - Also cover `executor_unavailable` for an unmatched locator and for an unset native id.
   - Also cover a registration of `/srv/app` on `machine:nas` that stores the executor `machine:nas` and the path `machine://nas/srv/app`. That path equals a bound root that lists that chat as bound ("Checkout registration inspects the path on its executor", "Executors expose typed git operations", "A Machine checkout stores the canonical Machine locator", "Registration and removal need a configured executor").
-- [ ] 3.4 Verify the outdated-daemon boundary end to end.
+- [x] 3.4 Verify the outdated-daemon boundary end to end.
   - A daemon whose `hello` result lists no git methods makes `git.inspect` fail as `machine_update_required` before any request.
   - On that Machine, `read` still succeeds, and registration answers 503 with `machine_update_required` and stores no row.
   - Verify that the hub test asserts both paths and the operator-facing message ("Machine daemons answer typed git methods", "Git methods are additive to the Machine protocol", "Executors expose typed git operations", "Registration and removal map failures to typed statuses").
