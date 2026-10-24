@@ -221,7 +221,7 @@ local executor.
   - Update `docs/product/reference/tools/enter-workspace.md` and both indexes.
   - Add the repository catalog to the placement section of `SPEC.md`, and add this layer's dated `CHANGELOG.md` entry.
   - Verify `pnpm lint:markdown`.
-- [ ] 4.9 Verify the layer locally with `pnpm --filter api lint`, `typecheck`, focused unit tests, and the touched integration suites. Also run `pnpm --filter machine test`, and `pnpm --filter api test:coverage` for the new modules.
+- [x] 4.9 Verify the layer locally with `pnpm --filter api lint`, `typecheck`, focused unit tests, and the touched integration suites. Also run `pnpm --filter machine test`, and `pnpm --filter api test:coverage` for the new modules.
 - [ ] 4.10 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
 - [ ] 4.11 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
 
