@@ -1,8 +1,15 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
-
-import { runGitProcess, redactCredentials, type GitProcessResult } from "./run";
+import {
+  absoluteGitPath,
+  DEFAULT_GIT_TIMEOUT_MS,
+  processFailure,
+  withGit,
+} from "./invocation";
+import type { GitProcessResult } from "./run";
+import type {
+  GitFailure,
+  GitInspectResult,
+  GitRepositoryRemote,
+} from "./types";
 
 /*
  * `git.inspect`: one read-only look at a working tree, which answers what the
@@ -17,77 +24,15 @@ import { runGitProcess, redactCredentials, type GitProcessResult } from "./run";
  * all.
  */
 
-/** One configured remote of a repository. */
-export type GitRepositoryRemote = {
-  readonly name: string;
-  readonly url: string;
-};
-
-/** Everything registration and adoption need from one inspection. */
-export type GitInspectSuccess = {
-  readonly status: "ok";
-  /** The working tree root git reports for the submitted path. */
-  readonly toplevel: string;
-  /** `git rev-parse --git-common-dir`, absolute. */
-  readonly commonDir: string;
-  /** Whether the path is a linked worktree rather than the main working tree. */
-  readonly linked: boolean;
-  /** The main working tree's root; `null` unless `linked`. */
-  readonly mainWorktree: string | null;
-  readonly remotes: ReadonlyArray<GitRepositoryRemote>;
-  /** `null` on a detached HEAD. */
-  readonly branch: string | null;
-  /** `null` on an unborn branch, which has no commit yet. */
-  readonly head: string | null;
-};
-
-/**
- * A refused or failed call. `invalid_input` is refused before git starts;
- * every other type comes from a started process, and carries the bounded,
- * redacted standard error git wrote.
- */
-export type GitInspectFailure =
-  | {
-      readonly status: "error";
-      readonly type: "invalid_input";
-      readonly message: string;
-    }
-  | {
-      readonly status: "error";
-      readonly type: "not_a_repository" | "timed_out" | "git_failed";
-      readonly stderr: string;
-    };
-
-export type GitInspectResult = GitInspectSuccess | GitInspectFailure;
-
-/** The default budget of one `git.inspect` call, shared by every probe. */
-const DEFAULT_GIT_TIMEOUT_MS = 10_000;
-
-/** Git's own wording for "this path holds no repository", plus the `-C`
- *  failures that mean the same thing to a caller. */
-const NOT_A_REPOSITORY =
-  /not a git repository|must be run in a work tree|not a work tree|cannot change to|cannot chdir/iu;
-
-/** One step's result, or the failure that ended the inspection. */
-type Step<T> = T | GitInspectFailure;
-
 type GitRunner = (args: ReadonlyArray<string>) => Promise<GitProcessResult>;
 
-function redactedStderr(result: GitProcessResult): string {
-  return redactCredentials(result.stderr).trim();
-}
+/** One step's result, or the failure that ended the inspection. */
+type Step<T> = T | GitFailure;
 
 function failedInspection(
   result: Exclude<GitProcessResult, { readonly status: "ok" }>,
-): GitInspectFailure {
-  const stderr = redactedStderr(result);
-  const type =
-    result.status === "timed_out"
-      ? "timed_out"
-      : NOT_A_REPOSITORY.test(stderr)
-        ? "not_a_repository"
-        : "git_failed";
-  return { status: "error", type, stderr };
+): GitFailure {
+  return processFailure(result);
 }
 
 /** One record per remote URL: `remote.<name>.url\n<url>` up to a NUL. */
@@ -217,58 +162,17 @@ async function inspectWithin(git: GitRunner): Promise<GitInspectResult> {
   return { status: "ok", ...tree, remotes, ...at };
 }
 
-/**
- * Everything that precedes the subcommand: the two configuration overrides that
- * keep a repository's hooks and file-system monitor out of the call, then the
- * working directory the caller named. The path is validated before this runs,
- * so the `-C` value can never be read as an option itself.
- */
-export function gitPrefixArguments(
-  hooksDirectory: string,
-  path: string,
-): Array<string> {
-  return [
-    "-c",
-    `core.hooksPath=${hooksDirectory}`,
-    "-c",
-    "core.fsmonitor=false",
-    "-C",
-    path,
-  ];
-}
-
-/** The refusal of a path that git must never receive as an argv element. */
-function absolutePath(
-  value: string,
-): { readonly path: string } | { readonly message: string } {
-  if (value.includes("\0")) {
-    return { message: "A git path must not contain a NUL byte." };
-  }
-  return isAbsolute(value)
-    ? { path: value }
-    : { message: "A git path must be absolute." };
-}
-
 export async function inspectRepository(
   input: { readonly path: string },
   options: { readonly timeoutMs?: number } = {},
 ): Promise<GitInspectResult> {
-  const path = absolutePath(input.path);
+  const path = absoluteGitPath(input.path);
   if (!("path" in path)) {
     return { status: "error", type: "invalid_input", message: path.message };
   }
-
-  const endsAt = Date.now() + (options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS);
-  // One empty directory per call, removed afterwards, so a repository's own
-  // hooks can never be found by `core.hooksPath`.
-  const hooksDirectory = await mkdtemp(join(tmpdir(), "llame-git-hooks-"));
-  const prefix = gitPrefixArguments(hooksDirectory, path.path);
-  const git: GitRunner = (args) =>
-    runGitProcess([...prefix, ...args], { timeoutMs: endsAt - Date.now() });
-
-  try {
-    return await inspectWithin(git);
-  } finally {
-    await rm(hooksDirectory, { recursive: true, force: true });
-  }
+  return withGit(
+    path.path,
+    options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    inspectWithin,
+  );
 }
