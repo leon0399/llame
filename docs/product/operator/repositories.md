@@ -104,8 +104,8 @@ repository:
   parent is the main clone, which is adopted as a `main` row when it is not
   registered yet. The stored branch is the worktree's own, and it is null for a
   detached HEAD.
-- The stored path is the canonical one `realpath` reports, so a symlinked
-  directory registers where it really lives.
+- The stored path is the toplevel git reports, so registering a subdirectory
+  inside a clone records that clone once rather than a second checkout.
 
 One owner, executor, and path triple holds at most one checkout, so a repeated
 registration of one path is a conflict, not a second row.
@@ -124,7 +124,8 @@ including a timeout; and `503` `executor_unavailable`.
 `GET /api/v1/checkouts` lists every checkout of the caller, filtered by
 `repositoryId`. Each row carries the ids of the caller's Chats whose Workspace
 root equals its path, and a `worktree` row also carries the Chat that leased
-it. A lease is a receipt, not a reservation: a second Chat may bind a leased
+it. A registration answers with that same row, so a Chat bound to the path
+before the registration is listed there too. A lease is a receipt, not a reservation: a second Chat may bind a leased
 path, and a fork copies its binding without writing a lease.
 
 `GET /api/v1/repositories` and `POST /api/v1/repositories/:id/aliases` are the
