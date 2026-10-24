@@ -449,7 +449,7 @@ describe('CheckoutRegistrationService gates', () => {
       message: 'The host access policy does not allow this path.',
       code: 'permission_denied',
     });
-    expect(inspect).toHaveBeenCalledWith('/work/wt/sub');
+    expect(inspect).toHaveBeenCalledWith({ path: '/work/wt/sub' });
     expect(data.createCheckout).not.toHaveBeenCalled();
   });
 });
