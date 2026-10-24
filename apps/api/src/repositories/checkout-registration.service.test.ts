@@ -24,9 +24,13 @@ import {
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type PermissionGroup } from '../tools/permissions/types';
 import {
-  CheckoutRegistrationService,
-  type GitInspector,
-} from './checkout-registration.service';
+  ExecutorGit,
+  localGitSurface,
+  type LocalGit,
+} from '../machines/executor-git.service';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { CheckoutRegistrationService } from './checkout-registration.service';
 import { RepositoriesRepository } from './repositories.repository';
 
 /*
@@ -130,6 +134,9 @@ function inspected(
   };
 }
 
+/** The Machine connectors one case opened, closed with the case. */
+const opened: Array<MachineConnector> = [];
+
 function makeService(options: {
   readonly tools?: Partial<LlameConfig['tools']>;
   readonly group?: PermissionGroup;
@@ -144,20 +151,29 @@ function makeService(options: {
       callback(db),
   );
   const inspect = vi
-    .fn<GitInspector['inspect']>()
+    .fn<LocalGit['inspect']>()
     .mockResolvedValue(options.inspection ?? inspected());
+  // The real dispatch runs, over a local surface whose one operation the case
+  // controls: the canonical probe is the shipped one.
+  const local: LocalGit = { ...localGitSurface(), inspect };
+  const connector = new MachineConnector({
+    hubVersion: 'test-hub',
+    machines: undefined,
+    transportFactory: createProtocolPeer().factory,
+    idleCloseMs: 1000,
+  });
+  opened.push(connector);
+  const config = {
+    ...BUILT_IN_DEFAULTS,
+    tools: {
+      ...BUILT_IN_DEFAULTS.tools,
+      ...(options.tools ?? ALLOWED_LOCAL),
+    },
+  };
   const service = new CheckoutRegistrationService(
     tenantDb,
-    {
-      config: {
-        ...BUILT_IN_DEFAULTS,
-        tools: {
-          ...BUILT_IN_DEFAULTS.tools,
-          ...(options.tools ?? ALLOWED_LOCAL),
-        },
-      },
-    },
-    { inspect },
+    { config },
+    new ExecutorGit({ config }, connector, local),
     compileToolPermissionMap(
       { enter_workspace: options.group ?? ANY_ABSOLUTE_PATH },
       'test-policy',
@@ -254,6 +270,7 @@ async function failureOf(promise: Promise<unknown>) {
 }
 
 afterEach(() => {
+  for (const connector of opened.splice(0)) connector.onModuleDestroy();
   vi.restoreAllMocks();
 });
 
@@ -290,11 +307,11 @@ describe('CheckoutRegistrationService gates', () => {
     expect(inspect).not.toHaveBeenCalled();
   });
 
-  it('refuses a machine:// locator as an unavailable executor', async () => {
+  it('refuses a machine:// locator naming no configured Machine', async () => {
     const { service, inspect } = makeService({});
 
-    // The git methods of a Machine arrive with the daemon layer; storing a row
-    // this process cannot inspect is worse than refusing.
+    // A Machine path runs on its daemon; storing a row this hub cannot reach is
+    // worse than refusing, so the derivation fails before any probe.
     await expect(
       failureOf(
         service.register(OWNER, { path: `machine://${EXECUTOR}/work/proj` }),
@@ -302,8 +319,7 @@ describe('CheckoutRegistrationService gates', () => {
     ).resolves.toEqual({
       statusCode: 503,
       error: 'Service Unavailable',
-      message:
-        'A Machine path cannot be inspected by this hub yet; register it on a Machine that serves the git methods.',
+      message: `No Machine named ${EXECUTOR} is configured, so its git surface cannot run.`,
       code: 'executor_unavailable',
     });
     expect(inspect).not.toHaveBeenCalled();
@@ -338,7 +354,7 @@ describe('CheckoutRegistrationService gates', () => {
       statusCode: 503,
       error: 'Service Unavailable',
       message:
-        'The serving process holds no tools.nativeExecutorId, so it cannot inspect a local path.',
+        'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
       code: 'executor_unavailable',
     });
     expect(inspect).not.toHaveBeenCalled();
@@ -402,7 +418,7 @@ describe('CheckoutRegistrationService gates', () => {
       message: 'The host access policy does not allow this path.',
       code: 'permission_denied',
     });
-    expect(inspect).toHaveBeenCalledWith('/work/wt');
+    expect(inspect).toHaveBeenCalledWith({ path: '/work/wt' });
     expect(data.createCheckout).not.toHaveBeenCalled();
   });
 
@@ -490,7 +506,7 @@ describe('canonical directory probes', () => {
 
     await service.register(OWNER, { path: '/work/proj/sub' });
 
-    expect(inspect).toHaveBeenCalledWith('/work/proj');
+    expect(inspect).toHaveBeenCalledWith({ path: '/work/proj' });
     // The stored path is the toplevel git reports, so a subdirectory records
     // the clone once.
     expect(data.createCheckout).toHaveBeenCalledWith(
@@ -599,7 +615,7 @@ describe('storing the checkout', () => {
       created,
     );
 
-    expect(inspect).toHaveBeenCalledWith('/work/proj');
+    expect(inspect).toHaveBeenCalledWith({ path: '/work/proj' });
     expect(data.createRepository).toHaveBeenCalledWith({
       ownerUserId: OWNER,
       displayName: 'proj',
