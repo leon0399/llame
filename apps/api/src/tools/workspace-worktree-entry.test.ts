@@ -766,7 +766,10 @@ describe('enter_workspace with a worktree', () => {
       name: 'taken',
     });
 
-    expect(errorOf(result).type).toBe('worktree_failed');
+    expect(errorOf(result)).toStrictEqual({
+      type: 'worktree_failed',
+      message: 'A worktree directory with that name already exists.',
+    });
     expect(database.begin).not.toHaveBeenCalled();
     expect(database.createCheckout).not.toHaveBeenCalled();
   });
@@ -902,6 +905,8 @@ describe('enter_workspace with a worktree', () => {
       status: 'error',
       type: 'executor_unavailable',
       leftDirectory: directory,
+      message:
+        'The Workspace binding was superseded; the worktree directory remains on disk.',
     });
     expect(database.append).not.toHaveBeenCalled();
   });
@@ -916,7 +921,10 @@ describe('enter_workspace with a worktree', () => {
       { name: 'clear-field-0192' },
     );
 
-    expect(errorOf(result).type).toBe('worktree_failed');
+    expect(errorOf(result)).toStrictEqual({
+      type: 'worktree_failed',
+      message: 'This process cannot create a worktree.',
+    });
   });
 });
 
@@ -1166,6 +1174,8 @@ describe('worktree failures that come from the executor', () => {
       status: 'error',
       type: 'outcome_unknown',
       leftDirectory: directory,
+      message:
+        'The worktree may exist on the Machine; inspect it before retrying. refused',
     });
     expect(database.createCheckout).not.toHaveBeenCalled();
     expect(database.createLease).not.toHaveBeenCalled();
@@ -1285,8 +1295,36 @@ describe('worktree failures that come from the executor', () => {
       name: 'clear-field-0192',
     });
 
-    expect(errorOf(result).type).toBe('worktree_failed');
+    expect(errorOf(result)).toStrictEqual({
+      type: 'worktree_failed',
+      message:
+        'The source clone cannot be recorded in this repository catalog.',
+    });
     expect(database.createLease).not.toHaveBeenCalled();
+  });
+
+  it('refuses a replay whose settlement already exists', async () => {
+    const database = stubbedDatabase();
+    // A durable result settles the call before the tool runs, so a replay that
+    // still finds this call settled must report it without a second add.
+    database.begin.mockResolvedValue({ status: 'success' });
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const executorsOf = executors();
+    const add = vi.spyOn(executorsOf, 'worktreeAdd');
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: executorsOf }),
+      source,
+      { name: 'clear-field-0192' },
+    );
+
+    expect(errorOf(result)).toStrictEqual({
+      type: 'worktree_failed',
+      message:
+        'This worktree call already recorded a result; inspect the Workspace before retrying.',
+    });
+    expect(add).not.toHaveBeenCalled();
+    expect(database.createCheckout).not.toHaveBeenCalled();
   });
 
   it('binds nothing when the attempt is already recorded', async () => {
