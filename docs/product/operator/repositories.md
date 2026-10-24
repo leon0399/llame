@@ -89,8 +89,8 @@ environment, and a timeout), and the inspected `origin` remote decides the
 repository:
 
 - The remote is normalized before it is stored: scheme and credentials are
-  dropped, the host is lowercased, and one `.git` and trailing slash are
-  removed. `git@github.com:leon0399/llame.git` and
+  dropped, the host is lowercased, one `.git` is removed, and every trailing
+  slash goes with it. `git@github.com:leon0399/llame.git` and
   `https://github.com/leon0399/llame` are therefore one repository.
 - A selector only selects. A declared repository whose canonical remote
   disagrees with the inspected origin, and is not one of its aliases, answers
