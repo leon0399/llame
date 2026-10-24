@@ -1,7 +1,7 @@
 Track no issue: no GitHub issue exists for this change, and Leo decided on
 2026-10-24 to proceed without one, as for `remote-machines`. One layer owns
 `Closes #1328`, the `chat-start-location/composer-chip` layer that enables the
-disabled project page composer. Read [CONTRIBUTING](../../../CONTRIBUTING.md)
+disabled project page composer. Read [CONTRIBUTING](../../../../CONTRIBUTING.md)
 for approval, publication, and merge policy.
 
 ## Delivery stack
@@ -269,7 +269,12 @@ executor, and the start-location preview.
 
 ## 3. `chat-start-location/project-links-ui` — the project page Repositories section (design D8, D10)
 
-- [ ] 3.1 Add the project page "Repositories" section.
+This layer was dropped. The project page section is implemented in #1418
+(`chat-start-location/project-repositories`), whose side-panel section, link
+sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
+(#1410) is closed without merging.
+
+- [x] 3.1 Add the project page "Repositories" section. Implemented in #1418.
 
   - List and link from the owner catalog
   - Unlink, and set the primary, alias, and isolation policy
@@ -281,7 +286,7 @@ executor, and the start-location preview.
   - Verify the stories and the Storybook story tests
   - Return their preview URLs
 
-- [ ] 3.2 Verify the layer locally.
+- [x] 3.2 Verify the layer locally. Implemented in #1418.
 
   - `pnpm --filter web lint` and `typecheck`
   - The story tests and the focused page tests

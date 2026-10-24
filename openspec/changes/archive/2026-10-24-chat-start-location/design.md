@@ -58,7 +58,7 @@ See proposal.md for motivation. Current state that shapes the approach:
   binding changes are rail-resident context items").
 
 Decision provenance is the grilling record behind the
-[project, repository, and machine association study](../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md).
+[project, repository, and machine association study](../../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md).
 
 ## Goals / Non-Goals
 
