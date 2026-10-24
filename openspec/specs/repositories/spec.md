@@ -441,24 +441,37 @@ branch MUST remain.
 - **WHEN** a Run tries to remove a worktree
 - **THEN** no tool or route offers that action to the Run
 
-### Requirement: Repository and checkout deletion cascades records and never files
+### Requirement: Repository and checkout deletion refuses recorded worktrees
 
-Deletion MUST affect records only. Deletion of a repository MUST delete its
-checkout rows and their leases. Deletion of a `main` checkout MUST delete its
-`worktree` rows. The system MUST NOT delete a directory on an executor. A chat
-MUST keep its stored Workspace path. A later Run MUST re-check that bound root
-as before.
+Deletion MUST affect records only. Deletion MUST NOT delete a directory on an
+executor. A repository that still holds `worktree` rows MUST answer 409
+`worktrees_present`. A `main` checkout that still holds child `worktree` rows
+MUST answer 409 `worktrees_present`. The answer MUST name
+`DELETE /api/v1/checkouts/:id/worktree`. The system MUST NOT cascade those rows.
 
-#### Scenario: A repository deletion keeps its directories
+#### Scenario: A repository deletion with worktrees answers 409
 
 - **WHEN** the owner deletes a repository that holds a `main` checkout and two
   worktrees
-- **THEN** the checkout rows and the leases are gone and the directories remain
+- **THEN** the request answers 409 `worktrees_present` and stores no change
+- **AND** the answer names `DELETE /api/v1/checkouts/:id/worktree`
 
-#### Scenario: A main checkout deletion keeps its worktree directories
+#### Scenario: A main checkout deletion with worktrees answers 409
 
-- **WHEN** the owner deletes a `main` checkout
-- **THEN** its `worktree` rows are gone and every directory remains
+- **WHEN** the owner deletes a `main` checkout that holds two `worktree` rows
+- **THEN** the request answers 409 `worktrees_present` and stores no change
+
+### Requirement: A permitted deletion deletes records and never files
+
+A repository without `worktree` rows MUST delete its checkout rows and their
+leases. A `main` checkout without `worktree` rows MUST delete its row. A chat
+MUST keep its stored Workspace path. A later Run MUST re-check that bound root
+as before.
+
+#### Scenario: A permitted deletion deletes no directory
+
+- **WHEN** the owner deletes a `main` checkout with no `worktree` rows
+- **THEN** the checkout rows are gone and every directory on the executor stays
 
 #### Scenario: A chat keeps a path whose row is gone
 

@@ -9,8 +9,8 @@
  * Covers openspec `repositories` — "Repositories are owner-scoped records with
  * a display name", "Checkouts record one repository on one executor",
  * "Worktree leases are informational ownership receipts", "Repository and
- * checkout deletion cascades records and never files", and "Repository records
- * are isolated per owner": owner isolation for all four tables, the composite
+ * checkout deletion refuses recorded worktrees", and "Repository records are
+ * isolated per owner": owner isolation for all four tables, the composite
  * owner foreign keys that make a cross-owner parent a `23503` rather than a
  * cross-owner cascade, a nullable branch, a lease with no unique key beyond
  * its primary key, and row-only deletion that removes checkouts and leases but

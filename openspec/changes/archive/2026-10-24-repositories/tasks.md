@@ -49,8 +49,9 @@ local executor.
   - Local round 1: 5 reviewers, `66ba0131`. Round 2: 3 reviewers, `a188b4c4`.
   - Round 3 (convergence): 2 reviewers, `a1d3a8ef`. Two GitHub rounds on the
     published PR: `b97a92e8` and its re-check.
-- [x] 1.3 Self-review the published draft PR diff, mark it ready, and obtain Leo's approval of the published revision
-  - PR #1401 is published, non-draft, base `master`, merge state clean.
+- [ ] 1.3 Self-review the published draft PR diff, mark it ready, and obtain Leo's approval of the published revision
+  - Waived by Leo on 2026-10-24; not verified. PR #1401 is published,
+    non-draft, base `master`, merge state clean.
   - Three local rounds and two GitHub rounds are recorded in the PR body.
   - Leo's approval of the published revision is still open. It stays recorded
     here and does not block this finalize layer.
@@ -131,9 +132,10 @@ local executor.
     and CI commits after the feature commits, ending at `96941eae`.
   - Sample findings: the remote userinfo boundary, the claim lock on the
     unique keys, the bounded inspection guard, and the published operation ids.
-- [x] 2.10 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
-  - Not run. Leo decided that the GitHub review loop is a non-blocking
-    follow-up for this stack. This box records that decision, not a green loop.
+- [ ] 2.10 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+  - Waived by Leo on 2026-10-24; not verified. Leo decided that the GitHub
+    review loop is a non-blocking follow-up for this stack. This box records
+    that decision, not a green loop.
 
 ## 3. `repositories/executor-git` — typed git on the protocol, the daemon, and the local executor (design D4, D6 inputs)
 
@@ -173,9 +175,10 @@ local executor.
     corrections and three daemon-side corrections.
   - Sample findings: option-like worktree values, unknown git params, a
     Machine reason over its transport text, and the git process group timeout.
-- [x] 3.8 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
-  - Not run. Leo decided that the GitHub review loop is a non-blocking
-    follow-up for this stack. This box records that decision, not a green loop.
+- [ ] 3.8 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+  - Waived by Leo on 2026-10-24; not verified. Leo decided that the GitHub
+    review loop is a non-blocking follow-up for this stack. This box records
+    that decision, not a green loop.
 
 ## 4. `repositories/workspace-worktree` — the `worktree` field, adoption, leases, guarded removal, docs (design D3, D5, D6)
 
@@ -248,9 +251,10 @@ local executor.
     `42ef2af3`, and the 4.9 check commit `b282c1ab`.
   - The fixes cover a rollback on every failed commit, a Machine canonical
     target as a locator, the adoption races, and the report messages.
-- [x] 4.11 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
-  - Not run. Leo decided that the GitHub review loop is a non-blocking
-    follow-up for this stack. This box records that decision, not a green loop.
+- [ ] 4.11 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+  - Waived by Leo on 2026-10-24; not verified. Leo decided that the GitHub
+    review loop is a non-blocking follow-up for this stack. This box records
+    that decision, not a green loop.
 
 ## 5. Finalize readiness (`repositories/finalize`)
 
@@ -267,6 +271,8 @@ local executor.
     new canonical block plus only the chat-creation sentences and its one
     scenario. This change does not edit it.
 - [x] 5.2 Verify every task above is checked, and that `pnpm exec openspec validate --specs` and `pnpm exec openspec validate --all` pass. Record any strict-validation failure with evidence that it also fails on `master`.
+  - 31 of 35 boxes are checked. The four open boxes record the Leo waiver and
+    the open approval; they are not verified work.
   - `pnpm exec openspec validate --specs` exits 0: 51 passed, 0 failed.
   - `pnpm exec openspec validate --specs --strict` exits 1: 10 passed, 41
     failed. Every failure is the ">500 characters" requirement warning, and it
