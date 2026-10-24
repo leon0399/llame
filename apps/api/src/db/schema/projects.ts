@@ -1,6 +1,13 @@
 import { InferSelectModel } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { index, pgPolicy, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import {
+  index,
+  pgPolicy,
+  pgTable,
+  text,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { timestamptz } from '../columns';
 import { users } from './auth';
@@ -44,6 +51,12 @@ export const projects = pgTable(
       t.archivedAt,
       t.createdAt.desc(),
     ),
+    // Parent key for the composite owner foreign key that names a project (the
+    // project links of `projects`). A table constraint, not an index:
+    // the foreign key is created after the tables in one generated migration,
+    // and Postgres requires the referenced unique key to exist then — same
+    // rationale as `repositories_owner_id_key`.
+    unique('projects_owner_id_key').on(t.ownerUserId, t.id),
     // Owner-only, same shape as chats_owner. Single row-local comparison — no
     // cross-table scan, no recursion, no BYPASSRLS. USING doubles as the
     // INSERT/UPDATE WITH CHECK (Postgres: absent WITH CHECK ⇒ USING is used).
