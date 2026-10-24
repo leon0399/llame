@@ -2,21 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
-- `enter_workspace` accepts an optional `worktree` object with `name` and
-  `baseRef`, so one Chat can take its own tree of the clone it names: the tool
-  creates the worktree beside the clone (or under the main checkout's
-  `worktree_base`) on a `llame/<name>` branch, records the Worktree checkout,
-  its lease with the base commit, and any adopted repository and main checkout,
-  and binds the new root in the same transaction as the attempt that precedes
-  `git worktree add`. An unregistered clone is adopted from its inspected
-  `origin` remote, a linked-worktree source resolves to its main clone, and a
-  symlinked worktree parent decides on its canonical form. A failed creation
-  records nothing and leaves the previous binding alone. The owner can remove a
-  clean worktree through `DELETE /api/v1/checkouts/:id/worktree`, which refuses a
-  dirty tree, unpushed commits, and an unknown upstream unless HEAD is the
-  recorded base commit, and keeps the branch. See
-  [repositories](docs/product/operator/repositories.md) and
-  [enter_workspace](docs/product/reference/tools/enter-workspace.md).
+- A project links the owner's repositories: each link carries a project-scoped
+  alias, one primary flag per project, and an isolation policy of `inherit`,
+  `always_worktree`, or `never`, and it remembers one default checkout per
+  executor — the `main` checkout the last successful chat start used, stamped
+  with `updated_at`, where the newest row wins across executors. The link routes
+  sit under `/api/v1/projects/:id/repositories`, and
+  `GET /api/v1/projects/:id/start-location` previews the location a chat start
+  resolves without writing anything. Every link and defaults row is
+  owner-isolated with forced RLS and composite owner foreign keys, so a row that
+  names another owner's project, repository, or checkout is refused by the
+  database; deletion cascades rows only, never a directory. `projects` gains a
+  nullable `default_executor_id`, and chats gain an owner-only creation record
+  whose `attempts` hold each create's path decisions. See
+  [repositories](docs/product/operator/repositories.md#project-links).
 
 - Every native tool call has its own chat row instead of raw parameter and
   result JSON. `edit` shows a unified diff with line numbers and the changed
@@ -56,6 +55,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `apps/storybook` are never matched against the unrelated public `machine`
   and `storybook` packages. Expect Dependabot alerts for the advisories above
   once the first snapshot lands.
+
+- `enter_workspace` accepts an optional `worktree` object with `name` and
+  `baseRef`, so one Chat can take its own tree of the clone it names: the tool
+  creates the worktree beside the clone (or under the main checkout's
+  `worktree_base`) on a `llame/<name>` branch, records the Worktree checkout,
+  its lease with the base commit, and any adopted repository and main checkout,
+  and binds the new root in the same transaction as the attempt that precedes
+  `git worktree add`. An unregistered clone is adopted from its inspected
+  `origin` remote, a linked-worktree source resolves to its main clone, and a
+  symlinked worktree parent decides on its canonical form. A failed creation
+  records nothing and leaves the previous binding alone. The owner can remove a
+  clean worktree through `DELETE /api/v1/checkouts/:id/worktree`, which refuses a
+  dirty tree, unpushed commits, and an unknown upstream unless HEAD is the
+  recorded base commit, and keeps the branch. See
+  [repositories](docs/product/operator/repositories.md) and
+  [enter_workspace](docs/product/reference/tools/enter-workspace.md).
 
 - The instance gains a repository catalog: an owner's repositories, their
   aliases, and the checkouts where each exists on an executor, plus the worktree

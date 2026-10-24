@@ -1,8 +1,9 @@
 ---
-summary: "Registering the git repositories and checkouts a Chat can start from, and the host paths registration may inspect"
+summary: "Registering the git repositories and checkouts a Chat can start from, linking them to projects, and the host paths registration may inspect"
 read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
+  - you are linking a project to a repository or setting its isolation policy
   - you are deciding which host paths a checkout registration may inspect
 behavior:
   - ../reference/tools/enter-workspace.md
@@ -234,6 +235,86 @@ the same three gates as registration, removes the directory with
 The `llame/<name>` branch stays, so a removal loses no commit. A worktree row
 without a lease keeps the fail-closed rule: no recorded base can prove the
 branch is unchanged. Refusals answer `409` `worktree_not_clean`.
+
+## Project links
+
+A project links zero or more of its owner's repositories. A link is a row of its
+own: an alias the project shows, a primary flag, and an isolation policy. The
+alias defaults to the repository's display name and is stored, so renaming the
+catalog entry later leaves the project's label alone. A project holds at most
+one primary link, and a project with no link is still usable — its chats start
+with no location.
+
+An isolation policy is the default isolation the composer shows for a chat that
+starts on that link, and the request's `worktree` field still decides the
+outcome:
+
+- `inherit` reuses the source checkout, and turns a worktree start on when
+  another open chat already binds that checkout.
+- `always_worktree` starts a worktree, so two chats never share one tree.
+- `never` reuses the checkout.
+
+### Defaults per executor
+
+For each link and each executor, the project remembers one default checkout: the
+one the last successful chat start used. A worktree start records the `main`
+checkout it was cut from, and a worktree checkout is never a default target. The
+row is replaced in place on every write, so `updated_at` is the time of the last
+choice and the newest row wins when a link holds defaults on several executors.
+Chat creation reads that row, then `projects.default_executor_id`, then the
+executor that holds the repository's only `main` checkout.
+
+Deleting a project removes its links and their defaults, and so does unlinking,
+deleting the repository, and deleting the checkout a default names. No route
+deletes a repository, a checkout, a directory, or a file because of a link.
+
+### The link routes
+
+```bash
+# Link one catalog repository; the alias defaults to its display name.
+curl -X POST localhost:3001/api/v1/projects/<project>/repositories \
+  -b "session=…" -H 'content-type: application/json' \
+  -d '{"repositoryId":"<repository>","isPrimary":true}'
+
+# Change the alias, the primary flag, or the isolation policy.
+curl -X PATCH localhost:3001/api/v1/projects/<project>/repositories/<repository> \
+  -b "session=…" -H 'content-type: application/json' \
+  -d '{"alias":"llame","isolation":"always_worktree"}'
+
+# Unlink: the link and its defaults go, the repository and its checkouts stay.
+curl -X DELETE \
+  localhost:3001/api/v1/projects/<project>/repositories/<repository> \
+  -b "session=…"
+
+# Set or clear the project default executor.
+curl -X PATCH localhost:3001/api/v1/projects/<project> -b "session=…" \
+  -H 'content-type: application/json' -d '{"defaultExecutorId":"machine:nas"}'
+
+# Read every link with its alias, flags, policy, and defaults rows.
+curl localhost:3001/api/v1/projects/<project>/repositories -b "session=…"
+
+# Preview the location a chat start resolves; nothing is written.
+curl 'localhost:3001/api/v1/projects/<project>/start-location?repositoryId=<id>&executorId=<id>&checkoutId=<id>' \
+  -b "session=…"
+```
+
+`GET /api/v1/projects/:id/repositories` returns each link with its alias,
+primary flag, and isolation policy, and each defaults row with its executor,
+checkout, and `updated_at`. `GET /api/v1/projects/:id/start-location` takes the
+same `repositoryId`, `executorId`, and `checkoutId` the create request takes,
+resolves them in its order, and answers the repository, executor, checkout, and
+isolation default with its reason (`project_policy`, `clone_in_use`, or
+`no_link`). It writes nothing and starts no git call.
+
+A project or repository of another owner, and an id that no longer exists, both
+answer `404`, so a foreign row is indistinguishable from a missing one. A
+repository the caller owns but the project does not link answers `422`, as does
+a named checkout that disagrees with the named repository or executor. Every
+link write on an archived project answers `409` and changes nothing, including
+a change to its default executor. Linking a repository the project already
+links answers `409`, and so does a concurrent change that collides on the
+one-primary rule; a sequential primary change clears the previous one and
+answers `200`.
 
 ## Reading the catalog
 
