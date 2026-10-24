@@ -462,7 +462,13 @@ export class ExecutorGit {
     if (error instanceof MachineUpdateRequiredError)
       return new ExecutorGitError('machine_update_required', error.message);
     if (error instanceof MachineUnavailableError)
-      return new ExecutorGitError('machine_unavailable', error.message);
+      // The session's own message is the transport's: an ssh standard error or
+      // a socket failure, which the repository routes would answer as the body
+      // of an HTTP response. Only the Machine and the reason leave the hub.
+      return new ExecutorGitError(
+        'machine_unavailable',
+        `The Machine ${machine} is unavailable (${error.reason}).`,
+      );
     if (error instanceof MachineProtocolError) {
       // A path outside the Machine's registered roots is its refusal of the
       // address, not a git failure: registration maps that to 403

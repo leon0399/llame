@@ -344,16 +344,22 @@ describe('ExecutorGit.inspect', () => {
     expect(error.message).toContain('Update the daemon on that Machine');
   });
 
-  it('fails as machine_unavailable when the session cannot open', async () => {
+  it('fails as machine_unavailable without quoting the transport', async () => {
     const { executors } = hub({
       openFailure: () =>
         'ssh: connect to host nas.example port 22: No route to host',
     });
     const target = executors.locate(LOCATOR);
 
-    await expect(executors.inspect(target, LOCATOR)).rejects.toThrow(
-      expect.objectContaining({ code: 'machine_unavailable' }),
+    const error = await rejectionOf(executors.inspect(target, LOCATOR));
+
+    // Registration answers this error's message as the HTTP response body, so
+    // the ssh diagnostic stays in the hub's own logs.
+    expect(error.code).toBe('machine_unavailable');
+    expect(error.message).toBe(
+      `The Machine ${NAS} is unavailable (unreachable).`,
     );
+    expect(error.message).not.toContain('ssh:');
   });
 
   it('keeps the daemon root refusal, and maps another refusal to git_failed', async () => {
