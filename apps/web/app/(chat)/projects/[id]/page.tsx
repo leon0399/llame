@@ -29,6 +29,7 @@ import { PageHeader } from "../../components/page-header";
 import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";
 import { ProjectDetailsHeader } from "./project-details-header";
 import { ProjectPromptInput } from "./project-prompt-input";
+import { ProjectRepositoriesSection } from "./project-repositories-section";
 import { ProjectSidePanel } from "./project-side-panel";
 
 const EMPTY_TEXT: Record<ListShow, string> = {
@@ -196,6 +197,7 @@ function ProjectPageBody({
         </div>
         <ProjectSidePanel />
       </div>
+      <ProjectRepositoriesSection projectId={data.project.id} />
     </div>
   );
 }

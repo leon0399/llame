@@ -220,7 +220,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
 
 ## 3. `chat-start-location/project-links-ui` — the project page Repositories section (design D8, D10)
 
-- [ ] 3.1 Add the project page "Repositories" section.
+- [x] 3.1 Add the project page "Repositories" section.
 
   - List and link from the owner catalog
   - Unlink, and set the primary, alias, and isolation policy
@@ -232,7 +232,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Verify the stories and the Storybook story tests
   - Return their preview URLs
 
-- [ ] 3.2 Verify the layer locally.
+- [x] 3.2 Verify the layer locally.
 
   - `pnpm --filter web lint` and `typecheck`
   - The story tests and the focused page tests

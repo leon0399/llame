@@ -12,8 +12,11 @@ import {
   createProject,
   deleteProject,
   fileChat,
+  linkProjectRepository,
   setProjectArchive,
+  unlinkProjectRepository,
   updateProject,
+  updateProjectRepositoryLink,
 } from "./mutations";
 import {
   emptyResponse,
@@ -119,5 +122,63 @@ describe("fileChat", () => {
     await expect(request.clone().json()).resolves.toEqual({
       projectId: null,
     });
+  });
+});
+
+describe("linkProjectRepository", () => {
+  it("POSTs the link with the alias, primary flag, and policy", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "l1" }, 201));
+    await linkProjectRepository({
+      projectId: "p1",
+      repositoryId: "r1",
+      alias: "llame",
+      isPrimary: true,
+      isolation: "always_worktree",
+    });
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("POST");
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/projects/p1/repositories",
+    );
+    await expect(request.clone().json()).resolves.toEqual({
+      repositoryId: "r1",
+      alias: "llame",
+      isPrimary: true,
+      isolation: "always_worktree",
+    });
+  });
+});
+
+describe("updateProjectRepositoryLink", () => {
+  it("PATCHes only the fields it was given", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: "l1" }));
+    await updateProjectRepositoryLink({
+      projectId: "p1",
+      repositoryId: "r1",
+      isolation: "never",
+    });
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PATCH");
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/projects/p1/repositories/r1",
+    );
+    await expect(request.clone().json()).resolves.toEqual({
+      isolation: "never",
+    });
+  });
+});
+
+describe("unlinkProjectRepository", () => {
+  it("DELETEs the project's link", async () => {
+    fetchMock.mockResolvedValue(emptyResponse());
+    await unlinkProjectRepository("p1", "r1");
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("DELETE");
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/projects/p1/repositories/r1",
+    );
   });
 });

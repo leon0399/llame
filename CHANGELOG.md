@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
+- The project page gains a Repositories section: it lists each link with the
+  project's alias, primary flag, isolation policy, and catalog remote; links a
+  repository from the owner's catalog with an optional alias, primary flag, and
+  policy; edits or unlinks a link; registers a checkout from one path — a local
+  path or a `machine://` locator, where the executor follows from the path —
+  with an optional repository or remote selector; and lists the project's
+  worktrees by path, branch, creating chat, and every chat bound to them. A
+  worktree's Remove is guarded by the route, and a refusal keeps the row and
+  shows the server's own sentence. See
+  [repositories](docs/product/operator/repositories.md#the-project-pages-repositories-section).
+
 - A project links the owner's repositories: each link carries a project-scoped
   alias, one primary flag per project, and an isolation policy of `inherit`,
   `always_worktree`, or `never`, and it remembers one default checkout per
