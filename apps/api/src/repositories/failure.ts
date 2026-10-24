@@ -27,6 +27,8 @@ export const REPOSITORY_FAILURE_CODES = [
   'tool_not_allowed',
   'permission_denied',
   'executor_unavailable',
+  'machine_unavailable',
+  'machine_update_required',
   'git_failed',
 ] as const;
 
@@ -49,6 +51,8 @@ const STATUS: Record<RepositoryFailureCode, HttpStatus> = {
   tool_not_allowed: HttpStatus.FORBIDDEN,
   permission_denied: HttpStatus.FORBIDDEN,
   executor_unavailable: HttpStatus.SERVICE_UNAVAILABLE,
+  machine_unavailable: HttpStatus.SERVICE_UNAVAILABLE,
+  machine_update_required: HttpStatus.SERVICE_UNAVAILABLE,
   git_failed: HttpStatus.BAD_GATEWAY,
 };
 
