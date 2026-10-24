@@ -10,4 +10,5 @@ export * from './memory';
 export * from './personalization';
 export * from './pins';
 export * from './projects';
+export * from './repositories';
 export * from './search';

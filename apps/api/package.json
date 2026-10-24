@@ -62,6 +62,7 @@
     "@wavezync/nestjs-pgboss": "^6.0.0",
     "@workspace/bash-executor": "workspace:*",
     "@workspace/config-interpolation": "workspace:*",
+    "@workspace/git-executor": "workspace:*",
     "@workspace/machine-protocol": "workspace:*",
     "@workspace/mcp-workspace": "workspace:*",
     "@workspace/native-file-tools": "workspace:*",
