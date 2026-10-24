@@ -80,6 +80,25 @@ type Completion = {
   readonly settle: (result: GitProcessResult) => void;
 };
 
+/**
+ * Kill a git process and everything it started. `git worktree add` runs
+ * `git reset --hard` (and a branch update) as children that inherit these
+ * pipes, and `close` waits for the pipes: killing git alone would leave the
+ * call pending past its deadline while that child keeps writing files.
+ *
+ * The child is spawned as a group leader, so the group id is its pid.
+ */
+function killProcessGroup(child: ChildProcess): void {
+  const { pid } = child;
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // The group is already gone (`ESRCH`), and `close` settles the call.
+    child.kill("SIGKILL");
+  }
+}
+
 function watchCompletion(
   child: ChildProcess,
   options: { readonly timeoutMs: number; readonly signal?: AbortSignal },
@@ -89,7 +108,7 @@ function watchCompletion(
   let settled = false;
   const stop = (): void => {
     timedOut = true;
-    child.kill("SIGKILL");
+    killProcessGroup(child);
   };
   const timer = setTimeout(stop, Math.max(1, options.timeoutMs));
   options.signal?.addEventListener("abort", stop, { once: true });
@@ -125,6 +144,9 @@ export function runGitProcess(
   const output = () => ({ stdout: stdout.text(), stderr: stderr.text() });
   const child = spawn("git", args, {
     env: gitEnvironment(),
+    // Its own process group, so the deadline can end the git children too; see
+    // {@link killProcessGroup}. The pipes keep the call tied to the child.
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const completion = watchCompletion(child, options, resolve);
