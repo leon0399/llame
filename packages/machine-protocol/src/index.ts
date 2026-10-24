@@ -43,7 +43,6 @@ export {
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
   isGitMethod,
-  supportsGitMethod,
 } from "./git";
 export type { GitMethod } from "./git";
 export { fsGrepCursorKey } from "./grep";

@@ -1,5 +1,3 @@
-import type { HelloResult } from "./types";
-
 /*
  * The typed git surface every executor answers (openspec `repositories` design
  * D4). These methods are additive to the protocol: `PROTOCOL_VERSION` stays 1,
@@ -27,15 +25,4 @@ export type GitMethod = (typeof GIT_METHODS)[number];
 
 export function isGitMethod(value: string): value is GitMethod {
   return GIT_METHODS.some((method) => method === value);
-}
-
-/**
- * Whether a handshake says the daemon answers one git method. A daemon that
- * carries no `methods` list answers false for every one.
- */
-export function supportsGitMethod(
-  hello: HelloResult | undefined,
-  method: GitMethod,
-): boolean {
-  return hello?.methods?.includes(method) === true;
 }
