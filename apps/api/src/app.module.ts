@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module';
 import { ChatsModule } from './chats/chats.module';
 import { PinsModule } from './pins/pins.module';
 import { ProjectsModule } from './projects/projects.module';
+import { RepositoriesModule } from './repositories/repositories.module';
 import { RunsModule } from './runs/runs.module';
 import { SearchModule } from './search/search.module';
 import { IdentityModule } from './identity/identity.module';
@@ -58,6 +59,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
     UsersModule,
     ChatsModule,
     ProjectsModule,
+    RepositoriesModule,
     PinsModule,
     MemoryModule,
     PersonalizationModule,
