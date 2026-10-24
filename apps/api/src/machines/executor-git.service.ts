@@ -367,7 +367,9 @@ export class ExecutorGit {
         path.posix.join(entry.realPath, ...segments.slice(end)),
       );
     }
-    return `/${segments.join('/')}`;
+    // No ancestor exists, so the whole path is still the caller's: render it in
+    // the same locator form every other Machine answer uses.
+    return this.address(target, `/${segments.join('/')}`);
   }
 
   /** Whether one address names an entry on its executor, creating nothing. */
