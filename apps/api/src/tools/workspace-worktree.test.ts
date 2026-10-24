@@ -146,17 +146,32 @@ describe('worktree base refs', () => {
 
 describe('generated names', () => {
   it('draws one adjective, one noun, and four hex characters', () => {
-    const name = generatedWorktreeName(() => Buffer.from([0, 1, 0xab, 0xcd]));
+    const picks = [0, 1];
+    const name = generatedWorktreeName({
+      int: () => picks.shift() ?? 0,
+      bytes: () => Buffer.from([0xab, 0xcd]),
+    });
 
     expect(name.name).toBe('amber-cedar-abcd');
     expect(name.slug).toBe('amber-cedar-abcd');
     expect(name.branch).toBe('llame/amber-cedar-abcd');
   });
 
-  it('wraps the word lists at their length', () => {
-    const name = generatedWorktreeName(() => Buffer.from([16, 16, 0, 1]));
+  it('draws each word within its own table and the suffix from two bytes', () => {
+    const bounds: Array<number> = [];
+    const bytes = vi.fn(() => Buffer.from([0xab, 0xcd]));
+    const name = generatedWorktreeName({
+      int: (max) => {
+        bounds.push(max);
+        return max - 1;
+      },
+      bytes,
+    });
 
-    expect(name.name).toBe('amber-badger-0001');
+    // Both tables hold 16 words, and each draw is bounded by its own length.
+    expect(bounds).toStrictEqual([16, 16]);
+    expect(bytes).toHaveBeenCalledWith(2);
+    expect(name.name).toBe('vivid-river-abcd');
   });
 });
 

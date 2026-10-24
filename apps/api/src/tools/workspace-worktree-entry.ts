@@ -11,7 +11,6 @@ import { type Db } from '../db/tenant-db.service';
 import { ExecutorGitError } from '../machines/executor-git-error';
 import { type ExecutorTarget } from '../machines/executor-git.service';
 import { gitFailureMessage } from '../machines/git-failure';
-import { parseMachineLocator } from '../machines/machine-locator';
 import { derivedDisplayName } from '../repositories/display-name';
 import { canonicalOrigin } from '../repositories/remote';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
@@ -24,6 +23,7 @@ import {
   type WorktreeGit,
 } from './types';
 import { adoptSource } from './workspace-worktree-adoption';
+import { targetOf } from './workspace-worktree-target';
 import {
   requireDerivedPermission,
   type WorkspaceAuthority,
@@ -144,30 +144,6 @@ function executorFailure(error: unknown, leftDirectory?: string): Failed {
   }
 }
 
-/** The executor target of one already-canonical address. */
-function targetOf(input: WorktreeEntryInput): ExecutorTarget {
-  const { authority, canonical } = input;
-  if (authority.machine === undefined) {
-    return {
-      executorId: authority.executorId,
-      machine: undefined,
-      path: canonical,
-    };
-  }
-  const parsed = parseMachineLocator(canonical);
-  if (parsed.kind !== 'path') {
-    throw new ExecutorGitError(
-      'invalid_path',
-      'The canonical Machine address does not name one absolute path.',
-    );
-  }
-  return {
-    executorId: authority.executorId,
-    machine: authority.machine.name,
-    path: parsed.path,
-  };
-}
-
 type Creation = {
   readonly context: ToolContext;
   readonly worktree: WorktreeEntryInput;
@@ -231,8 +207,9 @@ async function createWorktree(creation: Creation): Promise<WorktreeOutcome> {
   const added = await addedWorktree(creation, plan);
   if ('status' in added) return added;
 
-  // The base ref the lease records: the supplied one, else the source HEAD the
-  // inspection read, and the reported head is the commit the guard compares.
+  // The base ref the lease records is the one the add used: the supplied one,
+  // else the source HEAD the plan pinned. The reported head is the commit the
+  // guard compares.
   try {
     return await creation.context.tenantDb.runAs(
       creation.context.userId,
@@ -241,7 +218,7 @@ async function createWorktree(creation: Creation): Promise<WorktreeOutcome> {
           ...creation,
           inspection,
           plan,
-          leaseBaseRef: plan.baseRef ?? inspection.head ?? added.head,
+          leaseBaseRef: plan.baseRef ?? added.head,
           baseCommit: added.head,
         }),
     );
@@ -292,7 +269,9 @@ async function planWorktree(
     mainPath,
     directory: decided.directory,
     branch: name.branch,
-    baseRef: worktree.baseRef,
+    // An omitted base starts at the SOURCE's HEAD, not the main clone's: a
+    // linked worktree can stand on a different commit than the clone behind it.
+    baseRef: worktree.baseRef ?? inspection.head ?? undefined,
   };
 }
 
@@ -343,11 +322,41 @@ async function addedWorktree(
   } catch (error) {
     // The add is the one mutation this call sends, so it is the one place a
     // lost link can leave the decided directory behind.
-    return executorFailure(error, plan.directory);
+    return settledFailure(creation, executorFailure(error, plan.directory));
   }
-  if (added.status === 'error') return gitFailureOutcome(added);
+  if (added.status === 'error')
+    return settledFailure(creation, gitFailureOutcome(added));
   const refused = await refuseElsewhere(creation, plan);
-  return refused ?? { head: added.head };
+  return refused === undefined
+    ? { head: added.head }
+    : settledFailure(creation, refused);
+}
+
+/**
+ * The durable `native.result` of a known failure, written in its own
+ * transaction once the attempt is recorded. Without it a redelivered Run reads
+ * the bare attempt as an unknown outcome; the failed call wrote no catalog,
+ * lease, or binding row, so the result is the whole settlement. A genuinely
+ * unknown outcome keeps its result absent: the directory may exist, and only an
+ * inspection can decide.
+ */
+async function settledFailure(
+  creation: Creation,
+  failed: Failed,
+): Promise<Failed> {
+  if (failed.result.type !== 'outcome_unknown') {
+    await creation.context.tenantDb.runAs(creation.context.userId, (db) =>
+      new RunEventsRepository(db).append(creation.runId, 'native.result', {
+        toolCallId: creation.toolCallId,
+        result: {
+          status: 'error',
+          type: failed.result.type,
+          message: failed.result.message,
+        },
+      }),
+    );
+  }
+  return failed;
 }
 
 /** The durable `native.attempt`, or the observation that supersedes the call. */
@@ -513,7 +522,6 @@ async function commitWorktree(
     executorId: commit.worktree.authority.executorId,
     mainClone: commit.plan.mainClone,
     mainPath: commit.plan.mainPath,
-    canonical: commit.worktree.canonical,
     inspection: commit.inspection,
   });
   if (source === undefined) {

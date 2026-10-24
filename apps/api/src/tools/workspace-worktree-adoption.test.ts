@@ -82,7 +82,6 @@ function source(overrides: Partial<AdoptionSource> = {}): AdoptionSource {
     executorId: 'worktree-host',
     mainClone: '/home/me/src/llame',
     mainPath: '/home/me/src/llame',
-    canonical: '/home/me/src/llame',
     inspection: inspection(),
     ...overrides,
   };
@@ -294,8 +293,8 @@ describe('adoptSource', () => {
       ),
     );
     const adoption = source({
-      canonical: '/home/me/src/other',
       inspection: inspection({
+        toplevel: '/home/me/src/other',
         linked: true,
         mainWorktree: '/home/me/src/llame',
         branch: 'llame/other',
@@ -316,7 +315,7 @@ describe('adoptSource', () => {
     );
   });
 
-  it('records one row when the entered path is the main clone itself', async () => {
+  it('records one row when the linked toplevel is the main clone itself', async () => {
     const stubs = catalog();
     const adoption = source({
       inspection: inspection({

@@ -504,6 +504,48 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     expect(worktree).toMatchObject({ parentCheckoutId: main?.id });
   });
 
+  it('records a linked worktree entered through a subdirectory once, at its toplevel', async () => {
+    const source = clone({ remote: 'git@github.com:leon0399/nested.git' });
+    const linked = linkedWorktree(source, 'nested-feature');
+    mkdirSync(join(linked, 'src'), { recursive: true });
+    mkdirSync(join(linked, 'docs'), { recursive: true });
+
+    const first = await runEntry(join(linked, 'src'), { name: 'nested-src' });
+    const second = await runEntry(join(linked, 'docs'), {
+      name: 'nested-docs',
+    });
+
+    expect(await observationOf(first.runId, 'worktree-entry')).toMatchObject({
+      status: 'success',
+    });
+    expect(await observationOf(second.runId, 'worktree-entry')).toMatchObject({
+      status: 'success',
+    });
+
+    const rows = await catalog();
+    const main = rows.checkouts.find((row) => row.path === source);
+    const recorded = rows.checkouts.filter(
+      (row) => row.path === linked && row.kind === 'worktree',
+    );
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      origin: 'adopted',
+      parentCheckoutId: main?.id,
+      branch: 'nested-feature',
+    });
+    // No row names the subdirectory the owner happened to enter.
+    expect(
+      rows.checkouts.filter(
+        (row) =>
+          row.path === join(linked, 'src') || row.path === join(linked, 'docs'),
+      ),
+    ).toEqual([]);
+
+    // The stored path is the one `git worktree remove` accepts.
+    runGit(source, ['worktree', 'remove', '--end-of-options', linked]);
+    expect(existsSync(linked)).toBe(false);
+  });
+
   it('leaves the binding alone when git cannot create the worktree', async () => {
     const source = clone({ remote: 'git@github.com:leon0399/broken.git' });
     runGit(source, ['branch', 'llame/taken']);

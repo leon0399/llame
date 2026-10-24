@@ -24,8 +24,7 @@ export type AdoptionSource = {
   readonly mainClone: string;
   /** The executor's own path for the main clone, which names a remote-less repository. */
   readonly mainPath: string;
-  /** The canonical address the call entered, which may be a linked worktree. */
-  readonly canonical: string;
+  /** The inspection of the entered source, whose toplevel is the row it records. */
   readonly inspection: GitInspectSuccess;
 };
 
@@ -115,7 +114,10 @@ async function repositoryOfMain(
 /**
  * A source git reports as a linked worktree records that worktree under the
  * main clone it belongs to, so the catalog names the tree the owner entered
- * rather than only the clone behind it.
+ * rather than only the clone behind it. The row stores the worktree's TOPLEVEL:
+ * an entry through a subdirectory would otherwise duplicate the row per
+ * subdirectory, and `git worktree remove` needs the toplevel path, not the
+ * path the owner happened to enter.
  */
 async function adoptLinkedSource(
   catalog: RepositoriesRepository,
@@ -123,12 +125,12 @@ async function adoptLinkedSource(
   main: Checkout,
   repository: Repository,
 ): Promise<void> {
-  if (adoption.canonical === adoption.mainClone) return;
+  if (adoption.inspection.toplevel === adoption.mainClone) return;
   await adoptRow(catalog, {
     ownerUserId: adoption.ownerUserId,
     repositoryId: repository.id,
     executorId: adoption.executorId,
-    path: adoption.canonical,
+    path: adoption.inspection.toplevel,
     kind: 'worktree',
     parentCheckoutId: main.id,
     branch: adoption.inspection.branch,

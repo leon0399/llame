@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import path from 'node:path';
 
 import { baseReference, branchName } from '@workspace/git-executor';
@@ -129,19 +129,31 @@ export function readWorktreeRequest(request: {
       : { baseRef, name };
 }
 
+/** The two randomness seams one generated name draws from. */
+export type WorktreeNameRandomness = {
+  /** A whole number in `[0, max)`, for one table index. */
+  readonly int: (max: number) => number;
+  /** The bytes of the hex suffix. */
+  readonly bytes: (size: number) => Buffer;
+};
+
+const CRYPTO_RANDOM: WorktreeNameRandomness = {
+  int: randomInt,
+  bytes: randomBytes,
+};
+
 /**
- * One generated `<adjective>-<noun>-<4 hex>` name. The caller retries with a new
- * suffix while its directory or branch exists, so one collision costs no call.
+ * One generated `<adjective>-<noun>-<4 hex>` name. Each word is an index the
+ * platform draws within its own table, so no byte is reduced modulo a length
+ * the tables may outgrow. The caller retries with a new suffix while its
+ * directory or branch exists, so one collision costs no call.
  */
 export function generatedWorktreeName(
-  random: (size: number) => Buffer = randomBytes,
+  random: WorktreeNameRandomness = CRYPTO_RANDOM,
 ): WorktreeName {
-  const bytes = random(4);
-  // `Buffer` indexes always exist for an in-range byte offset; `?? 0` keeps the
-  // index access total without a throw, which the length above guarantees.
-  const adjective = ADJECTIVES[(bytes[0] ?? 0) % ADJECTIVES.length] ?? 'calm';
-  const noun = NOUNS[(bytes[1] ?? 0) % NOUNS.length] ?? 'otter';
-  const suffix = bytes.subarray(2, 4).toString('hex');
+  const adjective = ADJECTIVES[random.int(ADJECTIVES.length)] ?? 'calm';
+  const noun = NOUNS[random.int(NOUNS.length)] ?? 'otter';
+  const suffix = random.bytes(2).toString('hex');
   return worktreeNameOf(`${adjective}-${noun}-${suffix}`);
 }
 

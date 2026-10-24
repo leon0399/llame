@@ -496,6 +496,57 @@ describe('enter_workspace with a worktree', () => {
     );
   });
 
+  it('starts an omitted base at the linked HEAD, not the clone HEAD', async () => {
+    const database = stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const linked = linkedWorktree(source, 'side');
+    runGit(linked, ['commit', '--quiet', '--allow-empty', '--message', 'side']);
+    const linkedHead = headOf(linked);
+    expect(linkedHead).not.toBe(headOf(source));
+
+    const result = await enterWorktreeCall(context(), linked, {
+      name: 'clear-field-0192',
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      worktree: { baseCommit: linkedHead },
+    });
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'llame',
+      'clear-field-0192',
+    );
+    expect(headOf(directory)).toBe(linkedHead);
+    expect(database.createLease).toHaveBeenCalledWith({
+      ownerUserId: 'owner-1',
+      chatId: 'chat-1',
+      checkoutId: expect.any(String),
+      baseRef: linkedHead,
+      baseCommit: linkedHead,
+    });
+  });
+
+  it('keeps an explicit base ref over the source HEAD', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const linked = linkedWorktree(source, 'side');
+    runGit(linked, ['commit', '--quiet', '--allow-empty', '--message', 'side']);
+    const sourceHead = headOf(source);
+
+    const result = await enterWorktreeCall(context(), linked, {
+      name: 'clear-field-0192',
+      baseRef: 'main',
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      worktree: { baseCommit: sourceHead },
+    });
+  });
+
   it('starts the branch at a supplied base ref', async () => {
     stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
@@ -1180,6 +1231,9 @@ describe('worktree failures that come from the executor', () => {
     expect(database.createCheckout).not.toHaveBeenCalled();
     expect(database.createLease).not.toHaveBeenCalled();
     expect(database.enter).not.toHaveBeenCalled();
+    // An unknown outcome keeps its result absent: only an inspection can decide
+    // whether the directory exists.
+    expect(database.append).not.toHaveBeenCalled();
   });
 
   it('answers a link lost before the add as unavailable, with no directory', async () => {
@@ -1245,7 +1299,7 @@ describe('worktree failures that come from the executor', () => {
   });
 
   it('answers the redacted standard error a git failure carries', async () => {
-    stubbedDatabase();
+    const database = stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
     const executorsOf = executors();
     vi.spyOn(executorsOf, 'worktreeAdd').mockResolvedValue({
@@ -1263,6 +1317,16 @@ describe('worktree failures that come from the executor', () => {
     expect(errorOf(result)).toStrictEqual({
       type: 'worktree_failed',
       message: 'fatal: could not create directory',
+    });
+    // The attempt is recorded, so the failure settles with its own result: a
+    // redelivered Run reads this, not an unknown outcome.
+    expect(database.append).toHaveBeenCalledWith('run-1', 'native.result', {
+      toolCallId: 'call-1',
+      result: {
+        status: 'error',
+        type: 'worktree_failed',
+        message: 'fatal: could not create directory',
+      },
     });
   });
 
