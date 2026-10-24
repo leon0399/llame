@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
+- `enter_workspace` accepts an optional `worktree` object with `name` and
+  `baseRef`, so one Chat can take its own tree of the clone it names: the tool
+  creates the worktree beside the clone (or under the main checkout's
+  `worktree_base`) on a `llame/<name>` branch, records the Worktree checkout,
+  its lease with the base commit, and any adopted repository and main checkout,
+  and binds the new root in the same transaction as the attempt that precedes
+  `git worktree add`. An unregistered clone is adopted from its inspected
+  `origin` remote, a linked-worktree source resolves to its main clone, and a
+  symlinked worktree parent decides on its canonical form. A failed creation
+  records nothing and leaves the previous binding alone. The owner can remove a
+  clean worktree through `DELETE /api/v1/checkouts/:id/worktree`, which refuses a
+  dirty tree, unpushed commits, and an unknown upstream unless HEAD is the
+  recorded base commit, and keeps the branch. See
+  [repositories](docs/product/operator/repositories.md) and
+  [enter_workspace](docs/product/reference/tools/enter-workspace.md).
+
 - The instance gains a repository catalog: an owner's repositories, their
   aliases, and the checkouts where each exists on an executor, plus the worktree
   leases that record which Chat created one, from which base ref, and at which

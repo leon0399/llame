@@ -22,6 +22,7 @@ import { type DerivedDecision } from './web-read/admission';
 import { type ModelClientFactory } from '../models/models.service';
 import { type ToolMediaStore } from '../media/tool-media-store';
 import { type MachineConnector } from '../machines/machine-connector.service';
+import { type ExecutorGit } from '../machines/executor-git.service';
 import { type MachineStatusView } from '../machines/machines-status';
 import { type SshBinding, type SshClient } from '../ssh/ssh-client';
 /**
@@ -67,6 +68,19 @@ export type KnowledgeToolResolver = {
     binding: KnowledgeFilesystemBinding,
   ) => KnowledgeFilesystemAdapterPort;
 };
+
+/** The typed git surface a worktree entry needs, which `ExecutorGit` provides. */
+export type WorktreeGit = Pick<
+  ExecutorGit,
+  | 'address'
+  | 'canonical'
+  | 'canonicalTarget'
+  | 'executorPath'
+  | 'exists'
+  | 'inspect'
+  | 'removeWorktree'
+  | 'worktreeAdd'
+>;
 
 /**
  * Trusted execution context injected into a tool's execute by the run loop —
@@ -174,6 +188,12 @@ export interface ToolContext {
    * the connection to it; it is trusted, never model supplied.
    */
   readonly sshBinding?: SshBinding;
+  /**
+   * The trusted typed git surface `enter_workspace` needs to create a
+   * worktree. Absent means the process serves no git, so a `worktree` call
+   * fails before it probes anything.
+   */
+  readonly executorGit?: WorktreeGit;
 }
 
 /** SPEC §13.5 classification. Code-owned non-read-only execution requires an

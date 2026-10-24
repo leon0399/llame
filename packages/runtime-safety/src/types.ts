@@ -13,4 +13,12 @@ export type ToolResult =
        * template (web-read design D3). Absent on every other error.
        */
       rejectedUrl?: string;
+      /**
+       * The directory a failed worktree creation can leave behind on disk
+       * (openspec `repositories` "Worktree entry is fenced and atomic"). Present
+       * only when a call settled without knowing whether the directory exists —
+       * a fence lost after the add, or a Machine link that dropped after the
+       * request was sent.
+       */
+      leftDirectory?: string;
     };

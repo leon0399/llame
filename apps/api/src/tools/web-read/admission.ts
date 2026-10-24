@@ -6,7 +6,8 @@ import { type ToolContext } from '../types';
 
 /**
  * redirect hops, announced alternates, `.md` suffixes, `llms.txt` candidates,
- * adapter targets, resolved addresses, and canonical Workspace entry paths.
+ * adapter targets, resolved addresses, canonical Workspace entry paths, the
+ * main clone a worktree entry inspects, and the worktree directory it computes.
  * Server-chosen locators are admitted independently before their request
  * (design D3).
  */
@@ -18,6 +19,8 @@ export type DerivedLocatorKind =
   | 'adapter'
   | 'address'
   | 'canonical'
+  | 'main_clone'
+  | 'worktree_directory'
   | 'grep-file';
 
 /** One derived locator's admission, handed to the trusted run loop beside the
@@ -53,6 +56,8 @@ const KIND_NAMES: Readonly<Record<DerivedLocatorKind, true>> = {
   adapter: true,
   address: true,
   canonical: true,
+  main_clone: true,
+  worktree_directory: true,
   'grep-file': true,
 };
 

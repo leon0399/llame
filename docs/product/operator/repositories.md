@@ -97,6 +97,9 @@ curl -X PATCH localhost:3001/api/v1/checkouts/<id> -b "session=…" \
 # Rows only: the directories stay on disk.
 curl -X DELETE localhost:3001/api/v1/checkouts/<id> -b "session=…"
 curl -X DELETE localhost:3001/api/v1/repositories/<id> -b "session=…"
+
+# Remove one clean worktree directory, then its row and lease.
+curl -X DELETE localhost:3001/api/v1/checkouts/<id>/worktree -b "session=…"
 ```
 
 ### Registration
@@ -134,7 +137,7 @@ registration of one path is a conflict, not a second row.
 
 Failures answer with a typed `code`: `403` `tool_not_allowed` or
 `permission_denied`; `404` for a missing or foreign identifier; `409`
-`path_taken`, `remote_taken`, or `alias_taken`; `422` `invalid_display_name`,
+`path_taken`, `worktree_not_clean`, `remote_taken`, or `alias_taken`; `422` `invalid_display_name`,
 `invalid_path`, `invalid_remote`, `invalid_selector`, `invalid_worktree_base`,
 `not_a_directory`,
 `origin_mismatch`, or `not_a_repository`; `502` `git_failed` with the redacted
@@ -183,6 +186,54 @@ trust boundary `enter_workspace` already carries as `execute_code`: a clone
 whose configuration names a filter command can run that command when llame
 inspects it. Disabling filters entirely is rejected: it would break a Git LFS
 checkout.
+
+### Worktrees a Chat creates
+
+`enter_workspace` takes an optional `worktree` object with `name` and `baseRef`,
+and the model uses it when one Chat needs its own tree of the clone it names.
+The submitted `path` is the source clone, which may be a subdirectory of it or a
+linked worktree of it: the source is the main tree git reports.
+
+- **Placement.** `<parent>/.llame-worktrees/<display name>/<slug>`, where
+  `<parent>` is the parent directory of the clone's real path, and `<slug>` is
+  the worktree name with each `/` replaced by `-`. A `worktree_base` on the main
+  checkout replaces `<parent>/.llame-worktrees`, so one machine can keep every
+  tree under one directory. Nothing is ever created inside the clone.
+- **Name and branch.** An omitted name becomes `<adjective>-<noun>-<4 hex>`, and
+  a supplied name is used as written. A name must not start with `-`, contain a
+  `.` or `..` segment, or break git's ref rules. The branch is `llame/<name>`,
+  or the name itself when it holds a `/` — so `feature/login` keeps its
+  hierarchy. An omitted `baseRef` starts at the source clone's current HEAD, and
+  no fetch runs.
+- **Decisions.** The policy decides four paths in order: the submitted path, its
+  canonical form, the main clone git reports, and the canonical worktree
+  directory. The directory is resolved through its deepest existing ancestor, so
+  a symlinked `.llame-worktrees` decides where it really lands, and a reject on
+  any of the four refuses the call before the write it guards. On a Machine the
+  daemon's registered roots bound the directory, and a path outside them fails
+  as `path_not_registered`.
+- **Order.** The worker records a `native.attempt` with the `worktree` operation
+  before `git worktree add`, and the checkout, the lease, the adopted rows, the
+  attempt's result, and the bound root commit in one transaction. A failed
+  creation records nothing and leaves the Chat on its previous root with the same
+  generation. A fence lost after the add answers `executor_unavailable` with
+  `leftDirectory`; a Machine link that drops after the request was sent answers
+  `outcome_unknown`, and the directory can remain on disk.
+- **Adoption.** A source clone the owner has not registered is adopted with a
+  repository from its `origin` remote (or none), a main checkout with origin
+  `adopted`, and, for a linked-worktree source, that worktree's own row. Two
+  Chats that adopt one clone at once end with one repository and one main
+  checkout.
+
+The removal route takes a worktree checkout and runs git's own status first. It
+refuses a dirty tree, refuses commits the upstream does not have, and fails
+closed when the branch has no upstream unless HEAD is still the base commit the
+lease recorded — which is what a freshly created worktree looks like. It passes
+the same three gates as registration, removes the directory with
+`git worktree remove`, and deletes the row and its lease only after git succeeds.
+The `llame/<name>` branch stays, so a removal loses no commit. A worktree row
+without a lease keeps the fail-closed rule: no recorded base can prove the
+branch is unchanged. Refusals answer `409` `worktree_not_clean`.
 
 ## Reading the catalog
 

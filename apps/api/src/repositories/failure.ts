@@ -2,7 +2,7 @@ import { STATUS_CODES } from 'node:http';
 
 import { HttpException, HttpStatus } from '@nestjs/common';
 
-import { type ExecutorGitErrorCode } from '../machines/executor-git.service';
+import { type ExecutorGitErrorCode } from '../machines/executor-git-error';
 
 /**
  * The typed failure envelope of the repository and checkout routes
@@ -18,6 +18,7 @@ export const REPOSITORY_FAILURE_CODES = [
   'remote_taken',
   'alias_taken',
   'path_taken',
+  'worktree_not_clean',
   'invalid_display_name',
   'invalid_path',
   'invalid_remote',
@@ -42,6 +43,7 @@ const STATUS: Record<RepositoryFailureCode, HttpStatus> = {
   remote_taken: HttpStatus.CONFLICT,
   alias_taken: HttpStatus.CONFLICT,
   path_taken: HttpStatus.CONFLICT,
+  worktree_not_clean: HttpStatus.CONFLICT,
   invalid_display_name: HttpStatus.UNPROCESSABLE_ENTITY,
   invalid_path: HttpStatus.UNPROCESSABLE_ENTITY,
   invalid_remote: HttpStatus.UNPROCESSABLE_ENTITY,

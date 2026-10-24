@@ -31,6 +31,7 @@ import {
 
 import { CurrentUser } from '../auth/auth-context';
 import { CheckoutsService } from './checkouts.service';
+import { WorktreeRemovalService } from './worktree-removal.service';
 import {
   CheckoutResponse,
   CreateCheckoutDto,
@@ -45,7 +46,10 @@ import { RepositoryFailureResponse } from './dto/failure.dto';
 @ApiCookieAuth('cookie')
 @Controller('api/v1/checkouts')
 export class CheckoutsController {
-  constructor(private readonly checkouts: CheckoutsService) {}
+  constructor(
+    private readonly checkouts: CheckoutsService,
+    private readonly worktrees: WorktreeRemovalService,
+  ) {}
 
   // The only route in this module that runs git, and therefore the only one
   // with the executor and host-access gates.
@@ -105,6 +109,32 @@ export class CheckoutsController {
     return toCheckoutResponse(
       await this.checkouts.setWorktreeBase(userId, id, input.worktreeBase),
     );
+  }
+
+  // Owner-initiated worktree removal: guarded on the executor (dirty,
+  // unpushed, or unknown upstream refused), and the directory leaves only
+  // after git removes it. The branch stays, so no commit is lost.
+  @Delete(':id/worktree')
+  @ApiOperation({
+    operationId: 'removeCheckoutWorktree',
+    summary: 'Remove a clean worktree directory, then its row',
+  })
+  @HttpCode(204)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiNoContentResponse()
+  @ApiBadRequestResponse({ description: 'Malformed checkout id' })
+  @ApiNotFoundResponse({ type: RepositoryFailureResponse })
+  @ApiForbiddenResponse({ type: RepositoryFailureResponse })
+  @ApiConflictResponse({ type: RepositoryFailureResponse })
+  @ApiUnprocessableEntityResponse({ type: RepositoryFailureResponse })
+  @ApiBadGatewayResponse({ type: RepositoryFailureResponse })
+  @ApiServiceUnavailableResponse({ type: RepositoryFailureResponse })
+  @ApiUnauthorizedResponse()
+  async removeCheckoutWorktree(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.worktrees.remove(userId, id);
   }
 
   // Row-only deletion: a chat keeps its stored Workspace path, and the next
