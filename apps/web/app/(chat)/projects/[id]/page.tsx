@@ -182,7 +182,10 @@ function ProjectPageBody({
       {/* Below `lg` the side panel sits between the composer and the chats. */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
-          <ProjectPromptInput projectId={data.project.id} />
+          <ProjectPromptInput
+            projectId={data.project.id}
+            projectName={data.project.name}
+          />
         </div>
         <ProjectSidePanel projectId={data.project.id} />
         <div className="min-w-0 lg:col-span-2">

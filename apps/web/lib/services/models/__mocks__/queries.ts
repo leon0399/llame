@@ -20,6 +20,8 @@ type MockedModelsQuery = {
   data: { defaultModelId: string; models: Array<AvailableModel> } | undefined;
   isError: boolean;
   isPending: boolean;
+  /** The real query result's success flag, which send-readiness reads. */
+  isSuccess?: boolean;
 };
 
 export const useModelsQuery = fn((): MockedModelsQuery => ({
