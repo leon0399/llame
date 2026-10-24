@@ -123,7 +123,12 @@ export class ProjectsRepository {
   async update(
     projectId: string,
     ownerUserId: string,
-    patch: { name?: string; description?: string | null; archived?: boolean },
+    patch: {
+      name?: string;
+      description?: string | null;
+      archived?: boolean;
+      defaultExecutorId?: string | null;
+    },
   ): Promise<Project | undefined> {
     const current = await this.findById(projectId, ownerUserId);
     if (!current) return undefined;
@@ -132,7 +137,9 @@ export class ProjectsRepository {
     // write except pure unarchive (archived: false, no other fields) or pure
     // re-archive (archived: true on already archived — idempotent no-op).
     const hasContentFields =
-      patch.name !== undefined || patch.description !== undefined;
+      patch.name !== undefined ||
+      patch.description !== undefined ||
+      patch.defaultExecutorId !== undefined;
 
     if (current.archivedAt !== null) {
       const isPureUnarchive = patch.archived === false && !hasContentFields;
@@ -143,14 +150,7 @@ export class ProjectsRepository {
       }
     }
 
-    const fields: Partial<typeof projects.$inferInsert> = {};
-    if (patch.name !== undefined) fields.name = patch.name;
-    if (patch.description !== undefined) fields.description = patch.description;
-    if (patch.archived === true && current.archivedAt === null) {
-      fields.archivedAt = new Date();
-    } else if (patch.archived === false) {
-      fields.archivedAt = null;
-    }
+    const { fields, contentChanged } = projectPatchFields(patch, current);
 
     // Nothing to change: don't issue a no-op write. Return the current row
     // instead — still owner-scoped, so the caller gets the project on a
@@ -158,9 +158,6 @@ export class ProjectsRepository {
     if (Object.keys(fields).length === 0) {
       return current;
     }
-
-    const contentChanged =
-      patch.name !== undefined || patch.description !== undefined;
 
     const [updated] = await this.db
       .update(projects)
@@ -188,4 +185,38 @@ export class ProjectsRepository {
 
     return deleted.length > 0;
   }
+}
+
+type ProjectPatch = {
+  name?: string;
+  description?: string | null;
+  archived?: boolean;
+  defaultExecutorId?: string | null;
+};
+
+/**
+ * The `SET` fields of one patch, and whether the write changes project content
+ * (which bumps `updated_at`) rather than archive state alone. The default
+ * executor is content: it changes what a chat start resolves, so a list ordered
+ * by project activity moves.
+ */
+function projectPatchFields(patch: ProjectPatch, current: Project) {
+  const fields: Partial<typeof projects.$inferInsert> = {};
+  if (patch.name !== undefined) fields.name = patch.name;
+  if (patch.description !== undefined) fields.description = patch.description;
+  if (patch.defaultExecutorId !== undefined) {
+    fields.defaultExecutorId = patch.defaultExecutorId;
+  }
+  if (patch.archived === true && current.archivedAt === null) {
+    fields.archivedAt = new Date();
+  } else if (patch.archived === false) {
+    fields.archivedAt = null;
+  }
+  return {
+    fields,
+    contentChanged:
+      patch.name !== undefined ||
+      patch.description !== undefined ||
+      patch.defaultExecutorId !== undefined,
+  };
 }

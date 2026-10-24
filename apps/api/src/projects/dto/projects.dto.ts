@@ -15,6 +15,11 @@ import type { Project } from '../../db/schema';
 // treatment as the 200-character name bound below and PERSONALIZATION_CAPS.
 const DESCRIPTION_MAX = 1000;
 
+// Bound on an executor id: `tools.nativeExecutorId` or `machine:<name>`, both
+// operator-authored and short. Exported because the start-location query takes
+// the same value.
+export const EXECUTOR_ID_MAX = 200;
+
 // POST /api/v1/projects — a project starts with a name and, optionally, a
 // description (folders-only, no membership/sharing fields yet).
 // Matches(/\S/) — not IsNotEmpty, which waves whitespace-only strings through
@@ -78,6 +83,23 @@ export class UpdateProjectDto {
   @ValidateIf((o: UpdateProjectDto) => o.archived !== undefined)
   @IsBoolean()
   archived?: boolean;
+
+  // The executor a chat start prefers when no link default names one. An
+  // explicit null clears it; an omitted field leaves it unchanged. IsOptional
+  // (not ValidateIf), because the column is nullable and null is the documented
+  // way to clear — the same distinction as `description`.
+  @ApiPropertyOptional({
+    type: String,
+    maxLength: EXECUTOR_ID_MAX,
+    nullable: true,
+    description:
+      'Executor id a chat start on this project prefers. Pass null to clear it; omit to leave it unchanged.',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/\S/, { message: 'defaultExecutorId must not be blank' })
+  @MaxLength(EXECUTOR_ID_MAX)
+  defaultExecutorId?: string | null;
 }
 
 export class ProjectResponse {
@@ -104,6 +126,10 @@ export class ProjectResponse {
   // project; null = not archived.
   @ApiProperty({ type: Date, format: 'date-time', nullable: true })
   archivedAt!: Date | null;
+
+  // The executor a chat start prefers; null = none.
+  @ApiProperty({ type: String, nullable: true })
+  defaultExecutorId!: string | null;
 }
 
 export function toProjectResponse(project: Project): ProjectResponse {
@@ -115,6 +141,7 @@ export function toProjectResponse(project: Project): ProjectResponse {
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     archivedAt: project.archivedAt,
+    defaultExecutorId: project.defaultExecutorId,
   };
 }
 

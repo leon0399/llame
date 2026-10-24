@@ -14,6 +14,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiNoContentResponse,
@@ -33,6 +34,16 @@ import {
   toProjectResponse,
   UpdateProjectDto,
 } from './dto/projects.dto';
+import {
+  CreateProjectRepositoryDto,
+  ProjectRepositoryLinkResponse,
+  ProjectRepositoryLinkWithDefaultsResponse,
+  StartLocationQueryDto,
+  StartLocationResponse,
+  toProjectRepositoryLinkResponse,
+  toProjectRepositoryLinkWithDefaultsResponse,
+  UpdateProjectRepositoryDto,
+} from './dto/project-links.dto';
 
 // HTTP endpoints are safe to expose only because SessionAuthGuard derives the
 // tenant identity from a verified session (see ChatsModule's own note).
@@ -127,5 +138,129 @@ export class ProjectsController {
     if (!deleted) {
       throw new NotFoundException(`Project ${id} not found`);
     }
+  }
+
+  // The project's linked repositories, each with the per-executor defaults a
+  // chat start would reuse. A read: it writes nothing, so an archived project
+  // still answers.
+  @Get(':id/repositories')
+  @ApiOperation({
+    operationId: 'listProjectRepositories',
+    summary: "List a project's linked repositories and their defaults",
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({
+    type: ProjectRepositoryLinkWithDefaultsResponse,
+    isArray: true,
+  })
+  @ApiBadRequestResponse({ description: 'Malformed project id (not a UUID)' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async listProjectRepositories(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<Array<ProjectRepositoryLinkWithDefaultsResponse>> {
+    const rows = await this.projectsService.listProjectRepositories(userId, id);
+    return rows.map(({ link, defaults }) =>
+      toProjectRepositoryLinkWithDefaultsResponse(link, defaults),
+    );
+  }
+
+  @Post(':id/repositories')
+  @ApiOperation({
+    operationId: 'linkProjectRepository',
+    summary: 'Link one catalog repository to a project',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiCreatedResponse({ type: ProjectRepositoryLinkResponse })
+  @ApiBadRequestResponse({ description: 'Malformed project or repository id' })
+  @ApiNotFoundResponse()
+  @ApiConflictResponse({
+    description: 'The project already links that repository',
+  })
+  @ApiUnauthorizedResponse()
+  async linkProjectRepository(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: CreateProjectRepositoryDto,
+  ): Promise<ProjectRepositoryLinkResponse> {
+    return toProjectRepositoryLinkResponse(
+      await this.projectsService.linkRepository(userId, id, input),
+    );
+  }
+
+  // A partial update of one link: alias, primary flag, isolation policy.
+  @Patch(':id/repositories/:repositoryId')
+  @ApiOperation({
+    operationId: 'updateProjectRepositoryLink',
+    summary: 'Change a link alias, primary flag, or isolation policy',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'repositoryId', format: 'uuid' })
+  @ApiOkResponse({ type: ProjectRepositoryLinkResponse })
+  @ApiBadRequestResponse({ description: 'Malformed id or field' })
+  @ApiNotFoundResponse()
+  @ApiConflictResponse()
+  @ApiUnauthorizedResponse()
+  async updateProjectRepositoryLink(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('repositoryId', ParseUUIDPipe) repositoryId: string,
+    @Body() input: UpdateProjectRepositoryDto,
+  ): Promise<ProjectRepositoryLinkResponse> {
+    return toProjectRepositoryLinkResponse(
+      await this.projectsService.updateProjectRepository(
+        userId,
+        id,
+        repositoryId,
+        input,
+      ),
+    );
+  }
+
+  // Row-only unlink: the link's defaults cascade, the repository and its
+  // checkouts stay.
+  @Delete(':id/repositories/:repositoryId')
+  @ApiOperation({
+    operationId: 'unlinkProjectRepository',
+    summary: "Remove one repository from a project's links",
+  })
+  @HttpCode(204)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'repositoryId', format: 'uuid' })
+  @ApiNoContentResponse()
+  @ApiBadRequestResponse({ description: 'Malformed id (not a UUID)' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async unlinkProjectRepository(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('repositoryId', ParseUUIDPipe) repositoryId: string,
+  ): Promise<void> {
+    await this.projectsService.unlinkRepository(userId, id, repositoryId);
+  }
+
+  // The location a create with the same ids resolves, with no effects.
+  @Get(':id/start-location')
+  @ApiOperation({
+    operationId: 'getProjectStartLocation',
+    summary: 'Preview the location a chat start on this project resolves',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: StartLocationResponse })
+  @ApiBadRequestResponse({ description: 'Malformed project or location id' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async getProjectStartLocation(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: StartLocationQueryDto,
+  ): Promise<StartLocationResponse> {
+    const location = await this.projectsService.getStartLocation(
+      userId,
+      id,
+      query,
+    );
+    return { projectId: id, ...location };
   }
 }
