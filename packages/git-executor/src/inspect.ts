@@ -120,11 +120,13 @@ function mainWorktreePath(porcelain: string): string | null {
   return null;
 }
 
-function absoluteDirectories(stdout: string) {
-  const [commonDir = "", gitDir = ""] = stdout
-    .split("\n")
-    .filter((line) => line !== "");
-  return { commonDir, gitDir };
+/**
+ * The one newline git ends a line of output with. Only that newline is
+ * removed: a directory name may hold a newline of its own, or end in spaces,
+ * and both belong to the path.
+ */
+function withoutTrailingNewline(value: string): string {
+  return value.replace(/\n$/u, "");
 }
 
 /** What the path is: its toplevel, its common directory, and whether it is a
@@ -140,14 +142,19 @@ async function workingTree(git: GitRunner): Promise<
   const toplevel = await git(["rev-parse", "--show-toplevel"]);
   if (toplevel.status !== "ok") return failedInspection(toplevel);
 
-  const directories = await git([
+  // One call per directory, not one call for both: two paths on two lines
+  // cannot be split again when a path holds a newline, and a main clone at
+  // `/tmp/x/main\nclone` would then read as a linked worktree of `/tmp/x/main`.
+  const common = await git([
     "rev-parse",
     "--path-format=absolute",
     "--git-common-dir",
-    "--git-dir",
   ]);
-  if (directories.status !== "ok") return failedInspection(directories);
-  const { commonDir, gitDir } = absoluteDirectories(directories.stdout);
+  if (common.status !== "ok") return failedInspection(common);
+  const own = await git(["rev-parse", "--path-format=absolute", "--git-dir"]);
+  if (own.status !== "ok") return failedInspection(own);
+  const commonDir = withoutTrailingNewline(common.stdout);
+  const gitDir = withoutTrailingNewline(own.stdout);
   const linked = gitDir !== commonDir;
 
   const worktreeList = linked
@@ -157,7 +164,7 @@ async function workingTree(git: GitRunner): Promise<
     return failedInspection(worktreeList);
   }
   return {
-    toplevel: toplevel.stdout.trim(),
+    toplevel: withoutTrailingNewline(toplevel.stdout),
     commonDir,
     linked,
     mainWorktree: linked ? mainWorktreePath(worktreeList?.stdout ?? "") : null,

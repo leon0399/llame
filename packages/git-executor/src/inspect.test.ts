@@ -120,6 +120,40 @@ describe("inspectRepository", () => {
   it("keeps a main clone path that holds a newline whole", async () => {
     const main = initRepository(join(tempDirectory(), "main\nclone"));
     commitFile(main, "README.md");
+
+    // Inspecting the main clone itself: reading both directories from one
+    // `rev-parse` call splits this path at its newline, and the halves then
+    // read as a linked worktree of its own parent directory.
+    const result = await inspectRepository({ path: main });
+
+    expect(result).toEqual({
+      status: "ok",
+      toplevel: main,
+      commonDir: join(main, ".git"),
+      linked: false,
+      mainWorktree: null,
+      remotes: [],
+      branch: "main",
+      head: runGit(main, ["rev-parse", "HEAD"]).trim(),
+    });
+  });
+
+  it("keeps a toplevel that ends in a space whole", async () => {
+    const directory = initRepository(
+      join(tempDirectory(), "space at the end "),
+    );
+    commitFile(directory, "README.md");
+
+    // The trailing space belongs to the directory name, so trimming the
+    // reported line would name a directory that does not exist.
+    const result = await inspectRepository({ path: directory });
+
+    expect(result).toMatchObject({ status: "ok", toplevel: directory });
+  });
+
+  it("keeps a main clone path that holds a newline whole", async () => {
+    const main = initRepository(join(tempDirectory(), "main\nclone"));
+    commitFile(main, "README.md");
     const linkedPath = join(tempDirectory(), "linked-newline");
     runGit(main, ["worktree", "add", "--quiet", "-b", "feature", linkedPath]);
 
