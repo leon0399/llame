@@ -2,7 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import { type Repository } from '../db/schema';
+import { type Repository, type RepositoryAlias } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { RepositoriesService } from './repositories.service';
 import { RepositoriesRepository } from './repositories.repository';
@@ -25,6 +25,12 @@ function makeService() {
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
   );
+  // The catalog read is the alias seam: each case states what the owner holds,
+  // so a case that forgets to state it sees an owner that holds nothing.
+  vi.spyOn(
+    RepositoriesRepository.prototype,
+    'findRepository',
+  ).mockResolvedValue(undefined);
   return { service: new RepositoriesService(tenantDb) };
 }
 
@@ -93,5 +99,363 @@ describe('RepositoriesService', () => {
         }),
       ),
     ).resolves.toMatchObject({ statusCode: 409, code: 'remote_taken' });
+  });
+});
+
+const alias: RepositoryAlias = {
+  id: '6f9e3c1f-6a55-4a8c-9c2b-3a3f4c2b9e11',
+  ownerUserId: 'owner-a',
+  repositoryId: repository.id,
+  canonicalAlias: 'github.com/leon0399/other',
+  createdAt: new Date('2026-10-24T00:00:00.000Z'),
+};
+
+describe('createRepository', () => {
+  it('stores the canonical remote of the submitted form', async () => {
+    const { service } = makeService();
+    const create = vi
+      .spyOn(RepositoriesRepository.prototype, 'createRepository')
+      .mockResolvedValue(repository);
+
+    await expect(
+      service.createRepository('owner-a', {
+        displayName: 'llame',
+        remote: 'https://GitHub.com/leon0399/llame.git',
+      }),
+    ).resolves.toBe(repository);
+
+    expect(create).toHaveBeenCalledWith({
+      ownerUserId: 'owner-a',
+      displayName: 'llame',
+      canonicalRemote: 'github.com/leon0399/llame',
+    });
+  });
+
+  it('stores no remote for an absent or a blank remote', async () => {
+    const { service } = makeService();
+    const create = vi
+      .spyOn(RepositoriesRepository.prototype, 'createRepository')
+      .mockResolvedValue(repository);
+
+    await service.createRepository('owner-a', { displayName: 'llame' });
+    await service.createRepository('owner-a', {
+      displayName: 'llame',
+      remote: '   ',
+    });
+
+    expect(
+      create.mock.calls.map(([input]) => input.canonicalRemote),
+    ).toStrictEqual([null, null]);
+  });
+
+  it.each([
+    ['   ', 'must not be blank'],
+    ['.', 'must not be "." or ".."'],
+    ['..', 'must not be "." or ".."'],
+    ['team/llame', 'must not contain "/" or a NUL byte'],
+    ['team\0llame', 'must not contain "/" or a NUL byte'],
+    ['x'.repeat(201), 'must be at most 200 characters'],
+  ])('refuses the display name %j with 422', async (displayName, problem) => {
+    const { service } = makeService();
+    const create = vi
+      .spyOn(RepositoriesRepository.prototype, 'createRepository')
+      .mockResolvedValue(repository);
+
+    await expect(
+      failureOf(service.createRepository('owner-a', { displayName })),
+    ).resolves.toStrictEqual({
+      statusCode: 422,
+      error: 'Unprocessable Entity',
+      message: `displayName ${problem}; it is one path segment of at most 200 characters.`,
+      code: 'invalid_display_name',
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 remote_taken when the insert found the remote taken', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'createRepository',
+    ).mockResolvedValue(undefined);
+
+    await expect(
+      failureOf(
+        service.createRepository('owner-a', {
+          displayName: 'llame',
+          remote: 'https://github.com/leon0399/llame',
+        }),
+      ),
+    ).resolves.toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message:
+        "The remote github.com/leon0399/llame is already one of this owner's repositories.",
+      code: 'remote_taken',
+    });
+  });
+
+  it('names the empty remote in a conflict over a remote-less repository', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'createRepository',
+    ).mockResolvedValue(undefined);
+
+    await expect(
+      failureOf(service.createRepository('owner-a', { displayName: 'llame' })),
+    ).resolves.toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message: "The remote  is already one of this owner's repositories.",
+      code: 'remote_taken',
+    });
+  });
+});
+
+describe('updateRepository', () => {
+  it('sends only the display name when the patch carries only one', async () => {
+    const { service } = makeService();
+    const update = vi
+      .spyOn(RepositoriesRepository.prototype, 'updateRepository')
+      .mockResolvedValue(repository);
+
+    await expect(
+      service.updateRepository('owner-a', repository.id, {
+        displayName: 'renamed',
+      }),
+    ).resolves.toBe(repository);
+
+    const [, , patch] = update.mock.calls[0];
+    expect(patch).toStrictEqual({ displayName: 'renamed' });
+  });
+
+  it('sends only the canonical remote when the patch carries only one', async () => {
+    const { service } = makeService();
+    const update = vi
+      .spyOn(RepositoriesRepository.prototype, 'updateRepository')
+      .mockResolvedValue(repository);
+
+    await service.updateRepository('owner-a', repository.id, {
+      remote: 'https://github.com/leon0399/other.git',
+    });
+
+    const [, , patch] = update.mock.calls[0];
+    expect(patch).toStrictEqual({
+      canonicalRemote: 'github.com/leon0399/other',
+    });
+  });
+
+  it('sends both keys of a full patch, clearing a null remote', async () => {
+    const { service } = makeService();
+    const update = vi
+      .spyOn(RepositoriesRepository.prototype, 'updateRepository')
+      .mockResolvedValue(repository);
+
+    await service.updateRepository('owner-a', repository.id, {
+      displayName: 'renamed',
+      remote: null,
+    });
+
+    const [, , patch] = update.mock.calls[0];
+    expect(patch).toStrictEqual({
+      displayName: 'renamed',
+      canonicalRemote: null,
+    });
+  });
+
+  it('sends an empty patch when the patch carries nothing', async () => {
+    const { service } = makeService();
+    const update = vi
+      .spyOn(RepositoriesRepository.prototype, 'updateRepository')
+      .mockResolvedValue(repository);
+
+    await service.updateRepository('owner-a', repository.id, {});
+
+    const [, , patch] = update.mock.calls[0];
+    expect(patch).toStrictEqual({});
+  });
+
+  it('validates a patched display name before any write', async () => {
+    const { service } = makeService();
+    const update = vi
+      .spyOn(RepositoriesRepository.prototype, 'updateRepository')
+      .mockResolvedValue(repository);
+
+    await expect(
+      failureOf(
+        service.updateRepository('owner-a', repository.id, {
+          displayName: '..',
+        }),
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 422,
+      code: 'invalid_display_name',
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('names the normalized remote on a unique violation', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'updateRepository',
+    ).mockRejectedValue(
+      Object.assign(new Error('duplicate'), { code: '23505' }),
+    );
+
+    await expect(
+      failureOf(
+        service.updateRepository('owner-a', repository.id, {
+          remote: 'https://github.com/leon0399/llame',
+        }),
+      ),
+    ).resolves.toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message:
+        "The remote github.com/leon0399/llame is already one of this owner's repositories.",
+      code: 'remote_taken',
+    });
+  });
+
+  it('names no remote when a display-name-only patch hits the unique key', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'updateRepository',
+    ).mockRejectedValue(
+      Object.assign(new Error('duplicate'), { code: '23505' }),
+    );
+
+    await expect(
+      failureOf(
+        service.updateRepository('owner-a', repository.id, {
+          displayName: 'renamed',
+        }),
+      ),
+    ).resolves.toMatchObject({
+      statusCode: 409,
+      message: "The remote  is already one of this owner's repositories.",
+    });
+  });
+
+  it('rethrows a failure that is not a unique violation', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'updateRepository',
+    ).mockRejectedValue(new Error('connection reset'));
+
+    await expect(
+      service.updateRepository('owner-a', repository.id, {
+        displayName: 'renamed',
+      }),
+    ).rejects.toThrow('connection reset');
+  });
+
+  it('answers 404 when the update matched no row', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'updateRepository',
+    ).mockResolvedValue(undefined);
+
+    await expect(
+      failureOf(
+        service.updateRepository('owner-a', repository.id, {
+          displayName: 'renamed',
+        }),
+      ),
+    ).resolves.toStrictEqual({
+      statusCode: 404,
+      error: 'Not Found',
+      message: 'Repository record not found',
+      code: 'not_found',
+    });
+  });
+});
+
+describe('deleteRepository', () => {
+  it('removes the repository the owner holds', async () => {
+    const { service } = makeService();
+    const remove = vi
+      .spyOn(RepositoriesRepository.prototype, 'deleteRepository')
+      .mockResolvedValue(true);
+
+    await expect(
+      service.deleteRepository('owner-a', repository.id),
+    ).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalledWith('owner-a', repository.id);
+  });
+});
+
+describe('declareAlias', () => {
+  it('stores the canonical alias of the submitted remote', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'findRepository',
+    ).mockResolvedValue(repository);
+    const declare = vi
+      .spyOn(RepositoriesRepository.prototype, 'declareAlias')
+      .mockResolvedValue(alias);
+
+    await expect(
+      service.declareAlias(
+        'owner-a',
+        repository.id,
+        'https://github.com/leon0399/other.git',
+      ),
+    ).resolves.toBe(alias);
+
+    expect(declare).toHaveBeenCalledWith({
+      ownerUserId: 'owner-a',
+      repositoryId: repository.id,
+      canonicalAlias: 'github.com/leon0399/other',
+    });
+  });
+
+  it.each(['', '   '])(
+    'refuses the blank alias %j with 422',
+    async (remote) => {
+      const { service } = makeService();
+      const declare = vi
+        .spyOn(RepositoriesRepository.prototype, 'declareAlias')
+        .mockResolvedValue(alias);
+
+      await expect(
+        failureOf(service.declareAlias('owner-a', repository.id, remote)),
+      ).resolves.toStrictEqual({
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message: 'A repository alias must be a remote.',
+        code: 'invalid_remote',
+      });
+      expect(declare).not.toHaveBeenCalled();
+    },
+  );
+
+  it('answers 409 alias_taken when the owner already declared it', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'findRepository',
+    ).mockResolvedValue(repository);
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'declareAlias',
+    ).mockResolvedValue(undefined);
+
+    await expect(
+      failureOf(
+        service.declareAlias('owner-a', repository.id, 'github.com/o/other'),
+      ),
+    ).resolves.toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message: 'That remote is already an alias of this owner.',
+      code: 'alias_taken',
+    });
   });
 });
