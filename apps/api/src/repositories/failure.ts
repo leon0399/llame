@@ -2,6 +2,8 @@ import { STATUS_CODES } from 'node:http';
 
 import { HttpException, HttpStatus } from '@nestjs/common';
 
+import { type ExecutorGitErrorCode } from '../machines/executor-git.service';
+
 /**
  * The typed failure envelope of the repository and checkout routes
  * (openspec `repositories` "Registration and removal map failures to typed
@@ -55,6 +57,17 @@ const STATUS: Record<RepositoryFailureCode, HttpStatus> = {
   machine_update_required: HttpStatus.SERVICE_UNAVAILABLE,
   git_failed: HttpStatus.BAD_GATEWAY,
 };
+
+/**
+ * The route code for one executor refusal. The daemon's own
+ * `path_not_registered` is its refusal of the address, which these routes
+ * answer as 403 `permission_denied`; every other code is already one of theirs.
+ */
+export function checkoutFailureCode(
+  code: ExecutorGitErrorCode,
+): RepositoryFailureCode {
+  return code === 'path_not_registered' ? 'permission_denied' : code;
+}
 
 /** The exception one typed failure answers with. */
 export function repositoryFailure(

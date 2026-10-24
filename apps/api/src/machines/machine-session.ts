@@ -28,7 +28,6 @@ import {
   MachineProtocolError,
   PING_NOTIFICATION,
   PROTOCOL_VERSION,
-  supportsGitMethod,
   type Frame,
   type FrameMultiplexer,
   type Heartbeat,
@@ -162,10 +161,7 @@ export class MachineUnavailableError extends Error {
  * every other method on that Machine keeps working.
  */
 export class MachineUpdateRequiredError extends Error {
-  constructor(
-    readonly machine: string,
-    readonly method: string,
-  ) {
+  constructor(machine: string, method: string) {
     super(
       `The llame-machine daemon on ${machine} answers no ${method}. Update the daemon on that Machine to use git operations on it.`,
     );
@@ -272,7 +268,7 @@ export class MachineSession {
     // one, so the refusal happens before a frame is written.
     if (
       isGitMethod(call.method) &&
-      !supportsGitMethod(this.helloResult, call.method)
+      this.helloResult?.methods?.includes(call.method) !== true
     )
       throw new MachineUpdateRequiredError(this.name, call.method);
     return Sentry.startSpan(machineRpcSpan(call.method), async () => {

@@ -61,6 +61,11 @@ const INSPECTED = {
   head: HEAD,
 };
 
+/** What a current daemon answers `fs.stat` for the registered directory. */
+const STAT = {
+  value: { kind: 'directory', isLink: false, realPath: PATH },
+};
+
 /** The peer's method list for a daemon that answers the git surface. */
 const GIT_SURFACE = [
   'git.inspect',
@@ -182,7 +187,7 @@ describe('/api/v1/checkouts on a Machine', () => {
       }),
       peer: {
         methods: GIT_SURFACE,
-        answers: { 'git.inspect': { value: INSPECTED } },
+        answers: { 'fs.stat': STAT, 'git.inspect': { value: INSPECTED } },
       },
     });
     try {
@@ -225,6 +230,9 @@ describe('/api/v1/checkouts on a Machine', () => {
       expect(rows[0]).toMatchObject({ chatIds: [chatId] });
 
       const machine = await harness.peer.session(0);
+      expect(
+        machine.calls.find((call) => call.method === 'fs.stat')?.params,
+      ).toMatchObject({ path: PATH });
       expect(
         machine.calls.find((call) => call.method === 'git.inspect')?.params,
       ).toMatchObject({
@@ -275,7 +283,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
-      peer: { roots: ['/srv'] },
+      peer: { roots: ['/srv'], answers: { 'fs.stat': STAT } },
     });
     try {
       const response = await request(harness.http)
@@ -301,6 +309,119 @@ describe('/api/v1/checkouts on a Machine', () => {
     }
   });
 
+  it('stores the canonical locator when the daemon sends a raw host path', async () => {
+    const raw = '/srv/a#b/100%';
+    const canonical = 'machine://nas/srv/a%23b/100%25';
+    const harness = await boot({
+      tools: tools({
+        nativeExecutorId: 'hub-host',
+        allowed: ['enter_workspace'],
+        permissions: { enter_workspace: ALLOW_MACHINE },
+      }),
+      peer: {
+        methods: GIT_SURFACE,
+        answers: {
+          'fs.stat': {
+            value: { kind: 'directory', isLink: false, realPath: raw },
+          },
+          'git.inspect': {
+            value: {
+              ...INSPECTED,
+              toplevel: `machine://${MACHINE}${raw}`,
+              commonDir: `machine://${MACHINE}${raw}/.git`,
+            },
+          },
+        },
+      },
+    });
+    try {
+      const response = await request(harness.http)
+        .post('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .send({ path: canonical })
+        .expect(201);
+
+      expect(checkoutSchema.parse(response.body)).toMatchObject({
+        executorId: `machine:${MACHINE}`,
+        path: canonical,
+        kind: 'main',
+      });
+    } finally {
+      await harness.app.close();
+    }
+  });
+
+  it('refuses a canonical Machine path the policy rejects, before any git call', async () => {
+    const harness = await boot({
+      tools: tools({
+        nativeExecutorId: 'hub-host',
+        allowed: ['enter_workspace'],
+        permissions: {
+          enter_workspace: {
+            // The submitted locator is allowed; the daemon's real path is not.
+            allow: [{ field: 'path', regex: `^machine://${MACHINE}${PATH}$` }],
+          },
+        },
+      }),
+      peer: {
+        methods: GIT_SURFACE,
+        answers: {
+          'fs.stat': {
+            value: {
+              kind: 'directory',
+              isLink: false,
+              realPath: '/srv/secret',
+            },
+          },
+          'git.inspect': { value: INSPECTED },
+        },
+      },
+    });
+    try {
+      const response = await request(harness.http)
+        .post('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .send({ path: LOCATOR })
+        .expect(403);
+
+      expect(failureSchema.parse(response.body).code).toBe('permission_denied');
+      const machine = await harness.peer.session(0);
+      expect(machine.requests).not.toContain('git.inspect');
+    } finally {
+      await harness.app.close();
+    }
+  });
+
+  it('answers 403 permission_denied when the daemon refuses the address', async () => {
+    const harness = await boot({
+      tools: tools({
+        nativeExecutorId: 'hub-host',
+        allowed: ['enter_workspace'],
+        permissions: { enter_workspace: ALLOW_MACHINE },
+      }),
+      peer: {
+        methods: GIT_SURFACE,
+        answers: { 'fs.stat': { error: 'path_not_registered' } },
+      },
+    });
+    try {
+      const response = await request(harness.http)
+        .post('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .send({ path: LOCATOR })
+        .expect(403);
+
+      expect(failureSchema.parse(response.body).code).toBe('permission_denied');
+      const listed = await request(harness.http)
+        .get('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .expect(200);
+      expect(listed.body).toEqual([]);
+    } finally {
+      await harness.app.close();
+    }
+  });
+
   it('refuses a locator the host policy rejects before any git call', async () => {
     const harness = await boot({
       tools: tools({
@@ -314,7 +435,7 @@ describe('/api/v1/checkouts on a Machine', () => {
       }),
       peer: {
         methods: GIT_SURFACE,
-        answers: { 'git.inspect': { value: INSPECTED } },
+        answers: { 'fs.stat': STAT, 'git.inspect': { value: INSPECTED } },
       },
     });
     try {

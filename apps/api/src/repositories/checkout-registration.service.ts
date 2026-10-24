@@ -1,5 +1,3 @@
-import { realpath, stat } from 'node:fs/promises';
-
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import {
   type GitFailure,
@@ -23,7 +21,7 @@ import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import { type CompiledPolicy } from '../tools/permissions/types';
 import { derivedDisplayName } from './display-name';
-import { notFound, repositoryFailure } from './failure';
+import { checkoutFailureCode, notFound, repositoryFailure } from './failure';
 import { canonicalOrigin, normalizeRemote } from './remote';
 import { RepositoriesRepository } from './repositories.repository';
 
@@ -91,7 +89,7 @@ export class CheckoutRegistrationService {
         // routes answer: an unconfigured executor, an unreachable or outdated
         // Machine, a refused address, or a failed git call.
         throw error instanceof ExecutorGitError
-          ? repositoryFailure(error.code, error.message)
+          ? repositoryFailure(checkoutFailureCode(error.code), error.message)
           : error;
       },
     );
@@ -117,8 +115,11 @@ export class CheckoutRegistrationService {
 
     // Every path this route probes has been admitted by the operator's policy
     // in its submitted form, and its canonical form is admitted again below.
-    const canonicalPath = await this.canonicalAddress(target);
-    this.requirePathAllowed(canonicalPath);
+    // The canonical form is decided before any git call: `realpath` locally,
+    // and the daemon's own `fs.stat` real path on a Machine, as
+    // `enter_workspace` decides a root before it binds one.
+    const canonicalPath = await this.executors.canonical(target, submitted);
+    if (canonicalPath !== submitted) this.requirePathAllowed(canonicalPath);
 
     const inspection = await this.inspect(target, canonicalPath);
     // The stored path is the toplevel git reports, so a subdirectory of a clone
@@ -140,17 +141,6 @@ export class CheckoutRegistrationService {
   }
 
   /**
-   * The canonical address of the submitted path. A local path is resolved and
-   * stated here; a Machine path is stated by its daemon, which decides its own
-   * canonical form, so the hub only normalizes the locator text.
-   */
-  private async canonicalAddress(target: ExecutorTarget): Promise<string> {
-    if (target.machine !== undefined)
-      return this.executors.address(target, target.path);
-    return this.admittedCanonicalDirectory(target.path);
-  }
-
-  /**
    * One path under the `enter_workspace` group, in `default` mode. An owner
    * HTTP route has no Run and no permission mode, so it evaluates the group as
    * a `default`-mode call would: no bypass, the same projection, and a refusal
@@ -167,50 +157,6 @@ export class CheckoutRegistrationService {
         'The host access policy does not allow this path.',
       );
     }
-  }
-
-  /**
-   * The canonical directory of a path the operator's allow list admits.
-   *
-   * The admission check is the boundary: `planInspection` refuses the submitted
-   * path before this probe, and re-evaluates the canonical path it returns
-   * before any git call, so a symlink cannot walk out of the allow list. The
-   * probe therefore only ever sees a value the `enter_workspace` policy allows.
-   *
-   * Only a local path reaches this probe: a Machine path is resolved by its own
-   * daemon, which states the canonical form it reports.
-   *
-   * The path-injection analyzer cannot see through `evaluatePermission`: the
-   * policy is compiled from operator configuration at boot, and its matchers
-   * are data, not a syntactic check it can model. The suppression names that
-   * guard for a reviewer; it does not weaken the runtime check, which the
-   * route's tests exercise on both sides of the decision.
-   */
-  private async admittedCanonicalDirectory(
-    submittedPath: string,
-  ): Promise<string> {
-    // codeql[js/path-injection]
-    const canonicalPath = await realpath(submittedPath).catch(() => undefined);
-    if (canonicalPath === undefined) {
-      throw repositoryFailure(
-        'invalid_path',
-        'The checkout path does not exist.',
-      );
-    }
-    const target = await stat(canonicalPath).catch(() => undefined);
-    if (target === undefined) {
-      throw repositoryFailure(
-        'invalid_path',
-        'The checkout path cannot be read.',
-      );
-    }
-    if (!target.isDirectory()) {
-      throw repositoryFailure(
-        'not_a_directory',
-        'The checkout path is not a directory.',
-      );
-    }
-    return canonicalPath;
   }
 
   private async inspect(
