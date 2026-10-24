@@ -111,17 +111,13 @@ export class CheckoutRegistrationService {
     const inspection = await this.inspect(canonicalPath);
     // The stored path is the toplevel git reports, so a subdirectory of a clone
     // records the clone once, and a linked worktree records its own root. Its
-    // main clone is the path its parent row is stored at. Both are admitted
-    // before either is stored: submitting a subdirectory decides a path other
-    // than the one that was submitted, and a later layer acts on the path the
-    // row holds.
-    if (inspection.toplevel !== canonicalPath) {
-      this.requirePathAllowed(inspection.toplevel);
-    }
+    // main clone is the path its parent row is stored at. Both are decided
+    // before either is stored — unconditionally, since a repeat of the same
+    // decision is free and a path that skipped it would be one a later layer
+    // acts on: submitting a subdirectory decides a path the caller never named.
+    this.requirePathAllowed(inspection.toplevel);
     const mainClone = inspection.mainWorktree ?? inspection.toplevel;
-    if (mainClone !== canonicalPath && mainClone !== inspection.toplevel) {
-      this.requirePathAllowed(mainClone);
-    }
+    this.requirePathAllowed(mainClone);
     return {
       executorId,
       inspection,
