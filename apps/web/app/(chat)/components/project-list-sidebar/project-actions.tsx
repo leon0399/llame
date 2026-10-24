@@ -13,11 +13,14 @@ import {
   PencilIcon,
   PinIcon,
   PinOffIcon,
+  SquarePenIcon,
   TrashIcon,
 } from "lucide-react";
+import Link from "next/link";
 
 import { usePinItem, useUnpinItem } from "@/lib/services/pins/mutations";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
+import { startLocationDeepLink } from "@/lib/services/project/start-location-link";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import {
   DeleteProjectDialog,
@@ -74,10 +77,37 @@ function ProjectLifecycleItems({
   );
 }
 
+/** "New chat in project" (design D10): the deep link to this project's
+ *  composer. An archived project refuses a new chat, so its row is a
+ *  placeholder rather than a link that would fail after the navigation. */
+function NewChatInProjectItem({ project }: { project: ProjectResponse }) {
+  const label = (
+    <>
+      <SquarePenIcon />
+      <span>New chat in project</span>
+    </>
+  );
+  if (project.archivedAt !== null) {
+    return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
+  }
+  return (
+    <DropdownMenuItem
+      render={
+        <Link
+          href={startLocationDeepLink({ projectId: project.id })}
+          prefetch={false}
+        />
+      }
+    >
+      {label}
+    </DropdownMenuItem>
+  );
+}
+
 /** A project's "…" menu, the same wherever the project is shown (its list
  *  row, its page header). Grouped by action semantics with dividers,
- *  mirroring ChatItem's row menu: pin toggle → edit details → lifecycle
- *  (archive, then delete). */
+ *  mirroring ChatItem's row menu: pin toggle → new chat → edit details →
+ *  lifecycle (archive, then delete). */
 export function ProjectMenuItems({
   project,
   isPinned,
@@ -100,6 +130,10 @@ export function ProjectMenuItems({
           {isPinned ? <PinOffIcon /> : <PinIcon />}
           <span>{isPinned ? "Unpin" : "Pin"}</span>
         </DropdownMenuItem>
+      </DropdownMenuGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup>
+        <NewChatInProjectItem project={project} />
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>

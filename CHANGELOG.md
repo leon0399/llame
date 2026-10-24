@@ -2,6 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
+- Every chat-start entry point pre-fills one location chip. A project's row
+  menu offers "New chat in project", and an existing chat's row menu offers
+  "New chat here": it copies that chat's project, repository, executor, and
+  source checkout, and asks for a worktree because the source chat already
+  holds the tree. The deep link
+  `/chat/new?project=&repository=&executor=&checkout=&worktree=1` forwards a
+  named project to its composer with the same pre-fill, and the composer never
+  rewrites the URL while the chip is edited. The chat header shows the same
+  chip read-only from the chat's own `workspace_root`, warning for a chat bound
+  to nothing, and naming a root the checkout catalog does not hold instead of
+  hiding it. See
+  [chat location](docs/product/reference/chat-location.md).
+
 - A Chat is now created with its project and Workspace location in one request:
   `POST /api/v1/chats` takes a client chat id, an optional project, repository,
   executor, checkout, and `worktree` (`name`, `baseRef`), and an optional first

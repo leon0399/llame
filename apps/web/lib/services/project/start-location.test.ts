@@ -8,7 +8,9 @@ import type {
 } from "../../api/generated/models";
 import type { ProjectRepositoryLink } from "./types";
 import {
+  boundRootChip,
   checkoutOptions,
+  executorLabel,
   executorOptions,
   isolationReasonLabel,
   locationChip,
@@ -461,5 +463,124 @@ describe("locationChip", () => {
 
     expect(chip.detail).toBe("git refused the path");
     expect(chip.unresolved).toBeNull();
+  });
+});
+
+describe("executorLabel", () => {
+  it("names a Machine, falls back to its configured name, then the id", () => {
+    expect(executorLabel("machine:nas", [machine("nas")])).toBe("nas");
+    expect(executorLabel("machine:builder", [machine("nas")])).toBe("builder");
+    // The local executor has no Machine name, so its id is the label the
+    // cascade offers — the header chip prints the same text.
+    expect(executorLabel("local", [machine("nas")])).toBe("local");
+    expect(executorLabel("machine:nas", undefined)).toBe("nas");
+  });
+});
+
+describe("boundRootChip", () => {
+  const base = {
+    projectName: "llame development",
+    links: LINKS,
+    repositories: REPOSITORIES,
+    machines: [machine("nas")],
+  };
+
+  it("prints the bound root of a main checkout with its branch", () => {
+    const chip = boundRootChip({
+      ...base,
+      workspaceRoot: "/home/leo/src/llame-c1",
+      checkouts: CHECKOUTS,
+    });
+
+    expect(chip).toEqual({
+      segments: [
+        "llame development",
+        "llame",
+        "local",
+        "/home/leo/src/llame-c1 (main)",
+      ],
+      detail: null,
+      warning: null,
+    });
+  });
+
+  it("names a Machine root and its alias", () => {
+    const chip = boundRootChip({
+      ...base,
+      workspaceRoot: "/srv/src/llame",
+      checkouts: [
+        checkout("c3", {
+          executorId: "machine:nas",
+          path: "/srv/src/llame",
+          branch: "master",
+        }),
+      ],
+    });
+
+    expect(chip.segments).toEqual([
+      "llame development",
+      "llame",
+      "nas",
+      "/srv/src/llame (master)",
+    ]);
+    expect(chip.warning).toBeNull();
+  });
+
+  it("shows a worktree root with its branch and source branch", () => {
+    const chip = boundRootChip({
+      ...base,
+      workspaceRoot: "/home/leo/src/.llame-worktrees/llame/clear-field-0192",
+      checkouts: [
+        checkout("c1"),
+        checkout("w1", {
+          kind: "worktree",
+          path: "/home/leo/src/.llame-worktrees/llame/clear-field-0192",
+          parentCheckoutId: "c1",
+          branch: "llame/clear-field-0192",
+        }),
+      ],
+    });
+
+    expect(chip.segments.at(-1)).toBe(
+      "/home/leo/src/.llame-worktrees/llame/clear-field-0192",
+    );
+    expect(chip.detail).toBe("llame/clear-field-0192 ← main");
+    expect(chip.warning).toBeNull();
+  });
+
+  it("prints a root the catalog does not hold rather than hiding it", () => {
+    const chip = boundRootChip({
+      ...base,
+      workspaceRoot: "/srv/src/unregistered",
+      checkouts: CHECKOUTS,
+    });
+
+    expect(chip).toEqual({
+      segments: ["llame development", "/srv/src/unregistered"],
+      detail: null,
+      warning: null,
+    });
+  });
+
+  it("warns for a chat bound to nothing", () => {
+    const chip = boundRootChip({
+      ...base,
+      workspaceRoot: null,
+      checkouts: [],
+    });
+
+    expect(chip.segments).toEqual(["llame development", "No Workspace"]);
+    expect(chip.warning).toBe("This chat is not bound to a Workspace.");
+  });
+
+  it("drops the project segment for an unfiled chat", () => {
+    const chip = boundRootChip({
+      ...base,
+      projectName: null,
+      workspaceRoot: null,
+      checkouts: [],
+    });
+
+    expect(chip.segments).toEqual(["No Workspace"]);
   });
 });
