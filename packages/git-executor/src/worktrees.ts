@@ -46,6 +46,12 @@ export type WorktreeAddInput = {
 // eslint-disable-next-line no-control-regex
 const FORBIDDEN_REF_CHARACTERS = /[\s~^:?*[\\\u0000-\u001f\u007f]/u;
 
+/** Whitespace and control bytes, the bytes no name or revision a caller meant
+ *  holds. A base ref is a commit-ish rather than a name, so it is held to this
+ *  bound only: revision operators such as `~` and `^` are its syntax. */
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_BYTES = /[\s\u0000-\u001f\u007f]/u;
+
 /**
  * The ref-name rules that keep a caller value from becoming an option or an
  * ambiguous revision: no leading `-`, no whitespace or ref punctuation, no
@@ -79,14 +85,17 @@ function branchName(
 }
 
 /** The base commit-ish. It follows the directory on the command line, and is
- *  still refused when it looks like an option. */
+ *  still refused when it looks like an option. The value is a revision, not a
+ *  name: `HEAD~1`, `main^`, and `HEAD@{1}` are commit-ishes a caller may mean,
+ *  so only empty, option-like, and whitespace or control-byte values are
+ *  refused here. */
 function baseReference(
   value: string,
 ): { readonly ref: string } | { readonly message: string } {
   if (value === "") return { message: "A base ref must not be empty." };
   if (value.startsWith("-"))
     return { message: "A base ref must not start with `-`." };
-  if (FORBIDDEN_REF_CHARACTERS.test(value))
+  if (FORBIDDEN_BYTES.test(value))
     return { message: "A base ref must not hold whitespace or control bytes." };
   return { ref: value };
 }

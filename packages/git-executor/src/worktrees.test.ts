@@ -70,6 +70,26 @@ describe("addWorktree", () => {
     expect(existsSync(join(directory, "second.md"))).toBe(false);
   });
 
+  it("accepts a revision expression as the base ref", async () => {
+    const source = repositoryWithCommit();
+    const base = runGit(source, ["rev-parse", "HEAD"]).trim();
+    commitFile(source, "second.md");
+
+    for (const [index, baseRef] of ["HEAD~1", "main^"].entries()) {
+      const directory = join(tempDirectory(), `from-revision-${index}`);
+
+      const result = await addWorktree({
+        source,
+        branch: `llame/from-revision-${index}`,
+        baseRef,
+        directory,
+      });
+
+      expect(result).toMatchObject({ status: "ok", head: base });
+      expect(existsSync(join(directory, "second.md"))).toBe(false);
+    }
+  });
+
   it("refuses an option-like branch, base ref, or relative path before git starts", async () => {
     const source = repositoryWithCommit();
     const directory = join(tempDirectory(), "refused");
