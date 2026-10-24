@@ -9,6 +9,7 @@ import type {
 import { createChat as createChatEndpoint } from "../../api/generated/chats/chats";
 import { getApiErrorInfo, getApiErrorStatus } from "../../api/errors";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
+import { checkoutQueryKeys } from "../checkouts/queries";
 import type {
   StartLocationIsolation,
   StartLocationSelection,
@@ -141,6 +142,11 @@ export function useCreateChat() {
       // A successful start writes the link's defaults row for the executor,
       // and a new open chat changes the preview's `clone_in_use` reason.
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+      // A bound start also moves the checkout rows: a worktree start records
+      // the new row, and a reused clone gains this chat in its `chatIds`. The
+      // header's read-only chip and the project's worktree list read them, so
+      // a stale list leaves the new worktree unnameable until a reload.
+      queryClient.invalidateQueries({ queryKey: checkoutQueryKeys.lists() });
       queryClient.invalidateQueries({
         queryKey: projectQueryKeys.repositoryLinks(),
       });

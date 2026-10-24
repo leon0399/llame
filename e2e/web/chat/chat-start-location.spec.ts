@@ -174,9 +174,13 @@ function locationChip(page: Page) {
   return page.getByRole("button", { name: /^Chat location/ });
 }
 
-/** The chat header's read-only location, scoped to the header itself. */
+/**
+ * The chat header's read-only location, scoped to the header itself. The shell
+ * nests its `<header>` inside the inset's `<main>`, so the element is not a
+ * `banner` landmark and `getByRole("banner")` resolves nothing.
+ */
 function headerLocation(page: Page) {
-  return page.getByRole("banner");
+  return page.locator("header");
 }
 
 test.describe("chat start location (browser, full stack)", () => {
@@ -222,6 +226,11 @@ test.describe("chat start location (browser, full stack)", () => {
     account,
   }) => {
     const started = await startProject(request, account, "worktree");
+    // The placement rule is shared per repository, and a Playwright retry runs
+    // against the same /tmp, so a fixed name collides with the previous
+    // attempt's directory on the second try.
+    const treeName = `e2e-tree-${randomUUID().slice(0, 8)}`;
+    const treeBranch = `llame/${treeName}`;
 
     await page.goto(`/projects/${started.project.id}`);
     await locationChip(page).click();
@@ -230,7 +239,7 @@ test.describe("chat start location (browser, full stack)", () => {
       .getByRole("listbox", { name: "Isolation" })
       .getByRole("option", { name: "Start a worktree" })
       .click();
-    await cascade.getByLabel("Name").fill("e2e-tree");
+    await cascade.getByLabel("Name").fill(treeName);
     await page.keyboard.press("Escape");
 
     const composer = await readyComposer(page);
@@ -241,7 +250,7 @@ test.describe("chat start location (browser, full stack)", () => {
       timeout: 30_000,
     });
     await expect(
-      headerLocation(page).getByText("llame/e2e-tree", { exact: false }),
+      headerLocation(page).getByText(treeBranch, { exact: false }),
     ).toBeVisible({ timeout: 30_000 });
 
     const worktrees = await body<Array<CheckoutRow>>(
@@ -251,8 +260,8 @@ test.describe("chat start location (browser, full stack)", () => {
       ),
       "list checkouts",
     );
-    const worktree = worktrees.find((row) => row.kind === "worktree");
-    expect(worktree?.branch).toBe("llame/e2e-tree");
+    const worktree = worktrees.find((row) => row.branch === treeBranch);
+    expect(worktree?.branch).toBe(treeBranch);
     // The placement rule puts it beside the clone, never inside it.
     expect(worktree?.path).toContain("/.llame-worktrees/");
     expect(worktree?.chatIds).toHaveLength(1);
@@ -295,9 +304,13 @@ test.describe("chat start location (browser, full stack)", () => {
     await composer.fill(draft);
     await page.getByRole("button", { name: "Send message" }).click();
 
-    await expect(page.getByRole("alert")).toContainText(
-      `The executor ${MACHINE_OFFLINE} is offline.`,
-    );
+    // The route announcer is a second live region on every page, so the
+    // failure sentence is what scopes this to the composer's alert.
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: `The executor ${MACHINE_OFFLINE} is offline.` }),
+    ).toBeVisible();
     await expect(composer).toHaveValue(draft);
     await expect(page).toHaveURL(
       new RegExp(`/projects/${started.project.id}$`),
@@ -310,6 +323,14 @@ test.describe("chat start location (browser, full stack)", () => {
     account,
   }) => {
     const started = await startProject(request, account, "outdated");
+    // The chip names a failed create's sentence only for a location that
+    // resolves, and the Machine level lists an executor only while it holds a
+    // `main` checkout of the repository — so the daemon needs a row of its own
+    // for both the warning and the disabled option to be observable.
+    runSeedSql(
+      `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${MACHINE_OFFLINE}', '${MACHINE_OFFLINE}/srv/src/llame-e2e', 'main', 'main', 'registered');`,
+      account.id,
+    );
     const daemonWarning =
       "Update the llame-machine daemon on that Machine to use git operations.";
     // No local double can answer an outdated protocol, so the create answers
@@ -386,6 +407,10 @@ test.describe("chat start location (browser, full stack)", () => {
     const projectRow = page
       .locator("li")
       .filter({ hasText: started.project.name });
+    // The row's actions live in a hover-revealed track: while it is collapsed
+    // the button is clipped, so a pointer click has to reveal it first, exactly
+    // as the reader does.
+    await projectRow.hover();
     await projectRow.getByRole("button", { name: "More" }).click();
     await page.getByRole("menuitem", { name: "New chat in project" }).click();
 
