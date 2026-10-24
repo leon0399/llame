@@ -216,8 +216,7 @@ Rejected:
 ### D3. A lease is an informational receipt (Q5)
 
 `worktree_leases` holds `id`, `owner_user_id`, `chat_id`, `checkout_id`,
-`base_ref`, `tool_call_id` (nullable, unique per owner when set), and
-`created_at`, written when a Chat creates a worktree. It
+`base_ref`, and `created_at`, written when a Chat creates a worktree. It
 refuses nothing: a second Chat can bind a leased path, and a fork copies its
 binding as `owner-chat-forks` does today. `GET /api/v1/checkouts` is the owner
 surface for the receipt: for every row it returns the ids of the owner's chats
@@ -278,7 +277,8 @@ Registration takes one `path`: an absolute local path or a
 `machine://<name>/<abs>` locator. The executor is derived: a local path runs on
 the serving process's `tools.nativeExecutorId`, and a locator names
 `machine:<name>`. An unset native id, or a locator that names no configured
-Machine, fails as `executor_unavailable` (503). `enter_workspace` must be in
+Machine, fails as `executor_unavailable` (503). No git method starts and no row
+is stored in either case. `enter_workspace` must be in
 `tools.allowed`, else `tool_not_allowed` (403). The submitted path and its
 canonical form are both evaluated under the `enter_workspace` group in
 `default` mode, with the same reject rules as entry; a reject or no allow
@@ -398,9 +398,11 @@ On success the call runs one transaction under the existing binding fence. It
 creates the worktree checkout row with origin `created` and the source main row
 as parent, writes the lease, creates the adopted repository and main rows when
 the source is unregistered, and commits the binding through
-`WorkspaceBindingRepository.enter`, which receives the transaction. The lease
-stores the tool call id, nullable and unique per owner when set. No
-`native.attempt` is written, so Run recovery is unchanged. The result names the
+`WorkspaceBindingRepository.enter`, which receives the transaction. Before
+`git.worktreeAdd`, the worker appends a `native.attempt` with the new `worktree`
+operation; `'worktree'` joins the `NativeFilesRepository.begin` operation union
+and `MachineMutationTarget.operation`. That attempt's `native.result` is
+appended inside the same transaction as the rows. The result names the
 worktree root, the branch, and the base commit, and `workspace_generation`
 increments once. A call from a Chat already bound to the source clone is not a
 no-op: it creates the worktree and switches the binding with one increment.
@@ -412,11 +414,13 @@ creates no project link. A source that `git.inspect` reports as a linked
 worktree is adopted as a `worktree` row whose parent is its main clone, and
 that main clone is the source for the new worktree.
 
-A queue retry of the same tool call finds the lease by its tool call id, binds
-the same root, and creates no second worktree; a root that is already bound is
-a no-op. A crash or a fence loss before the commit leaves an orphan directory
-and no row. A failure before the add writes no repository, checkout, or lease
-row, and leaves the binding and its generation unchanged. The codes are
+A redelivered Run that carries the recorded `native.attempt` fails as
+`outcome_unknown` without replaying its loop, per the canonical rule in
+`openspec/specs/tool-calling/spec.md`, so it creates no second worktree. A
+crash or a fence loss before the commit leaves an orphan directory and no
+checkout, lease, adopted, or binding row.
+A failure before the add writes no repository, checkout, or lease row, and
+leaves the binding and its generation unchanged. The codes are
 `invalid_path` or `invalid_input` for a bad input, `not_found` for a missing
 source, `permission_denied` for a rejected decision, `path_not_registered`
 outside a Machine root, `worktree_failed` for a git failure, a timeout, or a
@@ -546,9 +550,9 @@ Rejected:
 - [Two Chats adopt one clone at once] -> adoption inserts or selects on its
   unique keys inside the transaction, so both calls reuse one repository and
   one main checkout row.
-- [A queue retry creates a second worktree] -> the lease stores the tool call
-  id, and a retry of that call finds the lease, binds the same root, and
-  creates no second worktree.
+- [A queue retry creates a second worktree] -> the worker records a
+  `native.attempt` with the `worktree` operation before the add, so a redelivered
+  Run fails as `outcome_unknown` and creates no second worktree.
 - [A Machine checkout path and a binding root disagree] -> both store the
   canonical Machine locator, so registration and entry compare equal strings.
 - [A stale `worktree_base` points outside a root] -> placement canonicalizes the

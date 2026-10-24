@@ -155,11 +155,10 @@ Another executor MUST fail with status 422. A `worktree` row MUST refuse
 
 ### Requirement: Worktree leases are informational ownership receipts
 
-A lease MUST record the chat, the worktree checkout, the base reference, the
-creation time, and the `tool_call_id` of its call, or null. The `tool_call_id`
-MUST be unique for its owner when set. A lease MUST NOT reserve the path and
-MUST NOT refuse a second chat. A second chat that binds a leased path MUST
-succeed. A lease MUST NOT change how a fork copies the Workspace binding.
+A lease MUST record the chat, the worktree checkout, the base reference, and the
+creation time. A lease MUST NOT reserve the path and MUST NOT refuse a second
+chat. A second chat that binds a leased path MUST succeed. A lease MUST NOT
+change how a fork copies the Workspace binding.
 
 #### Scenario: A second chat binds a leased path
 
@@ -220,15 +219,24 @@ a remote, the optional repository input MUST select one owner repository.
 ### Requirement: Registration and removal need a configured executor
 
 Registration and removal MUST derive a configured executor. A local path MUST
-use the `tools.nativeExecutorId` of the serving process. A locator MUST name a
-configured Machine. A locator that names no configured Machine MUST fail with
-`executor_unavailable` and status 503.
+use the `tools.nativeExecutorId` of the serving process. A local path on a
+process without that identifier MUST fail with `executor_unavailable` and
+status 503. A locator MUST name a configured Machine. A locator that names no
+configured Machine MUST fail with `executor_unavailable` and status 503. No git
+method MUST start. The system MUST store no row.
 
 #### Scenario: A Machine that is not configured is refused
 
 - **WHEN** the owner registers `machine://ghost/srv/app` and no Machine named
   `ghost` is configured
 - **THEN** the request fails with `executor_unavailable` and stores no row
+
+#### Scenario: A process without a native executor refuses a local path
+
+- **WHEN** the owner registers the absolute local path `/srv/app` and the
+  serving process holds no `tools.nativeExecutorId`
+- **THEN** the request fails with `executor_unavailable` and status 503
+- **AND** no git method starts and the system stores no row
 
 ### Requirement: Registration and removal obey the host access policy
 

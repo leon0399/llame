@@ -93,11 +93,12 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
   `machine_update_required` where they apply.
 - Worktree entry is atomic. The checkout row, the lease row, the adopted rows,
   and the binding commit in one transaction under the existing binding fence.
-  The lease stores the tool call id, so a retry of the same call binds the same
-  root and creates no second worktree. No native attempt is written, so Run
-  recovery is unchanged. A fence loss after the add reports
-  `executor_unavailable` with the remaining directory; a lost Machine link
-  reports `outcome_unknown`.
+  The worker appends a `native.attempt` with the new `worktree` operation before
+  `git.worktreeAdd`, and its `native.result` in that transaction. A redelivered
+  Run carrying a recorded attempt fails as `outcome_unknown` without replaying
+  its loop, so it creates no second worktree; the canonical `tool-calling` rule
+  applies unchanged. A fence loss after the add reports `executor_unavailable`
+  with the remaining directory; a lost Machine link reports `outcome_unknown`.
 - Worktree removal is owner-initiated and guarded. It refuses a dirty worktree,
   refuses commits ahead of the upstream, and fails closed when the upstream is
   unknown. No agent-facing removal exists in this change.
@@ -306,7 +307,8 @@ and a later change can reverse it without a data migration.
 - A registration of a path outside the `enter_workspace` allowlist answers 403
   `permission_denied` and starts no git command. A `machine://` locator that
   names no configured Machine, or a local path on a process without
-  `tools.nativeExecutorId`, answers 503 `executor_unavailable`.
+  `tools.nativeExecutorId`, answers 503 `executor_unavailable`, starts no git
+  method, and stores no row.
 - A Machine registration stores the canonical Machine locator, so it equals the
   binding root that a later `enter_workspace` writes.
 - `enter_workspace` with `worktree: {}` creates
@@ -321,8 +323,8 @@ and a later change can reverse it without a data migration.
   root fails as `path_not_registered` before any git call.
 - A failure after `git worktree add`, such as a lost fence or a lost Machine
   link, records no repository, checkout, or lease row and leaves the binding
-  unchanged; a retry of the same tool call binds the same root and creates no
-  second worktree.
+  unchanged; a redelivered Run carrying the recorded native attempt fails as
+  `outcome_unknown` and creates no second worktree.
 - An owner removes a clean worktree through
   `DELETE /api/v1/checkouts/:id/worktree`. A dirty worktree, an unpushed
   branch, and an unknown upstream are each refused, and the directory stays.

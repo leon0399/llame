@@ -331,25 +331,29 @@ MUST be its only separate code. An offline Machine MUST fail as
 
 #### Scenario: A retry after a fixed failure succeeds
 
-- **WHEN** a failed call repeats after the owner fixes the directory permission
+- **WHEN** a later Run repeats the call after the owner fixes the directory
+  permission
 - **THEN** the call creates the worktree
 - **AND** the binding root is the new directory
 
 ### Requirement: Worktree entry is fenced and atomic
 
-The worktree checkout, its lease, adopted rows, and the binding MUST commit in
-one transaction under the binding fence. The lease MUST record the tool call
-identifier. The call MUST NOT write a native attempt. A retry of that identifier
-MUST find its lease, bind the same root, and create no second worktree. A crash
-or fence loss before that commit MUST record no row. A fence loss MUST answer
-`executor_unavailable` with `leftDirectory` naming the remaining directory.
+The checkout, lease, adopted rows, and binding MUST commit in one transaction
+under the binding fence. The worker MUST append a `native.attempt` with the
+`worktree` operation before `git.worktreeAdd`. It MUST append that attempt's
+`native.result` in the same transaction. A redelivered Run with a
+`native.attempt` MUST fail as `outcome_unknown`. A fence loss MUST answer
+`executor_unavailable` with `leftDirectory`. A crash before the commit MUST
+leave no checkout, lease, adopted, or binding row.
 
-#### Scenario: A queue retry binds the same worktree
+#### Scenario: A worker crash after the add fails the Run as unknown
 
-- **WHEN** a queue retry repeats a `worktree` call whose transaction committed
-- **THEN** the retry finds the lease by its tool call identifier and binds the
-  same root
-- **AND** no second worktree is created, and the generation is unchanged
+- **WHEN** a worker crashes after `git.worktreeAdd` succeeds and before the
+  transaction commits
+- **THEN** a redelivery of that Run fails as `outcome_unknown` without replaying
+  its loop, per the `tool-calling` rule
+- **AND** it creates no second worktree and records no checkout, lease, or
+  binding change
 
 #### Scenario: A fence loss after the add answers executor_unavailable
 
