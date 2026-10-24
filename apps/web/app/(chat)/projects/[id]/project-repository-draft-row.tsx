@@ -26,10 +26,11 @@ type AddRepositoryProps = {
   linkedRepositoryIds: ReadonlySet<string>;
 };
 
-/** What the search box holds reads as a path — absolute, home-relative, or a
- *  Machine locator — rather than a name to search for. */
+/** What the search box holds reads as a path — absolute, or a Machine
+ *  locator — rather than a name to search for. Registration takes only those
+ *  two forms, so `~/` and relative paths stay searches. */
 function looksLikePath(query: string) {
-  return /^(\/|~\/|\.{1,2}\/|machine:\/\/)/.test(query);
+  return query.startsWith("/") || query.startsWith("machine://");
 }
 
 /**

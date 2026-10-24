@@ -303,7 +303,7 @@ The section's `+` adds a draft row that searches the owner's catalog, minus the
 links the project already holds, and takes a pasted path:
 
 - Picking a catalog repository links it under its display name.
-- A path — absolute, `~/`, relative, or a `machine://<name>/…` locator —
+- An absolute path or a `machine://<name>/…` locator
   registers that clone (`POST /api/v1/checkouts`) and then links the
   repository it resolves to, unless the project already links it.
 - The first link a project takes is its primary. Escape, or leaving the empty

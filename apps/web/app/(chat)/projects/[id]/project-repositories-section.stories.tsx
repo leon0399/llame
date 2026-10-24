@@ -28,6 +28,7 @@ const meta = {
     api.checkouts = [];
     api.refusal = null;
     api.registered = localClone;
+    api.checkoutsFail = false;
     return routeFetch();
   },
   // The section lives in the project page's side panel column.
@@ -91,6 +92,32 @@ export const Links: Story = {
       canvas.getByText("git.example.com/acme/website · No checkout"),
     ).toBeVisible();
     await expect(canvas.getAllByRole("listitem")).toHaveLength(2);
+  },
+};
+
+/**
+ * When the checkout read fails, a row shows only its remote rather than
+ * claiming "No checkout", and the list offers the read again.
+ *
+ * @summary a failed checkout read: remotes only, and a retry
+ */
+export const CheckoutsUnavailable: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    api.links = [link({ repositoryId: "r1", alias: "llame" })];
+    api.checkoutsFail = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(
+      await canvas.findByText("Could not load the checkouts."),
+    ).toBeVisible();
+    await expect(canvas.getByText("github.com/leon0399/llame")).toBeVisible();
+    await expect(canvas.queryByText(/No checkout/)).not.toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Try again" }),
+    ).toBeVisible();
   },
 };
 

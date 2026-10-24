@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select";
 import { Separator } from "@workspace/ui/components/separator";
+import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Sheet, SheetContent } from "@workspace/ui/components/sheet";
 import { Switch } from "@workspace/ui/components/switch";
 import { PlusIcon } from "lucide-react";
@@ -279,40 +280,81 @@ function SettingsSection({
   );
 }
 
+/** A repository's checkouts once read, or why they are not shown yet. */
+export type CheckoutsRead =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "loaded"; rows: ReadonlyArray<CheckoutResponse> };
+
+/** One kind of checkout from a read, the read's state passing through. */
+function ofKind(
+  read: CheckoutsRead,
+  kind: CheckoutResponse["kind"],
+): CheckoutsRead {
+  if (read.status !== "loaded") return read;
+  return {
+    status: "loaded",
+    rows: read.rows.filter((checkout) => checkout.kind === kind),
+  };
+}
+
 /** A group's rows, spaced like the panel's repository list so two filled
- *  rows never touch, or the sentence that says why it has none. */
+ *  rows never touch; the sentence that says why it has none; or the read's
+ *  pending or failed state. */
 function RowList({
+  read,
   empty,
-  rows,
+  row,
   draft,
 }: {
+  read: CheckoutsRead;
   empty: string;
-  rows: Array<ReactNode>;
+  row: (checkout: CheckoutResponse) => ReactNode;
   draft?: ReactNode;
 }) {
-  if (rows.length === 0 && draft === undefined) {
+  if (read.status === "loading") return <Skeleton className="h-10 w-full" />;
+  if (read.status === "error") {
+    return (
+      <p className="py-1 text-sm text-muted-foreground">
+        Could not load the checkouts.
+      </p>
+    );
+  }
+  if (read.rows.length === 0 && draft === undefined) {
     return <p className="py-1 text-sm text-muted-foreground">{empty}</p>;
   }
   return (
     <ul className="-mx-2 flex flex-col gap-1">
-      {rows}
+      {read.rows.map(row)}
       {draft}
     </ul>
   );
 }
+
+/** A section heading's count, once there is one to show. */
+function countOf(read: CheckoutsRead) {
+  return read.status === "loaded" ? read.rows.length : undefined;
+}
+
+function checkoutRow(checkout: CheckoutResponse) {
+  return <CheckoutRow key={checkout.id} checkout={checkout} />;
+}
+
+const NO_CHECKOUT =
+  "No checkout yet. Add the path of a clone so chats can start in it.";
 
 function CheckoutsSection({
   repositoryId,
   checkouts,
 }: {
   repositoryId: string;
-  checkouts: ReadonlyArray<CheckoutResponse>;
+  checkouts: CheckoutsRead;
 }) {
   const [drafting, setDrafting] = useState(false);
   return (
     <SheetSection
       title="Checkouts"
-      count={checkouts.length}
+      count={countOf(checkouts)}
       action={
         <IconButtonTooltip
           label="Add checkout"
@@ -325,10 +367,9 @@ function CheckoutsSection({
       }
     >
       <RowList
-        empty="No checkout yet. Add the path of a clone so chats can start in it."
-        rows={checkouts.map((checkout) => (
-          <CheckoutRow key={checkout.id} checkout={checkout} />
-        ))}
+        read={checkouts}
+        empty={NO_CHECKOUT}
+        row={checkoutRow}
         draft={
           drafting ? (
             <DraftCheckoutRow
@@ -342,18 +383,15 @@ function CheckoutsSection({
   );
 }
 
-function WorktreesSection({
-  worktrees,
-}: {
-  worktrees: ReadonlyArray<CheckoutResponse>;
-}) {
+function WorktreesSection({ worktrees }: { worktrees: CheckoutsRead }) {
   return (
-    <SheetSection title="Worktrees" count={worktrees.length}>
+    <SheetSection title="Worktrees" count={countOf(worktrees)}>
       <RowList
+        read={worktrees}
         empty="None yet. Chats that start in their own worktree add it here."
-        rows={worktrees.map((checkout) => (
+        row={(checkout) => (
           <WorktreeRow key={checkout.id} checkout={checkout} />
-        ))}
+        )}
       />
     </SheetSection>
   );
@@ -363,7 +401,7 @@ type RepositorySheetProps = {
   projectId: string;
   link: ProjectRepositoryLink;
   repository: RepositoryResponse | undefined;
-  checkouts: ReadonlyArray<CheckoutResponse>;
+  checkouts: CheckoutsRead;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
@@ -398,14 +436,10 @@ export function RepositorySheet({
           <Separator />
           <CheckoutsSection
             repositoryId={link.repositoryId}
-            checkouts={checkouts.filter((checkout) => checkout.kind === "main")}
+            checkouts={ofKind(checkouts, "main")}
           />
           <Separator />
-          <WorktreesSection
-            worktrees={checkouts.filter(
-              (checkout) => checkout.kind === "worktree",
-            )}
-          />
+          <WorktreesSection worktrees={ofKind(checkouts, "worktree")} />
         </div>
       </SheetContent>
     </Sheet>

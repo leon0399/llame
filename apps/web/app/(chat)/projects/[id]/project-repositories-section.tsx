@@ -12,7 +12,7 @@ import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 
 import {
   useCheckoutsQuery,
-  type CheckoutResponse,
+  type CheckoutsQuery,
 } from "@/lib/services/checkouts/queries";
 import {
   useRepositoriesQuery,
@@ -23,7 +23,10 @@ import type { ProjectRepositoryLink } from "@/lib/services/project/types";
 
 import { DraftRepositoryRow } from "./project-repository-draft-row";
 import { countLabel } from "./project-repository-policy";
-import { RepositorySheet } from "./project-repository-sheet";
+import {
+  RepositorySheet,
+  type CheckoutsRead,
+} from "./project-repository-sheet";
 
 /** The row's second line: the remote, then what the repository holds. A
  *  repository with no clone says so, since a chat cannot start in it. */
@@ -32,12 +35,19 @@ function RepositorySummary({
   checkouts,
 }: {
   repository: RepositoryResponse | undefined;
-  checkouts: ReadonlyArray<CheckoutResponse>;
+  checkouts: CheckoutsRead;
 }) {
-  const clones = checkouts.filter((checkout) => checkout.kind === "main");
-  const worktrees = checkouts.length - clones.length;
+  const remote = repository?.canonicalRemote ?? "No remote";
+  // Until the checkouts are read, the row claims nothing about them.
+  if (checkouts.status !== "loaded") {
+    return (
+      <span className="truncate text-xs text-muted-foreground">{remote}</span>
+    );
+  }
+  const clones = checkouts.rows.filter((checkout) => checkout.kind === "main");
+  const worktrees = checkouts.rows.length - clones.length;
   const parts = [
-    repository?.canonicalRemote ?? "No remote",
+    remote,
     clones.length === 0 ? "No checkout" : countLabel(clones.length, "checkout"),
   ];
   if (worktrees > 0) parts.push(countLabel(worktrees, "worktree"));
@@ -52,7 +62,7 @@ type RepositoryRowProps = {
   projectId: string;
   link: ProjectRepositoryLink;
   repository: RepositoryResponse | undefined;
-  checkouts: ReadonlyArray<CheckoutResponse>;
+  checkouts: CheckoutsRead;
   showPrimary: boolean;
 };
 
@@ -91,6 +101,28 @@ function RepositoryRow({ showPrimary, ...props }: RepositoryRowProps) {
   );
 }
 
+/** A failed checkout read, with its retry, as the list's last row; the rows
+ *  above then show only their remotes. */
+function CheckoutsLoadError({ checkouts }: { checkouts: CheckoutsQuery }) {
+  if (!checkouts.isError) return null;
+  return (
+    <li>
+      <Alert variant="destructive">
+        <AlertTitle>Could not load the checkouts.</AlertTitle>
+        <AlertAction>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void checkouts.refetch()}
+          >
+            Try again
+          </Button>
+        </AlertAction>
+      </Alert>
+    </li>
+  );
+}
+
 function RepositoriesLoadError({ onRetry }: { onRetry: () => void }) {
   return (
     <Alert variant="destructive">
@@ -113,11 +145,19 @@ function useRepositoriesSectionData(projectId: string) {
   const repositoryById = new Map(
     (repositories.data ?? []).map((repository) => [repository.id, repository]),
   );
-  const checkoutsOf = (repositoryId: string) =>
-    (checkouts.data ?? []).filter(
-      (checkout) => checkout.repositoryId === repositoryId,
-    );
-  return { links, repositoryById, checkoutsOf };
+  // A read that has not settled is not an empty list: rows and sheets say
+  // which it is rather than report no checkouts.
+  const checkoutsOf = (repositoryId: string): CheckoutsRead => {
+    if (checkouts.isError) return { status: "error" };
+    if (checkouts.data === undefined) return { status: "loading" };
+    return {
+      status: "loaded",
+      rows: checkouts.data.filter(
+        (checkout) => checkout.repositoryId === repositoryId,
+      ),
+    };
+  };
+  return { links, repositoryById, checkoutsOf, checkouts };
 }
 
 function RepositoriesEmpty() {
@@ -128,6 +168,9 @@ function RepositoriesEmpty() {
   );
 }
 
+/** The links, then a failed checkout read and the draft when there is one.
+ *  Rows fill on hover and while drafting; the list's gap keeps two filled
+ *  rows from touching, as the sidebar's menu does. */
 function RepositoriesBody({
   projectId,
   drafting,
@@ -137,16 +180,15 @@ function RepositoriesBody({
   drafting: boolean;
   onDraftClose: () => void;
 }) {
-  const { links, repositoryById, checkoutsOf } =
+  const { links, repositoryById, checkoutsOf, checkouts } =
     useRepositoriesSectionData(projectId);
   if (links.isPending) return <Skeleton className="h-10 w-full" />;
   if (links.isError) {
     return <RepositoriesLoadError onRetry={() => void links.refetch()} />;
   }
   if (links.data.length === 0 && !drafting) return <RepositoriesEmpty />;
+  const linked = new Set(links.data.map((link) => link.repositoryId));
   return (
-    // Rows carry their own background on hover and while drafting; the gap
-    // keeps two filled rows from touching, as the sidebar's menu does.
     <ul className="flex flex-col gap-1">
       {links.data.map((link) => (
         <RepositoryRow
@@ -158,12 +200,11 @@ function RepositoriesBody({
           showPrimary={links.data.length > 1}
         />
       ))}
+      <CheckoutsLoadError checkouts={checkouts} />
       {drafting ? (
         <DraftRepositoryRow
           projectId={projectId}
-          linkedRepositoryIds={
-            new Set(links.data.map((link) => link.repositoryId))
-          }
+          linkedRepositoryIds={linked}
           onClose={onDraftClose}
         />
       ) : null}

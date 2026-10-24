@@ -108,6 +108,8 @@ type StoryApi = {
   refusal: { status: number; body: object } | null;
   /** The checkout a registration answers with. */
   registered: CheckoutResponse;
+  /** Whether the checkout list answers 500. */
+  checkoutsFail: boolean;
 };
 
 export const api: StoryApi = {
@@ -116,6 +118,7 @@ export const api: StoryApi = {
   checkouts: [],
   refusal: null,
   registered: localClone,
+  checkoutsFail: false,
 };
 
 /** "METHOD /path?query" a fetch call targets. */
@@ -152,7 +155,11 @@ const LINKS = "/api/v1/projects/p1/repositories";
 function answer(key: string): Response {
   if (key === `GET ${LINKS}`) return jsonResponse(api.links);
   if (key === "GET /api/v1/repositories") return jsonResponse(api.repositories);
-  if (key === "GET /api/v1/checkouts") return jsonResponse(api.checkouts);
+  if (key === "GET /api/v1/checkouts") {
+    return api.checkoutsFail
+      ? jsonResponse({ statusCode: 500, message: "Internal" }, 500)
+      : jsonResponse(api.checkouts);
+  }
   if (key === `POST ${LINKS}`)
     return jsonResponse(link({ repositoryId: "r2" }), 201);
   if (key.startsWith(`PATCH ${LINKS}/`))

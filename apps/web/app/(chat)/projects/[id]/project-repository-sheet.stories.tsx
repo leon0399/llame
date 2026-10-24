@@ -51,7 +51,10 @@ const meta = {
     projectId: "p1",
     link: link({ repositoryId: "r1", alias: "llame", isPrimary: true }),
     repository: llame,
-    checkouts: [localClone, machineClone, clearFieldWorktree],
+    checkouts: {
+      status: "loaded",
+      rows: [localClone, machineClone, clearFieldWorktree],
+    },
     open: true,
     onOpenChange: fn(),
   },
@@ -110,6 +113,25 @@ export const Overview: Story = {
     await expect(
       view.getByRole("link", { name: "Open on GitHub" }),
     ).toHaveAttribute("href", "https://github.com/leon0399/llame");
+  },
+};
+
+/**
+ * A checkout read that failed is said as such, not shown as a repository with
+ * no clones or worktrees.
+ *
+ * @summary a failed checkout read
+ */
+export const CheckoutsUnavailable: Story = {
+  tags: ["ai-generated"],
+  args: { checkouts: { status: "error" } },
+  play: async () => {
+    const view = await sheet();
+
+    await expect(
+      view.getAllByText("Could not load the checkouts."),
+    ).toHaveLength(2);
+    await expect(view.queryByText(/^No checkout yet/)).not.toBeInTheDocument();
   },
 };
 
