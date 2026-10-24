@@ -1,6 +1,13 @@
 import { InferSelectModel } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { index, pgPolicy, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import {
+  index,
+  pgPolicy,
+  pgTable,
+  text,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { timestamptz } from '../columns';
 import { users } from './auth';
@@ -31,6 +38,13 @@ export const projects = pgTable(
     // archiving is a global, owner-scoped action (unlike the per-user `pins`
     // table). NULL = not archived.
     archivedAt: timestamptz('archived_at'),
+    // The executor a chat start on this project prefers when no link default
+    // names one (chat-start-location D8). Nullable, and deliberately without a
+    // foreign key to `machines_status`: that table is an observation the hub
+    // probe rewrites, while this column is the owner's intent. A configured
+    // executor id — `tools.nativeExecutorId` or `machine:<name>` — that the
+    // current configuration no longer carries simply resolves nothing.
+    defaultExecutorId: text('default_executor_id'),
   },
   (t) => [
     // Mirrors listForUser's ORDER BY exactly (owner, created_at DESC) so the
@@ -44,6 +58,12 @@ export const projects = pgTable(
       t.archivedAt,
       t.createdAt.desc(),
     ),
+    // Parent key for every composite owner foreign key that names a project
+    // (the project links of chat-start-location). A table constraint, not an
+    // index: the foreign keys are created after the tables in one generated
+    // migration, and Postgres requires the referenced unique key to exist then
+    // — same rationale as `repositories_owner_id_key`.
+    unique('projects_owner_id_key').on(t.ownerUserId, t.id),
     // Owner-only, same shape as chats_owner. Single row-local comparison — no
     // cross-table scan, no recursion, no BYPASSRLS. USING doubles as the
     // INSERT/UPDATE WITH CHECK (Postgres: absent WITH CHECK ⇒ USING is used).
