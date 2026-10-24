@@ -1,5 +1,34 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-24
+
+- CI audits dependencies for security advisories in a new `Security`
+  workflow. On a pull request, a dependency review fails the run when the
+  lockfile change adds a package version with a high or critical advisory;
+  advisories already on `master` do not fail it. It compares `pnpm audit` on
+  the base and head lockfiles, because GitHub's dependency graph reads only
+  the first YAML document of pnpm's lockfile and so misses nearly every
+  package llame installs. `pnpm audit` runs on every
+  pull request for information only, and fails the weekly scheduled run and
+  any `master` push that changes dependencies when a production dependency
+  carries a high or critical advisory. Development dependencies are reported
+  without failing the run. The production audit fails on the current
+  lockfile: since the 2026-10-15 security pass, it reports high or critical
+  advisories against `next`, `dompurify`, `@sentry/nextjs`, `storybook`,
+  `@modelcontextprotocol/sdk`, `zod`, `undici`, `multer`, and `body-parser`.
+
+- GitHub's dependency graph, Dependabot alerts, and the Security tab now see
+  the packages llame actually locks. Each dependency push to `master`, and the
+  weekly scheduled run, submits a snapshot built by `pnpm sbom` from the
+  lockfile: one manifest per workspace `package.json`, with every resolved
+  version marked direct or indirect and runtime or development. A submitted
+  manifest replaces the one GitHub parses itself, which read 288 packages with
+  `catalog:` instead of their versions, where the lockfile resolves about
+  2,000. Workspace packages are left out, so `apps/machine` and
+  `apps/storybook` are never matched against the unrelated public `machine`
+  and `storybook` packages. Expect Dependabot alerts for the advisories above
+  once the first snapshot lands.
+
 # 2026-10-22
 
 - Thinking-mode tool loops on Chat Completions providers no longer fail with
