@@ -245,6 +245,18 @@ Server order:
    and changes nothing. The steps keep their separate transactions, because the
    session lock spans all of them.
 
+   The message route takes the same key with `pg_try_advisory_xact_lock` inside
+   its admission transaction. A held lock answers 409 `creation_in_progress`.
+   One shared function derives the key for both routes.
+
+   The org-unit locks use `hashtextextended(<id>::text, 0)`
+   (`apps/api/src/db/migrations/0019_wealthy_violations.sql:241`). The creation
+   key therefore uses a different seed, or a two-key form that names the lock
+   family. A session lock and a transaction lock on one key conflict across
+   sessions, so the two routes must not share a key by accident. The message
+   route holds the lock only for its admission transaction, not for its stream.
+   It therefore never blocks a later create for the life of a Run.
+
 3. Validate the named ids and insert the chat row with `project_id` set, in one
    transaction.
 
@@ -295,8 +307,12 @@ Server order:
    - The mode is `message.permissionMode`, and `default` when the request omits
      it, evaluated against this process's config
    - Every decision runs in the `enter_workspace` permission group
-   - The request appends one attempt, with every decision, to the chat's
-     creation record
+   - The step appends one attempt, with every decision, when the first path
+     decision runs
+   - The attempt commits in its own transaction, before any git write, and it
+     stays when a later step fails
+   - A request that fails validation, answers 404 or 409, or resolves no
+     location appends no attempt
    - The step applies the availability gates too
    - `enter_workspace` must be in `tools.allowed`
    - A local root needs `tools.nativeExecutorId` to equal the resolved executor
@@ -315,7 +331,9 @@ Server order:
 
 7. Store the bound root: `workspace_root`, `workspace_executor_id`, and
    `workspace_generation + 1`, for the worktree path when one was created and
-   for the checkout path otherwise.
+   for the checkout path otherwise. The writer stores the binding only when the
+   chat holds no message and no Run. Otherwise the create answers 409 and stores
+   no binding.
 
 8. Store the message and its Run row when `message` is present. Both rows
    commit together, as on the message route. The enqueue runs after that
@@ -395,10 +413,19 @@ Alternatives:
 
 - A reuse of `WorkspaceBindingRepository.enter`: it fences a Run
   (`workspace-binding.repository.ts:37`), so a create call needs a synthetic
-  `runId` and a tool call id. Chosen: a Run-free creation path. It takes the
-  chat's session advisory lock on one dedicated connection. It writes its own
-  lease keyed by the chat, and it commits the worktree rows and the bound root in
-  one transaction. `enter` stays unchanged for tools.
+  `runId` and a tool call id. Chosen: a Run-free creation path through
+  `WorkspaceBindingRepository.bindAtCreation(tx, { chatId, ownerUserId, executorId, root })`.
+
+  The writer takes the caller's transaction, which runs under `runAs(owner)`.
+  It locks the chat row. It requires no message and no Run on the chat. It
+  requires the chat to be unbound, or bound to the root of its own creation
+  lease, which is the resend case. It sets the root and the executor with
+  `workspace_generation + 1`. It never takes a synthetic Run and never writes an
+  unscoped update.
+
+  The create request takes the chat's session advisory lock on one dedicated
+  connection. It writes its own lease keyed by the chat. It commits the worktree
+  rows and the bound root in one transaction. `enter` stays unchanged for tools.
 
 - A bind inside the first Run: this is the current behavior and it lets the
   model choose the location, which is the problem this change solves.

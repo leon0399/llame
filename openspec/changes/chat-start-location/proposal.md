@@ -45,7 +45,10 @@ and the typed git methods. Its implementation layers start only after
   - It sits beside `enter_workspace`
   - It takes the same ordered path decisions
   - It takes the same `tools.allowed` rule and the same native executor rule
-  - Each create or resend appends one attempt to the chat's creation record
+  - A create or resend appends one attempt when its first path decision runs
+  - The attempt commits before any git write and stays after a later failure
+  - A request that fails validation, answers 404 or 409, or resolves no
+    location appends none
   - That record is owner-only
 
 - A failed bind or worktree leaves the chat filed and unbound.
@@ -67,9 +70,12 @@ and the typed git methods. Its implementation layers start only after
   - Another owner's chat id answers 404
   - An unconfigured executor id answers 422
 
-- `POST /api/v1/chats/:id/messages` keeps its contract.
+- `POST /api/v1/chats/:id/messages` keeps its contract, with one exception.
 
   - It still creates unfiled chats for clients that never send a location
+  - It tries the same creation lock in its admission transaction
+  - A message that overlaps a create answers 409 `creation_in_progress`
+  - That answer stores no message and no Run
   - A per-chat session advisory lock serializes the create requests
   - The lock sits on one dedicated connection for the whole request
   - A concurrent request with one id answers 409 `creation_in_progress`
@@ -167,7 +173,7 @@ record behind the research note.
 
 ## Deviations from the grilling record
 
-Three points differ from the record. Each needs Leo's confirmation.
+Four points differ from the record. Each needs Leo's confirmation.
 
 - Resend: the record said that a second `POST /api/v1/chats` with a stored
   id answers 409. This change answers 409 only after the chat holds a message,
@@ -185,6 +191,14 @@ Three points differ from the record. Each needs Leo's confirmation.
   message is a nested `CreateChatMessageDto` with its own model, effort, and
   permission mode. The record described one create payload without these
   boundaries.
+
+- Removal guard: the record answered Q27 B with a fail-closed rule for an
+  unknown upstream. The `repositories` change also allows removal of a clean
+  llame-created worktree. That worktree has a HEAD equal to the base commit
+  recorded at creation, and it needs no upstream. The default `baseRef`
+  is the source HEAD, and `git worktree add -b` sets no upstream. The
+  fail-closed rule alone therefore refuses every fresh llame worktree. The
+  `llame/<name>` branch stays, so the removal loses no commit.
 
 ## Assumptions that follow, never asked
 
@@ -246,6 +260,7 @@ and a later change can reverse it without a data migration.
   - A create request with a message validates it before any write
   - Creation runs its steps in one fixed order
   - Creation serializes requests for one chat id
+  - The message route refuses a chat that a create request holds
   - The Workspace step uses the request permission mode
   - The Workspace step requires the entry gates
   - A rejected path refuses the binding before any git command
@@ -275,11 +290,13 @@ and a later change can reverse it without a data migration.
   - Project repository links are owner-isolated
   - The owner reads a project's links and their defaults
 
-- `tool-call-permissions`: ADDED requirement "Chat-creation path decisions are
-  recorded with the chat". The create request has no Run, so it appends one
-  attempt to an owner-only creation record of the chat. Each attempt carries
-  every decision, a bypass decision included, and the provenance fields of a
-  derived decision. The owner reads the record through
+- `tool-call-permissions`: ADDED requirements "Chat-creation path decisions are
+  recorded with the chat" and "A creation attempt is appended only after a path
+  decision". The create request has no Run, so it appends one attempt to an
+  owner-only creation record of the chat when its first path decision runs. The
+  attempt commits before any git write and stays after a later failure. Each
+  attempt carries every decision, a bypass decision included, and the
+  provenance fields of a derived decision. The owner reads the record through
   `GET /api/v1/chats/:id/creation-record`.
 
 - `workspace-entry`: MODIFIED requirement "The Workspace binding is Chat-scoped

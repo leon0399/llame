@@ -155,10 +155,11 @@ Another executor MUST fail with status 422. A `worktree` row MUST refuse
 
 ### Requirement: Worktree leases are informational ownership receipts
 
-A lease MUST record the chat, the worktree checkout, the base reference, and the
-creation time. A lease MUST NOT reserve the path and MUST NOT refuse a second
-chat. A second chat that binds a leased path MUST succeed. A lease MUST NOT
-change how a fork copies the bound Workspace root.
+A lease MUST record the chat, the worktree checkout, the base reference, the
+base commit, and the creation time. The base commit MUST be the HEAD of the new
+worktree after its creation. A lease MUST NOT reserve the path and MUST NOT
+refuse a second chat. A second chat that binds a leased path MUST succeed. A
+lease MUST NOT change how a fork copies the bound Workspace root.
 
 #### Scenario: A second chat binds a leased path
 
@@ -395,9 +396,10 @@ be absolute. A `name` MUST pass the git branch-name rules and MUST NOT hold a
 Removal MUST start from an owner action and MUST NOT be available to a Run. The
 owner MUST remove a worktree through `DELETE /api/v1/checkouts/:id/worktree`.
 The system MUST refuse removal when the worktree holds uncommitted changes or
-commits that are not pushed. The system MUST fail closed when the upstream
-branch is unknown. When all checks pass, the executor MUST remove the directory
-and the system MUST delete the checkout row.
+commits that are not pushed. It MUST fail closed when the upstream is unknown,
+unless HEAD equals the base commit recorded at creation. When all checks pass,
+the executor MUST remove the directory, the system MUST delete the row, and the
+branch MUST remain.
 
 #### Scenario: A dirty worktree is kept
 
@@ -411,8 +413,16 @@ and the system MUST delete the checkout row.
 
 #### Scenario: An unknown upstream fails closed
 
-- **WHEN** the worktree branch has no upstream
+- **WHEN** the worktree branch has no upstream and has commits after its base,
+  or it has no recorded base
 - **THEN** the request fails, and the directory and the row remain
+
+#### Scenario: A fresh worktree with no upstream is removed
+
+- **WHEN** the worktree is clean, it has no upstream, and its HEAD equals the
+  base commit recorded at creation
+- **THEN** the executor removes the directory and the system deletes the row
+- **AND** the branch remains
 
 #### Scenario: A clean worktree is removed
 

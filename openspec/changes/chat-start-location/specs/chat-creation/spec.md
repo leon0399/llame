@@ -193,6 +193,18 @@ MUST decide worktree creation.
 - **WHEN** the request sets `worktree.name` to `-bad` or `baseRef` to `--force`
 - **THEN** the response is 422 before any write and no worktree command starts
 
+### Requirement: The bind step refuses a chat that holds a message or a Run
+
+The step that stores the bound root MUST store it only when the chat holds no
+message and no Run. Otherwise the create MUST answer 409 and store no bound
+root.
+
+#### Scenario: A chat that holds a message or a Run is not rebound
+
+- **WHEN** the step that stores the bound root runs for a chat that already
+  holds a message or a Run
+- **THEN** the response is 409 and no bound root is stored
+
 ### Requirement: The creation worktree commits with its lease and binding
 
 The worktree checkout row, its lease, and the bound root MUST commit in one
@@ -222,6 +234,20 @@ worktree, bound root, and message steps.
 - **THEN** one request stores the chat, its worktree, and its lease
 - **AND** the other answers 409 with `code` `creation_in_progress`, and no second
   worktree exists
+
+### Requirement: The message route refuses a chat that a create request holds
+
+`POST /api/v1/chats/:id/messages` MUST try the chat's creation lock in its
+admission transaction. When a create request holds that lock, the route MUST
+answer 409 with `code` `creation_in_progress`. It MUST store no message and no
+Run.
+
+#### Scenario: A message during a create is refused
+
+- **WHEN** a create request holds the lock for a chat id and the owner posts a
+  message to that id
+- **THEN** the message route answers 409 with `code` `creation_in_progress`
+- **AND** no message or Run is stored, and the create continues
 
 ### Requirement: The Workspace step uses the request permission mode
 
@@ -337,11 +363,11 @@ MUST start the Run. It MUST answer 201 with `workspace.status` `unbound`.
 
 A path outside the Machine's registered roots MUST answer `worktree_failed` with
 `code` `path_not_registered`. Any other git failure MUST answer
-`worktree_failed` with no `code` and with `message` set to the git standard
-error. A source path that is not a directory MUST answer `bind_failed` with
-`code` `not_found`. A Machine link lost after the add MUST answer
-`outcome_unknown`. A daemon that lists no git method MUST answer
-`machine_update_required`.
+`worktree_failed` with no `code`. `message` MUST carry the bounded, redacted git
+standard error that the `repositories` change returns. A source that is not a
+directory MUST answer `bind_failed` with `code` `not_found`. A Machine link lost
+after the add MUST answer `outcome_unknown`. A daemon without a git method MUST
+answer `machine_update_required`.
 
 #### Scenario: A worktree path outside the registered roots fails
 
@@ -354,7 +380,8 @@ error. A source path that is not a directory MUST answer `bind_failed` with
 
 - **WHEN** the worktree command fails and the Machine's roots refuse nothing
 - **THEN** the response is 201 with `workspace.status` `worktree_failed`, no
-  `code`, and `message` set to the git standard error
+  `code`, and `message` set to the bounded, redacted git standard error that the
+  `repositories` change returns
 
 #### Scenario: A lost Machine link leaves an unknown outcome
 
@@ -528,9 +555,10 @@ nothing. An archived project MUST answer 409 and store nothing.
 
 ### Requirement: The first-message creation path is unchanged
 
-`POST /api/v1/chats/:id/messages` MUST keep its current behavior. A first
-message to an unknown chat id MUST create a chat with no project and no bound
-root. A message to a stored chat MUST NOT change its project or its bound root.
+`POST /api/v1/chats/:id/messages` MUST keep its current behavior, except the
+refusal while a create request holds the chat's creation lock. A first message
+to an unknown chat id MUST create a chat with no project and no bound root. A
+message to a stored chat MUST NOT change its project or its bound root.
 `PATCH /api/v1/chats/:id` MUST continue to file a chat.
 
 #### Scenario: A first message creates an unfiled chat

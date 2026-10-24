@@ -52,6 +52,7 @@ local executor.
 - [ ] 2.1 Add `repositories`, `repository_aliases`, `checkouts`, and `worktree_leases` to `apps/api/src/db/schema/`.
   - Add the columns, unique `(owner_user_id, id)` on every parent, and unique `(owner_user_id, executor_id, path)` on checkouts.
   - Add a nullable `branch` on checkouts, and the CHECK enumerations for `kind` and `origin`.
+  - Add `base_commit` to `worktree_leases`, with the HEAD that `git.worktreeAdd` reports.
   - Add the composite owner foreign keys of design D2, each with `ON DELETE CASCADE`.
   - The foreign keys cover checkouts to repositories and a worktree checkout to its parent. They also cover leases to checkouts, leases to chats, and aliases to repositories.
   - Declare owner policies with `pgPolicy` plus `.enableRLS()`.
@@ -110,7 +111,12 @@ local executor.
   - Cover a checkout that names owner A's `repositoryId`, and an alias declared on owner A's repository.
   - Cover a worktree parent on owner A's checkout, and a lease that names owner A's chat.
   - Verify the API answers 404 for a foreign id before the map ("Repository records are isolated per owner").
-- [ ] 2.7 Create `docs/product/operator/repositories.md` with the catalog and the registration API, and add the dated `CHANGELOG.md` entry. Then verify `pnpm lint:markdown`.
+- [ ] 2.7 Create `docs/product/operator/repositories.md` with the catalog and the registration API, and add the dated `CHANGELOG.md` entry.
+  - State the filter-driver trust boundary
+  - Repository hooks and the file-system monitor never run
+  - Filter drivers from the repository or user config still run
+  - They run as the executor user, which also runs `bash` for the owner
+  - Then verify `pnpm lint:markdown`.
 - [ ] 2.8 Verify the layer locally with `pnpm --filter api lint`, `typecheck`, and focused unit tests. Also run `pnpm --filter api test:integration` for the new suites, `pnpm --filter git-executor test`, and a clean second OpenAPI generation.
 - [ ] 2.9 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
 - [ ] 2.10 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
@@ -119,6 +125,7 @@ local executor.
 
 - [ ] 3.1 Add `git.inspect`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`, and `git.status` to `packages/machine-protocol`.
   - Give them typed parameters and results that carry the `machine://<name>` display prefix through the current display options. `HelloParams` has no Machine name.
+  - Make `git.status` report `{ dirty, ahead, upstream?, head }`.
   - Add the optional `methods` list to the `hello` result without a change to `PROTOCOL_VERSION`.
   - Extend `HelloResult` and its `readHelloResult` reader in `apps/api/src/machines/machine-results.ts` to carry the list. The reader rebuilds the result, so it could drop the list.
   - Verify unit tests for the method constants and the parameter schemas with the prefix. Also cover an old `hello` result without `methods` that still parses.
@@ -128,7 +135,7 @@ local executor.
   - Use argv arrays, the sanitized environment on every call, a timeout, and a typed failure that carries bounded standard error.
   - Return a Machine locator in every path field. Rewrite each registered-root prefix in standard error to the locator form before it leaves the daemon.
   - Verify tests with real git in temporary repositories inside and outside a registered root.
-  - Cover `path_not_registered` before any git call, a dirty status, and a status with and without an upstream.
+  - Cover `path_not_registered` before any git call, a dirty status, and a status with and without an upstream. Cover the `head` field in each status result.
   - Cover `worktreeAdd` success and a failure whose text holds no bare registered root.
   - Also cover `worktreeList`, `worktreeRemove`, and `inspect`, which reports locator paths ("Machine daemons answer typed git methods", "Machine git calls run in a sanitized environment", "Machine git results report locators and rewritten errors", "Worktree directories on a Machine lie inside a registered root").
 - [ ] 3.3 Implement the local executor side in `apps/api` over the same package, and dispatch by derived executor.
@@ -187,18 +194,28 @@ local executor.
   - Also cover a second entry that reuses both rows without a duplicate.
   - Also cover two concurrent worktree entries on one unregistered clone. They record one repository and one main checkout, and both bind ("An unregistered source clone is adopted on worktree entry").
 - [ ] 4.6 Add the failure boundary and the atomic commit.
+
   - Run the checkout, lease, adopted, and bound-root writes in one transaction under the current fence. Pass that transaction to `WorkspaceBindingRepository.enter`.
   - Append a `native.attempt` with the new `worktree` operation before `git.worktreeAdd`, and add `'worktree'` to the `NativeFilesRepository.begin` operation union and `MachineMutationTarget.operation`.
   - Append that attempt's `native.result` in the same transaction.
+  - Write the `tool-calling` MODIFIED block for "Tool registry with mandatory safety classification"
+  - State the worktree attempt there
+  - Keep the attempt-free rule for a plain entry and for exit
+  - Keep the idempotence of both calls
   - A `git worktree add` failure returns `worktree_failed` with redacted standard error. It writes no repository, checkout, or lease row, and leaves the bound root and `workspace_generation` unchanged.
   - A fence lost after the add writes no row, keeps the bound root, and reports `executor_unavailable` with `leftDirectory`. A lost Machine link after the add was sent reports `outcome_unknown`.
   - Verify tests for a branch that already exists, a directory that already exists, and a non-repository source path. Cover a git timeout and an offline Machine (`machine_unavailable`).
   - Also cover an outdated daemon (`machine_update_required`), and adoption followed by a failed add that leaves no repository or checkout.
   - Also cover a fence loss after the add, and a lost link that reports `outcome_unknown`.
   - Also cover a redelivered Run that carries the recorded attempt that fails as `outcome_unknown` and creates no second worktree ("Worktree creation failure leaves the binding unchanged", "Worktree entry is fenced and atomic").
-- [ ] 4.7 Add `DELETE /api/v1/checkouts/:id/worktree` with the gates of task 2.5 and the guard sequence: dirty refused, unpushed refused, unknown upstream refused.
+
+- [ ] 4.7 Add `DELETE /api/v1/checkouts/:id/worktree` with the gates of task 2.5 and the guard sequence: dirty refused, unpushed refused, unknown upstream refused unless HEAD equals the base commit of the lease.
   - Then run `git.worktreeRemove`, and delete the row and its lease after it succeeds.
+  - The branch stays after the removal.
   - Verify tests for each refusal with the directory still present, and for an unallowed path that starts no git call.
+  - Verify that a fresh clean worktree with no upstream is removed and its branch remains.
+  - Verify that a worktree with a commit after its base and no upstream is refused.
+  - Verify that a worktree with no lease and no upstream is refused.
   - Also cover a repository whose config sets `core.fsmonitor` or a hook that never starts a process. Cover the success case ("Worktree removal is owner-initiated and guarded", "Registration and removal obey the host access policy", "Git calls cannot run repository hooks or monitors").
 - [ ] 4.8 Extend `docs/product/operator/repositories.md` with placement, the name rule, the guard, and the cascade rule.
   - Update `docs/product/reference/tools/enter-workspace.md` and both indexes.
@@ -210,7 +227,7 @@ local executor.
 
 ## 5. Finalize readiness (`repositories/finalize`)
 
-- [ ] 5.1 Enter `repositories/finalize` with `$gh-stack` before any canonical spec is written. Then run `$openspec-sync-specs`. Verify that `openspec/specs/repositories/spec.md`, `workspace-entry`, `remote-machines`, and `tool-call-permissions` each match their delta. That includes the Purpose section of the new capability.
+- [ ] 5.1 Enter `repositories/finalize` with `$gh-stack` before any canonical spec is written. Then run `$openspec-sync-specs`. Verify that `openspec/specs/repositories/spec.md`, `workspace-entry`, `remote-machines`, `tool-call-permissions`, and `tool-calling` each match their delta. That includes the Purpose section of the new capability.
 - [ ] 5.2 Verify every task above is checked, and that `pnpm exec openspec validate --specs` and `pnpm exec openspec validate --all` pass. Record any strict-validation failure with evidence that it also fails on `master`.
 - [ ] 5.3 Verify `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass on the finalize diff. Record the archive readiness in the PR body.
 
