@@ -10,22 +10,26 @@ Runs until an authorized exit, a successful switch, or a detach. A binding
 change MUST apply only to the current attempt of the Run. A superseded attempt
 MUST NOT change the binding. Its fence MUST be checked before any filesystem
 probe, client stop, client start, declaration change, or other side effect. Only
-the owner's Run context changes the binding, through `enter_workspace`,
-`exit_workspace`, or a detach. The owner's authenticated chat-creation request
-also establishes the first binding of the Chat it creates. That binding MUST use
-the same submitted and canonical path decisions. It MUST require
-`enter_workspace` in `tools.allowed`. It MUST require a configured native
-executor equal to the resolved local executor id, or a configured Machine. It
-MUST use `default` or an enabled `bypass` permission mode. An owner fork copies
-the binding, subject to the fork's first-Run re-check. Only the owner's Chat API
-reads the binding. The owner's Chat API response MUST expose the current
-canonical `workspace_root`, or `null` for an unbound Chat. A non-owner MUST
-receive `404` for that Chat. Public share projections and visitor forks MUST
-omit the binding. Owner-scoped data access MUST NOT let one owner read or change
-another owner's binding. Model input to `enter_workspace` MUST contain only
-`path` and an optional `worktree` object. That object MUST contain only `name`
-and `baseRef`. `exit_workspace` MUST accept no model-supplied arguments. Model
-input MUST NOT select an owner, a Chat, an executor, or a permission mode.
+the owner's Run context, through `enter_workspace`, `exit_workspace`, or a
+detach, or the owner's chat-creation request for the chat it creates, changes the
+binding. A binding that chat creation establishes MUST increment the generation,
+as an entry that establishes a binding does. The owner's authenticated
+chat-creation request MUST establish the first binding of the Chat it creates.
+That binding MUST use the same ordered path decisions as `enter_workspace`. It
+MUST require `enter_workspace` in `tools.allowed`. It MUST require a configured
+native executor equal to the resolved local executor id, or a configured
+Machine. It MUST use `default` or an enabled `bypass` permission mode. An owner
+fork copies the binding, subject to the fork's first-Run re-check. The owner's
+Chat API MUST read the binding, including the owner's checkout list. The system
+MUST refuse any other principal a read or a change of it. The owner's Chat API
+response MUST expose the current canonical `workspace_root`, or `null` for an
+unbound Chat. A non-owner MUST receive `404` for that Chat. Public share
+projections and visitor forks MUST omit the binding. Owner-scoped data access
+MUST NOT let one owner read or change another owner's binding. Model input to
+`enter_workspace` MUST contain only `path` and an optional `worktree` object.
+That object MUST contain only `name` and `baseRef`. `exit_workspace` MUST accept
+no model-supplied arguments. Model input MUST NOT select an owner, a Chat, an
+executor, or a permission mode.
 
 #### Scenario: Binding persists into a later Run
 
@@ -40,7 +44,8 @@ input MUST NOT select an owner, a Chat, an executor, or a permission mode.
   gate passes, and the request permission mode is `default` or an enabled
   `bypass`
 - **THEN** the chat starts bound to the canonical root and the resolved executor
-- **AND** a later Run re-checks that binding before it uses it
+- **AND** the binding generation increments by one, and a later Run re-checks
+  that binding before it uses it
 
 #### Scenario: A superseded attempt has no side effect
 

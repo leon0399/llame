@@ -22,8 +22,9 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
   remote-less repository is identified by its first checkout.
 - New checkouts. A checkout records that one repository exists at one canonical
   path on one executor (the local executor or `machine:<name>`), with kind
-  `main` or `worktree`, a parent main checkout for a worktree, its branch, and
-  its origin (`registered`, `adopted`, or `created`). One path per owner and
+  `main` or `worktree`, a parent main checkout for a worktree, its branch
+  (nullable for a detached registration or adoption), and its origin
+  (`registered`, `adopted`, or `created`). One path per owner and
   executor is one checkout. A local checkout stores the canonical absolute
   path; a Machine checkout stores the canonical Machine locator
   (`machine://<name>/<abs path>`), the same form as a Chat binding root.
@@ -31,17 +32,19 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
   worktree and from which base ref. It refuses nothing: a second Chat can bind
   a leased path, and a fork copies its binding as today.
 - New owner API for repositories, aliases, checkouts, and guarded worktree
-  removal. Registration inspects the path on its executor and trusts the
-  inspected origin over any caller-declared one. It runs git only when the
-  named executor is configured and both the submitted and canonical paths pass
-  the `enter_workspace` permission group. A non-Machine executor must equal
-  this process's `tools.nativeExecutorId`, else it fails as
-  `executor_unavailable`. Failures answer 404, 409, 422, or 503 with a typed
-  code; an unreachable Machine answers 503 `machine_unavailable`.
+  removal. Registration takes one `path`, an absolute local path or a
+  `machine://<name>/<abs>` locator, and derives the executor from it. It
+  inspects the path on that executor and trusts the inspected origin over any
+  caller-declared one. It runs git only when the executor is configured and the
+  submitted, canonical, and inspected main-clone paths pass the
+  `enter_workspace` permission group; a missing allow answers 403
+  `tool_not_allowed`. Failures answer 403, 404, 409, 422, 502, or 503 with a
+  typed code; an unreachable Machine answers 503 `machine_unavailable`.
 - New typed git operations, `git.inspect`, `git.worktreeAdd`,
   `git.worktreeList`, `git.worktreeRemove`, and `git.status`. They take argv
-  arrays with `--end-of-options` before caller values and reject a name or base
-  reference that starts with `-`. They run with `GIT_TERMINAL_PROMPT=0`,
+  arrays; each caller value either fails as invalid input when it starts with
+  `-` (a name, a branch, or a base ref) or follows `--end-of-options`, or `--`
+  where the subcommand takes it. They run with `GIT_TERMINAL_PROMPT=0`,
   `LC_ALL=C`, `GIT_OPTIONAL_LOCKS=0`, an empty hooks path,
   `core.fsmonitor=false`, and a per-call timeout. A failure is typed and
   carries git standard error. The hub's local executor runs them in-process; a
@@ -57,7 +60,7 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
   Chat already binds the source clone. Without it, entry behaves exactly as
   today.
 - Worktree placement is
-  `<parent>/.llame-worktrees/<display name>/<name>`, where `<parent>` is the
+  `<parent>/.llame-worktrees/<display name>/<slug>`, where `<parent>` is the
   parent of the real path of the source clone's toplevel, unless the main
   checkout carries a `worktree_base` override. The target is canonicalized
   through its deepest existing ancestor before the decision. After
@@ -70,11 +73,13 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
   directory slug is the name with `/` replaced by `-`, and the branch is
   `llame/<name>` unless the name contains `/`. The base ref defaults to the
   source clone's current HEAD, with no fetch, and must not start with `-`.
-- Worktree entry decides three paths in order: the submitted `path` before any
-  probe or git call; the canonical source clone by `realpath`, as today; and
-  the computed worktree directory before `git.worktreeAdd` and any write. The
-  source clone is the toplevel that `git.inspect` reports, and a read-only
-  inspection may run after the second decision. Every decision evaluates the
+- Worktree entry decides four paths in order: the submitted `path` before any
+  probe or git call; the canonical source clone by `realpath`, as today; the
+  inspected main working tree after `git.inspect` when it differs from the
+  canonical path; and the computed worktree directory before `git.worktreeAdd`
+  and any write. The source clone is the toplevel that `git.inspect` reports.
+  The last three record the `canonical`, `main_clone`, and
+  `worktree_directory` derived-decision kinds. Every decision evaluates the
   `enter_workspace` group. Classification stays `execute_code`.
 - An unregistered source clone is adopted in the same call: inspection records
   the repository by normalized remote, or remote-less, and a main checkout with
@@ -86,13 +91,13 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
   repository, a git timeout, an offline Machine, and a daemon without the git
   methods fail the same way, with `machine_unavailable` or
   `machine_update_required` where they apply.
-- Worktree entry is fenced and atomic. The checkout row, the lease row, the
-  adopted rows, and the binding commit in one fenced transaction keyed by the
-  tool call id, with a new `worktree` operation in the native attempt fence.
-  A retry after a committed entry replays the recorded result, binds the same
-  root, and creates no second worktree. A fence loss after the add, or a lost
-  Machine link, writes no rows and leaves the binding unchanged; when the
-  directory may exist, the result is `outcome_unknown`.
+- Worktree entry is atomic. The checkout row, the lease row, the adopted rows,
+  and the binding commit in one transaction under the existing binding fence.
+  The lease stores the tool call id, so a retry of the same call binds the same
+  root and creates no second worktree. No native attempt is written, so Run
+  recovery is unchanged. A fence loss after the add reports
+  `executor_unavailable` with the remaining directory; a lost Machine link
+  reports `outcome_unknown`.
 - Worktree removal is owner-initiated and guarded. It refuses a dirty worktree,
   refuses commits ahead of the upstream, and fails closed when the upstream is
   unknown. No agent-facing removal exists in this change.
@@ -117,7 +122,8 @@ record behind the research note.
 - Worktree creation is an option on `enter_workspace`, not a second tool, and
   the agent addresses clones by path, not by repository alias (Q9 A, Q10 A).
 - The submitted clone is decided before any probe, and the computed directory
-  before any write; a read-only inspection may run between them (Q25 A).
+  before any write; a read-only inspection may run between them, and the
+  inspected main clone is decided after it (Q25 A).
 - The worktree name is an optional parameter; a generated name is
   `<adjective>-<noun>-<4 hex>`, one name derives both the directory slug and
   the branch (Q17 B, Q20 A, Q21 A).
@@ -148,21 +154,22 @@ and a later change can reverse it without a data migration.
 - A path that git reports as a linked worktree is registered as a `worktree`
   row whose parent is the main clone git names, not as a `main` row.
 - `worktree_base` is set through `PATCH /api/v1/checkouts/:id` on a `main`
-  checkout, as an absolute local path or a `machine://` locator, and is
-  rejected on a `worktree` row.
-- The registration and removal routes run git only for a configured executor
-  and an allowlisted path. A non-Machine executor must equal this process's
-  `tools.nativeExecutorId`, else the route answers 503 `executor_unavailable`.
+  checkout and is rejected on a `worktree` row. It must use the executor of
+  that main checkout: an absolute host path for a local checkout, and
+  `machine://<same name>/...` for a Machine checkout, else the route answers 422.
+- The registration and removal routes derive the executor from the submitted
+  `path` and run git only when it is configured and the path is allowlisted.
   Both submitted and canonical paths are evaluated under the `enter_workspace`
   group, every git call disables hooks and fsmonitor, and a failure answers
-  404, 409, 422, or 503 with a typed code.
+  403, 404, 409, 422, 502, or 503 with a typed code.
 - Two concurrent registrations of one path by one owner resolve through the
   unique `(owner_user_id, executor_id, path)` constraint as a conflict
-  response, not a merge.
+  response, not a merge. Two concurrent adoptions of one clone reuse one
+  repository and one main checkout row.
 - `GET /api/v1/checkouts` filters by repository only, with no pagination, until
-  an owner reports enough checkouts to need it. Each worktree row lists its
-  lease chat and the ids of the owner's chats whose binding root equals its
-  path.
+  an owner reports enough checkouts to need it. Every row lists the ids of the
+  owner's chats whose binding root equals its path, and a worktree row also
+  lists its lease chat.
 
 ## Deviation from the grilling record
 
@@ -197,7 +204,7 @@ and a later change can reverse it without a data migration.
   - Registration and removal map failures to typed statuses
   - Git calls cannot run repository hooks or monitors
   - Executors expose typed git operations
-  - Git calls place caller values after `--end-of-options`
+  - Git calls refuse option-like caller values
   - Worktree removal is owner-initiated and guarded
   - Repository and checkout deletion cascades records and never files
   - Repository records are isolated per owner
@@ -224,10 +231,11 @@ and a later change can reverse it without a data migration.
   - Worktree directories on a Machine lie inside a registered root
   - Machine git calls run in a sanitized environment
   - Machine git results report locators and rewritten errors
-- `tool-call-permissions`: the three path decisions of a worktree entry.
+- `tool-call-permissions`: the four path decisions of a worktree entry.
   Requirements:
   - Worktree entry decides the submitted path before any probe
-  - Worktree entry decides the source clone before any git call
+  - Worktree entry decides the canonical path before any git call
+  - Worktree entry decides the inspected main clone
   - Worktree entry decides the canonical worktree directory
   - Worktree creation verifies the decided path
 
@@ -243,7 +251,7 @@ and a later change can reverse it without a data migration.
 ## Impact
 
 - `apps/api/src/tools/workspace.ts`: the optional `worktree` field, the computed
-  directory, the third permission decision, the fenced worktree transaction,
+  directory, the fourth permission decision, the fenced worktree transaction,
   adoption, lease, and binding. The strict object at `:479` accepts exactly one
   field today.
 - `apps/api/src/db/schema/`: four new tables and their Drizzle migration
@@ -296,9 +304,9 @@ and a later change can reverse it without a data migration.
   path by the same owner fails as a conflict, and the same path on another
   owner's catalog succeeds without either owner seeing the other row.
 - A registration of a path outside the `enter_workspace` allowlist answers 403
-  `permission_denied` and starts no git command. An executor id that is not
-  this process's `tools.nativeExecutorId` and names no Machine answers 503
-  `executor_unavailable`.
+  `permission_denied` and starts no git command. A `machine://` locator that
+  names no configured Machine, or a local path on a process without
+  `tools.nativeExecutorId`, answers 503 `executor_unavailable`.
 - A Machine registration stores the canonical Machine locator, so it equals the
   binding root that a later `enter_workspace` writes.
 - `enter_workspace` with `worktree: {}` creates
@@ -313,7 +321,7 @@ and a later change can reverse it without a data migration.
   root fails as `path_not_registered` before any git call.
 - A failure after `git worktree add`, such as a lost fence or a lost Machine
   link, records no repository, checkout, or lease row and leaves the binding
-  unchanged; a retry after a committed entry binds the same root and creates no
+  unchanged; a retry of the same tool call binds the same root and creates no
   second worktree.
 - An owner removes a clean worktree through
   `DELETE /api/v1/checkouts/:id/worktree`. A dirty worktree, an unpushed
