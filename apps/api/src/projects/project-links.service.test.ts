@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -14,6 +14,10 @@ import { ProjectsService } from './projects.service';
 
 const INSTANT = new Date('2026-10-24T00:00:00.000Z');
 const OWNER = 'verified-user';
+// The service's user-facing refusals, asserted verbatim: a message a client
+// shows must name the row it refused, so a blank one is a regression.
+const LINK_CONFLICT =
+  'The project already links that repository or names another primary link; reload and try again.';
 
 function projectRow(overrides: Partial<Project> = {}): Project {
   return {
@@ -146,7 +150,48 @@ describe('ProjectsService project links', () => {
       makeService().linkRepository(OWNER, 'project-1', {
         repositoryId: linkRow().repositoryId,
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toThrow(LINK_CONFLICT);
+  });
+
+  it('answers 409 when the insert loses a race on the unique key', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findRepository',
+    ).mockResolvedValue(repositoryRow());
+    // A concurrent link inserts after this request's read but before its
+    // insert; the driver surfaces the unique violation as SQLSTATE 23505.
+    vi.spyOn(ProjectLinksRepository.prototype, 'createLink').mockRejectedValue({
+      code: '23505',
+    });
+
+    await expect(
+      makeService().linkRepository(OWNER, 'project-1', {
+        repositoryId: linkRow().repositoryId,
+      }),
+    ).rejects.toThrow(LINK_CONFLICT);
+  });
+
+  it('rethrows a link failure that is not a unique violation', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findRepository',
+    ).mockResolvedValue(repositoryRow());
+    const failure = new Error('connection reset');
+    vi.spyOn(ProjectLinksRepository.prototype, 'createLink').mockRejectedValue(
+      failure,
+    );
+
+    await expect(
+      makeService().linkRepository(OWNER, 'project-1', {
+        repositoryId: linkRow().repositoryId,
+      }),
+    ).rejects.toBe(failure);
   });
 
   it('answers 404 for a repository the caller does not own', async () => {
@@ -162,7 +207,7 @@ describe('ProjectsService project links', () => {
       makeService().linkRepository(OWNER, 'project-1', {
         repositoryId: linkRow().repositoryId,
       }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow(`Repository ${linkRow().repositoryId} not found`);
   });
 
   it('answers 404 for a missing project and 409 for an archived one', async () => {
@@ -174,7 +219,7 @@ describe('ProjectsService project links', () => {
       makeService().linkRepository(OWNER, 'project-1', {
         repositoryId: linkRow().repositoryId,
       }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow('Project project-1 not found');
 
     findById.mockResolvedValue(projectRow({ archivedAt: INSTANT }));
     await expect(
@@ -215,6 +260,99 @@ describe('ProjectsService project links', () => {
     });
   });
 
+  it('leaves the primary flag alone when the patch does not set it', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findLinkByRepository',
+    ).mockResolvedValue(linkRow({ isPrimary: true }));
+    const clearPrimary = vi
+      .spyOn(ProjectLinksRepository.prototype, 'clearPrimary')
+      .mockResolvedValue(undefined);
+    vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockResolvedValue(
+      linkRow({ isPrimary: true, alias: 'core' }),
+    );
+
+    await makeService().updateProjectRepository(
+      OWNER,
+      'project-1',
+      linkRow().repositoryId,
+      { alias: 'core' },
+    );
+
+    // An alias or isolation edit must not unset the project's primary link.
+    expect(clearPrimary).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the link vanishes between the read and the write', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findLinkByRepository',
+    ).mockResolvedValue(linkRow());
+    vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      makeService().updateProjectRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+        { alias: 'core' },
+      ),
+    ).rejects.toThrow(
+      `The project does not link repository ${linkRow().repositoryId}`,
+    );
+  });
+
+  it('answers 404 for the project of an update that names no project', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      makeService().updateProjectRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+        { alias: 'core' },
+      ),
+    ).rejects.toThrow('Project project-1 not found');
+  });
+
+  it('answers 409 when a primary switch loses a race on the partial index', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findLinkByRepository',
+    ).mockResolvedValue(linkRow());
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'clearPrimary',
+    ).mockResolvedValue(undefined);
+    // Drizzle nests the driver error on `cause`; the service must still read
+    // the SQLSTATE and answer 409 rather than leak a 500.
+    vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockRejectedValue({
+      cause: { code: '23505' },
+    });
+
+    await expect(
+      makeService().updateProjectRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+        { isPrimary: true },
+      ),
+    ).rejects.toThrow(LINK_CONFLICT);
+  });
+
   it('answers 404 when the project does not link the repository', async () => {
     vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
       projectRow(),
@@ -231,7 +369,9 @@ describe('ProjectsService project links', () => {
         linkRow().repositoryId,
         { alias: 'core' },
       ),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow(
+      `The project does not link repository ${linkRow().repositoryId}`,
+    );
 
     await expect(
       makeService().unlinkRepository(
@@ -239,7 +379,9 @@ describe('ProjectsService project links', () => {
         'project-1',
         linkRow().repositoryId,
       ),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow(
+      `The project does not link repository ${linkRow().repositoryId}`,
+    );
   });
 
   it('removes one link and leaves the repository alone', async () => {
@@ -267,6 +409,20 @@ describe('ProjectsService project links', () => {
     );
   });
 
+  it('answers 404 for the project of an unlink that names no project', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      makeService().unlinkRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+      ),
+    ).rejects.toThrow('Project project-1 not found');
+  });
+
   it('lists every link of the project', async () => {
     vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
       projectRow(),
@@ -292,6 +448,6 @@ describe('ProjectsService project links', () => {
 
     await expect(
       makeService().listProjectRepositories(OWNER, 'project-1'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow('Project project-1 not found');
   });
 });

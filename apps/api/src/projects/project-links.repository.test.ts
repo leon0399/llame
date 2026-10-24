@@ -153,10 +153,12 @@ describe('ProjectLinksRepository links', () => {
     expect(lastQuery(queries).sql).toContain(
       'insert into "project_repositories"',
     );
-    expect(lastQuery(queries).sql).toContain('on conflict');
-    expect(lastQuery(queries).sql).toContain('"owner_user_id"');
-    expect(lastQuery(queries).sql).toContain('"project_id"');
-    expect(lastQuery(queries).sql).toContain('"repository_id"');
+    // The conflict target is the unique key itself: a target-less clause would
+    // also swallow the partial primary index, and an empty target would let a
+    // duplicate past the guard.
+    expect(lastQuery(queries).sql).toContain(
+      'on conflict ("owner_user_id","project_id","repository_id") do nothing',
+    );
     expect(lastQuery(queries).params).toEqual([
       OWNER,
       PROJECT_ID,
@@ -198,8 +200,39 @@ describe('ProjectLinksRepository links', () => {
     ).resolves.toBe(updated);
   });
 
+  it('writes only the patched columns and stamps updated_at', async () => {
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .updateLink(OWNER, '44444444-4444-4444-8444-444444444444', {
+        isPrimary: true,
+      })
+      .catch(() => null);
+
+    // A dropped patch would silently leave the row unchanged while the
+    // statement still reports success.
+    expect(lastQuery(queries).sql).toContain(
+      'set "is_primary" = $1, "updated_at" = $2',
+    );
+    expect(lastQuery(queries).params.slice(0, 2)).toEqual([
+      true,
+      expect.any(String),
+    ]);
+    expect(lastQuery(queries).params.slice(2)).toEqual([
+      OWNER,
+      '44444444-4444-4444-8444-444444444444',
+    ]);
+  });
+
   it('reports whether a link row was removed', async () => {
     const deleted = linkRow();
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .deleteLink(OWNER, PROJECT_ID, deleted.id)
+      .catch(() => null);
+
+    // The count comes from RETURNING: without the id column every delete
+    // reports "nothing removed".
+    expect(lastQuery(queries).sql).toMatch(/returning "id"$/u);
     await expect(
       new ProjectLinksRepository(
         makeStubDb({ delete: [{ id: deleted.id }] }),
