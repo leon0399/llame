@@ -603,6 +603,7 @@ describe('MachineSession git methods', () => {
     const error = await failedCall(session.request(GIT_STATUS_CALL));
 
     expect(error).toBeInstanceOf(MachineUpdateRequiredError);
+    expect(error.name).toBe('MachineUpdateRequiredError');
     expect(error.message).toBe(
       'The llame-machine daemon on devl answers no git.status. Update the daemon on that Machine to use git operations on it.',
     );

@@ -427,3 +427,108 @@ describe('ExecutorGit.worktreeAdd', () => {
     });
   });
 });
+
+describe('ExecutorGit refusals', () => {
+  it('states why a path cannot be addressed', async () => {
+    const { executors } = hub();
+    const machine = executors.locate(LOCATOR);
+
+    expect(() => executors.locate('/srv/app\0')).toThrow(
+      'A checkout path must not contain a NUL byte.',
+    );
+    expect(() => executors.locate('srv/app')).toThrow(
+      'A checkout path must be absolute.',
+    );
+    expect(() => executors.locate('machine://Not A Name/srv/app')).toThrow(
+      'A machine:// locator must name a Machine as [a-z0-9-], up to 63 characters.',
+    );
+    expect(() => executors.locate(`machine://${NAS}`)).toThrow(
+      'A checkout path must name one Machine path.',
+    );
+    expect(() => executors.locate(`${LOCATOR}:12-14`)).toThrow(
+      'A checkout path must not carry a read selector.',
+    );
+    expect(() => executors.address(machine, 'relative')).toThrow(
+      'This path cannot be written as a Machine locator.',
+    );
+    await expect(
+      executors.inspect(machine, `machine://${NAS}`),
+    ).rejects.toThrow('This address does not name one Machine path.');
+  });
+
+  it('names the missing executor identity and the unconfigured Machine', () => {
+    const unset = hub({}, localGitSurface(), { nativeExecutorId: undefined });
+
+    expect(() => unset.executors.locate('/srv/app')).toThrow(
+      'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
+    );
+    expect(() => unconfiguredHub().locate(LOCATOR)).toThrow(
+      `No Machine named ${NAS} is configured, so its git surface cannot run.`,
+    );
+  });
+
+  it('states the local canonical refusal', async () => {
+    const { executors } = hub();
+    const target = executors.locate('/srv/app');
+    const directory = tempDirectory();
+    const file = join(directory, 'file.txt');
+    writeFileSync(file, 'x\n');
+
+    await expect(
+      executors.canonical(target, join(directory, 'missing')),
+    ).rejects.toThrow('The checkout path does not exist.');
+    await expect(executors.canonical(target, file)).rejects.toThrow(
+      'The checkout path is not a directory.',
+    );
+  });
+
+  it('states the Machine canonical refusal', async () => {
+    const missing = hub({
+      methods: ['git.inspect'],
+      answer: () => ({ value: { kind: 'missing', isLink: false } }),
+    });
+    await expect(
+      missing.executors.canonical(missing.executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toThrow('The checkout path does not exist.');
+
+    const file = hub({
+      methods: ['git.inspect'],
+      answer: () => ({ value: { kind: 'file', isLink: false, size: 12 } }),
+    });
+    await expect(
+      file.executors.canonical(file.executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toThrow('The checkout path is not a directory.');
+
+    const noRealPath = hub({
+      methods: ['git.inspect'],
+      answer: () => ({ value: { kind: 'directory', isLink: false } }),
+    });
+    await expect(
+      noRealPath.executors.canonical(
+        noRealPath.executors.locate(LOCATOR),
+        LOCATOR,
+      ),
+    ).rejects.toThrow(`The Machine ${NAS} answered no real path for fs.stat.`);
+
+    const unusable = hub({
+      methods: ['git.inspect'],
+      answer: () => ({ value: { kind: 'directory' } }),
+    });
+    await expect(
+      unusable.executors.canonical(unusable.executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toThrow(
+      `The Machine ${NAS} answered an unusable fs.stat result.`,
+    );
+  });
+
+  it('names the method and the Machine of a refusal', async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answers: { 'fs.stat': { error: 'invalid_params' } },
+    });
+
+    await expect(
+      executors.canonical(executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toThrow(`fs.stat failed on ${NAS}:`);
+  });
+});

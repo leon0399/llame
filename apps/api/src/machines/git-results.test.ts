@@ -101,6 +101,18 @@ describe('readGitInspectResult', () => {
     ).toBeUndefined();
   });
 
+  it('reads an absent nullable field as null', () => {
+    const { mainWorktree, branch, head, ...absent } = INSPECTED;
+    expect(mainWorktree).toBeNull();
+    expect(branch).toBe('main');
+    expect(head).toBe('0'.repeat(40));
+    expect(readGitInspectResult(absent, MACHINE)).toMatchObject({
+      mainWorktree: null,
+      branch: null,
+      head: null,
+    });
+  });
+
   it('returns a typed failure unchanged', () => {
     const failure = { status: 'error', type: 'timed_out', stderr: '' };
     expect(readGitInspectResult(failure, MACHINE)).toEqual(failure);
@@ -111,6 +123,10 @@ describe('readGitInspectResult', () => {
     ['a link flag that is not a boolean', { ...INSPECTED, linked: 'no' }],
     ['a remote that is not a record', { ...INSPECTED, remotes: [7] }],
     ['a remote without a url', { ...INSPECTED, remotes: [{ name: 'origin' }] }],
+    [
+      'a remote with a numeric name',
+      { ...INSPECTED, remotes: [{ name: 7, url: 'x' }] },
+    ],
     ['a branch that is not text or null', { ...INSPECTED, branch: 7 }],
     ['an unknown status', { ...INSPECTED, status: 'done' }],
   ])('refuses %s', (_case, value) => {
@@ -140,12 +156,18 @@ describe('readGitStatusResult', () => {
     ).toEqual({ status: 'ok', dirty: false, ahead: 0, head: null });
   });
 
+  it('returns a typed failure unchanged', () => {
+    const failure = { status: 'error', type: 'timed_out', stderr: '' };
+    expect(readGitStatusResult(failure)).toEqual(failure);
+  });
+
   it.each([
     ['a dirty flag that is not a boolean', { dirty: 'yes' }],
     ['a negative count', { ahead: -1 }],
     ['a fractional count', { ahead: 1.5 }],
     ['an upstream that is not text', { upstream: 7 }],
     ['a head that is not text', { head: 7 }],
+    ['an unknown status', { status: 'done' }],
   ])('refuses %s', (_case, override) => {
     expect(
       readGitStatusResult({
