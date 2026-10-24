@@ -188,6 +188,7 @@ assessment.
 63. [Ghostex](./ghostex.md) — GPUI workarea over gxserver and zmx/wmx session daemons; peer CLIs with chat/CLI views, Tab prompt queue, and orchestrator/thread vocabulary
 64. [Tortie](./tortie.md) — macOS Electron agent multiplexer: private tmux sessions, SQLite manifest-before-spawn, armed resume commands, and cross-project needs-input attention
 65. [OpenCodex](./opencodex.md) — Provider proxy / Responses wire translator (better as a tool); ChatGPT account-pool affinity
+66. [OpenBot](./openbot.md) — Electron desktop meta-harness: per-agent workspaces, peer CLIs, a host-owned queue, and a macOS Seatbelt workspace mode that refuses to start on Linux and Windows
 
 ## Multi-machine and container placement
 
