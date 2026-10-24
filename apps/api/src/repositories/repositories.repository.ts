@@ -354,6 +354,36 @@ export class RepositoriesRepository {
   }
 
   /**
+   * The Worktree one Chat's creation made: its lease and the checkout row that
+   * names the directory. A resend reuses this row instead of creating a second
+   * worktree, and a Chat with no lease has never had one.
+   */
+  async findChatWorktree(
+    ownerUserId: string,
+    chatId: string,
+  ): Promise<{ lease: WorktreeLease; checkout: Checkout } | undefined> {
+    const rows = await this.db
+      .select({ lease: worktreeLeases, checkout: checkouts })
+      .from(worktreeLeases)
+      .innerJoin(
+        checkouts,
+        and(
+          eq(checkouts.ownerUserId, worktreeLeases.ownerUserId),
+          eq(checkouts.id, worktreeLeases.checkoutId),
+        ),
+      )
+      .where(
+        and(
+          eq(worktreeLeases.ownerUserId, ownerUserId),
+          eq(worktreeLeases.chatId, chatId),
+        ),
+      )
+      .orderBy(asc(worktreeLeases.createdAt), asc(worktreeLeases.id))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
    * The owner's chats whose Workspace root equals one of `paths`, keyed by that
    * path. A checkout and a binding store the same canonical string, so the
    * comparison is a plain equality — no path arithmetic, no `realpath`.
