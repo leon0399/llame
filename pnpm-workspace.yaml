@@ -38,7 +38,26 @@ minimumReleaseAgeExclude:
   # the cooldown by design, so it would otherwise block bumping. Exact versions
   # still land in the lockfile, so this exclusion widens no other attack surface.
   - "@typescript/native-preview"
+  # Exact versions younger than the cooldown, each dropped by
+  # minimumReleaseAgeExcludePrune once it ages past it. Security fixes:
+  # body-parser (GHSA-27r3) and multer (GHSA-q7qp) for express and
+  # @nestjs/platform-express, fast-uri (GHSA-w74x, GHSA-wjr9) for ajv.
+  - body-parser@2.4.0
   - multer@2.5.0
+  - fast-uri@3.1.9
+  # Storybook 10.6.3 mocks the `LayoutRouterContext.parentRenderTree` that
+  # Next 16.4's `useRouter` reads; on 10.6.2 every story that renders a router
+  # consumer crashes. The Storybook family moves in lockstep.
+  - storybook@10.6.3
+  - "@storybook/addon-a11y@10.6.3"
+  - "@storybook/addon-docs@10.6.3"
+  - "@storybook/addon-vitest@10.6.3"
+  - "@storybook/builder-vite@10.6.3"
+  - "@storybook/nextjs-vite@10.6.3"
+  - "@storybook/react@10.6.3"
+  - "@storybook/react-dom-shim@10.6.3"
+  - "@storybook/react-vite@10.6.3"
+  - vite-plugin-storybook-nextjs@10.6.3
   # oxc-resolver (a storybook transitive) releases several times a month and
   # co-publishes ~20 platform-binding packages minutes after the parent, so a
   # matching mature set often doesn't exist inside any 7-day window — resolving
@@ -53,8 +72,6 @@ minimumReleaseAgeExclude:
   # `@shadcn/lint@0.1.0` (2026-09-14), and `zod@4.6.5` (2026-09-13). Those
   # versions stay in the lockfile and in the catalog; they simply no longer
   # need to skip the cooldown to be resolved.
-  - body-parser@2.4.0
-  - fast-uri@3.1.9
 
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
@@ -88,8 +105,8 @@ catalog:
   "@typescript/native-preview": 7.0.0-dev.20260703.1
   # apps/storybook and apps/web both run stories as browser-mode tests, so
   # the addon and the browser provider are shared.
-  "@storybook/addon-vitest": ^10.6.2
-  "@storybook/nextjs-vite": ^10.6.2
+  "@storybook/addon-vitest": ^10.6.3
+  "@storybook/nextjs-vite": ^10.6.3
   "@stryker-mutator/core": 9.6.1
   "@stryker-mutator/typescript-checker": 9.6.1
   "@stryker-mutator/vitest-runner": 9.6.1
@@ -114,7 +131,7 @@ catalog:
   shadcn: 4.22.0
   shiki: ^3.23.0
   sonner: ^2.0.5
-  storybook: ^10.6.2
+  storybook: ^10.6.3
   streamdown: 2.5.0
   tsx: ^4.23.12
   typescript: 5.9.3
