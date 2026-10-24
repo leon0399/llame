@@ -50,6 +50,7 @@ export function liveProjectRecord(
     createdAt: at,
     updatedAt: at,
     archivedAt: null,
+    defaultExecutorId: null,
     ...overrides,
   };
 }

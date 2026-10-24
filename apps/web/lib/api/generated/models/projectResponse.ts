@@ -16,4 +16,6 @@ export interface ProjectResponse {
   updatedAt: string;
   /** @nullable */
   archivedAt: string | null;
+  /** @nullable */
+  defaultExecutorId: string | null;
 }
