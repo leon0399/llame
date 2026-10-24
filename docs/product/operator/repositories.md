@@ -91,7 +91,10 @@ repository:
 - The remote is normalized before it is stored: scheme and credentials are
   dropped, the host is lowercased, one `.git` is removed, and every trailing
   slash goes with it. `git@github.com:leon0399/llame.git` and
-  `https://github.com/leon0399/llame` are therefore one repository.
+  `https://github.com/leon0399/llame` are therefore one repository. An explicit
+  port stays in the host part, so `ssh://git@example.com:2222/o/r` stores
+  `example.com:2222/o/r`, and submitting that stored value again (as a selector
+  or in a patch) normalizes to itself.
 - A selector only selects. A declared repository whose canonical remote
   disagrees with the inspected origin, and is not one of its aliases, answers
   `origin_mismatch`.
