@@ -32,9 +32,12 @@ permissions:
 
 jobs:
   # Blocks a pull request whose lockfile change introduces a package version
-  # with a high or critical advisory. It diffs the dependency graph between
-  # base and head, so advisories already on master never fail it; the audit
-  # below owns those.
+  # with a high or critical advisory. Advisories already on the base branch
+  # never fail it; the audit below owns those. It compares `pnpm audit` on the
+  # base and head lockfiles rather than using GitHub's dependency review,
+  # because GitHub's dependency graph reads only the first YAML document of
+  # pnpm's lockfile (the pnpm binaries), and sees `catalog:` instead of a
+  # version for every catalog dependency.
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
@@ -45,11 +48,64 @@ jobs:
         with:
           persist-credentials: false
 
-      # No PR comment: that needs `pull-requests: write`, which a fork's token
-      # never gets. The failed check and its log are the signal.
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      # `pnpm audit` needs only the lockfile and the workspace manifests that
+      # name it.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          fail-on-severity: high
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /package.json
+            /pnpm-lock.yaml
+            /pnpm-workspace.yaml
+
+      - id: node-version
+        run: echo "version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          install: false
+          runtime: node@${{ steps.node-version.outputs.version }}
+
+      # `pnpm audit` exits nonzero whenever it finds an advisory, so the exit
+      # code is ignored here; a registry failure yields a report without
+      # `advisories`, which the comparison rejects.
+      - name: Audit base and head lockfiles
+        run: |
+          pnpm audit --audit-level high --json > "$RUNNER_TEMP/head.json" || true
+          pnpm audit --audit-level high --json --dir base > "$RUNNER_TEMP/base.json" || true
+
+      # An advisory counts as introduced when the head reaches a vulnerable
+      # version the base did not, so moving one vulnerable version to another
+      # still fails.
+      - name: Fail on introduced advisories
+        run: |
+          node --input-type=module - "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" <<'SCRIPT'
+          import { readFileSync } from 'node:fs';
+
+          const findings = (path) => {
+            const report = JSON.parse(readFileSync(path, 'utf8'));
+            if (typeof report.advisories !== 'object' || report.advisories === null) {
+              throw new Error(`${path} is not an audit report: ${JSON.stringify(report).slice(0, 500)}`);
+            }
+            return Object.values(report.advisories).flatMap((advisory) =>
+              advisory.findings.map((finding) => ({
+                key: `${advisory.github_advisory_id} ${advisory.module_name}@${finding.version}`,
+                advisory,
+              })),
+            );
+          };
+
+          const [basePath, headPath] = process.argv.slice(2);
+          const base = new Set(findings(basePath).map(({ key }) => key));
+          const introduced = findings(headPath).filter(({ key }) => !base.has(key));
+          for (const { key, advisory } of introduced) {
+            console.log(`::error::${advisory.severity}: ${key} — ${advisory.title} (patched: ${advisory.patched_versions}) ${advisory.url}`);
+          }
+          process.exitCode = introduced.length > 0 ? 1 : 0;
+          SCRIPT
 
   audit:
     name: Audit

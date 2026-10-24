@@ -3,9 +3,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-10-24
 
 - CI audits dependencies for security advisories in a new `Security`
-  workflow. On a pull request, dependency review fails the run when the
+  workflow. On a pull request, a dependency review fails the run when the
   lockfile change adds a package version with a high or critical advisory;
-  advisories already on `master` do not fail it. `pnpm audit` runs on every
+  advisories already on `master` do not fail it. It compares `pnpm audit` on
+  the base and head lockfiles, because GitHub's dependency graph reads only
+  the first YAML document of pnpm's lockfile and so misses nearly every
+  package llame installs. `pnpm audit` runs on every
   pull request for information only, and fails the weekly scheduled run and
   any `master` push that changes dependencies when a production dependency
   carries a high or critical advisory. Development dependencies are reported
