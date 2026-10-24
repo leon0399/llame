@@ -13,9 +13,25 @@ type ProjectServiceMethods = Pick<
   | 'getProjectById'
   | 'updateProject'
   | 'deleteProject'
+  | 'listProjectRepositories'
+  | 'linkRepository'
+  | 'updateProjectRepository'
+  | 'unlinkRepository'
 >;
 
-import type { Project } from '../db/schema';
+import type { Project, ProjectRepository } from '../db/schema';
+
+const link: ProjectRepository = {
+  id: '44444444-4444-4444-8444-444444444444',
+  ownerUserId: 'verified-user',
+  projectId: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
+  repositoryId: '22222222-2222-4222-8222-222222222222',
+  alias: 'llame',
+  isPrimary: false,
+  isolation: 'inherit',
+  createdAt: new Date('2026-08-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+};
 
 const project: Project = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
@@ -49,6 +65,18 @@ describe('ProjectsController', () => {
     const deleteProject = vi
       .spyOn(service, 'deleteProject')
       .mockResolvedValue(true);
+    const listProjectRepositories = vi
+      .spyOn(service, 'listProjectRepositories')
+      .mockResolvedValue([link]);
+    const linkRepository = vi
+      .spyOn(service, 'linkRepository')
+      .mockResolvedValue(link);
+    const updateProjectRepository = vi
+      .spyOn(service, 'updateProjectRepository')
+      .mockResolvedValue(link);
+    const unlinkRepository = vi
+      .spyOn(service, 'unlinkRepository')
+      .mockResolvedValue(undefined);
 
     if (overrides.createProject !== undefined) {
       createProject.mockImplementation(overrides.createProject);
@@ -65,6 +93,22 @@ describe('ProjectsController', () => {
     if (overrides.deleteProject !== undefined) {
       deleteProject.mockImplementation(overrides.deleteProject);
     }
+    if (overrides.listProjectRepositories !== undefined) {
+      listProjectRepositories.mockImplementation(
+        overrides.listProjectRepositories,
+      );
+    }
+    if (overrides.linkRepository !== undefined) {
+      linkRepository.mockImplementation(overrides.linkRepository);
+    }
+    if (overrides.updateProjectRepository !== undefined) {
+      updateProjectRepository.mockImplementation(
+        overrides.updateProjectRepository,
+      );
+    }
+    if (overrides.unlinkRepository !== undefined) {
+      unlinkRepository.mockImplementation(overrides.unlinkRepository);
+    }
 
     return {
       controller: new ProjectsController(service),
@@ -74,6 +118,10 @@ describe('ProjectsController', () => {
       getProjectById,
       updateProject,
       deleteProject,
+      listProjectRepositories,
+      linkRepository,
+      updateProjectRepository,
+      unlinkRepository,
     };
   }
 
@@ -151,5 +199,74 @@ describe('ProjectsController', () => {
       controller.deleteProject('verified-user', project.id),
     ).resolves.toBeUndefined();
     expect(deleteProject).toHaveBeenCalledWith(project.id, 'verified-user');
+  });
+
+  it('maps every link of the project', async () => {
+    const { controller, listProjectRepositories } = makeController();
+
+    await expect(
+      controller.listProjectRepositories('verified-user', project.id),
+    ).resolves.toEqual([
+      {
+        id: link.id,
+        ownerUserId: link.ownerUserId,
+        projectId: link.projectId,
+        repositoryId: link.repositoryId,
+        alias: link.alias,
+        isPrimary: link.isPrimary,
+        isolation: link.isolation,
+        createdAt: link.createdAt,
+        updatedAt: link.updatedAt,
+      },
+    ]);
+    expect(listProjectRepositories).toHaveBeenCalledWith(
+      'verified-user',
+      project.id,
+    );
+  });
+
+  it('links, updates, and unlinks a repository under the project', async () => {
+    const {
+      controller,
+      linkRepository,
+      updateProjectRepository,
+      unlinkRepository,
+    } = makeController();
+
+    await expect(
+      controller.linkProjectRepository('verified-user', project.id, {
+        repositoryId: link.repositoryId,
+      }),
+    ).resolves.toMatchObject({ id: link.id, repositoryId: link.repositoryId });
+    await expect(
+      controller.updateProjectRepositoryLink(
+        'verified-user',
+        project.id,
+        link.repositoryId,
+        { isPrimary: true },
+      ),
+    ).resolves.toMatchObject({ isPrimary: link.isPrimary });
+    await expect(
+      controller.unlinkProjectRepository(
+        'verified-user',
+        project.id,
+        link.repositoryId,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(linkRepository).toHaveBeenCalledWith('verified-user', project.id, {
+      repositoryId: link.repositoryId,
+    });
+    expect(updateProjectRepository).toHaveBeenCalledWith(
+      'verified-user',
+      project.id,
+      link.repositoryId,
+      { isPrimary: true },
+    );
+    expect(unlinkRepository).toHaveBeenCalledWith(
+      'verified-user',
+      project.id,
+      link.repositoryId,
+    );
   });
 });
