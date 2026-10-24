@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BUDGET_EXHAUSTED_MESSAGE,
+  GIT_METHODS,
   INCOMPATIBLE_VERSION_MESSAGE,
   MAX_FRAME_BYTES,
   MAX_MESSAGE_BYTES,
@@ -58,13 +59,14 @@ async function startedPid(
 }
 
 describe("handshake", () => {
-  it("answers hello with the protocol version, daemon version, and roots", async () => {
+  it("answers hello with the protocol version, daemon version, roots, and methods", async () => {
     await expect(daemon.hello()).resolves.toEqual({
       ok: true,
       value: {
         protocolVersion: PROTOCOL_VERSION,
         daemonVersion: "0.0.1",
         roots: [fixture.root],
+        methods: [...GIT_METHODS],
       },
     });
   });

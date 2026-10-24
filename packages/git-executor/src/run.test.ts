@@ -59,6 +59,28 @@ describe("runGitProcess", () => {
     }
   });
 
+  it("ends the git children that hold the pipes, as worktree add leaves them", async () => {
+    const previousPath = process.env["PATH"];
+    const directory = mkdtempSync(join(tmpdir(), "git-executor-group-"));
+    created.push(directory);
+    // `git worktree add` runs `reset --hard` as a child that inherits the
+    // standard error pipe. Killing git alone leaves `close` waiting on that
+    // child, so the deadline must end the whole group.
+    writeFileSync(join(directory, "git"), "#!/bin/sh\nsleep 30 &\nwait\n", {
+      mode: 0o755,
+    });
+    process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+    try {
+      const started = Date.now();
+      const result = await runGitProcess(["--version"], { timeoutMs: 200 });
+
+      expect(result).toMatchObject({ status: "timed_out" });
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
   it("decodes a multi-byte character split across two chunks", async () => {
     const shim = mkdtempSync(join(tmpdir(), "git-executor-split-"));
     created.push(shim);
@@ -87,6 +109,57 @@ describe("runGitProcess", () => {
     } finally {
       process.env["PATH"] = previousPath;
     }
+  });
+
+  it("kills a running git when the caller aborts the call", async () => {
+    const previousPath = process.env["PATH"];
+    blockingGitOnPath();
+    try {
+      const controller = new AbortController();
+      const call = runGitProcess(["--version"], {
+        timeoutMs: 30_000,
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(call).resolves.toMatchObject({ status: "timed_out" });
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
+  it("starts git with the sanitized environment and nothing else", async () => {
+    // "Credential prompt cannot block the daemon": no `GIT_*` variable the
+    // caller's process exported reaches git, and the prompt is off.
+    const previousPath = process.env["PATH"];
+    const directory = mkdtempSync(join(tmpdir(), "git-executor-env-"));
+    created.push(directory);
+    writeFileSync(join(directory, "git"), "#!/bin/sh\nenv\n", {
+      mode: 0o755,
+    });
+    process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+    try {
+      const result = await runGitProcess([], { timeoutMs: 5000 });
+
+      if (result.status !== "ok") {
+        throw new Error(`expected a clean call, got ${result.status}`);
+      }
+      expect(result.stdout).toMatch(/^GIT_TERMINAL_PROMPT=0$/mu);
+      expect(result.stdout).toMatch(/^LC_ALL=C$/mu);
+      expect(result.stdout).toMatch(/^GIT_OPTIONAL_LOCKS=0$/mu);
+      expect(result.stdout).not.toMatch(/^GIT_DIR=/mu);
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
+  it("starts no git for a call that is already aborted", async () => {
+    const result = await runGitProcess(["--version"], {
+      timeoutMs: 5000,
+      signal: AbortSignal.abort(),
+    });
+
+    expect(result).toEqual({ status: "timed_out", stdout: "", stderr: "" });
   });
 
   it("reports a non-zero exit as a typed failure with git's own text", async () => {

@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../.oxlintrc.json"],
+  "options": { "typeAware": true },
+  "env": { "node": true, "vitest": true },
+  "ignorePatterns": ["dist/**"],
+  "overrides": [
+    {
+      // The real-git fixture owns the PATH shim every suite uses, so it is the
+      // one module that reads and restores `process.env`; it is imported by
+      // test files only and never ships in the package's build.
+      "files": ["src/testing.ts"],
+      "rules": {
+        "anti-slop/forbid-process-env-outside-env-ts": "off"
+      }
+    }
+  ]
+}

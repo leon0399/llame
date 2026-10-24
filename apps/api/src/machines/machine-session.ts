@@ -24,6 +24,7 @@ import {
   FrameSizeError,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_MISSES,
+  isGitMethod,
   MachineProtocolError,
   PING_NOTIFICATION,
   PROTOCOL_VERSION,
@@ -154,6 +155,20 @@ export class MachineUnavailableError extends Error {
   }
 }
 
+/**
+ * A git method this Machine's daemon does not answer: its handshake listed no
+ * git methods, so it predates them. The call fails before any request, and
+ * every other method on that Machine keeps working.
+ */
+export class MachineUpdateRequiredError extends Error {
+  constructor(machine: string, method: string) {
+    super(
+      `The llame-machine daemon on ${machine} answers no ${method}. Update the daemon on that Machine to use git operations on it.`,
+    );
+    this.name = 'MachineUpdateRequiredError';
+  }
+}
+
 export type MachineSessionOptions = {
   readonly name: string;
   readonly transport: MachineTransport;
@@ -249,6 +264,13 @@ export class MachineSession {
     // protocol's stream request only observes aborts after it is written, so a
     // pre-aborted signal must fail here rather than reach it.
     options.signal?.throwIfAborted();
+    // Additive git methods: a daemon that predates them answers no request for
+    // one, so the refusal happens before a frame is written.
+    if (
+      isGitMethod(call.method) &&
+      this.helloResult?.methods?.includes(call.method) !== true
+    )
+      throw new MachineUpdateRequiredError(this.name, call.method);
     return Sentry.startSpan(machineRpcSpan(call.method), async () => {
       const channel = this.openStream();
       const before = this.framesWritten;

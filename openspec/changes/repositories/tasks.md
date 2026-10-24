@@ -123,14 +123,14 @@ local executor.
 
 ## 3. `repositories/executor-git` — typed git on the protocol, the daemon, and the local executor (design D4, D6 inputs)
 
-- [ ] 3.1 Add `git.inspect`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`, and `git.status` to `packages/machine-protocol`.
+- [x] 3.1 Add `git.inspect`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`, and `git.status` to `packages/machine-protocol`.
   - Give them typed parameters and results that carry the `machine://<name>` display prefix through the current display options. `HelloParams` has no Machine name.
   - Make `git.status` report `{ dirty, ahead, upstream?, head }`.
   - Add the optional `methods` list to the `hello` result without a change to `PROTOCOL_VERSION`.
   - Extend `HelloResult` and its `readHelloResult` reader in `apps/api/src/machines/machine-results.ts` to carry the list. The reader rebuilds the result, so it could drop the list.
   - Verify unit tests for the method constants and the parameter schemas with the prefix. Also cover an old `hello` result without `methods` that still parses.
   - Also verify a new result with `methods`, and the path from `session.hello` to the git-call check ("Git methods are additive to the Machine protocol", "Machine git results report locators and rewritten errors").
-- [ ] 3.2 Implement the five methods in `apps/machine/src` over `@workspace/git-executor`.
+- [x] 3.2 Implement the five methods in `apps/machine/src` over `@workspace/git-executor`.
   - Apply the root guard to every path and to the worktree directory before any git call.
   - Use argv arrays, the sanitized environment on every call, a timeout, and a typed failure that carries bounded standard error.
   - Return a Machine locator in every path field. Rewrite each registered-root prefix in standard error to the locator form before it leaves the daemon.
@@ -138,21 +138,21 @@ local executor.
   - Cover `path_not_registered` before any git call, a dirty status, and a status with and without an upstream. Cover the `head` field in each status result.
   - Cover `worktreeAdd` success and a failure whose text holds no bare registered root.
   - Also cover `worktreeList`, `worktreeRemove`, and `inspect`, which reports locator paths ("Machine daemons answer typed git methods", "Machine git calls run in a sanitized environment", "Machine git results report locators and rewritten errors", "Worktree directories on a Machine lie inside a registered root").
-- [ ] 3.3 Implement the local executor side in `apps/api` over the same package, and dispatch by derived executor.
+- [x] 3.3 Implement the local executor side in `apps/api` over the same package, and dispatch by derived executor.
   - An absolute local path runs in-process on the `tools.nativeExecutorId` of the process that serves the API.
   - A `machine://<name>/<abs>` path reaches that Machine through the protocol.
   - An unset `tools.nativeExecutorId`, or a locator that names no configured Machine, fails as 503 `executor_unavailable`.
   - Verify integration tests with the daemon fixture for inspection on a Machine, and `machine_unavailable` when the session cannot open.
   - Also cover `executor_unavailable` for an unmatched locator and for an unset native id.
   - Also cover a registration of `/srv/app` on `machine:nas` that stores the executor `machine:nas` and the path `machine://nas/srv/app`. That path equals a bound root that lists that chat as bound ("Checkout registration inspects the path on its executor", "Executors expose typed git operations", "A Machine checkout stores the canonical Machine locator", "Registration and removal need a configured executor").
-- [ ] 3.4 Verify the outdated-daemon boundary end to end.
+- [x] 3.4 Verify the outdated-daemon boundary end to end.
   - A daemon whose `hello` result lists no git methods makes `git.inspect` fail as `machine_update_required` before any request.
   - On that Machine, `read` still succeeds, and registration answers 503 with `machine_update_required` and stores no row.
   - Verify that the hub test asserts both paths and the operator-facing message ("Machine daemons answer typed git methods", "Git methods are additive to the Machine protocol", "Executors expose typed git operations", "Registration and removal map failures to typed statuses").
-- [ ] 3.5 Extend `docs/product/operator/repositories.md` with the daemon update step and the typed git surface.
+- [x] 3.5 Extend `docs/product/operator/repositories.md` with the daemon update step and the typed git surface.
   - Add to `docs/product/operator/machines.md` the note for Machine worktrees. It tells operators to register the parent directory or set `worktree_base` inside a root.
   - Verify `pnpm lint:markdown`.
-- [ ] 3.6 Verify the layer locally with `pnpm --filter machine test`, `pnpm --filter machine build`, `pnpm --filter machine-protocol test`, `pnpm --filter git-executor test`, `pnpm --filter api typecheck`, and the touched integration suites
+- [x] 3.6 Verify the layer locally with `pnpm --filter machine test`, `pnpm --filter machine build`, `pnpm --filter machine-protocol test`, `pnpm --filter git-executor test`, `pnpm --filter api typecheck`, and the touched integration suites
 - [ ] 3.7 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
 - [ ] 3.8 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
 

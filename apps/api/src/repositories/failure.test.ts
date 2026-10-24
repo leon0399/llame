@@ -6,6 +6,7 @@ import { HttpException } from '@nestjs/common';
 import {
   REPOSITORY_FAILURE_CODES,
   type RepositoryFailureCode,
+  checkoutFailureCode,
   notFound,
   repositoryFailure,
 } from './failure';
@@ -47,6 +48,8 @@ const EXPECTED_STATUS: Record<RepositoryFailureCode, number> = {
   tool_not_allowed: 403,
   permission_denied: 403,
   executor_unavailable: 503,
+  machine_unavailable: 503,
+  machine_update_required: 503,
   git_failed: 502,
 };
 
@@ -117,5 +120,21 @@ describe('notFound', () => {
       message: 'Repository record not found',
       code: 'not_found',
     });
+  });
+});
+
+describe('checkoutFailureCode', () => {
+  it('answers the daemon refusal as a refused path', () => {
+    expect(checkoutFailureCode('path_not_registered')).toBe(
+      'permission_denied',
+    );
+  });
+
+  it('keeps every other executor code', () => {
+    expect(checkoutFailureCode('git_failed')).toBe('git_failed');
+    expect(checkoutFailureCode('invalid_path')).toBe('invalid_path');
+    expect(checkoutFailureCode('machine_unavailable')).toBe(
+      'machine_unavailable',
+    );
   });
 });

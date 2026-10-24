@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "description": "Typed git operations shared by the hub's local executor and the Machine daemon.",
+  "dependencies": {
+    "@workspace/machine-protocol": "workspace:*"
+  },
   "exports": {
     ".": "./dist/index.js"
   },

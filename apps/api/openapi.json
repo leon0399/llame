@@ -5167,6 +5167,8 @@
               "tool_not_allowed",
               "permission_denied",
               "executor_unavailable",
+              "machine_unavailable",
+              "machine_update_required",
               "git_failed"
             ]
           },

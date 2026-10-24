@@ -8,6 +8,7 @@
  */
 
 import {
+  GIT_METHODS,
   isSerializableRecord,
   type FsBytesResult,
   type FsGrepConsumed,
@@ -118,15 +119,15 @@ function isFsGrepWarningKind(
 }
 
 /** A non-negative whole number, the only numeric shape these results carry. */
-function isCount(value: SerializableValue): value is number {
+export function isCount(value: SerializableValue): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
-function isText(value: SerializableValue): value is string {
+export function isText(value: SerializableValue): value is string {
   return typeof value === 'string';
 }
 
-function isFlag(value: SerializableValue): value is boolean {
+export function isFlag(value: SerializableValue): value is boolean {
   return typeof value === 'boolean';
 }
 
@@ -135,7 +136,7 @@ function isTextList(value: SerializableValue): value is ReadonlyArray<string> {
 }
 
 /** An untrusted JSON array, typed for element-wise validation. */
-function isUntrustedList(
+export function isUntrustedList(
   value: JsonValue,
 ): value is ReadonlyArray<SerializableValue> {
   return Array.isArray(value);
@@ -160,13 +161,25 @@ export function isNativeFailure(
   return readNativeFailure(value) !== undefined;
 }
 
-/** The handshake answer: protocol version, daemon version, registered roots. */
+/** The handshake answer: protocol version, daemon version, registered roots,
+ *  and the git methods the daemon answers. */
 export function readHelloResult(value: JsonValue): HelloResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
-  const { protocolVersion, daemonVersion, roots } = value;
+  const { protocolVersion, daemonVersion, roots, methods } = value;
   if (!isCount(protocolVersion) || !isText(daemonVersion) || !isTextList(roots))
     return undefined;
-  return { protocolVersion, daemonVersion, roots: [...roots] };
+  const hello: HelloResult = {
+    protocolVersion,
+    daemonVersion,
+    roots: [...roots],
+  };
+  // A daemon that predates the git methods sends no list at all. A malformed
+  // one is read as absent too, because the handshake is still usable: its file
+  // tools and `bash` keep working while a git call asks for an update.
+  const listed = isTextList(methods)
+    ? GIT_METHODS.filter((method) => methods.includes(method))
+    : [];
+  return listed.length === 0 ? hello : { ...hello, methods: listed };
 }
 
 export function readRootsListResult(

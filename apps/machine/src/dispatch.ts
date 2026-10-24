@@ -1,4 +1,9 @@
 import {
+  GIT_INSPECT_METHOD,
+  GIT_STATUS_METHOD,
+  GIT_WORKTREE_ADD_METHOD,
+  GIT_WORKTREE_LIST_METHOD,
+  GIT_WORKTREE_REMOVE_METHOD,
   MCP_OPEN_METHOD,
   MCP_SERVERS_METHOD,
   PROC_BASH_METHOD,
@@ -19,6 +24,13 @@ import {
   statOperation,
   writeOperation,
 } from "./files";
+import {
+  inspectOperation,
+  statusOperation,
+  worktreeAddOperation,
+  worktreeListOperation,
+  worktreeRemoveOperation,
+} from "./git";
 import { grepOperation } from "./grep";
 import { openOperation, serversOperation } from "./mcp";
 import { bashOperation } from "./proc";
@@ -42,6 +54,11 @@ const OPERATIONS: OperationTable = {
   [PROC_BASH_METHOD]: bashOperation,
   [MCP_SERVERS_METHOD]: serversOperation,
   [MCP_OPEN_METHOD]: openOperation,
+  [GIT_INSPECT_METHOD]: inspectOperation,
+  [GIT_WORKTREE_ADD_METHOD]: worktreeAddOperation,
+  [GIT_WORKTREE_LIST_METHOD]: worktreeListOperation,
+  [GIT_WORKTREE_REMOVE_METHOD]: worktreeRemoveOperation,
+  [GIT_STATUS_METHOD]: statusOperation,
 };
 
 const STREAM_KEEPING_OPERATIONS: Readonly<Partial<Record<Operation, true>>> = {
