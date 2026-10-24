@@ -8,9 +8,12 @@
 import type {
   CreateProjectDto,
   CreateProjectRepositoryDto,
+  GetProjectStartLocationParams,
   ListProjectsParams,
   ProjectRepositoryLinkResponse,
+  ProjectRepositoryLinkWithDefaultsResponse,
   ProjectResponse,
+  StartLocationResponse,
   UpdateProjectDto,
   UpdateProjectRepositoryDto,
 } from "../models";
@@ -232,13 +235,13 @@ export const getListProjectRepositoriesUrl = (id: string) => {
 };
 
 /**
- * @summary List a project's linked repositories
+ * @summary List a project's linked repositories and their defaults
  */
 export const listProjectRepositories = async (
   id: string,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
-): Promise<ProjectRepositoryLinkResponse[]> => {
+): Promise<ProjectRepositoryLinkWithDefaultsResponse[]> => {
   const res = await fetchFn(getListProjectRepositoriesUrl(id), {
     ...options,
     method: "GET",
@@ -263,7 +266,9 @@ export const listProjectRepositories = async (
     err.status = res.status;
     throw err;
   }
-  const data: ProjectRepositoryLinkResponse[] = body ? JSON.parse(body) : {};
+  const data: ProjectRepositoryLinkWithDefaultsResponse[] = body
+    ? JSON.parse(body)
+    : {};
   return data;
 };
 
@@ -364,7 +369,7 @@ export const updateProjectRepositoryLink = async (
   return data;
 };
 
-export type unlinkProjectRepositoryError = void | void | void | void;
+export type unlinkProjectRepositoryError = void | void | void;
 
 export const getUnlinkProjectRepositoryUrl = (
   id: string,
@@ -407,5 +412,63 @@ export const unlinkProjectRepository = async (
     throw err;
   }
   const data: void = body ? JSON.parse(body) : undefined;
+  return data;
+};
+
+export type getProjectStartLocationError = void | void | void;
+
+export const getGetProjectStartLocationUrl = (
+  id: string,
+  params?: GetProjectStartLocationParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/projects/${id}/start-location?${stringifiedParams}`
+    : `/api/v1/projects/${id}/start-location`;
+};
+
+/**
+ * @summary Preview the location a chat start on this project resolves
+ */
+export const getProjectStartLocation = async (
+  id: string,
+  params: GetProjectStartLocationParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<StartLocationResponse> => {
+  const res = await fetchFn(getGetProjectStartLocationUrl(id, params), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: getProjectStartLocationError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getGetProjectStartLocationUrl(id, params)} failed (${res.status})`,
+    );
+    const data: getProjectStartLocationError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: StartLocationResponse = body ? JSON.parse(body) : {};
   return data;
 };

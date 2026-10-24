@@ -96,6 +96,7 @@ const EXPECTED_OPERATION_IDS = [
   'getOrgUnit',
   'getPersonalization',
   'getProject',
+  'getProjectStartLocation',
   'getRun',
   'getRunContextReceipt',
   'getSharedChat',

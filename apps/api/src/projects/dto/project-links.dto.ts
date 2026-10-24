@@ -13,8 +13,16 @@ import {
 import {
   PROJECT_REPOSITORY_ISOLATIONS,
   type ProjectRepository,
+  type ProjectRepositoryDefault,
   type ProjectRepositoryIsolation,
 } from '../../db/schema';
+import {
+  ISOLATION_DEFAULTS,
+  ISOLATION_REASONS,
+  type IsolationDefault,
+  type IsolationReason,
+} from '../start-location';
+import { EXECUTOR_ID_MAX } from './projects.dto';
 
 // The project-scoped name of a linked repository. Same bound as a project name:
 // it is owner-authored prose shown in the composer chip, never a path segment.
@@ -79,8 +87,41 @@ export class UpdateProjectRepositoryDto {
   isolation?: ProjectRepositoryIsolation;
 }
 
-// One link as every route returns it: the project's own alias, the primary
-// flag, and the isolation policy.
+export class ProjectRepositoryDefaultResponse {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  projectRepositoryId!: string;
+
+  @ApiProperty()
+  executorId!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  checkoutId!: string;
+
+  @ApiProperty({
+    format: 'date-time',
+    description: 'The time of the last write; the newest row wins.',
+  })
+  updatedAt!: Date;
+}
+
+export function toProjectRepositoryDefaultResponse(
+  row: ProjectRepositoryDefault,
+): ProjectRepositoryDefaultResponse {
+  return {
+    id: row.id,
+    projectRepositoryId: row.projectRepositoryId,
+    executorId: row.executorId,
+    checkoutId: row.checkoutId,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// One link as a write returns it. The read route extends it with the link's
+// defaults, because a write never changes them and a `defaults: []` on an
+// update would assert something false.
 export class ProjectRepositoryLinkResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
@@ -110,6 +151,15 @@ export class ProjectRepositoryLinkResponse {
   updatedAt!: Date;
 }
 
+export class ProjectRepositoryLinkWithDefaultsResponse extends ProjectRepositoryLinkResponse {
+  @ApiProperty({
+    type: ProjectRepositoryDefaultResponse,
+    isArray: true,
+    description: 'Most recently written first.',
+  })
+  defaults!: Array<ProjectRepositoryDefaultResponse>;
+}
+
 export function toProjectRepositoryLinkResponse(
   link: ProjectRepository,
 ): ProjectRepositoryLinkResponse {
@@ -124,4 +174,74 @@ export function toProjectRepositoryLinkResponse(
     createdAt: link.createdAt,
     updatedAt: link.updatedAt,
   };
+}
+
+export function toProjectRepositoryLinkWithDefaultsResponse(
+  link: ProjectRepository,
+  defaults: ReadonlyArray<ProjectRepositoryDefault>,
+): ProjectRepositoryLinkWithDefaultsResponse {
+  const base = toProjectRepositoryLinkResponse(link);
+  return {
+    id: base.id,
+    ownerUserId: base.ownerUserId,
+    projectId: base.projectId,
+    repositoryId: base.repositoryId,
+    alias: base.alias,
+    isPrimary: base.isPrimary,
+    isolation: base.isolation,
+    createdAt: base.createdAt,
+    updatedAt: base.updatedAt,
+    defaults: defaults.map(toProjectRepositoryDefaultResponse),
+  };
+}
+
+// GET /api/v1/projects/:id/start-location — the same three ids the create
+// request takes, resolved in its order.
+export class StartLocationQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  repositoryId?: string;
+
+  @ApiPropertyOptional({ maxLength: EXECUTOR_ID_MAX })
+  @IsOptional()
+  @IsString()
+  @Matches(/\S/, { message: 'executorId must not be blank' })
+  @MaxLength(EXECUTOR_ID_MAX)
+  executorId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  checkoutId?: string;
+}
+
+export class StartLocationResponse {
+  @ApiProperty({ format: 'uuid' })
+  projectId!: string;
+
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  repositoryId!: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  executorId!: string | null;
+
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  checkoutId!: string | null;
+
+  @ApiProperty({ enum: ISOLATION_DEFAULTS })
+  isolation!: IsolationDefault;
+
+  @ApiProperty({
+    enum: ISOLATION_REASONS,
+    description:
+      'project_policy when the link policy decides, clone_in_use when another open chat holds the checkout, no_link when no link resolved.',
+  })
+  isolationReason!: IsolationReason;
+
+  @ApiProperty({
+    description:
+      'How many open chats already bind the resolved checkout; zero unless the reason is clone_in_use.',
+  })
+  isolationChats!: number;
 }
