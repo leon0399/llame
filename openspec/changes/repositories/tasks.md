@@ -130,7 +130,7 @@ local executor.
   - Extend `HelloResult` and its `readHelloResult` reader in `apps/api/src/machines/machine-results.ts` to carry the list. The reader rebuilds the result, so it could drop the list.
   - Verify unit tests for the method constants and the parameter schemas with the prefix. Also cover an old `hello` result without `methods` that still parses.
   - Also verify a new result with `methods`, and the path from `session.hello` to the git-call check ("Git methods are additive to the Machine protocol", "Machine git results report locators and rewritten errors").
-- [ ] 3.2 Implement the five methods in `apps/machine/src` over `@workspace/git-executor`.
+- [x] 3.2 Implement the five methods in `apps/machine/src` over `@workspace/git-executor`.
   - Apply the root guard to every path and to the worktree directory before any git call.
   - Use argv arrays, the sanitized environment on every call, a timeout, and a typed failure that carries bounded standard error.
   - Return a Machine locator in every path field. Rewrite each registered-root prefix in standard error to the locator form before it leaves the daemon.

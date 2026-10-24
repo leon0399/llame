@@ -18,6 +18,7 @@
     "@modelcontextprotocol/sdk": "catalog:",
     "@sentry/node": "~11.7.0",
     "@workspace/bash-executor": "workspace:*",
+    "@workspace/git-executor": "workspace:*",
     "@workspace/machine-protocol": "workspace:*",
     "@workspace/mcp-workspace": "workspace:*",
     "@workspace/native-file-tools": "workspace:*",

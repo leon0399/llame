@@ -12,7 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { gitPrefixArguments, inspectRepository } from "./inspect";
+import { gitPrefixArguments } from "./invocation";
+import { inspectRepository } from "./inspect";
 
 /**
  * Real-git tests against throwaway repositories.
