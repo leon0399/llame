@@ -125,7 +125,12 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
 
 ## 2. `chat-start-location/project-links-api` — the link, its defaults, the default executor, and their routes (design D8)
 
-- [ ] 2.1 Add `project_repositories`, `project_repository_defaults`, and
+The link table, its repository, service, routes, tests, and the project page
+section are implemented in #1418 (`chat-start-location/project-repositories`).
+This layer adds only the link defaults, the creation record, the project default
+executor, and the start-location preview.
+
+- [x] 2.1 Add `project_repositories`, `project_repository_defaults`, and
       `chat_creation_records` to `apps/api/src/db/schema/`.
 
   - Link: `owner_user_id`, alias, `is_primary`, and an `isolation` CHECK
@@ -150,7 +155,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Cite "Project repository defaults remember the last chosen checkout per
     executor"
 
-- [ ] 2.2 Add the write routes to `apps/api/src/projects/`.
+- [x] 2.2 Add the write routes to `apps/api/src/projects/`.
 
   - The link, unlink, update, and default-executor write routes
   - The read route `GET /api/v1/projects/:id/repositories`
@@ -172,7 +177,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Cite "The owner reads a project's links and their defaults"
   - Cite "The owner previews the start location without effects"
 
-- [ ] 2.3 Add negative isolation integration tests.
+- [x] 2.3 Add negative isolation integration tests.
 
   - Owner B cannot select, insert, update, or delete owner A's links
   - Owner B cannot touch owner A's defaults or default executor
@@ -185,7 +190,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Each such insert fails with `23503`
   - Cite "Project repository links are owner-isolated"
 
-- [ ] 2.4 Make project deletion remove links and defaults only.
+- [x] 2.4 Make project deletion remove links and defaults only.
 
   - Make a deleted checkout and an unlinked repository remove their defaults
   - Verify integration tests for a project with a link and a defaults row
@@ -194,14 +199,14 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Verify that an unlink removes the link's defaults
   - Cite "Project repository links are deleted with the project"
 
-- [ ] 2.5 Extend `docs/product/operator/repositories.md` with project linking.
+- [x] 2.5 Extend `docs/product/operator/repositories.md` with project linking.
 
   - Add the defaults and isolation text
   - Add the reference entries for the project write and read routes
   - Add a dated `CHANGELOG.md` entry
   - Verify that `pnpm lint:markdown` passes
 
-- [ ] 2.6 Verify the layer locally.
+- [x] 2.6 Verify the layer locally.
 
   - `pnpm --filter api lint` and `typecheck`
   - The focused unit tests
