@@ -59,6 +59,28 @@ describe("runGitProcess", () => {
     }
   });
 
+  it("ends the git children that hold the pipes, as worktree add leaves them", async () => {
+    const previousPath = process.env["PATH"];
+    const directory = mkdtempSync(join(tmpdir(), "git-executor-group-"));
+    created.push(directory);
+    // `git worktree add` runs `reset --hard` as a child that inherits the
+    // standard error pipe. Killing git alone leaves `close` waiting on that
+    // child, so the deadline must end the whole group.
+    writeFileSync(join(directory, "git"), "#!/bin/sh\nsleep 30 &\nwait\n", {
+      mode: 0o755,
+    });
+    process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+    try {
+      const started = Date.now();
+      const result = await runGitProcess(["--version"], { timeoutMs: 200 });
+
+      expect(result).toMatchObject({ status: "timed_out" });
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
   it("decodes a multi-byte character split across two chunks", async () => {
     const shim = mkdtempSync(join(tmpdir(), "git-executor-split-"));
     created.push(shim);
