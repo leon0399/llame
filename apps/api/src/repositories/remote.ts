@@ -10,8 +10,8 @@
  */
 
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//iu;
-/** The `git@host:path` form: one user, one host, then the path. */
-const SCP_FORM = /^[^@/\s:]+@([^:/\s]+):(.+)$/u;
+/** The `git@host:path` form, and the user-less `host:path` git also accepts. */
+const SCP_FORM = /^(?:[^@/\s:]+@)?([^:/\s]+):(?!\/)(.+)$/u;
 const TRAILING_SLASHES = /\/+$/u;
 
 /** Drop everything before an optional `@`, up to the end of the authority. */

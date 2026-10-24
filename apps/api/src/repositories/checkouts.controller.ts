@@ -36,7 +36,6 @@ import {
   CreateCheckoutDto,
   ListCheckoutsQueryDto,
   toCheckoutResponse,
-  toCreatedCheckoutResponse,
   UpdateCheckoutDto,
 } from './dto/checkouts.dto';
 import { RepositoryFailureResponse } from './dto/failure.dto';
@@ -68,9 +67,7 @@ export class CheckoutsController {
     @CurrentUser() userId: string,
     @Body() input: CreateCheckoutDto,
   ): Promise<CheckoutResponse> {
-    return toCreatedCheckoutResponse(
-      await this.checkouts.register(userId, input),
-    );
+    return toCheckoutResponse(await this.checkouts.register(userId, input));
   }
 
   @Get()

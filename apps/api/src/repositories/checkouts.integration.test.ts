@@ -37,7 +37,7 @@ import { InstanceConfigService } from '../instance-config/instance-config.servic
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { type PermissionGroup } from '../tools/permissions/types';
-import { GIT_INSPECTOR } from './git-inspector';
+import { GIT_INSPECTOR } from './checkout-registration.service';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -351,6 +351,14 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     expect(response.body).toMatchObject({ code: 'not_a_repository' });
   });
 
+  it('refuses a path that does not exist as a validation failure, not a 404', async () => {
+    const response = await post({
+      path: join(tmpdir(), `missing-${crypto.randomUUID()}`),
+    }).expect(422);
+
+    expect(response.body).toMatchObject({ code: 'invalid_path' });
+  });
+
   it('refuses a machine:// path as executor_unavailable in this layer', async () => {
     const response = await post({ path: 'machine://nas/srv/app' }).expect(503);
 
@@ -504,27 +512,146 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     expect(list.body).toEqual([]);
   });
 
-  it('deletes a repository and its cascaded rows only', async () => {
-    const scratch = await request(harness.http)
-      .post('/api/v1/repositories')
-      .set('Cookie', harness.cookie)
-      .send({ displayName: 'cascade' })
-      .expect(201);
-    const cascadeRepositoryId = idSchema.parse(scratch.body).id;
-    const path = repository();
-    await post({ path, repositoryId: cascadeRepositoryId }).expect(201);
+  it('stores a subdirectory of a clone as the clone root, once', async () => {
+    const parent = repository();
+    const subdirectory = join(parent, 'apps', 'web');
+    mkdirSync(subdirectory, { recursive: true });
 
-    await request(harness.http)
-      .delete(`/api/v1/repositories/${cascadeRepositoryId}`)
-      .set('Cookie', harness.cookie)
-      .expect(204);
+    const registered = checkoutSchema.parse(
+      (await post({ path: subdirectory }).expect(201)).body,
+    );
+    expect(registered).toMatchObject({
+      path: parent,
+      kind: 'main',
+      branch: 'main',
+    });
 
-    const list = await request(harness.http)
-      .get(`/api/v1/checkouts?repositoryId=${cascadeRepositoryId}`)
-      .set('Cookie', harness.cookie)
-      .expect(200);
-    expect(list.body).toEqual([]);
-    expect(existsSync(path)).toBe(true);
+    const repeated = await post({ path: parent }).expect(409);
+    expect(repeated.body).toMatchObject({ code: 'path_taken' });
+  });
+
+  it('keeps a remote-less worktree under the repository of its main row', async () => {
+    const main = repository();
+    const mainRow = checkoutSchema.parse(
+      (await post({ path: main }).expect(201)).body,
+    );
+    const worktree = linkedWorktree(main, 'remote-less-feature');
+
+    const registered = checkoutSchema.parse(
+      (await post({ path: worktree }).expect(201)).body,
+    );
+
+    expect(registered).toMatchObject({
+      repositoryId: mainRow.repositoryId,
+      kind: 'worktree',
+      parentCheckoutId: mainRow.id,
+      branch: 'remote-less-feature',
+    });
+  });
+
+  it('lists a chat already bound to a path in the registration response', async () => {
+    const clone = repository();
+    const chatId = crypto.randomUUID();
+    await sql.begin(async (tx) => {
+      await tx`SELECT set_config('app.current_user_id', ${harness.userId}, true)`;
+      await tx`INSERT INTO chats (id, owner_user_id, title, workspace_root)
+                VALUES (${chatId}, ${harness.userId}, 'pre-bound', ${clone})`;
+    });
+
+    const registered = checkoutSchema.parse(
+      (await post({ path: clone }).expect(201)).body,
+    );
+
+    expect(registered.chatIds).toEqual([chatId]);
+  });
+
+  it('adopts one repository for two clones of one remote registered at once', async () => {
+    const slug = `concurrent-${crypto.randomUUID()}`;
+    const remote = `https://github.com/leon0399/${slug}`;
+    const first = repository({ remote });
+    const second = repository({ remote });
+
+    const [a, b] = await Promise.all([
+      post({ path: first }),
+      post({ path: second }),
+    ]);
+    expect([a.status, b.status]).toEqual([201, 201]);
+    const firstRow = checkoutSchema.parse(a.body);
+    const secondRow = checkoutSchema.parse(b.body);
+    expect(firstRow.repositoryId).toBe(secondRow.repositoryId);
+
+    const catalog = z
+      .array(repositorySchema)
+      .parse(
+        (
+          await request(harness.http)
+            .get('/api/v1/repositories')
+            .set('Cookie', harness.cookie)
+            .expect(200)
+        ).body,
+      );
+    expect(
+      catalog.filter(
+        (row) => row.canonicalRemote === `github.com/leon0399/${slug}`,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('records one parent row for two worktrees registered at once', async () => {
+    const remote = `https://github.com/leon0399/race-${crypto.randomUUID()}`;
+    const main = repository({ remote });
+    const first = linkedWorktree(main, 'race-a');
+    const second = linkedWorktree(main, 'race-b');
+
+    const [a, b] = await Promise.all([
+      post({ path: first }),
+      post({ path: second }),
+    ]);
+    expect([a.status, b.status]).toEqual([201, 201]);
+    const firstRow = checkoutSchema.parse(a.body);
+    const secondRow = checkoutSchema.parse(b.body);
+    expect(firstRow.parentCheckoutId).toBe(secondRow.parentCheckoutId);
+    expect(firstRow.repositoryId).toBe(secondRow.repositoryId);
+
+    const rows = z
+      .array(checkoutSchema)
+      .parse(
+        (
+          await request(harness.http)
+            .get(`/api/v1/checkouts?repositoryId=${firstRow.repositoryId}`)
+            .set('Cookie', harness.cookie)
+            .expect(200)
+        ).body,
+      );
+    expect(rows.filter((row) => row.kind === 'main')).toHaveLength(1);
+  });
+
+  it('refuses the second of two concurrent registrations of one path', async () => {
+    const clone = repository();
+
+    const responses = await Promise.all([
+      post({ path: clone }),
+      post({ path: clone }),
+    ]);
+    const statuses = responses
+      .map((response) => response.status)
+      .sort((a, b) => a - b);
+    expect(statuses).toEqual([201, 409]);
+
+    const created = checkoutSchema.parse(
+      responses.find((response) => response.status === 201)?.body,
+    );
+    const rows = z
+      .array(checkoutSchema)
+      .parse(
+        (
+          await request(harness.http)
+            .get(`/api/v1/checkouts?repositoryId=${created.repositoryId}`)
+            .set('Cookie', harness.cookie)
+            .expect(200)
+        ).body,
+      );
+    expect(rows).toHaveLength(1);
   });
 });
 
