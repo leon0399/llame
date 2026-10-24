@@ -14,6 +14,7 @@ import {
 const inputSchema = z.object({ query: z.string() });
 
 const resultSchema = z.object({
+  knowledgeSpaceId: z.string(),
   knowledgeSpaceName: z.string(),
   path: z.string(),
   locator: z.string(),
@@ -27,7 +28,11 @@ const outputSchema = z.looseObject({
   notice: z.string(),
   nextCursor: z.string().optional(),
   warnings: z.array(
-    z.object({ knowledgeSpaceName: z.string(), message: z.string() }),
+    z.object({
+      knowledgeSpaceId: z.string(),
+      knowledgeSpaceName: z.string(),
+      message: z.string(),
+    }),
   ),
   truncationNotice: z.string().optional(),
 });
@@ -41,14 +46,14 @@ export type KnowledgeSearchToolProps = ToolPartProps;
 // A passage locator ends in its 1-based inclusive line range.
 const locatorRangePattern = /:(\d+)-(\d+)$/u;
 
+/** One passage: its path and lines, then the attribution knowledge-tools
+ *  requires the UI to show (space name, stable id, and the exact `read`
+ *  locator), so two spaces with one name stay distinguishable. */
 function KnowledgePassage({ result }: { result: KnowledgeResult }) {
   const range = locatorRangePattern.exec(result.locator);
   return (
     <li className="space-y-1">
       <p className="text-xs">
-        <span className="text-muted-foreground">
-          {result.knowledgeSpaceName} ·{" "}
-        </span>
         <span className="break-all font-medium font-mono">{result.path}</span>
         {range ? (
           <span className="text-muted-foreground">
@@ -59,6 +64,13 @@ function KnowledgePassage({ result }: { result: KnowledgeResult }) {
               : `lines ${range[1]}–${range[2]}`}
           </span>
         ) : null}
+      </p>
+      <p className="break-all text-muted-foreground text-xs">
+        {result.knowledgeSpaceName} ·{" "}
+        <span className="font-mono">{result.knowledgeSpaceId}</span>
+      </p>
+      <p className="break-all font-mono text-muted-foreground text-xs">
+        {result.locator}
       </p>
       <p className="whitespace-pre-wrap break-words rounded-md bg-muted/50 px-3 py-2 font-mono text-xs">
         {result.excerpt}
@@ -79,9 +91,9 @@ function knowledgeDetailRows(
         : "available on the next page",
     ],
     ...output.warnings.map(
-      ({ knowledgeSpaceName, message }): [string, string] => [
+      ({ knowledgeSpaceId, knowledgeSpaceName, message }): [string, string] => [
         "Warning",
-        `${knowledgeSpaceName}: ${message}`,
+        `${knowledgeSpaceName} (${knowledgeSpaceId}): ${message}`,
       ],
     ),
     ["Note", output.truncationNotice],

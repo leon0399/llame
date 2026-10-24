@@ -76,6 +76,16 @@ export const Basic: Story = {
     await expect(canvas.getByText(/lines 12–14/u)).toBeInTheDocument();
     await expect(canvas.getByText(/line 3$/u)).toBeInTheDocument();
     await expect(canvas.getByText(notice)).toBeInTheDocument();
+    // knowledge-tools requires the stable id and exact locator to stay
+    // visible, so duplicate space names remain distinguishable.
+    await expect(
+      canvas.getByText(
+        "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/runbooks/deploy.md:12-14",
+      ),
+    ).toBeInTheDocument();
+    await expect(
+      canvas.getAllByText("9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d"),
+    ).toHaveLength(2);
   },
 };
 
@@ -107,7 +117,9 @@ export const PartialWithWarning: Story = {
       canvas.getByRole("button", { name: /knowledge_search/iu }),
     );
     await expect(
-      canvas.getByText("Personal: The Knowledge Space is unavailable."),
+      canvas.getByText(
+        "Personal (1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f): The Knowledge Space is unavailable.",
+      ),
     ).toBeVisible();
     await expect(canvas.getByText("available on the next page")).toBeVisible();
   },

@@ -172,7 +172,9 @@ function SourceLineText({
       </span>
       {/* min-h keeps an empty line one line tall. */}
       <span className="min-h-[1lh] min-w-0 flex-1 whitespace-pre-wrap break-words pr-3">
-        {tokens
+        {/* Shiki folds a CRLF line's `\r` into the line break; a line whose
+            tokens do not spell its exact bytes renders as plain text. */}
+        {tokens?.map((token) => token.content).join("") === line.text
           ? tokens.map((token) => (
               <SourceToken key={token.offset} token={token} />
             ))

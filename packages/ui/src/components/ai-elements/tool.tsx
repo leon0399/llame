@@ -150,10 +150,15 @@ export const ToolHeader = ({
       <span className="shrink-0 font-medium text-sm">
         {title ?? type.split("-").slice(1).join("-")}
       </span>
+      {/* The spaces are not laid out (whitespace between flex items is not
+          rendered) but separate the words of the button's accessible name. */}
       {summary ? (
-        <span className="min-w-0 truncate font-mono text-muted-foreground text-xs">
-          {summary}
-        </span>
+        <>
+          {" "}
+          <span className="min-w-0 truncate font-mono text-muted-foreground text-xs">
+            {summary}
+          </span>{" "}
+        </>
       ) : null}
       {getStatusBadge(state)}
     </div>

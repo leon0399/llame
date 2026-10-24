@@ -172,13 +172,9 @@ test.describe("conversation provenance (browser, full stack)", () => {
     expect(destinationPrompt.seq).toBe(1);
 
     await readTools.nth(0).click();
-    await expect(readTools.nth(0).locator("..")).toContainText(
-      `1: ${sourceLines[0]}`,
-    );
+    await expect(readTools.nth(0).locator("..")).toContainText(sourceLines[0]);
     await readTools.nth(1).click();
-    await expect(readTools.nth(1).locator("..")).toContainText(
-      `3: ${sourceLines[2]}`,
-    );
+    await expect(readTools.nth(1).locator("..")).toContainText(sourceLines[2]);
 
     // Full reload reconstructs both persisted call/result pairs through the
     // ordinary tool parts. No source rehydration is allowed on this path.
@@ -195,11 +191,11 @@ test.describe("conversation provenance (browser, full stack)", () => {
       .filter({ hasText: "conversation_read" });
     await reloadedReadTools.nth(0).click();
     await expect(reloadedReadTools.nth(0).locator("..")).toContainText(
-      `1: ${sourceLines[0]}`,
+      sourceLines[0],
     );
     await reloadedReadTools.nth(1).click();
     await expect(reloadedReadTools.nth(1).locator("..")).toContainText(
-      `3: ${sourceLines[2]}`,
+      sourceLines[2],
     );
 
     const forkResponse = await request.post(
