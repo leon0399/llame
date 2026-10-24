@@ -120,13 +120,16 @@ tools. An `enter_workspace` call that carries a `worktree` object MUST append a
 `native.attempt` with the `worktree` operation before it calls
 `git.worktreeAdd`. It MUST append the `native.result` of that attempt in the
 transaction that stores the worktree rows and the bound root. A redelivered Run
-that carries that attempt MUST fail as `outcome_unknown` under the canonical
-rule for a recorded `native.attempt`.
+that carries that attempt MUST still fail as `outcome_unknown` under the
+canonical rule for a recorded `native.attempt`.
 
 A known worktree failure MUST append its typed `native.result` in its own
 transaction. A known failure writes no worktree, catalog, lease, or binding row.
 A git error, a refusal, and a classified timeout are known failures. The
-`native.result` MUST stay absent only for a genuinely unknown outcome.
+`native.result` MUST stay absent only for a genuinely unknown outcome. A
+redelivered Run whose attempt has a durable `native.result` MUST settle its open
+worktree call from that result under the canonical settlement rule. The recorded
+result MUST remain the settlement source for that call.
 
 The system MUST NOT retry that call idempotently. A redelivered Run MUST NOT
 replay its loop and MUST NOT create a second worktree. An `exit_workspace` call
@@ -258,6 +261,14 @@ across source kinds.
   stores the worktree rows and the bound root
 - **AND** a redelivery of that Run fails as `outcome_unknown` without a replay of
   the loop and creates no second worktree
+
+#### Scenario: A recorded worktree result settles a redelivered call
+
+- **WHEN** a worktree attempt recorded its typed `native.result`, and the Run is
+  redelivered
+- **THEN** the Run fails as `outcome_unknown` without a replay of the loop
+- **AND** its open worktree call settles from the recorded `native.result`
+- **AND** no second worktree is created
 
 #### Scenario: A plain entry and an exit stay idempotent
 
