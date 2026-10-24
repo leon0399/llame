@@ -2105,10 +2105,17 @@ const HEADED_CHAT = {
   nextjs: { navigation: { pathname: `/chat/${CHAT_ID}` } },
 };
 
-/** Waits until session details show the chat bound to `root`. */
+/**
+ * Waits until session details show the chat bound to `root`. The transcript's
+ * workspace tool row can show the same path, so the query stays in the panel.
+ */
 async function panelShows(canvasElement: HTMLElement, root: string) {
   await waitFor(() =>
-    expect(within(canvasElement).getByText(root)).toBeVisible(),
+    expect(
+      within(within(canvasElement).getByLabelText("Session details")).getByText(
+        root,
+      ),
+    ).toBeVisible(),
   );
 }
 
