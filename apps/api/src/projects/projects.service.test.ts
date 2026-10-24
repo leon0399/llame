@@ -13,6 +13,7 @@ const project = {
   createdAt: new Date('2026-08-01T00:00:00.000Z'),
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   archivedAt: null,
+  defaultExecutorId: null,
 };
 
 describe('ProjectsService', () => {
