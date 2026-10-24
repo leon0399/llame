@@ -3,14 +3,11 @@
 import type { ComponentType, ReactElement } from "react";
 import { z } from "zod";
 
+import type { ToolHeaderState } from "@workspace/ui/components/ai-elements/tool";
 import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-  type ToolHeaderState,
-} from "@workspace/ui/components/ai-elements/tool";
+  ToolResultFallback,
+  ToolRow,
+} from "@workspace/ui/components/custom/tool-row";
 
 const markdownSpecialCharacterPattern = /[\\`*_[\]{}()#+\-.!|<>~$&]/gu;
 
@@ -243,30 +240,23 @@ export function WebSearchTool({
   Markdown,
 }: WebSearchToolProps): ReactElement {
   const validOutput = outputSchema.safeParse(output).data;
-
+  let result: ReactElement;
+  if (validOutput?.kind === "results") {
+    result = <ResultsBody output={validOutput} Markdown={Markdown} />;
+  } else if (validOutput) {
+    result = <AnswerBody output={validOutput} Markdown={Markdown} />;
+  } else {
+    result = <ToolResultFallback output={output} pendingLabel="Searching…" />;
+  }
   return (
-    <Tool>
-      <ToolHeader state={state} type="tool-web_search" />
-      <ToolContent>
-        <ToolInput input={input} />
-        {state === "cancelled" ? null : errorText ? (
-          <ToolOutput
-            errorText={errorText}
-            output={undefined}
-            state="output-error"
-          />
-        ) : validOutput ? (
-          validOutput.kind === "results" ? (
-            <ResultsBody output={validOutput} Markdown={Markdown} />
-          ) : (
-            <AnswerBody output={validOutput} Markdown={Markdown} />
-          )
-        ) : output !== undefined ? (
-          <ToolOutput output={output} errorText={undefined} />
-        ) : (
-          <p className="p-4 text-muted-foreground text-sm">Searching…</p>
-        )}
-      </ToolContent>
-    </Tool>
+    <ToolRow
+      name="web_search"
+      summary={z.object({ query: z.string() }).safeParse(input).data?.query}
+      input={input}
+      errorText={errorText}
+      state={state}
+    >
+      {result}
+    </ToolRow>
   );
 }

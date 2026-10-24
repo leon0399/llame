@@ -17,9 +17,19 @@ import {
   ToolOutput,
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
+import { BashTool } from "@workspace/ui/components/custom/bash";
+import { ConversationReadTool } from "@workspace/ui/components/custom/conversation-read";
+import { EditTool } from "@workspace/ui/components/custom/edit";
+import { GrepTool } from "@workspace/ui/components/custom/grep";
+import { KnowledgeSearchTool } from "@workspace/ui/components/custom/knowledge-search";
+import { McpTool } from "@workspace/ui/components/custom/mcp-tool";
 import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
 import { ReadTool } from "@workspace/ui/components/custom/read";
+import { SearchConversationsTool } from "@workspace/ui/components/custom/search-conversations";
+import type { ToolPartProps } from "@workspace/ui/components/custom/tool-row";
 import { WebSearchTool } from "@workspace/ui/components/custom/web-search";
+import { WorkspaceTool } from "@workspace/ui/components/custom/workspace";
+import { WriteTool } from "@workspace/ui/components/custom/write";
 import {
   getToolName,
   isToolUIPart,
@@ -131,9 +141,50 @@ function ReasoningPanel({
   );
 }
 
-/** A tool call/result: the dedicated `read` and `web_search` cards, else the
- *  generic tool block. A stored `read` image result's thumbnail loads the
- *  `/model` route and its lightbox the `/original` route. */
+/** The dedicated row for a tool, or `null` when it has none. A stored
+ *  `read` image result's thumbnail loads the `/model` route and its lightbox
+ *  the `/original` route. */
+function dedicatedToolRow(
+  toolName: string,
+  props: ToolPartProps,
+  renderers: ChatMarkdownRenderers,
+): ReactNode {
+  switch (toolName) {
+    case "read":
+      return (
+        <ReadTool
+          {...props}
+          Markdown={renderers.MessageResponse}
+          mediaSources={storedImageSources}
+        />
+      );
+    case "web_search":
+      return <WebSearchTool {...props} Markdown={renderers.MessageResponse} />;
+    case "bash":
+      return <BashTool {...props} />;
+    case "edit":
+      return <EditTool {...props} />;
+    case "write":
+      return <WriteTool {...props} />;
+    case "grep":
+      return <GrepTool {...props} />;
+    case "search_conversations":
+      return <SearchConversationsTool {...props} />;
+    case "conversation_read":
+      return <ConversationReadTool {...props} />;
+    case "knowledge_search":
+      return <KnowledgeSearchTool {...props} />;
+    case "enter_workspace":
+    case "exit_workspace":
+      return <WorkspaceTool {...props} name={toolName} />;
+    default:
+      return toolName.startsWith("mcp__") ? (
+        <McpTool {...props} name={toolName} />
+      ) : null;
+  }
+}
+
+/** A tool call/result: its dedicated row, else the generic tool block. */
 function ToolUIPartView({
   part,
   renderers,
@@ -141,29 +192,17 @@ function ToolUIPartView({
   part: ToolUIPart | DynamicToolUIPart;
   renderers: ChatMarkdownRenderers;
 }) {
-  const toolName = getToolName(part);
-  if (toolName === "web_search") {
-    return (
-      <WebSearchTool
-        input={part.input}
-        output={part.output}
-        errorText={part.errorText}
-        state={toolHeaderState(part)}
-        Markdown={renderers.MessageResponse}
-      />
-    );
-  }
-  if (toolName !== "read") return <ToolPartView part={part} />;
-  return (
-    <ReadTool
-      input={part.input}
-      output={part.output}
-      errorText={part.errorText}
-      state={toolHeaderState(part)}
-      Markdown={renderers.MessageResponse}
-      mediaSources={storedImageSources}
-    />
+  const row = dedicatedToolRow(
+    getToolName(part),
+    {
+      input: part.input,
+      output: part.output,
+      errorText: part.errorText,
+      state: toolHeaderState(part),
+    },
+    renderers,
   );
+  return row ?? <ToolPartView part={part} />;
 }
 
 /** Renders one non-reasoning message part — text, a tool call/result, a

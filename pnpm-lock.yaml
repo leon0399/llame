@@ -766,6 +766,9 @@ importers:
       '@workspace/config-typescript':
         specifier: workspace:*
         version: link:../../packages/config-typescript
+      diff:
+        specifier: ^8.0.4
+        version: 8.0.4
       mermaid:
         specifier: 11.16.1
         version: 11.16.1
@@ -1210,6 +1213,9 @@ importers:
       cn:
         specifier: 0.2.6
         version: 0.2.6
+      diff:
+        specifier: ^8.0.4
+        version: 8.0.4
       katex:
         specifier: 0.18.2
         version: 0.18.2

@@ -71,6 +71,9 @@ export type ToolHeaderProps = {
   title?: string;
   /** The tool's UI part type, e.g. `"tool-search_conversations"` (a `tool-${name}` template literal). */
   type: ToolUIPart["type"];
+  /** One-line digest of the call (a path, a command, a query) shown after the
+   *  title so a collapsed row says what it did; truncated with an ellipsis. */
+  summary?: string;
   /**
    * Lifecycle state of the invocation; selects the status badge's icon and
    * label. Accepts the SDK's states plus `"cancelled"` — a run terminated by
@@ -131,6 +134,7 @@ export const ToolHeader = ({
   className,
   title,
   type,
+  summary,
   state,
   ...props
 }: ToolHeaderProps) => (
@@ -141,11 +145,16 @@ export const ToolHeader = ({
     )}
     {...props}
   >
-    <div className="flex items-center gap-2">
-      <WrenchIcon className="size-4 text-muted-foreground" />
-      <span className="font-medium text-sm">
+    <div className="flex min-w-0 items-center gap-2">
+      <WrenchIcon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="shrink-0 font-medium text-sm">
         {title ?? type.split("-").slice(1).join("-")}
       </span>
+      {summary ? (
+        <span className="min-w-0 truncate font-mono text-muted-foreground text-xs">
+          {summary}
+        </span>
+      ) : null}
       {getStatusBadge(state)}
     </div>
     <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
@@ -249,7 +258,11 @@ export const ToolOutput = ({
             : "bg-muted/50 text-foreground",
         )}
       >
-        {errorText && <div>{errorText}</div>}
+        {/* Multi-line errors (a failed command's embedded stdout/stderr)
+            keep their line breaks. */}
+        {errorText && (
+          <div className="whitespace-pre-wrap break-words">{errorText}</div>
+        )}
         {Output}
       </ScrollRegion>
     </div>

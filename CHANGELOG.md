@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
+- Every native tool call has its own chat row instead of raw parameter and
+  result JSON. `edit` shows a unified diff with line numbers and the changed
+  words marked; `write` shows the written file; `grep` groups matching
+  passages by file with the matching lines emphasized; `bash` shows the
+  command as a prompt with its exit code and output streams;
+  `search_conversations`, `conversation_read`, `knowledge_search`, the
+  Workspace tools, and MCP tools each get a dedicated view. `read`, `write`,
+  `grep`, and `conversation_read` content shows its line numbers in
+  a gutter with syntax highlighting, so a copied selection carries no
+  line-number prefixes. Collapsed rows name the path, command, or query, and
+  a failed command's error text keeps its line breaks.
+
 - CI audits dependencies for security advisories in a new `Security`
   workflow. On a pull request, a dependency review fails the run when the
   lockfile change adds a package version with a high or critical advisory;
