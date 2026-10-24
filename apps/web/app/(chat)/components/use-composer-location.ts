@@ -27,6 +27,7 @@ import {
   type StartLocationSelection,
   type WorkspaceFailure,
 } from "@/lib/services/project/start-location";
+import type { StartLocationPrefill } from "@/lib/services/project/start-location-link";
 import type { ProjectRepositoryLink } from "@/lib/services/project/types";
 import type { RepositoryResponse } from "@/lib/services/repositories/queries";
 
@@ -43,12 +44,6 @@ type SelectionDraft = StartLocationSelection & {
   isolation: StartLocationIsolation | null;
   worktreeName: string;
   baseRef: string;
-};
-
-const EMPTY_SELECTION: SelectionDraft = {
-  isolation: null,
-  worktreeName: "",
-  baseRef: "",
 };
 
 /** The levels and the labels the chip and the cascade render. */
@@ -199,12 +194,27 @@ function deriveLocationView(
  * the levels below it from their defaults: a repository or machine choice
  * drops the checkout, and any level clears the isolation override so the new
  * preview default applies (design D10). `onChange` lets the composer clear a
- * failed create's warning, because the draft is being corrected.
+ * failed create's warning, because the draft is being corrected. `initial` is
+ * the entry point's pre-fill (a deep link or "New chat here"), read once.
  */
+function initialDraft(
+  initial: StartLocationPrefill | null | undefined,
+): SelectionDraft {
+  return {
+    ...initial?.selection,
+    isolation: initial?.isolation ?? null,
+    worktreeName: "",
+    baseRef: "",
+  };
+}
+
 function useSelectionDraft(
+  initial: StartLocationPrefill | null | undefined,
   onChange?: () => void,
 ): ComposerLocationActions & { draft: SelectionDraft } {
-  const [draft, setDraft] = useState<SelectionDraft>(EMPTY_SELECTION);
+  const [draft, setDraft] = useState<SelectionDraft>(() =>
+    initialDraft(initial),
+  );
   const update = (change: (current: SelectionDraft) => SelectionDraft) => {
     setDraft(change);
     onChange?.();
@@ -244,6 +254,8 @@ type ComposerLocationArgs = {
   failed: WorkspaceFailure | null;
   /** Any change to the selection means the reader is correcting the draft. */
   onChange?: () => void;
+  /** The entry point's pre-fill: a deep link, or "New chat here". */
+  initial?: StartLocationPrefill | null;
 };
 
 /**
@@ -257,8 +269,9 @@ export function useComposerLocation({
   projectName,
   failed,
   onChange,
+  initial,
 }: ComposerLocationArgs): ComposerLocation {
-  const { draft, ...actions } = useSelectionDraft(onChange);
+  const { draft, ...actions } = useSelectionDraft(initial, onChange);
   const links = useProjectRepositoryLinksQuery(projectId);
   const repositories = useRepositoriesQuery();
   const checkouts = useCheckoutsQuery();

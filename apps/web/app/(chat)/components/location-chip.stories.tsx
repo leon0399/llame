@@ -11,6 +11,7 @@ import type {
 } from "@/lib/api/generated/models";
 import * as machinesQueries from "@/lib/services/machines/queries";
 import type { WorkspaceFailure } from "@/lib/services/project/start-location";
+import type { StartLocationPrefill } from "@/lib/services/project/start-location-link";
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
 import { LocationChip } from "./location-chip";
@@ -150,11 +151,18 @@ function sentRoutes() {
   return fetchMock.mock.calls.map(([input]) => routeOf(input));
 }
 
-function ChipHarness({ failed = null }: { failed?: WorkspaceFailure | null }) {
+function ChipHarness({
+  failed = null,
+  initial = null,
+}: {
+  failed?: WorkspaceFailure | null;
+  initial?: StartLocationPrefill | null;
+}) {
   const location = useComposerLocation({
     projectId: "p1",
     projectName: "llame development",
     failed,
+    initial,
   });
   return <LocationChip location={location} />;
 }
@@ -193,6 +201,48 @@ async function openCascade(canvasElement: HTMLElement) {
   );
   return within(await screen.findByRole("dialog", { name: "Chat location" }));
 }
+
+/**
+ * An entry point's pre-fill (a deep link or "New chat here"): the chip opens on
+ * the named repository, Machine, and checkout, and asks for a worktree instead
+ * of following the link policy, which the label names as the reader's choice.
+ *
+ * @summary a chip pre-filled by a deep link, isolating on the named checkout
+ */
+export const PrefilledFromEntryPoint: Story = {
+  args: {
+    initial: {
+      selection: {
+        repositoryId: "repo-1",
+        executorId: "machine:nas",
+        checkoutId: "checkout-1",
+      },
+      isolation: "worktree",
+    },
+  },
+  beforeEach: () => {
+    previewByQuery = new Map([
+      [
+        "repositoryId=repo-1&executorId=machine%3Anas&checkoutId=checkout-1",
+        preview(),
+      ],
+    ]);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const chip = await canvas.findByRole("button", { name: /Chat location/ });
+
+    await waitFor(() =>
+      expect(chip).toHaveTextContent(
+        "llame development · llame · nas · /srv/src/llame",
+      ),
+    );
+    await expect(chip).toHaveTextContent("worktree (your choice)");
+    await expect(sentRoutes()).toContain(
+      `GET ${PREVIEW_PATH}?repositoryId=repo-1&executorId=machine%3Anas&checkoutId=checkout-1`,
+    );
+  },
+};
 
 /**
  * The common case: the project's primary link resolves to one checkout on an
