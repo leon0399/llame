@@ -1,13 +1,19 @@
 import { spawn } from "node:child_process";
 
 import { gitEnvironment } from "./env";
-import { STDERR_BOUND, STDOUT_BOUND } from "./output";
 
-/**
- * One `git` process, started from an argv array with the fixed environment and
- * a deadline. Nothing here goes through a shell, so a path or a remote holding
- * `;`, `$()`, or whitespace stays one argument.
+/*
+ * One `git` process, started from an argv array with a fixed environment and a
+ * deadline, plus the redaction every returned standard error goes through.
+ *
+ * Nothing here goes through a shell, so a path or a remote holding `;`, `$()`,
+ * or whitespace stays one argument. A git call inherits nothing from the
+ * daemon's or the hub's process; {@link gitEnvironment} owns that boundary.
  */
+
+/** The bound on a returned standard error, and the wider one on stdout. */
+const STDERR_BOUND = 4096;
+const STDOUT_BOUND = 1_048_576;
 
 export type GitProcessResult =
   | {
@@ -61,7 +67,7 @@ function exitOutcome(
 
 export function runGitProcess(
   args: ReadonlyArray<string>,
-  options: { readonly timeoutMs: number; readonly env?: NodeJS.ProcessEnv },
+  options: { readonly timeoutMs: number },
 ): Promise<GitProcessResult> {
   const { promise, resolve } = Promise.withResolvers<GitProcessResult>();
   const stdout = collect(STDOUT_BOUND);
@@ -71,7 +77,7 @@ export function runGitProcess(
   let settled = false;
 
   const child = spawn("git", args, {
-    env: gitEnvironment(options.env),
+    env: gitEnvironment(),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const timer = setTimeout(
@@ -101,4 +107,13 @@ export function runGitProcess(
     settle(exitOutcome(timedOut, code, output())),
   );
   return promise;
+}
+
+/**
+ * Remove the userinfo part of every `scheme://user:password@host` URL, which is
+ * where a clone URL carries a token. The `scp`-style `git@host:path` form has
+ * no password position and is left as written.
+ */
+export function redactCredentials(text: string): string {
+  return text.replaceAll(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/giu, "$1");
 }
