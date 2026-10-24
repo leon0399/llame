@@ -316,6 +316,51 @@ links answers `409`, and so does a concurrent change that collides on the
 one-primary rule; a sequential primary change clears the previous one and
 answers `200`.
 
+### The project page's Repositories section
+
+The project page is the edit surface for links, and the repository catalog
+appears there only as the picker inside its dialogs. The section lists every
+link with the project's alias, the primary badge, the isolation policy in
+words, and the catalog remote under it. It then lists the project's worktrees:
+each path and branch, the chat whose lease records it, and every chat bound to
+that path, by title.
+
+- **Link repository** offers the owner's catalog minus the links the project
+  already holds, with an optional alias, the primary flag, and one isolation
+  policy. A blank alias keeps the route's default, the repository's display
+  name.
+- **Edit** on a row changes the alias, the primary flag, and the isolation
+  policy together. A field that did not move is omitted from the request, and
+  a form with nothing moved closes without writing.
+- **Unlink** on a row confirms once, then removes the link and its defaults.
+- **Remove** on a worktree asks once, then calls
+  `DELETE /api/v1/checkouts/:id/worktree`. A `409` `worktree_not_clean` refusal
+  leaves the row listed and shows the route's own sentence — uncommitted
+  changes, an unpushed commit, or an upstream it cannot vouch for.
+
+Every write on an archived project answers `409`, and the dialogs show that
+sentence in place of the form's usual footer.
+
+### Registering a checkout from the project page
+
+**Register checkout** takes one `path` — either a local absolute path or a
+`machine://<name>/…` locator — and has no executor field: the executor follows
+from the path, a plain path being this instance's local executor. Two selectors
+are optional and independent:
+
+- **Repository** narrows the catalog to one entry, or stays on "Let git decide
+  from the remote".
+- **Remote** names a remote that selects an existing repository, as the route's
+  `remote` selector does.
+
+With neither selector the inspected `origin` decides, which is the common case.
+Registration can adopt a repository llame has not seen and a main clone it has
+not recorded, so the catalog and the worktree list refresh once the path is
+registered. The route's typed failures — an invalid path, a directory that is
+not a repository, `origin_mismatch`, `path_taken`, or a Machine that is offline
+or needs an update — appear in the dialog, where the path can be corrected
+without reopening it.
+
 ## Reading the catalog
 
 `GET /api/v1/checkouts` lists every checkout of the caller, filtered by

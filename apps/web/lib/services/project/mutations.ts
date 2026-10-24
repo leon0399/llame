@@ -5,14 +5,18 @@ import { updateChat as updateChatEndpoint } from "../../api/generated/chats/chat
 import {
   createProject as createProjectEndpoint,
   deleteProject as deleteProjectEndpoint,
+  linkProjectRepository as linkProjectRepositoryEndpoint,
+  unlinkProjectRepository as unlinkProjectRepositoryEndpoint,
   updateProject as updateProjectEndpoint,
+  updateProjectRepositoryLink as updateProjectRepositoryLinkEndpoint,
 } from "../../api/generated/projects/projects";
+import type { ProjectRepositoryLinkResponse } from "../../api/generated/models";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { toast } from "@workspace/ui/components/sonner";
 import { chatQueryKeys } from "../chat/queries";
 import { pinQueryKeys } from "../pins/queries";
 import { projectQueryKeys } from "./queries";
-import type { ProjectResponse } from "./types";
+import type { IsolationPolicy, ProjectResponse } from "./types";
 
 function authenticatedFetch(): typeof fetch {
   return createAuthenticatedBrowserFetch(globalThis.fetch);
@@ -167,5 +171,109 @@ export function useFileChat() {
           ? "Couldn't move the chat."
           : "Couldn't remove the chat from its project.",
       ),
+  });
+}
+
+/*
+ * Project repository links — the project page's own edit surface for the
+ * repositories a project starts chats in. A write refreshes the project's link
+ * list; the caller renders the server's typed refusal inline (an archived
+ * project, a duplicate link, a colliding primary), so these hooks add no
+ * second, generic toast.
+ */
+
+export type LinkProjectRepositoryInput = {
+  projectId: string;
+  repositoryId: string;
+  /** The project's own label; the route defaults it to the display name. */
+  alias?: string;
+  /** Makes this the project's primary link, clearing the previous one. */
+  isPrimary?: boolean;
+  isolation?: IsolationPolicy;
+};
+
+export async function linkProjectRepository(
+  input: LinkProjectRepositoryInput,
+): Promise<ProjectRepositoryLinkResponse> {
+  const { projectId, ...dto } = input;
+  return linkProjectRepositoryEndpoint(
+    projectId,
+    dto,
+    undefined,
+    authenticatedFetch(),
+  );
+}
+
+export function useLinkProjectRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: linkProjectRepository,
+    onSuccess: (_link, { projectId }) =>
+      queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.links(projectId),
+      }),
+  });
+}
+
+export type UpdateProjectRepositoryLinkInput = {
+  projectId: string;
+  repositoryId: string;
+  alias?: string;
+  /** True makes this link primary; false clears this link's flag. */
+  isPrimary?: boolean;
+  isolation?: IsolationPolicy;
+};
+
+export async function updateProjectRepositoryLink(
+  input: UpdateProjectRepositoryLinkInput,
+): Promise<ProjectRepositoryLinkResponse> {
+  const { projectId, repositoryId, ...patch } = input;
+  return updateProjectRepositoryLinkEndpoint(
+    projectId,
+    repositoryId,
+    patch,
+    undefined,
+    authenticatedFetch(),
+  );
+}
+
+export function useUpdateProjectRepositoryLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateProjectRepositoryLink,
+    onSuccess: (_link, { projectId }) =>
+      queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.links(projectId),
+      }),
+  });
+}
+
+/** Unlinks one repository; the repository, its checkouts, and their rows stay. */
+export async function unlinkProjectRepository(
+  projectId: string,
+  repositoryId: string,
+): Promise<void> {
+  await unlinkProjectRepositoryEndpoint(
+    projectId,
+    repositoryId,
+    undefined,
+    authenticatedFetch(),
+  );
+}
+
+export function useUnlinkProjectRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      repositoryId,
+    }: {
+      projectId: string;
+      repositoryId: string;
+    }) => unlinkProjectRepository(projectId, repositoryId),
+    onSuccess: (_result, { projectId }) =>
+      queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.links(projectId),
+      }),
   });
 }
