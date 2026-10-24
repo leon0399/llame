@@ -31,6 +31,7 @@ function projectRow(overrides: Partial<Project> = {}): Project {
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
+    defaultExecutorId: null,
     ...overrides,
   };
 }
@@ -231,6 +232,44 @@ describe('ProjectsRepository update', () => {
         description: 'Changed',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+    // The default executor is project content too: an archived project refuses
+    // it, so a chat start cannot be redirected behind a frozen project.
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        defaultExecutorId: 'host',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('writes the default executor and bumps updatedAt', async () => {
+    const { db, queries } = makeMockDb();
+    const current = projectRow();
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+
+    await new ProjectsRepository(db)
+      .update(current.id, current.ownerUserId, { defaultExecutorId: 'host' })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"default_executor_id" = $');
+    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+    expect(lastQuery(queries).params).toContain('host');
+  });
+
+  it('clears the default executor with an explicit null', async () => {
+    const { db, queries } = makeMockDb();
+    const current = projectRow({ defaultExecutorId: 'host' });
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+
+    await new ProjectsRepository(db)
+      .update(current.id, current.ownerUserId, { defaultExecutorId: null })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"default_executor_id" = $');
+    expect(lastQuery(queries).params).toContain(null);
   });
 
   it('bumps updatedAt for a rename alone', async () => {

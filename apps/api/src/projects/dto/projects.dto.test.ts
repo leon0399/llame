@@ -17,6 +17,7 @@ const project: Project = {
   createdAt: new Date('2026-08-01T00:00:00.000Z'),
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   archivedAt: null,
+  defaultExecutorId: null,
 };
 
 describe('project DTOs', () => {
@@ -116,4 +117,26 @@ describe('project DTOs', () => {
       ).resolves.not.toEqual([]);
     },
   );
+  it('accepts, bounds, and clears the default executor', async () => {
+    const [set, cleared, omitted, blank, tooLong] = await Promise.all([
+      validate(
+        plainToInstance(UpdateProjectDto, { defaultExecutorId: 'machine:nas' }),
+      ),
+      validate(plainToInstance(UpdateProjectDto, { defaultExecutorId: null })),
+      validate(plainToInstance(UpdateProjectDto, {})),
+      validate(plainToInstance(UpdateProjectDto, { defaultExecutorId: '  ' })),
+      validate(
+        plainToInstance(UpdateProjectDto, {
+          defaultExecutorId: 'x'.repeat(201),
+        }),
+      ),
+    ]);
+
+    expect(set).toEqual([]);
+    // null is the documented way to clear it, like `description`.
+    expect(cleared).toEqual([]);
+    expect(omitted).toEqual([]);
+    expect(blank).not.toEqual([]);
+    expect(tooLong).not.toEqual([]);
+  });
 });
