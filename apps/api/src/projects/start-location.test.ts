@@ -234,35 +234,89 @@ describe('resolveStartLocation repository step', () => {
     expect(location.isolationReason).toBe('no_link');
   });
 
-  it('answers 404 for a repository the caller does not own', async () => {
+  it('validates an explicit repository for a chat without a project', async () => {
+    // No project means no link, so the id can only prove the row is the
+    // caller's: an owned repository resolves to no link, a foreign one is 404.
     await expect(
       resolveStartLocation(
-        makeSource({ links: [linkRow()] }),
+        makeSource({ repositories: [repositoryRow()] }),
         OWNER,
-        projectRow(),
-        {
-          repositoryId: OTHER_REPOSITORY_ID,
-        },
+        null,
+        { repositoryId: REPOSITORY_ID },
       ),
+    ).resolves.toEqual({
+      repositoryId: null,
+      executorId: null,
+      checkoutId: null,
+      isolation: 'reuse',
+      isolationReason: 'no_link',
+      isolationChats: 0,
+    });
+
+    await expect(
+      resolveStartLocation(makeSource({}), OWNER, null, {
+        repositoryId: OTHER_REPOSITORY_ID,
+      }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('answers 404 for a repository the caller does not own', async () => {
+    const resolution = resolveStartLocation(
+      makeSource({ links: [linkRow()] }),
+      OWNER,
+      projectRow(),
+      { repositoryId: OTHER_REPOSITORY_ID },
+    );
+
+    await expect(resolution).rejects.toBeInstanceOf(NotFoundException);
+    await expect(resolution).rejects.toThrow(
+      `Repository ${OTHER_REPOSITORY_ID} not found`,
+    );
+  });
+
   it('answers 422 for an owned repository the project does not link', async () => {
-    await expect(
-      resolveStartLocation(
-        makeSource({
-          links: [linkRow()],
-          repositories: [repositoryRow({ id: OTHER_REPOSITORY_ID })],
-        }),
-        OWNER,
-        projectRow(),
-        { repositoryId: OTHER_REPOSITORY_ID },
-      ),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    const resolution = resolveStartLocation(
+      makeSource({
+        links: [linkRow()],
+        repositories: [repositoryRow({ id: OTHER_REPOSITORY_ID })],
+      }),
+      OWNER,
+      projectRow(),
+      { repositoryId: OTHER_REPOSITORY_ID },
+    );
+
+    await expect(resolution).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    await expect(resolution).rejects.toThrow(
+      'The project does not link that repository.',
+    );
   });
 });
 
 describe('resolveStartLocation executor and checkout steps', () => {
+  it('resolves a named checkout for a chat without a project', async () => {
+    const checkout = checkoutRow();
+
+    const location = await resolveStartLocation(
+      makeSource({ checkouts: [checkout] }),
+      OWNER,
+      null,
+      { checkoutId: checkout.id },
+    );
+
+    // Without a project there is no link to require, so the checkout resolves
+    // itself: its repository and executor, and no isolation policy.
+    expect(location).toEqual({
+      repositoryId: REPOSITORY_ID,
+      executorId: 'host',
+      checkoutId: checkout.id,
+      isolation: 'reuse',
+      isolationReason: 'no_link',
+      isolationChats: 0,
+    });
+  });
+
   it('reuses the most recently written default across executors', async () => {
     const older = checkoutRow({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
     const newer = checkoutRow({
@@ -312,6 +366,31 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
     expect(location.executorId).toBe('host');
     expect(location.checkoutId).toBe(checkoutRow().id);
+  });
+
+  it('reuses the remembered checkout of the named executor over its mains', async () => {
+    const remembered = checkoutRow({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    });
+    const other = checkoutRow({
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    });
+
+    const location = await resolveStartLocation(
+      makeSource({
+        links: [linkRow()],
+        checkouts: [remembered, other],
+        defaults: [defaultRow({ checkoutId: remembered.id })],
+      }),
+      OWNER,
+      projectRow(),
+      { executorId: 'host' },
+    );
+
+    // Two main checkouts on the executor leave no fallback: only the default
+    // can name one.
+    expect(location.executorId).toBe('host');
+    expect(location.checkoutId).toBe(remembered.id);
   });
 
   it('falls back to the project default executor and its only main checkout', async () => {
@@ -383,54 +462,225 @@ describe('resolveStartLocation executor and checkout steps', () => {
       parentCheckoutId: checkoutRow().id,
       path: '/srv/llame/.llame-worktrees/llame/wt',
     });
+    const resolution = resolveStartLocation(
+      makeSource({ links: [linkRow()], checkouts: [worktree] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: worktree.id },
+    );
 
-    await expect(
-      resolveStartLocation(
-        makeSource({ links: [linkRow()], checkouts: [worktree] }),
-        OWNER,
-        projectRow(),
-        { checkoutId: worktree.id },
-      ),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    await expect(resolution).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    await expect(resolution).rejects.toThrow(
+      'A worktree checkout cannot start a chat; name its main checkout.',
+    );
   });
 
   it('answers 404 for a checkout the caller does not own', async () => {
-    await expect(
-      resolveStartLocation(
-        makeSource({ links: [linkRow()] }),
-        OWNER,
-        projectRow(),
-        {
-          checkoutId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
-        },
-      ),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    const missing = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const resolution = resolveStartLocation(
+      makeSource({ links: [linkRow()] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: missing },
+    );
+
+    await expect(resolution).rejects.toBeInstanceOf(NotFoundException);
+    await expect(resolution).rejects.toThrow(`Checkout ${missing} not found`);
   });
 
   it('answers 422 when a named repository disagrees with the checkout', async () => {
     const checkout = checkoutRow();
+    const resolution = resolveStartLocation(
+      makeSource({ links: [linkRow()], checkouts: [checkout] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: checkout.id, repositoryId: OTHER_REPOSITORY_ID },
+    );
 
-    await expect(
-      resolveStartLocation(
-        makeSource({ links: [linkRow()], checkouts: [checkout] }),
-        OWNER,
-        projectRow(),
-        { checkoutId: checkout.id, repositoryId: OTHER_REPOSITORY_ID },
-      ),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    await expect(resolution).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    await expect(resolution).rejects.toThrow(
+      'The named repository does not hold that checkout.',
+    );
   });
 
   it('answers 422 when a named executor disagrees with the checkout', async () => {
     const checkout = checkoutRow();
+    const resolution = resolveStartLocation(
+      makeSource({ links: [linkRow()], checkouts: [checkout] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: checkout.id, executorId: 'machine:nas' },
+    );
 
-    await expect(
-      resolveStartLocation(
-        makeSource({ links: [linkRow()], checkouts: [checkout] }),
-        OWNER,
-        projectRow(),
-        { checkoutId: checkout.id, executorId: 'machine:nas' },
-      ),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    await expect(resolution).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    await expect(resolution).rejects.toThrow(
+      'The named executor does not hold that checkout.',
+    );
+  });
+
+  it('answers 422 when the project does not link the named checkout', async () => {
+    const checkout = checkoutRow();
+    const resolution = resolveStartLocation(
+      makeSource({ checkouts: [checkout] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: checkout.id },
+    );
+
+    await expect(resolution).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    await expect(resolution).rejects.toThrow(
+      'The project does not link that checkout.',
+    );
+  });
+
+  it('keeps the named checkout when another executor holds a main checkout', async () => {
+    const named = checkoutRow({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      executorId: 'zulu',
+    });
+    const other = checkoutRow({
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      executorId: 'alpha',
+    });
+
+    const location = await resolveStartLocation(
+      makeSource({ links: [linkRow()], checkouts: [named, other] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: named.id },
+    );
+
+    expect(location).toMatchObject({
+      executorId: 'zulu',
+      checkoutId: named.id,
+    });
+  });
+
+  it('accepts a named repository and executor that agree with the checkout', async () => {
+    const checkout = checkoutRow();
+    const location = await resolveStartLocation(
+      makeSource({ links: [linkRow()], checkouts: [checkout] }),
+      OWNER,
+      projectRow(),
+      {
+        checkoutId: checkout.id,
+        repositoryId: REPOSITORY_ID,
+        executorId: checkout.executorId,
+      },
+    );
+
+    expect(location).toMatchObject({
+      repositoryId: REPOSITORY_ID,
+      executorId: checkout.executorId,
+      checkoutId: checkout.id,
+    });
+  });
+
+  it('takes the link of the named checkout, not the first link', async () => {
+    const checkout = checkoutRow();
+    const other = linkRow({
+      id: '77777777-7777-4777-8777-777777777777',
+      repositoryId: OTHER_REPOSITORY_ID,
+      alias: 'notes',
+    });
+    const owned = linkRow({ isolation: 'always_worktree' });
+
+    const location = await resolveStartLocation(
+      makeSource({ links: [other, owned], checkouts: [checkout] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: checkout.id },
+    );
+
+    expect(location).toMatchObject({
+      repositoryId: REPOSITORY_ID,
+      isolation: 'worktree',
+      isolationReason: 'project_policy',
+    });
+  });
+
+  it('resolves an explicit linked repository and its policy', async () => {
+    const location = await resolveStartLocation(
+      makeSource({
+        links: [linkRow({ isolation: 'always_worktree' })],
+        repositories: [repositoryRow()],
+        checkouts: [checkoutRow()],
+      }),
+      OWNER,
+      projectRow(),
+      { repositoryId: REPOSITORY_ID },
+    );
+
+    expect(location).toMatchObject({
+      repositoryId: REPOSITORY_ID,
+      executorId: 'host',
+      isolation: 'worktree',
+    });
+  });
+
+  it('drops a stale remembered checkout on the named executor', async () => {
+    const stale = defaultRow({
+      checkoutId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    });
+
+    const location = await resolveStartLocation(
+      makeSource({
+        links: [linkRow()],
+        checkouts: [checkoutRow()],
+        defaults: [stale],
+      }),
+      OWNER,
+      projectRow(),
+      { executorId: 'host' },
+    );
+
+    expect(location.executorId).toBe('host');
+    expect(location.checkoutId).toBeNull();
+  });
+
+  it('resolves no executor when the repository has no main checkout', async () => {
+    const location = await resolveStartLocation(
+      makeSource({ links: [linkRow()] }),
+      OWNER,
+      projectRow(),
+      {},
+    );
+
+    expect(location).toMatchObject({
+      repositoryId: REPOSITORY_ID,
+      executorId: null,
+      checkoutId: null,
+    });
+  });
+
+  it('takes the lowest executor id even when the read is unordered', async () => {
+    const host = checkoutRow({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    const nas = checkoutRow({
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      executorId: 'machine:nas',
+    });
+    const source: StartLocationSource = {
+      ...makeSource({ links: [linkRow()], checkouts: [host, nas] }),
+      listMainCheckouts: () => Promise.resolve([nas, host]),
+    };
+
+    const location = await resolveStartLocation(
+      source,
+      OWNER,
+      projectRow(),
+      {},
+    );
+
+    expect(location.executorId).toBe('host');
+    expect(location.checkoutId).toBe(host.id);
   });
 });
 
@@ -503,6 +753,29 @@ describe('resolveStartLocation isolation default', () => {
       isolation: 'worktree',
       isolationReason: 'clone_in_use',
       isolationChats: 2,
+    });
+  });
+
+  it('counts the chats bound to the checkout a remembered default names', async () => {
+    const location = await resolveStartLocation(
+      makeSource({
+        links: [linkRow()],
+        checkouts,
+        defaults: [defaultRow()],
+        boundChats: { [`${OWNER}|/srv/llame|host`]: 1 },
+      }),
+      OWNER,
+      projectRow(),
+      {},
+    );
+
+    // The default's checkout is what the count is about; dropping it would let
+    // a new chat share a tree another open chat already binds.
+    expect(location).toMatchObject({
+      checkoutId: checkoutRow().id,
+      isolation: 'worktree',
+      isolationReason: 'clone_in_use',
+      isolationChats: 1,
     });
   });
 });

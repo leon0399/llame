@@ -232,6 +232,12 @@ describe('ProjectsRepository update', () => {
         description: 'Changed',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        archived: false,
+        defaultExecutorId: 'host',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
     // The default executor is project content too: an archived project refuses
     // it, so a chat start cannot be redirected behind a frozen project.
     await expect(
