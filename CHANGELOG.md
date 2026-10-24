@@ -2,16 +2,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
-- The project page gains a Repositories section inside its settings panel: it
-  lists each link with the project's alias, primary flag, isolation policy, and
-  catalog remote; links a repository from the owner's catalog with an optional
-  alias, primary flag, and policy; edits or unlinks a link; registers a checkout
-  from one path — a local path or a `machine://` locator, where the executor
-  follows from the path — with an optional repository or remote selector; and
-  lists the project's worktrees by path, branch, creating chat, and every chat
-  bound to them. A worktree's Remove is guarded by the route, and a refusal
-  keeps the row and shows the server's own sentence. See
+- The project page gains a Repositories section in its side panel: one row per
+  linked repository with the project's alias, a Primary badge when there is a
+  choice, and its remote with how many checkouts and worktrees it holds. The
+  section's `+` adds a draft row that searches the owner's catalog or takes a
+  pasted path, which registers the clone and links its repository; a project's
+  first link is its primary. A row opens a sheet with the link's settings,
+  which save as they change, the repository's clones with each Machine's
+  reachability, and its worktrees with the chat that made each one; a
+  worktree's Remove is guarded by the route and shows its refusal in place.
+  Checkout and worktree rows copy their path, or a Machine's path or
+  `machine://` locator, and the sheet links to the repository's page on a known
+  forge. See
   [repositories](docs/product/operator/repositories.md#the-project-pages-repositories-section).
+
+- The chat's Session details show the Workspace's repository and branch when
+  its root is a registered checkout: the repository as a link to its GitHub (or
+  other known forge) page, named `owner/name`, and the branch marked when the
+  Workspace is a worktree. The Workspace path row now only states the path; its
+  one copy action offers a Machine path or its `machine://` locator, and a copy
+  confirms itself with a check in place of a toast.
 
 - A project links the owner's repositories: each link carries a project-scoped
   alias, one primary flag per project, and an isolation policy of `inherit`,

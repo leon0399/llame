@@ -44,6 +44,7 @@ const meta = {
   args: {
     chatLoaded: true,
     workspaceRoot: DEVBOX_ROOT,
+    checkout: null,
     machineName: "devbox",
     machine: onlineDevbox,
     machineLoading: false,
@@ -76,8 +77,8 @@ function stubClipboard() {
 
 /**
  * A Chat in a Project, entered into a Workspace on an online Machine: three
- * rows. The path row copies the Machine-local path; its menu also copies the
- * `machine://` locator.
+ * rows. The path row only states the Machine-local path; its copy control
+ * offers that path or the `machine://` locator the tools take.
  *
  * @summary Machine Workspace, online, in a Project
  */
@@ -100,23 +101,55 @@ export const MachineOnline: Story = {
       canvas.getByRole("link", { name: "devbox, Online" }),
     ).toBeVisible();
     await expect(canvas.getByText("Online")).toBeVisible();
+    await expect(canvas.getByText("/home/box/work/shop")).toBeVisible();
 
     await userEvent.click(
-      canvas.getByRole("button", { name: "/home/box/work/shop" }),
+      canvas.getByRole("button", { name: "Copy path or locator" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Path on devbox" }),
     );
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith("/home/box/work/shop"),
     );
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     await userEvent.click(
-      canvas.getByRole("button", { name: "Copy Workspace path" }),
+      canvas.getByRole("button", { name: "Copy path or locator" }),
     );
     await userEvent.click(
-      await screen.findByRole("menuitem", { name: "Copy locator" }),
+      await screen.findByRole("menuitem", { name: "Locator" }),
     );
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(DEVBOX_ROOT));
     // The menu's focus guards linger until it has fully closed.
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  },
+};
+
+/**
+ * A Workspace that is a registered worktree: the repository as a link to its
+ * GitHub page, named `owner/name`, and the branch marked as a worktree.
+ *
+ * @summary Machine worktree with its repository link and branch
+ */
+export const RegisteredWorktree: Story = {
+  tags: ["ai-generated"],
+  args: {
+    checkout: {
+      repository: "shop",
+      remote: "github.com/acme/shop",
+      kind: "worktree",
+      branch: "llame/clear-field-0192",
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("link", {
+        name: "acme/shop on GitHub, opens in a new tab",
+      }),
+    ).toHaveAttribute("href", "https://github.com/acme/shop");
+    await expect(canvas.getByText("llame/clear-field-0192")).toBeVisible();
+    await expect(canvas.getByText("Worktree")).toBeVisible();
   },
 };
 
@@ -207,9 +240,7 @@ export const LocalWorkspace: Story = {
     await expect(canvas.getByText("This host")).toBeVisible();
     await expect(canvas.queryByRole("link")).toBeNull();
 
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Copy Workspace path" }),
-    );
+    await userEvent.click(canvas.getByRole("button", { name: "Copy path" }));
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith("/home/operator/projects/llame"),
     );
@@ -261,8 +292,6 @@ export const LoadingDetails: Story = {
       canvasElement.querySelector("[data-slot=skeleton]"),
     ).not.toBeNull();
     await expect(canvas.queryByText("Unknown")).toBeNull();
-    await expect(
-      canvas.getByRole("button", { name: "/home/box/work/shop" }),
-    ).toBeVisible();
+    await expect(canvas.getByText("/home/box/work/shop")).toBeVisible();
   },
 };

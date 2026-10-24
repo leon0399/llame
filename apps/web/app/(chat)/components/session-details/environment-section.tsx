@@ -2,21 +2,16 @@
 
 import type { ReactNode } from "react";
 import {
-  CopyIcon,
+  BookMarkedIcon,
+  ArrowUpRightIcon,
   FolderIcon,
+  GitBranchIcon,
   FolderKanbanIcon,
   MonitorIcon,
-  MoreHorizontalIcon,
   ServerIcon,
 } from "lucide-react";
 import Link from "next/link";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuAction,
@@ -26,7 +21,6 @@ import {
   SidebarMenuSkeleton,
 } from "@workspace/ui/components/sidebar";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import { toast } from "@workspace/ui/components/sonner";
 import {
   Tooltip,
   TooltipContent,
@@ -35,9 +29,11 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 
 import { RelativeTime } from "@/components/relative-time";
-import { copyText } from "@/lib/clipboard";
+import { CopyPathButton } from "@/components/copy-path-button";
+import { ForgeMark } from "@/components/forge-mark";
 import { machinePathFromRoot } from "@/lib/services/machines/locator";
 import type { MachineResponse } from "@/lib/services/machines/queries";
+import { forgePage } from "@/lib/services/repositories/forge";
 
 const FAILURE_LABELS: Record<
   NonNullable<MachineResponse["failureReason"]>,
@@ -55,12 +51,26 @@ export interface EnvironmentProject {
   name: string;
 }
 
+/** The registered checkout a Workspace root is. */
+export interface EnvironmentCheckout {
+  /** The repository, under the name the Chat's Project gives it. */
+  repository: string;
+  /** Its canonical remote, null when it has none. */
+  remote: string | null;
+  kind: "main" | "worktree";
+  /** Null for a detached HEAD. */
+  branch: string | null;
+}
+
 export interface EnvironmentSectionProps {
   /** False until the Chat's card is in the cache; every row is a skeleton
    *  until then. */
   chatLoaded: boolean;
   /** Canonical root of the Chat's Workspace binding; null when unbound. */
   workspaceRoot: string | null;
+  /** The checkout that root is; null when it is none, undefined while the
+   *  checkout and repository reads settle. */
+  checkout: EnvironmentCheckout | null | undefined;
   /** Machine the root names; undefined for a local root. */
   machineName: string | undefined;
   /** Status of that Machine; undefined while loading or when unconfigured. */
@@ -69,11 +79,6 @@ export interface EnvironmentSectionProps {
   machineLoading: boolean;
   /** The Chat's Project; null when it has none, undefined while loading. */
   project: EnvironmentProject | null | undefined;
-}
-
-async function copyWithNotice(text: string, what: string) {
-  if (await copyText(text)) toast.success(`Copied ${what}`);
-  else toast.error(`Couldn't copy the ${what}.`);
 }
 
 /** A row that states a fact without acting on it. */
@@ -197,73 +202,87 @@ function MachineRow({
   );
 }
 
-/** A Machine path's menu: the path a terminal there takes, or the locator
- *  the tools take. */
-function MachinePathMenu({
-  path,
-  workspaceRoot,
-  machineName,
-}: {
-  path: string;
-  workspaceRoot: string;
-  machineName: string;
-}) {
+/**
+ * The Workspace root as the path a terminal takes there. The row only states
+ * it; its one action copies it — or, for a Machine root, offers the path on
+ * that Machine and the `machine://` locator the tools take.
+ */
+function WorkspaceRow({ workspaceRoot }: { workspaceRoot: string }) {
+  const path = machinePathFromRoot(workspaceRoot) ?? workspaceRoot;
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<SidebarMenuAction />}>
-        <MoreHorizontalIcon />
-        <span className="sr-only">Copy Workspace path</span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="bottom" align="end">
-        <DropdownMenuItem onClick={() => void copyWithNotice(path, "path")}>
-          Copy path on {machineName}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => void copyWithNotice(workspaceRoot, "locator")}
-        >
-          Copy locator
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <SidebarMenuItem>
+      <span className="flex h-8 min-w-0 items-center gap-2 pr-8 pl-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0">
+        <FolderIcon />
+        <span className="truncate font-mono text-xs">{path}</span>
+      </span>
+      <CopyPathButton
+        location={workspaceRoot}
+        trigger={<SidebarMenuAction />}
+      />
+    </SidebarMenuItem>
   );
 }
 
 /**
- * The Workspace root as the path a terminal takes there. Clicking copies it;
- * a Machine root's menu also copies the `machine://` locator the tools take.
+ * The repository the Workspace is a checkout of. On a known forge the row is
+ * the link to its page, named the way the forge names it (`owner/name`) under
+ * the forge's mark, with an outward arrow that says the link leaves llame.
+ * Elsewhere it states the remote, or the repository's name when it has none.
  */
-function WorkspaceRow({
-  workspaceRoot,
-  machineName,
-}: {
-  workspaceRoot: string;
-  machineName: string | undefined;
-}) {
-  const path = machinePathFromRoot(workspaceRoot) ?? workspaceRoot;
-
+function RepositoryRow({ checkout }: { checkout: EnvironmentCheckout }) {
+  const page = forgePage(checkout.remote);
+  if (page === undefined) {
+    return (
+      <StaticRow icon={<BookMarkedIcon />}>
+        <span className="font-mono text-xs">
+          {checkout.remote ?? checkout.repository}
+        </span>
+      </StaticRow>
+    );
+  }
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton
-        title={`Copy ${path}`}
-        onClick={() => void copyWithNotice(path, "path")}
-      >
-        <FolderIcon />
-        <span className="font-mono text-xs">{path}</span>
-      </SidebarMenuButton>
-      {machineName === undefined ? (
-        <SidebarMenuAction
-          aria-label="Copy Workspace path"
-          onClick={() => void copyWithNotice(path, "path")}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <SidebarMenuButton
+              render={
+                <a
+                  href={page.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`${page.slug} on ${page.name}, opens in a new tab`}
+                />
+              }
+            />
+          }
         >
-          <CopyIcon />
-        </SidebarMenuAction>
-      ) : (
-        <MachinePathMenu
-          path={path}
-          workspaceRoot={workspaceRoot}
-          machineName={machineName}
-        />
-      )}
+          <ForgeMark forge={page.name} />
+          <span className="min-w-0 flex-1 truncate">{page.slug}</span>
+          <ArrowUpRightIcon className="text-muted-foreground" />
+        </TooltipTrigger>
+        <TooltipContent side="left">Open on {page.name}</TooltipContent>
+      </Tooltip>
+    </SidebarMenuItem>
+  );
+}
+
+/** The branch the Workspace has checked out, marked when the Workspace is a
+ *  worktree rather than the clone itself. */
+function BranchRow({ checkout }: { checkout: EnvironmentCheckout }) {
+  return (
+    <SidebarMenuItem>
+      <span className="flex h-8 min-w-0 items-center gap-2 pr-2 pl-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0">
+        <GitBranchIcon />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs">
+          {checkout.branch ?? "Detached HEAD"}
+        </span>
+        {checkout.kind === "worktree" ? (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            Worktree
+          </span>
+        ) : null}
+      </span>
     </SidebarMenuItem>
   );
 }
@@ -281,15 +300,17 @@ function ProjectRow({ project }: { project: EnvironmentProject }) {
   );
 }
 
-/** Where a bound Chat runs and its Workspace path. */
+/** Where a bound Chat runs, the repository and branch it is in when the
+ *  root is a registered checkout, and its Workspace path. */
 function BoundRows({
   workspaceRoot,
+  checkout,
   machineName,
   machine,
   machineLoading,
 }: Pick<
   EnvironmentSectionProps,
-  "machineName" | "machine" | "machineLoading"
+  "checkout" | "machineName" | "machine" | "machineLoading"
 > & {
   workspaceRoot: string;
 }) {
@@ -304,7 +325,13 @@ function BoundRows({
           loading={machineLoading}
         />
       )}
-      <WorkspaceRow workspaceRoot={workspaceRoot} machineName={machineName} />
+      {checkout == null ? null : (
+        <>
+          <RepositoryRow checkout={checkout} />
+          <BranchRow checkout={checkout} />
+        </>
+      )}
+      <WorkspaceRow workspaceRoot={workspaceRoot} />
     </>
   );
 }
