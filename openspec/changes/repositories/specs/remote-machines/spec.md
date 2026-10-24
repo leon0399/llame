@@ -6,10 +6,11 @@
 
 The daemon MUST answer the git methods `git.inspect`, `git.worktreeAdd`,
 `git.worktreeList`, `git.worktreeRemove`, and `git.status`. Each method MUST
-take one strict object and run git with an argument array. Each call MUST place
-`--end-of-options` before every caller value. A caller value that starts with
-`-` MUST fail as `invalid_input` before any command starts. A failed command
-MUST return a typed failure with the git standard error.
+take one strict object and run git with an argument array. A caller value that
+starts with `-` MUST fail as `invalid_input` before any command starts. Every
+other caller value MUST follow `--end-of-options` or `--`, where the subcommand
+accepts one. A path MUST be absolute. A failed command MUST return a typed
+failure with the git standard error.
 
 #### Scenario: Repository is inspected
 
@@ -125,7 +126,7 @@ before it leaves the daemon. A failure result MUST carry that rewritten text.
 #### Scenario: Standard error reports locators
 
 - **WHEN** `git.worktreeAdd` on `devl` fails because
-  `/home/me/shop/.llame-worktrees/llame/x` already exists
+  `/home/me/.llame-worktrees/shop/x` already exists
 - **THEN** the typed failure reports that path as
-  `machine://devl/home/me/shop/.llame-worktrees/llame/x`
+  `machine://devl/home/me/.llame-worktrees/shop/x`
 - **AND** the failure text carries no bare host path for a registered root

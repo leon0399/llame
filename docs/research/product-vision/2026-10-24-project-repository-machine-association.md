@@ -252,6 +252,14 @@ created_at, released_at)`, `checkout_id` a `worktree` row, partial unique on
 Resolution at chat creation, `POST /api/v1/chats` with
 `{ projectId, repositoryId?, executorId?, worktree?: { baseRef? } }`:
 
+The two OpenSpec changes `openspec/changes/repositories` and
+`openspec/changes/chat-start-location` supersede steps 1-4 below. Three
+outcomes changed during grilling and review: a chat whose project has several
+repositories and no primary is created unbound, the executor fallback is the
+online executor with the lowest id that holds a main checkout, and the message
+and its Run row commit without the enqueue. The steps stay as the record of
+the session.
+
 1. Repository defaults to the project's primary; required when the project has
    several and none is primary.
 2. Executor defaults to the project's `default_executor_id`, else the only
@@ -264,8 +272,8 @@ Resolution at chat creation, `POST /api/v1/chats` with
    the checkout, the lease is inserted after success, and the chat binds the new
    path. A failure between `worktree add` and the insert leaves a directory the
    sweep reports and never deletes.
-4. The chat is created filed and bound in one transaction, which also closes
-   #1328.
+4. The chat is created filed and bound in one transaction. This step also
+   closes #1328.
 
 Multi-repo context: the `workspace` rail item lists the project's other
 repositories with their absolute paths on the bound executor when a checkout

@@ -12,7 +12,9 @@ MUST NOT change the binding. Its fence MUST be checked before any filesystem
 probe, client stop, client start, declaration change, or other side effect. Only
 the owner's Run context changes the binding, through `enter_workspace`,
 `exit_workspace`, or a detach. An owner fork copies the binding, subject to the
-fork's first-Run re-check. Only the owner's Chat API reads the binding. The
+fork's first-Run re-check. The owner's Chat API MUST read the binding, including
+the owner's checkout list. The system MUST refuse any other principal a read or
+a change of it. The
 owner's Chat API response MUST expose the current canonical `workspace_root`, or
 `null` for an unbound Chat. A non-owner MUST receive `404` for that Chat. Public
 share projections and visitor forks MUST omit the binding. Owner-scoped data
@@ -89,12 +91,11 @@ Chat, an executor, or a permission mode.
 ### Requirement: Workspace entry can create a worktree of the source clone
 
 `enter_workspace` MUST accept an optional `worktree` object with only `name` and
-`baseRef`. The submitted `path` names the source clone, on the local executor or
-on a Machine. The source clone MUST be the main working tree that `git.inspect`
-reports. A successful call MUST create a worktree of the source clone. It MUST
-bind the new directory as the Workspace and MUST record the worktree checkout
-and its lease. The result MUST name the worktree root, the branch, and the base
-commit.
+`baseRef`. The submitted `path` names the source clone. The source clone MUST be
+the main working tree that `git.inspect` reports. A successful call MUST create
+a worktree of it. The target root MUST be the new worktree directory, which the
+call binds as the Workspace. The call MUST record the worktree checkout and its
+lease. The result MUST name the root, the branch, and the base commit.
 
 #### Scenario: A local clone produces a worktree binding
 
@@ -114,11 +115,12 @@ commit.
   `llame/calm-otter-9f2c`, whose parent is the main checkout of the source clone
 - **AND** a lease for that checkout names the Chat
 
-#### Scenario: A same-root call with a worktree switches to the new root
+#### Scenario: A worktree call always switches the binding
 
 - **WHEN** a Chat bound to `/home/dev/src/llame` calls `enter_workspace` with
   that path and `worktree`
-- **THEN** the call creates a worktree of that clone and binds the new directory
+- **THEN** the call creates a worktree and binds the new directory as a target
+  root that differs from the current root
 - **AND** the Workspace generation increases by one
 
 ### Requirement: Worktree names, branches, and base refs follow one rule
@@ -220,12 +222,12 @@ MUST fail as `worktree_failed`.
 
 ### Requirement: An unregistered source clone is adopted on worktree entry
 
-A `worktree` call MUST adopt a source clone that has no recorded checkout. The
-call MUST record a repository for the canonical remote of the clone, or a
-repository without a remote. The call MUST record a main checkout with origin
-`adopted`. Adoption MUST NOT create a project link. The worktree checkout MUST
-refer to that main checkout. A linked-worktree source MUST use its main clone as
-the source and the parent.
+A `worktree` call MUST adopt a source clone that has no recorded checkout. It
+MUST record a repository for the canonical remote, or one without a remote. It
+MUST record a main checkout with origin `adopted`. Adoption MUST insert or reuse
+those rows in the fenced transaction; a concurrent adopter MUST reuse the
+winner's rows. Adoption MUST NOT create a project link. A linked-worktree source
+MUST use its main clone as source and parent.
 
 #### Scenario: An unregistered clone is adopted
 
@@ -264,15 +266,22 @@ the source and the parent.
 - **AND** the new worktree directory is under
   `/home/dev/src/.llame-worktrees/llame/`
 
+#### Scenario: Two concurrent calls adopt one clone once
+
+- **WHEN** two Chats call `enter_workspace` with `worktree` on the same
+  unregistered clone at the same time
+- **THEN** the owner holds one repository and one main checkout for that clone
+- **AND** both calls record their own worktree and bind it
+
 ### Requirement: Worktree creation failure leaves the binding unchanged
 
 A worktree failure MUST NOT record a repository, a checkout, or a lease. The
 binding and its generation MUST NOT change. A source that is not a git
-repository MUST fail as `worktree_failed`. A git failure or a timeout MUST fail
-as `worktree_failed` with the git standard error. That text MUST be redacted
-like other tool errors. An offline Machine MUST fail as `machine_unavailable`. A
-Machine without the git methods MUST fail as `machine_update_required`. A later
-call MUST start a new attempt.
+repository MUST fail as `worktree_failed`. A git failure or timeout MUST fail as
+`worktree_failed` with the redacted git standard error. `path_not_registered`
+MUST be its only separate code. An offline Machine MUST fail as
+`machine_unavailable`. A daemon without the git methods MUST fail as
+`machine_update_required`.
 
 #### Scenario: A failed creation keeps the previous binding
 
@@ -328,33 +337,39 @@ call MUST start a new attempt.
 
 ### Requirement: Worktree entry is fenced and atomic
 
-The checkout row, the lease row, adopted rows, and the binding MUST commit in
-one fenced transaction. The call MUST check the fence and the transition slot
-immediately before `git.worktreeAdd`. The worktree effect MUST be a fenced
-native attempt keyed by the tool call id, with a `worktree` operation. A failure
-after the add MUST keep the binding and its generation, record no row, and
-report a directory that remains. A retry after a committed worktree entry MUST
-replay the recorded result.
+The worktree checkout, its lease, adopted rows, and the binding MUST commit in
+one transaction under the binding fence. The lease MUST record the tool call
+identifier. The call MUST NOT write a native attempt. A retry of that identifier
+MUST find its lease, bind the same root, and create no second worktree. A crash
+or fence loss before that commit MUST record no row. A fence loss MUST answer
+`executor_unavailable` with `leftDirectory` naming the remaining directory.
 
-#### Scenario: A queue retry replays the recorded result
+#### Scenario: A queue retry binds the same worktree
 
-- **WHEN** a queue retry repeats a `worktree` call whose effect committed
-- **THEN** the retry returns the recorded result with the same worktree root and
-  branch
-- **AND** no second worktree is created, and the binding names the same root
+- **WHEN** a queue retry repeats a `worktree` call whose transaction committed
+- **THEN** the retry finds the lease by its tool call identifier and binds the
+  same root
+- **AND** no second worktree is created, and the generation is unchanged
 
-#### Scenario: A fence loss after the add records no row
+#### Scenario: A fence loss after the add answers executor_unavailable
 
 - **WHEN** the fence is lost after `git.worktreeAdd` succeeds
-- **THEN** the call records no checkout, lease, or binding change
-- **AND** the result reports the directory that remains
+- **THEN** the call returns `executor_unavailable` with `leftDirectory` naming
+  the remaining directory
+- **AND** it records no checkout, lease, or binding change
+
+#### Scenario: A crash before the commit records no row
+
+- **WHEN** the worker stops before the transaction commits
+- **THEN** the owner holds no checkout and no lease for the new directory
+- **AND** the binding and its generation are unchanged
 
 #### Scenario: A lost Machine link reports an unknown outcome
 
 - **WHEN** the Machine link drops after the daemon received `git.worktreeAdd`
 - **THEN** the call returns `outcome_unknown` and records no row
-- **AND** the binding and its generation are unchanged, and the result reports
-  that the directory may exist
+- **AND** the binding and its generation are unchanged, and `leftDirectory`
+  names the directory when known
 
 #### Scenario: A superseded attempt creates no worktree
 

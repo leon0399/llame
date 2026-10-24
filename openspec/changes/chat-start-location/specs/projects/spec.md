@@ -66,21 +66,21 @@ decide the outcome.
 
 For each link and each executor, a project MUST store at most one default
 checkout. That default MUST be a main checkout of the repository on that
-executor. A successful chat start MUST record the checkout it used as that
-default. A checkout that is not a main checkout of the repository on that
-executor MUST NOT become a default. Each defaults row MUST record `updated_at`,
-the time of its last write. When a link has defaults on several executors, the
-most recently written row MUST win.
+executor. A successful chat start MUST record the main checkout it used, or the
+source main checkout of a worktree, as that default. Each defaults row MUST
+record `updated_at`, the time of its last write. When a link has defaults on
+several executors, the most recently written row MUST win.
 
 #### Scenario: A chat start records the default
 
 - **WHEN** a chat starts on a link with executor E and main checkout C
 - **THEN** the project stores C as the default for that link on E
 
-#### Scenario: A worktree checkout never becomes a default
+#### Scenario: A worktree start records its source main checkout
 
-- **WHEN** a chat start uses a worktree checkout
-- **THEN** the project does not store that checkout as a default
+- **WHEN** a chat start uses a worktree of main checkout C on executor E
+- **THEN** the project stores C as the default for that link on E
+- **AND** it stores no worktree checkout as a default
 
 #### Scenario: A later chat start reuses the default
 
@@ -170,12 +170,42 @@ when the owner deletes that repository.
 - **WHEN** the owner unlinks a repository from a project
 - **THEN** every default of that link is gone
 
+### Requirement: The owner reads a project's links and their defaults
+
+`GET /api/v1/projects/:id/repositories` MUST return each link with its alias,
+primary flag, and isolation policy. It MUST return each link's defaults with
+their executor, checkout, and `updated_at`. A read MUST write nothing. A project
+of another owner MUST answer 404.
+
+#### Scenario: The owner reads the links with their defaults
+
+- **WHEN** the owner reads the links of a project that links two repositories
+- **THEN** both links come back with their alias, primary flag, and isolation
+- **AND** each default comes back with its executor and `updated_at`
+
+#### Scenario: A foreign project read is not found
+
+- **WHEN** a user reads the links of another user's project
+- **THEN** the response is 404 and it returns no link
+
 ### Requirement: Project repository links are owner-isolated
 
-Only the owner of a project MUST read or change its links and defaults. A link
-request that names another user's repository MUST fail as not found. A link
-request on another user's project MUST fail as not found. A request without an
-authenticated user MUST fail and change nothing.
+Only the owner of a project MUST read or change its links and defaults. Each link
+and default row MUST carry its owner id. A row MUST reference only that owner's
+project, repository, and checkout. A row that names another owner's record MUST
+be refused. A link request that names another user's repository MUST fail as not
+found. A link request on another user's project MUST fail as not found. A request
+without an authenticated user MUST fail and change nothing.
+
+#### Scenario: A link row cannot name a foreign repository
+
+- **WHEN** a link row of the owner's project names another owner's repository
+- **THEN** the datastore refuses the row and stores no link
+
+#### Scenario: A defaults row cannot name a foreign checkout
+
+- **WHEN** a defaults row of the owner's link names another owner's checkout
+- **THEN** the datastore refuses the row and stores no default
 
 #### Scenario: A foreign repository id fails as not found
 
