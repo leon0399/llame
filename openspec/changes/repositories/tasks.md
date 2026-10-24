@@ -149,7 +149,7 @@ local executor.
   - A daemon whose `hello` result lists no git methods makes `git.inspect` fail as `machine_update_required` before any request.
   - On that Machine, `read` still succeeds, and registration answers 503 with `machine_update_required` and stores no row.
   - Verify that the hub test asserts both paths and the operator-facing message ("Machine daemons answer typed git methods", "Git methods are additive to the Machine protocol", "Executors expose typed git operations", "Registration and removal map failures to typed statuses").
-- [ ] 3.5 Extend `docs/product/operator/repositories.md` with the daemon update step and the typed git surface.
+- [x] 3.5 Extend `docs/product/operator/repositories.md` with the daemon update step and the typed git surface.
   - Add to `docs/product/operator/machines.md` the note for Machine worktrees. It tells operators to register the parent directory or set `worktree_base` inside a root.
   - Verify `pnpm lint:markdown`.
 - [ ] 3.6 Verify the layer locally with `pnpm --filter machine test`, `pnpm --filter machine build`, `pnpm --filter machine-protocol test`, `pnpm --filter git-executor test`, `pnpm --filter api typecheck`, and the touched integration suites
