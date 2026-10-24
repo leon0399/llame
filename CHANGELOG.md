@@ -90,6 +90,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   serves the owner each attempt's decisions. See
   [chat creation](docs/product/operator/chat-creation.md).
 
+- Every chat-start entry point pre-fills one location chip. A project's row
+  menu offers "New chat in project", and an existing chat's row menu offers
+  "New chat here": it copies that chat's project, repository, executor, and
+  source checkout, and asks for a worktree because the source chat already
+  holds the tree. The deep link
+  `/chat/new?project=&repository=&executor=&checkout=&worktree=1` forwards a
+  named project to its composer with the same pre-fill, and the composer never
+  rewrites the URL while the chip is edited. The chat header shows the same
+  chip read-only from the chat's own `workspace_root`, warning for a chat bound
+  to nothing, and naming a root the checkout catalog does not hold instead of
+  hiding it. See
+  [chat location](docs/product/reference/chat-location.md).
+
 - The chat's Session details show the Workspace's repository and branch when
   its root is a registered checkout: the repository as a link to its GitHub (or
   other known forge) page, named `owner/name`, and the branch marked when the
@@ -150,6 +163,56 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `apps/storybook` are never matched against the unrelated public `machine`
   and `storybook` packages. Expect Dependabot alerts for the advisories above
   once the first snapshot lands.
+
+- A Chat is now created with its project and Workspace location in one request:
+  `POST /api/v1/chats` takes a client chat id, an optional project, repository,
+  executor, checkout, and `worktree` (`name`, `baseRef`), and an optional first
+  message. The server validates every named id under owner RLS in the
+  transaction that inserts the Chat, resolves the location through the same
+  order the project page previews (never a silent primary, remembering one
+  default checkout per link and executor), and then runs the Workspace step as
+  the Run-free twin of `enter_workspace`: the same ordered path decisions in the
+  request's permission mode, one recorded attempt before the first git write,
+  and the same entry gates. A requested worktree adds through the typed git
+  surface and commits its checkout row, its lease, and the Chat's first bound
+  root in one transaction; a bound or unresolved start then stores the message
+  and its Run before the enqueue. The response's `workspace` object carries one
+  closed status set (`bound`, `unbound`, `bind_failed`, `worktree_failed`,
+  `machine_unavailable`, `machine_update_required`, `outcome_unknown`) with
+  `code` only on the two that have codes, and a failure leaves the Chat filed
+  and unbound. A create holds the Chat id's session advisory lock for the whole
+  request, and the message route takes the same key, so an overlapping send
+  answers `409` `creation_in_progress`; a resend reuses the stored Chat, its
+  lease, and its bound root. A successful start records the source `main`
+  checkout as the link's default, and `GET /api/v1/chats/:id/creation-record`
+  serves the owner each attempt's decisions. See
+  [chat creation](docs/product/operator/chat-creation.md).
+
+- The project page gains a Repositories section: it lists each link with the
+  project's alias, primary flag, isolation policy, and catalog remote; links a
+  repository from the owner's catalog with an optional alias, primary flag, and
+  policy; edits or unlinks a link; registers a checkout from one path — a local
+  path or a `machine://` locator, where the executor follows from the path —
+  with an optional repository or remote selector; and lists the project's
+  worktrees by path, branch, creating chat, and every chat bound to them. A
+  worktree's Remove is guarded by the route, and a refusal keeps the row and
+  shows the server's own sentence. See
+  [repositories](docs/product/operator/repositories.md#the-project-pages-repositories-section).
+
+- A project links the owner's repositories: each link carries a project-scoped
+  alias, one primary flag per project, and an isolation policy of `inherit`,
+  `always_worktree`, or `never`, and it remembers one default checkout per
+  executor — the `main` checkout the last successful chat start used, stamped
+  with `updated_at`, where the newest row wins across executors. The link routes
+  sit under `/api/v1/projects/:id/repositories`, and
+  `GET /api/v1/projects/:id/start-location` previews the location a chat start
+  resolves without writing anything. Every link and defaults row is
+  owner-isolated with forced RLS and composite owner foreign keys, so a row that
+  names another owner's project, repository, or checkout is refused by the
+  database; deletion cascades rows only, never a directory. `projects` gains a
+  nullable `default_executor_id`, and chats gain an owner-only creation record
+  whose `attempts` hold each create's path decisions. See
+  [repositories](docs/product/operator/repositories.md#project-links).
 
 - `enter_workspace` accepts an optional `worktree` object with `name` and
   `baseRef`, so one Chat can take its own tree of the clone it names: the tool

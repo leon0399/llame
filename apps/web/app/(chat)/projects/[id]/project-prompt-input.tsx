@@ -18,6 +18,7 @@ import {
   workspaceFailure,
 } from "@/lib/services/chat/creation";
 import type { WorkspaceFailure } from "@/lib/services/project/start-location";
+import type { StartLocationPrefill } from "@/lib/services/project/start-location-link";
 import { safeRandomUUID } from "@/lib/uuid";
 
 import { ChatComposerBody } from "../../components/chat-composer";
@@ -182,7 +183,11 @@ type ProjectDraft = {
   location: ComposerLocation;
 };
 
-function useProjectDraft(projectId: string, projectName: string): ProjectDraft {
+function useProjectDraft(
+  projectId: string,
+  projectName: string,
+  initial: StartLocationPrefill | null,
+): ProjectDraft {
   const [input, setInput] = React.useState("");
   const [failure, setFailure] = React.useState<string | null>(null);
   const [workspaceFailed, setWorkspaceFailure] =
@@ -193,6 +198,7 @@ function useProjectDraft(projectId: string, projectName: string): ProjectDraft {
     projectId,
     projectName,
     failed: workspaceFailed,
+    initial,
     // Editing the location corrects the draft, so the failed create's warning
     // goes away with its retry identity.
     onChange: () => {
@@ -277,6 +283,29 @@ function ProjectComposer({ body, failure, location }: ProjectComposerProps) {
   );
 }
 
+/** The composer body's props, built from the page's own state. */
+function projectComposerBody(args: {
+  composerChatId: string;
+  draft: ProjectDraft;
+  attachments: ComposerAttachments;
+  createChat: { isPending: boolean };
+  selections: ComposerSelections;
+  onSubmit: React.FormEventHandler<HTMLFormElement>;
+}): React.ComponentProps<typeof ChatComposerBody> {
+  return {
+    chatId: args.composerChatId,
+    input: args.draft.input,
+    onInputChange: args.draft.setInput,
+    onSubmit: args.onSubmit,
+    status: "ready",
+    onStop: () => {},
+    modelReadyForSend: args.selections.modelReadyForSend,
+    modelSendUnavailableReason: args.selections.modelSendUnavailableReason,
+    disabled: args.createChat.isPending,
+    attachments: args.attachments,
+  };
+}
+
 /**
  * The project page's prompt input: the new-chat page's own composer — input,
  * attachments, permission mode, model and effort — and one send that calls
@@ -290,12 +319,15 @@ function ProjectComposer({ body, failure, location }: ProjectComposerProps) {
 export function ProjectPromptInput({
   projectId,
   projectName,
+  initial = null,
 }: {
   projectId: string;
   projectName: string;
+  /** The deep link's or entry point's pre-fill; the page keys the composer by it. */
+  initial?: StartLocationPrefill | null;
 }) {
   const composerChatId = `project:${projectId}`;
-  const draft = useProjectDraft(projectId, projectName);
+  const draft = useProjectDraft(projectId, projectName, initial);
   const attachments = useComposerAttachments();
   const createChat = useCreateChat();
   const selections = useComposerSelections(composerChatId);
@@ -306,18 +338,14 @@ export function ProjectPromptInput({
     createChat,
     selections,
   });
-  const body: React.ComponentProps<typeof ChatComposerBody> = {
-    chatId: composerChatId,
-    input: draft.input,
-    onInputChange: draft.setInput,
-    onSubmit,
-    status: "ready",
-    onStop: () => {},
-    modelReadyForSend: selections.modelReadyForSend,
-    modelSendUnavailableReason: selections.modelSendUnavailableReason,
-    disabled: createChat.isPending,
+  const body = projectComposerBody({
+    composerChatId,
+    draft,
     attachments,
-  };
+    createChat,
+    selections,
+    onSubmit,
+  });
   return (
     <ProjectComposer
       body={body}

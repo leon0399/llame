@@ -9,8 +9,9 @@ import {
   usePins,
 } from "@/lib/services/pins/queries";
 import { useProjectById } from "@/lib/services/project/queries";
+import { prefillFromSearchParams } from "@/lib/services/project/start-location-link";
 import type { ProjectResponse } from "@/lib/services/project/types";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 import {
   chatListFilters,
@@ -117,12 +118,22 @@ function ProjectChats({
   );
 }
 
+/** Everything the project page resolves before its body can render. */
+type ProjectPageData = {
+  loading: boolean;
+  project: ProjectResponse | undefined;
+  isPinned: boolean;
+  allProjects: Array<ProjectResponse>;
+  pinnedAtByChatId: ReadonlyMap<string, string>;
+  view: ProjectChatsView;
+};
+
 /** The project header, plus its chats for the card's current view. Only the
  *  project gates the page; the card owns its list's loading state. The
  *  project is looked up among archived ones too, so archiving it from its
  *  own header keeps the page; only unarchived projects are offered as
  *  filing targets, since an archived one refuses new chats. */
-function useProjectPageData(id: string) {
+function useProjectPageData(id: string): ProjectPageData {
   const [show, setShow] = React.useState<ListShow>("active");
   const { projects, project, isLoading } = useProjectById(id);
   const { data: pinnedData } = useChatsQuery(pinnedChatsFilters(id));
@@ -166,7 +177,7 @@ function ProjectPageBody({
   data,
   onRequestNewProject,
 }: {
-  data: ReturnType<typeof useProjectPageData>;
+  data: ProjectPageData;
   onRequestNewProject: (chatId: string) => void;
 }) {
   if (data.loading) return <SidebarRowSkeletons count={4} />;
@@ -177,17 +188,43 @@ function ProjectPageBody({
       </p>
     );
   return (
+    <ProjectPageContent
+      data={data}
+      project={data.project}
+      onRequestNewProject={onRequestNewProject}
+    />
+  );
+}
+
+/** The settled page: its composer pre-filled from the URL, then its chats and
+ *  panels. The composer is keyed by that URL, so a new deep link re-seeds its
+ *  chip instead of keeping the previous selection. */
+function ProjectPageContent({
+  data,
+  project,
+  onRequestNewProject,
+}: {
+  data: ProjectPageData;
+  project: ProjectResponse;
+  onRequestNewProject: (chatId: string) => void;
+}) {
+  const searchParams = useSearchParams();
+  const prefillKey = searchParams.toString();
+  const prefill = prefillFromSearchParams(searchParams);
+  return (
     <div className="space-y-6">
-      <ProjectDetailsHeader project={data.project} isPinned={data.isPinned} />
+      <ProjectDetailsHeader project={project} isPinned={data.isPinned} />
       {/* Below `lg` the side panel sits between the composer and the chats. */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
           <ProjectPromptInput
-            projectId={data.project.id}
-            projectName={data.project.name}
+            key={prefillKey}
+            projectId={project.id}
+            projectName={project.name}
+            initial={prefill}
           />
         </div>
-        <ProjectSidePanel projectId={data.project.id} />
+        <ProjectSidePanel projectId={project.id} />
         <div className="min-w-0 lg:col-span-2">
           <ProjectChats
             view={data.view}
