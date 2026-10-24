@@ -2,8 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
+import type { GitFailure } from "@workspace/machine-protocol";
+
 import { redactCredentials, runGitProcess, type GitProcessResult } from "./run";
-import type { GitFailure } from "./types";
 
 /*
  * One git session: a working directory, a deadline every subcommand of the
@@ -19,6 +20,13 @@ export const DEFAULT_GIT_TIMEOUT_MS = 10_000;
 export type GitRunner = (
   args: ReadonlyArray<string>,
 ) => Promise<GitProcessResult>;
+
+/** The deadline and the cancellation one operation accepts. */
+export type GitCallOptions = {
+  readonly timeoutMs?: number;
+  /** Aborts every subcommand of the call; a cancelled hub request sets it. */
+  readonly signal?: AbortSignal;
+};
 
 /**
  * Everything that precedes the subcommand: the two configuration overrides that
@@ -40,16 +48,25 @@ export function gitPrefixArguments(
   ];
 }
 
+/** The refusal a caller value earns before git starts. */
+export function invalidInput(
+  message: string,
+): Extract<GitFailure, { readonly type: "invalid_input" }> {
+  return { status: "error", type: "invalid_input", message };
+}
+
 /** The refusal of a path that git must never receive as an argv element. */
 export function absoluteGitPath(
   value: string,
-): { readonly path: string } | { readonly message: string } {
+):
+  | { readonly path: string }
+  | Extract<GitFailure, { readonly type: "invalid_input" }> {
   if (value.includes("\0")) {
-    return { message: "A git path must not contain a NUL byte." };
+    return invalidInput("A git path must not contain a NUL byte.");
   }
   return isAbsolute(value)
     ? { path: value }
-    : { message: "A git path must be absolute." };
+    : invalidInput("A git path must be absolute.");
 }
 
 /** Git's own wording for "this path holds no repository", plus the `-C`
@@ -75,18 +92,22 @@ export function processFailure(
 /**
  * Run `work` in one git session rooted at `directory`: one deadline, so a hung
  * git cannot multiply the timeout by the number of subcommands the operation
- * makes, and one throwaway hooks directory, removed afterwards.
+ * makes, and one throwaway hooks directory, removed afterwards. The caller's
+ * signal reaches every subcommand, so a cancelled call ends git too.
  */
 export async function withGit<T>(
   directory: string,
-  timeoutMs: number,
+  options: GitCallOptions & { readonly timeoutMs: number },
   work: (git: GitRunner) => Promise<T>,
 ): Promise<T> {
-  const endsAt = Date.now() + timeoutMs;
+  const endsAt = Date.now() + options.timeoutMs;
   const hooksDirectory = await mkdtemp(join(tmpdir(), "llame-git-hooks-"));
   const prefix = gitPrefixArguments(hooksDirectory, directory);
   const git: GitRunner = (args) =>
-    runGitProcess([...prefix, ...args], { timeoutMs: endsAt - Date.now() });
+    runGitProcess([...prefix, ...args], {
+      timeoutMs: endsAt - Date.now(),
+      signal: options.signal,
+    });
   try {
     return await work(git);
   } finally {

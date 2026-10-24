@@ -3,8 +3,10 @@ import {
   DEFAULT_GIT_TIMEOUT_MS,
   processFailure,
   withGit,
+  type GitCallOptions,
+  type GitRunner,
 } from "./invocation";
-import type { GitFailure, GitStatusResult } from "./types";
+import type { GitStatusResult } from "@workspace/machine-protocol";
 
 /*
  * `git.status`: whether the working tree holds changes, and where its branch
@@ -16,54 +18,54 @@ import type { GitFailure, GitStatusResult } from "./types";
  * "ahead of nothing" is not the same statement as "nothing to push".
  */
 
-function invalidInput(message: string): GitFailure {
-  return { status: "error", type: "invalid_input", message };
+async function statusWithin(git: GitRunner): Promise<GitStatusResult> {
+  const head = await git(["rev-parse", "--verify", "--quiet", "HEAD"]);
+  // An unborn branch exits 1 with no message; that is a repository whose HEAD
+  // names no commit yet, not a failed call.
+  if (head.status === "timed_out") return processFailure(head);
+
+  const tracking = await git([
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "--verify",
+    "--quiet",
+    "@{upstream}",
+  ]);
+  if (tracking.status === "timed_out") return processFailure(tracking);
+  const upstream = tracking.status === "ok" ? tracking.stdout.trim() : "";
+
+  let ahead = 0;
+  if (upstream !== "") {
+    const counted = await git(["rev-list", "--count", `${upstream}..HEAD`]);
+    if (counted.status !== "ok") return processFailure(counted);
+    ahead = Number.parseInt(counted.stdout.trim(), 10) || 0;
+  }
+
+  const changed = await git(["status", "--porcelain", "-z"]);
+  if (changed.status !== "ok") return processFailure(changed);
+
+  const status = {
+    status: "ok" as const,
+    dirty: changed.stdout !== "",
+    ahead,
+    head: head.status === "ok" ? head.stdout.trim() : null,
+  };
+  return upstream === "" ? status : { ...status, upstream };
 }
 
 export async function statusRepository(
   input: { readonly path: string },
-  options: { readonly timeoutMs?: number } = {},
+  options: GitCallOptions = {},
 ): Promise<GitStatusResult> {
   const path = absoluteGitPath(input.path);
-  if (!("path" in path)) return invalidInput(path.message);
-
+  if ("status" in path) return path;
   return withGit(
     path.path,
-    options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
-    async (git) => {
-      const head = await git(["rev-parse", "--verify", "--quiet", "HEAD"]);
-      // An unborn branch exits 1 with no message; that is a repository whose
-      // HEAD names no commit yet, not a failed call.
-      if (head.status === "timed_out") return processFailure(head);
-
-      const tracking = await git([
-        "rev-parse",
-        "--abbrev-ref",
-        "--symbolic-full-name",
-        "--verify",
-        "--quiet",
-        "@{upstream}",
-      ]);
-      if (tracking.status === "timed_out") return processFailure(tracking);
-      const upstream = tracking.status === "ok" ? tracking.stdout.trim() : "";
-
-      let ahead = 0;
-      if (upstream !== "") {
-        const counted = await git(["rev-list", "--count", `${upstream}..HEAD`]);
-        if (counted.status !== "ok") return processFailure(counted);
-        ahead = Number.parseInt(counted.stdout.trim(), 10) || 0;
-      }
-
-      const changed = await git(["status", "--porcelain", "-z"]);
-      if (changed.status !== "ok") return processFailure(changed);
-
-      const status = {
-        status: "ok" as const,
-        dirty: changed.stdout !== "",
-        ahead,
-        head: head.status === "ok" ? head.stdout.trim() : null,
-      };
-      return upstream === "" ? status : { ...status, upstream };
+    {
+      timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+      signal: options.signal,
     },
+    statusWithin,
   );
 }
