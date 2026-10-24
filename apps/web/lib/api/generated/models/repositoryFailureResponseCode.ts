@@ -17,6 +17,7 @@ export const RepositoryFailureResponseCode = {
   invalid_display_name: "invalid_display_name",
   invalid_path: "invalid_path",
   invalid_remote: "invalid_remote",
+  invalid_selector: "invalid_selector",
   not_a_directory: "not_a_directory",
   origin_mismatch: "origin_mismatch",
   not_a_repository: "not_a_repository",
