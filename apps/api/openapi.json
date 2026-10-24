@@ -402,6 +402,64 @@
         ],
         "summary": "",
         "tags": ["chats"]
+      },
+      "post": {
+        "operationId": "createChat",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateChatResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request or body field"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "A named project, repository, or checkout is not the caller's"
+          },
+          "409": {
+            "description": "The Chat holds a message, a Run, or another project"
+          },
+          "422": {
+            "description": "Unavailable model, mode, executor, or worktree argument",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/search": {
@@ -764,6 +822,53 @@
         "tags": ["chats", "streaming"]
       }
     },
+    "/api/v1/chats/{id}/creation-record": {
+      "get": {
+        "operationId": "getChatCreationRecord",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCreationRecordResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found or not owned"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
     "/api/v1/chats/{id}/forks": {
       "post": {
         "operationId": "forkChat",
@@ -962,6 +1067,43 @@
         ],
         "summary": "",
         "tags": ["chats"]
+      }
+    },
+    "/api/v1/machines": {
+      "get": {
+        "operationId": "listMachines",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MachineResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Machines are not configured."
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the configured Machines and their status",
+        "tags": ["machines"]
       }
     },
     "/api/v1/media": {
@@ -1332,6 +1474,536 @@
         ],
         "summary": "",
         "tags": ["models"]
+      }
+    },
+    "/api/v1/projects": {
+      "post": {
+        "operationId": "createProject",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["projects"]
+      },
+      "get": {
+        "operationId": "listProjects",
+        "parameters": [
+          {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["only", "with"]
+            }
+          },
+          {
+            "name": "pinned",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["only", "with", "exclude"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["projects"]
+      }
+    },
+    "/api/v1/projects/{id}": {
+      "get": {
+        "operationId": "getProject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed project id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["projects"]
+      },
+      "patch": {
+        "operationId": "updateProject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed project id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["projects"]
+      },
+      "delete": {
+        "operationId": "deleteProject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Malformed project id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["projects"]
+      }
+    },
+    "/api/v1/projects/{id}/repositories": {
+      "get": {
+        "operationId": "listProjectRepositories",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectRepositoryLinkWithDefaultsResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed project id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a project's linked repositories and their defaults",
+        "tags": ["projects"]
+      },
+      "post": {
+        "operationId": "linkProjectRepository",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRepositoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRepositoryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed project or repository id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "The project already links that repository"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Link one catalog repository to a project",
+        "tags": ["projects"]
+      }
+    },
+    "/api/v1/projects/{id}/repositories/{repositoryId}": {
+      "patch": {
+        "operationId": "updateProjectRepositoryLink",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "repositoryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRepositoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRepositoryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed id or field"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change a link alias, primary flag, or isolation policy",
+        "tags": ["projects"]
+      },
+      "delete": {
+        "operationId": "unlinkProjectRepository",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "repositoryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Malformed id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove one repository from a project's links",
+        "tags": ["projects"]
+      }
+    },
+    "/api/v1/projects/{id}/start-location": {
+      "get": {
+        "operationId": "getProjectStartLocation",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "repositoryId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "executorId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "name": "checkoutId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartLocationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed project or location id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Preview the location a chat start on this project resolves",
+        "tags": ["projects"]
       }
     },
     "/api/v1/runs/{id}": {
@@ -1899,576 +2571,6 @@
         ],
         "summary": "",
         "tags": ["memory"]
-      }
-    },
-    "/api/v1/machines": {
-      "get": {
-        "operationId": "listMachines",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/MachineResponse"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": "Machines are not configured."
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "List the configured Machines and their status",
-        "tags": ["machines"]
-      }
-    },
-    "/api/v1/projects": {
-      "post": {
-        "operationId": "createProject",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateProjectDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["projects"]
-      },
-      "get": {
-        "operationId": "listProjects",
-        "parameters": [
-          {
-            "name": "archived",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": ["only", "with"]
-            }
-          },
-          {
-            "name": "pinned",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": ["only", "with", "exclude"]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectResponse"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["projects"]
-      }
-    },
-    "/api/v1/projects/{id}": {
-      "get": {
-        "operationId": "getProject",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed project id (not a UUID)"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["projects"]
-      },
-      "patch": {
-        "operationId": "updateProject",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateProjectDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed project id (not a UUID)"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["projects"]
-      },
-      "delete": {
-        "operationId": "deleteProject",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          },
-          "400": {
-            "description": "Malformed project id (not a UUID)"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["projects"]
-      }
-    },
-    "/api/v1/projects/{id}/repositories": {
-      "get": {
-        "operationId": "listProjectRepositories",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectRepositoryLinkWithDefaultsResponse"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed project id (not a UUID)"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "List a project's linked repositories and their defaults",
-        "tags": ["projects"]
-      },
-      "post": {
-        "operationId": "linkProjectRepository",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateProjectRepositoryDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectRepositoryLinkResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed project or repository id"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          },
-          "409": {
-            "description": "The project already links that repository, or the project is archived"
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Link one catalog repository to a project",
-        "tags": ["projects"]
-      }
-    },
-    "/api/v1/projects/{id}/repositories/{repositoryId}": {
-      "patch": {
-        "operationId": "updateProjectRepositoryLink",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "repositoryId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateProjectRepositoryDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectRepositoryLinkResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed id or field"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          },
-          "409": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Change a link alias, primary flag, or isolation policy",
-        "tags": ["projects"]
-      },
-      "delete": {
-        "operationId": "unlinkProjectRepository",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "repositoryId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          },
-          "400": {
-            "description": "Malformed id (not a UUID)"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          },
-          "409": {
-            "description": "The project is archived"
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Remove one repository from a project's links",
-        "tags": ["projects"]
-      }
-    },
-    "/api/v1/projects/{id}/start-location": {
-      "get": {
-        "operationId": "getProjectStartLocation",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "repositoryId",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          {
-            "name": "executorId",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "maxLength": 200,
-              "type": "string"
-            }
-          },
-          {
-            "name": "checkoutId",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StartLocationResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed project or location id"
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Preview the location a chat start on this project resolves",
-        "tags": ["projects"]
       }
     },
     "/api/v1/repositories": {
@@ -4476,10 +4578,6 @@
       "CreateMessageBodyDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
           "parts": {
             "type": "array",
             "items": {
@@ -4495,9 +4593,13 @@
             "minItems": 1,
             "maxItems": 60,
             "description": "At most 50 text parts and 10 file parts, in order; at least one part."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
           }
         },
-        "required": ["id", "parts"]
+        "required": ["parts", "id"]
       },
       "CreateMessageDto": {
         "type": "object",
@@ -4538,6 +4640,228 @@
           }
         },
         "required": ["statusCode", "error", "message", "code"]
+      },
+      "CreateChatWorktreeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Worktree name; becomes the `llame/<name>` branch unless it carries a `/`."
+          },
+          "baseRef": {
+            "type": "string",
+            "description": "Commit, branch, or tag the new worktree branches from."
+          }
+        }
+      },
+      "CreateChatMessageDto": {
+        "type": "object",
+        "properties": {
+          "parts": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CreateTextMessagePartDto"
+                },
+                {
+                  "$ref": "#/components/schemas/CreateFileMessagePartDto"
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 60,
+            "description": "At most 50 text parts and 10 file parts, in order; at least one part."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "modelId": {
+            "type": "string",
+            "description": "Opaque llame model id selected for this turn."
+          },
+          "effort": {
+            "type": "string",
+            "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`."
+          },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass"],
+            "description": "Permission mode the Workspace step evaluates; omit for `default`."
+          }
+        },
+        "required": ["parts", "id", "modelId"]
+      },
+      "CreateChatRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Client-chosen chat id."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "executorId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "checkoutId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "worktree": {
+            "$ref": "#/components/schemas/CreateChatWorktreeDto"
+          },
+          "message": {
+            "$ref": "#/components/schemas/CreateChatMessageDto"
+          }
+        },
+        "required": ["id"]
+      },
+      "CreationWorktreeResponse": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "baseCommit": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "branch", "baseCommit"]
+      },
+      "CreationWorkspaceResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "bound",
+              "unbound",
+              "bind_failed",
+              "worktree_failed",
+              "machine_unavailable",
+              "machine_update_required",
+              "outcome_unknown"
+            ]
+          },
+          "root": {
+            "type": "string"
+          },
+          "executorId": {
+            "type": "string"
+          },
+          "worktree": {
+            "$ref": "#/components/schemas/CreationWorktreeResponse"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "permission_denied",
+              "tool_not_allowed",
+              "executor_unavailable",
+              "not_found",
+              "path_not_registered"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "The bounded, redacted git standard error, when there is one."
+          },
+          "leftDirectory": {
+            "type": "string",
+            "description": "The directory an `outcome_unknown` can leave behind."
+          }
+        },
+        "required": ["status"]
+      },
+      "CreateChatResponse": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "$ref": "#/components/schemas/ChatResponse"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/CreationWorkspaceResponse"
+          }
+        },
+        "required": ["chat", "workspace"]
+      },
+      "ChatCreationDecisionResponse": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "policyId": {
+            "type": "string",
+            "description": "Opaque random policy-instance id."
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["allow", "reject"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "explicit_reject",
+              "no_allow",
+              "invalid_field",
+              "input_limit",
+              "matched_allow",
+              "permission_mode_bypass"
+            ]
+          },
+          "reference": {
+            "type": "object",
+            "nullable": true,
+            "description": "The bounded clause reference, when one matched."
+          }
+        },
+        "required": ["path", "policyId", "decision", "reason", "reference"]
+      },
+      "ChatCreationAttemptResponse": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatCreationDecisionResponse"
+            }
+          }
+        },
+        "required": ["createdAt", "decisions"]
+      },
+      "ChatCreationRecordResponse": {
+        "type": "object",
+        "properties": {
+          "chatId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatCreationAttemptResponse"
+            }
+          }
+        },
+        "required": ["chatId", "attempts"]
       },
       "UpdateChatDto": {
         "type": "object",
@@ -4663,6 +4987,67 @@
           }
         },
         "required": ["id", "title", "messages"]
+      },
+      "MachineResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The configured Machine name."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["online", "offline"],
+            "description": "Online when the last successful contact is inside the inactivity window and after the last failure."
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the hub last completed a handshake with this Machine."
+          },
+          "failureReason": {
+            "type": "string",
+            "enum": [
+              "unreachable",
+              "host_key_mismatch",
+              "auth_failed",
+              "incompatible_version",
+              "session_lost"
+            ],
+            "nullable": true,
+            "description": "Why the last contact attempt failed, when one did."
+          },
+          "hubProtocolVersion": {
+            "type": "number",
+            "description": "The protocol version the hub speaks."
+          },
+          "daemonProtocolVersion": {
+            "type": "number",
+            "nullable": true,
+            "description": "The protocol version the daemon reported, once known."
+          },
+          "daemonVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "roots": {
+            "description": "The Machine's registered roots; addressing, not isolation.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "lastSeenAt",
+          "failureReason",
+          "hubProtocolVersion",
+          "daemonProtocolVersion",
+          "daemonVersion",
+          "roots"
+        ]
       },
       "MediaModelVariantResponse": {
         "type": "object",
@@ -4955,6 +5340,320 @@
           }
         },
         "required": ["defaultModelId", "models"]
+      },
+      "CreateProjectDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true,
+            "description": "What this project is for. Omit or pass null for none."
+          }
+        },
+        "required": ["name"]
+      },
+      "ProjectResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerUserId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "archivedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "defaultExecutorId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "ownerUserId",
+          "name",
+          "description",
+          "createdAt",
+          "updatedAt",
+          "archivedAt",
+          "defaultExecutorId"
+        ]
+      },
+      "UpdateProjectDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true,
+            "description": "What this project is for. Pass null to clear it; omit to leave unchanged."
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive (true) or unarchive (false) the project. Omit to leave unchanged."
+          },
+          "defaultExecutorId": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true,
+            "description": "Executor id a chat start on this project prefers. Pass null to clear it; omit to leave it unchanged."
+          }
+        }
+      },
+      "ProjectRepositoryDefaultResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "projectRepositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "executorId": {
+            "type": "string"
+          },
+          "checkoutId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "The time of the last write; the newest row wins."
+          }
+        },
+        "required": [
+          "id",
+          "projectRepositoryId",
+          "executorId",
+          "checkoutId",
+          "updatedAt"
+        ]
+      },
+      "ProjectRepositoryLinkWithDefaultsResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerUserId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["inherit", "always_worktree", "never"]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "defaults": {
+            "description": "Most recently written first.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRepositoryDefaultResponse"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "ownerUserId",
+          "projectId",
+          "repositoryId",
+          "alias",
+          "isPrimary",
+          "isolation",
+          "createdAt",
+          "updatedAt",
+          "defaults"
+        ]
+      },
+      "CreateProjectRepositoryDto": {
+        "type": "object",
+        "properties": {
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The project's own label for the repository. Defaults to the repository display name."
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "description": "Make this the project primary link, clearing any previous one."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["inherit", "always_worktree", "never"]
+          }
+        },
+        "required": ["repositoryId"]
+      },
+      "ProjectRepositoryLinkResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerUserId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["inherit", "always_worktree", "never"]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ownerUserId",
+          "projectId",
+          "repositoryId",
+          "alias",
+          "isPrimary",
+          "isolation",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UpdateProjectRepositoryDto": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "description": "True makes this the project primary link and clears the previous one; false clears this link."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["inherit", "always_worktree", "never"]
+          }
+        }
+      },
+      "StartLocationResponse": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "executorId": {
+            "type": "string",
+            "nullable": true
+          },
+          "checkoutId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["reuse", "worktree"]
+          },
+          "isolationReason": {
+            "type": "string",
+            "enum": ["project_policy", "clone_in_use", "no_link"],
+            "description": "project_policy when the link policy decides, clone_in_use when another open chat holds the checkout, no_link when no link resolved."
+          },
+          "isolationChats": {
+            "type": "number",
+            "description": "How many open chats already bind the resolved checkout; zero unless the reason is clone_in_use."
+          }
+        },
+        "required": [
+          "projectId",
+          "repositoryId",
+          "executorId",
+          "checkoutId",
+          "isolation",
+          "isolationReason",
+          "isolationChats"
+        ]
       },
       "RunResponse": {
         "type": "object",
@@ -5367,381 +6066,6 @@
           }
         }
       },
-      "MachineResponse": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "The configured Machine name."
-          },
-          "status": {
-            "type": "string",
-            "enum": ["online", "offline"],
-            "description": "Online when the last successful contact is inside the inactivity window and after the last failure."
-          },
-          "lastSeenAt": {
-            "type": "string",
-            "nullable": true,
-            "description": "When the hub last completed a handshake with this Machine."
-          },
-          "failureReason": {
-            "type": "string",
-            "enum": [
-              "unreachable",
-              "host_key_mismatch",
-              "auth_failed",
-              "incompatible_version",
-              "session_lost"
-            ],
-            "nullable": true,
-            "description": "Why the last contact attempt failed, when one did."
-          },
-          "hubProtocolVersion": {
-            "type": "number",
-            "description": "The protocol version the hub speaks."
-          },
-          "daemonProtocolVersion": {
-            "type": "number",
-            "nullable": true,
-            "description": "The protocol version the daemon reported, once known."
-          },
-          "daemonVersion": {
-            "type": "string",
-            "nullable": true
-          },
-          "roots": {
-            "description": "The Machine's registered roots; addressing, not isolation.",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "name",
-          "status",
-          "lastSeenAt",
-          "failureReason",
-          "hubProtocolVersion",
-          "daemonProtocolVersion",
-          "daemonVersion",
-          "roots"
-        ]
-      },
-      "CreateProjectDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 1000,
-            "nullable": true,
-            "description": "What this project is for. Omit or pass null for none."
-          }
-        },
-        "required": ["name"]
-      },
-      "ProjectResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "ownerUserId": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string",
-            "nullable": true
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "archivedAt": {
-            "format": "date-time",
-            "type": "string",
-            "nullable": true
-          },
-          "defaultExecutorId": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "required": [
-          "id",
-          "ownerUserId",
-          "name",
-          "description",
-          "createdAt",
-          "updatedAt",
-          "archivedAt",
-          "defaultExecutorId"
-        ]
-      },
-      "UpdateProjectDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 1000,
-            "nullable": true,
-            "description": "What this project is for. Pass null to clear it; omit to leave unchanged."
-          },
-          "archived": {
-            "type": "boolean",
-            "description": "Archive (true) or unarchive (false) the project. Omit to leave unchanged."
-          },
-          "defaultExecutorId": {
-            "type": "string",
-            "maxLength": 200,
-            "nullable": true,
-            "description": "Executor id a chat start on this project prefers. Pass null to clear it; omit to leave it unchanged."
-          }
-        }
-      },
-      "ProjectRepositoryDefaultResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "projectRepositoryId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "executorId": {
-            "type": "string"
-          },
-          "checkoutId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string",
-            "description": "The time of the last write; the newest row wins."
-          }
-        },
-        "required": [
-          "id",
-          "projectRepositoryId",
-          "executorId",
-          "checkoutId",
-          "updatedAt"
-        ]
-      },
-      "ProjectRepositoryLinkWithDefaultsResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "ownerUserId": {
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "repositoryId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "alias": {
-            "type": "string"
-          },
-          "isPrimary": {
-            "type": "boolean"
-          },
-          "isolation": {
-            "type": "string",
-            "enum": ["inherit", "always_worktree", "never"]
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "defaults": {
-            "description": "Most recently written first.",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProjectRepositoryDefaultResponse"
-            }
-          }
-        },
-        "required": [
-          "id",
-          "ownerUserId",
-          "projectId",
-          "repositoryId",
-          "alias",
-          "isPrimary",
-          "isolation",
-          "createdAt",
-          "updatedAt",
-          "defaults"
-        ]
-      },
-      "CreateProjectRepositoryDto": {
-        "type": "object",
-        "properties": {
-          "repositoryId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "alias": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200,
-            "description": "The project's own label for the repository. Defaults to the repository display name."
-          },
-          "isPrimary": {
-            "type": "boolean",
-            "description": "Make this the project primary link, clearing any previous one."
-          },
-          "isolation": {
-            "type": "string",
-            "enum": ["inherit", "always_worktree", "never"]
-          }
-        },
-        "required": ["repositoryId"]
-      },
-      "ProjectRepositoryLinkResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "ownerUserId": {
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "repositoryId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "alias": {
-            "type": "string"
-          },
-          "isPrimary": {
-            "type": "boolean"
-          },
-          "isolation": {
-            "type": "string",
-            "enum": ["inherit", "always_worktree", "never"]
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "ownerUserId",
-          "projectId",
-          "repositoryId",
-          "alias",
-          "isPrimary",
-          "isolation",
-          "createdAt",
-          "updatedAt"
-        ]
-      },
-      "UpdateProjectRepositoryDto": {
-        "type": "object",
-        "properties": {
-          "alias": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "isPrimary": {
-            "type": "boolean",
-            "description": "True makes this the project primary link and clears the previous one; false clears this link."
-          },
-          "isolation": {
-            "type": "string",
-            "enum": ["inherit", "always_worktree", "never"]
-          }
-        }
-      },
-      "StartLocationResponse": {
-        "type": "object",
-        "properties": {
-          "projectId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "repositoryId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "executorId": {
-            "type": "string",
-            "nullable": true
-          },
-          "checkoutId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "isolation": {
-            "type": "string",
-            "enum": ["reuse", "worktree"]
-          },
-          "isolationReason": {
-            "type": "string",
-            "enum": ["project_policy", "clone_in_use", "no_link"],
-            "description": "project_policy when the link policy decides, clone_in_use when another open chat holds the checkout, no_link when no link resolved."
-          },
-          "isolationChats": {
-            "type": "number",
-            "description": "How many open chats already bind the resolved checkout; zero unless the reason is clone_in_use."
-          }
-        },
-        "required": [
-          "projectId",
-          "repositoryId",
-          "executorId",
-          "checkoutId",
-          "isolation",
-          "isolationReason",
-          "isolationChats"
-        ]
-      },
       "CreateRepositoryDto": {
         "type": "object",
         "properties": {
@@ -5890,13 +6214,15 @@
             "description": "An absolute local path or a configured `machine://` locator."
           },
           "repositoryId": {
-            "type": "object",
+            "type": "string",
             "format": "uuid",
+            "nullable": true,
             "description": "Selects an existing repository of this owner."
           },
           "remote": {
-            "type": "object",
+            "type": "string",
             "maxLength": 4096,
+            "nullable": true,
             "description": "A remote that selects an existing repository of this owner. The inspected origin decides."
           }
         },

@@ -1,5 +1,5 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
-import { chats } from '../db/schema';
+import { chats, checkouts, messages, runs, worktreeLeases } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { isMachineExecutorId } from '../machines/machine-locator';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -170,6 +170,94 @@ export class WorkspaceBindingRepository {
           eq(chats.ownerUserId, input.ownerUserId),
         ),
       );
+  }
+
+  /**
+   * The first bound root of a Chat, established by the owner's chat-creation
+   * request (openspec `chat-start-location`, design D9).
+   *
+   * Run-free by construction: it takes the caller's transaction, which runs
+   * under `runAs(owner)`, locks the Chat row, and refuses a Chat that already
+   * holds a message or a Run — a create never binds after a send. The Chat must
+   * be unbound, or bound to the root of its own creation lease, which is the
+   * resend case; any other stored root is a conflict. It never takes a
+   * synthetic Run and never writes an unscoped update.
+   */
+  async bindAtCreation(input: {
+    chatId: string;
+    ownerUserId: string;
+    executorId: string;
+    root: string;
+  }): Promise<
+    | { status: 'bound'; generation: number }
+    | { status: 'conflict' | 'not_found' }
+  > {
+    const current = await this.lockChat(input.chatId, input.ownerUserId);
+    if (current === undefined) return { status: 'not_found' };
+    if (await this.holdsMessageOrRun(input)) return { status: 'conflict' };
+    if (
+      current.workspaceRoot !== null &&
+      !(await this.isItsOwnCreationRoot(input))
+    ) {
+      return { status: 'conflict' };
+    }
+
+    const updated = await this.bindChat(input);
+    if (updated === undefined) return { status: 'not_found' };
+    return { status: 'bound', generation: updated.workspaceGeneration };
+  }
+
+  /** Whether the Chat already carries a message or a Run. */
+  private async holdsMessageOrRun(input: {
+    chatId: string;
+    ownerUserId: string;
+  }): Promise<boolean> {
+    const [message] = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.chatId, input.chatId))
+      .limit(1);
+    if (message !== undefined) return true;
+    const [run] = await this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(eq(runs.chatId, input.chatId), eq(runs.userId, input.ownerUserId)),
+      )
+      .limit(1);
+    return run !== undefined;
+  }
+
+  /**
+   * Whether the Chat is bound to the root of a Worktree this Chat's own
+   * creation lease names. A lease is written in the same transaction as the
+   * worktree checkout and its binding, so a stored root with no such lease was
+   * established by something other than creation.
+   */
+  private async isItsOwnCreationRoot(input: {
+    chatId: string;
+    ownerUserId: string;
+    root: string;
+  }): Promise<boolean> {
+    const [lease] = await this.db
+      .select({ id: worktreeLeases.id })
+      .from(worktreeLeases)
+      .innerJoin(
+        checkouts,
+        and(
+          eq(checkouts.ownerUserId, worktreeLeases.ownerUserId),
+          eq(checkouts.id, worktreeLeases.checkoutId),
+        ),
+      )
+      .where(
+        and(
+          eq(worktreeLeases.ownerUserId, input.ownerUserId),
+          eq(worktreeLeases.chatId, input.chatId),
+          eq(checkouts.path, input.root),
+        ),
+      )
+      .limit(1);
+    return lease !== undefined;
   }
 
   private unchangedEnter(

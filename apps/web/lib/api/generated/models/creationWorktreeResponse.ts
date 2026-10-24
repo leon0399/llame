@@ -6,7 +6,8 @@
  * OpenAPI spec version: 0.1
  */
 
-/**
- * Selects an existing repository of this owner.
- */
-export type CreateCheckoutDtoRepositoryId = { [key: string]: unknown };
+export interface CreationWorktreeResponse {
+  path: string;
+  branch: string;
+  baseCommit: string;
+}

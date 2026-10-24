@@ -574,6 +574,12 @@ export class ChatsRepository {
     id: string;
     ownerUserId: string;
     title?: string;
+    /**
+     * The project this chat is filed into at creation. Absent leaves the chat
+     * unfiled, which is what the first-message route always does; chat creation
+     * sets it in the same transaction that validates the project.
+     */
+    projectId?: string;
   }): Promise<Chat | undefined> {
     const [created] = await this.db
       .insert(chats)
@@ -582,6 +588,7 @@ export class ChatsRepository {
         ownerUserId: input.ownerUserId,
         title: input.title ?? null,
         visibility: DEFAULT_CHAT_VISIBILITY,
+        ...(input.projectId !== undefined && { projectId: input.projectId }),
       })
       .onConflictDoNothing({ target: chats.id })
       .returning();

@@ -40,6 +40,7 @@ import type { Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { ChatLoopService } from './chat-loop.service';
+import { ChatCreationService } from './chat-creation.service';
 import { ChatsService } from './chats.service';
 import {
   ModelConfigurationError,
@@ -53,6 +54,11 @@ import {
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
+import {
+  ChatCreationRecordResponse,
+  CreateChatRequest,
+  CreateChatResponse,
+} from './dto/chat-creation.dto';
 import {
   ChatListItemResponse,
   OwnerChatMessagesQueryDto,
@@ -100,6 +106,12 @@ export type ChatsControllerService = Pick<
   | 'forkChat'
 >;
 
+/** The create request and its record, as the controller uses them. */
+export type ChatCreationControllerService = Pick<
+  ChatCreationService,
+  'create' | 'getCreationRecord'
+>;
+
 @ApiTags('chats')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
@@ -119,6 +131,8 @@ export class ChatsController {
     private readonly tenantDb: TenantRunner,
     @Inject(RunStreamBridgeService)
     private readonly bridge: RunStreamResponder,
+    @Inject(ChatCreationService)
+    private readonly chatCreation: ChatCreationControllerService,
   ) {}
 
   /**
@@ -380,6 +394,55 @@ export class ChatsController {
       );
     }
     throw error;
+  }
+
+  // One create request files the chat, resolves its Workspace location,
+  // authorizes the entry, creates an optional worktree, and starts the optional
+  // first Run — in that order (openspec `chat-start-location`, design D9). It is
+  // JSON, never a stream: the client resumes the Run from GET /chats/:id/stream.
+  @Post()
+  @ApiOperation({ operationId: 'createChat' })
+  @ApiBody({ type: CreateChatRequest })
+  @ApiExtraModels(CreateTextMessagePartDto, CreateFileMessagePartDto)
+  @ApiCreatedResponse({ type: CreateChatResponse })
+  @ApiBadRequestResponse({ description: 'Malformed request or body field' })
+  @ApiNotFoundResponse({
+    description: "A named project, repository, or checkout is not the caller's",
+  })
+  @ApiConflictResponse({
+    description: 'The Chat holds a message, a Run, or another project',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: 'Unavailable model, mode, executor, or worktree argument',
+    type: ModelDomainErrorResponse,
+  })
+  @ApiUnauthorizedResponse()
+  async createChat(
+    @CurrentUser() userId: string,
+    @Body() input: CreateChatRequest,
+  ): Promise<CreateChatResponse> {
+    try {
+      return await this.chatCreation.create(userId, input);
+    } catch (error) {
+      this.mapModelDomainError(error);
+    }
+  }
+
+  // The owner-only record of every create and resend on this Chat: each
+  // attempt's path decisions with their policy provenance. Another owner gets
+  // 404 and learns no decision.
+  @Get(':id/creation-record')
+  @ApiOperation({ operationId: 'getChatCreationRecord' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ChatCreationRecordResponse })
+  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
+  @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
+  @ApiUnauthorizedResponse()
+  async getChatCreationRecord(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ChatCreationRecordResponse> {
+    return this.chatCreation.getCreationRecord(userId, id);
   }
 
   // PATCH (partial update) of a chat resource — RESTful, not an RPC-style verb endpoint.

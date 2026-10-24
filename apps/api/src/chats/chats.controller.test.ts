@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { Writable } from 'node:stream';
 import {
   ChatsController,
+  type ChatCreationControllerService,
   type ChatsControllerService,
 } from './chats.controller';
 import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
@@ -121,6 +122,11 @@ describe('ChatsController', () => {
     ) => callback(tx);
     const tenantDb: TenantRunner = { runAs };
     const runAsSpy = vi.spyOn(tenantDb, 'runAs');
+    const chatCreation = {
+      create: vi.fn<ChatCreationControllerService['create']>(),
+      getCreationRecord:
+        vi.fn<ChatCreationControllerService['getCreationRecord']>(),
+    } satisfies ChatCreationControllerService;
     const bridge = {
       createUiMessageStreamResponse:
         vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
@@ -132,6 +138,7 @@ describe('ChatsController', () => {
         chatLoopService,
         tenantDb,
         bridge,
+        chatCreation,
       ),
       chatsService,
       chatLoopService,
@@ -711,6 +718,11 @@ describe('ChatsController response plumbing', () => {
         callback(tx),
     };
     const runAsSpy = vi.spyOn(tenantDb, 'runAs');
+    const chatCreation = {
+      create: vi.fn<ChatCreationControllerService['create']>(),
+      getCreationRecord:
+        vi.fn<ChatCreationControllerService['getCreationRecord']>(),
+    } satisfies ChatCreationControllerService;
     const bridge = {
       createUiMessageStreamResponse:
         vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
@@ -721,6 +733,7 @@ describe('ChatsController response plumbing', () => {
         chatLoopService,
         tenantDb,
         bridge,
+        chatCreation,
       ),
       chatsService,
       chatLoopService,

@@ -81,7 +81,10 @@ export type WorktreeOutcome =
     };
 
 /** Anything that ended the call with an observation instead of a binding. */
-type Failed = { readonly status: 'failed'; readonly result: ToolErrorResult };
+export type Failed = {
+  readonly status: 'failed';
+  readonly result: ToolErrorResult;
+};
 
 /**
  * The settled failure a commit transaction rolls back to. Throwing it inside
@@ -94,7 +97,7 @@ class Rollback extends Error {
   }
 }
 
-function worktreeFailed(message: string): Failed {
+export function worktreeFailed(message: string): Failed {
   return {
     status: 'failed',
     result: { status: 'error', type: 'worktree_failed', message },
@@ -102,7 +105,7 @@ function worktreeFailed(message: string): Failed {
 }
 
 /** One git failure as the observation a worktree call reports. */
-function gitFailureOutcome(failure: GitFailure): Failed {
+export function gitFailureOutcome(failure: GitFailure): Failed {
   return worktreeFailed(gitFailureMessage(failure));
 }
 
@@ -112,7 +115,10 @@ function gitFailureOutcome(failure: GitFailure): Failed {
  * as unknown with the directory that can remain; every read answers its own
  * code, because a read wrote nothing.
  */
-function executorFailure(error: unknown, leftDirectory?: string): Failed {
+export function executorFailure(
+  error: unknown,
+  leftDirectory?: string,
+): Failed {
   if (!(error instanceof ExecutorGitError)) throw error;
   switch (error.code) {
     case 'machine_unavailable':
@@ -480,7 +486,7 @@ async function placement(
  * directory is taken. Either way a collision never creates a second row or a
  * second branch.
  */
-async function chosenName(
+export async function chosenName(
   executors: WorktreeGit,
   target: ExecutorTarget,
   directoryAt: (slug: string) => string,

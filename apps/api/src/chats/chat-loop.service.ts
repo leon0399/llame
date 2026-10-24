@@ -27,9 +27,11 @@ import {
 } from '../models/models.service';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { type MessagePart } from './context-builder';
-import { isRecord } from '@workspace/runtime-safety';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
+import {
+  creationInProgress,
+  tryCreationTransactionLock,
+} from './chat-creation-lock';
 import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
@@ -48,74 +50,32 @@ import {
   type ClientMessagePart,
 } from './context-item';
 import { MediaService, type MediaDescriber } from '../media/media.service';
-import { parseMediaLocator } from '../media/media-locator';
+import { type MessagePart } from './context-builder';
+import { resolveOwnerFileParts, toRunUserMessage } from './chat-message-parts';
 
 /** How long admission waits on the blocking run's job state (see blockerIsLive). */
 const JOB_STATE_READ_TIMEOUT_MS = 5000;
-
-/**
- * Narrows a read-back message's `unknown[]` JSONB `parts` to `MessagePart[]`:
- * each part must be an object (the union's `Record<string, unknown>`
- * fallback arm), matching every other JSON-record boundary in this
- * codebase. Malformed (non-object) parts fail closed.
- */
-function toMessageParts(parts: ReadonlyArray<unknown>): Array<MessagePart> {
-  return parts.map((part) => {
-    if (!isRecord(part)) {
-      throw new Error('Malformed message part: expected an object');
-    }
-    return part;
-  });
-}
-
-/** Project a persisted user Message into the wire `RunUserMessage` shape. */
-function toRunUserMessage(message: Message): RunUserMessage {
-  return {
-    id: message.id,
-    seq: message.seq,
-    parts: toMessageParts(message.parts),
-  };
-}
-
-/**
- * The sanitized parts with every file part resolved under the sender's own
- * identity and relabelled from the stored media (vision-media D5):
- * `mediaType` is the original's, `filename` its stored name, whatever the
- * client sent. Order is kept. Any file part whose url names no media the
- * sender owns rejects the whole message.
- */
-async function resolveOwnerFileParts(
-  media: MediaDescriber,
-  userId: string,
-  parts: ReadonlyArray<ClientMessagePart>,
-): Promise<Array<MessagePart>> {
-  const ids = parts.flatMap((part) => {
-    const id = part.type === 'file' ? parseMediaLocator(part.url) : undefined;
-    return id === undefined ? [] : [id];
-  });
-  // Reads nothing when the message carries no file part.
-  const owned = await media.describeOwned(userId, ids);
-  return parts.map((part): MessagePart => {
-    if (part.type === 'text') return part;
-    const id = parseMediaLocator(part.url);
-    const stored = id === undefined ? undefined : owned.get(id);
-    if (stored === undefined) {
-      // Unknown and foreign ids share this answer: a send never reveals an id.
-      throw new BadRequestException('Message references unavailable media');
-    }
-    return {
-      type: 'file',
-      mediaType: stored.mediaType,
-      url: part.url,
-      filename: stored.name,
-    };
-  });
-}
 
 /** A message as a caller sent it: parts are untrusted until sanitized. */
 export type ChatMessageInput = {
   id: string;
   parts: ReadonlyArray<unknown>;
+};
+
+/**
+ * One turn that passed every pre-write check: the model selection, the
+ * permission mode, the parts, and the ownership of every media part. Chat
+ * creation validates before it stores a chat; the message route validates
+ * before it opens its transaction.
+ */
+export type ValidatedChatTurn = {
+  modelId: string;
+  /** Resolved at accept time; absent means "send no effort parameter". */
+  effort: string | undefined;
+  permissionMode: PermissionMode;
+  message: { id: string; parts: Array<ClientMessagePart> };
+  /** The message parts with every file part resolved to its stored media. */
+  parts: Array<MessagePart>;
 };
 
 /**
@@ -133,7 +93,15 @@ export type PersistUserMessageAndRunInput = {
   /** Validated at accept time and persisted on the Run. */
   permissionMode: PermissionMode;
   message: { id: string; parts: Array<ClientMessagePart> };
+  /** The sanitized message with its file parts already resolved. */
+  parts: Array<MessagePart>;
   targetRunId: string;
+  /**
+   * Whether this transaction must win the Chat's creation lock: true on the
+   * message route, false inside a create request, which already holds that
+   * Chat's session lock and would otherwise deadlock against itself.
+   */
+  takeCreationLock: boolean;
 };
 
 type ChatMessageStream = Pick<
@@ -204,31 +172,18 @@ export class ChatLoopService {
   async createMessageStream(
     input: CreateMessageStreamInput,
   ): Promise<ChatMessageStream> {
-    const model = this.models.validateModelSelection(input.modelId);
-    // Resolved from the already-validated model, so an unavailable model is
-    // reported without the effort ever being considered.
-    const effort = this.models.resolveEffortSelection(model, input.effort);
-    const permissionMode: PermissionMode = input.permissionMode ?? 'default';
-    if (
-      !this.instanceConfig.config.tools.permissionModes.includes(permissionMode)
-    ) {
-      throw new PermissionModeNotAvailableError(permissionMode);
-    }
     // Validate BEFORE any database work: a rejected message must not cost a
     // transaction, and input that was invalid anyway stays a 400.
-    const message = this.sanitizeAndValidateMessage(input.message);
-
+    const turn = await this.validateTurn(input);
     const targetRunId = randomUUID();
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun({
         chatId: input.chatId,
         userId: input.userId,
-        modelId: input.modelId,
-        effort,
-        permissionMode,
-        message,
+        ...turn,
         targetRunId,
+        takeCreationLock: true,
       });
 
     return this.finalizeAcceptedRun({
@@ -240,6 +195,75 @@ export class ChatLoopService {
       modelId: input.modelId,
       abortSignal: input.abortSignal,
     });
+  }
+
+  /**
+   * Every pre-write check of one turn, shared by the message route and chat
+   * creation: the model, its effort, an enabled permission mode, the bounded
+   * parts, and the sender's ownership of every media part. Nothing here writes.
+   */
+  async validateTurn(input: {
+    userId: string;
+    modelId: string;
+    effort?: string;
+    permissionMode?: PermissionMode;
+    message: ChatMessageInput;
+  }): Promise<ValidatedChatTurn> {
+    const model = this.models.validateModelSelection(input.modelId);
+    // Resolved from the already-validated model, so an unavailable model is
+    // reported without the effort ever being considered.
+    const effort = this.models.resolveEffortSelection(model, input.effort);
+    const permissionMode: PermissionMode = input.permissionMode ?? 'default';
+    if (
+      !this.instanceConfig.config.tools.permissionModes.includes(permissionMode)
+    ) {
+      throw new PermissionModeNotAvailableError(permissionMode);
+    }
+    const message = this.sanitizeAndValidateMessage(input.message);
+    return {
+      modelId: input.modelId,
+      effort,
+      permissionMode,
+      message,
+      parts: await resolveOwnerFileParts(
+        this.media,
+        input.userId,
+        message.parts,
+      ),
+    };
+  }
+
+  /**
+   * The message step of a create request: the same accepted-turn transaction
+   * and the same post-commit enqueue as a send, under the create's own session
+   * lock instead of taking the Chat's creation lock again. The create answers
+   * JSON, so the stream bridge is not involved; the client resumes through
+   * `GET /api/v1/chats/:id/stream`.
+   */
+  async startFirstRun(input: {
+    chatId: string;
+    userId: string;
+    turn: ValidatedChatTurn;
+  }): Promise<{ runId: string }> {
+    const { runId, userMessage, supersededRunIds } =
+      await this.persistUserMessageAndRun({
+        chatId: input.chatId,
+        userId: input.userId,
+        ...input.turn,
+        targetRunId: randomUUID(),
+        takeCreationLock: false,
+      });
+    for (const supersededRunId of supersededRunIds) {
+      this.aborts.abort(supersededRunId);
+    }
+    await this.dispatch.dispatch({
+      runId,
+      chatId: input.chatId,
+      userId: input.userId,
+      modelId: input.turn.modelId,
+      userMessage,
+    });
+    return { runId };
   }
 
   private sanitizeAndValidateMessage(
@@ -309,17 +333,20 @@ export class ChatLoopService {
   private async persistUserMessageAndRun(
     input: PersistUserMessageAndRunInput,
   ): Promise<PersistUserMessageAndRunResult> {
-    // Ownership first, under the sender's own identity and before the send
-    // transaction opens: a file part naming media the sender does not own
-    // rejects the message before any chat or message row is written. Media is
-    // immutable, so reading it in its own transaction races nothing.
-    const parts = await resolveOwnerFileParts(
-      this.media,
-      input.userId,
-      input.message.parts,
-    );
-
+    // Media ownership was decided by `validateTurn` before this transaction
+    // opened: a file part naming media the sender does not own rejects the
+    // message before any chat or message row is written. Media is immutable, so
+    // reading it in its own transaction races nothing.
     return this.tenantDb.runAs(input.userId, async (tx) => {
+      // The Chat's creation lock, inside the admission transaction: a create
+      // request holding it answers 409 here, and this route holds it only until
+      // the transaction ends, never for the life of the Run.
+      if (
+        input.takeCreationLock &&
+        !(await tryCreationTransactionLock(tx, input.chatId))
+      ) {
+        throw creationInProgress();
+      }
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
       const eventsRepo = new RunEventsRepository(tx);
@@ -341,7 +368,7 @@ export class ChatLoopService {
         messagesRepo,
         admittedMessage,
         input,
-        parts,
+        input.parts,
       );
 
       // Durable run (#48): every accepted user message becomes exactly one run

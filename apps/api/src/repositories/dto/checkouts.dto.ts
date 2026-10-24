@@ -25,7 +25,12 @@ export class CreateCheckoutDto {
   path!: string;
 
   @ApiPropertyOptional({
+    // The selector is nullable in the request, which makes the generated
+    // schema an anyOf of string and null; naming the type keeps the client's
+    // `repositoryId` a string it can pass without widening.
+    type: String,
     format: 'uuid',
+    nullable: true,
     description: 'Selects an existing repository of this owner.',
   })
   @IsOptional()
@@ -33,7 +38,9 @@ export class CreateCheckoutDto {
   repositoryId?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     maxLength: PATH_MAX,
+    nullable: true,
     description:
       'A remote that selects an existing repository of this owner. The inspected origin decides.',
   })

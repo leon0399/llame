@@ -520,6 +520,19 @@ export class MessagesRepository {
   }
 
   /**
+   * Whether the owned Chat holds any message. Chat creation asks this before it
+   * rebinds: a Chat with a message is a send, not a create.
+   */
+  async hasMessage(chatId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.chatId, chatId))
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /**
    * Append a message to a chat.
    *
    * Write ownership is enforced by RLS: the `messages_owner` policy's check rejects

@@ -1,10 +1,15 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { MachinesModule } from '../machines/machines.module';
 import { MediaModule } from '../media/media.module';
 import { ModelsModule } from '../models/models.module';
+import { ProjectsModule } from '../projects/projects.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
+import { ChatCreationLock } from './chat-creation-lock';
+import { ChatCreationService } from './chat-creation.service';
+import { ChatCreationWorkspace } from './chat-creation-workspace';
 import { ChatLoopService } from './chat-loop.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
@@ -22,14 +27,22 @@ import { SharedChatsController } from './shared-chats.controller';
 @Module({
   imports: [
     AuthModule,
+    MachinesModule,
     MediaModule,
     ModelsModule,
+    ProjectsModule,
     RunsModule,
     RunWorkerModule,
     SearchModule,
   ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],
-  providers: [ChatsService, ChatLoopService],
+  providers: [
+    ChatsService,
+    ChatLoopService,
+    ChatCreationLock,
+    ChatCreationService,
+    ChatCreationWorkspace,
+  ],
   exports: [ChatsService],
 })
 export class ChatsModule {}
