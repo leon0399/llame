@@ -33,9 +33,11 @@ settings decide that, and none of them has a default that admits anything:
 - `enter_workspace` must be listed in `tools.allowed`. Otherwise registration
   answers `tool_not_allowed` before any git call.
 - The `enter_workspace` group in `tools.permissions` must allow the path. The
-  submitted path, its canonical form, and the main clone git reports are each
-  evaluated in `default` mode, so a path no allow covers answers
-  `permission_denied` without an inspection.
+  submitted path, its canonical form, the toplevel git reports (the path the
+  checkout row is stored at), and the main clone git reports are each evaluated
+  in `default` mode, so a path no allow covers answers `permission_denied`
+  without an inspection. A submission that names a subdirectory therefore needs
+  its clone's root admitted too.
 
 The recommended portable policy in
 [tool-call-permissions](tool-call-permissions.md) already admits
