@@ -43,6 +43,12 @@ function makeService() {
   const lockRemoteClaim = vi
     .spyOn(RepositoriesRepository.prototype, 'lockRemoteClaim')
     .mockResolvedValue(undefined);
+  // A delete starts from a repository with no worktrees; a case that states
+  // the count is the one that reaches the guard.
+  vi.spyOn(
+    RepositoriesRepository.prototype,
+    'countWorktrees',
+  ).mockResolvedValue(0);
   return {
     service: new RepositoriesService(tenantDb),
     findRepositoryByAlias,
@@ -486,6 +492,7 @@ describe('updateRepository', () => {
 describe('deleteRepository', () => {
   it('removes the repository the owner holds', async () => {
     const { service } = makeService();
+    const count = vi.spyOn(RepositoriesRepository.prototype, 'countWorktrees');
     const remove = vi
       .spyOn(RepositoriesRepository.prototype, 'deleteRepository')
       .mockResolvedValue(true);
@@ -493,7 +500,30 @@ describe('deleteRepository', () => {
     await expect(
       service.deleteRepository('owner-a', repository.id),
     ).resolves.toBeUndefined();
+    expect(count).toHaveBeenCalledWith('owner-a', {
+      repositoryId: repository.id,
+    });
     expect(remove).toHaveBeenCalledWith('owner-a', repository.id);
+  });
+
+  it('refuses a repository that still has worktree rows', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'countWorktrees',
+    ).mockResolvedValue(2);
+    const remove = vi.spyOn(
+      RepositoriesRepository.prototype,
+      'deleteRepository',
+    );
+
+    await expect(
+      failureOf(service.deleteRepository('owner-a', repository.id)),
+    ).resolves.toMatchObject({
+      statusCode: 409,
+      code: 'worktrees_present',
+    });
+    expect(remove).not.toHaveBeenCalled();
   });
 });
 

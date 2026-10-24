@@ -168,7 +168,11 @@ export const updateCheckout = async (
   return data;
 };
 
-export type deleteCheckoutError = void | void | RepositoryFailureResponse;
+export type deleteCheckoutError =
+  | void
+  | void
+  | RepositoryFailureResponse
+  | RepositoryFailureResponse;
 
 export const getDeleteCheckoutUrl = (id: string) => {
   return `/api/v1/checkouts/${id}`;

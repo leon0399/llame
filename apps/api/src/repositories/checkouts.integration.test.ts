@@ -283,6 +283,73 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     worktreeCheckoutId = worktree.id;
   });
 
+  it('refuses to delete a repository or a main row while worktrees remain', async () => {
+    const guarded = repository();
+    const guardedMain = checkoutSchema.parse(
+      (await post({ path: guarded }).expect(201)).body,
+    );
+    const childPaths = ['guarded-one', 'guarded-two'].map((branch) =>
+      linkedWorktree(guarded, branch),
+    );
+    const children: Array<z.infer<typeof checkoutSchema>> = [];
+    for (const path of childPaths) {
+      children.push(
+        checkoutSchema.parse((await post({ path }).expect(201)).body),
+      );
+    }
+    const listed = () =>
+      request(harness.http)
+        .get(`/api/v1/checkouts?repositoryId=${guardedMain.repositoryId}`)
+        .set('Cookie', harness.cookie)
+        .expect(200);
+
+    const refusedRepository = await request(harness.http)
+      .delete(`/api/v1/repositories/${guardedMain.repositoryId}`)
+      .set('Cookie', harness.cookie)
+      .expect(409);
+    expect(failureSchema.parse(refusedRepository.body)).toMatchObject({
+      statusCode: 409,
+      code: 'worktrees_present',
+      message:
+        'Worktrees still exist. Remove them with DELETE /api/v1/checkouts/:id/worktree first.',
+    });
+
+    const refusedMain = await request(harness.http)
+      .delete(`/api/v1/checkouts/${guardedMain.id}`)
+      .set('Cookie', harness.cookie)
+      .expect(409);
+    expect(failureSchema.parse(refusedMain.body)).toMatchObject({
+      code: 'worktrees_present',
+    });
+
+    // Nothing was cascaded: the main row and both children are still there.
+    const survivors = z
+      .array(checkoutSchema)
+      .parse((await listed()).body)
+      .map((row) => row.id)
+      .sort();
+    expect(survivors).toEqual(
+      [guardedMain.id, ...children.map((row) => row.id)].sort(),
+    );
+
+    // Removing the children first makes both deletes succeed.
+    for (const child of children) {
+      await request(harness.http)
+        .delete(`/api/v1/checkouts/${child.id}`)
+        .set('Cookie', harness.cookie)
+        .expect(204);
+    }
+    await request(harness.http)
+      .delete(`/api/v1/checkouts/${guardedMain.id}`)
+      .set('Cookie', harness.cookie)
+      .expect(204);
+    await request(harness.http)
+      .delete(`/api/v1/repositories/${guardedMain.repositoryId}`)
+      .set('Cookie', harness.cookie)
+      .expect(204);
+    expect((await listed()).body).toEqual([]);
+  });
+
   it('rejects a declared repository whose origin differs from the inspected one', async () => {
     const other = await request(harness.http)
       .post('/api/v1/repositories')

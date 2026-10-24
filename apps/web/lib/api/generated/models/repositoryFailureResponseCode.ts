@@ -14,6 +14,7 @@ export const RepositoryFailureResponseCode = {
   remote_taken: "remote_taken",
   alias_taken: "alias_taken",
   path_taken: "path_taken",
+  worktrees_present: "worktrees_present",
   invalid_display_name: "invalid_display_name",
   invalid_path: "invalid_path",
   invalid_remote: "invalid_remote",

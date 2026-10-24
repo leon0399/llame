@@ -16,6 +16,7 @@ export const REPOSITORY_FAILURE_CODES = [
   'remote_taken',
   'alias_taken',
   'path_taken',
+  'worktrees_present',
   'invalid_display_name',
   'invalid_path',
   'invalid_remote',
@@ -38,6 +39,7 @@ const STATUS: Record<RepositoryFailureCode, HttpStatus> = {
   remote_taken: HttpStatus.CONFLICT,
   alias_taken: HttpStatus.CONFLICT,
   path_taken: HttpStatus.CONFLICT,
+  worktrees_present: HttpStatus.CONFLICT,
   invalid_display_name: HttpStatus.UNPROCESSABLE_ENTITY,
   invalid_path: HttpStatus.UNPROCESSABLE_ENTITY,
   invalid_remote: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -72,4 +74,16 @@ export function repositoryFailure(
 /** A repository or checkout the caller does not own is simply not there. */
 export function notFound(): HttpException {
   return repositoryFailure('not_found', 'Repository record not found');
+}
+
+/**
+ * A repository, or a `main` checkout, that still has child `worktree` rows.
+ * Each row names a directory that only the guarded worktree route removes, so
+ * a plain delete must not cascade the rows and leave the directories behind.
+ */
+export function worktreesPresent(): HttpException {
+  return repositoryFailure(
+    'worktrees_present',
+    'Worktrees still exist. Remove them with DELETE /api/v1/checkouts/:id/worktree first.',
+  );
 }

@@ -103,7 +103,9 @@ export class RepositoriesController {
   }
 
   // Row-only deletion: the checkout rows and leases cascade, and every
-  // directory on an executor stays where it is.
+  // directory on an executor stays where it is. A repository that still has
+  // worktrees is refused: those rows name directories that only the guarded
+  // worktree removal may delete.
   @Delete(':id')
   @ApiOperation({
     operationId: 'deleteRepository',
@@ -114,6 +116,7 @@ export class RepositoriesController {
   @ApiNoContentResponse()
   @ApiBadRequestResponse({ description: 'Malformed repository id' })
   @ApiNotFoundResponse({ type: RepositoryFailureResponse })
+  @ApiConflictResponse({ type: RepositoryFailureResponse })
   @ApiUnauthorizedResponse()
   async deleteRepository(
     @CurrentUser() userId: string,

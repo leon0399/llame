@@ -8,6 +8,7 @@ import {
   type RepositoryFailureCode,
   notFound,
   repositoryFailure,
+  worktreesPresent,
 } from './failure';
 
 /**
@@ -36,6 +37,7 @@ const EXPECTED_STATUS: Record<RepositoryFailureCode, number> = {
   remote_taken: 409,
   alias_taken: 409,
   path_taken: 409,
+  worktrees_present: 409,
   invalid_display_name: 422,
   invalid_path: 422,
   invalid_remote: 422,
@@ -116,6 +118,21 @@ describe('notFound', () => {
       error: 'Not Found',
       message: 'Repository record not found',
       code: 'not_found',
+    });
+  });
+});
+
+describe('worktreesPresent', () => {
+  it('names the guarded worktree route in the documented 409 body', () => {
+    const exception = worktreesPresent();
+
+    expect(exception.getStatus()).toBe(409);
+    expect(exception.getResponse()).toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message:
+        'Worktrees still exist. Remove them with DELETE /api/v1/checkouts/:id/worktree first.',
+      code: 'worktrees_present',
     });
   });
 });

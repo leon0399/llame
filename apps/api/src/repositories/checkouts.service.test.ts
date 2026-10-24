@@ -60,6 +60,12 @@ function makeService() {
   vi.spyOn(RepositoriesRepository.prototype, 'leaseChats').mockResolvedValue(
     new Map(),
   );
+  // A delete starts from a checkout with no worktree children; a case that
+  // states the count is the one that reaches the guard.
+  vi.spyOn(
+    RepositoriesRepository.prototype,
+    'countWorktrees',
+  ).mockResolvedValue(0);
   return { service, register };
 }
 
@@ -464,6 +470,10 @@ describe('CheckoutsService', () => {
   describe('deleteCheckout', () => {
     it('deletes an owned row and answers nothing', async () => {
       const { service } = makeService();
+      const count = vi.spyOn(
+        RepositoriesRepository.prototype,
+        'countWorktrees',
+      );
       const deleteCheckout = vi
         .spyOn(RepositoriesRepository.prototype, 'deleteCheckout')
         .mockResolvedValue(true);
@@ -472,7 +482,30 @@ describe('CheckoutsService', () => {
         service.deleteCheckout('owner-a', checkout.id),
       ).resolves.toBeUndefined();
 
+      expect(count).toHaveBeenCalledWith('owner-a', {
+        parentCheckoutId: checkout.id,
+      });
       expect(deleteCheckout).toHaveBeenCalledWith('owner-a', checkout.id);
+    });
+
+    it('refuses a main row that still has worktree children', async () => {
+      const { service } = makeService();
+      vi.spyOn(
+        RepositoriesRepository.prototype,
+        'countWorktrees',
+      ).mockResolvedValue(2);
+      const deleteCheckout = vi.spyOn(
+        RepositoriesRepository.prototype,
+        'deleteCheckout',
+      );
+
+      await expect(
+        failureOf(service.deleteCheckout('owner-a', checkout.id)),
+      ).resolves.toMatchObject({
+        statusCode: 409,
+        code: 'worktrees_present',
+      });
+      expect(deleteCheckout).not.toHaveBeenCalled();
     });
 
     it('answers 404 when the delete removed nothing', async () => {

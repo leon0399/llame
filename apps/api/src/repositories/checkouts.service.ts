@@ -14,7 +14,7 @@ import {
   CheckoutRegistrationService,
   type RegisterCheckoutInput,
 } from './checkout-registration.service';
-import { notFound, repositoryFailure } from './failure';
+import { notFound, repositoryFailure, worktreesPresent } from './failure';
 import { RepositoriesRepository } from './repositories.repository';
 
 /** One checkout as the owner reads it: the row plus who is bound to it. */
@@ -95,10 +95,20 @@ export class CheckoutsService {
 
   /** Row-only deletion: the directory on the executor is never touched. */
   async deleteCheckout(ownerUserId: string, checkoutId: string): Promise<void> {
-    const deleted = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new RepositoriesRepository(tx).deleteCheckout(ownerUserId, checkoutId),
-    );
-    if (!deleted) throw notFound();
+    await this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const repository = new RepositoriesRepository(tx);
+      // A `main` row with worktree children would cascade them while their
+      // directories stay on the executor.
+      if (
+        (await repository.countWorktrees(ownerUserId, {
+          parentCheckoutId: checkoutId,
+        })) > 0
+      ) {
+        throw worktreesPresent();
+      }
+      const deleted = await repository.deleteCheckout(ownerUserId, checkoutId);
+      if (!deleted) throw notFound();
+    });
   }
 }
 

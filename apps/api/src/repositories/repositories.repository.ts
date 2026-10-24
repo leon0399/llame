@@ -300,6 +300,36 @@ export class RepositoriesRepository {
     return updated;
   }
 
+  /**
+   * How many `worktree` rows a cascade would delete: every one of a
+   * repository, or the children of one `main` checkout. The guarded deletes ask
+   * first, because a row names a directory that only the guarded worktree
+   * removal may delete.
+   */
+  async countWorktrees(
+    ownerUserId: string,
+    scope: {
+      readonly repositoryId?: string;
+      readonly parentCheckoutId?: string;
+    },
+  ): Promise<number> {
+    const conditions = [
+      eq(checkouts.ownerUserId, ownerUserId),
+      eq(checkouts.kind, 'worktree'),
+    ];
+    if (scope.repositoryId !== undefined) {
+      conditions.push(eq(checkouts.repositoryId, scope.repositoryId));
+    }
+    if (scope.parentCheckoutId !== undefined) {
+      conditions.push(eq(checkouts.parentCheckoutId, scope.parentCheckoutId));
+    }
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(checkouts)
+      .where(and(...conditions));
+    return row?.count ?? 0;
+  }
+
   async deleteCheckout(
     ownerUserId: string,
     checkoutId: string,

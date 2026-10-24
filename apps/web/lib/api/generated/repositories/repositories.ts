@@ -152,7 +152,11 @@ export const updateRepository = async (
   return data;
 };
 
-export type deleteRepositoryError = void | void | RepositoryFailureResponse;
+export type deleteRepositoryError =
+  | void
+  | void
+  | RepositoryFailureResponse
+  | RepositoryFailureResponse;
 
 export const getDeleteRepositoryUrl = (id: string) => {
   return `/api/v1/repositories/${id}`;

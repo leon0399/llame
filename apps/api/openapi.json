@@ -2378,6 +2378,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2722,6 +2732,16 @@
             "description": ""
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -5156,6 +5176,7 @@
               "remote_taken",
               "alias_taken",
               "path_taken",
+              "worktrees_present",
               "invalid_display_name",
               "invalid_path",
               "invalid_remote",

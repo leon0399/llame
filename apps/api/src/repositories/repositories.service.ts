@@ -4,7 +4,7 @@ import { pgErrorCode } from '../db/pg-error';
 import { type Repository, type RepositoryAlias } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { DISPLAY_NAME_MAX, displayNameProblem } from './display-name';
-import { notFound, repositoryFailure } from './failure';
+import { notFound, repositoryFailure, worktreesPresent } from './failure';
 import { normalizeRemote } from './remote';
 import { RepositoriesRepository } from './repositories.repository';
 
@@ -109,13 +109,21 @@ export class RepositoriesService {
     ownerUserId: string,
     repositoryId: string,
   ): Promise<void> {
-    const deleted = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new RepositoriesRepository(tx).deleteRepository(
+    await this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const repository = new RepositoriesRepository(tx);
+      // The rows point at directories that only the guarded worktree removal
+      // may delete, so a cascade here would leave them unreachable.
+      if (
+        (await repository.countWorktrees(ownerUserId, { repositoryId })) > 0
+      ) {
+        throw worktreesPresent();
+      }
+      const deleted = await repository.deleteRepository(
         ownerUserId,
         repositoryId,
-      ),
-    );
-    if (!deleted) throw notFound();
+      );
+      if (!deleted) throw notFound();
+    });
   }
 
   async declareAlias(

@@ -108,7 +108,9 @@ export class CheckoutsController {
   }
 
   // Row-only deletion: a chat keeps its stored Workspace path, and the next
-  // Run attempt re-checks that binding as before. No directory is touched.
+  // Run attempt re-checks that binding as before. No directory is touched. A
+  // `main` row that still has worktrees is refused: the cascade would drop the
+  // rows while the directories stay on the executor.
   @Delete(':id')
   @ApiOperation({
     operationId: 'deleteCheckout',
@@ -119,6 +121,7 @@ export class CheckoutsController {
   @ApiNoContentResponse()
   @ApiBadRequestResponse({ description: 'Malformed checkout id' })
   @ApiNotFoundResponse({ type: RepositoryFailureResponse })
+  @ApiConflictResponse({ type: RepositoryFailureResponse })
   @ApiUnauthorizedResponse()
   async deleteCheckout(
     @CurrentUser() userId: string,
