@@ -93,14 +93,23 @@ export class RepositoriesRepository {
     return rows[0]?.repository;
   }
 
+  /**
+   * The new row, or `undefined` when the owner already holds that remote. The
+   * unique key is the guard, not a preceding read: `ON CONFLICT DO NOTHING`
+   * lets a concurrent adoption resolve on the winner's committed row instead of
+   * aborting the caller's transaction.
+   */
   async createRepository(input: {
     readonly ownerUserId: string;
     readonly displayName: string;
     readonly canonicalRemote: string | null;
-  }): Promise<Repository> {
+  }): Promise<Repository | undefined> {
     const [created] = await this.db
       .insert(repositories)
       .values(input)
+      .onConflictDoNothing({
+        target: [repositories.ownerUserId, repositories.canonicalRemote],
+      })
       .returning();
     return created;
   }
@@ -145,14 +154,21 @@ export class RepositoriesRepository {
     return deleted.length > 0;
   }
 
+  /** The new alias, or `undefined` when the owner already declared that one. */
   async declareAlias(input: {
     readonly ownerUserId: string;
     readonly repositoryId: string;
     readonly canonicalAlias: string;
-  }): Promise<RepositoryAlias> {
+  }): Promise<RepositoryAlias | undefined> {
     const [created] = await this.db
       .insert(repositoryAliases)
       .values(input)
+      .onConflictDoNothing({
+        target: [
+          repositoryAliases.ownerUserId,
+          repositoryAliases.canonicalAlias,
+        ],
+      })
       .returning();
     return created;
   }
@@ -224,6 +240,7 @@ export class RepositoriesRepository {
     return rows[0];
   }
 
+  /** The new row, or `undefined` when the owner already holds that path here. */
   async createCheckout(input: {
     readonly ownerUserId: string;
     readonly repositoryId: string;
@@ -233,8 +250,14 @@ export class RepositoriesRepository {
     readonly parentCheckoutId: string | null;
     readonly branch: string | null;
     readonly origin: CheckoutOrigin;
-  }): Promise<Checkout> {
-    const [created] = await this.db.insert(checkouts).values(input).returning();
+  }): Promise<Checkout | undefined> {
+    const [created] = await this.db
+      .insert(checkouts)
+      .values(input)
+      .onConflictDoNothing({
+        target: [checkouts.ownerUserId, checkouts.executorId, checkouts.path],
+      })
+      .returning();
     return created;
   }
 
@@ -329,5 +352,3 @@ export class RepositoriesRepository {
     return leaseChat;
   }
 }
-
-export type { Db } from '../db/tenant-db.service';

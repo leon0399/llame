@@ -198,28 +198,30 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
   });
 
   it("a worktree naming another owner's parent fails with 23503", async () => {
-    const repositoryId = await seedRepository(
+    const parentId = await seedCheckout(
       userA,
-      `github.com/leon0399/parent-owner-${crypto.randomUUID()}`,
+      await seedRepository(
+        userA,
+        `github.com/leon0399/parent-owner-${crypto.randomUUID()}`,
+      ),
     );
-    const parentId = await seedCheckout(userA, repositoryId);
+    // B's own repository, so only the composite parent key can refuse the row.
+    const ownRepository = await seedRepository(
+      userB,
+      `github.com/leon0399/parent-own-${crypto.randomUUID()}`,
+    );
 
     await expect(
       asUser(
         userB,
         (tx) =>
           tx`INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, parent_checkout_id, origin)
-             VALUES (${userB}, ${repositoryId}, 'host', ${`/srv/${crypto.randomUUID()}`}, 'worktree', ${parentId}, 'registered')`,
+             VALUES (${userB}, ${ownRepository}, 'host', ${`/srv/${crypto.randomUUID()}`}, 'worktree', ${parentId}, 'registered')`,
       ),
     ).rejects.toMatchObject({ code: '23503' });
   });
 
   it("a lease naming another owner's chat fails with 23503", async () => {
-    const repositoryId = await seedRepository(
-      userA,
-      `github.com/leon0399/lease-owner-${crypto.randomUUID()}`,
-    );
-    const checkoutId = await seedCheckout(userA, repositoryId);
     const chatA = crypto.randomUUID();
     await asUser(
       userA,
@@ -242,9 +244,6 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
              VALUES (${userB}, ${chatA}, ${checkoutB}, 'main')`,
       ),
     ).rejects.toMatchObject({ code: '23503' });
-    // The unused A-side row is here to prove the failure was the chat, not a
-    // missing checkout.
-    expect(checkoutId).toBeTruthy();
   });
 
   it('accepts a null branch, and a checkout needs no lease key beyond its primary key', async () => {

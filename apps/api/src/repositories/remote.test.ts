@@ -9,6 +9,7 @@ describe('normalizeRemote', () => {
     ['https://github.com/leon0399/llame.git/', 'github.com/leon0399/llame'],
     ['ssh://git@GitHub.com/leon0399/llame.git', 'github.com/leon0399/llame'],
     ['  git://github.com/leon0399/Llame.git  ', 'github.com/leon0399/Llame'],
+    ['GitHub.com:Leon0399/Llame.git', 'github.com/Leon0399/Llame'],
   ])('normalizes %s to %s', (input, expected) => {
     expect(normalizeRemote(input)).toBe(expected);
   });
@@ -39,6 +40,12 @@ describe('normalizeRemote', () => {
   it('treats a bare host and path as a remote and lowercases only the host', () => {
     expect(normalizeRemote('GitHub.com/Leon0399/Llame')).toBe(
       'github.com/Leon0399/Llame',
+    );
+  });
+
+  it('reads the user-less scp form as the same remote as its https form', () => {
+    expect(normalizeRemote('GitHub.com:Leon0399/Llame')).toBe(
+      normalizeRemote('https://github.com/Leon0399/Llame'),
     );
   });
 });
