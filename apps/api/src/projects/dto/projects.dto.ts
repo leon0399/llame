@@ -8,17 +8,13 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
+import { EXECUTOR_ID_MAX } from '../../common/dto/optional-field.decorators';
 import type { Project } from '../../db/schema';
 
 // Cap on an owner-authored project description. Enforced at the DTO rather
 // than the column, so raising it is not a migration — same
 // treatment as the 200-character name bound below and PERSONALIZATION_CAPS.
 const DESCRIPTION_MAX = 1000;
-
-// Bound on an executor id: `tools.nativeExecutorId` or `machine:<name>`, both
-// operator-authored and short. Exported because the start-location query takes
-// the same value.
-export const EXECUTOR_ID_MAX = 200;
 
 // POST /api/v1/projects — a project starts with a name and, optionally, a
 // description (folders-only, no membership/sharing fields yet).

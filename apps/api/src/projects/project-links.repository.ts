@@ -23,9 +23,9 @@ import {
   type Repository,
   projectRepositories,
   projectRepositoryDefaults,
-  repositories,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { RepositoriesRepository } from '../repositories/repositories.repository';
 import type { StartLocationSource } from './start-location';
 
 export type ProjectLinkWithDefaults = {
@@ -271,38 +271,26 @@ export class ProjectLinksRepository implements StartLocationSource {
     return row;
   }
 
-  async findRepository(
+  /** The catalog repository a link names; the catalog owns that query. */
+  findRepository(
     ownerUserId: string,
     repositoryId: string,
   ): Promise<Repository | undefined> {
-    const rows = await this.db
-      .select()
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.ownerUserId, ownerUserId),
-          eq(repositories.id, repositoryId),
-        ),
-      )
-      .limit(1);
-    return rows[0];
+    return new RepositoriesRepository(this.db).findRepository(
+      ownerUserId,
+      repositoryId,
+    );
   }
 
-  async findCheckout(
+  /** The catalog checkout a default names; the catalog owns that query. */
+  findCheckout(
     ownerUserId: string,
     checkoutId: string,
   ): Promise<Checkout | undefined> {
-    const rows = await this.db
-      .select()
-      .from(checkouts)
-      .where(
-        and(
-          eq(checkouts.ownerUserId, ownerUserId),
-          eq(checkouts.id, checkoutId),
-        ),
-      )
-      .limit(1);
-    return rows[0];
+    return new RepositoriesRepository(this.db).findCheckout(
+      ownerUserId,
+      checkoutId,
+    );
   }
 
   /**

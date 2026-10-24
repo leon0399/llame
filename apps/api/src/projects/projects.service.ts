@@ -201,12 +201,21 @@ export class ProjectsService {
     }
   }
 
-  private async changeLink(
+  /**
+   * The live link both link mutations act on: its project, refused when
+   * archived, and the link that project holds to the repository — or the 404
+   * the routes answer. One helper, so a patch and an unlink cannot disagree
+   * about which link they mean.
+   */
+  private async requireLink(
     tx: Db,
     ownerUserId: string,
     target: { readonly projectId: string; readonly repositoryId: string },
-    patch: ProjectLinkPatch,
-  ): Promise<ProjectRepository | undefined> {
+  ): Promise<{
+    project: Project;
+    links: ProjectLinksRepository;
+    link: ProjectRepository;
+  }> {
     const { projectId, repositoryId } = target;
     const project = await new ProjectsRepository(tx).findById(
       projectId,
@@ -227,6 +236,20 @@ export class ProjectsService {
         `The project does not link repository ${repositoryId}`,
       );
     }
+    return { project, links, link };
+  }
+
+  private async changeLink(
+    tx: Db,
+    ownerUserId: string,
+    target: { readonly projectId: string; readonly repositoryId: string },
+    patch: ProjectLinkPatch,
+  ): Promise<ProjectRepository | undefined> {
+    const { project, links, link } = await this.requireLink(
+      tx,
+      ownerUserId,
+      target,
+    );
     if (patch.isPrimary === true) {
       await links.clearPrimary(ownerUserId, project.id);
     }
@@ -241,25 +264,10 @@ export class ProjectsService {
     repositoryId: string,
   ): Promise<void> {
     await this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const project = await new ProjectsRepository(tx).findById(
+      const { project, links, link } = await this.requireLink(tx, ownerUserId, {
         projectId,
-        ownerUserId,
-      );
-      if (project === undefined) {
-        throw new NotFoundException(`Project ${projectId} not found`);
-      }
-      assertNotArchived(project);
-      const links = new ProjectLinksRepository(tx);
-      const link = await links.findLinkByRepository(
-        ownerUserId,
-        project.id,
         repositoryId,
-      );
-      if (link === undefined) {
-        throw new NotFoundException(
-          `The project does not link repository ${repositoryId}`,
-        );
-      }
+      });
       await links.deleteLink(ownerUserId, project.id, link.id);
     });
   }

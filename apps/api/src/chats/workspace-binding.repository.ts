@@ -57,16 +57,7 @@ export class WorkspaceBindingRepository {
       }
     | { status: 'fence_lost' }
   > {
-    if (
-      !(await this.fenceRun({
-        runId: input.runId,
-        ownerUserId: input.ownerUserId,
-        deliverySequence: input.deliverySequence,
-        bindExecutorId: input.bindExecutorId,
-      }))
-    ) {
-      return { status: 'fence_lost' };
-    }
+    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
     const current = await this.lockChat(input.chatId, input.ownerUserId);
     if (current === undefined) return { status: 'fence_lost' };
 
@@ -94,16 +85,7 @@ export class WorkspaceBindingRepository {
     | { status: 'unbound' }
     | { status: 'fence_lost' }
   > {
-    if (
-      !(await this.fenceRun({
-        runId: input.runId,
-        ownerUserId: input.ownerUserId,
-        deliverySequence: input.deliverySequence,
-        bindExecutorId: input.bindExecutorId,
-      }))
-    ) {
-      return { status: 'fence_lost' };
-    }
+    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
     if (current === undefined) return { status: 'fence_lost' };

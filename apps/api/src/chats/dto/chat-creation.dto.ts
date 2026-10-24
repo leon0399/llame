@@ -11,12 +11,16 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import {
+  EXECUTOR_ID_MAX,
+  OptionalExecutorId,
+  OptionalUuid,
+} from '../../common/dto/optional-field.decorators';
 import { type PermissionClauseReference } from '../../tools/permissions/types';
 import {
   PERMISSION_MODES,
   type PermissionMode,
 } from '../../tools/permissions/permission-mode';
-import { EXECUTOR_ID_MAX } from '../../projects/dto/projects.dto';
 import { type CreationWorkspaceResult } from '../chat-creation-workspace';
 import { ChatResponse } from './chats.dto';
 import { MessagePartsDto } from './message-parts.dto';
@@ -98,21 +102,13 @@ export class CreateChatRequest {
   @IsUUID()
   projectId?: string;
 
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
+  @OptionalUuid()
   repositoryId?: string;
 
-  @ApiPropertyOptional({ maxLength: EXECUTOR_ID_MAX })
-  @IsOptional()
-  @IsString()
-  @Matches(/\S/, { message: 'executorId must not be blank' })
-  @MaxLength(EXECUTOR_ID_MAX)
+  @OptionalExecutorId()
   executorId?: string;
 
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
+  @OptionalUuid()
   checkoutId?: string;
 
   @ApiPropertyOptional({ type: () => CreateChatWorktreeDto })
