@@ -190,12 +190,12 @@ of another owner MUST answer 404.
 
 ### Requirement: Project repository links are owner-isolated
 
-Only the owner of a project MUST read or change its links and defaults. Each link
-and default row MUST carry its owner id. A row MUST reference only that owner's
-project, repository, and checkout. A row that names another owner's record MUST
-be refused. A link request that names another user's repository MUST fail as not
-found. A link request on another user's project MUST fail as not found. A request
-without an authenticated user MUST fail and change nothing.
+Only the owner of a project MUST read or change its links and defaults. Each
+link and default row MUST carry its owner id. A row MUST reference only that
+owner's project, repository, and checkout. The system MUST refuse a row that
+names another owner's record. A link request that names another user's
+repository or another user's project MUST fail as not found. A request without
+an authenticated user MUST fail and change nothing.
 
 #### Scenario: A link row cannot name a foreign repository
 

@@ -36,8 +36,8 @@ declared alternate remote to one repository of that owner.
 ### Requirement: The canonical remote comes from the `origin` remote
 
 The canonical remote MUST come from the remote named `origin`. The canonical
-form MUST drop the scheme, the credentials, the `.git` suffix, and the trailing
-slash, and MUST lowercase the host. URLs that differ only in those parts MUST
+form MUST drop the scheme, the credentials, the `.git` suffix, and the slash at
+the end, and MUST lowercase the host. URLs that differ only in those parts MUST
 map to one repository. A clone without an `origin` remote MUST count as a clone
 without a remote, and MUST take its identity from its first checkout.
 
@@ -103,9 +103,9 @@ canonical absolute path.
 Each checkout MUST have the kind `main` or `worktree`. A `worktree` checkout
 MUST store its parent `main` checkout and the branch that inspection reports.
 The parent MUST belong to the same repository and the same executor. A
-`worktree` checkout MUST NOT exist without a parent. The stored branch MUST be
-null for a detached HEAD. A worktree that llame creates MUST store its branch.
-A `main` checkout can store a worktree base directory.
+`worktree` checkout MUST NOT exist without a parent. A detached HEAD MUST store
+a null branch, and a worktree that llame creates MUST store its branch. A `main`
+checkout can store a worktree base directory.
 
 #### Scenario: Worktrees name one main parent
 
@@ -128,7 +128,7 @@ A `main` checkout can store a worktree base directory.
 A `main` checkout can carry a worktree base directory. The owner MUST set it
 with `PATCH /api/v1/checkouts/:id` and a `worktreeBase` field. The value MUST
 use the executor of that main checkout. A local checkout MUST use an absolute
-local path. A Machine checkout MUST use a `machine://<same name>/` locator.
+local path, and a Machine checkout MUST use a `machine://<same name>/` locator.
 Another executor MUST fail with status 422. A `worktree` row MUST refuse
 `worktreeBase`.
 
@@ -158,7 +158,7 @@ Another executor MUST fail with status 422. A `worktree` row MUST refuse
 A lease MUST record the chat, the worktree checkout, the base reference, and the
 creation time. A lease MUST NOT reserve the path and MUST NOT refuse a second
 chat. A second chat that binds a leased path MUST succeed. A lease MUST NOT
-change how a fork copies the Workspace binding.
+change how a fork copies the bound Workspace root.
 
 #### Scenario: A second chat binds a leased path
 
@@ -168,7 +168,8 @@ change how a fork copies the Workspace binding.
 #### Scenario: A fork copies the binding without a new lease
 
 - **WHEN** the owner forks a chat that holds a leased path
-- **THEN** the fork copies the Workspace binding and the system writes no lease
+- **THEN** the fork copies the bound Workspace root and the system writes no
+  lease
 
 ### Requirement: Checkout lists report the lease chat and every bound chat
 
@@ -191,10 +192,11 @@ without a lease MUST report no lease chat.
 
 Registration MUST submit one `path` field. The value MUST be one absolute local
 path or one `machine://<name>/<absolute path>` locator. The system MUST derive
-the executor from that form. Registration MUST inspect the path on that executor
-before it stores a row. The inspected origin MUST be the authority. A declared
-repository that disagrees with it MUST fail with status 422. For a clone without
-a remote, the optional repository input MUST select one owner repository.
+the executor from that form. Before it stores a row, registration MUST inspect
+the path on that executor, and the inspected origin MUST be the authority. A
+declared repository that disagrees with it MUST fail with status 422. For a
+clone without a remote, the optional repository input MUST select one owner
+repository.
 
 #### Scenario: A declared repository that disagrees with the origin is refused
 
@@ -211,19 +213,19 @@ a remote, the optional repository input MUST select one owner repository.
 
 #### Scenario: A clone without a remote joins a named repository
 
-- **WHEN** the owner registers a clone without a remote and names an existing
-  repository
+- **WHEN** the owner registers a clone without a remote and names a repository
+  that exists
 - **THEN** the checkout joins that repository and inspection records the
   canonical path
 
 ### Requirement: Registration and removal need a configured executor
 
 Registration and removal MUST derive a configured executor. A local path MUST
-use the `tools.nativeExecutorId` of the serving process. A local path on a
-process without that identifier MUST fail with `executor_unavailable` and
-status 503. A locator MUST name a configured Machine. A locator that names no
-configured Machine MUST fail with `executor_unavailable` and status 503. No git
-method MUST start. The system MUST store no row.
+use the `tools.nativeExecutorId` of the process that serves the API. A local
+path on a process without that identifier MUST fail with `executor_unavailable`
+and status 503. A locator MUST name a configured Machine. A locator that names
+no configured Machine MUST fail with `executor_unavailable` and status 503. No
+git method MUST start, and the system MUST store no row.
 
 #### Scenario: A Machine that is not configured is refused
 
@@ -234,19 +236,19 @@ method MUST start. The system MUST store no row.
 #### Scenario: A process without a native executor refuses a local path
 
 - **WHEN** the owner registers the absolute local path `/srv/app` and the
-  serving process holds no `tools.nativeExecutorId`
+  process that serves the API holds no `tools.nativeExecutorId`
 - **THEN** the request fails with `executor_unavailable` and status 503
 - **AND** no git method starts and the system stores no row
 
 ### Requirement: Registration and removal obey the host access policy
 
 `enter_workspace` MUST be present in `tools.allowed`. A missing allow MUST fail
-with status 403 and `tool_not_allowed` before any git call. The submitted `path`
-and its canonical form MUST each be evaluated by the `enter_workspace` group in
-`default` mode. A rejected value, or no allow, MUST fail with status 403 and
-`permission_denied`. A locator MUST be evaluated in its `machine://` form. After
-`git.inspect`, the inspected main clone MUST be evaluated the same way, as a
-`main_clone` decision.
+with status 403 and `tool_not_allowed` before any git call. The
+`enter_workspace` group MUST evaluate the submitted `path` and its canonical
+form in `default` mode. A rejected value, or no allow, MUST fail with status 403
+and `permission_denied`. The group MUST evaluate a locator in its `machine://`
+form. After `git.inspect`, the group MUST evaluate the inspected main clone the
+same way, as a `main_clone` decision.
 
 #### Scenario: A missing allowlist entry is refused before any git call
 
@@ -285,12 +287,14 @@ and its canonical form MUST each be evaluated by the `enter_workspace` group in
 
 ### Requirement: Registration and removal map failures to typed statuses
 
-An unknown or foreign identifier MUST answer 404; a duplicate owner path MUST
+An unknown or foreign identifier MUST answer 404. A duplicate owner path MUST
 answer 409. A validation failure MUST answer 422. A path without a repository
-MUST answer 422 `not_a_repository`. A missing allow MUST answer 403
-`tool_not_allowed`; a refused path MUST answer 403 `permission_denied`. An
-executor failure MUST answer 503. Another git failure or a timeout MUST answer
-502 `git_failed` with the redacted standard error.
+MUST answer 422 `not_a_repository`.
+
+A missing allow MUST answer 403 `tool_not_allowed`. A refused path MUST answer
+403 `permission_denied`. An executor failure MUST answer 503. Another git
+failure or a timeout MUST answer 502 `git_failed` with the redacted standard
+error.
 
 #### Scenario: A git failure answers 502
 
@@ -390,10 +394,10 @@ be absolute. A `name` MUST pass the git branch-name rules and MUST NOT hold a
 
 Removal MUST start from an owner action and MUST NOT be available to a Run. The
 owner MUST remove a worktree through `DELETE /api/v1/checkouts/:id/worktree`.
-The system MUST refuse removal when the worktree has uncommitted changes or
-unpushed commits. The system MUST fail closed when the upstream branch is
-unknown. When all checks pass, the executor MUST remove the directory and the
-system MUST delete the checkout row.
+The system MUST refuse removal when the worktree holds uncommitted changes or
+commits that are not pushed. The system MUST fail closed when the upstream
+branch is unknown. When all checks pass, the executor MUST remove the directory
+and the system MUST delete the checkout row.
 
 #### Scenario: A dirty worktree is kept
 
@@ -425,8 +429,8 @@ system MUST delete the checkout row.
 Deletion MUST affect records only. Deletion of a repository MUST delete its
 checkout rows and their leases. Deletion of a `main` checkout MUST delete its
 `worktree` rows. The system MUST NOT delete a directory on an executor. A chat
-MUST keep its stored Workspace path. A later Run MUST re-check that binding as
-before.
+MUST keep its stored Workspace path. A later Run MUST re-check that bound root
+as before.
 
 #### Scenario: A repository deletion keeps its directories
 
@@ -443,14 +447,14 @@ before.
 
 - **WHEN** a chat binds a worktree and the owner deletes that checkout row
 - **THEN** the chat keeps the stored path and the next Run attempt re-checks the
-  binding
+  bound root
 
 ### Requirement: Repository records are isolated per owner
 
-The datastore MUST enforce owner isolation for repositories, aliases,
-checkouts, and leases. A request for another owner's repository or checkout
-identifier MUST return not found. A list MUST contain only the caller's records.
-A request without an authenticated identity MUST fail closed.
+The datastore MUST enforce owner isolation for repositories, aliases, checkouts,
+and leases. A request for another owner's repository or checkout identifier MUST
+return not found. A list MUST contain only the caller's records. A request
+without an authenticated identity MUST fail closed.
 
 #### Scenario: Another user's repository is not found
 

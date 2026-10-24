@@ -47,13 +47,13 @@ failure with the git standard error.
 
 ### Requirement: Machine git calls run in a sanitized environment
 
-The daemon MUST run every git call with `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`,
-and `GIT_OPTIONAL_LOCKS=0`. It MUST disable repository hooks and the file-system
+The daemon MUST run every git call with `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`, and
+`GIT_OPTIONAL_LOCKS=0`. It MUST disable repository hooks and the file-system
 monitor for every call. It MUST end a call that passes its timeout.
 
 #### Scenario: Credential prompt cannot block the daemon
 
-- **WHEN** a git command would ask for credentials on the terminal
+- **WHEN** a git command asks for credentials on the terminal
 - **THEN** the sanitized environment disables the prompt and git exits with an
   error
 - **AND** the daemon returns that error as a typed failure
@@ -95,8 +95,8 @@ any request. Its file tools and `bash` MUST continue to work.
 
 Before any git call, the daemon MUST apply the registered-root check of
 "Registered roots bound every Machine address" to the worktree directory. That
-check MUST use the nearest existing ancestor of a directory that does not exist
-yet. A refusal MUST return `path_not_registered` and start no git command.
+check MUST use the nearest ancestor that exists of a directory that does not
+exist yet. A refusal MUST return `path_not_registered` and start no git command.
 
 #### Scenario: Worktree directory outside the roots is refused
 

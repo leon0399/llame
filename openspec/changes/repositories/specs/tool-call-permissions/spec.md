@@ -8,8 +8,8 @@ With `worktree`, `enter_workspace` MUST decide the submitted `path` under the
 `enter_workspace` group. That decision MUST precede any filesystem probe and any
 git call. A reject, or no allow, on that decision MUST refuse the call as
 `permission_denied`. The call MUST NOT then create a worktree, a checkout
-record, or a binding. Under `bypass`, it MUST record that decision as a bypass
-decision.
+record, or a bound root. Under `bypass`, it MUST record that decision as a
+bypass decision.
 
 #### Scenario: A submitted path reject refuses creation
 
@@ -17,7 +17,7 @@ decision.
   `enter_workspace` submits that path with `worktree`
 - **THEN** the submitted-path decision is `reject`, and the call returns
   `permission_denied` before any filesystem probe or git call
-- **AND** no `canonical` decision is recorded, and the Workspace binding and
+- **AND** no `canonical` decision is recorded, and the bound Workspace root and
   its generation are unchanged
 
 ### Requirement: Worktree entry decides the canonical path before any git call
@@ -38,7 +38,7 @@ worktree-directory decision.
 - **THEN** the `canonical` decision uses `/home/operator/.ssh` and returns
   `reject`
 - **AND** the call returns `permission_denied` before any git call, and the
-  Workspace binding and its generation are unchanged
+  bound Workspace root and its generation are unchanged
 
 #### Scenario: Inspection runs after the canonical decision
 
@@ -48,11 +48,11 @@ worktree-directory decision.
 
 ### Requirement: Worktree entry decides the inspected main clone
 
-After `git.inspect`, the call MUST decide the inspected main working tree under
-the `enter_workspace` group when that path differs from the canonical decision.
-For a linked worktree the value MUST be its main worktree. That decision MUST
-carry the `main_clone` kind and MUST precede every write. A reject, or no allow,
-MUST refuse the call as `permission_denied`. Under `bypass`, it MUST record that
+After `git.inspect`, the call MUST decide the inspected main tree under the
+`enter_workspace` group when that path differs from the canonical decision. For
+a linked worktree the value MUST be its main worktree. That decision MUST carry
+the `main_clone` kind and MUST precede every write. A reject, or no allow, MUST
+refuse the call as `permission_denied`. Under `bypass`, it MUST record that
 decision as a bypass decision.
 
 #### Scenario: A rejected main clone behind an allowed subdirectory
@@ -76,11 +76,11 @@ decision as a bypass decision.
 ### Requirement: Worktree entry decides the canonical worktree directory
 
 The call MUST compute the worktree directory and canonicalize it by its deepest
-existing ancestor. It MUST decide that canonical form under the
+ancestor that exists. It MUST decide that canonical form under the
 `enter_workspace` group. That decision MUST carry the `worktree_directory` kind
 and its provenance. It MUST precede `git.worktreeAdd` and every write. A reject,
 or no allow, on it MUST refuse the call as `permission_denied`, with no
-worktree, checkout record, or binding. Under `bypass`, it MUST record that
+worktree, checkout record, or bound root. Under `bypass`, it MUST record that
 decision as a bypass decision.
 
 #### Scenario: A worktree directory reject refuses creation
@@ -91,7 +91,7 @@ decision as a bypass decision.
 - **THEN** the `worktree_directory` decision for
   `/home/operator/src/.llame-worktrees/llame/clear-field-0192` is `reject`
 - **AND** the call returns `permission_denied` before `git.worktreeAdd` and any
-  write, and the Workspace binding and its generation are unchanged
+  write, and the bound Workspace root and its generation are unchanged
 
 #### Scenario: A symlinked worktree parent is decided on its canonical form
 
@@ -117,25 +117,20 @@ decision as a bypass decision.
 
 #### Scenario: Bypass records the worktree decisions
 
-- **WHEN** a `bypass` attempt calls `enter_workspace` for
-  `/home/operator/src/llame` with `worktree`, and the group would reject both
-  paths
-- **THEN** the submitted-path, `canonical`, `main_clone`, and
-  `worktree_directory` decisions are all recorded with `allow`, reason
-  `permission_mode_bypass`, the process's policy-instance ID, and no clause
-  reference
+- **WHEN** a `bypass` attempt calls `enter_workspace` for `/home/operator/src/llame` with `worktree`, and the group rejects both paths
+- **THEN** the submitted-path, `canonical`, `main_clone`, and `worktree_directory` decisions are all recorded with `allow`, reason `permission_mode_bypass`, the process's policy-instance ID, and no clause reference
 - **AND** the worktree is created
 
 ### Requirement: Worktree creation verifies the decided path
 
 After `git.worktreeAdd`, the real path of the new directory MUST equal the
 decided worktree path. A difference MUST make the call remove the new worktree
-and fail as `worktree_failed`. The Workspace binding and its generation MUST NOT
-change.
+and fail as `worktree_failed`. The bound Workspace root and its generation MUST
+NOT change.
 
 #### Scenario: A realpath mismatch after creation removes the worktree
 
 - **WHEN** `git.worktreeAdd` creates the directory and its real path differs
   from the decided path
 - **THEN** the call removes the new worktree and returns `worktree_failed`
-- **AND** the Workspace binding and its generation are unchanged
+- **AND** the bound Workspace root and its generation are unchanged

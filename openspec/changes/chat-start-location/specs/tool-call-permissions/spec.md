@@ -7,15 +7,15 @@
 The create request MUST record each path decision in an owner-only creation
 record of the chat. The record MUST hold a list of attempts. Each attempt MUST
 carry its decisions and its `created_at`. Each create or resend MUST append one
-attempt in its own transaction. Each decision MUST carry the provenance fields of
-a derived decision, including a `bypass` decision. Only the owner MUST read the
-record through `GET /api/v1/chats/:id/creation-record`, and another principal
-MUST receive 404.
+attempt in its own transaction. Each decision MUST carry the provenance fields
+of a derived decision, and that includes a `bypass` decision. Only the owner
+MUST read the record through `GET /api/v1/chats/:id/creation-record`, and
+another principal MUST receive 404.
 
 #### Scenario: A bypass create records its decisions
 
-- **WHEN** the owner creates a chat with `bypass` enabled and the group would
-  reject both paths
+- **WHEN** the owner creates a chat with `bypass` enabled and the group rejects
+  both paths
 - **THEN** the creation record holds both decisions with `allow`, reason
   `permission_mode_bypass`, the policy-instance ID, and no clause reference
 
