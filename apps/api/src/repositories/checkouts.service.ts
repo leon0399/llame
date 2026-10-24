@@ -30,11 +30,20 @@ export class CheckoutsService {
     private readonly registration: CheckoutRegistrationService,
   ) {}
 
-  register(
+  /**
+   * Register one path, then read the row as the owner will: a chat already
+   * bound to that root is listed as bound to it from the start.
+   */
+  async register(
     ownerUserId: string,
     input: RegisterCheckoutInput,
-  ): Promise<Checkout> {
-    return this.registration.register(ownerUserId, input);
+  ): Promise<CheckoutSummary> {
+    const checkout = await this.registration.register(ownerUserId, input);
+    return this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const repository = new RepositoriesRepository(tx);
+      const [summary] = await summarize(repository, ownerUserId, [checkout]);
+      return summary;
+    });
   }
 
   /** Every row of the owner, each with its bound chats and lease chat. */
@@ -154,5 +163,5 @@ function worktreeBaseFor(checkout: Checkout, submitted: string): string {
 }
 
 function invalidWorktreeBase(message: string) {
-  return repositoryFailure('unprocessable', 'invalid_worktree_base', message);
+  return repositoryFailure('invalid_worktree_base', message);
 }

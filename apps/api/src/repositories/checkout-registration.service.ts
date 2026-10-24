@@ -1,13 +1,13 @@
-import path from 'node:path';
 import { realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
 
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import {
   type GitInspectFailure,
+  type GitInspectResult,
   type GitInspectSuccess,
 } from '@workspace/git-executor';
 
-import { pgErrorCode } from '../db/pg-error';
 import {
   type Checkout,
   type CheckoutKind,
@@ -16,29 +16,33 @@ import {
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { isMachineLocator } from '../machines/machine-locator';
+import { evaluatePermission } from '../tools/permissions/evaluator';
+import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import { type CompiledPolicy } from '../tools/permissions/types';
 import { derivedDisplayName } from './display-name';
 import { notFound, repositoryFailure } from './failure';
-import { GIT_INSPECTOR, type GitInspector } from './git-inspector';
 import { canonicalOrigin, normalizeRemote } from './remote';
 import { RepositoriesRepository } from './repositories.repository';
-import {
-  requireWorkspacePathAllowed,
-  requireWorkspaceToolAllowed,
-} from './workspace-access';
 
-/**
+/*
  * Checkout registration for the local executor (design D4).
  *
  * The order is load-bearing and mirrors `enter_workspace`: refuse an
  * unconfigured executor and a missing allowlist entry before anything else,
  * decide the SUBMITTED path before any filesystem probe, decide the canonical
  * path before any git call, then inspect, decide the inspected main clone, and
- * only then write. A route therefore never probes a host path the owner may
- * not enter, and the inspected origin — never a caller's claim — decides which
+ * only then write. A route therefore never probes a host path the owner may not
+ * enter, and the inspected origin — never a caller's claim — decides which
  * repository the checkout joins.
  */
+
+/** The token of the in-process git surface, so a suite can substitute a fake. */
+export const GIT_INSPECTOR = Symbol('GIT_INSPECTOR');
+
+export type GitInspector = {
+  inspect(path: string): Promise<GitInspectResult>;
+};
 
 export type RegisterCheckoutInput = {
   /** One absolute local path in this layer. */
@@ -51,17 +55,17 @@ export type RegisterCheckoutInput = {
 
 type RegistrationPlan = {
   readonly executorId: string;
-  readonly canonicalPath: string;
   readonly inspection: GitInspectSuccess;
-};
-
-type RepositoryResolution = {
-  readonly db: RepositoriesRepository;
-  readonly ownerUserId: string;
-  readonly input: RegisterCheckoutInput;
-  readonly plan: RegistrationPlan;
+  /** The canonical path stored: the toplevel the executor reports. */
+  readonly checkoutPath: string;
+  /** The main clone a linked worktree belongs to, and its parent row's path. */
+  readonly mainClone: string;
+  /** The normalized `origin` remote, or `null` for a clone without one. */
   readonly canonicalRemote: string | null;
 };
+
+/** The one tool group these routes are gated by. */
+const WORKSPACE_TOOL_ID = 'enter_workspace';
 
 @Injectable()
 export class CheckoutRegistrationService {
@@ -87,6 +91,36 @@ export class CheckoutRegistrationService {
     );
   }
 
+  private async planInspection(
+    submittedPath: string,
+  ): Promise<RegistrationPlan> {
+    const executorId = this.localExecutor(submittedPath);
+    if (!this.config.config.tools.allowed.includes(WORKSPACE_TOOL_ID)) {
+      throw repositoryFailure(
+        'tool_not_allowed',
+        `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this path may not be inspected.`,
+      );
+    }
+    this.requirePathAllowed(submittedPath);
+
+    const canonicalPath = await canonicalDirectory(submittedPath);
+    this.requirePathAllowed(canonicalPath);
+
+    const inspection = await this.inspect(canonicalPath);
+    // The stored path is the toplevel git reports, so a subdirectory of a clone
+    // records the clone once, and a linked worktree records its own root. Its
+    // main clone is the path its parent row is stored at.
+    const mainClone = inspection.mainWorktree ?? inspection.toplevel;
+    if (mainClone !== canonicalPath) this.requirePathAllowed(mainClone);
+    return {
+      executorId,
+      inspection,
+      checkoutPath: inspection.toplevel,
+      mainClone,
+      canonicalRemote: canonicalOrigin(inspection.remotes),
+    };
+  }
+
   /**
    * The executor a submitted path runs on. A `machine://` locator names
    * `machine:<name>`, whose git methods arrive with the daemon layer, so this
@@ -97,45 +131,50 @@ export class CheckoutRegistrationService {
    */
   private localExecutor(submittedPath: string): string {
     if (submittedPath.includes('\0')) {
-      throw invalidPath('A checkout path must not contain a NUL byte.');
+      throw repositoryFailure(
+        'invalid_path',
+        'A checkout path must not contain a NUL byte.',
+      );
     }
     if (isMachineLocator(submittedPath)) {
-      throw executorUnavailable(
+      throw repositoryFailure(
+        'executor_unavailable',
         'A Machine path cannot be inspected by this hub yet; register it on a Machine that serves the git methods.',
       );
     }
     if (!path.isAbsolute(submittedPath)) {
-      throw invalidPath('A checkout path must be absolute.');
+      throw repositoryFailure(
+        'invalid_path',
+        'A checkout path must be absolute.',
+      );
     }
     const executorId = this.config.config.tools.nativeExecutorId;
     if (executorId === undefined) {
-      throw executorUnavailable(
+      throw repositoryFailure(
+        'executor_unavailable',
         'The serving process holds no tools.nativeExecutorId, so it cannot inspect a local path.',
       );
     }
     return executorId;
   }
 
-  private async planInspection(
-    submittedPath: string,
-  ): Promise<RegistrationPlan> {
-    const executorId = this.localExecutor(submittedPath);
-    requireWorkspaceToolAllowed(this.config.config.tools.allowed);
-    requireWorkspacePathAllowed(this.policy, submittedPath);
-
-    const canonicalPath = await canonicalDirectory(submittedPath);
-    requireWorkspacePathAllowed(this.policy, canonicalPath);
-
-    const inspection = await this.inspect(canonicalPath);
-    // A linked worktree is registered under its main clone, which is the path
-    // the worktree row's parent is stored at.
-    const mainClone = inspection.linked
-      ? (inspection.mainWorktree ?? inspection.toplevel)
-      : inspection.toplevel;
-    if (mainClone !== canonicalPath) {
-      requireWorkspacePathAllowed(this.policy, mainClone);
+  /**
+   * One path under the `enter_workspace` group, in `default` mode. An owner
+   * HTTP route has no Run and no permission mode, so it evaluates the group as
+   * a `default`-mode call would: no bypass, the same projection, and a refusal
+   * whenever nothing allows the path.
+   */
+  private requirePathAllowed(value: string): void {
+    const decision = evaluatePermission(this.policy, {
+      toolId: WORKSPACE_TOOL_ID,
+      args: { path: projectNativeFilePath(value) },
+    });
+    if (decision.decision === 'reject') {
+      throw repositoryFailure(
+        'permission_denied',
+        'The host access policy does not allow this path.',
+      );
     }
-    return { executorId, canonicalPath, inspection };
   }
 
   private async inspect(canonicalPath: string): Promise<GitInspectSuccess> {
@@ -150,306 +189,262 @@ export class CheckoutRegistrationService {
     input: RegisterCheckoutInput,
     plan: RegistrationPlan,
   ): Promise<Checkout> {
-    const canonicalRemote = canonicalOrigin(plan.inspection.remotes);
-    const repository = await this.resolveRepository({
+    const repository = await this.resolveRepository(
       db,
       ownerUserId,
       input,
       plan,
-      canonicalRemote,
-    });
+    );
     return this.createCheckout(db, ownerUserId, plan, repository);
   }
 
-  /** The one write of a registration: the row, or the conflict it earns. */
+  /**
+   * The one write of a registration. The unique key is the guard: a conflict
+   * rolls the whole transaction back, including an adopted parent, and answers
+   * the same 409 a pre-read would have.
+   */
   private async createCheckout(
     db: RepositoriesRepository,
     ownerUserId: string,
     plan: RegistrationPlan,
     repository: Repository,
   ): Promise<Checkout> {
-    if (
-      (await db.findCheckoutByPath(
-        ownerUserId,
-        plan.executorId,
-        plan.canonicalPath,
-      )) !== undefined
-    ) {
-      throw pathTaken();
-    }
     const kind: CheckoutKind = plan.inspection.linked ? 'worktree' : 'main';
-    const parent =
-      kind === 'worktree'
-        ? await this.mainParent(db, ownerUserId, repository, plan)
-        : undefined;
-    try {
-      return await db.createCheckout({
-        ownerUserId,
-        repositoryId: repository.id,
-        executorId: plan.executorId,
-        path: plan.canonicalPath,
-        kind,
-        parentCheckoutId: parent?.id ?? null,
-        branch: plan.inspection.branch,
-        origin: 'registered',
-      });
-    } catch (error) {
-      if (pgErrorCode(error) === '23505') throw pathTaken();
-      throw error;
+    const created = await db.createCheckout({
+      ownerUserId,
+      repositoryId: repository.id,
+      executorId: plan.executorId,
+      path: plan.checkoutPath,
+      kind,
+      parentCheckoutId:
+        kind === 'worktree'
+          ? (await this.mainParent(db, ownerUserId, repository, plan)).id
+          : null,
+      branch: plan.inspection.branch,
+      origin: 'registered',
+    });
+    if (created === undefined) {
+      throw repositoryFailure(
+        'path_taken',
+        'This executor path is already one of your checkouts.',
+      );
     }
+    return created;
   }
 
+  /**
+   * The inspected origin decides the repository; a selector only selects, and a
+   * mismatch with the origin is a validation error.
+   */
   private async resolveRepository(
-    request: RepositoryResolution,
+    db: RepositoriesRepository,
+    ownerUserId: string,
+    input: RegisterCheckoutInput,
+    plan: RegistrationPlan,
   ): Promise<Repository> {
-    const { db, ownerUserId, input, plan, canonicalRemote } = request;
-    if (
-      input.repositoryId !== undefined &&
-      input.repositoryId !== null &&
-      normalizeRemote(input.remote ?? '') !== ''
-    ) {
+    const selected =
+      (input.repositoryId ?? null) !== null ||
+      normalizeRemote(input.remote ?? '') !== '';
+    return selected
+      ? this.selectedRepository(db, ownerUserId, input, plan)
+      : this.adoptedRepository(db, ownerUserId, plan);
+  }
+
+  /** A `repositoryId` or a `remote`: an owner row the origin must agree with. */
+  private async selectedRepository(
+    db: RepositoriesRepository,
+    ownerUserId: string,
+    input: RegisterCheckoutInput,
+    plan: RegistrationPlan,
+  ): Promise<Repository> {
+    const selector = normalizeRemote(input.remote ?? '');
+    const declaredId = input.repositoryId ?? null;
+    if (declaredId !== null && selector !== '') {
       throw repositoryFailure(
-        'unprocessable',
         'invalid_selector',
         'Submit repositoryId or remote as the selector, not both.',
       );
     }
-    if (input.repositoryId !== undefined && input.repositoryId !== null) {
-      return this.declaredRepository(request, input.repositoryId);
-    }
-
-    const selector = normalizeRemote(input.remote ?? '');
-    if (selector !== '') return this.selectedRepository(request, selector);
-
-    if (canonicalRemote === null) {
-      // A clone without an origin takes its identity from this first checkout.
-      return db.createRepository({
-        ownerUserId,
-        displayName: derivedDisplayName(null, plan.inspection.toplevel),
-        canonicalRemote: null,
-      });
-    }
-    return this.adoptByRemote(db, ownerUserId, plan, canonicalRemote);
-  }
-
-  /** A `repositoryId` selector: an owner row that the origin must agree with. */
-  private async declaredRepository(
-    request: RepositoryResolution,
-    repositoryId: string,
-  ): Promise<Repository> {
-    const { db, ownerUserId, canonicalRemote } = request;
-    const declared = await db.findRepository(ownerUserId, repositoryId);
-    if (declared === undefined) throw notFound();
-    await this.requireOriginMatches(db, ownerUserId, declared, canonicalRemote);
-    return declared;
-  }
-
-  /** A `remote` selector: the canonical remote first, then a declared alias. */
-  private async selectedRepository(
-    request: RepositoryResolution,
-    selector: string,
-  ): Promise<Repository> {
-    const { db, ownerUserId, canonicalRemote } = request;
     const selected =
-      (await db.findRepositoryByRemote(ownerUserId, selector)) ??
-      (await db.findRepositoryByAlias(ownerUserId, selector));
+      declaredId !== null
+        ? await db.findRepository(ownerUserId, declaredId)
+        : ((await db.findRepositoryByRemote(ownerUserId, selector)) ??
+          (await db.findRepositoryByAlias(ownerUserId, selector)));
     if (selected === undefined) throw notFound();
-    await this.requireOriginMatches(db, ownerUserId, selected, canonicalRemote);
-    return selected;
+    return this.requireOriginMatches(db, ownerUserId, selected, plan);
   }
 
   /**
-   * The inspected origin selects the repository, and a clone of an already
-   * aliased remote joins the repository that alias names. Two concurrent
-   * adoptions of one clone resolve on the unique remote key: the loser re-reads
-   * the winner's row.
+   * No selector: the row already recorded at the main clone decides when there
+   * is one — a worktree must share its parent's repository, and a remote-less
+   * clone keeps the identity its first checkout gave it.
    */
-  private async adoptByRemote(
+  private async adoptedRepository(
     db: RepositoriesRepository,
     ownerUserId: string,
     plan: RegistrationPlan,
-    canonicalRemote: string,
   ): Promise<Repository> {
-    const existing =
-      (await db.findRepositoryByRemote(ownerUserId, canonicalRemote)) ??
-      (await db.findRepositoryByAlias(ownerUserId, canonicalRemote));
-    if (existing !== undefined) return existing;
-    try {
-      return await db.createRepository({
-        ownerUserId,
-        displayName: derivedDisplayName(
-          canonicalRemote,
-          plan.inspection.toplevel,
-        ),
-        canonicalRemote,
-      });
-    } catch (error) {
-      if (pgErrorCode(error) === '23505') {
-        const winner = await db.findRepositoryByRemote(
-          ownerUserId,
-          canonicalRemote,
-        );
-        if (winner !== undefined) return winner;
-      }
-      throw error;
+    const parentRow = await db.findCheckoutByPath(
+      ownerUserId,
+      plan.executorId,
+      plan.mainClone,
+    );
+    if (parentRow === undefined) return this.adopt(db, ownerUserId, plan);
+    const parentRepository = await db.findRepository(
+      ownerUserId,
+      parentRow.repositoryId,
+    );
+    if (parentRepository === undefined) throw notFound();
+    return this.requireOriginMatches(db, ownerUserId, parentRepository, plan);
+  }
+
+  /**
+   * The repository the inspected origin names, created when the owner holds
+   * none. Two concurrent adoptions of one clone resolve on the unique remote
+   * key: the loser reads the winner's committed row.
+   */
+  private async adopt(
+    db: RepositoriesRepository,
+    ownerUserId: string,
+    plan: RegistrationPlan,
+  ): Promise<Repository> {
+    const canonicalRemote = plan.canonicalRemote;
+    if (canonicalRemote !== null) {
+      const existing =
+        (await db.findRepositoryByRemote(ownerUserId, canonicalRemote)) ??
+        (await db.findRepositoryByAlias(ownerUserId, canonicalRemote));
+      if (existing !== undefined) return existing;
     }
+    const created = await db.createRepository({
+      ownerUserId,
+      displayName: derivedDisplayName(
+        canonicalRemote,
+        plan.inspection.toplevel,
+      ),
+      canonicalRemote,
+    });
+    if (created !== undefined) return created;
+    if (canonicalRemote === null) {
+      // A NULL remote never conflicts on the unique key.
+      throw new Error('A remote-less repository cannot lose an insert race.');
+    }
+    const winner = await db.findRepositoryByRemote(
+      ownerUserId,
+      canonicalRemote,
+    );
+    if (winner === undefined) throw notFound();
+    return winner;
   }
 
   private async requireOriginMatches(
     db: RepositoriesRepository,
     ownerUserId: string,
     repository: Repository,
-    canonicalRemote: string | null,
-  ): Promise<void> {
+    plan: RegistrationPlan,
+  ): Promise<Repository> {
+    const canonicalRemote = plan.canonicalRemote;
     if (
       canonicalRemote === null ||
       repository.canonicalRemote === canonicalRemote
     ) {
-      return;
+      return repository;
     }
     const aliases = await db.listAliases(ownerUserId, repository.id);
     if (aliases.some((alias) => alias.canonicalAlias === canonicalRemote)) {
-      return;
+      return repository;
     }
     throw repositoryFailure(
-      'unprocessable',
       'origin_mismatch',
       'The inspected origin does not match the declared repository.',
     );
   }
 
-  /** The main clone a linked worktree belongs to, adopted when unregistered. */
+  /**
+   * The main clone a linked worktree belongs to, adopted when unregistered. The
+   * parent must belong to the same repository, so a main row of another
+   * repository refuses the worktree instead of recording a broken pair.
+   */
   private async mainParent(
     db: RepositoriesRepository,
     ownerUserId: string,
     repository: Repository,
     plan: RegistrationPlan,
   ): Promise<Checkout> {
-    const mainClone = plan.inspection.mainWorktree ?? plan.inspection.toplevel;
-    const existing = await db.findCheckoutByPath(
-      ownerUserId,
-      plan.executorId,
-      mainClone,
-    );
-    return existing === undefined
-      ? this.adoptMainRow(db, {
-          ownerUserId,
-          repositoryId: repository.id,
-          executorId: plan.executorId,
-          path: mainClone,
-        })
-      : requireMainRow(existing);
-  }
-
-  /**
-   * Record the main clone of a linked worktree. The row is intent, so its
-   * branch stays null: this inspection read the worktree's HEAD, not the main
-   * clone's. A concurrent adoption re-reads the winner's row.
-   */
-  private async adoptMainRow(
-    db: RepositoriesRepository,
-    values: {
-      readonly ownerUserId: string;
-      readonly repositoryId: string;
-      readonly executorId: string;
-      readonly path: string;
-    },
-  ): Promise<Checkout> {
-    try {
-      return await db.createCheckout({
-        ...values,
+    const findByPath = () =>
+      db.findCheckoutByPath(ownerUserId, plan.executorId, plan.mainClone);
+    const parent =
+      (await findByPath()) ??
+      (await db.createCheckout({
+        ownerUserId,
+        repositoryId: repository.id,
+        executorId: plan.executorId,
+        path: plan.mainClone,
         kind: 'main',
         parentCheckoutId: null,
+        // Intent only: this inspection read the worktree's HEAD, not the main
+        // clone's.
         branch: null,
         origin: 'adopted',
-      });
-    } catch (error) {
-      if (pgErrorCode(error) === '23505') {
-        const winner = await db.findCheckoutByPath(
-          values.ownerUserId,
-          values.executorId,
-          values.path,
-        );
-        if (winner !== undefined) return winner;
-      }
-      throw error;
+      })) ??
+      // A concurrent registration adopted the parent first; its committed row
+      // is visible to this statement.
+      (await findByPath());
+    if (parent === undefined) throw notFound();
+    if (parent.repositoryId !== repository.id || parent.kind !== 'main') {
+      throw repositoryFailure(
+        'invalid_path',
+        'The main clone of this worktree belongs to another repository, or is recorded as a worktree.',
+      );
     }
+    return parent;
   }
-}
-
-function requireMainRow(checkout: Checkout): Checkout {
-  if (checkout.kind !== 'main') {
-    throw repositoryFailure(
-      'unprocessable',
-      'invalid_path',
-      'The main clone path is already recorded as a worktree.',
-    );
-  }
-  return checkout;
 }
 
 /** The canonical directory the submitted path resolves to. */
 async function canonicalDirectory(submittedPath: string): Promise<string> {
-  try {
-    const canonicalPath = await realpath(submittedPath);
-    const target = await stat(canonicalPath);
-    if (!target.isDirectory()) {
-      throw repositoryFailure(
-        'unprocessable',
-        'not_a_directory',
-        'The checkout path is not a directory.',
-      );
-    }
-    return canonicalPath;
-  } catch (error) {
-    if (error instanceof HttpException) throw error;
+  const canonicalPath = await realpath(submittedPath).catch(() => undefined);
+  if (canonicalPath === undefined) {
     throw repositoryFailure(
-      'not_found',
-      'not_found',
+      'invalid_path',
       'The checkout path does not exist.',
     );
   }
+  const target = await stat(canonicalPath).catch(() => undefined);
+  if (target === undefined) {
+    throw repositoryFailure(
+      'invalid_path',
+      'The checkout path cannot be read.',
+    );
+  }
+  if (!target.isDirectory()) {
+    throw repositoryFailure(
+      'not_a_directory',
+      'The checkout path is not a directory.',
+    );
+  }
+  return canonicalPath;
 }
 
-function gitInspectionFailure(result: GitInspectFailure) {
+function gitInspectionFailure(result: GitInspectFailure): HttpException {
   switch (result.type) {
     case 'invalid_input':
-      return repositoryFailure('unprocessable', 'invalid_path', result.message);
+      return repositoryFailure('invalid_path', result.message);
     case 'not_a_repository':
       return repositoryFailure(
-        'unprocessable',
         'not_a_repository',
         'The path holds no git repository.',
       );
     case 'timed_out':
       return repositoryFailure(
-        'bad_gateway',
         'git_failed',
         'Inspection did not finish within its timeout.',
       );
     default:
       return repositoryFailure(
-        'bad_gateway',
         'git_failed',
         result.stderr === ''
           ? 'Inspection failed.'
           : `Inspection failed: ${result.stderr}`,
       );
   }
-}
-
-function invalidPath(message: string) {
-  return repositoryFailure('unprocessable', 'invalid_path', message);
-}
-
-function executorUnavailable(message: string) {
-  return repositoryFailure('unavailable', 'executor_unavailable', message);
-}
-
-function pathTaken() {
-  return repositoryFailure(
-    'conflict',
-    'path_taken',
-    'This executor path is already one of your checkouts.',
-  );
 }

@@ -7,11 +7,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-import {
-  type Checkout,
-  type CheckoutKind,
-  type CheckoutOrigin,
-} from '../../db/schema';
+import { type CheckoutKind, type CheckoutOrigin } from '../../db/schema';
 import { type CheckoutSummary } from '../checkouts.service';
 
 const PATH_MAX = 4096;
@@ -140,12 +136,4 @@ export function toCheckoutResponse(
     createdAt: checkout.createdAt,
     updatedAt: checkout.updatedAt,
   };
-}
-
-/** The response of a just-created checkout: no chat binds it and no lease
- *  records it yet. */
-export function toCreatedCheckoutResponse(
-  checkout: Checkout,
-): CheckoutResponse {
-  return toCheckoutResponse({ ...checkout, chatIds: [], leaseChatId: null });
 }

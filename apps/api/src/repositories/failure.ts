@@ -1,4 +1,6 @@
-import { HttpException } from '@nestjs/common';
+import { STATUS_CODES } from 'node:http';
+
+import { HttpException, HttpStatus } from '@nestjs/common';
 
 /**
  * The typed failure envelope of the repository and checkout routes
@@ -30,41 +32,44 @@ export const REPOSITORY_FAILURE_CODES = [
 
 export type RepositoryFailureCode = (typeof REPOSITORY_FAILURE_CODES)[number];
 
-type FailureKind =
-  | 'not_found'
-  | 'conflict'
-  | 'forbidden'
-  | 'unprocessable'
-  | 'bad_gateway'
-  | 'unavailable';
-
-const FAILURE_STATUS = {
-  not_found: { statusCode: 404, error: 'Not Found' },
-  conflict: { statusCode: 409, error: 'Conflict' },
-  forbidden: { statusCode: 403, error: 'Forbidden' },
-  unprocessable: { statusCode: 422, error: 'Unprocessable Entity' },
-  bad_gateway: { statusCode: 502, error: 'Bad Gateway' },
-  unavailable: { statusCode: 503, error: 'Service Unavailable' },
-} as const satisfies Record<FailureKind, { statusCode: number; error: string }>;
+// Each code has exactly one status, so a call site cannot pair the wrong pair.
+const STATUS: Record<RepositoryFailureCode, HttpStatus> = {
+  not_found: HttpStatus.NOT_FOUND,
+  remote_taken: HttpStatus.CONFLICT,
+  alias_taken: HttpStatus.CONFLICT,
+  path_taken: HttpStatus.CONFLICT,
+  invalid_display_name: HttpStatus.UNPROCESSABLE_ENTITY,
+  invalid_path: HttpStatus.UNPROCESSABLE_ENTITY,
+  invalid_remote: HttpStatus.UNPROCESSABLE_ENTITY,
+  invalid_selector: HttpStatus.UNPROCESSABLE_ENTITY,
+  not_a_directory: HttpStatus.UNPROCESSABLE_ENTITY,
+  origin_mismatch: HttpStatus.UNPROCESSABLE_ENTITY,
+  not_a_repository: HttpStatus.UNPROCESSABLE_ENTITY,
+  invalid_worktree_base: HttpStatus.UNPROCESSABLE_ENTITY,
+  tool_not_allowed: HttpStatus.FORBIDDEN,
+  permission_denied: HttpStatus.FORBIDDEN,
+  executor_unavailable: HttpStatus.SERVICE_UNAVAILABLE,
+  git_failed: HttpStatus.BAD_GATEWAY,
+};
 
 /** The exception one typed failure answers with. */
 export function repositoryFailure(
-  kind: FailureKind,
   code: RepositoryFailureCode,
   message: string,
 ): HttpException {
-  const status = FAILURE_STATUS[kind];
+  const statusCode = STATUS[code];
   return new HttpException(
-    { statusCode: status.statusCode, error: status.error, message, code },
-    status.statusCode,
+    {
+      statusCode,
+      error: STATUS_CODES[statusCode] ?? 'Error',
+      message,
+      code,
+    },
+    statusCode,
   );
 }
 
 /** A repository or checkout the caller does not own is simply not there. */
 export function notFound(): HttpException {
-  return repositoryFailure(
-    'not_found',
-    'not_found',
-    'Repository record not found',
-  );
+  return repositoryFailure('not_found', 'Repository record not found');
 }

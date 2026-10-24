@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+
 import { pgErrorCode } from '../db/pg-error';
 import { type Repository, type RepositoryAlias } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
@@ -27,24 +28,20 @@ export class RepositoriesService {
     ownerUserId: string,
     input: { readonly displayName: string; readonly remote?: string | null },
   ): Promise<Repository> {
-    requireValidDisplayName(input.displayName);
+    const problem = displayNameProblem(input.displayName);
+    if (problem !== null) throw invalidDisplayName(problem);
     const canonicalRemote = normalizeRemote(input.remote ?? '') || null;
-    return this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const repository = new RepositoriesRepository(tx);
-      if (canonicalRemote !== null) {
-        await requireRemoteFree(repository, ownerUserId, canonicalRemote);
-      }
-      try {
-        return await repository.createRepository({
-          ownerUserId,
-          displayName: input.displayName,
-          canonicalRemote,
-        });
-      } catch (error) {
-        if (pgErrorCode(error) === '23505') throw remoteTaken(canonicalRemote);
-        throw error;
-      }
-    });
+    const created = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new RepositoriesRepository(tx).createRepository({
+        ownerUserId,
+        displayName: input.displayName,
+        canonicalRemote,
+      }),
+    );
+    // The unique key decides, so a concurrent claim of the same remote lands
+    // here as the same conflict as a sequential one.
+    if (created === undefined) throw remoteTaken(canonicalRemote);
+    return created;
   }
 
   async updateRepository(
@@ -53,31 +50,32 @@ export class RepositoriesService {
     patch: { readonly displayName?: string; readonly remote?: string | null },
   ): Promise<Repository> {
     if (patch.displayName !== undefined) {
-      requireValidDisplayName(patch.displayName);
+      const problem = displayNameProblem(patch.displayName);
+      if (problem !== null) throw invalidDisplayName(problem);
     }
     const canonicalRemote =
       patch.remote === undefined
         ? undefined
         : normalizeRemote(patch.remote ?? '') || null;
-    if (canonicalRemote !== null && canonicalRemote !== undefined) {
-      await this.requireRemoteFreeFor(
-        ownerUserId,
-        repositoryId,
-        canonicalRemote,
+    let updated: Repository | undefined;
+    try {
+      updated = await this.tenantDb.runAs(ownerUserId, (tx) =>
+        new RepositoriesRepository(tx).updateRepository(
+          ownerUserId,
+          repositoryId,
+          {
+            ...(patch.displayName !== undefined && {
+              displayName: patch.displayName,
+            }),
+            ...(canonicalRemote !== undefined && { canonicalRemote }),
+          },
+        ),
       );
+    } catch (error) {
+      if (pgErrorCode(error) === '23505')
+        throw remoteTaken(canonicalRemote ?? null);
+      throw error;
     }
-    const updated = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new RepositoriesRepository(tx).updateRepository(
-        ownerUserId,
-        repositoryId,
-        {
-          ...(patch.displayName !== undefined && {
-            displayName: patch.displayName,
-          }),
-          ...(canonicalRemote !== undefined && { canonicalRemote }),
-        },
-      ),
-    );
     if (updated === undefined) throw notFound();
     return updated;
   }
@@ -103,12 +101,11 @@ export class RepositoriesService {
     const canonicalAlias = normalizeRemote(remote);
     if (canonicalAlias === '') {
       throw repositoryFailure(
-        'unprocessable',
         'invalid_remote',
         'A repository alias must be a remote.',
       );
     }
-    return this.tenantDb.runAs(ownerUserId, async (tx) => {
+    const alias = await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
       if (
         (await repository.findRepository(ownerUserId, repositoryId)) ===
@@ -116,69 +113,31 @@ export class RepositoriesService {
       ) {
         throw notFound();
       }
-      try {
-        return await repository.declareAlias({
-          ownerUserId,
-          repositoryId,
-          canonicalAlias,
-        });
-      } catch (error) {
-        if (pgErrorCode(error) === '23505') {
-          throw repositoryFailure(
-            'conflict',
-            'alias_taken',
-            'That remote is already an alias of this owner.',
-          );
-        }
-        throw error;
-      }
-    });
-  }
-
-  private async requireRemoteFreeFor(
-    ownerUserId: string,
-    repositoryId: string,
-    canonicalRemote: string,
-  ): Promise<void> {
-    const held = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new RepositoriesRepository(tx).findRepositoryByRemote(
+      return repository.declareAlias({
         ownerUserId,
-        canonicalRemote,
-      ),
-    );
-    if (held !== undefined && held.id !== repositoryId) {
-      throw remoteTaken(canonicalRemote);
+        repositoryId,
+        canonicalAlias,
+      });
+    });
+    if (alias === undefined) {
+      throw repositoryFailure(
+        'alias_taken',
+        'That remote is already an alias of this owner.',
+      );
     }
+    return alias;
   }
 }
 
-function requireValidDisplayName(name: string): void {
-  const problem = displayNameProblem(name);
-  if (problem !== null) {
-    throw repositoryFailure(
-      'unprocessable',
-      'invalid_display_name',
-      `displayName ${problem}; it is one path segment of at most ${DISPLAY_NAME_MAX} characters.`,
-    );
-  }
-}
-
-async function requireRemoteFree(
-  repository: RepositoriesRepository,
-  ownerUserId: string,
-  canonicalRemote: string,
-): Promise<void> {
-  if (
-    (await repository.findRepositoryByRemote(ownerUserId, canonicalRemote)) !==
-    undefined
-  ) {
-    throw remoteTaken(canonicalRemote);
-  }
+function invalidDisplayName(problem: string) {
+  return repositoryFailure(
+    'invalid_display_name',
+    `displayName ${problem}; it is one path segment of at most ${DISPLAY_NAME_MAX} characters.`,
+  );
 }
 
 function remoteTaken(canonicalRemote: string | null) {
   return repositoryFailure(
-    'conflict',
     'remote_taken',
     `The remote ${canonicalRemote ?? ''} is already one of this owner's repositories.`,
   );
