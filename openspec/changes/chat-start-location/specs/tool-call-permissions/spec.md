@@ -6,8 +6,7 @@
 
 The create request MUST record each path decision in an owner-only creation
 record of the chat. The record MUST hold a list of attempts. Each attempt MUST
-carry its decisions and its `created_at`. Each create or resend MUST append one
-attempt in its own transaction. Each decision MUST carry the provenance fields
+carry its decisions and its `created_at`. Each decision MUST carry the provenance fields
 of a derived decision, and that includes a `bypass` decision. Only the owner
 MUST read the record through `GET /api/v1/chats/:id/creation-record`, and
 another principal MUST receive 404.
@@ -38,3 +37,21 @@ another principal MUST receive 404.
 
 - **WHEN** another user requests the creation record of a chat
 - **THEN** the response is 404 and it discloses no decision
+
+### Requirement: A creation attempt is appended only after a path decision
+
+A create or resend MUST append one attempt when its Workspace step takes a path
+decision. The attempt MUST commit in its own transaction, before any git write,
+and it MUST stay when a later step fails. A request that fails validation,
+answers 404 or 409, or resolves no location MUST append no attempt.
+
+#### Scenario: A 422 create appends no attempt
+
+- **WHEN** the request sets `baseRef` to `--x` and the create answers 422
+- **THEN** the creation record holds no attempt and the create stores nothing
+
+#### Scenario: A rejected decision keeps its attempt
+
+- **WHEN** a path decision rejects and the create answers `bind_failed`
+- **THEN** the creation record holds one attempt with the rejected decision
+- **AND** the attempt stays after the failed step

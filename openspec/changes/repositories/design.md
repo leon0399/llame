@@ -15,10 +15,9 @@ See proposal.md - Why. Current state that shapes the approach:
 
 The evidence base is the
 [project, repository, and machine association study](../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md)
-and the 2026-10-24 grilling record cited by Q code below. Where the study's
-earlier sketch differs from the settled decisions, the settled decisions win:
-leases are informational (not enforced), no sweep ships, and
-`owner-chat-forks` is unchanged.
+and the 2026-10-24 grilling record cited by Q code below. The settled decisions
+are: leases are informational, no sweep ships, and `owner-chat-forks` is
+unchanged.
 
 ## Goals / Non-Goals
 
@@ -143,9 +142,12 @@ Rejected:
 ### D3. A lease is an informational receipt (Q5)
 
 `worktree_leases` holds `id`, `owner_user_id`, `chat_id`, `checkout_id`,
-`base_ref`, and `created_at`, written when a Chat creates a worktree. It
-refuses nothing: a second Chat can bind a leased path, and a fork copies its
-bound root as `owner-chat-forks` does today.
+`base_ref`, `base_commit`, and `created_at`, written when a Chat creates a
+worktree. `base_commit` is the `head` that `git.worktreeAdd` reports, which the
+create result also reports as `baseCommit`. The removal guard reads it when a
+fresh llame worktree has no upstream. A lease refuses nothing: a second Chat
+can bind a leased path, and a fork copies its bound root as `owner-chat-forks`
+does today.
 
 `GET /api/v1/checkouts` is the owner surface for the receipt: for every row it
 returns the ids of the owner's chats whose bound root equals the row's path.
@@ -154,13 +156,13 @@ checkout, and their `chat_id` and `checkout_id` are composite owner foreign
 keys as in D2.
 
 Rejected: an enforced lease, with one active lease per worktree and a refusal
-for a second bound root, as the study's earlier sketch had. Enforcement needs a
-release lifecycle, a lost-lease state, and a fork rule. Every one of them is a
-new failure mode for a receipt the owner can read.
+for a second bound root. Enforcement needs a release lifecycle, a lost-lease
+state, and a fork rule. Every one of them is a new failure mode for a receipt
+the owner can read.
 
 The concurrency hint that a UI needs comes from the bound root and the lease
-together, without a refusal. The study's OD4 (fork of a leased Chat) disappears
-with enforcement.
+together, without a refusal. Enforcement also needs an answer to the OD4 fork
+question.
 
 ### D4. Registration inspects the executor through typed git operations (Q7 A, Q23 B, Q16 A, Q16' A)
 
@@ -175,7 +177,7 @@ it, so one implementation defines the argv, the environment, and the timeout.
 | `git.worktreeAdd`    | `{ source, branch, baseRef, directory }` | `{ path, branch, head }` or `{ failed, stderr }`                                                      |
 | `git.worktreeList`   | `{ source }`                             | `[{ path, branch, head, locked, prunable }]`                                                          |
 | `git.worktreeRemove` | `{ path }`                               | ok, or `{ failed, stderr }`                                                                           |
-| `git.status`         | `{ path }`                               | `{ dirty, ahead, upstream? }`                                                                         |
+| `git.status`         | `{ path }`                               | `{ dirty, ahead, upstream?, head }`                                                                   |
 
 `git.inspect` reports `commonDir` from `git rev-parse --git-common-dir`, a
 `linked` flag, and `mainWorktree` for a linked worktree. Registration and adoption need those fields to store a linked worktree as a `worktree` row whose parent is the main clone. They run no `git.worktreeList` call.
@@ -183,8 +185,15 @@ it, so one implementation defines the argv, the environment, and the timeout.
 Every call spawns `git` with an argv array, never a shell string, and a fixed
 environment: `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`, and `GIT_OPTIONAL_LOCKS=0`
 on every call. It runs with `-c core.hooksPath=<empty directory>` and
-`-c core.fsmonitor=false`, so a repository's own configuration never starts a
-command as the hub or daemon user.
+`-c core.fsmonitor=false`, so repository hooks and the file-system monitor
+never run.
+
+Filter drivers (`filter.<driver>.smudge`, `.clean`, `.process`) from the
+repository or user configuration still run during `git.worktreeAdd` and
+`git.status`. They run as the executor user, the same identity that runs `bash`
+for this owner. That is the trust boundary of the `execute_code` classification
+that `enter_workspace` already carries. A disabled filter breaks a Git LFS
+checkout.
 
 Each caller value MUST either fail as invalid input when it starts with `-` (a
 name, a branch, or a base ref) or follow `--end-of-options`, or `--` where the
@@ -337,12 +346,16 @@ worktree becomes a `worktree` row whose parent is its main clone. That main
 clone is the source for the new worktree.
 
 A redelivered Run that carries the recorded `native.attempt` fails as
-`outcome_unknown`, per the canonical rule in
+`outcome_unknown`, under the redelivery rule in
 `openspec/specs/tool-calling/spec.md`. It does not replay its loop, so it
-creates no second worktree. A crash or a fence loss before the commit leaves an
-orphan directory and no checkout, lease, adopted row, or bound root. A failure
-before the add writes no repository, checkout, or lease row, and leaves the
-bound root and its generation unchanged.
+creates no second worktree. The canonical registry requirement says that
+`enter_workspace` and `exit_workspace` record no attempt, so this change
+MODIFIES "Tool registry with mandatory safety classification" in a
+`tool-calling` delta. The delta states the worktree attempt, and it keeps the
+attempt-free rule for a plain entry and for exit. A crash or a fence loss
+before the commit leaves an orphan directory and no checkout, lease, adopted
+row, or bound root. A failure before the add writes no repository, checkout, or
+lease row, and leaves the bound root and its generation unchanged.
 
 The codes are these. `invalid_path` or `invalid_input` covers a bad input.
 `not_found` covers a missing source. `permission_denied` covers a rejected
@@ -369,18 +382,23 @@ Rejected:
 ### D6. Removal is owner-initiated, guarded, and row-only (Q12 A, Q27 B)
 
 `DELETE /api/v1/checkouts/:id/worktree` takes a worktree checkout and runs one
-guard sequence on its executor: `git.status` reports `dirty`, `ahead`, and
-`upstream`. A dirty worktree is refused. A missing upstream is refused, because
-the guard cannot prove the branch is pushed. A non-zero `ahead` is refused.
+guard sequence on its executor: `git.status` reports `dirty`, `ahead`,
+`upstream`, and `head`. A dirty worktree is refused. A missing upstream is
+refused, unless the `head` of the worktree equals the `base_commit` recorded in
+its lease. A non-zero `ahead` is refused.
 
 Only then does `git.worktreeRemove` run, and only after it succeeds does the
-row and its lease disappear. The route passes the same gates as registration
-(D4): a derived executor that is configured, `enter_workspace` in
-`tools.allowed`, and both the submitted and canonical checkout path accepted by
-the `enter_workspace` group in `default` mode. Every git call uses the
-sanitized environment, so the repository's hooks and `core.fsmonitor` never
-run. No agent-facing removal exists in this change. A later change can add
-`exit_workspace(remove)` with the same guard.
+row and its lease disappear. `git worktree remove` keeps the `llame/<name>`
+branch, so a clean removal loses no commit. A worktree with no lease, which is
+registered or adopted, keeps the fail-closed rule. No recorded base commit can
+then prove that the branch is unchanged.
+
+The route passes the same gates as registration (D4): a derived executor that
+is configured, `enter_workspace` in `tools.allowed`, and both the submitted and
+canonical checkout path accepted by the `enter_workspace` group in `default`
+mode. Every git call uses the sanitized environment, so the repository's hooks
+and `core.fsmonitor` never run. No agent-facing removal exists in this change.
+A later change can add `exit_workspace(remove)` with the same guard.
 
 Row deletion cascades rows and never files: a repository delete removes its main
 and worktree checkout rows and their leases. A main-checkout delete removes its
@@ -418,7 +436,8 @@ Rejected:
 - [A git credential prompt hangs a daemon] -> `GIT_TERMINAL_PROMPT=0`, no network operation, a per-call timeout, and a typed failure.
 - [A caller string becomes a command line] -> typed methods take argv arrays that the server builds. No route accepts a command, and a test asserts the argv shape for each method.
 - [A worktree directory escapes a Machine root or a policy reject] -> the call canonicalizes the target through its deepest ancestor that exists. The daemon guard decides before any git call and answers `path_not_registered`. The local decision uses the same canonical form. Tests cover a display name with `..`, a symlinked parent, and a symlinked `.llame-worktrees`.
-- [Removal destroys unpushed work] -> refuse dirty, refuse ahead, fail closed on an unknown upstream, and one test per refusal.
+- [A repository filter driver runs a command] -> `core.hooksPath` and `core.fsmonitor=false` stop repository hooks and the file-system monitor, not filter drivers. A smudge, clean, or process filter from the repository or user configuration runs during `git.worktreeAdd` and `git.status`. It runs as the executor user, the identity that runs `bash` for this owner, which is the trust boundary of the `execute_code` classification. A disabled filter breaks a Git LFS checkout.
+- [Removal destroys unpushed work] -> refuse dirty, refuse ahead, and one test per refusal. Fail closed on an unknown upstream unless HEAD equals the recorded base commit.
 - [A cascade surprises an owner] -> rows only, directories stay, and both the API response and the operator page say so.
 - [Two registrations race on one path] -> the unique `(owner_user_id, executor_id, path)` key becomes a conflict response for that owner, and a test covers it.
 - [Adoption records the wrong repository] -> inspection is the authority, an alias match only selects, and a mismatch is a validation error.

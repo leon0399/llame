@@ -303,13 +303,18 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Use the request's `message.permissionMode`
   - Use `default` for an omitted mode, against this process's config
   - Apply the entry gates
-  - Append one attempt to the chat's creation record
-  - The attempt joins the request's transaction
+  - Append one attempt, with every decision, when the first path decision runs
+  - The attempt commits in its own transaction, before any git write
+  - The attempt stays when a later step fails
+  - A request that fails validation, answers 404 or 409, or resolves no
+    location appends no attempt
   - Each attempt holds every decision, a bypass decision included
   - Each attempt holds the provenance fields of a derived decision
   - Leave `WorkspaceBindingRepository.enter` and its Run fence unchanged
   - Verify a `bypass` request on a process without bypass answers 422
   - Verify that no store happens first
+  - Verify that a 422, 404, or 409 create appends no attempt
+  - Verify that one attempt stays after a rejected decision
   - Verify a rejected submitted path answered `bind_failed`
   - Verify a rejected canonical path, source clone, or worktree directory
   - Each of those answers `bind_failed` with `code` `permission_denied`
@@ -328,6 +333,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Cite "The Workspace step requires the entry gates"
   - Cite "A rejected path refuses the binding before any git command"
   - Cite "Chat-creation path decisions are recorded with the chat"
+  - Cite "A creation attempt is appended only after a path decision"
 
 - [ ] 4.4 Add the Run-free worktree step.
 
@@ -347,10 +353,21 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
 
 - [ ] 4.5 Store the bound root after the worktree step.
 
-  - Use `workspace_generation + 1`
+  - Call `WorkspaceBindingRepository.bindAtCreation(tx, { chatId, ownerUserId, executorId, root })`
+  - Pass the caller's transaction, under `runAs(owner)`
+  - It locks the chat row
+  - It requires no message and no Run on the chat
+  - It requires the chat to be unbound, or bound to the root of its own
+    creation lease
+  - It sets the root and the executor with `workspace_generation + 1`
+  - It never takes a synthetic Run and never writes an unscoped update
   - A creation bound root counts as an entry that establishes a bound root
   - Then commit the message and its Run row together
   - Enqueue the Run after that commit
+  - Verify that no binding is stored for a chat that holds a message
+  - Verify that no binding is stored for a chat that holds a Run
+  - Verify that no binding is stored for a chat bound to another root
+  - Verify that each of those answers 409
   - Verify a create that answers 201 with `workspace.status` `bound`
   - Verify that `GET /api/v1/chats/:id/stream` replays the Run
   - Verify that `workspace.status` `unbound` stores the message
@@ -390,6 +407,12 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Release it at the end of the request or when that connection ends
   - Keep the steps in their separate transactions
   - Answer 409 `creation_in_progress` to a same-id create that overlaps
+  - Derive the key in one shared function
+  - Use a different seed, or a two-key form, from the org-unit locks
+  - Take `pg_try_advisory_xact_lock` with the same key in the message route
+  - Take it inside that route's admission transaction
+  - Answer 409 `creation_in_progress` to a message that overlaps a create
+  - Store no message and no Run in that answer
   - A resend on a stored chat with no message re-runs the remaining steps
   - It reuses the creation lease and the bound root
   - A stored chat that holds a message answers 409
@@ -401,7 +424,11 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - A resend with a different `projectId` answers 409 `project_mismatch`
   - Another owner's chat id answers 404, with no disclosure
   - Verify that two concurrent creates with one id create one worktree
+  - Verify that a message during a create answers 409 `creation_in_progress`
+  - Verify that it stores no message and no Run
+  - Verify that a create after a committed first message answers 409
   - Cite "Creation serializes requests for one chat id"
+  - Cite "The message route refuses a chat that a create request holds"
   - Cite "A resent create request reuses the stored chat and its binding"
   - Cite "A resend refuses an archived chat or another project"
 
@@ -418,12 +445,14 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - Cite "Project repository defaults remember the last chosen checkout per
     executor"
 
-- [ ] 4.9 Verify the first-message path is unchanged.
+- [ ] 4.9 Verify the first-message path is otherwise unchanged.
 
   - The current `POST /api/v1/chats/:id/messages` suite passes without edits
+    other than the new creation-lock refusal test
   - A locationless create-or-append still produces an unfiled chat
   - That chat has no bound root
   - Cite "The first-message creation path is unchanged"
+  - Cite "The message route refuses a chat that a create request holds"
 
 - [ ] 4.10 Add the `POST /api/v1/chats` reference page.
 
