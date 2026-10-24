@@ -22,6 +22,11 @@ reconciles a row against `git worktree list`, and never deletes a directory:
 removing a checkout or a repository deletes rows only. A Chat keeps its stored
 Workspace path, and its next Run re-checks that binding as before.
 
+One remote names one repository of an owner. An alias may not name a remote
+that is already another repository's canonical remote, and a repository may not
+take an alias's remote as its canonical one: both answer `409`, so a later
+registration of that remote always joins the repository its alias names.
+
 ## Requirements
 
 Registration runs git, so the serving process must be allowed to. Three

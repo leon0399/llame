@@ -8,7 +8,7 @@
  * `ProjectsRepository`'s own documented rationale.
  */
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import {
   type Checkout,
@@ -91,6 +91,27 @@ export class RepositoriesRepository {
       )
       .limit(1);
     return rows[0]?.repository;
+  }
+
+  /**
+   * Serialize this owner's claims of one canonical remote for the rest of the
+   * transaction. A canonical remote and an alias are unique in their own table,
+   * so no single key refuses a claim that spans both; without this lock, a
+   * check-then-write in one direction can miss a concurrent write in the
+   * other, and one remote would name two repositories. The lock is
+   * transaction-scoped — released on commit or rollback — and keyed by owner
+   * and remote, so two owners never wait on each other.
+   */
+  async lockRemoteClaim(
+    ownerUserId: string,
+    canonicalRemote: string | null,
+  ): Promise<void> {
+    await this.db.execute(sql`
+      select pg_advisory_xact_lock(
+        hashtext('repository-remotes'),
+        hashtext(${`${ownerUserId}:${canonicalRemote ?? ''}`})
+      )
+    `);
   }
 
   /**
