@@ -132,8 +132,17 @@ attempt before any filesystem probe, client stop, client start, declaration
 change, or other side effect.
 
 Only the owner's Run context changes the bound root, through `enter_workspace`,
-`exit_workspace`, or a detach. An owner fork copies the bound root, subject to
+`exit_workspace`, or a detach. The owner's authenticated chat-creation request
+can also establish the first bound root of the Chat that it creates. A request
+that establishes the bound root MUST increment the generation, as an entry that
+establishes a bound root does. An owner fork copies the bound root, subject to
 the fork's first-Run re-check.
+
+When it establishes the bound root, the request MUST use the same ordered path
+decisions as `enter_workspace`. It MUST require `enter_workspace` in
+`tools.allowed`. It MUST require a configured native executor equal to the
+resolved local executor id, or a configured Machine. It MUST use `default` or an
+enabled `bypass` permission mode.
 
 The owner's Chat API MUST read the bound root and the owner's checkout list. The
 system MUST refuse any other principal a read or a change of it. The owner's
@@ -155,6 +164,15 @@ select an owner, a Chat, an executor, or a permission mode.
   executor, with no exit, switch, or detach between the Runs
 - **THEN** the Chat's Workspace root stays bound across the Run boundary
 - **AND** the later Run re-checks that bound root before it uses it
+
+#### Scenario: A chat-creation request establishes the first binding
+
+- **WHEN** the owner creates a chat with a resolved location, every availability
+  gate passes, and the request permission mode is `default` or an enabled
+  `bypass`
+- **THEN** the chat starts bound to the canonical root and the resolved executor
+- **AND** the generation of the bound root increments by one, and a later Run
+  re-checks that bound root before it uses it
 
 #### Scenario: A superseded attempt has no side effect
 
@@ -212,8 +230,7 @@ select an owner, a Chat, an executor, or a permission mode.
   field other than `name` or `baseRef`, or supplies arguments to
   `exit_workspace`
 - **THEN** the extra fields or arguments are rejected as invalid input
-- **AND** authority over the bound root comes only from the trusted Run context
-  of the owner's Chat
+- **AND** authority over the bound root comes only from the trusted Run context of the owner's Chat or from the owner's chat-creation request
 
 ### Requirement: Each Run attempt re-checks the binding and detaches invalid state
 
