@@ -292,48 +292,52 @@ answers `200`.
 
 ### The project page's Repositories section
 
-The project page is the edit surface for links, and the repository catalog
-appears there only as the picker inside its dialogs. The section sits inside the
-project's settings panel and lists every link with the project's alias, the
-primary badge, the isolation policy in words, and the catalog remote under it.
-It then lists the project's worktrees: each path and branch, the chat whose
-lease records it, and every chat bound to that path, by title.
+The project page is the edit surface for links. The section sits in the
+project's side panel, below Instructions and Context, with one row per link:
+the project's alias, a Primary badge when the project links more than one
+repository, and a line with the catalog remote and how many checkouts and
+worktrees the repository holds — or "No checkout" when a chat cannot start in
+it yet.
 
-- **Link repository** offers the owner's catalog minus the links the project
-  already holds, with an optional alias, the primary flag, and one isolation
-  policy. A blank alias keeps the route's default, the repository's display
-  name.
-- **Edit** on a row changes the alias, the primary flag, and the isolation
-  policy together. A field that did not move is omitted from the request, and
-  a form with nothing moved closes without writing.
-- **Unlink** on a row confirms once, then removes the link.
-- **Remove** on a worktree asks once, then calls
-  `DELETE /api/v1/checkouts/:id/worktree`. A `409` `worktree_not_clean` refusal
-  leaves the row listed and shows the route's own sentence — uncommitted
-  changes, an unpushed commit, or an upstream it cannot vouch for.
+The section's `+` adds a draft row that searches the owner's catalog, minus the
+links the project already holds, and takes a pasted path:
 
-Every write on an archived project answers `409`, and the dialogs show that
-sentence in place of the form's usual footer.
+- Picking a catalog repository links it under its display name.
+- A path — absolute, `~/`, relative, or a `machine://<name>/…` locator —
+  registers that clone (`POST /api/v1/checkouts`) and then links the
+  repository it resolves to, unless the project already links it.
+- The first link a project takes is its primary. Escape, or leaving the empty
+  field, discards the draft.
 
-### Registering a checkout from the project page
+A row opens the repository's sheet:
 
-**Register checkout** takes one `path` — either a local absolute path or a
-`machine://<name>/…` locator — and has no executor field: the executor follows
-from the path, a plain path being this instance's local executor. Two selectors
-are optional and independent:
+- **In this project**: the alias, the primary switch, and the isolation policy
+  ("When busy", "Always", "Never"). Each change writes at once; the alias
+  writes when the field is left.
+- **Checkouts**: each clone by its path — a Machine clone by the path on that
+  Machine — with where it lives, its Machine's reachability, and the branch it
+  was registered on. The section's `+` registers another clone of this
+  repository by path.
+- **Worktrees**: each worktree by branch, the chat whose lease records it as a
+  link to that chat, and how many other chats are bound to it. **Remove** asks
+  once, then calls `DELETE /api/v1/checkouts/:id/worktree`; a `409`
+  `worktree_not_clean` refusal leaves the row listed with the route's own
+  sentence.
+- The header links to the repository's page on GitHub, GitLab, Bitbucket,
+  Codeberg, or sourcehut when the remote is on one of them, and its menu holds
+  **Unlink from project**, which confirms once and removes only the link.
 
-- **Repository** narrows the catalog to one entry, or stays on "Let git decide
-  from the remote".
-- **Remote** names a remote that selects an existing repository, as the route's
-  `remote` selector does.
+A checkout or worktree row copies its location: a local path at once, a
+Machine one as the path on that Machine or as its `machine://` locator. The
+branch shown is the one recorded when the checkout was registered or the
+worktree created; a later rename or switch is not read back
+([#1417](https://github.com/leon0399/llame/issues/1417)).
 
-With neither selector the inspected `origin` decides, which is the common case.
-Registration can adopt a repository llame has not seen and a main clone it has
-not recorded, so the catalog and the worktree list refresh once the path is
-registered. The route's typed failures — an invalid path, a directory that is
-not a repository, `origin_mismatch`, `path_taken`, or a Machine that is offline
-or needs an update — appear in the dialog, where the path can be corrected
-without reopening it.
+Every write on an archived project answers `409`, and the section shows that
+sentence where the write was made. Registration's typed failures — an invalid
+path, a directory that is not a repository, `origin_mismatch`, `path_taken`, or
+a Machine that is offline or needs an update — appear under the draft, where
+the path can be corrected.
 
 ## Reading the catalog
 

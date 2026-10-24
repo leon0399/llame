@@ -211,8 +211,8 @@ export const NoChats: Story = {
       PINNED_CHATS_ROUTE,
       CHATS_ROUTE,
       PINS_ROUTE,
-      REPOSITORIES_ROUTE,
       PROJECT_LINKS_ROUTE,
+      REPOSITORIES_ROUTE,
       CHECKOUTS_ROUTE,
     ]);
   },
@@ -261,8 +261,8 @@ export const SidePanelDemo: Story = {
       PINNED_CHATS_ROUTE,
       CHATS_ROUTE,
       PINS_ROUTE,
-      REPOSITORIES_ROUTE,
       PROJECT_LINKS_ROUTE,
+      REPOSITORIES_ROUTE,
       CHECKOUTS_ROUTE,
     ]);
   },

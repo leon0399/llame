@@ -3,41 +3,95 @@
 import * as React from "react";
 
 import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
+import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import { ChevronRightIcon, PlusIcon } from "lucide-react";
+
+import { IconButtonTooltip } from "@/components/icon-button-tooltip";
+
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
-import { PlusIcon } from "lucide-react";
-
-import { useCheckoutsQuery } from "@/lib/services/checkouts/queries";
-import type { CheckoutsQuery } from "@/lib/services/checkouts/queries";
-import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
+  useCheckoutsQuery,
+  type CheckoutResponse,
+} from "@/lib/services/checkouts/queries";
+import {
+  useRepositoriesQuery,
+  type RepositoryResponse,
+} from "@/lib/services/repositories/queries";
 import { useProjectRepositoryLinksQuery } from "@/lib/services/project/queries";
-import type { ProjectRepositoryLinksQuery } from "@/lib/services/project/queries";
+import type { ProjectRepositoryLink } from "@/lib/services/project/types";
 
-import { RegisterCheckoutDialog } from "./project-checkout-dialogs";
-import { LinkRepositoryDialog } from "./project-repository-dialogs";
-import { LinksList, WorktreesList } from "./project-repository-rows";
+import { DraftRepositoryRow } from "./project-repository-draft-row";
+import { countLabel } from "./project-repository-policy";
+import { RepositorySheet } from "./project-repository-sheet";
 
-function LinksSkeleton() {
+/** The row's second line: the remote, then what the repository holds. A
+ *  repository with no clone says so, since a chat cannot start in it. */
+function RepositorySummary({
+  repository,
+  checkouts,
+}: {
+  repository: RepositoryResponse | undefined;
+  checkouts: ReadonlyArray<CheckoutResponse>;
+}) {
+  const clones = checkouts.filter((checkout) => checkout.kind === "main");
+  const worktrees = checkouts.length - clones.length;
+  const parts = [
+    repository?.canonicalRemote ?? "No remote",
+    clones.length === 0 ? "No checkout" : countLabel(clones.length, "checkout"),
+  ];
+  if (worktrees > 0) parts.push(countLabel(worktrees, "worktree"));
   return (
-    <div className="space-y-2">
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-12 w-full" />
-    </div>
+    <span className="truncate text-xs text-muted-foreground">
+      {parts.join(" · ")}
+    </span>
   );
 }
 
-function LinksLoadError({ onRetry }: { onRetry: () => void }) {
+type RepositoryRowProps = {
+  projectId: string;
+  link: ProjectRepositoryLink;
+  repository: RepositoryResponse | undefined;
+  checkouts: ReadonlyArray<CheckoutResponse>;
+  showPrimary: boolean;
+};
+
+/** One linked repository as one button: its name, Primary when the choice
+ *  means something, and a summary line. Everything else is in its sheet. */
+function RepositoryRow({ showPrimary, ...props }: RepositoryRowProps) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <li className="-mx-2">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+      >
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium">
+              {props.link.alias}
+            </span>
+            {showPrimary && props.link.isPrimary ? (
+              <Badge variant="secondary">Primary</Badge>
+            ) : null}
+          </span>
+          <RepositorySummary
+            repository={props.repository}
+            checkouts={props.checkouts}
+          />
+        </span>
+        <ChevronRightIcon
+          aria-hidden
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      </button>
+      <RepositorySheet {...props} open={open} onOpenChange={setOpen} />
+    </li>
+  );
+}
+
+function RepositoriesLoadError({ onRetry }: { onRetry: () => void }) {
   return (
     <Alert variant="destructive">
       <AlertTitle>Could not load this project&apos;s repositories.</AlertTitle>
@@ -50,110 +104,81 @@ function LinksLoadError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** The two lists, once the links have settled. The catalog and the checkouts
- *  load beside them; a worktree needs both a link and its repository. */
+/** The reads the section joins: the links, the catalog for their remotes,
+ *  and every checkout, read per repository. */
+function useRepositoriesSectionData(projectId: string) {
+  const links = useProjectRepositoryLinksQuery(projectId);
+  const repositories = useRepositoriesQuery();
+  const checkouts = useCheckoutsQuery();
+  const repositoryById = new Map(
+    (repositories.data ?? []).map((repository) => [repository.id, repository]),
+  );
+  const checkoutsOf = (repositoryId: string) =>
+    (checkouts.data ?? []).filter(
+      (checkout) => checkout.repositoryId === repositoryId,
+    );
+  return { links, repositoryById, checkoutsOf };
+}
+
+function RepositoriesEmpty() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Link a repository so chats in this project can start in it.
+    </p>
+  );
+}
+
 function RepositoriesBody({
   projectId,
-  links,
-  checkouts,
+  drafting,
+  onDraftClose,
 }: {
   projectId: string;
-  links: ProjectRepositoryLinksQuery;
-  checkouts: CheckoutsQuery;
+  drafting: boolean;
+  onDraftClose: () => void;
 }) {
-  const repositories = useRepositoriesQuery();
-  const linkedIds = new Set(
-    (links.data ?? []).map((link) => link.repositoryId),
-  );
-
-  if (links.isPending) return <LinksSkeleton />;
+  const { links, repositoryById, checkoutsOf } =
+    useRepositoriesSectionData(projectId);
+  if (links.isPending) return <Skeleton className="h-10 w-full" />;
   if (links.isError) {
-    return <LinksLoadError onRetry={() => void links.refetch()} />;
+    return <RepositoriesLoadError onRetry={() => void links.refetch()} />;
   }
+  if (links.data.length === 0 && !drafting) return <RepositoriesEmpty />;
   return (
-    <div className="space-y-4">
-      <LinksList
-        projectId={projectId}
-        links={links.data}
-        repositories={repositories.data ?? []}
-      />
-      <WorktreesList
-        worktrees={(checkouts.data ?? []).filter(
-          (checkout) =>
-            checkout.kind === "worktree" &&
-            linkedIds.has(checkout.repositoryId),
-        )}
-        loading={checkouts.isPending}
-        failed={checkouts.isError}
-        onRetry={() => void checkouts.refetch()}
-      />
-    </div>
-  );
-}
-
-/** The section's one action: a + menu holding both writes, so the narrow
- *  panel header carries a single icon instead of two labelled buttons. */
-function AddRepositoryMenu({
-  onRegister,
-  onLink,
-  linkDisabled,
-}: {
-  onRegister: () => void;
-  onLink: () => void;
-  linkDisabled: boolean;
-}) {
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-sm" />}
-            />
+    // Rows carry their own background on hover and while drafting; the gap
+    // keeps two filled rows from touching, as the sidebar's menu does.
+    <ul className="flex flex-col gap-1">
+      {links.data.map((link) => (
+        <RepositoryRow
+          key={link.id}
+          projectId={projectId}
+          link={link}
+          repository={repositoryById.get(link.repositoryId)}
+          checkouts={checkoutsOf(link.repositoryId)}
+          showPrimary={links.data.length > 1}
+        />
+      ))}
+      {drafting ? (
+        <DraftRepositoryRow
+          projectId={projectId}
+          linkedRepositoryIds={
+            new Set(links.data.map((link) => link.repositoryId))
           }
-        >
-          <PlusIcon />
-          <span className="sr-only">Add repository</span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="end">
-          Add repository
-        </TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuItem onSelect={onLink} disabled={linkDisabled}>
-          Link repository
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onRegister}>
-          Register checkout
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function RepositoriesHeader({
-  headingId,
-  ...menu
-}: { headingId: string } & React.ComponentProps<typeof AddRepositoryMenu>) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <h2 id={headingId} className="text-sm font-semibold">
-        Repositories
-      </h2>
-      <AddRepositoryMenu {...menu} />
-    </div>
+          onClose={onDraftClose}
+        />
+      ) : null}
+    </ul>
   );
 }
 
 /**
- * The project side panel's "Repositories" section: the edit surface for the
- * links a chat start resolves its location from, and for the worktrees those
- * links' repositories hold. It sits beside the composer, above the chats, so
- * an endless chat list never pushes it out of reach. The catalog is not a
- * page of its own — it appears only as the picker inside these dialogs.
+ * The project side panel's "Repositories" section: one line per linked
+ * repository, and a `+` that adds a draft row to search or paste another. A
+ * row opens the repository's sheet, which holds its settings, clones,
+ * worktrees, and Unlink, so the panel stays short however many worktrees the
+ * project's chats have made.
  *
- * @summary link, annotate, and unlink a project's repositories, and remove its
- * clean worktrees
+ * @summary list a project's repositories; add one; open one to manage it
  */
 export function ProjectRepositoriesSection({
   projectId,
@@ -161,35 +186,26 @@ export function ProjectRepositoriesSection({
   projectId: string;
 }) {
   const headingId = React.useId();
-  const links = useProjectRepositoryLinksQuery(projectId);
-  const checkouts = useCheckoutsQuery();
-  const [linkOpen, setLinkOpen] = React.useState(false);
-  const [registerOpen, setRegisterOpen] = React.useState(false);
-
+  const [drafting, setDrafting] = React.useState(false);
   return (
-    <section aria-labelledby={headingId} className="space-y-3 p-4">
-      <RepositoriesHeader
-        headingId={headingId}
-        onRegister={() => setRegisterOpen(true)}
-        onLink={() => setLinkOpen(true)}
-        linkDisabled={links.isPending}
-      />
+    <section aria-labelledby={headingId} className="space-y-2 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 id={headingId} className="text-sm font-semibold">
+          Repositories
+        </h2>
+        <IconButtonTooltip
+          label="Add repository"
+          size="icon-sm"
+          disabled={drafting}
+          onClick={() => setDrafting(true)}
+        >
+          <PlusIcon />
+        </IconButtonTooltip>
+      </div>
       <RepositoriesBody
         projectId={projectId}
-        links={links}
-        checkouts={checkouts}
-      />
-      <LinkRepositoryDialog
-        projectId={projectId}
-        linkedRepositoryIds={
-          new Set((links.data ?? []).map((link) => link.repositoryId))
-        }
-        open={linkOpen}
-        onOpenChange={setLinkOpen}
-      />
-      <RegisterCheckoutDialog
-        open={registerOpen}
-        onOpenChange={setRegisterOpen}
+        drafting={drafting}
+        onDraftClose={() => setDrafting(false)}
       />
     </section>
   );

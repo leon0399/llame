@@ -69,7 +69,7 @@ function InstructionsSection() {
           {SAMPLE_INSTRUCTIONS}
         </p>
       ) : (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Add instructions to tailor llame&apos;s responses
         </p>
       )}
@@ -118,7 +118,7 @@ function ContextSection() {
       }
     >
       {files.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Add PDFs, documents, or other text to reference in this project.
         </p>
       ) : (

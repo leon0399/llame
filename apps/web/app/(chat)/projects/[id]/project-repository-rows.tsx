@@ -1,288 +1,173 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 
-import { Alert, AlertTitle } from "@workspace/ui/components/alert";
-import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
-import { MoreHorizontalIcon, Trash2Icon } from "lucide-react";
+  FolderPlusIcon,
+  GitBranchIcon,
+  HardDriveIcon,
+  ServerIcon,
+  Trash2Icon,
+} from "lucide-react";
 
-import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { CopyPathButton } from "@/components/copy-path-button";
+import { HoverReveal } from "@/components/hover-reveal";
+import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { useChatQuery } from "@/lib/services/chat/queries";
-import { useRemoveCheckoutWorktree } from "@/lib/services/checkouts/mutations";
+import {
+  useRegisterCheckout,
+  useRemoveCheckoutWorktree,
+} from "@/lib/services/checkouts/mutations";
 import type { CheckoutResponse } from "@/lib/services/checkouts/queries";
+import {
+  findMachineByName,
+  machinePathFromRoot,
+} from "@/lib/services/machines/locator";
+import { useMachinesQuery } from "@/lib/services/machines/queries";
 import { repositoryFailureMessage } from "@/lib/services/repositories/failure";
-import type { RepositoryResponse } from "@/lib/services/repositories/queries";
-import type { ProjectRepositoryLink } from "@/lib/services/project/types";
 
 import {
-  EditRepositoryLinkDialog,
-  UnlinkRepositoryLinkDialog,
-} from "./project-repository-dialogs";
-import { isolationLabel } from "./project-repository-policy";
+  DraftFailure,
+  DraftField,
+  DraftFloat,
+  DraftLines,
+} from "./project-repository-draft-row";
+import { Refusal } from "./project-repository-dialogs";
+import {
+  countLabel,
+  executorLabel,
+  isOnMachine,
+} from "./project-repository-policy";
 
-/** One chat, by its title. A worktree records ids, and two ids would say
- *  nothing to a reader, so each one resolves through the owner chat read. */
+/** A row's leading icon, aligned with the first line of its text. */
+const ROW_ICON = "mt-0.5 size-4 shrink-0 text-muted-foreground";
+
+/** One chat, by its title, as a link to it. A worktree records ids, and an id
+ *  says nothing to a reader, so each one resolves through the owner chat
+ *  read. */
 function ChatReference({ chatId }: { chatId: string }) {
   const { data } = useChatQuery(chatId);
   if (data === undefined) {
     return <span className="text-muted-foreground">…</span>;
   }
-  return <span className="font-medium">{data.title ?? "Untitled chat"}</span>;
-}
-
-/** A refusal that belongs to one row, in that row's own words. */
-function RowFailure({ message }: { message: string | null }) {
-  if (message === null) return null;
   return (
-    <Alert variant="destructive">
-      <AlertTitle>{message}</AlertTitle>
-    </Alert>
+    <Link
+      href={`/chat/${chatId}`}
+      prefetch={false}
+      className="rounded-sm text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      {data.title ?? "Untitled chat"}
+    </Link>
   );
 }
 
-/** The two writes one link row offers, behind one menu named for the row. */
-function LinkActions({
-  alias,
-  onEdit,
-  onUnlink,
-}: {
-  alias: string;
-  onEdit: () => void;
-  onUnlink: () => void;
-}) {
-  const label = `Actions for ${alias}`;
+/** Keeps a row's hover actions in sight while its copy check shows. */
+const KEEP_WHILE_COPIED =
+  "group-has-[[data-copied]]/menu-item:grid-cols-revealed";
+
+/** The copy control of a checkout or worktree row. */
+function CopyLocationAction({ checkout }: { checkout: CheckoutResponse }) {
   return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <DropdownMenuTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" className="ml-auto" />
-              }
-            />
-          }
-        >
-          <MoreHorizontalIcon />
-          <span className="sr-only">{label}</span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="end">
-          {label}
-        </TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-36">
-        <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>
-        <DropdownMenuItem variant="destructive" onSelect={onUnlink}>
-          Unlink
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <CopyPathButton
+      location={checkout.path}
+      trigger={<Button variant="ghost" size="icon-sm" />}
+    />
   );
 }
 
-/** One link's facts: the project's alias first, then the flags a chat start
- *  reads — primary and isolation — then the catalog's remote, which decides
- *  which clones belong to this repository. A long remote truncates; its
- *  title carries the whole value. */
-function LinkSummary({
-  link,
-  remote,
-  onEdit,
-  onUnlink,
-}: {
-  link: ProjectRepositoryLink;
-  remote: string | undefined;
-  onEdit: () => void;
-  onUnlink: () => void;
-}) {
+/** A checkout's path as a terminal where it lives takes it: a Machine
+ *  checkout's locator decoded to the path on that Machine. */
+function displayPath(checkout: CheckoutResponse) {
+  return machinePathFromRoot(checkout.path) ?? checkout.path;
+}
+
+/** One registered clone: its path first, since that is what tells two
+ *  clones apart, then where it lives and the branch it had. Copy shows on
+ *  hover, like a sidebar row's actions. */
+export function CheckoutRow({ checkout }: { checkout: CheckoutResponse }) {
   return (
-    <>
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm font-medium">{link.alias}</span>
-        {link.isPrimary ? <Badge variant="secondary">Primary</Badge> : null}
-        <LinkActions alias={link.alias} onEdit={onEdit} onUnlink={onUnlink} />
-      </div>
-      <span className="text-xs text-muted-foreground">
-        {isolationLabel(link.isolation)}
+    <li className="group/menu-item flex min-w-0 items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent">
+      {isOnMachine(checkout) ? (
+        <ServerIcon aria-hidden className={ROW_ICON} />
+      ) : (
+        <HardDriveIcon aria-hidden className={ROW_ICON} />
+      )}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <code className="truncate font-mono text-sm">
+          {displayPath(checkout)}
+        </code>
+        <span className="truncate text-xs text-muted-foreground">
+          <ExecutorLabel checkout={checkout} />
+          {checkout.branch === null ? null : ` · ${checkout.branch}`}
+        </span>
       </span>
-      <code
-        className="truncate font-mono text-xs text-muted-foreground"
-        title={remote}
-      >
-        {remote ?? "No remote recorded"}
-      </code>
-    </>
-  );
-}
-
-function LinkRow({
-  projectId,
-  link,
-  remote,
-}: {
-  projectId: string;
-  link: ProjectRepositoryLink;
-  remote: string | undefined;
-}) {
-  const [editOpen, setEditOpen] = React.useState(false);
-  const [unlinkOpen, setUnlinkOpen] = React.useState(false);
-  const [failure, setFailure] = React.useState<string | null>(null);
-
-  return (
-    <li className="flex min-w-0 flex-col gap-0.5 py-2 first:pt-0 last:pb-0">
-      <LinkSummary
-        link={link}
-        remote={remote}
-        onEdit={() => setEditOpen(true)}
-        onUnlink={() => setUnlinkOpen(true)}
-      />
-      <RowFailure message={failure} />
-      <EditRepositoryLinkDialog
-        projectId={projectId}
-        link={link}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-      />
-      <UnlinkRepositoryLinkDialog
-        projectId={projectId}
-        link={link}
-        open={unlinkOpen}
-        onOpenChange={setUnlinkOpen}
-        onFailure={setFailure}
-      />
+      <HoverReveal className={KEEP_WHILE_COPIED}>
+        <CopyLocationAction checkout={checkout} />
+      </HoverReveal>
     </li>
   );
 }
 
-/** Every repository the project links, each under the alias the project gave
- *  it and the remote the catalog records. */
-export function LinksList({
-  projectId,
-  links,
-  repositories,
-}: {
-  projectId: string;
-  links: ReadonlyArray<ProjectRepositoryLink>;
-  repositories: ReadonlyArray<RepositoryResponse>;
-}) {
-  const headingId = React.useId();
-  const byId = new Map(
-    repositories.map((repository) => [repository.id, repository]),
-  );
+const MACHINE_STATE = { online: "Online", offline: "Offline" } as const;
 
-  return (
-    <section aria-labelledby={headingId} className="space-y-1">
-      <h3 id={headingId} className="text-xs font-medium text-muted-foreground">
-        Linked
-      </h3>
-      {links.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No repository is linked yet. Chats started here have no location.
-        </p>
-      ) : (
-        <ul className="divide-y">
-          {links.map((link) => (
-            <LinkRow
-              key={link.id}
-              projectId={projectId}
-              link={link}
-              remote={byId.get(link.repositoryId)?.canonicalRemote ?? undefined}
-            />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
+/** A Machine's state as the dot the chat's Environment section uses. */
+const STATE_DOT = {
+  Online: "bg-success",
+  Offline: "bg-destructive",
+  Unknown: "bg-muted-foreground",
+} as const;
 
-/** The branch first — the name a reader knows the tree by — then the path,
- *  truncated with its whole value in the title and the Remove tooltip. */
-function WorktreeSummary({
-  checkout,
-  onRemove,
-}: {
-  checkout: CheckoutResponse;
-  onRemove: () => void;
-}) {
+/** Where a checkout lives: "Local", or its Machine's name after a dot that
+ *  says whether llame can reach it right now — an offline Machine's rows
+ *  still list, but nothing on them works until it is back. The state is
+ *  spelled out for assistive tech, since the dot is color alone. */
+function ExecutorLabel({ checkout }: { checkout: CheckoutResponse }) {
+  const onMachine = isOnMachine(checkout);
+  const machines = useMachinesQuery(onMachine);
+  if (!onMachine) return <>{executorLabel(checkout)}</>;
+  const machine = findMachineByName(machines.data, executorLabel(checkout));
+  const state =
+    machine === undefined ? "Unknown" : MACHINE_STATE[machine.status];
+  // Plain inline content: a flex box here would sit on its own baseline and
+  // grow the line, so the dot is an inline block centered on the text.
   return (
     <>
-      <div className="flex min-w-0 items-center gap-2">
-        {checkout.branch === null ? (
-          <span className="text-sm font-medium">Detached HEAD</span>
-        ) : (
-          <code className="truncate font-mono text-sm font-medium">
-            {checkout.branch}
-          </code>
-        )}
-        <IconButtonTooltip
-          label={`Remove ${checkout.path}`}
-          size="icon-sm"
-          className="ml-auto"
-          onClick={onRemove}
-        >
-          <Trash2Icon />
-        </IconButtonTooltip>
-      </div>
-      <code
-        className="truncate font-mono text-xs text-muted-foreground"
-        title={checkout.path}
-      >
-        {checkout.path}
-      </code>
+      <span
+        aria-hidden="true"
+        className={`mr-1 inline-block size-1.5 rounded-full align-middle ${STATE_DOT[state]}`}
+      />
+      {executorLabel(checkout)}
+      <span className="sr-only">, {state}</span>
     </>
   );
 }
 
-/** Every chat whose Workspace root is this worktree's path. */
-function BoundChats({ chatIds }: { chatIds: ReadonlyArray<string> }) {
-  if (chatIds.length === 0) {
-    return <span className="text-muted-foreground">None</span>;
-  }
-  return (
-    <span className="flex flex-wrap gap-x-1">
-      {chatIds.map((chatId, index) => (
-        <span key={chatId}>
-          {index > 0 ? ", " : null}
-          <ChatReference chatId={chatId} />
-        </span>
-      ))}
-    </span>
-  );
-}
-
+/** Who holds the worktree: the chat that created it, and how many chats are
+ *  bound to it besides. */
 function WorktreeChats({ checkout }: { checkout: CheckoutResponse }) {
+  const others = checkout.chatIds.filter(
+    (chatId) => chatId !== checkout.leaseChatId,
+  ).length;
   return (
-    <dl className="space-y-0.5 text-xs">
-      <div className="flex gap-2">
-        <dt className="w-20 shrink-0 text-muted-foreground">Created by</dt>
-        <dd className="min-w-0">
-          {checkout.leaseChatId === null ? (
-            <span className="text-muted-foreground">No chat recorded</span>
-          ) : (
-            <ChatReference chatId={checkout.leaseChatId} />
-          )}
-        </dd>
-      </div>
-      <div className="flex gap-2">
-        <dt className="w-20 shrink-0 text-muted-foreground">Bound chats</dt>
-        <dd className="min-w-0">
-          <BoundChats chatIds={checkout.chatIds} />
-        </dd>
-      </div>
-    </dl>
+    <span className="truncate text-xs text-muted-foreground">
+      {isOnMachine(checkout) ? (
+        <>
+          <ExecutorLabel checkout={checkout} />
+          {" · "}
+        </>
+      ) : null}
+      {checkout.leaseChatId === null ? (
+        "No chat recorded"
+      ) : (
+        <>
+          From <ChatReference chatId={checkout.leaseChatId} />
+        </>
+      )}
+      {others === 0 ? null : ` · ${countLabel(others, "other chat")}`}
+    </span>
   );
 }
 
@@ -342,18 +227,58 @@ function RemoveWorktreeDialog({
   );
 }
 
-function WorktreeRow({ checkout }: { checkout: CheckoutResponse }) {
+/** A worktree's copy and Remove, shown on hover like a sidebar row's. Each
+ *  has its own reveal, so a copy's check stays in sight after the pointer
+ *  leaves while Remove hides as usual. */
+function WorktreeActions({
+  checkout,
+  onRemove,
+}: {
+  checkout: CheckoutResponse;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="flex">
+      <HoverReveal className={KEEP_WHILE_COPIED}>
+        <CopyLocationAction checkout={checkout} />
+      </HoverReveal>
+      <HoverReveal>
+        <IconButtonTooltip
+          label="Remove worktree"
+          size="icon-sm"
+          onClick={onRemove}
+        >
+          <Trash2Icon />
+        </IconButtonTooltip>
+      </HoverReveal>
+    </span>
+  );
+}
+
+/** One worktree: its branch, the chats that hold it, and its hover actions —
+ *  copy, which is how the path is reached, and the guarded Remove, whose
+ *  confirmation names the path in full. A refusal stays under the row in the
+ *  server's words. */
+export function WorktreeRow({ checkout }: { checkout: CheckoutResponse }) {
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
   return (
-    <li className="flex min-w-0 flex-col gap-0.5 py-2 first:pt-0 last:pb-0">
-      <WorktreeSummary
-        checkout={checkout}
-        onRemove={() => setConfirmOpen(true)}
-      />
-      <WorktreeChats checkout={checkout} />
-      <RowFailure message={refusal} />
+    <li className="group/menu-item flex min-w-0 flex-col gap-1 rounded-md px-2 py-1.5 hover:bg-accent">
+      <span className="flex min-w-0 items-start gap-2">
+        <GitBranchIcon aria-hidden className={ROW_ICON} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <code className="truncate font-mono text-sm">
+            {checkout.branch ?? "Detached HEAD"}
+          </code>
+          <WorktreeChats checkout={checkout} />
+        </span>
+        <WorktreeActions
+          checkout={checkout}
+          onRemove={() => setConfirmOpen(true)}
+        />
+      </span>
+      <Refusal message={refusal} />
       <RemoveWorktreeDialog
         checkout={checkout}
         open={confirmOpen}
@@ -364,71 +289,66 @@ function WorktreeRow({ checkout }: { checkout: CheckoutResponse }) {
   );
 }
 
-function WorktreesState({
-  worktrees,
-  loading,
-  failed,
-  onRetry,
-}: {
-  worktrees: ReadonlyArray<CheckoutResponse>;
-  loading: boolean;
-  failed: boolean;
-  onRetry: () => void;
-}) {
-  if (failed) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Could not load this project&apos;s worktrees.</AlertTitle>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Try again
-        </Button>
-      </Alert>
+function useNewCheckout(repositoryId: string, onDone: () => void) {
+  const register = useRegisterCheckout();
+  const [failure, setFailure] = React.useState<string | null>(null);
+  const submit = (path: string) => {
+    if (path === "" || register.isPending) return;
+    setFailure(null);
+    register.mutate(
+      { path, repositoryId },
+      {
+        onSuccess: onDone,
+        onError: (error) =>
+          setFailure(
+            repositoryFailureMessage(error, "Couldn't add the checkout."),
+          ),
+      },
     );
-  }
-  if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading worktrees…</p>;
-  }
-  if (worktrees.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No worktree is recorded for this project.
-      </p>
-    );
-  }
-  return (
-    <ul className="divide-y">
-      {worktrees.map((checkout) => (
-        <WorktreeRow key={checkout.id} checkout={checkout} />
-      ))}
-    </ul>
-  );
+  };
+  return { submit, failure, pending: register.isPending };
 }
 
-/** The project's worktrees: one per tree a chat created, each naming the chat
- *  whose lease records it and every chat bound to its path. */
-export function WorktreesList({
-  worktrees,
-  loading,
-  failed,
-  onRetry,
+const DRAFT_CHECKOUT_ICON = <FolderPlusIcon aria-hidden className={ROW_ICON} />;
+
+/** The row the section's `+` adds, the same draft the panel's repository
+ *  list uses: Enter registers the path, Escape or an empty blur discards it. */
+export function DraftCheckoutRow({
+  repositoryId,
+  onClose,
 }: {
-  worktrees: ReadonlyArray<CheckoutResponse>;
-  loading: boolean;
-  failed: boolean;
-  onRetry: () => void;
+  repositoryId: string;
+  onClose: () => void;
 }) {
-  const headingId = React.useId();
+  const checkout = useNewCheckout(repositoryId, onClose);
+  const [path, setPath] = React.useState("");
+  const trimmed = path.trim();
   return (
-    <section aria-labelledby={headingId} className="space-y-1">
-      <h3 id={headingId} className="text-xs font-medium text-muted-foreground">
-        Worktrees
-      </h3>
-      <WorktreesState
-        worktrees={worktrees}
-        loading={loading}
-        failed={failed}
-        onRetry={onRetry}
-      />
-    </section>
+    <li className="relative">
+      <DraftLines
+        icon={DRAFT_CHECKOUT_ICON}
+        status={
+          trimmed === ""
+            ? "Paste the path to another clone"
+            : "Enter registers this clone"
+        }
+      >
+        <DraftField
+          query={path}
+          onQueryChange={setPath}
+          onCancel={onClose}
+          cancelOnBlur={trimmed === "" && !checkout.pending}
+          onEnter={() => checkout.submit(trimmed)}
+          placeholder="Path to a clone"
+          label="Add checkout"
+          monospace
+        />
+      </DraftLines>
+      {checkout.failure === null ? null : (
+        <DraftFloat>
+          <DraftFailure message={checkout.failure} />
+        </DraftFloat>
+      )}
+    </li>
   );
 }

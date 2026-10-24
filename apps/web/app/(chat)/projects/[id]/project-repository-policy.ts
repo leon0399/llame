@@ -1,10 +1,11 @@
+import type { CheckoutResponse } from "@/lib/services/checkouts/queries";
 import type { IsolationPolicy } from "@/lib/services/project/types";
 
 /**
- * The three isolation policies a project link carries, in the order the picker
- * offers them, each with the sentence that explains what a chat start does.
- * The list and the picker both read this table, so a policy cannot be shown
- * with two different labels.
+ * The three isolation policies a project link carries, phrased as answers to
+ * the setting's question — when does a chat start in its own worktree — so
+ * the picker's trigger stays one short word or phrase, and the sentence under
+ * it explains the choice. The Select's `items` map reads the same table.
  */
 export const ISOLATION_OPTIONS: ReadonlyArray<{
   value: IsolationPolicy;
@@ -13,27 +14,39 @@ export const ISOLATION_OPTIONS: ReadonlyArray<{
 }> = [
   {
     value: "inherit",
-    label: "Reuse the checkout",
+    label: "When busy",
     description:
-      "Starts in the checkout, and starts a worktree instead when another open chat already holds that checkout.",
+      "A chat starts in the checkout, or in its own worktree when another open chat already holds it.",
   },
   {
     value: "always_worktree",
-    label: "Always start a worktree",
-    description:
-      "Every chat start takes its own tree, so two chats never share one.",
+    label: "Always",
+    description: "Every chat starts in its own worktree.",
   },
   {
     value: "never",
-    label: "Never start a worktree",
-    description: "Every chat start reuses the checkout.",
+    label: "Never",
+    description:
+      "Every chat starts in the checkout, even when another holds it.",
   },
 ];
 
-/** The label of one policy; `undefined` for a value the table does not know. */
-export function isolationLabel(isolation: IsolationPolicy): string {
-  return (
-    ISOLATION_OPTIONS.find((option) => option.value === isolation)?.label ??
-    isolation
-  );
+const MACHINE_EXECUTOR = "machine:";
+
+/** Whether the checkout lives on a Machine rather than this instance. */
+export function isOnMachine(checkout: CheckoutResponse): boolean {
+  return checkout.executorId.startsWith(MACHINE_EXECUTOR);
+}
+
+/** Where a checkout lives, in the words the reader knows it by: a Machine by
+ *  its configured name, anything else as this instance's own executor. */
+export function executorLabel(checkout: CheckoutResponse): string {
+  return isOnMachine(checkout)
+    ? checkout.executorId.slice(MACHINE_EXECUTOR.length)
+    : "Local";
+}
+
+/** "1 checkout", "3 worktrees": a count with its noun, singular at one. */
+export function countLabel(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
