@@ -169,7 +169,8 @@ export class ProjectsController {
   @ApiBadRequestResponse({ description: 'Malformed project or repository id' })
   @ApiNotFoundResponse()
   @ApiConflictResponse({
-    description: 'The project already links that repository',
+    description:
+      'The project already links that repository, or the project is archived',
   })
   @ApiUnauthorizedResponse()
   async linkProjectRepository(
@@ -223,6 +224,7 @@ export class ProjectsController {
   @ApiNoContentResponse()
   @ApiBadRequestResponse({ description: 'Malformed id (not a UUID)' })
   @ApiNotFoundResponse()
+  @ApiConflictResponse({ description: 'The project is archived' })
   @ApiUnauthorizedResponse()
   async unlinkProjectRepository(
     @CurrentUser() userId: string,

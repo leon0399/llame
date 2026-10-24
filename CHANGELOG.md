@@ -7,7 +7,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   choice, and its remote with how many checkouts and worktrees it holds. The
   section's `+` adds a draft row that searches the owner's catalog or takes a
   pasted path, which registers the clone and links its repository; a project's
-  first link is its primary. A row opens a sheet with the link's settings,
+  first link is marked primary, a flag stored for chat start, which does not
+  read it yet. A row opens a sheet with the link's settings,
   which save as they change, the repository's clones with each Machine's
   reachability, and its worktrees with the chat that made each one; a
   worktree's Remove is guarded by the route and shows its refusal in place.

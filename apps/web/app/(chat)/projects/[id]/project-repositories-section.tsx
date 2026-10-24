@@ -123,7 +123,7 @@ function useRepositoriesSectionData(projectId: string) {
 function RepositoriesEmpty() {
   return (
     <p className="text-xs text-muted-foreground">
-      Link a repository so chats in this project can start in it.
+      Link the repositories this project works in.
     </p>
   );
 }

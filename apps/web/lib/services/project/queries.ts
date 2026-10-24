@@ -108,7 +108,7 @@ export function useProjectQuery(id: string, enabled = true) {
 /**
  * Every repository the project links, each with the alias, primary flag, and
  * isolation policy the project owns. The project page's Repositories section
- * is this read's only consumer.
+ * reads it, and so do a chat's session details, for the repository's name.
  */
 export async function fetchProjectRepositoryLinks(
   projectId: string,

@@ -242,12 +242,12 @@ A project links zero or more of its owner's repositories. A link is a row of its
 own: an alias the project shows, a primary flag, and an isolation policy. The
 alias defaults to the repository's display name and is stored, so renaming the
 catalog entry later leaves the project's label alone. A project holds at most
-one primary link, and a project with no link is still usable — its chats start
-with no location.
+one primary link.
 
-An isolation policy is the default isolation the composer shows for a chat that
-starts on that link, and the request's `worktree` field still decides the
-outcome:
+The primary flag and the isolation policy are stored for the chat start that
+resolves a project's location; until that ships, nothing reads them, and a
+chat in a project starts with no location as before. The isolation policy is
+the default isolation such a start will offer for a chat on that link:
 
 - `inherit` reuses the source checkout, and turns a worktree start on when
   another open chat already binds that checkout.

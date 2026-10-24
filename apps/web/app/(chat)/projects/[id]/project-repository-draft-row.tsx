@@ -242,7 +242,12 @@ export function DraftField({
       value={query}
       onChange={(event) => onQueryChange(event.target.value)}
       onKeyDown={(event) => {
-        if (event.key === "Escape") onCancel();
+        if (event.key === "Escape") {
+          // The draft's Escape, not the enclosing sheet's: unstopped, it
+          // reaches the dialog and closes it too.
+          event.stopPropagation();
+          onCancel();
+        }
         if (event.key === "Enter") onEnter?.();
       }}
       onBlur={() => {

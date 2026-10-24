@@ -140,8 +140,10 @@ function NameField({
       maxLength={200}
       onChange={(event) => setValue(event.target.value)}
       onBlur={commit}
+      // Enter leaves the field, so the blur is the one commit: committing
+      // here as well would write twice before the refetch lands.
       onKeyDown={(event) => {
-        if (event.key === "Enter") commit();
+        if (event.key === "Enter") event.currentTarget.blur();
       }}
     />
   );
@@ -155,16 +157,19 @@ const ISOLATION_ITEMS = ISOLATION_OPTIONS.map(({ label, value }) => ({
 function IsolationSelect({
   id,
   value,
+  disabled,
   onChange,
 }: {
   id: string;
   value: IsolationPolicy;
+  disabled: boolean;
   onChange: (isolation: IsolationPolicy) => void;
 }) {
   return (
     <Select
       items={ISOLATION_ITEMS}
       value={value}
+      disabled={disabled}
       onValueChange={(next) => {
         if (next !== null) onChange(next);
       }}
@@ -209,9 +214,11 @@ function PrimaryRow({
 
 function IsolationRow({
   value,
+  disabled,
   onChange,
 }: {
   value: IsolationPolicy;
+  disabled: boolean;
   onChange: (isolation: IsolationPolicy) => void;
 }) {
   const id = useId();
@@ -223,7 +230,12 @@ function IsolationRow({
         ISOLATION_OPTIONS.find((option) => option.value === value)?.description
       }
     >
-      <IsolationSelect id={id} value={value} onChange={onChange} />
+      <IsolationSelect
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </PropertyRow>
   );
 }
@@ -255,8 +267,13 @@ function SettingsSection({
       />
       <IsolationRow
         value={link.isolation}
+        disabled={settings.pending}
         onChange={(isolation) => settings.save({ isolation })}
       />
+      <p className="text-xs text-muted-foreground">
+        Primary and Worktrees are kept for starting chats in this project's
+        repositories, which is not available yet.
+      </p>
       <Refusal message={settings.failure} />
     </SheetSection>
   );

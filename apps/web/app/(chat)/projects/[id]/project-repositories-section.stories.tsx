@@ -53,7 +53,7 @@ export const Empty: Story = {
     const canvas = within(canvasElement);
 
     await expect(
-      await canvas.findByText(/^Link a repository so chats/),
+      await canvas.findByText(/^Link the repositories this project/),
     ).toBeVisible();
     await expect(canvas.queryAllByRole("listitem")).toHaveLength(0);
     await expect(
@@ -161,7 +161,7 @@ export const AddByPath: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByText(/^Link a repository so chats/);
+    await canvas.findByText(/^Link the repositories this project/);
 
     await userEvent.click(
       canvas.getByRole("button", { name: "Add repository" }),
@@ -194,7 +194,7 @@ export const DraftEscape: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByText(/^Link a repository so chats/);
+    await canvas.findByText(/^Link the repositories this project/);
 
     await userEvent.click(
       canvas.getByRole("button", { name: "Add repository" }),
@@ -206,7 +206,9 @@ export const DraftEscape: Story = {
     await expect(
       canvas.queryByRole("textbox", { name: "Add repository" }),
     ).not.toBeInTheDocument();
-    await expect(canvas.getByText(/^Link a repository so chats/)).toBeVisible();
+    await expect(
+      canvas.getByText(/^Link the repositories this project/),
+    ).toBeVisible();
     await expect(sentRoutes()).not.toContain(LINK_ROUTE);
   },
 };
