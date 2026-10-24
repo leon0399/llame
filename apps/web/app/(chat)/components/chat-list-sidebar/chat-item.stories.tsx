@@ -141,6 +141,7 @@ const projects: Array<ProjectResponse> = [
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
     archivedAt: null,
+    defaultExecutorId: null,
   },
   {
     id: "p2",
@@ -150,6 +151,7 @@ const projects: Array<ProjectResponse> = [
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
     archivedAt: null,
+    defaultExecutorId: null,
   },
 ];
 
