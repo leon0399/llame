@@ -14,24 +14,9 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 
 import { RelativeTime } from "@/components/relative-time";
+import { MACHINE_FAILURE_LABELS } from "@/lib/services/machines/labels";
 import type { MachineResponse } from "@/lib/services/machines/queries";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
-
-/**
- * The five failure reasons the hub records, in the words a reader needs rather
- * than the wire's identifiers. `Record` over the generated union keeps a new
- * reason from compiling without a label.
- */
-const FAILURE_LABELS: Record<
-  NonNullable<MachineResponse["failureReason"]>,
-  string
-> = {
-  unreachable: "Could not be reached",
-  host_key_mismatch: "Host key does not match",
-  auth_failed: "Authentication failed",
-  incompatible_version: "Incompatible protocol version",
-  session_lost: "Connection lost",
-};
 
 function MachineRoots({ roots }: { roots: ReadonlyArray<string> }) {
   if (roots.length === 0) {
@@ -112,7 +97,7 @@ function MachineFacts({ machine }: { machine: MachineResponse }) {
       </FactRow>
       {failure === null ? null : (
         <FactRow label="Last failure" valueClassName="text-destructive">
-          {FAILURE_LABELS[failure]}
+          {MACHINE_FAILURE_LABELS[failure]}
         </FactRow>
       )}
       <FactRow label="Versions">{versionsText(machine)}</FactRow>
