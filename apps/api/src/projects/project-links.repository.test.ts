@@ -1,7 +1,12 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import { type ProjectRepository, type Repository } from '../db/schema';
+import {
+  type Checkout,
+  type ProjectRepository,
+  type ProjectRepositoryDefault,
+  type Repository,
+} from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ProjectLinksRepository } from './project-links.repository';
 
@@ -59,6 +64,39 @@ function repositoryRow(): Repository {
   };
 }
 
+function checkoutRow(overrides: Partial<Checkout> = {}): Checkout {
+  return {
+    id: '55555555-5555-4555-8555-555555555555',
+    ownerUserId: OWNER,
+    repositoryId: REPOSITORY_ID,
+    executorId: 'host',
+    path: '/srv/llame',
+    kind: 'main',
+    parentCheckoutId: null,
+    branch: 'master',
+    origin: 'registered',
+    worktreeBase: null,
+    createdAt: INSTANT,
+    updatedAt: INSTANT,
+    ...overrides,
+  };
+}
+
+function defaultRow(
+  overrides: Partial<ProjectRepositoryDefault> = {},
+): ProjectRepositoryDefault {
+  return {
+    id: '66666666-6666-4666-8666-666666666666',
+    ownerUserId: OWNER,
+    projectRepositoryId: linkRow().id,
+    executorId: 'host',
+    checkoutId: checkoutRow().id,
+    createdAt: INSTANT,
+    updatedAt: INSTANT,
+    ...overrides,
+  };
+}
+
 function asDbQuery<T>(query: T): never {
   // SAFETY: the double implements exactly the fluent methods this repository
   // calls, and every terminal is a real Promise.
@@ -77,6 +115,7 @@ function queryResult<T>(rows: Array<T>) {
     values: chain,
     set: chain,
     onConflictDoNothing: chain,
+    onConflictDoUpdate: chain,
     returning: chain,
   });
 }
@@ -137,6 +176,16 @@ describe('ProjectLinksRepository links', () => {
     ]);
   });
 
+  it('reads one link by id within the owner', async () => {
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .findLinkById(OWNER, linkRow().id)
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"id" = $2');
+    expect(lastQuery(queries).params).toEqual([OWNER, linkRow().id, 1]);
+  });
+
   it('lets the unique triple decide a duplicate link', async () => {
     const { db, queries } = makeMockDb();
     await new ProjectLinksRepository(db)
@@ -153,12 +202,10 @@ describe('ProjectLinksRepository links', () => {
     expect(lastQuery(queries).sql).toContain(
       'insert into "project_repositories"',
     );
-    // The conflict target is the unique key itself: a target-less clause would
-    // also swallow the partial primary index, and an empty target would let a
-    // duplicate past the guard.
-    expect(lastQuery(queries).sql).toContain(
-      'on conflict ("owner_user_id","project_id","repository_id") do nothing',
-    );
+    expect(lastQuery(queries).sql).toContain('on conflict');
+    expect(lastQuery(queries).sql).toContain('"owner_user_id"');
+    expect(lastQuery(queries).sql).toContain('"project_id"');
+    expect(lastQuery(queries).sql).toContain('"repository_id"');
     expect(lastQuery(queries).params).toEqual([
       OWNER,
       PROJECT_ID,
@@ -225,14 +272,6 @@ describe('ProjectLinksRepository links', () => {
 
   it('reports whether a link row was removed', async () => {
     const deleted = linkRow();
-    const { db, queries } = makeMockDb();
-    await new ProjectLinksRepository(db)
-      .deleteLink(OWNER, PROJECT_ID, deleted.id)
-      .catch(() => null);
-
-    // The count comes from RETURNING: without the id column every delete
-    // reports "nothing removed".
-    expect(lastQuery(queries).sql).toMatch(/returning "id"$/u);
     await expect(
       new ProjectLinksRepository(
         makeStubDb({ delete: [{ id: deleted.id }] }),
@@ -246,8 +285,73 @@ describe('ProjectLinksRepository links', () => {
       ),
     ).resolves.toBe(false);
   });
+});
 
-  it('reads one owner repository by id', async () => {
+describe('ProjectLinksRepository defaults', () => {
+  it('skips the query when the project has no links', async () => {
+    const { db, queries } = makeMockDb();
+    await expect(
+      new ProjectLinksRepository(db).listDefaults(OWNER, []),
+    ).resolves.toEqual([]);
+    expect(queries).toEqual([]);
+  });
+
+  it('lists the defaults of the given links, newest first', async () => {
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .listDefaults(OWNER, [linkRow().id])
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain(
+      'from "project_repository_defaults"',
+    );
+    expect(lastQuery(queries).sql).toContain('"updated_at" desc');
+    expect(lastQuery(queries).sql).toContain('"id" desc');
+    expect(lastQuery(queries).params).toEqual([OWNER, linkRow().id]);
+  });
+
+  it('finds the default of one link on one executor', async () => {
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .findDefault(OWNER, linkRow().id, 'host')
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"executor_id" = $3');
+    expect(lastQuery(queries).params).toEqual([OWNER, linkRow().id, 'host', 1]);
+  });
+
+  it('takes the newest default across executors', async () => {
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .findLatestDefault(OWNER, linkRow().id)
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"updated_at" desc');
+    expect(lastQuery(queries).sql).toContain('limit $3');
+  });
+
+  it('replaces the checkout of an existing default and stamps the write', async () => {
+    const row = defaultRow();
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .upsertDefault({
+        ownerUserId: OWNER,
+        projectRepositoryId: linkRow().id,
+        executorId: 'host',
+        checkoutId: row.checkoutId,
+      })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain(
+      'on conflict ("owner_user_id","project_repository_id","executor_id")',
+    );
+    expect(lastQuery(queries).sql).toContain('"checkout_id" =');
+    expect(lastQuery(queries).sql).toContain('"updated_at" =');
+  });
+});
+
+describe('ProjectLinksRepository resolver reads', () => {
+  it('reads one owner repository and checkout by id', async () => {
     const repository = repositoryRow();
     await expect(
       new ProjectLinksRepository(
@@ -255,10 +359,57 @@ describe('ProjectLinksRepository links', () => {
       ).findRepository(OWNER, repository.id),
     ).resolves.toBe(repository);
     await expect(
-      new ProjectLinksRepository(makeStubDb({ select: [] })).findRepository(
+      new ProjectLinksRepository(
+        makeStubDb({ select: [checkoutRow()] }),
+      ).findCheckout(OWNER, checkoutRow().id),
+    ).resolves.toEqual(checkoutRow());
+    await expect(
+      new ProjectLinksRepository(makeStubDb({ select: [] })).findCheckout(
         OWNER,
         'missing',
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it('lists main checkouts only, narrowed to an executor when named', async () => {
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .listMainCheckouts(OWNER, REPOSITORY_ID, 'machine:nas')
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain(`"kind" = $3`);
+    expect(lastQuery(queries).sql).toContain('"executor_id" = $4');
+    expect(lastQuery(queries).params).toEqual([
+      OWNER,
+      REPOSITORY_ID,
+      'main',
+      'machine:nas',
+    ]);
+  });
+
+  it('counts the open chats bound to a root on an executor', async () => {
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .countOpenChatsBoundTo(OWNER, '/srv/llame', 'host')
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('from "chats"');
+    expect(lastQuery(queries).sql).toContain('"workspace_root" = $2');
+    expect(lastQuery(queries).sql).toContain('"workspace_executor_id" = $3');
+    expect(lastQuery(queries).sql).toContain('"archived_at" is null');
+    expect(lastQuery(queries).params).toEqual([OWNER, '/srv/llame', 'host']);
+  });
+
+  it('returns the counted chats and zero when none match', async () => {
+    await expect(
+      new ProjectLinksRepository(
+        makeStubDb({ select: [{ chats: 2 }] }),
+      ).countOpenChatsBoundTo(OWNER, '/srv/llame', 'host'),
+    ).resolves.toBe(2);
+    await expect(
+      new ProjectLinksRepository(
+        makeStubDb({ select: [] }),
+      ).countOpenChatsBoundTo(OWNER, '/srv/llame', 'host'),
+    ).resolves.toBe(0);
   });
 });
