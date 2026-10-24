@@ -320,6 +320,25 @@ describe('toWorkspaceResponse', () => {
     ).toStrictEqual({ status: 'worktree_failed', message: 'fatal: exists' });
   });
 
+  it('omits a code and a left directory carried as undefined', () => {
+    // A caller that spreads an absent field still must not serialize the key:
+    // the response contract lists only what the outcome actually carried.
+    expect(
+      toWorkspaceResponse({
+        status: 'worktree_failed',
+        code: undefined,
+        message: 'fatal: exists',
+      }),
+    ).toStrictEqual({ status: 'worktree_failed', message: 'fatal: exists' });
+    expect(
+      toWorkspaceResponse({
+        status: 'outcome_unknown',
+        message: 'lost',
+        leftDirectory: undefined,
+      }),
+    ).toStrictEqual({ status: 'outcome_unknown', message: 'lost' });
+  });
+
   it('omits an executor and a worktree the binding did not name', () => {
     expect(
       toWorkspaceResponse({ status: 'bound', root: '/srv/llame' }),

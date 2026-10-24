@@ -480,7 +480,9 @@ describe('ChatCreationService validation before any write', () => {
       }),
     );
 
-    expect(service.validateTurn.mock.calls[0]?.[0]).toEqual({
+    // Strict: an absent effort and mode are omitted from the turn, not sent as
+    // `undefined` keys the chat loop would have to interpret.
+    expect(service.validateTurn.mock.calls[0]?.[0]).toStrictEqual({
       userId: OWNER,
       modelId: 'system:openai:gpt-5.4',
       message: {
@@ -897,6 +899,24 @@ describe('ChatCreationService resend rules', () => {
       root: worktreeRow.path,
     });
     expect(service.enter).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the lease bind finds no Chat row', async () => {
+    const stubs = stubRepositories();
+    stubs.findChatById.mockResolvedValue({ ...chat });
+    stubs.findChatWorktree.mockResolvedValue({
+      lease: leaseRow(),
+      checkout: checkoutRow({ kind: 'worktree' }),
+    });
+    stubs.bindAtCreation.mockResolvedValue({ status: 'not_found' });
+    const service = makeService({ stubs });
+
+    await expect(
+      service.service.create(OWNER, request()),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { message: `Chat ${CHAT_ID} not found` },
+    });
   });
 
   it('answers 409 when the lease rebind finds a message', async () => {
