@@ -156,6 +156,19 @@ describe('/api/v1/repositories (HTTP)', () => {
     expect(failureSchema.parse(foreign.body).code).toBe('not_found');
   });
 
+  it('refuses an explicit null display name instead of storing it', async () => {
+    const created = repositorySchema.parse(
+      (await create(cookieA, { displayName: 'padded' }).expect(201)).body,
+    );
+
+    const response = await request(http)
+      .patch(`/api/v1/repositories/${created.id}`)
+      .set('Cookie', cookieA)
+      .send({ displayName: null })
+      .expect(400);
+    expect(response.body).toBeDefined();
+  });
+
   it('lists only the caller’s repositories', async () => {
     await create(cookieB, { displayName: 'b-only' }).expect(201);
 
