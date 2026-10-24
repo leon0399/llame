@@ -7,9 +7,15 @@
  */
 import type {
   CreateProjectDto,
+  CreateProjectRepositoryDto,
+  GetProjectStartLocationParams,
   ListProjectsParams,
+  ProjectRepositoryLinkResponse,
+  ProjectRepositoryLinkWithDefaultsResponse,
   ProjectResponse,
+  StartLocationResponse,
   UpdateProjectDto,
+  UpdateProjectRepositoryDto,
 } from "../models";
 
 export type createProjectError = void;
@@ -219,5 +225,250 @@ export const deleteProject = async (
     throw err;
   }
   const data: void = body ? JSON.parse(body) : undefined;
+  return data;
+};
+
+export type listProjectRepositoriesError = void | void | void;
+
+export const getListProjectRepositoriesUrl = (id: string) => {
+  return `/api/v1/projects/${id}/repositories`;
+};
+
+/**
+ * @summary List a project's linked repositories and their defaults
+ */
+export const listProjectRepositories = async (
+  id: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ProjectRepositoryLinkWithDefaultsResponse[]> => {
+  const res = await fetchFn(getListProjectRepositoriesUrl(id), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: listProjectRepositoriesError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getListProjectRepositoriesUrl(id)} failed (${res.status})`,
+    );
+    const data: listProjectRepositoriesError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ProjectRepositoryLinkWithDefaultsResponse[] = body
+    ? JSON.parse(body)
+    : {};
+  return data;
+};
+
+export type linkProjectRepositoryError = void | void | void | void;
+
+export const getLinkProjectRepositoryUrl = (id: string) => {
+  return `/api/v1/projects/${id}/repositories`;
+};
+
+/**
+ * @summary Link one catalog repository to a project
+ */
+export const linkProjectRepository = async (
+  id: string,
+  createProjectRepositoryDto: CreateProjectRepositoryDto,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ProjectRepositoryLinkResponse> => {
+  const res = await fetchFn(getLinkProjectRepositoryUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createProjectRepositoryDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: linkProjectRepositoryError;
+      status?: number;
+    } = new globalThis.Error(
+      `POST ${getLinkProjectRepositoryUrl(id)} failed (${res.status})`,
+    );
+    const data: linkProjectRepositoryError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ProjectRepositoryLinkResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type updateProjectRepositoryLinkError = void | void | void | void;
+
+export const getUpdateProjectRepositoryLinkUrl = (
+  id: string,
+  repositoryId: string,
+) => {
+  return `/api/v1/projects/${id}/repositories/${repositoryId}`;
+};
+
+/**
+ * @summary Change a link alias, primary flag, or isolation policy
+ */
+export const updateProjectRepositoryLink = async (
+  id: string,
+  repositoryId: string,
+  updateProjectRepositoryDto: UpdateProjectRepositoryDto,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ProjectRepositoryLinkResponse> => {
+  const res = await fetchFn(
+    getUpdateProjectRepositoryLinkUrl(id, repositoryId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateProjectRepositoryDto),
+    },
+  );
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: updateProjectRepositoryLinkError;
+      status?: number;
+    } = new globalThis.Error(
+      `PATCH ${getUpdateProjectRepositoryLinkUrl(id, repositoryId)} failed (${res.status})`,
+    );
+    const data: updateProjectRepositoryLinkError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ProjectRepositoryLinkResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type unlinkProjectRepositoryError = void | void | void;
+
+export const getUnlinkProjectRepositoryUrl = (
+  id: string,
+  repositoryId: string,
+) => {
+  return `/api/v1/projects/${id}/repositories/${repositoryId}`;
+};
+
+/**
+ * @summary Remove one repository from a project's links
+ */
+export const unlinkProjectRepository = async (
+  id: string,
+  repositoryId: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<void> => {
+  const res = await fetchFn(getUnlinkProjectRepositoryUrl(id, repositoryId), {
+    ...options,
+    method: "DELETE",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: unlinkProjectRepositoryError;
+      status?: number;
+    } = new globalThis.Error(
+      `DELETE ${getUnlinkProjectRepositoryUrl(id, repositoryId)} failed (${res.status})`,
+    );
+    const data: unlinkProjectRepositoryError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: void = body ? JSON.parse(body) : undefined;
+  return data;
+};
+
+export type getProjectStartLocationError = void | void | void;
+
+export const getGetProjectStartLocationUrl = (
+  id: string,
+  params?: GetProjectStartLocationParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/projects/${id}/start-location?${stringifiedParams}`
+    : `/api/v1/projects/${id}/start-location`;
+};
+
+/**
+ * @summary Preview the location a chat start on this project resolves
+ */
+export const getProjectStartLocation = async (
+  id: string,
+  params: GetProjectStartLocationParams | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<StartLocationResponse> => {
+  const res = await fetchFn(getGetProjectStartLocationUrl(id, params), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: getProjectStartLocationError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getGetProjectStartLocationUrl(id, params)} failed (${res.status})`,
+    );
+    const data: getProjectStartLocationError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: StartLocationResponse = body ? JSON.parse(body) : {};
   return data;
 };

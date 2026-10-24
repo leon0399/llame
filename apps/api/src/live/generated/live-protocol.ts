@@ -44,6 +44,7 @@ export const projectResponseSchema = z.object({
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
   archivedAt: z.string().datetime({ offset: true }).nullable(),
+  defaultExecutorId: z.string().nullable(),
 });
 export type ProjectResponse = z.infer<typeof projectResponseSchema>;
 
