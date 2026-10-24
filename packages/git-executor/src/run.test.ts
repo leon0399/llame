@@ -59,6 +59,36 @@ describe("runGitProcess", () => {
     }
   });
 
+  it("decodes a multi-byte character split across two chunks", async () => {
+    const shim = mkdtempSync(join(tmpdir(), "git-executor-split-"));
+    created.push(shim);
+    // The three bytes of one character are written as two chunks, with a pause
+    // so the pipe cannot merge them: decoding each chunk on its own answers
+    // replacement characters, which is what a path or a remote would then be
+    // stored as.
+    writeFileSync(
+      join(shim, "git"),
+      Buffer.concat([
+        Buffer.from("#!/bin/sh\nprintf '"),
+        Buffer.from([0xe4, 0xb8]),
+        Buffer.from("'\nsleep 0.2\nprintf '"),
+        Buffer.from([0x96]),
+        Buffer.from("\\n'\n"),
+      ]),
+      { mode: 0o755 },
+    );
+    const previousPath = process.env["PATH"];
+    process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
+    try {
+      const result = await runGitProcess(["--version"], { timeoutMs: 5000 });
+
+      expect(result.status).toBe("ok");
+      expect(result.stdout).toBe("世\n");
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
   it("reports a non-zero exit as a typed failure with git's own text", async () => {
     const result = await runGitProcess(["--definitely-not-a-flag"], {
       timeoutMs: 5000,

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 import { gitEnvironment } from "./env";
 
@@ -38,15 +39,23 @@ type CollectedOutput = {
   readonly text: () => string;
 };
 
-/** Output is capped while the child runs, not after: a runaway listing must not
- *  grow this process's memory first. */
+/**
+ * Output is capped while the child runs, not after: a runaway listing must not
+ * grow this process's memory first.
+ *
+ * The decoder, not `chunk.toString("utf8")`, turns the bytes into text: a byte
+ * sequence arrives split across `data` events, and decoding each chunk on its
+ * own would replace both halves with U+FFFD, so a path or a remote that holds
+ * a non-ASCII character and lands on a chunk boundary would be stored wrongly.
+ */
 function collect(limit: number): CollectedOutput {
   const chunks: Array<string> = [];
+  const decoder = new StringDecoder("utf8");
   let length = 0;
   return {
     push: (chunk) => {
       if (length >= limit) return;
-      const text = chunk.toString("utf8").slice(0, limit - length);
+      const text = decoder.write(chunk).slice(0, limit - length);
       length += text.length;
       chunks.push(text);
     },
