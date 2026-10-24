@@ -58,6 +58,23 @@ describe('normalizeRemote', () => {
     expect(normalizeRemote('https://GitHub.COM')).toBe('github.com');
   });
 
+  // Userinfo belongs to the authority, so an `@` later in the path is part of
+  // the repository's own name and survives the strip.
+  it('strips userinfo only up to the first slash', () => {
+    expect(normalizeRemote('https://github.com/leon0399/ll@me')).toBe(
+      'github.com/leon0399/ll@me',
+    );
+  });
+
+  // The strip is bounded by the `@` index, not by the literal `-1`: a
+  // single-character userinfo sits at index 1, and reading it as "no userinfo"
+  // would keep the credential in the stored remote.
+  it('strips a one-character userinfo', () => {
+    expect(normalizeRemote('https://a@github.com/owner/repo')).toBe(
+      'github.com/owner/repo',
+    );
+  });
+
   // One trailing slash is the documented case; a clone URL a shell pasted can
   // carry several, and every one of them has to go before the `.git` check so
   // `r.git//` and `r//` both collapse to the same identity.
