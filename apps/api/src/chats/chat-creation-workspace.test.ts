@@ -264,6 +264,8 @@ describe('ChatCreationWorkspace gates', () => {
     await expect(workspace.enter(input())).resolves.toMatchObject({
       status: 'bind_failed',
       code: 'executor_unavailable',
+      message:
+        'The serving process holds no matching tools.nativeExecutorId, so it cannot bind a local root.',
     });
   });
 
@@ -511,7 +513,10 @@ describe('ChatCreationWorkspace failures name their cause', () => {
 
     await expect(
       workspace.enter(input({ worktree: worktreeInput })),
-    ).resolves.toMatchObject({ status: 'worktree_failed' });
+    ).resolves.toEqual({
+      status: 'worktree_failed',
+      message: 'A worktree directory must be absolute.',
+    });
     expect(appendAttempt).toHaveBeenCalledTimes(1);
     expect(calls.worktreeAdd).not.toHaveBeenCalled();
   });

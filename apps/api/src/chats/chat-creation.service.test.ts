@@ -1,5 +1,5 @@
 /* eslint-disable typescript/no-unsafe-assignment -- a spied repository's mock call tuple and an `expect.any` matcher are `any`; every read is asserted through the typed spy signature. */
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { MockInstance } from 'vitest';
 
@@ -417,7 +417,12 @@ describe('ChatCreationService validation before any write', () => {
       ),
     ).rejects.toMatchObject({
       status: 422,
-      response: { code: 'executor_unknown' },
+      response: {
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message: 'Executor machine:basement is not configured.',
+        code: 'executor_unknown',
+      },
     });
     expect(service.validateTurn).not.toHaveBeenCalled();
     expect(service.runExclusively).not.toHaveBeenCalled();
@@ -636,7 +641,15 @@ describe('ChatCreationService Workspace outcomes', () => {
           },
         }),
       ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        message:
+          'The Chat already holds a message, a Run, or another bound root.',
+      },
+    });
     expect(service.startFirstRun).not.toHaveBeenCalled();
     expect(service.recordProjectDefault).not.toHaveBeenCalled();
   });
@@ -674,7 +687,10 @@ describe('ChatCreationService owner isolation', () => {
 
     await expect(
       service.service.create(OWNER, request({ projectId: PROJECT_ID })),
-    ).rejects.toMatchObject({ status: 404 });
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { message: `Project ${PROJECT_ID} not found` },
+    });
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
   });
 
@@ -696,7 +712,10 @@ describe('ChatCreationService owner isolation', () => {
 
     await expect(
       service.service.create(OWNER, request()),
-    ).rejects.toMatchObject({ status: 404 });
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { message: `Chat ${CHAT_ID} not found` },
+    });
   });
 });
 
@@ -709,7 +728,15 @@ describe('ChatCreationService resend rules', () => {
 
     await expect(
       service.service.create(OWNER, request()),
-    ).rejects.toMatchObject({ status: 409 });
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        message:
+          'The Chat already holds a message; send the draft through the message route.',
+      },
+    });
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
   });
 
@@ -720,7 +747,14 @@ describe('ChatCreationService resend rules', () => {
 
     await expect(
       service.service.create(OWNER, request()),
-    ).rejects.toMatchObject({ status: 409 });
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'The Chat is archived; unarchive it first.',
+      },
+    });
   });
 
   it('names a project mismatch with its body code', async () => {
@@ -737,7 +771,12 @@ describe('ChatCreationService resend rules', () => {
       ),
     ).rejects.toMatchObject({
       status: 409,
-      response: { code: 'project_mismatch' },
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'The stored Chat belongs to another project.',
+        code: 'project_mismatch',
+      },
     });
   });
 
@@ -772,6 +811,54 @@ describe('ChatCreationService resend rules', () => {
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
     expect(stubs.bindAtCreation).not.toHaveBeenCalled();
     expect(service.startFirstRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the worktree only for the root its own lease names', async () => {
+    const worktreeRow = checkoutRow({
+      id: '88888888-8888-4888-8888-888888888888',
+      kind: 'worktree',
+      path: '/srv/.llame-worktrees/llame/one',
+      branch: 'llame/one',
+      origin: 'created',
+    });
+    const stubs = stubRepositories();
+    stubs.findChatWorktree.mockResolvedValue({
+      lease: leaseRow(),
+      checkout: worktreeRow,
+    });
+    stubs.findChatById.mockResolvedValue({
+      ...chat,
+      workspaceRoot: worktreeRow.path,
+      workspaceExecutorId: 'host',
+    });
+    const bound = makeService({ stubs });
+
+    await expect(bound.service.create(OWNER, request())).resolves.toMatchObject(
+      {
+        workspace: {
+          status: 'bound',
+          root: worktreeRow.path,
+          worktree: { path: worktreeRow.path, branch: 'llame/one' },
+        },
+      },
+    );
+
+    // A stored root the lease does not name is reported bare: the worktree it
+    // would print belongs to another root.
+    stubs.findChatById.mockResolvedValue({
+      ...chat,
+      workspaceRoot: ROOT,
+      workspaceExecutorId: 'host',
+    });
+    const bare = makeService({ stubs });
+
+    const bareResponse = await bare.service.create(OWNER, request());
+
+    expect(bareResponse.workspace).toStrictEqual({
+      status: 'bound',
+      root: ROOT,
+      executorId: 'host',
+    });
   });
 
   it('rebinds a creation lease and reports its worktree', async () => {
@@ -885,7 +972,10 @@ describe('ChatCreationService getCreationRecord', () => {
 
     await expect(
       service.service.getCreationRecord(OWNER, CHAT_ID),
-    ).rejects.toMatchObject({ status: 404 });
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { message: `Chat ${CHAT_ID} not found` },
+    });
     expect(stubs.findAttempts).not.toHaveBeenCalled();
   });
 });
@@ -920,6 +1010,26 @@ describe('ChatCreationService offline executors', () => {
     expect(response.workspace).toMatchObject({
       status: 'machine_unavailable',
       message: expect.stringContaining('machine:nas'),
+    });
+    expect(service.enter).not.toHaveBeenCalled();
+  });
+
+  it('refuses a worktree checkout as the start of a chat', async () => {
+    const stubs = stubRepositories();
+    resolvableCatalog(stubs);
+    stubs.findCheckout.mockResolvedValue(checkoutRow({ kind: 'worktree' }));
+    const service = makeService({ stubs });
+
+    await expect(
+      service.service.create(OWNER, request({ projectId: PROJECT_ID })),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: {
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message:
+          'A worktree checkout cannot start a chat; name its main checkout.',
+      },
     });
     expect(service.enter).not.toHaveBeenCalled();
   });

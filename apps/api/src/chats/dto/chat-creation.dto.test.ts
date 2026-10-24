@@ -317,7 +317,13 @@ describe('toWorkspaceResponse', () => {
     // A git failure names no code but still carries its standard error.
     expect(
       project({ status: 'worktree_failed', message: 'fatal: exists' }),
-    ).toEqual({ status: 'worktree_failed', message: 'fatal: exists' });
+    ).toStrictEqual({ status: 'worktree_failed', message: 'fatal: exists' });
+  });
+
+  it('omits an executor and a worktree the binding did not name', () => {
+    expect(
+      toWorkspaceResponse({ status: 'bound', root: '/srv/llame' }),
+    ).toStrictEqual({ status: 'bound', root: '/srv/llame' });
   });
 
   it('carries `message` and, when known, `leftDirectory` on every other failure', () => {
@@ -334,11 +340,15 @@ describe('toWorkspaceResponse', () => {
         }),
       });
 
-      expect(response).toMatchObject({
+      // Strict: a projection that always spread its optional fields would
+      // add `code: undefined` here, which a loose match cannot see.
+      expect(response).toStrictEqual({
         status,
         message: 'the Machine went away',
+        ...(status === 'outcome_unknown' && {
+          leftDirectory: '/srv/.llame-worktrees/llame/two',
+        }),
       });
-      expect(response).not.toHaveProperty('code');
       expect(response).not.toHaveProperty('root');
     }
 

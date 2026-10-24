@@ -458,6 +458,14 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       .createIfAbsent({ id: chatId, ownerUserId })
       .catch(() => null);
     expect(lastQuery(queries).params).toContain(null);
+
+    // A named project is bound in the same insert, so the row is filed at
+    // creation rather than in a second statement.
+    queries.length = 0;
+    await new ChatsRepository(db)
+      .createIfAbsent({ id: chatId, ownerUserId, projectId: 'project-1' })
+      .catch(() => null);
+    expect(queryContains(queries, 'project-1')).toBe(true);
   });
 
   it('create defaults visibility to private and title to null', async () => {
@@ -813,6 +821,14 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
 describe('MessagesRepository — owner-scoped + chat-scoped', () => {
   const ownerUserId = 'owner-xyz';
   const chatId = 'chat-1';
+
+  it('hasMessage reads one message id of the Chat', async () => {
+    const { db, queries } = makeMockDb();
+    await new MessagesRepository(db).hasMessage(chatId).catch(() => false);
+
+    expect(querySqlContains(queries, 'select "id" from "messages"')).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+  });
 
   it('findByChatId scopes by chatId AND ownerUserId (join to chats.owner_user_id)', async () => {
     const { db, queries } = makeMockDb();

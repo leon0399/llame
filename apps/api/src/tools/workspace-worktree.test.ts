@@ -173,6 +173,15 @@ describe('generated names', () => {
     expect(bytes).toHaveBeenCalledWith(2);
     expect(name.name).toBe('vivid-river-abcd');
   });
+
+  it('falls back to its own words when a draw names no list entry', () => {
+    const name = generatedWorktreeName({
+      int: () => 1_000_000,
+      bytes: () => Buffer.from([0, 0]),
+    });
+
+    expect(name.name).toBe('calm-otter-0000');
+  });
 });
 
 describe('worktree placement', () => {

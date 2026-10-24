@@ -1,3 +1,6 @@
+import { type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
+
 import { type Db } from '../db/tenant-db.service';
 import { asDouble } from '../testing/support';
 import {
@@ -27,13 +30,13 @@ type FakeClient = {
   readonly releases: Array<string>;
 };
 
-function fakeClient(answer: { locked: boolean }): FakeClient {
+function fakeClient(rows: ReadonlyArray<{ locked: boolean }>): FakeClient {
   const statements: Array<string> = [];
   const releases: Array<string> = [];
   const reserved = vi.fn((strings: TemplateStringsArray) => {
     const statement = strings.join('?');
     statements.push(statement);
-    return Promise.resolve([{ locked: answer.locked }]);
+    return Promise.resolve([...rows]);
   });
   const sql = Object.assign(vi.fn(), {
     reserve: vi.fn(() =>
@@ -65,6 +68,8 @@ describe('creationInProgress', () => {
         statusCode: 409,
         code: CREATION_IN_PROGRESS,
         error: 'Conflict',
+        message:
+          'A chat-creation request holds this Chat; retry after it finishes.',
       },
     });
     expect(CREATION_IN_PROGRESS).toBe('creation_in_progress');
@@ -73,11 +78,19 @@ describe('creationInProgress', () => {
 
 describe('tryCreationTransactionLock', () => {
   it('reports the database’s verdict, taking the lock once per transaction', async () => {
-    const execute = vi.fn(() => Promise.resolve([{ locked: false }]));
+    const statements: Array<SQL> = [];
+    const execute = vi.fn((statement: SQL) => {
+      statements.push(statement);
+      return Promise.resolve([{ locked: false }]);
+    });
     const tx = asDouble<Db>({ execute });
 
     await expect(tryCreationTransactionLock(tx, CHAT_ID)).resolves.toBe(false);
     expect(execute).toHaveBeenCalledTimes(1);
+    // The shared transaction lock on the Chat's derived key, not a bare lock.
+    const statement = new PgDialect().sqlToQuery(statements[0]);
+    expect(statement.sql).toContain('pg_try_advisory_xact_lock_shared');
+    expect(statement.params).toContain(chatCreationLockKey(CHAT_ID));
   });
 
   it('treats an empty result as not locked', async () => {
@@ -89,7 +102,7 @@ describe('tryCreationTransactionLock', () => {
 
 describe('ChatCreationLock.runExclusively', () => {
   it('reserves one connection, locks, runs, unlocks, and releases', async () => {
-    const client = fakeClient({ locked: true });
+    const client = fakeClient([{ locked: true }]);
     const order: Array<string> = [];
 
     await expect(
@@ -107,7 +120,7 @@ describe('ChatCreationLock.runExclusively', () => {
   });
 
   it('refuses an overlapping request and never runs it', async () => {
-    const client = fakeClient({ locked: false });
+    const client = fakeClient([{ locked: false }]);
     const run = vi.fn(() => Promise.resolve('never'));
 
     await expect(
@@ -122,8 +135,19 @@ describe('ChatCreationLock.runExclusively', () => {
     expect(client.releases).toEqual(['released']);
   });
 
+  it('refuses a create whose lock answer names no row', async () => {
+    const client = fakeClient([]);
+    const run = vi.fn(() => Promise.resolve('never'));
+
+    await expect(
+      lockOf(client).runExclusively(CHAT_ID, run),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(run).not.toHaveBeenCalled();
+    expect(client.releases).toEqual(['released']);
+  });
+
   it('unlocks and releases when the request throws', async () => {
-    const client = fakeClient({ locked: true });
+    const client = fakeClient([{ locked: true }]);
 
     await expect(
       lockOf(client).runExclusively(CHAT_ID, () =>
