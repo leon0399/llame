@@ -125,7 +125,11 @@ function diffRows(
   newText: string,
   start: number | null,
 ): Array<DiffRow> {
-  const changes = diffLines(oldText, newText, { ignoreNewlineAtEof: true });
+  // A changed trailing line break is a real change to a fragment, so the
+  // final lines only compare equal when both ends agree.
+  const changes = diffLines(oldText, newText, {
+    ignoreNewlineAtEof: oldText.endsWith("\n") === newText.endsWith("\n"),
+  });
   const rows: Array<DiffRow> = [];
   const numbers = { old: start, new: start };
   for (let index = 0; index < changes.length; index += 1) {
@@ -263,12 +267,21 @@ function EditDiff({
   const rows = diffRows(oldText, newText, header ? Number(header[1]) : null);
   const removed = rows.filter((row) => row.kind === "removed").length;
   const added = rows.filter((row) => row.kind === "added").length;
+  let trailingBreak: string | undefined;
+  if (!oldText.endsWith("\n") && newText.endsWith("\n")) {
+    trailingBreak = "Adds a trailing line break.";
+  } else if (oldText.endsWith("\n") && !newText.endsWith("\n")) {
+    trailingBreak = "Removes the trailing line break.";
+  }
   return (
     <ToolSection label="Diff" aside={`+${added} −${removed}`}>
       {oldText === newText ? (
         <p className="text-muted-foreground text-sm">No changes.</p>
       ) : (
         <DiffView rows={rows} />
+      )}
+      {trailingBreak === undefined ? null : (
+        <p className="text-muted-foreground text-xs">{trailingBreak}</p>
       )}
     </ToolSection>
   );

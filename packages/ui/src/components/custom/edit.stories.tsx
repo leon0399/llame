@@ -151,3 +151,25 @@ export const NoChange: Story = {
     await expect(canvas.getByText("No changes.")).toBeInTheDocument();
   },
 };
+
+/**
+ * A fragment that gains a trailing line break is a real change, so the diff
+ * shows it and says so instead of reporting no change.
+ *
+ * @summary for an edit that only adds a trailing line break
+ */
+export const TrailingLineBreak: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "notes.md", oldText: "foo", newText: "foo\n" },
+    output: undefined,
+    state: "input-available" as const,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /edit/iu }));
+    await expect(canvas.getByText("+1 −1")).toBeInTheDocument();
+    await expect(
+      canvas.getByText("Adds a trailing line break."),
+    ).toBeInTheDocument();
+  },
+};

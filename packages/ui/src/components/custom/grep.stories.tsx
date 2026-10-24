@@ -4,12 +4,6 @@ import { expect, within } from "storybook/test";
 import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { GrepTool } from "./grep.js";
 
-// SourceLines highlights through Shiki's one-light palette, whose token
-// colors fall below WCAG AA; only the color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
-};
-
 const output = {
   status: "success" as const,
   results: [
@@ -37,7 +31,7 @@ const output = {
 
 const meta = {
   component: GrepTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (

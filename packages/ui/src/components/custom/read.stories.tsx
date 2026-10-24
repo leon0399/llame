@@ -3,21 +3,10 @@ import { expect, fn, screen, waitFor, within } from "storybook/test";
 
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { ReadTool, type ReadToolProps } from "./read.js";
 
 const markdownRenderer: ReadToolProps["Markdown"] = MessageResponse;
-
-// The Parameters panel renders through the shared Shiki CodeBlock, whose
-// built-in "one-light" palette ships token colors below WCAG AA color-contrast.
-// Same third-party-theme defect web-search.stories.tsx suppresses; only the
-// color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: {
-    config: {
-      rules: [{ id: "color-contrast", enabled: false }],
-    },
-  },
-};
 
 const fileOutput = {
   status: "success" as const,
@@ -33,7 +22,7 @@ const fileOutput = {
 
 const meta = {
   component: ReadTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -615,6 +604,8 @@ export const UnsafeUrl: Story = {
  */
 export const Error: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "The path does not exist.",
