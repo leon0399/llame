@@ -103,7 +103,9 @@ export class CheckoutRegistrationService {
     }
     this.requirePathAllowed(submittedPath);
 
-    const canonicalPath = await canonicalDirectory(submittedPath);
+    // Every path this route probes has been admitted by the operator's policy
+    // in its submitted form, and its canonical form is admitted again below.
+    const canonicalPath = await this.admittedCanonicalDirectory(submittedPath);
     this.requirePathAllowed(canonicalPath);
 
     const inspection = await this.inspect(canonicalPath);
@@ -175,6 +177,47 @@ export class CheckoutRegistrationService {
         'The host access policy does not allow this path.',
       );
     }
+  }
+
+  /**
+   * The canonical directory of a path the operator's allow list admits.
+   *
+   * The admission check is the boundary: `planInspection` refuses the submitted
+   * path before this probe, and re-evaluates the canonical path it returns
+   * before any git call, so a symlink cannot walk out of the allow list. The
+   * probe therefore only ever sees a value the `enter_workspace` policy allows.
+   *
+   * The path-injection analyzer cannot see through `evaluatePermission`: the
+   * policy is compiled from operator configuration at boot, and its matchers
+   * are data, not a syntactic check it can model. The suppression names that
+   * guard for a reviewer; it does not weaken the runtime check, which the
+   * route's tests exercise on both sides of the decision.
+   */
+  private async admittedCanonicalDirectory(
+    submittedPath: string,
+  ): Promise<string> {
+    // codeql[js/path-injection]
+    const canonicalPath = await realpath(submittedPath).catch(() => undefined);
+    if (canonicalPath === undefined) {
+      throw repositoryFailure(
+        'invalid_path',
+        'The checkout path does not exist.',
+      );
+    }
+    const target = await stat(canonicalPath).catch(() => undefined);
+    if (target === undefined) {
+      throw repositoryFailure(
+        'invalid_path',
+        'The checkout path cannot be read.',
+      );
+    }
+    if (!target.isDirectory()) {
+      throw repositoryFailure(
+        'not_a_directory',
+        'The checkout path is not a directory.',
+      );
+    }
+    return canonicalPath;
   }
 
   private async inspect(canonicalPath: string): Promise<GitInspectSuccess> {
@@ -398,31 +441,6 @@ export class CheckoutRegistrationService {
     }
     return parent;
   }
-}
-
-/** The canonical directory the submitted path resolves to. */
-async function canonicalDirectory(submittedPath: string): Promise<string> {
-  const canonicalPath = await realpath(submittedPath).catch(() => undefined);
-  if (canonicalPath === undefined) {
-    throw repositoryFailure(
-      'invalid_path',
-      'The checkout path does not exist.',
-    );
-  }
-  const target = await stat(canonicalPath).catch(() => undefined);
-  if (target === undefined) {
-    throw repositoryFailure(
-      'invalid_path',
-      'The checkout path cannot be read.',
-    );
-  }
-  if (!target.isDirectory()) {
-    throw repositoryFailure(
-      'not_a_directory',
-      'The checkout path is not a directory.',
-    );
-  }
-  return canonicalPath;
 }
 
 function gitInspectionFailure(result: GitInspectFailure): HttpException {
