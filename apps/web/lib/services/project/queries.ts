@@ -1,11 +1,17 @@
-import { useQuery, type QueryKey } from "@tanstack/react-query";
+import {
+  useQuery,
+  type QueryKey,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { z } from "zod";
 
 import {
   getProject,
+  listProjectRepositories,
   listProjects as listProjectsEndpoint,
 } from "../../api/generated/projects/projects";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
+import type { ProjectRepositoryLink } from "./types";
 
 // Serializable-array key factory (TkDodo's "Effective React Query Keys"),
 // same convention as chatQueryKeys / orgUnitsQueryKeys.
@@ -26,6 +32,10 @@ export const projectQueryKeys = {
       ? ([...projectQueryKeys.lists(), filters] as const)
       : projectQueryKeys.lists(),
   detail: (id: string) => [...projectQueryKeys.all, "detail", id] as const,
+  // The link prefix is its own scope so a link write can refresh one project's
+  // links without touching detail reads.
+  repositoryLinks: () => [...projectQueryKeys.all, "link"] as const,
+  links: (id: string) => [...projectQueryKeys.repositoryLinks(), id] as const,
 };
 
 const projectListFiltersSchema = z.object({
@@ -92,5 +102,32 @@ export function useProjectQuery(id: string, enabled = true) {
     gcTime: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+  });
+}
+
+/**
+ * Every repository the project links, each with the alias, primary flag, and
+ * isolation policy the project owns. The project page's Repositories section
+ * is this read's only consumer.
+ */
+export async function fetchProjectRepositoryLinks(
+  projectId: string,
+): Promise<Array<ProjectRepositoryLink>> {
+  return listProjectRepositories(projectId, undefined, authenticatedFetch());
+}
+
+/** The state a link-list reader holds: pending, failed, or one project's links. */
+export type ProjectRepositoryLinksQuery = UseQueryResult<
+  Array<ProjectRepositoryLink>
+>;
+
+export function useProjectRepositoryLinksQuery(
+  projectId: string,
+  enabled = true,
+): ProjectRepositoryLinksQuery {
+  return useQuery({
+    queryKey: projectQueryKeys.links(projectId),
+    queryFn: () => fetchProjectRepositoryLinks(projectId),
+    enabled,
   });
 }

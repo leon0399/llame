@@ -2,21 +2,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
-- `enter_workspace` accepts an optional `worktree` object with `name` and
-  `baseRef`, so one Chat can take its own tree of the clone it names: the tool
-  creates the worktree beside the clone (or under the main checkout's
-  `worktree_base`) on a `llame/<name>` branch, records the Worktree checkout,
-  its lease with the base commit, and any adopted repository and main checkout,
-  and binds the new root in the same transaction as the attempt that precedes
-  `git worktree add`. An unregistered clone is adopted from its inspected
-  `origin` remote, a linked-worktree source resolves to its main clone, and a
-  symlinked worktree parent decides on its canonical form. A failed creation
-  records nothing and leaves the previous binding alone. The owner can remove a
-  clean worktree through `DELETE /api/v1/checkouts/:id/worktree`, which refuses a
-  dirty tree, unpushed commits, and an unknown upstream unless HEAD is the
-  recorded base commit, and keeps the branch. See
-  [repositories](docs/product/operator/repositories.md) and
-  [enter_workspace](docs/product/reference/tools/enter-workspace.md).
+- The project page gains a Repositories section inside its settings panel: it
+  lists each link with the project's alias, primary flag, isolation policy, and
+  catalog remote; links a repository from the owner's catalog with an optional
+  alias, primary flag, and policy; edits or unlinks a link; registers a checkout
+  from one path — a local path or a `machine://` locator, where the executor
+  follows from the path — with an optional repository or remote selector; and
+  lists the project's worktrees by path, branch, creating chat, and every chat
+  bound to them. A worktree's Remove is guarded by the route, and a refusal
+  keeps the row and shows the server's own sentence. See
+  [repositories](docs/product/operator/repositories.md#the-project-pages-repositories-section).
+
+- A project links the owner's repositories: each link carries a project-scoped
+  alias, one primary flag per project, and an isolation policy of `inherit`,
+  `always_worktree`, or `never`. The link routes sit under
+  `/api/v1/projects/:id/repositories` with create, read, update, and unlink, and
+  a write on an archived project answers `409` without changing anything. Every
+  link is owner-isolated with forced RLS and composite owner foreign keys, so a
+  row that names another owner's project or repository is refused by the
+  database; deletion cascades rows only, never a directory. See
+  [repositories](docs/product/operator/repositories.md#project-links).
 
 - Every native tool call has its own chat row instead of raw parameter and
   result JSON. `edit` shows a unified diff with line numbers and the changed
@@ -56,6 +61,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `apps/storybook` are never matched against the unrelated public `machine`
   and `storybook` packages. Expect Dependabot alerts for the advisories above
   once the first snapshot lands.
+
+- `enter_workspace` accepts an optional `worktree` object with `name` and
+  `baseRef`, so one Chat can take its own tree of the clone it names: the tool
+  creates the worktree beside the clone (or under the main checkout's
+  `worktree_base`) on a `llame/<name>` branch, records the Worktree checkout,
+  its lease with the base commit, and any adopted repository and main checkout,
+  and binds the new root in the same transaction as the attempt that precedes
+  `git worktree add`. An unregistered clone is adopted from its inspected
+  `origin` remote, a linked-worktree source resolves to its main clone, and a
+  symlinked worktree parent decides on its canonical form. A failed creation
+  records nothing and leaves the previous binding alone. The owner can remove a
+  clean worktree through `DELETE /api/v1/checkouts/:id/worktree`, which refuses a
+  dirty tree, unpushed commits, and an unknown upstream unless HEAD is the
+  recorded base commit, and keeps the branch. See
+  [repositories](docs/product/operator/repositories.md) and
+  [enter_workspace](docs/product/reference/tools/enter-workspace.md).
 
 - The instance gains a repository catalog: an owner's repositories, their
   aliases, and the checkouts where each exists on an executor, plus the worktree

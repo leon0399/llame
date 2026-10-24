@@ -17,6 +17,13 @@ const PINNED_CHATS_ROUTE =
   "GET /api/v1/chats?projectId=p1&pinned=only&archived=with";
 const CHATS_ROUTE = "GET /api/v1/chats?projectId=p1&pinned=exclude";
 const PINS_ROUTE = "GET /api/v1/pins";
+// The side panel's Repositories section: the project's links, the owner's
+// repository catalog, and the checkouts the worktree list narrows. These
+// stories leave all three empty; the section's own stories cover their
+// contents.
+const PROJECT_LINKS_ROUTE = "GET /api/v1/projects/p1/repositories";
+const REPOSITORIES_ROUTE = "GET /api/v1/repositories";
+const CHECKOUTS_ROUTE = "GET /api/v1/checkouts";
 
 const tripPlanning = {
   id: "p1",
@@ -62,6 +69,9 @@ function routeFetch() {
       return answer([], (release) => (releaseChats = release));
     }
     if (key === PINS_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === PROJECT_LINKS_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === REPOSITORIES_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === CHECKOUTS_ROUTE) return Promise.resolve(jsonResponse([]));
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -201,6 +211,9 @@ export const NoChats: Story = {
       PINNED_CHATS_ROUTE,
       CHATS_ROUTE,
       PINS_ROUTE,
+      REPOSITORIES_ROUTE,
+      PROJECT_LINKS_ROUTE,
+      CHECKOUTS_ROUTE,
     ]);
   },
 };
@@ -248,6 +261,9 @@ export const SidePanelDemo: Story = {
       PINNED_CHATS_ROUTE,
       CHATS_ROUTE,
       PINS_ROUTE,
+      REPOSITORIES_ROUTE,
+      PROJECT_LINKS_ROUTE,
+      CHECKOUTS_ROUTE,
     ]);
   },
 };
