@@ -10,7 +10,7 @@ edit the same files.
 
 Decision provenance: the design was settled in a grilling session with Leo on
 2026-10-24, recorded against the
-[project, repository, and machine association study](../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md).
+[project, repository, and machine association study](../../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md).
 No issue tracks it. Leo decided on 2026-10-24 to proceed without one, as for
 `remote-machines`.
 
