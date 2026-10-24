@@ -5,7 +5,20 @@ import * as React from "react";
 import { Alert, AlertTitle } from "@workspace/ui/components/alert";
 import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
+import { MoreHorizontalIcon, Trash2Icon } from "lucide-react";
 
+import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useChatQuery } from "@/lib/services/chat/queries";
 import { useRemoveCheckoutWorktree } from "@/lib/services/checkouts/mutations";
@@ -40,7 +53,7 @@ function RowFailure({ message }: { message: string | null }) {
   );
 }
 
-/** The two writes one link row offers, named for the row they act on. */
+/** The two writes one link row offers, behind one menu named for the row. */
 function LinkActions({
   alias,
   onEdit,
@@ -50,31 +63,40 @@ function LinkActions({
   onEdit: () => void;
   onUnlink: () => void;
 }) {
+  const label = `Actions for ${alias}`;
   return (
-    <div className="ml-auto flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onEdit}
-        aria-label={`Edit ${alias}`}
-      >
-        Edit
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onUnlink}
-        aria-label={`Unlink ${alias}`}
-      >
-        Unlink
-      </Button>
-    </div>
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" className="ml-auto" />
+              }
+            />
+          }
+        >
+          <MoreHorizontalIcon />
+          <span className="sr-only">{label}</span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end">
+          {label}
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-36">
+        <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onSelect={onUnlink}>
+          Unlink
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 /** One link's facts: the project's alias first, then the flags a chat start
  *  reads — primary and isolation — then the catalog's remote, which decides
- *  which clones belong to this repository. */
+ *  which clones belong to this repository. A long remote truncates; its
+ *  title carries the whole value. */
 function LinkSummary({
   link,
   remote,
@@ -88,15 +110,18 @@ function LinkSummary({
 }) {
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium">{link.alias}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm font-medium">{link.alias}</span>
         {link.isPrimary ? <Badge variant="secondary">Primary</Badge> : null}
-        <span className="text-sm text-muted-foreground">
-          {isolationLabel(link.isolation)}
-        </span>
         <LinkActions alias={link.alias} onEdit={onEdit} onUnlink={onUnlink} />
       </div>
-      <code className="font-mono text-xs break-all text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
+        {isolationLabel(link.isolation)}
+      </span>
+      <code
+        className="truncate font-mono text-xs text-muted-foreground"
+        title={remote}
+      >
         {remote ?? "No remote recorded"}
       </code>
     </>
@@ -117,7 +142,7 @@ function LinkRow({
   const [failure, setFailure] = React.useState<string | null>(null);
 
   return (
-    <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+    <li className="flex min-w-0 flex-col gap-0.5 py-2 first:pt-0 last:pb-0">
       <LinkSummary
         link={link}
         remote={remote}
@@ -160,14 +185,12 @@ export function LinksList({
 
   return (
     <section aria-labelledby={headingId} className="space-y-1">
-      <h3 id={headingId} className="text-sm font-semibold">
-        Linked repositories
+      <h3 id={headingId} className="text-xs font-medium text-muted-foreground">
+        Linked
       </h3>
       {links.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No repository is linked yet. A chat that starts in this project
-          resolves its location from these links, so without one it starts
-          unbound.
+          No repository is linked yet. Chats started here have no location.
         </p>
       ) : (
         <ul className="divide-y">
@@ -185,6 +208,8 @@ export function LinksList({
   );
 }
 
+/** The branch first — the name a reader knows the tree by — then the path,
+ *  truncated with its whole value in the title and the Remove tooltip. */
 function WorktreeSummary({
   checkout,
   onRemove,
@@ -193,28 +218,31 @@ function WorktreeSummary({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="min-w-0 space-y-1">
-        <code className="block font-mono text-xs break-all">
-          {checkout.path}
-        </code>
-        <p className="text-sm text-muted-foreground">
-          {checkout.branch === null ? (
-            "Detached HEAD"
-          ) : (
-            <code className="font-mono text-xs">{checkout.branch}</code>
-          )}
-        </p>
+    <>
+      <div className="flex min-w-0 items-center gap-2">
+        {checkout.branch === null ? (
+          <span className="text-sm font-medium">Detached HEAD</span>
+        ) : (
+          <code className="truncate font-mono text-sm font-medium">
+            {checkout.branch}
+          </code>
+        )}
+        <IconButtonTooltip
+          label={`Remove ${checkout.path}`}
+          size="icon-sm"
+          className="ml-auto"
+          onClick={onRemove}
+        >
+          <Trash2Icon />
+        </IconButtonTooltip>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onRemove}
-        aria-label={`Remove ${checkout.path}`}
+      <code
+        className="truncate font-mono text-xs text-muted-foreground"
+        title={checkout.path}
       >
-        Remove
-      </Button>
-    </div>
+        {checkout.path}
+      </code>
+    </>
   );
 }
 
@@ -237,10 +265,10 @@ function BoundChats({ chatIds }: { chatIds: ReadonlyArray<string> }) {
 
 function WorktreeChats({ checkout }: { checkout: CheckoutResponse }) {
   return (
-    <dl className="space-y-1 text-sm">
-      <div className="flex gap-3">
-        <dt className="w-24 shrink-0 text-muted-foreground">Created by</dt>
-        <dd>
+    <dl className="space-y-0.5 text-xs">
+      <div className="flex gap-2">
+        <dt className="w-20 shrink-0 text-muted-foreground">Created by</dt>
+        <dd className="min-w-0">
           {checkout.leaseChatId === null ? (
             <span className="text-muted-foreground">No chat recorded</span>
           ) : (
@@ -248,9 +276,9 @@ function WorktreeChats({ checkout }: { checkout: CheckoutResponse }) {
           )}
         </dd>
       </div>
-      <div className="flex gap-3">
-        <dt className="w-24 shrink-0 text-muted-foreground">Bound chats</dt>
-        <dd>
+      <div className="flex gap-2">
+        <dt className="w-20 shrink-0 text-muted-foreground">Bound chats</dt>
+        <dd className="min-w-0">
           <BoundChats chatIds={checkout.chatIds} />
         </dd>
       </div>
@@ -319,7 +347,7 @@ function WorktreeRow({ checkout }: { checkout: CheckoutResponse }) {
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
   return (
-    <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+    <li className="flex min-w-0 flex-col gap-0.5 py-2 first:pt-0 last:pb-0">
       <WorktreeSummary
         checkout={checkout}
         onRemove={() => setConfirmOpen(true)}
@@ -363,8 +391,7 @@ function WorktreesState({
   if (worktrees.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No worktree is recorded for this project. A chat that starts a worktree
-        lists it here.
+        No worktree is recorded for this project.
       </p>
     );
   }
@@ -393,7 +420,7 @@ export function WorktreesList({
   const headingId = React.useId();
   return (
     <section aria-labelledby={headingId} className="space-y-1">
-      <h3 id={headingId} className="text-sm font-semibold">
+      <h3 id={headingId} className="text-xs font-medium text-muted-foreground">
         Worktrees
       </h3>
       <WorktreesState

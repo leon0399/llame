@@ -195,8 +195,9 @@ const meta = {
       vi.unstubAllGlobals();
     };
   },
+  // The section lives in the project page's side panel column.
   render: () => (
-    <div className="w-full max-w-3xl">
+    <div className="w-80 rounded-lg border">
       <ProjectRepositoriesSection projectId="p1" />
     </div>
   ),
@@ -205,9 +206,18 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+/** Opens the section's + menu and returns the named item. */
+async function addMenuItem(
+  canvas: ReturnType<typeof within>,
+  name: "Link repository" | "Register checkout",
+) {
+  await userEvent.click(canvas.getByRole("button", { name: "Add repository" }));
+  return screen.findByRole("menuitem", { name });
+}
+
 /**
- * A project with no link and no worktree: what linking is for, the three
- * writes the section offers, and no empty structure pretending to be data.
+ * A project with no link and no worktree: what linking is for, the two
+ * writes the + menu offers, and no empty structure pretending to be data.
  *
  * @summary no links: the empty state and the two dialogs' entry points
  */
@@ -222,25 +232,26 @@ export const Empty: Story = {
     await expect(
       canvas.getByText(/No worktree is recorded for this project\./),
     ).toBeVisible();
-    await expect(
-      canvas.getByRole("button", { name: "Link repository" }),
-    ).toBeEnabled();
-    await expect(
-      canvas.getByRole("button", { name: "Register checkout" }),
-    ).toBeEnabled();
     await expect(canvas.queryAllByRole("listitem")).toHaveLength(0);
+    const link = await addMenuItem(canvas, "Link repository");
+    await waitFor(() => expect(link).not.toHaveAttribute("data-disabled"));
+    await expect(
+      screen.getByRole("menuitem", { name: "Register checkout" }),
+    ).toBeVisible();
   },
 };
 
 /**
  * Two links: the primary one shows its badge and its always-worktree policy,
  * the other inherits, and each row carries the catalog remote that decides
- * which clones belong to it.
+ * which clones belong to it. Each row's Edit and Unlink sit behind its menu.
  *
  * @summary two links: alias, primary badge, isolation policy, and remote
  */
 export const Links: Story = {
   tags: ["ai-generated"],
+  // The unlink confirmation's destructive Button tint (#232), not this section.
+  parameters: { ...contrastKnownIssue232 },
   beforeEach: () => {
     links = [
       link({
@@ -263,12 +274,16 @@ export const Links: Story = {
     await expect(canvas.getByText("Reuse the checkout")).toBeVisible();
     await expect(canvas.getByText("github.com/leon0399/llame")).toBeVisible();
     await expect(canvas.getByText("gitlab.com/acme/website")).toBeVisible();
-    await expect(
-      canvas.getByRole("button", { name: "Edit llame" }),
-    ).toBeVisible();
-    await expect(
-      canvas.getByRole("button", { name: "Unlink site" }),
-    ).toBeVisible();
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Actions for site" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Unlink" }),
+    );
+    const confirm = await screen.findByRole("alertdialog");
+    // The dialog fades in over 100ms; it is visible once that ends.
+    await waitFor(() => expect(confirm).toBeVisible());
   },
 };
 
@@ -390,9 +405,7 @@ export const RegisterCheckout: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Register checkout" }),
-    );
+    await userEvent.click(await addMenuItem(canvas, "Register checkout"));
     const dialog = await screen.findByRole("dialog", {
       name: "Register checkout",
     });
@@ -438,10 +451,10 @@ export const LinkRepository: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    // The action waits for the link read: clicking a pending one is a no-op.
-    const linkButton = canvas.getByRole("button", { name: "Link repository" });
-    await waitFor(() => expect(linkButton).toBeEnabled());
-    await userEvent.click(linkButton);
+    // The item waits for the link read: a pending one is disabled.
+    const linkItem = await addMenuItem(canvas, "Link repository");
+    await waitFor(() => expect(linkItem).not.toHaveAttribute("data-disabled"));
+    await userEvent.click(linkItem);
     const dialog = await screen.findByRole("dialog", {
       name: "Link repository",
     });

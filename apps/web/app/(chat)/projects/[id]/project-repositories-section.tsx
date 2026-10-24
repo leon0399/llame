@@ -5,14 +5,18 @@ import * as React from "react";
 import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
+import { PlusIcon } from "lucide-react";
 
 import { useCheckoutsQuery } from "@/lib/services/checkouts/queries";
 import type { CheckoutsQuery } from "@/lib/services/checkouts/queries";
@@ -27,8 +31,8 @@ import { LinksList, WorktreesList } from "./project-repository-rows";
 function LinksSkeleton() {
   return (
     <div className="space-y-2">
-      <Skeleton className="h-14 w-full" />
-      <Skeleton className="h-14 w-full" />
+      <Skeleton className="h-12 w-full" />
+      <Skeleton className="h-12 w-full" />
     </div>
   );
 }
@@ -67,7 +71,7 @@ function RepositoriesBody({
     return <LinksLoadError onRetry={() => void links.refetch()} />;
   }
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <LinksList
         projectId={projectId}
         links={links.data}
@@ -87,7 +91,9 @@ function RepositoriesBody({
   );
 }
 
-function RepositoriesHeader({
+/** The section's one action: a + menu holding both writes, so the narrow
+ *  panel header carries a single icon instead of two labelled buttons. */
+function AddRepositoryMenu({
   onRegister,
   onLink,
   linkDisabled,
@@ -97,38 +103,54 @@ function RepositoriesHeader({
   linkDisabled: boolean;
 }) {
   return (
-    <CardHeader>
-      <CardTitle>Repositories</CardTitle>
-      <CardDescription>
-        The repositories this project can start chats in. A link keeps the
-        project&apos;s own alias and decides whether a chat start takes a
-        worktree; the catalog, its checkouts, and their directories belong to
-        your account.
-      </CardDescription>
-      <CardAction>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onRegister}>
-            Register checkout
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onLink}
-            disabled={linkDisabled}
-          >
-            Link repository
-          </Button>
-        </div>
-      </CardAction>
-    </CardHeader>
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon-sm" />}
+            />
+          }
+        >
+          <PlusIcon />
+          <span className="sr-only">Add repository</span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end">
+          Add repository
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem onSelect={onLink} disabled={linkDisabled}>
+          Link repository
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onRegister}>
+          Register checkout
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function RepositoriesHeader({
+  headingId,
+  ...menu
+}: { headingId: string } & React.ComponentProps<typeof AddRepositoryMenu>) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <h2 id={headingId} className="text-sm font-semibold">
+        Repositories
+      </h2>
+      <AddRepositoryMenu {...menu} />
+    </div>
   );
 }
 
 /**
- * The project page's "Repositories" section: the edit surface for the links a
- * chat start resolves its location from, and for the worktrees those links'
- * repositories hold. The catalog is not a page of its own — it appears only as
- * the picker inside these dialogs.
+ * The project side panel's "Repositories" section: the edit surface for the
+ * links a chat start resolves its location from, and for the worktrees those
+ * links' repositories hold. It sits beside the composer, above the chats, so
+ * an endless chat list never pushes it out of reach. The catalog is not a
+ * page of its own — it appears only as the picker inside these dialogs.
  *
  * @summary link, annotate, and unlink a project's repositories, and remove its
  * clean worktrees
@@ -138,25 +160,25 @@ export function ProjectRepositoriesSection({
 }: {
   projectId: string;
 }) {
+  const headingId = React.useId();
   const links = useProjectRepositoryLinksQuery(projectId);
   const checkouts = useCheckoutsQuery();
   const [linkOpen, setLinkOpen] = React.useState(false);
   const [registerOpen, setRegisterOpen] = React.useState(false);
 
   return (
-    <Card>
+    <section aria-labelledby={headingId} className="space-y-3 p-4">
       <RepositoriesHeader
+        headingId={headingId}
         onRegister={() => setRegisterOpen(true)}
         onLink={() => setLinkOpen(true)}
         linkDisabled={links.isPending}
       />
-      <CardContent>
-        <RepositoriesBody
-          projectId={projectId}
-          links={links}
-          checkouts={checkouts}
-        />
-      </CardContent>
+      <RepositoriesBody
+        projectId={projectId}
+        links={links}
+        checkouts={checkouts}
+      />
       <LinkRepositoryDialog
         projectId={projectId}
         linkedRepositoryIds={
@@ -169,6 +191,6 @@ export function ProjectRepositoriesSection({
         open={registerOpen}
         onOpenChange={setRegisterOpen}
       />
-    </Card>
+    </section>
   );
 }
