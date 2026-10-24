@@ -3,13 +3,15 @@ import {
   DEFAULT_GIT_TIMEOUT_MS,
   processFailure,
   withGit,
+  type GitCallOptions,
+  type GitRunner,
 } from "./invocation";
-import type { GitProcessResult } from "./run";
+import { parseWorktreeRecords } from "./worktrees";
 import type {
   GitFailure,
   GitInspectResult,
   GitRepositoryRemote,
-} from "./types";
+} from "@workspace/machine-protocol";
 
 /*
  * `git.inspect`: one read-only look at a working tree, which answers what the
@@ -24,16 +26,8 @@ import type {
  * all.
  */
 
-type GitRunner = (args: ReadonlyArray<string>) => Promise<GitProcessResult>;
-
 /** One step's result, or the failure that ended the inspection. */
 type Step<T> = T | GitFailure;
-
-function failedInspection(
-  result: Exclude<GitProcessResult, { readonly status: "ok" }>,
-): GitFailure {
-  return processFailure(result);
-}
 
 /** One record per remote URL: `remote.<name>.url\n<url>` up to a NUL. */
 function parseRemoteRecords(stdout: string): Array<GitRepositoryRemote> {
@@ -49,20 +43,6 @@ function parseRemoteRecords(stdout: string): Array<GitRepositoryRemote> {
     remotes.push({ name, url: record.slice(separator + 1) });
   }
   return remotes;
-}
-
-/**
- * The main working tree is the first record `git worktree list --porcelain -z`
- * reports. `-z` keeps a path that holds a newline in one record instead of
- * splitting it across lines.
- */
-function mainWorktreePath(porcelain: string): string | null {
-  for (const record of porcelain.split("\0")) {
-    if (record.startsWith("worktree ")) {
-      return record.slice("worktree ".length);
-    }
-  }
-  return null;
 }
 
 /**
@@ -85,7 +65,7 @@ async function workingTree(git: GitRunner): Promise<
   }>
 > {
   const toplevel = await git(["rev-parse", "--show-toplevel"]);
-  if (toplevel.status !== "ok") return failedInspection(toplevel);
+  if (toplevel.status !== "ok") return processFailure(toplevel);
 
   // One call per directory, not one call for both: two paths on two lines
   // cannot be split again when a path holds a newline, and a main clone at
@@ -95,9 +75,9 @@ async function workingTree(git: GitRunner): Promise<
     "--path-format=absolute",
     "--git-common-dir",
   ]);
-  if (common.status !== "ok") return failedInspection(common);
+  if (common.status !== "ok") return processFailure(common);
   const own = await git(["rev-parse", "--path-format=absolute", "--git-dir"]);
-  if (own.status !== "ok") return failedInspection(own);
+  if (own.status !== "ok") return processFailure(own);
   const commonDir = withoutTrailingNewline(common.stdout);
   const gitDir = withoutTrailingNewline(own.stdout);
   const linked = gitDir !== commonDir;
@@ -106,13 +86,17 @@ async function workingTree(git: GitRunner): Promise<
     ? await git(["worktree", "list", "--porcelain", "-z"])
     : undefined;
   if (worktreeList !== undefined && worktreeList.status !== "ok") {
-    return failedInspection(worktreeList);
+    return processFailure(worktreeList);
   }
   return {
     toplevel: withoutTrailingNewline(toplevel.stdout),
     commonDir,
     linked,
-    mainWorktree: linked ? mainWorktreePath(worktreeList?.stdout ?? "") : null,
+    // The main working tree is the first record the listing reports: `-z`
+    // keeps a path that holds a newline in one record instead of splitting it.
+    mainWorktree: linked
+      ? (parseWorktreeRecords(worktreeList?.stdout ?? "")[0]?.path ?? null)
+      : null,
   };
 }
 
@@ -128,9 +112,9 @@ async function remoteUrls(
   ]);
   // `git config --get-regexp` exits 1 when nothing matches, which is a
   // repository without a remote, not a failed call.
-  if (remotes.status === "timed_out") return failedInspection(remotes);
+  if (remotes.status === "timed_out") return processFailure(remotes);
   if (remotes.status === "failed" && remotes.exitCode !== 1) {
-    return failedInspection(remotes);
+    return processFailure(remotes);
   }
   return parseRemoteRecords(remotes.status === "ok" ? remotes.stdout : "");
 }
@@ -143,9 +127,9 @@ async function position(
   Step<{ readonly branch: string | null; readonly head: string | null }>
 > {
   const branch = await git(["symbolic-ref", "--short", "--quiet", "HEAD"]);
-  if (branch.status === "timed_out") return failedInspection(branch);
+  if (branch.status === "timed_out") return processFailure(branch);
   const head = await git(["rev-parse", "--verify", "HEAD"]);
-  if (head.status === "timed_out") return failedInspection(head);
+  if (head.status === "timed_out") return processFailure(head);
   return {
     branch: branch.status === "ok" ? branch.stdout.trim() : null,
     head: head.status === "ok" ? head.stdout.trim() : null,
@@ -164,15 +148,16 @@ async function inspectWithin(git: GitRunner): Promise<GitInspectResult> {
 
 export async function inspectRepository(
   input: { readonly path: string },
-  options: { readonly timeoutMs?: number } = {},
+  options: GitCallOptions = {},
 ): Promise<GitInspectResult> {
   const path = absoluteGitPath(input.path);
-  if (!("path" in path)) {
-    return { status: "error", type: "invalid_input", message: path.message };
-  }
+  if ("status" in path) return path;
   return withGit(
     path.path,
-    options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    {
+      timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+      signal: options.signal,
+    },
     inspectWithin,
   );
 }

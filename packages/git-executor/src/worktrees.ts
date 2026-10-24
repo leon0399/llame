@@ -1,8 +1,10 @@
 import {
   absoluteGitPath,
   DEFAULT_GIT_TIMEOUT_MS,
+  invalidInput,
   processFailure,
   withGit,
+  type GitCallOptions,
 } from "./invocation";
 import type {
   GitFailure,
@@ -10,7 +12,7 @@ import type {
   GitWorktreeEntry,
   GitWorktreeListResult,
   GitWorktreeRemoveResult,
-} from "./types";
+} from "@workspace/machine-protocol";
 
 /*
  * `git.worktreeAdd`, `git.worktreeList`, and `git.worktreeRemove`: the three
@@ -18,8 +20,9 @@ import type {
  * directory as `git.inspect`.
  *
  * A caller value that could be read as an option never reaches git: a branch
- * and a base ref that start with `-` are refused here, and every path must be
- * absolute. The add is unforced and untracked (`--no-track`), so a created
+ * and a base ref that start with `-` are refused here, every path must be
+ * absolute, and the remaining values follow `--end-of-options`. The add is
+ * unforced and untracked (`--no-track`), so a created
  * branch never inherits the source branch's upstream, and the removal is never
  * forced: git itself refuses a dirty or unregistered directory.
  */
@@ -32,7 +35,7 @@ export type WorktreeAddInput = {
   readonly source: string;
   readonly branch: string;
   /** The commit-ish the branch starts from; absent means the source's HEAD. */
-  readonly baseRef?: string | null;
+  readonly baseRef?: string;
   /** Where the new working tree goes; it must not exist yet. */
   readonly directory: string;
 };
@@ -42,10 +45,6 @@ export type WorktreeAddInput = {
  *  newline in one is never a name a caller meant. */
 // eslint-disable-next-line no-control-regex
 const FORBIDDEN_REF_CHARACTERS = /[\s~^:?*[\\\u0000-\u001f\u007f]/u;
-
-function invalidInput(message: string): GitFailure {
-  return { status: "error", type: "invalid_input", message };
-}
 
 /**
  * The ref-name rules that keep a caller value from becoming an option or an
@@ -101,7 +100,9 @@ function branchOfRef(ref: string): string {
  * terminated, with an extra NUL between entries. `-z` keeps a path holding a
  * newline in one record instead of splitting it across lines.
  */
-function parseWorktreeRecords(porcelain: string): Array<GitWorktreeEntry> {
+export function parseWorktreeRecords(
+  porcelain: string,
+): Array<GitWorktreeEntry> {
   const entries: Array<GitWorktreeEntry> = [];
   let draft: GitWorktreeEntry | undefined;
   for (const record of porcelain.split("\0")) {
@@ -131,44 +132,65 @@ function parseWorktreeRecords(porcelain: string): Array<GitWorktreeEntry> {
   return entries;
 }
 
-export async function addWorktree(
-  input: WorktreeAddInput,
-  options: { readonly timeoutMs?: number } = {},
-): Promise<GitWorktreeAddResult> {
+/** One add's caller values, once each is a value git may receive. */
+function readAddInput(input: WorktreeAddInput):
+  | {
+      readonly source: string;
+      readonly directory: string;
+      readonly branch: string;
+      readonly baseRef?: string;
+    }
+  | GitFailure {
   const source = absoluteGitPath(input.source);
-  if (!("path" in source)) return invalidInput(source.message);
+  if ("status" in source) return source;
   const directory = absoluteGitPath(input.directory);
-  if (!("path" in directory)) return invalidInput(directory.message);
+  if ("status" in directory) return directory;
   const branch = branchName(input.branch);
   if (!("name" in branch)) return invalidInput(branch.message);
   const base =
-    input.baseRef === undefined || input.baseRef === null
-      ? undefined
-      : baseReference(input.baseRef);
+    input.baseRef === undefined ? undefined : baseReference(input.baseRef);
   if (base !== undefined && !("ref" in base)) return invalidInput(base.message);
+  return {
+    source: source.path,
+    directory: directory.path,
+    branch: branch.name,
+    baseRef: base?.ref,
+  };
+}
+
+export async function addWorktree(
+  input: WorktreeAddInput,
+  options: GitCallOptions = {},
+): Promise<GitWorktreeAddResult> {
+  const values = readAddInput(input);
+  if ("status" in values) return values;
 
   return withGit(
-    source.path,
-    options.timeoutMs ?? WORKTREE_ADD_TIMEOUT_MS,
+    values.source,
+    {
+      timeoutMs: options.timeoutMs ?? WORKTREE_ADD_TIMEOUT_MS,
+      signal: options.signal,
+    },
     async (git) => {
       const added = await git([
         "worktree",
         "add",
         "--no-track",
         "-b",
-        branch.name,
-        directory.path,
-        ...(base === undefined ? [] : [base.ref]),
+        values.branch,
+        "--end-of-options",
+        values.directory,
+        ...(values.baseRef === undefined ? [] : [values.baseRef]),
       ]);
       if (added.status !== "ok") return processFailure(added);
       // The new worktree's HEAD, read in place: the source's HEAD may have
       // moved after the branch was created, so it cannot answer this.
-      const head = await git(["-C", directory.path, "rev-parse", "HEAD"]);
+      const head = await git(["-C", values.directory, "rev-parse", "HEAD"]);
       if (head.status !== "ok") return processFailure(head);
       return {
         status: "ok",
-        path: directory.path,
-        branch: branch.name,
+        path: values.directory,
+        branch: values.branch,
         head: head.stdout.trim(),
       };
     },
@@ -177,13 +199,16 @@ export async function addWorktree(
 
 export async function listWorktrees(
   source: { readonly path: string },
-  options: { readonly timeoutMs?: number } = {},
+  options: GitCallOptions = {},
 ): Promise<GitWorktreeListResult> {
   const path = absoluteGitPath(source.path);
-  if (!("path" in path)) return invalidInput(path.message);
+  if ("status" in path) return path;
   return withGit(
     path.path,
-    options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    {
+      timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+      signal: options.signal,
+    },
     async (git) => {
       const listed = await git(["worktree", "list", "--porcelain", "-z"]);
       if (listed.status !== "ok") return processFailure(listed);
@@ -197,15 +222,23 @@ export async function listWorktrees(
 
 export async function removeWorktree(
   target: { readonly path: string },
-  options: { readonly timeoutMs?: number } = {},
+  options: GitCallOptions = {},
 ): Promise<GitWorktreeRemoveResult> {
   const path = absoluteGitPath(target.path);
-  if (!("path" in path)) return invalidInput(path.message);
+  if ("status" in path) return path;
   return withGit(
     path.path,
-    options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    {
+      timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+      signal: options.signal,
+    },
     async (git) => {
-      const removed = await git(["worktree", "remove", path.path]);
+      const removed = await git([
+        "worktree",
+        "remove",
+        "--end-of-options",
+        path.path,
+      ]);
       return removed.status === "ok"
         ? { status: "ok" }
         : processFailure(removed);

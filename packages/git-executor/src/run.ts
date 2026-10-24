@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 import { gitEnvironment } from "./env";
@@ -74,46 +74,70 @@ function exitOutcome(
     : { status: "failed", exitCode: code ?? -1, ...output };
 }
 
+/** The one settlement of one git call: deadline, caller abort, first result. */
+type Completion = {
+  readonly timedOut: () => boolean;
+  readonly settle: (result: GitProcessResult) => void;
+};
+
+function watchCompletion(
+  child: ChildProcess,
+  options: { readonly timeoutMs: number; readonly signal?: AbortSignal },
+  resolve: (result: GitProcessResult) => void,
+): Completion {
+  let timedOut = false;
+  let settled = false;
+  const stop = (): void => {
+    timedOut = true;
+    child.kill("SIGKILL");
+  };
+  const timer = setTimeout(stop, Math.max(1, options.timeoutMs));
+  options.signal?.addEventListener("abort", stop, { once: true });
+  return {
+    timedOut: () => timedOut,
+    settle: (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", stop);
+      resolve(result);
+    },
+  };
+}
+
+/**
+ * Run one git command. `signal` aborts the process the same way the deadline
+ * does: a cancelled or expired caller must not leave git writing files. An
+ * aborted call is reported as `timed_out`, the typed failure for a command that
+ * was ended rather than allowed to finish.
+ */
 export function runGitProcess(
   args: ReadonlyArray<string>,
-  options: { readonly timeoutMs: number },
+  options: { readonly timeoutMs: number; readonly signal?: AbortSignal },
 ): Promise<GitProcessResult> {
   const { promise, resolve } = Promise.withResolvers<GitProcessResult>();
+  if (options.signal?.aborted) {
+    resolve({ status: "timed_out", stdout: "", stderr: "" });
+    return promise;
+  }
   const stdout = collect(STDOUT_BOUND);
   const stderr = collect(STDERR_BOUND);
   const output = () => ({ stdout: stdout.text(), stderr: stderr.text() });
-  let timedOut = false;
-  let settled = false;
-
   const child = spawn("git", args, {
     env: gitEnvironment(),
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const timer = setTimeout(
-    () => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    },
-    Math.max(1, options.timeoutMs),
-  );
-
-  const settle = (result: GitProcessResult): void => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    resolve(result);
-  };
-
+  const completion = watchCompletion(child, options, resolve);
   child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
   child.on("error", (error: Error) => {
     // A git that cannot start at all (`ENOENT`, a refused exec) is a failed
     // call like any other, reported through the same bounded text.
     stderr.push(Buffer.from(error.message));
-    settle({ status: "failed", exitCode: -1, ...output() });
+    completion.settle({ status: "failed", exitCode: -1, ...output() });
   });
   child.on("close", (code: number | null) =>
-    settle(exitOutcome(timedOut, code, output())),
+    completion.settle(exitOutcome(completion.timedOut(), code, output())),
   );
   return promise;
 }

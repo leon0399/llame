@@ -89,6 +89,57 @@ describe("runGitProcess", () => {
     }
   });
 
+  it("kills a running git when the caller aborts the call", async () => {
+    const previousPath = process.env["PATH"];
+    blockingGitOnPath();
+    try {
+      const controller = new AbortController();
+      const call = runGitProcess(["--version"], {
+        timeoutMs: 30_000,
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(call).resolves.toMatchObject({ status: "timed_out" });
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
+  it("starts git with the sanitized environment and nothing else", async () => {
+    // "Credential prompt cannot block the daemon": no `GIT_*` variable the
+    // caller's process exported reaches git, and the prompt is off.
+    const previousPath = process.env["PATH"];
+    const directory = mkdtempSync(join(tmpdir(), "git-executor-env-"));
+    created.push(directory);
+    writeFileSync(join(directory, "git"), "#!/bin/sh\nenv\n", {
+      mode: 0o755,
+    });
+    process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+    try {
+      const result = await runGitProcess([], { timeoutMs: 5000 });
+
+      if (result.status !== "ok") {
+        throw new Error(`expected a clean call, got ${result.status}`);
+      }
+      expect(result.stdout).toMatch(/^GIT_TERMINAL_PROMPT=0$/mu);
+      expect(result.stdout).toMatch(/^LC_ALL=C$/mu);
+      expect(result.stdout).toMatch(/^GIT_OPTIONAL_LOCKS=0$/mu);
+      expect(result.stdout).not.toMatch(/^GIT_DIR=/mu);
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
+  it("starts no git for a call that is already aborted", async () => {
+    const result = await runGitProcess(["--version"], {
+      timeoutMs: 5000,
+      signal: AbortSignal.abort(),
+    });
+
+    expect(result).toEqual({ status: "timed_out", stdout: "", stderr: "" });
+  });
+
   it("reports a non-zero exit as a typed failure with git's own text", async () => {
     const result = await runGitProcess(["--definitely-not-a-flag"], {
       timeoutMs: 5000,
