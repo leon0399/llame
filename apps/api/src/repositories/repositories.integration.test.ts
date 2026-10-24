@@ -4,6 +4,9 @@
  * These routes never run git, so the application graph boots on its defaults:
  * the owner comes from the session, a display name must stay one path segment,
  * the remote is stored normalized, and a foreign identifier is not found.
+ *
+ * Covers openspec `repositories` — "Repositories are owner-scoped records with
+ * a display name" and "The canonical remote comes from the `origin` remote".
  */
 
 import { type INestApplication } from '@nestjs/common';
