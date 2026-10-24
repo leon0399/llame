@@ -254,8 +254,9 @@ jobs:
         run: |
           if [ "$EVENT" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
             apps/api packages/bash-executor packages/config-interpolation \
-            packages/machine-protocol packages/mcp-workspace \
-            packages/native-file-tools packages/runtime-safety \
+            packages/git-executor packages/machine-protocol \
+            packages/mcp-workspace packages/native-file-tools \
+            packages/runtime-safety \
             e2e/support scripts/dast .github/actions/dast-stack \
             .github/workflows/ci.yml .github/workflows/dast.yml pnpm-lock.yaml; then
             echo "run=true" >>"$GITHUB_OUTPUT"
@@ -271,6 +272,7 @@ jobs:
             apps/api/dist/
             packages/bash-executor/dist/
             packages/config-interpolation/dist/
+            packages/git-executor/dist/
             packages/machine-protocol/dist/
             packages/mcp-workspace/dist/
             packages/native-file-tools/dist/
