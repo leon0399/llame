@@ -42,7 +42,16 @@ async function statusWithin(git: GitRunner): Promise<GitStatusResult> {
     ahead = Number.parseInt(counted.stdout.trim(), 10) || 0;
   }
 
-  const changed = await git(["status", "--porcelain", "-z"]);
+  // `--untracked-files` is explicit so a repository or user setting of
+  // `status.showUntrackedFiles=no` cannot hide an untracked-only change and
+  // report the tree clean; `normal` lists an untracked directory once, which is
+  // all this call needs to answer `dirty`.
+  const changed = await git([
+    "status",
+    "--porcelain",
+    "-z",
+    "--untracked-files=normal",
+  ]);
   if (changed.status !== "ok") return processFailure(changed);
 
   const status = {

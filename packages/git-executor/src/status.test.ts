@@ -54,6 +54,17 @@ describe("statusRepository", () => {
     });
   });
 
+  it("reports untracked files even when the repository hides them", async () => {
+    const { directory } = trackedRepository();
+    runGit(directory, ["config", "status.showUntrackedFiles", "no"]);
+    writeFileSync(join(directory, "notes.md"), "new\n");
+
+    await expect(statusRepository({ path: directory })).resolves.toMatchObject({
+      status: "ok",
+      dirty: true,
+    });
+  });
+
   it("counts the commits ahead of the upstream", async () => {
     const { directory } = trackedRepository();
     commitFile(directory, "second.md");
