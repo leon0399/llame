@@ -1,6 +1,7 @@
 /* eslint-disable typescript/no-unsafe-assignment -- a spied repository method's mock call tuple is `any[]`, so the recorded input is read back as one; every read is narrowed with `isRecord` before it is asserted on. */
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -13,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { isRecord } from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import * as schema from '../db/schema';
 import {
@@ -33,7 +34,12 @@ import {
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
-import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import {
+  createProtocolPeer,
+  type PeerAnswer,
+  type PeerCall,
+  type ProtocolPeerOptions,
+} from '../testing/machine-protocol-peer';
 import { localGitSurface } from '../machines/executor-git.service';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type CompiledPolicy, type PermissionGroup } from './permissions/types';
@@ -117,6 +123,29 @@ function headOf(directory: string): string {
   return runGit(directory, ['rev-parse', 'HEAD']).trim();
 }
 
+/**
+ * A clone whose own config asks for a file-system monitor and a checkout hook,
+ * each of which writes `marker` when it runs. The executor disables both, so
+ * the marker proves whether one started.
+ */
+function hostile(repository: string): string {
+  const marker = join(tempDirectory('worktree-marker-'), 'ran');
+  const script = `#!/bin/sh\n: > '${marker}'\n`;
+  const hooks = tempDirectory('worktree-hooks-');
+  writeFileSync(join(hooks, 'post-checkout'), script);
+  chmodSync(join(hooks, 'post-checkout'), 0o755);
+  const monitor = tempDirectory('worktree-monitor-');
+  writeFileSync(join(monitor, 'fsmonitor.sh'), script);
+  chmodSync(join(monitor, 'fsmonitor.sh'), 0o755);
+  runGit(repository, ['config', 'core.hooksPath', hooks]);
+  runGit(repository, [
+    'config',
+    'core.fsmonitor',
+    join(monitor, 'fsmonitor.sh'),
+  ]);
+  return marker;
+}
+
 function executors(): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
@@ -130,6 +159,61 @@ function executors(): ExecutorGit {
     connector,
     localGitSurface(),
   );
+}
+
+const MACHINE = 'nas';
+
+/**
+ * The executor and connector of one Machine entry over the protocol peer: the
+ * hub speaks the real wire to a daemon that answers `answer` for every call.
+ */
+function machineFixture(options: ProtocolPeerOptions) {
+  const peer = createProtocolPeer({
+    roots: ['/srv'],
+    methods: ['git.inspect', 'git.worktreeAdd', 'git.worktreeRemove'],
+    ...options,
+  });
+  const connector = new MachineConnector({
+    hubVersion: 'test-hub',
+    machines: {
+      ssh: { knownHostsFile: '/dev/null' },
+      hosts: { [MACHINE]: { destination: 'nas.example' } },
+    },
+    transportFactory: peer.factory,
+    idleCloseMs: 1000,
+  });
+  connectors.push(connector);
+  return {
+    peer,
+    executors: new ExecutorGit(
+      { config: configWith({}) },
+      connector,
+      localGitSurface(),
+    ),
+    connector,
+  };
+}
+
+/** The inspect answer for one clean Machine clone without a remote. */
+function machineInspect(root: string): PeerAnswer {
+  return {
+    value: {
+      status: 'ok',
+      toplevel: root,
+      commonDir: `${root}/.git`,
+      linked: false,
+      mainWorktree: null,
+      remotes: [],
+      branch: 'main',
+      head: 'a'.repeat(40),
+    },
+  };
+}
+
+/** The node path inside one `fs.stat` request, or `undefined`. */
+function statPath(call: PeerCall): string | undefined {
+  const path = isRecord(call.params) ? call.params['path'] : undefined;
+  return isString(path) ? path : undefined;
 }
 
 function configWith(tools: Partial<LlameConfig['tools']>): LlameConfig {
@@ -241,6 +325,9 @@ function stubbedDatabase() {
     createRepository: vi
       .spyOn(RepositoriesRepository.prototype, 'createRepository')
       .mockResolvedValue(repositoryRow()),
+    deleteRepository: vi
+      .spyOn(RepositoriesRepository.prototype, 'deleteRepository')
+      .mockResolvedValue(true),
     createCheckout: vi
       .spyOn(RepositoriesRepository.prototype, 'createCheckout')
       .mockImplementation((input) => Promise.resolve(checkoutRow(input))),
@@ -374,6 +461,19 @@ describe('enter_workspace with a worktree', () => {
         result: expect.objectContaining({ status: 'success', root: directory }),
       }),
     );
+  });
+
+  it('creates a worktree without starting the clone monitor or hook', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const marker = hostile(source);
+
+    const result = await enterWorktreeCall(context(), source, {
+      name: 'clear-field-0192',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(existsSync(marker)).toBe(false);
   });
 
   it('keeps a slash in the name as the branch and flattens the directory', async () => {
@@ -594,6 +694,53 @@ describe('enter_workspace with a worktree', () => {
     });
   });
 
+  it('keeps a remote-less loser on the repository its winning main row names', async () => {
+    const database = stubbedDatabase();
+    const source = clone();
+    // Placement in this transaction, then the adoption's own two reads.
+    database.findCheckoutByPath
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue(
+        checkoutRow({
+          id: 'main-winner',
+          path: source,
+          repositoryId: 'repo-winner',
+        }),
+      );
+    database.createRepository.mockResolvedValue(
+      repositoryRow({ id: 'repo-orphan', canonicalRemote: null }),
+    );
+    database.findRepository.mockImplementation((_owner, id) =>
+      Promise.resolve(
+        repositoryRow({
+          id,
+          canonicalRemote:
+            id === 'repo-orphan' ? null : 'github.com/leon0399/llame',
+        }),
+      ),
+    );
+    database.createCheckout
+      .mockResolvedValueOnce(undefined)
+      .mockImplementation((input: Partial<Checkout>) =>
+        Promise.resolve(checkoutRow(input)),
+      );
+
+    const result = await enterWorktreeCall(context(), source, {
+      name: 'clear-field-0192',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(database.deleteRepository).toHaveBeenCalledWith(
+      'owner-1',
+      'repo-orphan',
+    );
+    expect(database.createCheckout.mock.calls[1]?.[0]).toMatchObject({
+      repositoryId: 'repo-winner',
+      parentCheckoutId: 'main-winner',
+    });
+  });
+
   it('records a generated name when none is supplied', async () => {
     stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
@@ -675,12 +822,64 @@ describe('enter_workspace with a worktree', () => {
       type: 'worktree_failed',
       message: expect.stringContaining('different path'),
     });
+    expect(result).not.toHaveProperty('leftDirectory');
     expect(canonical).toHaveBeenCalledWith(
       expect.anything(),
       join(source, '..', '.llame-worktrees', 'llame', 'taken'),
     );
     expect(remove).toHaveBeenCalledOnce();
     expect(database.createCheckout).not.toHaveBeenCalled();
+  });
+
+  it('names the directory a failed removal leaves behind', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'llame',
+      'clear-field-0192',
+    );
+    const executorsOf = executors();
+    vi.spyOn(executorsOf, 'canonical').mockResolvedValue(
+      '/tmp/elsewhere/llame/taken',
+    );
+    vi.spyOn(executorsOf, 'removeWorktree').mockResolvedValue({
+      status: 'error',
+      type: 'git_failed',
+      stderr: 'fatal: not a working tree',
+    });
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: executorsOf }),
+      source,
+      { name: 'clear-field-0192' },
+    );
+
+    expect(errorOf(result)).toStrictEqual({
+      type: 'worktree_failed',
+      message: 'fatal: not a working tree',
+    });
+    expect(result).toHaveProperty('leftDirectory', directory);
+  });
+
+  it('answers a refused real-path check with the executor code it raised', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const executorsOf = executors();
+    vi.spyOn(executorsOf, 'canonical').mockRejectedValue(
+      new ExecutorGitError('machine_unavailable', 'refused', true),
+    );
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: executorsOf }),
+      source,
+      { name: 'clear-field-0192' },
+    );
+
+    // The real-path check is a read: a link lost during it wrote nothing.
+    expect(errorOf(result).type).toBe('machine_unavailable');
   });
 
   it('reports a fence lost after the add with the directory it left', async () => {
@@ -914,17 +1113,47 @@ describe('the decisions of a worktree entry', () => {
 describe('worktree failures that come from the executor', () => {
   it.each([
     ['machine_unavailable', false, 'machine_unavailable'],
-    ['machine_unavailable', true, 'outcome_unknown'],
+    // A read writes nothing, so a lost link during one is never an unknown
+    // outcome even when the request had reached the daemon.
+    ['machine_unavailable', true, 'machine_unavailable'],
     ['machine_update_required', false, 'machine_update_required'],
     ['path_not_registered', false, 'path_not_registered'],
     ['executor_unavailable', false, 'executor_unavailable'],
     ['git_failed', false, 'worktree_failed'],
-  ] as const)('answers %s with sent=%s as %s', async (code, sent, expected) => {
-    stubbedDatabase();
+  ] as const)(
+    'answers a read refused as %s with sent=%s as %s',
+    async (code, sent, expected) => {
+      stubbedDatabase();
+      const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+      const executorsOf = executors();
+      vi.spyOn(executorsOf, 'inspect').mockRejectedValue(
+        new ExecutorGitError(code, 'refused', sent),
+      );
+
+      const result = await enterWorktreeCall(
+        context({ executorGit: executorsOf }),
+        source,
+        { name: 'clear-field-0192' },
+      );
+
+      expect(errorOf(result).type).toBe(expected);
+      expect(result).not.toHaveProperty('leftDirectory');
+    },
+  );
+
+  it('reports a Link lost after the add as unknown with the decided directory', async () => {
+    const database = stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'llame',
+      'clear-field-0192',
+    );
     const executorsOf = executors();
-    vi.spyOn(executorsOf, 'inspect').mockRejectedValue(
-      new ExecutorGitError(code, 'refused', sent),
+    vi.spyOn(executorsOf, 'worktreeAdd').mockRejectedValue(
+      new ExecutorGitError('machine_unavailable', 'refused', true),
     );
 
     const result = await enterWorktreeCall(
@@ -933,10 +1162,32 @@ describe('worktree failures that come from the executor', () => {
       { name: 'clear-field-0192' },
     );
 
-    expect(errorOf(result).type).toBe(expected);
-    if (expected === 'outcome_unknown') {
-      expect(result).toHaveProperty('leftDirectory', source);
-    }
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+      leftDirectory: directory,
+    });
+    expect(database.createCheckout).not.toHaveBeenCalled();
+    expect(database.createLease).not.toHaveBeenCalled();
+    expect(database.enter).not.toHaveBeenCalled();
+  });
+
+  it('answers a link lost before the add as unavailable, with no directory', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const executorsOf = executors();
+    vi.spyOn(executorsOf, 'worktreeAdd').mockRejectedValue(
+      new ExecutorGitError('machine_unavailable', 'refused', false),
+    );
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: executorsOf }),
+      source,
+      { name: 'clear-field-0192' },
+    );
+
+    expect(errorOf(result).type).toBe('machine_unavailable');
+    expect(result).not.toHaveProperty('leftDirectory');
   });
 
   it('answers an invalid input with the worktree failure the git surface names', async () => {
@@ -1205,6 +1456,146 @@ describe('the source clone a worktree entry reads', () => {
     );
     expect(database.createCheckout.mock.calls[0]?.[0]).toMatchObject({
       parentCheckoutId: 'checkout-' + String(checkoutSequence - 1),
+    });
+  });
+});
+
+describe('a worktree entry on a Machine', () => {
+  it('refuses a worktree parent the daemon does not register', async () => {
+    const database = stubbedDatabase();
+    const machine = machineFixture({
+      answer: (call) => {
+        if (call.method === 'git.inspect')
+          return machineInspect('machine://nas/srv/llame');
+        if (call.method !== 'fs.stat') return undefined;
+        const path = statPath(call);
+        if (path === '/srv/.llame-worktrees')
+          return { error: 'path_not_registered' };
+        if (path === '/srv' || path === '/srv/llame')
+          return {
+            value: { kind: 'directory', isLink: false, realPath: path },
+          };
+        return { value: { kind: 'missing', isLink: false } };
+      },
+    });
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: machine.executors, machines: machine.connector }),
+      'machine://nas/srv/llame',
+      { name: 'clear-field-0192' },
+    );
+
+    expect(errorOf(result).type).toBe('path_not_registered');
+    expect(database.begin).not.toHaveBeenCalled();
+    const session = await machine.peer.session(0);
+    expect(session.requests).not.toContain('git.worktreeAdd');
+  });
+
+  it('decides a recorded Machine base on the path the base names', async () => {
+    const database = stubbedDatabase();
+    database.findCheckoutByPath.mockResolvedValue(
+      checkoutRow({
+        path: 'machine://nas/srv/llame',
+        kind: 'main',
+        worktreeBase: 'machine://nas/srv/trees',
+      }),
+    );
+    const machine = machineFixture({
+      answer: (call) => {
+        if (call.method === 'git.inspect')
+          return machineInspect('machine://nas/srv/llame');
+        if (call.method !== 'fs.stat') return undefined;
+        const path = statPath(call);
+        if (path === '/srv/trees') return { error: 'path_not_registered' };
+        if (path === '/srv' || path === '/srv/llame')
+          return {
+            value: { kind: 'directory', isLink: false, realPath: path },
+          };
+        return { value: { kind: 'missing', isLink: false } };
+      },
+    });
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: machine.executors, machines: machine.connector }),
+      'machine://nas/srv/llame',
+      { name: 'clear-field-0192' },
+    );
+
+    expect(errorOf(result).type).toBe('path_not_registered');
+    expect(database.begin).not.toHaveBeenCalled();
+    const session = await machine.peer.session(0);
+    expect(session.requests).not.toContain('git.worktreeAdd');
+    // The decision saw the path inside the recorded base, not a locator nested
+    // inside one.
+    expect(
+      session.calls
+        .filter((call) => call.method === 'fs.stat')
+        .map((call) => statPath(call)),
+    ).toContain('/srv/trees/llame');
+  });
+
+  it('creates the worktree through the daemon and binds its locator', async () => {
+    const database = stubbedDatabase();
+    const directory =
+      'machine://nas/srv/.llame-worktrees/llame/clear-field-0192';
+    const head = 'b'.repeat(40);
+    let added = false;
+    const machine = machineFixture({
+      answer: (call) => {
+        if (call.method === 'git.inspect')
+          return machineInspect('machine://nas/srv/llame');
+        if (call.method === 'git.worktreeAdd') {
+          added = true;
+          return {
+            value: {
+              status: 'ok',
+              path: directory,
+              branch: 'llame/clear-field-0192',
+              head,
+            },
+          };
+        }
+        if (call.method !== 'fs.stat') return undefined;
+        const path = statPath(call);
+        if (path === '/srv' || path === '/srv/llame')
+          return {
+            value: { kind: 'directory', isLink: false, realPath: path },
+          };
+        if (added && path === '/srv/.llame-worktrees/llame/clear-field-0192')
+          return {
+            value: { kind: 'directory', isLink: false, realPath: path },
+          };
+        return { value: { kind: 'missing', isLink: false } };
+      },
+    });
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: machine.executors, machines: machine.connector }),
+      'machine://nas/srv/llame',
+      { name: 'clear-field-0192' },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      root: directory,
+      state: 'bound',
+      worktree: {
+        path: directory,
+        branch: 'llame/clear-field-0192',
+        baseCommit: head,
+      },
+    });
+    const session = await machine.peer.session(0);
+    expect(
+      session.calls.find((call) => call.method === 'git.worktreeAdd')?.params,
+    ).toMatchObject({
+      source: '/srv/llame',
+      directory: '/srv/.llame-worktrees/llame/clear-field-0192',
+    });
+    expect(database.createCheckout.mock.calls[1]?.[0]).toMatchObject({
+      path: directory,
+      executorId: 'machine:nas',
+      kind: 'worktree',
     });
   });
 });

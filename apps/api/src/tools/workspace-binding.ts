@@ -11,7 +11,11 @@ import { admitPermission } from './permissions/admit';
 import { evaluatePermission } from './permissions/evaluator';
 import { projectNativeFilePath } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
-import { type ToolContext, type ToolResult } from './types';
+import {
+  type ToolContext,
+  type ToolErrorResult,
+  type ToolResult,
+} from './types';
 import { type WorktreeBinding } from './workspace-worktree-entry';
 
 /*
@@ -109,7 +113,7 @@ export function authorityDisclosure(authority: WorkspaceAuthority): string {
 export function requireSubmittedPermission(
   context: ToolContext,
   submittedPath: string,
-): ToolResult | undefined {
+): ToolErrorResult | undefined {
   const decision = admitPermission(context, (policy) =>
     evaluatePermission(policy, {
       toolId: 'enter_workspace',
@@ -131,7 +135,7 @@ export function requireDerivedPermission(
   context: ToolContext,
   kind: 'canonical' | 'main_clone' | 'worktree_directory',
   address: string,
-): ToolResult | undefined {
+): ToolErrorResult | undefined {
   const decision = admitPermission(context, (policy) =>
     evaluatePermission(policy, {
       toolId: 'enter_workspace',

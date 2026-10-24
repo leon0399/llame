@@ -41,7 +41,10 @@ import {
   transitionConflict,
   type WorkspaceAuthority,
 } from './workspace-binding';
-import { readWorktreeRequest, type WorktreeName } from './workspace-worktree';
+import {
+  readWorktreeRequest,
+  type WorktreeRequest,
+} from './workspace-worktree';
 import { enterWorktree } from './workspace-worktree-entry';
 
 type EnterWorkspaceInput = {
@@ -49,11 +52,6 @@ type EnterWorkspaceInput = {
   worktree?: { name?: string; baseRef?: string };
 };
 
-/** The validated `worktree` object of one entry. */
-type WorktreeEntry = {
-  readonly name?: WorktreeName;
-  readonly baseRef?: string;
-};
 type ExitWorkspaceInput = Record<never, never>;
 
 function invalidWorkspacePath(message: string): ToolResult {
@@ -136,7 +134,7 @@ async function machineDirectory(
 type MachineEntryRequest = {
   readonly submittedPath: string;
   readonly machine: { readonly name: string; readonly path: string };
-  readonly worktree: WorktreeEntry | undefined;
+  readonly worktree: WorktreeRequest | undefined;
 };
 
 /**
@@ -220,7 +218,7 @@ function machineEntry(
 function enterMachineEntry(
   context: ToolContext,
   path: string,
-  worktree: WorktreeEntry | undefined,
+  worktree: WorktreeRequest | undefined,
 ): ToolResult | Promise<ToolResult> {
   const connector = machineConnector(context);
   if (connector === undefined)
@@ -245,18 +243,13 @@ async function enterWorktreeEntry(
   context: ToolContext,
   authority: WorkspaceAuthority,
   canonical: string,
-  worktree: WorktreeEntry,
+  worktree: WorktreeRequest,
 ): Promise<ToolResult> {
   const outcome = await enterWorktree(context, {
-    executorId: authority.executorId,
-    ...(authority.bindExecutorId !== undefined && {
-      bindExecutorId: authority.bindExecutorId,
-    }),
-    machine: authority.machine?.name,
+    authority,
     canonical,
     name: worktree.name,
     baseRef: worktree.baseRef,
-    decide: (kind, address) => requireDerivedPermission(context, kind, address),
   });
   if (outcome.status === 'failed') return outcome.result;
   await applyBindingTransition(context, outcome.root, outcome.status);
@@ -274,7 +267,7 @@ async function enterWorktreeEntry(
  */
 function readEntry(
   input: EnterWorkspaceInput,
-): { readonly path: string; readonly worktree?: WorktreeEntry } | ToolResult {
+): { readonly path: string; readonly worktree?: WorktreeRequest } | ToolResult {
   const request = readWorktreeRequest(input.worktree ?? {});
   if ('message' in request) {
     return { status: 'error', type: 'invalid_input', message: request.message };
@@ -301,7 +294,7 @@ function readEntry(
  */
 async function enterLocalWorkspace(
   context: ToolContext,
-  entry: { readonly path: string; readonly worktree?: WorktreeEntry },
+  entry: { readonly path: string; readonly worktree?: WorktreeRequest },
 ): Promise<ToolResult> {
   const authority = localAuthority(context);
   if ('status' in authority) return authority;

@@ -1,10 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { type GitFailure } from '@workspace/machine-protocol';
 
 import { type Checkout } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { ExecutorGitError } from '../machines/executor-git-error';
+import { gitFailureMessage } from '../machines/git-failure';
 import {
   ExecutorGit,
   type ExecutorTarget,
@@ -118,16 +118,11 @@ export class WorktreeRemovalService {
     checkout: Checkout,
     target: ExecutorTarget,
   ): Promise<void> {
-    try {
-      const removed = await this.executors.removeWorktree(
-        target,
-        checkout.path,
-      );
-      if (removed.status === 'error') {
-        throw repositoryFailure('git_failed', gitFailureMessage(removed));
-      }
-    } catch (error) {
-      throwExecutorFailure(error);
+    const removed = await this.executors
+      .removeWorktree(target, checkout.path)
+      .catch((error: unknown) => throwExecutorFailure(error));
+    if (removed.status === 'error') {
+      throw repositoryFailure('git_failed', gitFailureMessage(removed));
     }
     await this.tenantDb.runAs(ownerUserId, (tx) =>
       new RepositoriesRepository(tx).deleteCheckout(ownerUserId, checkout.id),
@@ -186,13 +181,4 @@ export class WorktreeRemovalService {
 function throwExecutorFailure(error: unknown): never {
   if (!(error instanceof ExecutorGitError)) throw error;
   throw repositoryFailure(checkoutFailureCode(error.code), error.message);
-}
-
-/** The bounded, redacted standard error one typed git failure carries. */
-function gitFailureMessage(failure: GitFailure): string {
-  if ('stderr' in failure)
-    return failure.stderr === ''
-      ? 'The worktree command failed.'
-      : failure.stderr;
-  return failure.message;
 }

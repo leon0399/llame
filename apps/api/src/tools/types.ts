@@ -216,6 +216,9 @@ export type ToolClassification =
  */
 export type { ToolResult } from '@workspace/runtime-safety';
 
+/** The error half of a tool result: every refusal and failure is one. */
+export type ToolErrorResult = Extract<ToolResult, { status: 'error' }>;
+
 /**
  * A registered tool (design D2): `{ id, description, inputSchema,
  * classification, execute(ctx, args) }`. `classification` is required —
