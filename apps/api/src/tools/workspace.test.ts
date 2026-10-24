@@ -406,6 +406,22 @@ describe('Workspace host tools', () => {
     expect(runAs).not.toHaveBeenCalled();
   });
 
+  it('rejects an invalid worktree request before any binding call', async () => {
+    const base = context();
+    const runAs = vi.spyOn(base.tenantDb, 'runAs');
+    const result = await enterWorkspaceTool.execute(base, {
+      path: root,
+      worktree: { baseRef: '-x' },
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_input',
+      message: 'A base ref must not start with `-`.',
+    });
+    expect(runAs).not.toHaveBeenCalled();
+  });
+
   it('refuses a non-directory target without entering it', async () => {
     const file = join(root, 'file.txt');
     await writeFile(file, 'content');
