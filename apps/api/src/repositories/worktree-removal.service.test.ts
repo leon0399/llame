@@ -209,10 +209,11 @@ function rowOf(row: Checkout | undefined): void {
   );
 }
 
-/** The typed failure one removal answered, as its code and status. */
+/** The typed failure one removal answered, as its code, status, and message. */
 async function failureOf(promise: Promise<void>): Promise<{
   readonly code: string;
   readonly status: number;
+  readonly message: string;
 }> {
   try {
     await promise;
@@ -220,8 +221,9 @@ async function failureOf(promise: Promise<void>): Promise<{
     if (!(error instanceof HttpException)) throw error;
     const body: unknown = error.getResponse();
     const code = isRecord(body) ? body['code'] : undefined;
-    if (!isString(code)) throw error;
-    return { code, status: error.getStatus() };
+    const message = isRecord(body) ? body['message'] : undefined;
+    if (!isString(code) || !isString(message)) throw error;
+    return { code, status: error.getStatus(), message };
   }
   throw new Error('The removal resolved instead of failing.');
 }
@@ -275,7 +277,11 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'worktree_not_clean', status: 409 });
+    ).resolves.toStrictEqual({
+      code: 'worktree_not_clean',
+      status: 409,
+      message: 'The worktree holds uncommitted changes.',
+    });
     expect(existsSync(directory)).toBe(true);
     expect(deleteCheckout).not.toHaveBeenCalled();
   });
@@ -292,7 +298,11 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'worktree_not_clean', status: 409 });
+    ).resolves.toStrictEqual({
+      code: 'worktree_not_clean',
+      status: 409,
+      message: 'The worktree holds commits its upstream does not have.',
+    });
     expect(existsSync(directory)).toBe(true);
     expect(deleteCheckout).not.toHaveBeenCalled();
   });
@@ -340,7 +350,12 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'worktree_not_clean', status: 409 });
+    ).resolves.toStrictEqual({
+      code: 'worktree_not_clean',
+      status: 409,
+      message:
+        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+    });
     expect(existsSync(directory)).toBe(true);
   });
 
@@ -352,7 +367,12 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'worktree_not_clean', status: 409 });
+    ).resolves.toStrictEqual({
+      code: 'worktree_not_clean',
+      status: 409,
+      message:
+        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+    });
     expect(existsSync(directory)).toBe(true);
   });
 
@@ -369,7 +389,12 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'tool_not_allowed', status: 403 });
+    ).resolves.toStrictEqual({
+      code: 'tool_not_allowed',
+      status: 403,
+      message:
+        'enter_workspace is not in tools.allowed, so this path may not be inspected.',
+    });
     expect(status).not.toHaveBeenCalled();
   });
 
@@ -389,8 +414,30 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'permission_denied', status: 403 });
+    ).resolves.toStrictEqual({
+      code: 'permission_denied',
+      status: 403,
+      message: 'The host access policy does not allow this path.',
+    });
     expect(status).not.toHaveBeenCalled();
+  });
+
+  it('removes a worktree the group allows by its stored path', async () => {
+    const source = clone();
+    const { directory } = worktree(source, 'llame/x');
+    runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
+    rowOf(checkoutRow(directory));
+    const { removal, deleteCheckout } = service({
+      group: { allow: [{ field: 'path', regex: '^/' }] },
+    });
+
+    // The decision reads the stored path: a group that allows by `path` must
+    // allow this removal, so the policy is evaluated with that field set.
+    await expect(
+      removal.remove('owner-1', 'checkout-1'),
+    ).resolves.toBeUndefined();
+    expect(existsSync(directory)).toBe(false);
+    expect(deleteCheckout).toHaveBeenCalledOnce();
   });
 
   it('refuses a removal when no executor is configured', async () => {
@@ -406,7 +453,12 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'executor_unavailable', status: 503 });
+    ).resolves.toStrictEqual({
+      code: 'executor_unavailable',
+      status: 503,
+      message:
+        'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
+    });
     expect(status).not.toHaveBeenCalled();
   });
 
@@ -416,7 +468,11 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'not_found', status: 404 });
+    ).resolves.toStrictEqual({
+      code: 'not_found',
+      status: 404,
+      message: 'Repository record not found',
+    });
   });
 
   it('refuses a main checkout through this route', async () => {
@@ -426,7 +482,12 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'invalid_path', status: 422 });
+    ).resolves.toStrictEqual({
+      code: 'invalid_path',
+      status: 422,
+      message:
+        'Only a worktree checkout can be removed this way; delete the row to forget a main checkout.',
+    });
     expect(deleteCheckout).not.toHaveBeenCalled();
   });
 
@@ -445,7 +506,11 @@ describe('WorktreeRemovalService', () => {
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'git_failed', status: 502 });
+    ).resolves.toStrictEqual({
+      code: 'git_failed',
+      status: 502,
+      message: 'fatal: working tree is locked',
+    });
     expect(deleteCheckout).not.toHaveBeenCalled();
   });
 
@@ -457,9 +522,11 @@ describe('WorktreeRemovalService', () => {
     rowOf(checkoutRow(directory));
     const { removal, deleteCheckout } = service();
 
-    await expect(
-      failureOf(removal.remove('owner-1', 'checkout-1')),
-    ).resolves.toStrictEqual({ code: 'git_failed', status: 502 });
+    const failure = await failureOf(removal.remove('owner-1', 'checkout-1'));
+
+    expect(failure).toMatchObject({ code: 'git_failed', status: 502 });
+    // Git states the path is not a worktree; the service reports its words.
+    expect(failure.message).not.toBe('');
     expect(deleteCheckout).not.toHaveBeenCalled();
   });
 });
