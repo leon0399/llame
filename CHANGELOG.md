@@ -17,6 +17,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   advisories against `next`, `dompurify`, `@sentry/nextjs`, `storybook`,
   `@modelcontextprotocol/sdk`, `zod`, `undici`, `multer`, and `body-parser`.
 
+- GitHub's dependency graph, Dependabot alerts, and the Security tab now see
+  the packages llame actually locks. Each dependency push to `master`, and the
+  weekly scheduled run, submits a snapshot built by `pnpm sbom` from the
+  lockfile: one manifest per workspace `package.json`, with every resolved
+  version marked direct or indirect and runtime or development. A submitted
+  manifest replaces the one GitHub parses itself, which read 288 packages with
+  `catalog:` instead of their versions, where the lockfile resolves about
+  2,000. Workspace packages are left out, so `apps/machine` and
+  `apps/storybook` are never matched against the unrelated public `machine`
+  and `storybook` packages. Expect Dependabot alerts for the advisories above
+  once the first snapshot lands.
+
 # 2026-10-22
 
 - Thinking-mode tool loops on Chat Completions providers no longer fail with
