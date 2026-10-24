@@ -10,8 +10,15 @@
  */
 
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//iu;
-/** The `git@host:path` form, and the user-less `host:path` git also accepts. */
-const SCP_FORM = /^(?:[^@/\s:]+@)?([^:/\s]+):(?!\/)(.+)$/u;
+/**
+ * The `git@host:path` form, and the user-less `host:path` git also accepts. A
+ * tail that is digits alone, or digits before a slash, is the port of the
+ * canonical `host:port/path` form this module stores — not a path: reading it
+ * as one turns `example.com:2222/owner/repo` into `example.com/2222/owner/repo`,
+ * which is a different repository, so a canonical value would not survive the
+ * round trip through the APIs that take it back.
+ */
+const SCP_FORM = /^(?:[^@/\s:]+@)?([^:/\s]+):(?!\/)(?!\d+(?:\/|$))(.+)$/u;
 
 /** Drop everything before an optional `@`, up to the end of the authority. */
 function stripUserinfo(value: string): string {
@@ -72,7 +79,12 @@ export function normalizeRemote(value: string): string {
     return stripSuffixes(lowercaseHost(`${scp[1]}/${scp[2]}`));
   }
 
-  return text.includes('/') ? stripSuffixes(lowercaseHost(text)) : text;
+  // The canonical `host:port/path` form this module stores comes back through
+  // here, and an scp-style `git@host:port/path` reaches the same branch: the
+  // userinfo before the first slash goes, exactly as it does for a URL.
+  return text.includes('/')
+    ? stripSuffixes(lowercaseHost(stripUserinfo(text)))
+    : text;
 }
 
 /**

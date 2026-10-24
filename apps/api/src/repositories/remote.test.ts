@@ -50,6 +50,47 @@ describe('normalizeRemote', () => {
     );
   });
 
+  it('keeps an explicit port in the canonical form', () => {
+    expect(normalizeRemote('ssh://git@example.com:2222/owner/repo.git')).toBe(
+      'example.com:2222/owner/repo',
+    );
+    expect(normalizeRemote('https://Example.COM:8443/owner/repo')).toBe(
+      'example.com:8443/owner/repo',
+    );
+    // A port with no path is the whole authority, and it stays there.
+    expect(normalizeRemote('ssh://example.com:2222/')).toBe('example.com:2222');
+  });
+
+  // The canonical value is stored and then submitted again — as a checkout's
+  // `remote` selector, or in a PATCH that re-declares it — so normalizing it a
+  // second time has to leave it alone. A port read as an scp path would move
+  // the first path segment, and the second submission would name another
+  // repository (or none).
+  it('is idempotent over every form it accepts', () => {
+    for (const input of [
+      'git@github.com:leon0399/llame.git',
+      'https://github.com/leon0399/llame',
+      'ssh://git@example.com:2222/owner/repo.git',
+      'example.com:2222/owner/repo',
+      'ssh://example.com:2222',
+      'example.com/owner/repo',
+      'git@example.com:2024/repo',
+      'not a remote',
+      '',
+    ]) {
+      const once = normalizeRemote(input);
+      expect(normalizeRemote(once)).toBe(once);
+    }
+  });
+
+  // An all-digit first path segment is indistinguishable from a port, and a
+  // port is the reading that keeps a canonical value stable, so it wins.
+  it('reads a numeric first segment after the colon as a port', () => {
+    expect(normalizeRemote('git@example.com:2024/repo')).toBe(
+      'example.com:2024/repo',
+    );
+  });
+
   // A remote may be submitted with no path at all, and then the authority is
   // the whole value: the userinfo strip and the host lowercase both have to
   // read up to the end of the string, not to a slash that is not there.
