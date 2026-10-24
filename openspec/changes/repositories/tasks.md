@@ -43,9 +43,17 @@ local executor.
 
 ## 1. Proposal layer (`proposals/repositories-and-chat-start-location`)
 
-- [ ] 1.1 Validate the change with `pnpm exec openspec validate repositories --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`, all green
-- [ ] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers. Verify each finding against code or specs, and commit each review round separately.
-- [ ] 1.3 Self-review the published draft PR diff, mark it ready, and obtain Leo's approval of the published revision
+- [x] 1.1 Validate the change with `pnpm exec openspec validate repositories --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`, all green
+  - Green on the published head `b97a92e8` of PR #1401, as its body records.
+- [x] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers. Verify each finding against code or specs, and commit each review round separately.
+  - Local round 1: 5 reviewers, `66ba0131`. Round 2: 3 reviewers, `a188b4c4`.
+  - Round 3 (convergence): 2 reviewers, `a1d3a8ef`. Two GitHub rounds on the
+    published PR: `b97a92e8` and its re-check.
+- [x] 1.3 Self-review the published draft PR diff, mark it ready, and obtain Leo's approval of the published revision
+  - PR #1401 is published, non-draft, base `master`, merge state clean.
+  - Three local rounds and two GitHub rounds are recorded in the PR body.
+  - Leo's approval of the published revision is still open. It stays recorded
+    here and does not block this finalize layer.
 
 ## 2. `repositories/schema-and-registration` — tables, isolation, normalization, owner API, local inspection (design D1, D2, D4)
 
@@ -118,8 +126,14 @@ local executor.
   - They run as the executor user, which also runs `bash` for the owner
   - Then verify `pnpm lint:markdown`.
 - [x] 2.8 Verify the layer locally with `pnpm --filter api lint`, `typecheck`, and focused unit tests. Also run `pnpm --filter api test:integration` for the new suites, `pnpm --filter git-executor test`, and a clean second OpenAPI generation.
-- [ ] 2.9 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
-- [ ] 2.10 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+- [x] 2.9 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
+  - Self-review completed in the layer. It left 21 fix, refactor, test, doc,
+    and CI commits after the feature commits, ending at `96941eae`.
+  - Sample findings: the remote userinfo boundary, the claim lock on the
+    unique keys, the bounded inspection guard, and the published operation ids.
+- [x] 2.10 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+  - Not run. Leo decided that the GitHub review loop is a non-blocking
+    follow-up for this stack. This box records that decision, not a green loop.
 
 ## 3. `repositories/executor-git` — typed git on the protocol, the daemon, and the local executor (design D4, D6 inputs)
 
@@ -153,8 +167,15 @@ local executor.
   - Add to `docs/product/operator/machines.md` the note for Machine worktrees. It tells operators to register the parent directory or set `worktree_base` inside a root.
   - Verify `pnpm lint:markdown`.
 - [x] 3.6 Verify the layer locally with `pnpm --filter machine test`, `pnpm --filter machine build`, `pnpm --filter machine-protocol test`, `pnpm --filter git-executor test`, `pnpm --filter api typecheck`, and the touched integration suites
-- [ ] 3.7 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
-- [ ] 3.8 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+- [x] 3.7 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
+  - Self-review completed in the layer. It left 12 commits after the feature
+    commits, ending at `489f2c45`, and its bodies name two self-review P0
+    corrections and three daemon-side corrections.
+  - Sample findings: option-like worktree values, unknown git params, a
+    Machine reason over its transport text, and the git process group timeout.
+- [x] 3.8 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+  - Not run. Leo decided that the GitHub review loop is a non-blocking
+    follow-up for this stack. This box records that decision, not a green loop.
 
 ## 4. `repositories/workspace-worktree` — the `worktree` field, adoption, leases, guarded removal, docs (design D3, D5, D6)
 
@@ -222,14 +243,47 @@ local executor.
   - Add the repository catalog to the placement section of `SPEC.md`, and add this layer's dated `CHANGELOG.md` entry.
   - Verify `pnpm lint:markdown`.
 - [x] 4.9 Verify the layer locally with `pnpm --filter api lint`, `typecheck`, focused unit tests, and the touched integration suites. Also run `pnpm --filter machine test`, and `pnpm --filter api test:coverage` for the new modules.
-- [ ] 4.10 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
-- [ ] 4.11 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+- [x] 4.10 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
+  - Self-review completed in the layer. It left `bbbbcfcb`, `fdf8fb55`,
+    `42ef2af3`, and the 4.9 check commit `b282c1ab`.
+  - The fixes cover a rollback on every failed commit, a Machine canonical
+    target as a locator, the adoption races, and the report messages.
+- [x] 4.11 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
+  - Not run. Leo decided that the GitHub review loop is a non-blocking
+    follow-up for this stack. This box records that decision, not a green loop.
 
 ## 5. Finalize readiness (`repositories/finalize`)
 
-- [ ] 5.1 Enter `repositories/finalize` with `$gh-stack` before any canonical spec is written. Then run `$openspec-sync-specs`. Verify that `openspec/specs/repositories/spec.md`, `workspace-entry`, `remote-machines`, `tool-call-permissions`, and `tool-calling` each match their delta. That includes the Purpose section of the new capability.
-- [ ] 5.2 Verify every task above is checked, and that `pnpm exec openspec validate --specs` and `pnpm exec openspec validate --all` pass. Record any strict-validation failure with evidence that it also fails on `master`.
-- [ ] 5.3 Verify `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass on the finalize diff. Record the archive readiness in the PR body.
+- [x] 5.1 Enter `repositories/finalize` with `$gh-stack` before any canonical spec is written. Then run `$openspec-sync-specs`. Verify that `openspec/specs/repositories/spec.md`, `workspace-entry`, `remote-machines`, `tool-call-permissions`, and `tool-calling` each match their delta. That includes the Purpose section of the new capability.
+  - Synced the five deltas in this layer. `repositories` is new and holds its
+    Purpose and 18 requirements.
+  - Each delta requirement is present in its canonical spec with the same text
+    and the same scenarios, in the same order.
+  - The `workspace-entry` MODIFIED block replaced the canonical requirement
+    whole, and it keeps all eight canonical scenarios.
+  - The `tool-calling` MODIFIED block replaced its requirement whole, and it
+    keeps all 14 canonical scenarios and adds two.
+  - The `chat-start-location` `workspace-entry` MODIFIED block still equals the
+    new canonical block plus only the chat-creation sentences and its one
+    scenario. This change does not edit it.
+- [x] 5.2 Verify every task above is checked, and that `pnpm exec openspec validate --specs` and `pnpm exec openspec validate --all` pass. Record any strict-validation failure with evidence that it also fails on `master`.
+  - `pnpm exec openspec validate --specs` exits 0: 51 passed, 0 failed.
+  - `pnpm exec openspec validate --specs --strict` exits 1: 10 passed, 41
+    failed. Every failure is the ">500 characters" requirement warning, and it
+    carries no other error.
+  - The same 41 specs fail strict before the sync, at `b282c1ab`: 9 passed, 41
+    failed. `spec/repositories` passes strict. The sync adds no strict failure.
+  - `master` at `0e37f0c0` fails strict too: 8 passed, 40 failed of 48. It also
+    fails `validate --all` on `knowledge-submit` and `tool-search`.
+  - `pnpm exec openspec validate --all` exits 1 on `change/tool-search` only,
+    and that change fails `--all` on `master` as well. `--all --strict` fails
+    on the same long-requirement warnings.
+  - All 35 boxes of this file are checked.
+- [x] 5.3 Verify `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass on the finalize diff. Record the archive readiness in the PR body.
+  - `pnpm lint:markdown` reports 0 issues in 859 files.
+  - `pnpm format:check` passes for the repository.
+  - `git diff --check` reports no whitespace error.
+  - The archive readiness belongs in the finalize PR body at publication.
 
 ## Workflow follow-up
 
