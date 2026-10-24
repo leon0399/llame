@@ -156,6 +156,60 @@ describe('/api/v1/repositories (HTTP)', () => {
     expect(failureSchema.parse(foreign.body).code).toBe('not_found');
   });
 
+  it('answers an alias that names a canonical remote as a conflict', async () => {
+    const target = repositorySchema.parse(
+      (
+        await create(cookieA, {
+          displayName: 'alias-target',
+          remote: 'https://github.com/leon0399/alias-target',
+        }).expect(201)
+      ).body,
+    );
+
+    // `llame` holds this remote already, and the readers consult a canonical
+    // remote before an alias, so declaring it again would select nothing.
+    const response = await request(http)
+      .post(`/api/v1/repositories/${target.id}/aliases`)
+      .set('Cookie', cookieA)
+      .send({ remote: 'https://github.com/leon0399/llame.git' })
+      .expect(409);
+    expect(failureSchema.parse(response.body).code).toBe('remote_taken');
+  });
+
+  it('answers a canonical remote that an alias already names as a conflict', async () => {
+    const holder = repositorySchema.parse(
+      (
+        await create(cookieA, {
+          displayName: 'alias-holder',
+          remote: 'https://github.com/leon0399/alias-holder',
+        }).expect(201)
+      ).body,
+    );
+    await request(http)
+      .post(`/api/v1/repositories/${holder.id}/aliases`)
+      .set('Cookie', cookieA)
+      .send({ remote: 'https://github.com/leon0399/alias-holder-renamed.git' })
+      .expect(201);
+
+    // Both writes of the other table are refused: a create that would shadow
+    // the alias, and a PATCH that would move another repository onto it.
+    const shadow = repositorySchema.parse(
+      (await create(cookieA, { displayName: 'shadow' }).expect(201)).body,
+    );
+    const created = await create(cookieA, {
+      displayName: 'shadow-created',
+      remote: 'https://github.com/leon0399/alias-holder-renamed',
+    }).expect(409);
+    expect(failureSchema.parse(created.body).code).toBe('alias_taken');
+
+    const patched = await request(http)
+      .patch(`/api/v1/repositories/${shadow.id}`)
+      .set('Cookie', cookieA)
+      .send({ remote: 'https://github.com/leon0399/alias-holder-renamed' })
+      .expect(409);
+    expect(failureSchema.parse(patched.body).code).toBe('alias_taken');
+  });
+
   it('refuses an explicit null display name instead of storing it', async () => {
     const created = repositorySchema.parse(
       (await create(cookieA, { displayName: 'padded' }).expect(201)).body,

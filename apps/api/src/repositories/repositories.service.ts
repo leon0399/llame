@@ -31,17 +31,44 @@ export class RepositoriesService {
     const problem = displayNameProblem(input.displayName);
     if (problem !== null) throw invalidDisplayName(problem);
     const canonicalRemote = normalizeRemote(input.remote ?? '') || null;
-    const created = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new RepositoriesRepository(tx).createRepository({
+    const created = await this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const repository = new RepositoriesRepository(tx);
+      await this.claimRemote(repository, ownerUserId, canonicalRemote);
+      return repository.createRepository({
         ownerUserId,
         displayName: input.displayName,
         canonicalRemote,
-      }),
-    );
+      });
+    });
     // The unique key decides, so a concurrent claim of the same remote lands
     // here as the same conflict as a sequential one.
     if (created === undefined) throw remoteTaken(canonicalRemote);
     return created;
+  }
+
+  /**
+   * Take the owner's claim on one canonical remote and refuse it when an alias
+   * already names it. A remote names one repository of an owner: an alias is
+   * such a name, so storing this remote here while an alias holds it would
+   * leave two rows for one remote, and every reader resolves a canonical remote
+   * before an alias. The lock covers the read, because the two tables have
+   * separate unique keys.
+   */
+  private async claimRemote(
+    repository: RepositoriesRepository,
+    ownerUserId: string,
+    canonicalRemote: string | null | undefined,
+  ): Promise<void> {
+    // An omitted remote is not part of the patch at all: nothing to claim.
+    if (canonicalRemote === undefined) return;
+    await repository.lockRemoteClaim(ownerUserId, canonicalRemote);
+    if (canonicalRemote === null) return;
+    if (
+      (await repository.findRepositoryByAlias(ownerUserId, canonicalRemote)) !==
+      undefined
+    ) {
+      throw aliasTaken();
+    }
   }
 
   async updateRepository(
@@ -59,18 +86,16 @@ export class RepositoriesService {
         : normalizeRemote(patch.remote ?? '') || null;
     let updated: Repository | undefined;
     try {
-      updated = await this.tenantDb.runAs(ownerUserId, (tx) =>
-        new RepositoriesRepository(tx).updateRepository(
-          ownerUserId,
-          repositoryId,
-          {
-            ...(patch.displayName !== undefined && {
-              displayName: patch.displayName,
-            }),
-            ...(canonicalRemote !== undefined && { canonicalRemote }),
-          },
-        ),
-      );
+      updated = await this.tenantDb.runAs(ownerUserId, async (tx) => {
+        const repository = new RepositoriesRepository(tx);
+        await this.claimRemote(repository, ownerUserId, canonicalRemote);
+        return repository.updateRepository(ownerUserId, repositoryId, {
+          ...(patch.displayName !== undefined && {
+            displayName: patch.displayName,
+          }),
+          ...(canonicalRemote !== undefined && { canonicalRemote }),
+        });
+      });
     } catch (error) {
       if (pgErrorCode(error) === '23505')
         throw remoteTaken(canonicalRemote ?? null);
@@ -107,11 +132,23 @@ export class RepositoriesService {
     }
     const alias = await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
+      await repository.lockRemoteClaim(ownerUserId, canonicalAlias);
       if (
         (await repository.findRepository(ownerUserId, repositoryId)) ===
         undefined
       ) {
         throw notFound();
+      }
+      // A canonical remote already names its repository, so no alias may name
+      // that remote: the readers resolve a canonical remote first, and the
+      // declared alias would select nothing.
+      if (
+        (await repository.findRepositoryByRemote(
+          ownerUserId,
+          canonicalAlias,
+        )) !== undefined
+      ) {
+        throw remoteTaken(canonicalAlias);
       }
       return repository.declareAlias({
         ownerUserId,
@@ -119,12 +156,7 @@ export class RepositoriesService {
         canonicalAlias,
       });
     });
-    if (alias === undefined) {
-      throw repositoryFailure(
-        'alias_taken',
-        'That remote is already an alias of this owner.',
-      );
-    }
+    if (alias === undefined) throw aliasTaken();
     return alias;
   }
 }
@@ -140,5 +172,12 @@ function remoteTaken(canonicalRemote: string | null) {
   return repositoryFailure(
     'remote_taken',
     `The remote ${canonicalRemote ?? ''} is already one of this owner's repositories.`,
+  );
+}
+
+function aliasTaken() {
+  return repositoryFailure(
+    'alias_taken',
+    'That remote is already an alias of this owner.',
   );
 }
