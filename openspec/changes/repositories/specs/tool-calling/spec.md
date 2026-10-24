@@ -57,6 +57,11 @@ transaction that stores the worktree rows and the bound root. A redelivered Run
 that carries that attempt MUST fail as `outcome_unknown` under the canonical
 rule for a recorded `native.attempt`.
 
+A known worktree failure MUST append its typed `native.result` in its own
+transaction. A known failure writes no worktree, catalog, lease, or binding row.
+A git error, a refusal, and a classified timeout are known failures. The
+`native.result` MUST stay absent only for a genuinely unknown outcome.
+
 The system MUST NOT retry that call idempotently. A redelivered Run MUST NOT
 replay its loop and MUST NOT create a second worktree. An `exit_workspace` call
 MUST NOT record a `native.attempt`. An `enter_workspace` call without a

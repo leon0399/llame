@@ -270,20 +270,22 @@ Server order:
    - It must be a `main` checkout
    - A `repositoryId` or `executorId` that conflicts answers 422
    - A `repositoryId` that the project does not link answers 422
+   - A `checkoutId` whose repository the project does not link answers 422
    - Explicit ids always override remembered defaults
 
 4. Resolve the location.
 
-   - Repository: the request, else the primary link, else the single link, else
-     none
+   - Repository: the request's `repositoryId`, else the primary link, else the
+     single link, else none
    - Executor: the request, else the remembered default of the link
    - Else `projects.default_executor_id`, else the only executor that holds a
-     `main` checkout
-   - Else the online executor with the lowest id that holds a main checkout of
-     the repository
+     `main` checkout of the resolved repository
+   - Else the online executor with the lowest id that holds a `main` checkout of
+     the resolved repository
    - Checkout: the request, else the remembered default for the link and
      executor
-   - Else the only `main` checkout on that executor, else none
+   - Else the only `main` checkout of the resolved repository on that executor,
+     else none
    - The implicit steps skip an offline Machine
    - An explicit `executorId`, a named `checkoutId`, or a remembered default
      that names a configured offline Machine answers `machine_unavailable`
@@ -327,7 +329,12 @@ Server order:
    runs `git.worktreeAdd` under the step 2 lock. The worktree checkout row, its
    lease row, and the bound root then commit in one transaction. The lease names
    the chat and its worktree checkout, so one creation lease exists per chat.
-   Adoption does not run, because the source checkout is registered.
+   Adoption does not run, because the source checkout is registered. The step 5
+   attempt records the canonical worktree directory before `git.worktreeAdd`.
+   When the add succeeds and the transaction rolls back, the attempt stays. A
+   resend reads that directory from the attempt and does not run
+   `git.worktreeAdd` again. It answers `outcome_unknown` with `leftDirectory`
+   set to the recorded directory.
 
 7. Store the bound root: `workspace_root`, `workspace_executor_id`, and
    `workspace_generation + 1`, for the worktree path when one was created and
@@ -344,7 +351,11 @@ Server order:
 
 9. Record the defaults after a successful bind: the source `main` checkout for
    the link and executor. A worktree start records its source and not the new
-   worktree.
+   worktree. The write runs after the commit, it is best-effort, and the last
+   write wins. A failed write MUST NOT fail the create and MUST NOT change the
+   response, the binding, the message, or the Run. The previous defaults row
+   stays. The alternative is to join the bind transaction, and the design does
+   not take it.
 
 On a failure in steps 5, 6, or 7 the chat stays filed and unbound. The response
 carries `workspace: {status, root?, executorId?, worktree?, code?, message?}`,
@@ -353,10 +364,10 @@ and `status` comes from one closed set: `bound`, `unbound`, `bind_failed`,
 `outcome_unknown`.
 
 `bound` names `root`, `executorId`, and for a worktree
-`{path, branch, baseCommit}`. `unbound` means that no location resolved. The
-message is stored and the Run starts. A failure stores no bound root and no
-message, enqueues no Run, and writes no defaults row. `code` is present only on
-the two statuses that carry one:
+`{path, branch, baseCommit}`. `unbound` means that no location resolved. When
+the request carries `message`, the message is stored and the Run starts. A
+failure stores no bound root and no message, enqueues no Run, and writes no
+defaults row. `code` is present only on the two statuses that carry one:
 
 - `bind_failed` carries `permission_denied` for a rejected decision,
   `tool_not_allowed` for a missing allowlist entry, `executor_unavailable` for

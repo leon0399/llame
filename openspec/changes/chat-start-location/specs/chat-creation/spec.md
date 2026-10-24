@@ -36,10 +36,11 @@ response MUST carry the chat and a `workspace` object.
 
 ### Requirement: Location resolution uses project defaults and never a silent primary
 
-The repository MUST be the primary link, else the single link, else none. The
-server MUST NOT choose a primary when the links have no primary and the request
-names no repository. The checkout MUST come from the remembered default for the
-link, else the only main checkout on the resolved executor, else none. An
+The repository MUST be the request's `repositoryId`, else the primary link,
+else the single link, else none. The server MUST NOT choose a primary when the
+links have no primary and the request names no repository. The checkout MUST
+come from the remembered default for the link. Else it MUST be the only main
+checkout of the resolved repository on the resolved executor, else none. An
 explicit `repositoryId` or `checkoutId` MUST override a remembered default.
 
 #### Scenario: One linked repository resolves to its only checkout
@@ -67,12 +68,14 @@ explicit `repositoryId` or `checkoutId` MUST override a remembered default.
 
 ### Requirement: Executor resolution skips offline Machines on implicit steps
 
-The executor MUST resolve from an explicit `executorId`. Else it MUST use the
-remembered default for the link. Else it MUST use the project default executor.
-Else it MUST use the only executor that holds a main checkout, else the online
-executor with the lowest id that holds one. The implicit steps MUST skip an
-offline Machine. An explicit `executorId` that names no configured executor MUST
-answer 422 with `code` `executor_unknown` and store nothing.
+The executor MUST resolve from an explicit `executorId`, else the link's
+remembered default, else the project default executor. Else it MUST be the only
+executor that holds a main checkout of the resolved repository. Else it MUST be
+the online executor with the lowest id that holds one.
+
+The implicit steps MUST skip an offline Machine. An explicit `executorId` that
+no configuration provides MUST answer 422 with `code` `executor_unknown` and
+store nothing.
 
 #### Scenario: An offline Machine that holds the only checkout is skipped
 
@@ -86,6 +89,13 @@ answer 422 with `code` `executor_unknown` and store nothing.
 
 - **WHEN** two online executors each hold a main checkout and no default exists
 - **THEN** the server selects the executor with the lowest id
+
+#### Scenario: An executor that holds only another repository's checkout is skipped
+
+- **WHEN** the project links repository A, and an executor holds only a main
+  checkout of repository B
+- **THEN** the server does not select that executor and resolves no checkout
+- **AND** `workspace.status` is `unbound`
 
 #### Scenario: An unknown executor id is rejected
 
@@ -124,7 +134,7 @@ A named `checkoutId` MUST decide its repository and its executor. It MUST be a
 `main` checkout, and a worktree row MUST answer 422. A given `repositoryId` or
 `executorId` that disagrees with it MUST answer 422. When the request names
 `projectId`, a `repositoryId` that the project does not link MUST answer 422. A
-422 MUST store nothing and MUST start no git call.
+named `checkoutId` whose repository the project does not link MUST also answer 422. A 422 MUST store nothing and MUST start no git call.
 
 #### Scenario: A worktree checkout cannot be the source
 
@@ -148,6 +158,13 @@ A named `checkoutId` MUST decide its repository and its executor. It MUST be a
 - **WHEN** the request names a `projectId` and a `repositoryId` that the project
   does not link
 - **THEN** the response is 422 and nothing is stored
+
+#### Scenario: A checkout of an unlinked repository is rejected
+
+- **WHEN** the request names a `projectId` and a `checkoutId` whose repository
+  the project does not link
+- **THEN** the response is 422 and nothing is stored
+- **AND** no git call starts
 
 ### Requirement: A create request with a message validates it before any write
 
@@ -217,6 +234,22 @@ chat.
 - **WHEN** the worktree add succeeds and the transaction commits
 - **THEN** the checkout row, its lease, and the bound root are stored together
 - **AND** the lease names the chat and the worktree checkout
+
+### Requirement: A resend reads the recorded worktree directory
+
+The step MUST record the canonical worktree directory in the chat's creation
+attempt before `git.worktreeAdd`. When the add succeeds and the transaction
+rolls back, a resend MUST read that directory from the attempt and MUST NOT run
+`git.worktreeAdd` again. The resend MUST answer `outcome_unknown` with
+`leftDirectory` set to the recorded directory.
+
+#### Scenario: A resend after a rolled-back worktree commit adds no second worktree
+
+- **WHEN** `git.worktreeAdd` succeeded and the transaction rolled back, and the
+  owner resends the same chat id
+- **THEN** the response is 201 with `workspace.status` `outcome_unknown` and
+  `leftDirectory` set to the recorded directory
+- **AND** no second `git.worktreeAdd` call runs
 
 ### Requirement: Creation serializes requests for one chat id
 
@@ -349,14 +382,23 @@ can leave behind, when known.
 
 ### Requirement: An unresolved location stores the message and starts the Run
 
-When no location resolves, the server MUST store the chat and the message. It
-MUST start the Run. It MUST answer 201 with `workspace.status` `unbound`.
+When the request carries `message` and no location resolves, the server MUST
+store the chat and the message. It MUST start the Run. It MUST answer 201 with
+`workspace.status` `unbound`. When the request carries no `message`, the server
+MUST store the chat only, and it MUST start no Run.
 
 #### Scenario: A start without a resolvable location still sends
 
 - **WHEN** the project links two repositories with no primary and the request
   names no location
 - **THEN** the chat and the message are stored and the Run starts
+- **AND** the response is 201 with `workspace.status` `unbound`
+
+#### Scenario: An unbound start without a message starts no Run
+
+- **WHEN** the project links two repositories with no primary, the request names
+  no location, and the request omits `message`
+- **THEN** the chat is stored, and no message and no Run are stored
 - **AND** the response is 201 with `workspace.status` `unbound`
 
 ### Requirement: Failure statuses name their cause
@@ -416,6 +458,20 @@ client MUST keep the message for a later send.
 - **THEN** the response is 201 with `workspace.status` `bind_failed`
 - **AND** the chat stays filed and unbound, and the message is not stored
 
+### Requirement: A failed defaults write does not fail the create
+
+A failed defaults write is not a failed workspace. That write runs after the
+commit, it is best-effort, and the last write wins. Its failure MUST NOT fail
+the create and MUST NOT change the response, the bound root, the message, or
+the Run. The previous defaults row MUST stay.
+
+#### Scenario: A failed defaults write keeps the successful start
+
+- **WHEN** the defaults write fails after the bound root commits
+- **THEN** the response is 201 with `workspace.status` `bound`
+- **AND** the bound root, the message, and the Run stay, and the previous
+  defaults row stays
+
 ### Requirement: The message step commits the message and its Run before the enqueue
 
 The server MUST insert the message and its Run row in one transaction, and MUST
@@ -443,11 +499,10 @@ the draft again as a new message, with a new `message.id`, through
 
 A same-owner create request with a stored chat id MUST reuse that chat and run
 the message validation and message step. It MUST NOT create a second chat,
-worktree, lease, or bound root. A stored bound root MUST stay unchanged. A chat with
-no bound root MUST run the location, worktree, and bound root steps. A chat with a
-creation lease MUST reuse that worktree and bound root. A stored chat that holds
-a message MUST answer 409, and the client MUST send the draft as a new message
-with a new id.
+worktree, lease, or bound root. A stored bound root MUST stay unchanged. A chat
+with no bound root and no recorded worktree attempt MUST run the location,
+worktree, and bound root steps. A chat with a creation lease MUST reuse that
+worktree and bound root.
 
 #### Scenario: A resend after a failed workspace binds the corrected location
 
