@@ -1,13 +1,13 @@
+# Spec Delta
+
 ## ADDED Requirements
 
-### Requirement: A project links repositories with an alias, a primary, and an isolation policy
+### Requirement: A project links repositories with an alias and a primary link
 
 Each project MUST store zero or more links to repositories of its owner. A link
-MUST carry an alias, a primary flag, and an isolation policy. The isolation
-policy MUST be `inherit`, `always_worktree`, or `never`, and MUST default to
-`inherit`. Chat creation MUST obey the policy of the link it resolves. A project
-MUST have no more than one primary link. The owner MUST link, unlink, and change
-a link under `/api/v1/projects/:id/repositories`.
+MUST carry an alias and a primary flag. A project MUST have no more than one
+primary link. The owner MUST link, unlink, and change a link under
+`/api/v1/projects/:id/repositories`.
 
 #### Scenario: The owner links a repository
 
@@ -37,25 +37,40 @@ a link under `/api/v1/projects/:id/repositories`.
 - **WHEN** the owner marks a link as primary
 - **THEN** that link is the only primary link of the project
 
-#### Scenario: An unsupported isolation value is rejected
-
-- **WHEN** the owner sets an isolation value other than `inherit`,
-  `always_worktree`, or `never`
-- **THEN** the request is rejected and the stored policy is unchanged
-
 #### Scenario: An archived project rejects link edits
 
 - **WHEN** the owner links, unlinks, or changes a link on an archived project
 - **THEN** the request is rejected with `409`
 - **AND** the links are unchanged
 
+### Requirement: An isolation policy selects the default isolation of a chat start
+
+A link MUST carry an isolation policy of `inherit`, `always_worktree`, or
+`never`. The policy MUST default to `inherit`. The policy MUST select the
+default isolation that the composer shows. The request's `worktree` field MUST
+decide the outcome.
+
+#### Scenario: The policy sets the composer default
+
+- **WHEN** a chat starts on a link whose isolation policy is `always_worktree`
+- **THEN** the composer shows the worktree isolation as the default
+- **AND** the `worktree` field of the request decides the outcome
+
+#### Scenario: An unsupported isolation value is rejected
+
+- **WHEN** the owner sets an isolation value other than `inherit`,
+  `always_worktree`, or `never`
+- **THEN** the request is rejected and the stored policy is unchanged
+
 ### Requirement: Project repository defaults remember the last chosen checkout per executor
 
 For each link and each executor, a project MUST store at most one default
-checkout. The default MUST name a main checkout of that repository on that
+checkout. That default MUST be a main checkout of the repository on that
 executor. A successful chat start MUST record the checkout it used as that
 default. A checkout that is not a main checkout of the repository on that
-executor MUST NOT become a default.
+executor MUST NOT become a default. Each defaults row MUST record `updated_at`,
+the time of its last write. When a link has defaults on several executors, the
+most recently written row MUST win.
 
 #### Scenario: A chat start records the default
 
@@ -78,11 +93,17 @@ executor MUST NOT become a default.
   E
 - **THEN** the project stores the new checkout as the default for that link on E
 
+#### Scenario: Defaults on two executors resolve to the last write
+
+- **WHEN** a link stores a default on executor E1, then a default on executor E2
+- **THEN** a chat start on that link uses the default on E2
+
 ### Requirement: A project can have a default executor
 
 A project MUST store zero or one default executor. The owner MUST set and clear
 it under `/api/v1/projects/:id`. Chat creation MUST use a stored link default
-before the project default executor.
+before the project default executor. An archived project MUST reject a change to
+its default executor with `409`.
 
 #### Scenario: A new project has no default executor
 
@@ -106,10 +127,18 @@ before the project default executor.
   another default executor
 - **THEN** a chat start on that link uses E
 
+#### Scenario: An archived project rejects a default executor change
+
+- **WHEN** the owner sets or clears the default executor of an archived project
+- **THEN** the request is rejected with `409`
+- **AND** the stored default executor is unchanged
+
 ### Requirement: Project repository links are deleted with the project
 
 The system MUST delete a project's links and their defaults when the owner
-deletes the project. The system MUST NOT delete a repository, a checkout, a
+deletes the project. The system MUST delete a default when the owner deletes the
+checkout it names. The system MUST delete a link's defaults when the owner
+unlinks its repository. The system MUST NOT delete a repository, a checkout, a
 directory, or a file. The system MUST delete the links that name a repository
 when the owner deletes that repository.
 
@@ -130,6 +159,17 @@ when the owner deletes that repository.
 - **THEN** both links are gone
 - **AND** both projects remain
 
+#### Scenario: A deleted main checkout leaves no default
+
+- **WHEN** the owner deletes a main checkout that a link stores as its default
+- **THEN** that default is gone
+- **AND** the link and the repository remain
+
+#### Scenario: Unlinking removes the link's defaults
+
+- **WHEN** the owner unlinks a repository from a project
+- **THEN** every default of that link is gone
+
 ### Requirement: Project repository links are owner-isolated
 
 Only the owner of a project MUST read or change its links and defaults. A link
@@ -149,9 +189,10 @@ authenticated user MUST fail and change nothing.
 - **THEN** the request fails
 - **AND** no link is returned or changed
 
-#### Scenario: Two owners link the same repository
+#### Scenario: Two owners link repositories with the same remote
 
-- **WHEN** two owners link the same repository to their own projects
+- **WHEN** two owners each register a repository with the same remote and link
+  it to their own projects
 - **THEN** each project lists only its own link
 
 #### Scenario: An absent identity fails closed

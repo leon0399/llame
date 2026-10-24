@@ -394,14 +394,21 @@ short id unless the owner types one; the lease row carries the display name.
 
 ## Open decisions
 
-- Q1. Repository identity by normalized remote plus declared aliases (proposed)
-  versus adding a root-commit witness.
-- Q2. Multi-repo context as sibling absolute paths in the rail item (proposed)
-  versus a composite parent root of worktrees.
-- Q3. Worktree location: a per-checkout `worktree_base` defaulting to a sibling
-  of the checkout, `<checkout parent>/.llame-worktrees/<repo>/<slug>`, versus a
-  per-executor base. On a Machine the base must lie inside a registered root.
-- Q4. Fork of a leased chat: new worktree from the same base, or unbound.
-- Q5. Whether `llame testing` chats default to a worktree. The isolation toggle
-  default (on when another open chat already binds the checkout) covers the
-  concurrent case without a per-project policy.
+Settled in the grilling session of 2026-10-24 (codes Q1–Q28 there are
+distinct from these OD codes); the outcomes are recorded in
+`openspec/changes/repositories` and `openspec/changes/chat-start-location`.
+
+- OD1. Repository identity by normalized remote plus declared aliases
+  (proposed) versus adding a root-commit witness. Outcome: remote plus aliases.
+- OD2. Multi-repo context as sibling absolute paths in the rail item (proposed)
+  versus a composite parent root of worktrees. Outcome: deferred with the
+  announcement work; sibling paths remain reachable through `..`.
+- OD3. Worktree location: a per-checkout `worktree_base` defaulting to a
+  sibling of the checkout, `<checkout parent>/.llame-worktrees/<repo>/<slug>`,
+  versus a per-executor base. On a Machine the base must lie inside a
+  registered root. Outcome: sibling default with a per-checkout override.
+- OD4. Fork of a leased chat: new worktree from the same base, or unbound.
+  Outcome: leases are informational; forks copy the binding as today.
+- OD5. Whether `llame testing` chats default to a worktree. Outcome: an
+  isolation policy on the project-repository link, with the per-chat choice
+  final.

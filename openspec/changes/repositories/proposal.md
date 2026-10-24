@@ -23,21 +23,29 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
 - New checkouts. A checkout records that one repository exists at one canonical
   path on one executor (the local executor or `machine:<name>`), with kind
   `main` or `worktree`, a parent main checkout for a worktree, its branch, and
-  its origin (`registered`, `adopted`, or `created`). One path per executor is
-  one checkout.
+  its origin (`registered`, `adopted`, or `created`). One path per owner and
+  executor is one checkout. A local checkout stores the canonical absolute
+  path; a Machine checkout stores the canonical Machine locator
+  (`machine://<name>/<abs path>`), the same form as a Chat binding root.
 - New informational worktree leases. A lease records which Chat created a
   worktree and from which base ref. It refuses nothing: a second Chat can bind
   a leased path, and a fork copies its binding as today.
 - New owner API for repositories, aliases, checkouts, and guarded worktree
   removal. Registration inspects the path on its executor and trusts the
-  inspected origin over any caller-declared one; an unreachable Machine fails
-  registration as `machine_unavailable`.
+  inspected origin over any caller-declared one. It runs git only when the
+  named executor is configured and both the submitted and canonical paths pass
+  the `enter_workspace` permission group. A non-Machine executor must equal
+  this process's `tools.nativeExecutorId`, else it fails as
+  `executor_unavailable`. Failures answer 404, 409, 422, or 503 with a typed
+  code; an unreachable Machine answers 503 `machine_unavailable`.
 - New typed git operations, `git.inspect`, `git.worktreeAdd`,
   `git.worktreeList`, `git.worktreeRemove`, and `git.status`. They take argv
-  arrays, run with `GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`, and
-  `GIT_OPTIONAL_LOCKS=0`, and return a typed failure with git's stderr. The
-  hub's local executor runs them in-process; a Machine daemon answers them as
-  protocol methods.
+  arrays with `--end-of-options` before caller values and reject a name or base
+  reference that starts with `-`. They run with `GIT_TERMINAL_PROMPT=0`,
+  `LC_ALL=C`, `GIT_OPTIONAL_LOCKS=0`, an empty hooks path,
+  `core.fsmonitor=false`, and a per-call timeout. A failure is typed and
+  carries git standard error. The hub's local executor runs them in-process; a
+  Machine daemon answers them as protocol methods.
 - Not breaking for installed daemons: the Machine protocol version stays at 1
   and the git methods are additive. The handshake result lists the git methods
   a daemon answers; a Machine whose daemon lists none fails a git call as
@@ -45,23 +53,46 @@ No issue tracks it: Leo decided on 2026-10-24 to proceed without one, as for
   `bash` keep working. The operator page names the daemon update step.
 - `enter_workspace` gains one optional `worktree` field with an optional `name`
   and `baseRef`. With it, entry creates a worktree of the source clone, records
-  a worktree checkout and a lease, and binds the new directory. Without it,
-  entry behaves exactly as today.
+  a worktree checkout and a lease, and binds the new directory, even when the
+  Chat already binds the source clone. Without it, entry behaves exactly as
+  today.
 - Worktree placement is
-  `<parent of source clone>/.llame-worktrees/<display name>/<name>`, unless the
-  main checkout carries a `worktree_base` override. The name is generated as
-  `<adjective>-<noun>-<4 hex>` when absent, and the branch is `llame/<name>`
-  unless the name already contains `/`. The base ref defaults to the source
-  clone's current HEAD, with no fetch.
-- Both paths of a worktree entry are decided before any git effect: the
-  submitted source clone is the `path` decision, and the computed worktree
-  directory is the `canonical` decision, both under the `enter_workspace`
-  group. Classification stays `execute_code`.
+  `<parent>/.llame-worktrees/<display name>/<name>`, where `<parent>` is the
+  parent of the real path of the source clone's toplevel, unless the main
+  checkout carries a `worktree_base` override. The target is canonicalized
+  through its deepest existing ancestor before the decision. After
+  `git.worktreeAdd`, the real path of the new directory must equal the decided
+  path, else the call removes the worktree and fails `worktree_failed`.
+- Worktree naming: the name is `<adjective>-<noun>-<4 hex>` when absent, and a
+  generated name retries on collision. A supplied name is used as written and a
+  collision fails `worktree_failed`. A name must not start with `-`, must not
+  contain a `.` or `..` segment, and must pass git's branch-name rules. The
+  directory slug is the name with `/` replaced by `-`, and the branch is
+  `llame/<name>` unless the name contains `/`. The base ref defaults to the
+  source clone's current HEAD, with no fetch, and must not start with `-`.
+- Worktree entry decides three paths in order: the submitted `path` before any
+  probe or git call; the canonical source clone by `realpath`, as today; and
+  the computed worktree directory before `git.worktreeAdd` and any write. The
+  source clone is the toplevel that `git.inspect` reports, and a read-only
+  inspection may run after the second decision. Every decision evaluates the
+  `enter_workspace` group. Classification stays `execute_code`.
 - An unregistered source clone is adopted in the same call: inspection records
   the repository by normalized remote, or remote-less, and a main checkout with
-  origin `adopted`. No project link is created.
+  origin `adopted`. A linked worktree uses its main clone as source and parent.
+  No project link is created.
 - A failed `git worktree add` returns `worktree_failed` with redacted git
-  stderr, leaves the binding unchanged, and writes no rows.
+  standard error. The call writes no repository, checkout, or lease rows, and
+  the binding and its generation stay unchanged. A source that is not a git
+  repository, a git timeout, an offline Machine, and a daemon without the git
+  methods fail the same way, with `machine_unavailable` or
+  `machine_update_required` where they apply.
+- Worktree entry is fenced and atomic. The checkout row, the lease row, the
+  adopted rows, and the binding commit in one fenced transaction keyed by the
+  tool call id, with a new `worktree` operation in the native attempt fence.
+  A retry after a committed entry replays the recorded result, binds the same
+  root, and creates no second worktree. A fence loss after the add, or a lost
+  Machine link, writes no rows and leaves the binding unchanged; when the
+  directory may exist, the result is `outcome_unknown`.
 - Worktree removal is owner-initiated and guarded. It refuses a dirty worktree,
   refuses commits ahead of the upstream, and fails closed when the upstream is
   unknown. No agent-facing removal exists in this change.
@@ -85,8 +116,8 @@ record behind the research note.
   `owner-chat-forks` stays unchanged (Q5).
 - Worktree creation is an option on `enter_workspace`, not a second tool, and
   the agent addresses clones by path, not by repository alias (Q9 A, Q10 A).
-- The submitted clone and the computed directory are both decided before any
-  git call (Q25 A).
+- The submitted clone is decided before any probe, and the computed directory
+  before any write; a read-only inspection may run between them (Q25 A).
 - The worktree name is an optional parameter; a generated name is
   `<adjective>-<noun>-<4 hex>`, one name derives both the directory slug and
   the branch (Q17 B, Q20 A, Q21 A).
@@ -109,18 +140,41 @@ and a later change can reverse it without a data migration.
 
 - The repository display name is one path segment. The API rejects a name that
   contains `/`, a NUL byte, or is `.` or `..`, because the worktree directory
-  embeds the name.
+  embeds the name. Adoption derives a valid name from the last segment of the
+  canonical remote, else from the toplevel basename.
 - A generated name retries with a new hex suffix until neither the directory
   nor the branch exists. A requested name is used verbatim; a collision fails
   as `worktree_failed` rather than silently renaming.
 - A path that git reports as a linked worktree is registered as a `worktree`
   row whose parent is the main clone git names, not as a `main` row.
 - `worktree_base` is set through `PATCH /api/v1/checkouts/:id` on a `main`
-  checkout and stays null otherwise.
-- Two concurrent registrations of one path resolve through the unique
-  constraint as a conflict response, not a merge.
+  checkout, as an absolute local path or a `machine://` locator, and is
+  rejected on a `worktree` row.
+- The registration and removal routes run git only for a configured executor
+  and an allowlisted path. A non-Machine executor must equal this process's
+  `tools.nativeExecutorId`, else the route answers 503 `executor_unavailable`.
+  Both submitted and canonical paths are evaluated under the `enter_workspace`
+  group, every git call disables hooks and fsmonitor, and a failure answers
+  404, 409, 422, or 503 with a typed code.
+- Two concurrent registrations of one path by one owner resolve through the
+  unique `(owner_user_id, executor_id, path)` constraint as a conflict
+  response, not a merge.
 - `GET /api/v1/checkouts` filters by repository only, with no pagination, until
-  an owner reports enough checkouts to need it.
+  an owner reports enough checkouts to need it. Each worktree row lists its
+  lease chat and the ids of the owner's chats whose binding root equals its
+  path.
+
+## Deviation from the grilling record
+
+- The record settled a protocol version bump, with an older daemon that answers
+  `method_not_found`. That pair cannot work. The daemon stops the session on
+  any version mismatch (`apps/machine/src/serve.ts:130-141`), so a bump removes
+  `read` and `bash` from every Machine until the operator updates the daemon,
+  and the old daemon never answers any method. This change keeps
+  `PROTOCOL_VERSION` at 1. It adds the git methods as additive methods and adds
+  the optional `methods` list to the handshake result. A daemon that omits the
+  list fails a git call as `machine_update_required` before any request. Leo
+  must confirm this replacement.
 
 ## Capabilities
 
@@ -129,37 +183,53 @@ and a later change can reverse it without a data migration.
 - `repositories`: the owner's repository catalog, checkouts on executors,
   worktree leases, typed git operations on the hub and on a Machine, guarded
   worktree removal, and row-only cascades. Requirements:
-  - Repositories are owner-scoped and identified by their normalized remote
-  - Checkouts record where a repository exists on an executor
+  - Repositories are owner-scoped records with a display name
+  - The canonical remote comes from the `origin` remote
+  - Checkouts record one repository on one executor
+  - A Machine checkout stores the canonical Machine locator
   - Worktree checkouts are children of a main checkout
+  - A main checkout can carry a worktree base directory
   - Worktree leases are informational ownership receipts
+  - Checkout lists report the lease chat and every bound chat
   - Checkout registration inspects the path on its executor
+  - Registration and removal need a configured executor
+  - Registration and removal obey the host access policy
+  - Registration and removal map failures to typed statuses
+  - Git calls cannot run repository hooks or monitors
   - Executors expose typed git operations
+  - Git calls place caller values after `--end-of-options`
   - Worktree removal is owner-initiated and guarded
   - Repository and checkout deletion cascades records and never files
   - Repository records are isolated per owner
 
 ### Modified Capabilities
 
-These capabilities gain ADDED requirements only. No canonical requirement is
-MODIFIED, because every existing sentence stays true for the path form that
-this change leaves in place.
-
-- `workspace-entry`: the `worktree` option, its naming and branch rule,
-  adoption of an unregistered source clone, and the failure boundary.
+- `workspace-entry`: one MODIFIED requirement and six ADDED requirements. The
+  MODIFIED block is "The Workspace binding is Chat-scoped and persists across
+  Runs": model input contains only `path` and an optional `worktree` object
+  with only `name` and `baseRef`, and every prohibition and scenario stays.
   Requirements:
+  - The Workspace binding is Chat-scoped and persists across Runs (MODIFIED)
   - Workspace entry can create a worktree of the source clone
-  - Worktree names and branches follow one naming rule
+  - Worktree names, branches, and base refs follow one rule
+  - Worktree placement follows the source clone and its worktree base
   - An unregistered source clone is adopted on worktree entry
   - Worktree creation failure leaves the binding unchanged
-- `remote-machines`: the daemon's typed git methods and the registered-root
-  rule for a worktree directory. Requirements:
+  - Worktree entry is fenced and atomic
+- `remote-machines`: the daemon's typed git methods, their sanitized
+  environment, their locator forms, and the registered-root rule for a worktree
+  directory. Requirements:
   - Machine daemons answer typed git methods
   - Git methods are additive to the Machine protocol
   - Worktree directories on a Machine lie inside a registered root
-- `tool-call-permissions`: the two path decisions of a worktree entry.
+  - Machine git calls run in a sanitized environment
+  - Machine git results report locators and rewritten errors
+- `tool-call-permissions`: the three path decisions of a worktree entry.
   Requirements:
-  - Worktree entry decides the source clone and the worktree path
+  - Worktree entry decides the submitted path before any probe
+  - Worktree entry decides the source clone before any git call
+  - Worktree entry decides the canonical worktree directory
+  - Worktree creation verifies the decided path
 
 ### Deliberately unchanged
 
@@ -173,24 +243,32 @@ this change leaves in place.
 ## Impact
 
 - `apps/api/src/tools/workspace.ts`: the optional `worktree` field, the computed
-  directory, the second permission decision, adoption, lease, and binding. The
-  strict object at `:479` accepts exactly one field today.
+  directory, the third permission decision, the fenced worktree transaction,
+  adoption, lease, and binding. The strict object at `:479` accepts exactly one
+  field today.
 - `apps/api/src/db/schema/`: four new tables and their Drizzle migration
   (`repositories`, `repository_aliases`, `checkouts`, `worktree_leases`) with
-  owner policies and FORCE RLS.
+  owner policies, composite owner foreign keys, cascades, and FORCE RLS.
 - New `packages/git-executor`: the typed git operations over argv arrays, shared
   by the hub's local executor and the daemon.
 - `packages/machine-protocol`: five new methods, their typed parameters and
-  results, and `PROTOCOL_VERSION` 1 to 2.
+  results, and an optional `methods` list in the `hello` result;
+  `PROTOCOL_VERSION` stays 1.
 - `apps/machine/src`: the daemon implementations, the root guard applied to the
-  worktree directory, and the version handshake.
+  worktree directory, the sanitized git environment, and the `methods` list in
+  the handshake result.
+- `apps/api/src/machines/machine-results.ts`: `HelloResult` and `readHelloResult`
+  carry the optional `methods` list, which gates every git call.
 - New API module for repositories, aliases, checkouts, and worktree removal,
-  with OpenAPI regeneration and the generated client.
+  with the `enter_workspace` gate, the typed failure mapping, OpenAPI
+  regeneration, and the generated client.
 - `apps/api/src/testing/`: the portable and permission fixtures that enumerate
   `enter_workspace` arguments, plus the tests that pin its schema.
 - Docs: a new `docs/product/operator/repositories.md`, the `enter_workspace`
-  reference page, the operator and reference indexes, and a dated
-  `CHANGELOG.md` entry.
+  model-facing description (`apps/api/src/prompts/tools/enter_workspace.md`),
+  the `enter_workspace` reference page, the Machines page note that tells
+  operators to register the parent directory or set `worktree_base` inside a
+  root, the operator and reference indexes, and a dated `CHANGELOG.md` entry.
 - `SPEC.md` placement section, to name the repository catalog beside the
   Workspace binding.
 
@@ -215,15 +293,28 @@ this change leaves in place.
 
 - An owner registers a local clone by path. The API records the repository from
   the inspected origin and one main checkout. A second registration of the same
-  path fails as a conflict.
+  path by the same owner fails as a conflict, and the same path on another
+  owner's catalog succeeds without either owner seeing the other row.
+- A registration of a path outside the `enter_workspace` allowlist answers 403
+  `permission_denied` and starts no git command. An executor id that is not
+  this process's `tools.nativeExecutorId` and names no Machine answers 503
+  `executor_unavailable`.
+- A Machine registration stores the canonical Machine locator, so it equals the
+  binding root that a later `enter_workspace` writes.
 - `enter_workspace` with `worktree: {}` creates
   `<parent>/.llame-worktrees/<display name>/<generated name>`, records a
   worktree checkout and a lease, and binds the new directory. The result names
   the path, the branch, and the base commit.
+- A Chat bound to a clone that calls `enter_workspace` with that clone and
+  `worktree` binds the new worktree with one generation increment.
 - A permission reject on the computed worktree directory refuses the call
   before `git worktree add` runs, and `workspace_generation` does not change.
 - A Machine source clone whose computed directory is outside every registered
   root fails as `path_not_registered` before any git call.
+- A failure after `git worktree add`, such as a lost fence or a lost Machine
+  link, records no repository, checkout, or lease row and leaves the binding
+  unchanged; a retry after a committed entry binds the same root and creates no
+  second worktree.
 - An owner removes a clean worktree through
   `DELETE /api/v1/checkouts/:id/worktree`. A dirty worktree, an unpushed
   branch, and an unknown upstream are each refused, and the directory stays.
