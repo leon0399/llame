@@ -44,20 +44,11 @@ export class CheckoutsService {
   ): Promise<Array<CheckoutSummary>> {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
-      const rows = await repository.listCheckouts(ownerUserId, repositoryId);
-      const bound = await repository.chatsBoundTo(
+      return summarize(
+        repository,
         ownerUserId,
-        rows.map((row) => row.path),
+        await repository.listCheckouts(ownerUserId, repositoryId),
       );
-      const leases = await repository.leaseChats(
-        ownerUserId,
-        rows.filter((row) => row.kind === 'worktree').map((row) => row.id),
-      );
-      return rows.map((row) => ({
-        ...row,
-        chatIds: bound.get(row.path) ?? [],
-        leaseChatId: leases.get(row.id) ?? null,
-      }));
     });
   }
 
@@ -71,7 +62,7 @@ export class CheckoutsService {
     ownerUserId: string,
     checkoutId: string,
     worktreeBase: string,
-  ): Promise<Checkout> {
+  ): Promise<CheckoutSummary> {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
       const checkout = await repository.findCheckout(ownerUserId, checkoutId);
@@ -88,7 +79,8 @@ export class CheckoutsService {
         base,
       );
       if (updated === undefined) throw notFound();
-      return updated;
+      const [summary] = await summarize(repository, ownerUserId, [updated]);
+      return summary;
     });
   }
 
@@ -99,6 +91,31 @@ export class CheckoutsService {
     );
     if (!deleted) throw notFound();
   }
+}
+
+/**
+ * Attach the bound chats and the lease chat to rows of one owner: the Chat
+ * whose Workspace root equals the row's path, and the earliest lease of a
+ * worktree row.
+ */
+async function summarize(
+  repository: RepositoriesRepository,
+  ownerUserId: string,
+  rows: ReadonlyArray<Checkout>,
+): Promise<Array<CheckoutSummary>> {
+  const bound = await repository.chatsBoundTo(
+    ownerUserId,
+    rows.map((row) => row.path),
+  );
+  const leases = await repository.leaseChats(
+    ownerUserId,
+    rows.flatMap((row) => (row.kind === 'worktree' ? [row.id] : [])),
+  );
+  return rows.map((row) => ({
+    ...row,
+    chatIds: bound.get(row.path) ?? [],
+    leaseChatId: leases.get(row.id) ?? null,
+  }));
 }
 
 /**

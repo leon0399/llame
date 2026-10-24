@@ -105,12 +105,9 @@ export class CheckoutsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: UpdateCheckoutDto,
   ): Promise<CheckoutResponse> {
-    const updated = await this.checkouts.setWorktreeBase(
-      userId,
-      id,
-      input.worktreeBase,
+    return toCheckoutResponse(
+      await this.checkouts.setWorktreeBase(userId, id, input.worktreeBase),
     );
-    return toCreatedCheckoutResponse(updated);
   }
 
   // Row-only deletion: a chat keeps its stored Workspace path, and the next
