@@ -12,7 +12,6 @@
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//iu;
 /** The `git@host:path` form, and the user-less `host:path` git also accepts. */
 const SCP_FORM = /^(?:[^@/\s:]+@)?([^:/\s]+):(?!\/)(.+)$/u;
-const TRAILING_SLASHES = /\/+$/u;
 
 /** Drop everything before an optional `@`, up to the end of the authority. */
 function stripUserinfo(value: string): string {
@@ -25,17 +24,32 @@ function stripUserinfo(value: string): string {
 /** Lowercase the host segment and leave the path's case alone. */
 function lowercaseHost(value: string): string {
   const slash = value.indexOf('/');
+  // A remote submitted without a path has its authority as the whole value, so
+  // the host is still lowercased instead of surviving as typed.
   return slash === -1
-    ? value
+    ? value.toLowerCase()
     : `${value.slice(0, slash).toLowerCase()}${value.slice(slash)}`;
 }
 
+/**
+ * Strip every trailing `/`. A loop, not `/\/+$/`: the input is a submitted
+ * remote, and a quantifier over a repeated delimiter lets a hostile string
+ * spend quadratic time in the matcher.
+ */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
+const GIT_SUFFIX = '.git';
+
 function stripSuffixes(value: string): string {
-  const withoutSlash = value.replace(TRAILING_SLASHES, '');
-  const withoutGit = withoutSlash.endsWith('.git')
-    ? withoutSlash.slice(0, -'.git'.length)
+  const withoutSlash = stripTrailingSlashes(value);
+  const withoutGit = withoutSlash.endsWith(GIT_SUFFIX)
+    ? withoutSlash.slice(0, -GIT_SUFFIX.length)
     : withoutSlash;
-  return withoutGit.replace(TRAILING_SLASHES, '');
+  return stripTrailingSlashes(withoutGit);
 }
 
 /**
@@ -44,8 +58,8 @@ function stripSuffixes(value: string): string {
  */
 export function normalizeRemote(value: string): string {
   const text = value.trim();
-  if (text === '') return '';
-
+  // An empty value falls through to the last line unchanged: it has no scheme,
+  // no scp colon, and no slash, so trimming it is the whole normalization.
   const scheme = URL_SCHEME.exec(text);
   if (scheme !== null) {
     return stripSuffixes(
