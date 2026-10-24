@@ -22,3 +22,5 @@ How llame's tools compare with other agent harnesses, one page per tool.
 - [`read` for web URLs](harness-comparison/read.md): llame against omp,
   Claude Code, OpenCode, OpenClaw, and Gemini CLI, with a per-site adapter
   table.
+- [`grep`](harness-comparison/grep.md): search deadlines, scan and response
+  budgets, ignore rules, configuration, and incomplete results across seven harnesses.
