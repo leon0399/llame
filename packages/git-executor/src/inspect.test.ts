@@ -1,85 +1,28 @@
-import {
-  execFileSync,
-  type ExecFileSyncOptionsWithStringEncoding,
-} from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { gitPrefixArguments } from "./invocation";
 import { inspectRepository } from "./inspect";
+import {
+  cleanupRepositories,
+  commitFile,
+  GIT_OPTIONS,
+  initRepository,
+  repositoryWithCommit,
+  runGit,
+  tempDirectory,
+  withSlowGit,
+} from "./testing";
 
 /**
  * Real-git tests against throwaway repositories.
- *
- * A git hook exports local variables (`GIT_DIR`, `GIT_INDEX_FILE`, ...) that
- * would aim these commands at the checkout running the suite, so they are
- * cleared at module load. Every command the test itself starts pins
- * `core.hooksPath=/dev/null`, so host hooks never run inside a temp repo, and
- * each repo sets the identity and disables line-ending rewriting.
  *
  * Covers openspec `repositories` — "Executors expose typed git operations",
  * "Git calls cannot run repository hooks or monitors", and "Git calls refuse
  * option-like caller values".
  */
-for (const name of execFileSync("git", ["rev-parse", "--local-env-vars"])
-  .toString()
-  .split("\n")) {
-  if (name !== "") delete process.env[name];
-}
-
-const created: Array<string> = [];
-
-function tempDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "git-executor-"));
-  created.push(directory);
-  return directory;
-}
-
-const GIT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
-};
-
-function runGit(cwd: string, args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-    ...GIT_OPTIONS,
-    cwd,
-  });
-}
-
-function initRepository(directory: string): string {
-  mkdirSync(directory, { recursive: true });
-  runGit(directory, ["init", "--quiet", "--initial-branch=main", "."]);
-  runGit(directory, ["config", "user.name", "llame tests"]);
-  runGit(directory, ["config", "user.email", "llame@test.invalid"]);
-  runGit(directory, ["config", "core.autocrlf", "false"]);
-  return directory;
-}
-
-function commitFile(directory: string, name: string): void {
-  writeFileSync(join(directory, name), `${name}\n`);
-  runGit(directory, ["add", name]);
-  runGit(directory, ["commit", "--quiet", "--message", `add ${name}`]);
-}
-
-function repositoryWithCommit(): string {
-  const directory = initRepository(tempDirectory());
-  commitFile(directory, "README.md");
-  return directory;
-}
-
-afterAll(() => {
-  for (const directory of created) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+afterAll(cleanupRepositories);
 
 describe("inspectRepository", () => {
   it("reports the toplevel, common directory, branch, and head of a clone", async () => {
@@ -192,10 +135,10 @@ describe("inspectRepository", () => {
     const directory = repositoryWithCommit();
     runGit(directory, ["checkout", "--quiet", "--detach", "HEAD"]);
     const detached = await inspectRepository({ path: directory });
-    expect(detached).toMatchObject({
-      branch: null,
-      head: expect.stringMatching(/^[0-9a-f]{40}$/u),
-    });
+    expect(detached).toMatchObject({ branch: null });
+    expect(detached.status === "ok" ? detached.head : null).toMatch(
+      /^[0-9a-f]{40}$/u,
+    );
 
     const unborn = initRepository(tempDirectory());
     const empty = await inspectRepository({ path: unborn });
@@ -294,25 +237,15 @@ describe("inspectRepository", () => {
 
   it("reports a typed timeout when git does not answer within the deadline", async () => {
     const directory = repositoryWithCommit();
-    const shim = mkdtempSync(join(tmpdir(), "git-executor-slow-"));
-    created.push(shim);
-    // `exec`, so the killed process is the sleeper itself and not a shell
-    // whose child would keep the pipes open past the deadline.
-    writeFileSync(join(shim, "git"), "#!/bin/sh\nexec sleep 30\n", {
-      mode: 0o755,
-    });
-    const previousPath = process.env["PATH"];
-    process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
-    try {
+
+    await withSlowGit(async () => {
       const result = await inspectRepository(
         { path: directory },
         { timeoutMs: 200 },
       );
 
       expect(result).toMatchObject({ status: "error", type: "timed_out" });
-    } finally {
-      process.env["PATH"] = previousPath;
-    }
+    });
   });
 });
 

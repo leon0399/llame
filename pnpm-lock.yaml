@@ -1015,6 +1015,10 @@ importers:
   packages/config-typescript: {}
 
   packages/git-executor:
+    dependencies:
+      '@workspace/machine-protocol':
+        specifier: workspace:*
+        version: link:../machine-protocol
     devDependencies:
       '@barney-media/crap-typescript':
         specifier: 'catalog:'

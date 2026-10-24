@@ -1,82 +1,27 @@
-import {
-  execFileSync,
-  type ExecFileSyncOptionsWithStringEncoding,
-} from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { inspectRepository } from "./inspect";
 import { addWorktree, listWorktrees, removeWorktree } from "./worktrees";
+import {
+  cleanupRepositories,
+  commitFile,
+  gitStderr,
+  repositoryWithCommit,
+  runGit,
+  tempDirectory,
+  withSlowGit,
+} from "./testing";
 
 /**
  * Real-git tests of the three worktree operations against throwaway
- * repositories, under the same conventions as `inspect.test.ts`: the host's
- * local git variables are cleared, every command the test starts pins
- * `core.hooksPath=/dev/null`, and each repo sets its own identity.
+ * repositories, under the same conventions as `inspect.test.ts`.
  *
  * Covers openspec `repositories` — "Executors expose typed git operations",
  * "Git calls cannot run repository hooks or monitors", and "Git calls refuse
  * option-like caller values".
  */
-for (const name of execFileSync("git", ["rev-parse", "--local-env-vars"])
-  .toString()
-  .split("\n")) {
-  if (name !== "") delete process.env[name];
-}
-
-const created: Array<string> = [];
-
-function tempDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "git-worktrees-"));
-  created.push(directory);
-  return directory;
-}
-
-const GIT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
-};
-
-function runGit(cwd: string, args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-    ...GIT_OPTIONS,
-    cwd,
-  });
-}
-
-function initRepository(directory: string): string {
-  mkdirSync(directory, { recursive: true });
-  runGit(directory, ["init", "--quiet", "--initial-branch=main", "."]);
-  runGit(directory, ["config", "user.name", "llame tests"]);
-  runGit(directory, ["config", "user.email", "llame@test.invalid"]);
-  runGit(directory, ["config", "core.autocrlf", "false"]);
-  return directory;
-}
-
-function commitFile(directory: string, name: string): void {
-  writeFileSync(join(directory, name), `${name}\n`);
-  runGit(directory, ["add", name]);
-  runGit(directory, ["commit", "--quiet", "--message", `add ${name}`]);
-}
-
-function repositoryWithCommit(): string {
-  const directory = initRepository(tempDirectory());
-  commitFile(directory, "README.md");
-  return directory;
-}
-
-afterAll(() => {
-  for (const directory of created) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
+afterAll(cleanupRepositories);
 
 describe("addWorktree", () => {
   it("creates a worktree on a new branch and reports its head", async () => {
@@ -98,9 +43,14 @@ describe("addWorktree", () => {
     });
     expect(existsSync(join(directory, "README.md"))).toBe(true);
     // The new branch tracks nothing: a created worktree is not a clone.
-    expect(() =>
-      runGit(directory, ["rev-parse", "--verify", "--quiet", "@{upstream}"]),
-    ).toThrow(/ambiguous argument|unknown revision/u);
+    expect(
+      gitStderr(directory, [
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        "@{upstream}",
+      ]),
+    ).toContain("no upstream configured");
   });
 
   it("starts the branch from a base ref", async () => {
@@ -144,6 +94,56 @@ describe("addWorktree", () => {
     expect(existsSync(directory)).toBe(false);
   });
 
+  it("places every caller value after --end-of-options", async () => {
+    const shim = tempDirectory("git-argv-");
+    const log = join(shim, "argv.log");
+    writeFileSync(
+      join(shim, "git"),
+      `#!/bin/sh\nprintf 'CALL\\n' >> '${log}'\nprintf '%s\\n' "$@" >> '${log}'\n`,
+      { mode: 0o755 },
+    );
+    const previousPath = process.env["PATH"];
+    process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
+    try {
+      await addWorktree({
+        source: "/srv/app",
+        branch: "llame/shop",
+        baseRef: "main",
+        directory: "/srv/trees/shop",
+      });
+      await removeWorktree({ path: "/srv/trees/shop" });
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+
+    const calls = readFileSync(log, "utf8")
+      .split("CALL\n")
+      .filter((call) => call !== "")
+      .map((call) => call.trimEnd().split("\n"));
+    expect(calls[0]?.slice(-8)).toEqual([
+      "worktree",
+      "add",
+      "--no-track",
+      "-b",
+      "llame/shop",
+      "--end-of-options",
+      "/srv/trees/shop",
+      "main",
+    ]);
+    expect(calls.at(-1)).toEqual([
+      "-c",
+      expect.stringContaining("core.hooksPath="),
+      "-c",
+      "core.fsmonitor=false",
+      "-C",
+      "/srv/trees/shop",
+      "worktree",
+      "remove",
+      "--end-of-options",
+      "/srv/trees/shop",
+    ]);
+  });
+
   it("refuses a branch with a parent, lock, or empty segment", async () => {
     const source = repositoryWithCommit();
     const directory = join(tempDirectory(), "refused");
@@ -182,9 +182,8 @@ describe("addWorktree", () => {
       directory,
     });
 
-    if (result.status !== "error")
+    if (result.status !== "error" || result.type === "invalid_input")
       throw new Error(`the add should have failed: ${JSON.stringify(result)}`);
-    expect(result.type).not.toBe("invalid_input");
     expect(result.stderr).toContain("already exists");
     expect(existsSync(directory)).toBe(false);
   });
@@ -203,9 +202,11 @@ describe("addWorktree", () => {
     });
 
     expect(result).toMatchObject({ status: "error", type: "git_failed" });
-    expect(result.status === "error" ? result.stderr : "").toContain(
-      "already exists",
-    );
+    expect(
+      result.status === "error" && result.type !== "invalid_input"
+        ? result.stderr
+        : "",
+    ).toContain("already exists");
   });
 
   it("starts neither the monitor nor the checkout hook", async () => {
@@ -240,14 +241,7 @@ describe("addWorktree", () => {
 
   it("reports a typed timeout when git does not answer within the deadline", async () => {
     const source = repositoryWithCommit();
-    const shim = mkdtempSync(join(tmpdir(), "git-worktrees-slow-"));
-    created.push(shim);
-    writeFileSync(join(shim, "git"), "#!/bin/sh\nexec sleep 30\n", {
-      mode: 0o755,
-    });
-    const previousPath = process.env["PATH"];
-    process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
-    try {
+    await withSlowGit(async () => {
       const result = await addWorktree(
         {
           source,
@@ -258,9 +252,7 @@ describe("addWorktree", () => {
       );
 
       expect(result).toMatchObject({ status: "error", type: "timed_out" });
-    } finally {
-      process.env["PATH"] = previousPath;
-    }
+    });
   });
 });
 
@@ -339,9 +331,11 @@ describe("removeWorktree", () => {
     const result = await removeWorktree({ path: linkedPath });
 
     expect(result).toMatchObject({ status: "error", type: "git_failed" });
-    expect(result.status === "error" ? result.stderr : "").toMatch(
-      /modified|contains/u,
-    );
+    expect(
+      result.status === "error" && result.type !== "invalid_input"
+        ? result.stderr
+        : "",
+    ).toMatch(/modified|contains/u);
     expect(existsSync(linkedPath)).toBe(true);
   });
 
@@ -355,9 +349,11 @@ describe("removeWorktree", () => {
     const source = repositoryWithCommit();
     const main = await removeWorktree({ path: source });
     expect(main).toMatchObject({ status: "error", type: "git_failed" });
-    expect(main.status === "error" ? main.stderr : "").toContain(
-      "main working tree",
-    );
+    expect(
+      main.status === "error" && main.type !== "invalid_input"
+        ? main.stderr
+        : "",
+    ).toContain("main working tree");
   });
 });
 

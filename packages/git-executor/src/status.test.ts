@@ -1,12 +1,15 @@
-import {
-  execFileSync,
-  type ExecFileSyncOptionsWithStringEncoding,
-} from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { statusRepository } from "./status";
+import {
+  cleanupRepositories,
+  commitFile,
+  initRepository,
+  runGit,
+  tempDirectory,
+  withSlowGit,
+} from "./testing";
 
 /**
  * Real-git tests of `git.status` against throwaway repositories, under the
@@ -14,46 +17,7 @@ import { statusRepository } from "./status";
  *
  * Covers openspec `repositories` — "Executors expose typed git operations".
  */
-for (const name of execFileSync("git", ["rev-parse", "--local-env-vars"])
-  .toString()
-  .split("\n")) {
-  if (name !== "") delete process.env[name];
-}
-
-const created: Array<string> = [];
-
-function tempDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "git-status-"));
-  created.push(directory);
-  return directory;
-}
-
-const GIT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
-  encoding: "utf8",
-  env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
-};
-
-function runGit(cwd: string, args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-    ...GIT_OPTIONS,
-    cwd,
-  });
-}
-
-function initRepository(directory: string): string {
-  mkdirSync(directory, { recursive: true });
-  runGit(directory, ["init", "--quiet", "--initial-branch=main", "."]);
-  runGit(directory, ["config", "user.name", "llame tests"]);
-  runGit(directory, ["config", "user.email", "llame@test.invalid"]);
-  runGit(directory, ["config", "core.autocrlf", "false"]);
-  return directory;
-}
-
-function commitFile(directory: string, name: string): void {
-  writeFileSync(join(directory, name), `${name}\n`);
-  runGit(directory, ["add", name]);
-  runGit(directory, ["commit", "--quiet", "--message", `add ${name}`]);
-}
+afterAll(cleanupRepositories);
 
 /** A repository plus a bare tracking remote, so `@{upstream}` resolves. */
 function trackedRepository() {
@@ -65,12 +29,6 @@ function trackedRepository() {
   runGit(directory, ["push", "--quiet", "--set-upstream", "origin", "main"]);
   return { directory, remote };
 }
-
-afterAll(() => {
-  for (const directory of created) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
 
 describe("statusRepository", () => {
   it("reports a clean tracked branch at its head", async () => {
@@ -146,22 +104,13 @@ describe("statusRepository", () => {
   it("reports a typed timeout when git does not answer within the deadline", async () => {
     const directory = initRepository(tempDirectory());
     commitFile(directory, "README.md");
-    const shim = mkdtempSync(join(tmpdir(), "git-status-slow-"));
-    created.push(shim);
-    writeFileSync(join(shim, "git"), "#!/bin/sh\nexec sleep 30\n", {
-      mode: 0o755,
-    });
-    const previousPath = process.env["PATH"];
-    process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
-    try {
+    await withSlowGit(async () => {
       const result = await statusRepository(
         { path: directory },
         { timeoutMs: 200 },
       );
 
       expect(result).toMatchObject({ status: "error", type: "timed_out" });
-    } finally {
-      process.env["PATH"] = previousPath;
-    }
+    });
   });
 });
