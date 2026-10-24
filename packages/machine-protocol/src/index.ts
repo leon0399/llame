@@ -35,6 +35,17 @@ export {
 export type { Frame, FrameDecodeResult } from "./frame";
 export { createHeartbeat } from "./heartbeat";
 export type { Heartbeat, HeartbeatOptions } from "./heartbeat";
+export {
+  GIT_INSPECT_METHOD,
+  GIT_METHODS,
+  GIT_STATUS_METHOD,
+  GIT_WORKTREE_ADD_METHOD,
+  GIT_WORKTREE_LIST_METHOD,
+  GIT_WORKTREE_REMOVE_METHOD,
+  isGitMethod,
+  supportsGitMethod,
+} from "./git";
+export type { GitMethod } from "./git";
 export { fsGrepCursorKey } from "./grep";
 export type { FsGrepCursorInputs } from "./grep";
 export {
@@ -114,6 +125,22 @@ export type {
   FsStatParams,
   FsStatResult,
   FsWriteParams,
+  GitFailure,
+  GitInspectParams,
+  GitInspectResult,
+  GitInspectSuccess,
+  GitRepositoryRemote,
+  GitStatusParams,
+  GitStatusResult,
+  GitStatusSuccess,
+  GitWorktreeAddParams,
+  GitWorktreeAddResult,
+  GitWorktreeAddSuccess,
+  GitWorktreeEntry,
+  GitWorktreeListParams,
+  GitWorktreeListResult,
+  GitWorktreeRemoveParams,
+  GitWorktreeRemoveResult,
   HelloParams,
   HelloResult,
   IncompatibleVersionData,
