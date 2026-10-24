@@ -111,15 +111,21 @@ const input = {
   },
 };
 
-/** The one capability ChatLoopService uses on the transaction handle. */
+/** The capabilities ChatLoopService uses on the transaction handle. */
 type Savepoint = {
   transaction: <T>(callback: (inner: Db) => Promise<T>) => Promise<T>;
+  /** The creation lock's `pg_try_advisory_xact_lock` read. */
+  execute: () => Promise<Array<{ locked: boolean }>>;
 };
 
 function fakeTx(): Db {
-  const savepoint: Savepoint = { transaction: (callback) => callback(tx) };
+  const savepoint: Savepoint = {
+    transaction: (callback) => callback(tx),
+    execute: () => Promise.resolve([{ locked: true }]),
+  };
   // SAFETY: ChatLoopService only uses tx.transaction as a savepoint around
-  // RunsRepository.create; every repository method is prototype-spied.
+  // RunsRepository.create and tx.execute for the creation lock; every
+  // repository method is prototype-spied.
   // eslint-disable-next-line typescript/no-unsafe-type-assertion
   const tx = savepoint as Db;
   return tx;
