@@ -31,7 +31,24 @@ function makeService() {
     RepositoriesRepository.prototype,
     'findRepository',
   ).mockResolvedValue(undefined);
-  return { service: new RepositoriesService(tenantDb) };
+  // The claim namespace spans both tables, so every case starts with: no alias
+  // declares the remote, no canonical remote claims it, and the lock never
+  // blocks.
+  const findRepositoryByAlias = vi
+    .spyOn(RepositoriesRepository.prototype, 'findRepositoryByAlias')
+    .mockResolvedValue(undefined);
+  const findRepositoryByRemote = vi
+    .spyOn(RepositoriesRepository.prototype, 'findRepositoryByRemote')
+    .mockResolvedValue(undefined);
+  const lockRemoteClaim = vi
+    .spyOn(RepositoriesRepository.prototype, 'lockRemoteClaim')
+    .mockResolvedValue(undefined);
+  return {
+    service: new RepositoriesService(tenantDb),
+    findRepositoryByAlias,
+    findRepositoryByRemote,
+    lockRemoteClaim,
+  };
 }
 
 /** The typed body an HttpException answers with. */
@@ -131,8 +148,55 @@ describe('createRepository', () => {
     });
   });
 
+  it('locks the remote claim before it reads or writes', async () => {
+    const { service, findRepositoryByAlias, lockRemoteClaim } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'createRepository',
+    ).mockResolvedValue(repository);
+
+    await service.createRepository('owner-a', {
+      displayName: 'llame',
+      remote: 'https://github.com/leon0399/llame',
+    });
+
+    // A canonical remote and an alias are unique in their own table, so the
+    // check across both needs one lock to be atomic.
+    expect(lockRemoteClaim).toHaveBeenCalledWith(
+      'owner-a',
+      'github.com/leon0399/llame',
+    );
+    expect(findRepositoryByAlias).toHaveBeenCalledWith(
+      'owner-a',
+      'github.com/leon0399/llame',
+    );
+  });
+
+  it('answers 409 alias_taken when an alias already names the remote', async () => {
+    const { service, findRepositoryByAlias } = makeService();
+    const create = vi
+      .spyOn(RepositoriesRepository.prototype, 'createRepository')
+      .mockResolvedValue(repository);
+    findRepositoryByAlias.mockResolvedValue(repository);
+
+    await expect(
+      failureOf(
+        service.createRepository('owner-a', {
+          displayName: 'llame',
+          remote: 'https://github.com/leon0399/other',
+        }),
+      ),
+    ).resolves.toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message: 'That remote is already an alias of this owner.',
+      code: 'alias_taken',
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('stores no remote for an absent or a blank remote', async () => {
-    const { service } = makeService();
+    const { service, findRepositoryByAlias, lockRemoteClaim } = makeService();
     const create = vi
       .spyOn(RepositoriesRepository.prototype, 'createRepository')
       .mockResolvedValue(repository);
@@ -146,6 +210,13 @@ describe('createRepository', () => {
     expect(
       create.mock.calls.map(([input]) => input.canonicalRemote),
     ).toStrictEqual([null, null]);
+    // A repository without a remote claims no name, so the lock is taken but
+    // no alias can conflict with it.
+    expect(lockRemoteClaim.mock.calls).toStrictEqual([
+      ['owner-a', null],
+      ['owner-a', null],
+    ]);
+    expect(findRepositoryByAlias).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -274,6 +345,42 @@ describe('updateRepository', () => {
 
     const [, , patch] = update.mock.calls[0];
     expect(patch).toStrictEqual({});
+  });
+
+  it('answers 409 alias_taken when the new remote is an alias already', async () => {
+    const { service, findRepositoryByAlias } = makeService();
+    const update = vi
+      .spyOn(RepositoriesRepository.prototype, 'updateRepository')
+      .mockResolvedValue(repository);
+    findRepositoryByAlias.mockResolvedValue(repository);
+
+    await expect(
+      failureOf(
+        service.updateRepository('owner-a', repository.id, {
+          remote: 'https://github.com/leon0399/other.git',
+        }),
+      ),
+    ).resolves.toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message: 'That remote is already an alias of this owner.',
+      code: 'alias_taken',
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('clears a remote without reading the alias table', async () => {
+    const { service, findRepositoryByAlias, lockRemoteClaim } = makeService();
+    const update = vi
+      .spyOn(RepositoriesRepository.prototype, 'updateRepository')
+      .mockResolvedValue(repository);
+
+    await service.updateRepository('owner-a', repository.id, { remote: null });
+
+    // Clearing the remote claims no name, so no alias can be shadowed by it.
+    expect(lockRemoteClaim).toHaveBeenCalledWith('owner-a', null);
+    expect(findRepositoryByAlias).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledTimes(1);
   });
 
   it('validates a patched display name before any write', async () => {
@@ -414,6 +521,37 @@ describe('declareAlias', () => {
       repositoryId: repository.id,
       canonicalAlias: 'github.com/leon0399/other',
     });
+  });
+
+  it('answers 409 remote_taken when the alias names a canonical remote', async () => {
+    const { service, findRepositoryByRemote } = makeService();
+    vi.spyOn(
+      RepositoriesRepository.prototype,
+      'findRepository',
+    ).mockResolvedValue(repository);
+    const declare = vi
+      .spyOn(RepositoriesRepository.prototype, 'declareAlias')
+      .mockResolvedValue(alias);
+    findRepositoryByRemote.mockResolvedValue(repository);
+
+    // The canonical remote already selects its repository, so an alias of it
+    // would never be consulted.
+    await expect(
+      failureOf(
+        service.declareAlias(
+          'owner-a',
+          repository.id,
+          'https://github.com/leon0399/llame',
+        ),
+      ),
+    ).resolves.toStrictEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message:
+        "The remote github.com/leon0399/llame is already one of this owner's repositories.",
+      code: 'remote_taken',
+    });
+    expect(declare).not.toHaveBeenCalled();
   });
 
   it.each(['', '   '])(

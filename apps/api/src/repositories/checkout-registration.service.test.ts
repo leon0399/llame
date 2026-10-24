@@ -188,6 +188,9 @@ type StubbedData = {
     RepositoriesRepository['createCheckout']
   >;
   readonly listAliases: MockInstance<RepositoriesRepository['listAliases']>;
+  readonly lockRemoteClaim: MockInstance<
+    RepositoriesRepository['lockRemoteClaim']
+  >;
 };
 
 function stubbedData(): StubbedData {
@@ -213,6 +216,9 @@ function stubbedData(): StubbedData {
     listAliases: vi
       .spyOn(RepositoriesRepository.prototype, 'listAliases')
       .mockResolvedValue([]),
+    lockRemoteClaim: vi
+      .spyOn(RepositoriesRepository.prototype, 'lockRemoteClaim')
+      .mockResolvedValue(undefined),
   };
 }
 

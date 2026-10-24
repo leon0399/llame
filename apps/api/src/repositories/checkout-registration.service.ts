@@ -352,7 +352,9 @@ export class CheckoutRegistrationService {
   /**
    * The repository the inspected origin names, created when the owner holds
    * none. Two concurrent adoptions of one clone resolve on the unique remote
-   * key: the loser reads the winner's committed row.
+   * key: the loser reads the winner's committed row. The claim lock covers the
+   * other table too, so an alias declared for this remote at the same moment
+   * cannot leave two rows naming it.
    */
   private async adopt(
     db: RepositoriesRepository,
@@ -361,6 +363,7 @@ export class CheckoutRegistrationService {
   ): Promise<Repository> {
     const canonicalRemote = plan.canonicalRemote;
     if (canonicalRemote !== null) {
+      await db.lockRemoteClaim(ownerUserId, canonicalRemote);
       const existing =
         (await db.findRepositoryByRemote(ownerUserId, canonicalRemote)) ??
         (await db.findRepositoryByAlias(ownerUserId, canonicalRemote));
