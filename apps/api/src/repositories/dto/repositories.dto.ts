@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 
 import { type Repository, type RepositoryAlias } from '../../db/schema';
 import { DISPLAY_NAME_MAX } from '../display-name';
@@ -38,10 +44,15 @@ export class CreateRepositoryDto {
 }
 
 // PATCH /api/v1/repositories/:id — rename, re-declare the remote, or clear it
-// with an explicit null. Omitted fields stay untouched.
+// with an explicit null. Omitted fields stay untouched. ValidateIf (not
+// IsOptional) on `displayName`: IsOptional also waves an explicit `null`
+// through, and the display name is a NOT NULL column, so null would reach the
+// service and fail on `.trim()` as a 500 instead of a clean 400 — the same
+// distinction as `UpdateProjectDto.name`. `remote` keeps IsOptional, because an
+// explicit null there is the documented way to clear it.
 export class UpdateRepositoryDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: DISPLAY_NAME_MAX })
-  @IsOptional()
+  @ValidateIf((o: UpdateRepositoryDto) => o.displayName !== undefined)
   @IsString()
   @Matches(/\S/, { message: 'displayName must not be blank' })
   @MaxLength(DISPLAY_NAME_MAX)
