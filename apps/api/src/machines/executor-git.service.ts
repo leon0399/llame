@@ -549,10 +549,14 @@ export class ExecutorGit {
       // The session's own message is the transport's: an ssh standard error or
       // a socket failure, which the repository routes would answer as the body
       // of an HTTP response. Only the Machine and the reason leave the hub.
+      // Only a mutation can leave an effect behind: `sent` on a read would
+      // claim an unknown outcome for a request that wrote nothing.
       return new ExecutorGitError(
         'machine_unavailable',
         `The Machine ${machine} is unavailable (${error.reason}).`,
-        error.sent,
+        error.sent &&
+          (method === GIT_WORKTREE_ADD_METHOD ||
+            method === GIT_WORKTREE_REMOVE_METHOD),
       );
     if (error instanceof MachineProtocolError) {
       // A path outside the Machine's registered roots is its refusal of the

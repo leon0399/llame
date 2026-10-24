@@ -55,9 +55,11 @@ const FORBIDDEN_BYTES = /[\s\u0000-\u001f\u007f]/u;
 /**
  * The ref-name rules that keep a caller value from becoming an option or an
  * ambiguous revision: no leading `-`, no whitespace or ref punctuation, no
- * empty, `.`-leading, or `.lock` segment, and no `..` or `@{` sequence.
+ * empty, `.`-leading, or `.lock` segment, and no `..` or `@{` sequence. The hub
+ * validates a worktree name with this function before it probes anything, so
+ * the two surfaces answer one rule.
  */
-function branchName(
+export function branchName(
   value: string,
 ): { readonly name: string } | { readonly message: string } {
   if (value === "") return { message: "A branch name must not be empty." };
@@ -89,7 +91,7 @@ function branchName(
  *  name: `HEAD~1`, `main^`, and `HEAD@{1}` are commit-ishes a caller may mean,
  *  so only empty, option-like, and whitespace or control-byte values are
  *  refused here. */
-function baseReference(
+export function baseReference(
   value: string,
 ): { readonly ref: string } | { readonly message: string } {
   if (value === "") return { message: "A base ref must not be empty." };
