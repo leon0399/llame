@@ -208,6 +208,13 @@ export const worktreeLeases = pgTable(
     chatId: uuid('chat_id').notNull(),
     checkoutId: uuid('checkout_id').notNull(),
     baseRef: text('base_ref').notNull(),
+    /**
+     * The HEAD of the new worktree, which `git.worktreeAdd` reports and the
+     * create result carries as `baseCommit`. The removal guard compares it
+     * when a fresh worktree has no upstream, so a receipt without one could
+     * not prove the branch holds no unpushed commit.
+     */
+    baseCommit: text('base_commit').notNull(),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [

@@ -1,5 +1,5 @@
 {
-  "id": "b3e8a818-334d-43ea-9237-e9109854b646",
+  "id": "dc571916-15d1-4746-a77e-f815a623b4f3",
   "prevId": "4657b2a1-e029-4e7d-9843-a330aab3d313",
   "version": "7",
   "dialect": "postgresql",
@@ -3117,6 +3117,12 @@
         },
         "base_ref": {
           "name": "base_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_commit": {
+          "name": "base_commit",
           "type": "text",
           "primaryKey": false,
           "notNull": true

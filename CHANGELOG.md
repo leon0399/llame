@@ -4,15 +4,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - The instance gains a repository catalog: an owner's repositories, their
   aliases, and the checkouts where each exists on an executor, plus the worktree
-  leases that record which Chat created one. `POST /api/v1/checkouts` inspects
-  the submitted path with a new typed git surface (argv arrays, an empty hooks
-  directory, `core.fsmonitor` off, a fixed environment, and a timeout), takes
-  the repository from the inspected `origin` remote — normalized, so
-  `git@github.com:leon0399/llame.git` and `https://github.com/leon0399/llame`
-  are one repository — stores the toplevel git reports, so a subdirectory of a
-  clone records that clone once, records a linked worktree under its main
-  clone, and adopts what it has not seen. A registration answers with the row
-  the checkout list would show, including any Chat already bound to the path. Registration runs git only when
+  leases that record which Chat created one, from which base ref, and at which
+  commit. `POST /api/v1/checkouts` inspects the submitted path with a new typed
+  git surface (argv arrays, an empty hooks directory, `core.fsmonitor` off, a
+  fixed environment, and a timeout), takes the repository from the inspected
+  `origin` remote — normalized, so `git@github.com:leon0399/llame.git` and
+  `https://github.com/leon0399/llame` are one repository — stores the toplevel
+  git reports, so a subdirectory of a clone records that clone once, records a
+  linked worktree under its main clone, and adopts what it has not seen. A
+  registration answers with the row the checkout list would show, including any
+  Chat already bound to the path. Registration runs git only when
   `tools.nativeExecutorId` is set, `enter_workspace` is in `tools.allowed`, and
   the `enter_workspace` permission group allows the submitted path, its
   canonical form, and the inspected main clone; failures answer typed 403, 404,

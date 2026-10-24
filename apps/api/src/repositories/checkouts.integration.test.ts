@@ -6,6 +6,13 @@
  * and inspection the hub runs in production. Each permission scenario boots its
  * own application graph, because `tools.allowed` and `tools.permissions` are
  * read once at boot.
+ *
+ * Covers openspec `repositories` — "A main checkout can carry a worktree base
+ * directory", "Checkout lists report the lease chat and every bound chat",
+ * "Checkout registration inspects the path on its executor", "Registration and
+ * removal need a configured executor", "Registration and removal obey the host
+ * access policy", "Registration and removal map failures to typed statuses",
+ * and "Worktree checkouts are children of a main checkout".
  */
 
 import { execFileSync } from 'node:child_process';
@@ -40,6 +47,10 @@ import { type PermissionGroup } from '../tools/permissions/types';
 import { GIT_INSPECTOR } from './checkout-registration.service';
 
 vi.setConfig({ testTimeout: 60_000 });
+
+// A lease records the HEAD that `git.worktreeAdd` reports, so every seeded
+// lease carries one; the column has no default.
+const LEASE_BASE_COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
 // A git hook exports GIT_DIR and friends; clear them so the test's own git
 // commands cannot be redirected at this checkout.
@@ -417,8 +428,8 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         await tx`INSERT INTO chats (id, owner_user_id, title, workspace_root)
                   VALUES (${chatId}, ${harness.userId}, 'bound', ${root})`;
       }
-      await tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref)
-                VALUES (${harness.userId}, ${leased}, ${worktreeCheckoutId}, 'main')`;
+      await tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref, base_commit)
+                VALUES (${harness.userId}, ${leased}, ${worktreeCheckoutId}, 'main', ${LEASE_BASE_COMMIT})`;
     });
 
     const response = await request(harness.http)

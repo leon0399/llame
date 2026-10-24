@@ -50,6 +50,7 @@ CREATE TABLE "worktree_leases" (
 	"chat_id" uuid NOT NULL,
 	"checkout_id" uuid NOT NULL,
 	"base_ref" text NOT NULL,
+	"base_commit" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
