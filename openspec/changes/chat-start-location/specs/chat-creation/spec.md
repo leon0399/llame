@@ -3,8 +3,8 @@
 ## Purpose
 
 Creates a chat with its project and Workspace location in one request. The first
-Run then starts in the correct repository checkout, and no later filing step is
-necessary.
+Run then starts in the correct repository checkout, and no later step is
+necessary to file the chat.
 
 ## ADDED Requirements
 
@@ -22,7 +22,7 @@ response MUST carry the chat and a `workspace` object.
   executor, and a message
 - **THEN** the server stores the chat, files it into the project, and returns
   201 with the chat and a `bound` Workspace
-- **AND** the first Run starts with that binding
+- **AND** the first Run starts with that bound root
 
 #### Scenario: A chat is created without a message
 
@@ -69,10 +69,10 @@ explicit `repositoryId` or `checkoutId` MUST override a remembered default.
 
 The executor MUST resolve from an explicit `executorId`. Else it MUST use the
 remembered default for the link. Else it MUST use the project default executor.
-Else it MUST use the only executor that holds a main checkout. Else it MUST use
-the online executor with the lowest id that holds one. The implicit steps MUST
-skip an offline Machine. An explicit `executorId` that names no configured
-executor MUST answer 422 with `code` `executor_unknown` and store nothing.
+Else it MUST use the only executor that holds a main checkout, else the online
+executor with the lowest id that holds one. The implicit steps MUST skip an
+offline Machine. An explicit `executorId` that names no configured executor MUST
+answer 422 with `code` `executor_unknown` and store nothing.
 
 #### Scenario: An offline Machine that holds the only checkout is skipped
 
@@ -91,7 +91,7 @@ executor MUST answer 422 with `code` `executor_unknown` and store nothing.
 
 - **WHEN** the request names an executor id that no configuration provides
 - **THEN** the response is 422 with `code` `executor_unknown`
-- **AND** no chat, binding, or message is stored
+- **AND** no chat, bound root, or message is stored
 
 ### Requirement: Only an explicit executor, a named checkout, or a remembered default names an offline Machine
 
@@ -154,34 +154,34 @@ A named `checkoutId` MUST decide its repository and its executor. It MUST be a
 When the request carries `message`, that field MUST be `CreateChatMessageDto`
 (`id`, `parts`, `modelId`, optional `effort` and `permissionMode`). It MUST
 compose the message-parts schema and MUST NOT reuse `CreateMessageBodyDto`. The
-server MUST validate the message before the first write. It MUST check the model,
-the effort, the permission mode, the parts, and the media ownership. A failed
-check MUST answer as the message route does and MUST store nothing.
+server MUST validate the message before the first write. It MUST check the
+model, the effort, the permission mode, the parts, and the media ownership. A
+failed check MUST answer as the message route does and MUST store nothing.
 
 #### Scenario: An unavailable model stores nothing
 
 - **WHEN** the request names an unavailable model
-- **THEN** the response is 422 and no chat, binding, or message is stored
+- **THEN** the response is 422 and no chat, bound root, or message is stored
 
 #### Scenario: A media part of another owner stores nothing
 
 - **WHEN** the request carries a media part that belongs to another owner
-- **THEN** the response is 400 and no chat, binding, or message is stored
+- **THEN** the response is 400 and no chat, bound root, or message is stored
 
 ### Requirement: Creation runs its steps in one fixed order
 
 The server MUST validate the message, the named ids, `worktree.name`, and
 `baseRef` before any write. An invalid value MUST answer 422. It MUST then store
 the chat, authorize the Workspace, and create the requested worktree. The server
-MUST then store the message and enqueue the Run. It MUST NOT enqueue a Run before
-the message and the binding are stored. The request's `worktree` field MUST
-decide worktree creation.
+MUST then store the message and enqueue the Run. It MUST NOT enqueue a Run
+before the message and the bound root are stored. The request's `worktree` field
+MUST decide worktree creation.
 
 #### Scenario: The first Run starts after the binding is stored
 
 - **WHEN** every step succeeds for a request with a `worktree`
-- **THEN** the worktree exists before the binding is stored
-- **AND** the first Run starts with the worktree binding in place
+- **THEN** the worktree exists before the bound root is stored
+- **AND** the first Run starts with the worktree bound root in place
 
 #### Scenario: A request without a worktree binds the checkout
 
@@ -195,26 +195,26 @@ decide worktree creation.
 
 ### Requirement: The creation worktree commits with its lease and binding
 
-The worktree checkout row, its lease, and the binding MUST commit in one
-transaction. A failure MUST leave no lease, no checkout row, and no binding. The
-lease MUST carry the chat id and the worktree checkout id, with one row per
+The worktree checkout row, its lease, and the bound root MUST commit in one
+transaction. A failure MUST leave no lease, no checkout row, and no bound root.
+The lease MUST carry the chat id and the worktree checkout id, with one row per
 chat.
 
 #### Scenario: The creation rows commit together
 
 - **WHEN** the worktree add succeeds and the transaction commits
-- **THEN** the checkout row, its lease, and the binding are stored together
+- **THEN** the checkout row, its lease, and the bound root are stored together
 - **AND** the lease names the chat and the worktree checkout
 
 ### Requirement: Creation serializes requests for one chat id
 
 The server MUST hold a session advisory lock on the chat id through
-`pg_try_advisory_lock`. The lock MUST run on one dedicated connection and MUST be
-held for the whole request. The server MUST release it at the end of the
+`pg_try_advisory_lock`. The lock MUST run on one dedicated connection and MUST
+be held for the whole request. The server MUST release it at the end of the
 request, or when that connection ends. The steps MUST keep their separate
 transactions. A request that cannot take the lock MUST answer 409 with `code`
 `creation_in_progress` and change nothing. The lock MUST cover the location,
-worktree, binding, and message steps.
+worktree, bound root, and message steps.
 
 #### Scenario: Two concurrent creates with one id create one worktree
 
@@ -234,7 +234,7 @@ chat's creation record.
 
 - **WHEN** the request sets `permissionMode` to `bypass` and the process does not
   enable `bypass`
-- **THEN** the response is 422 and no chat, binding, or message is stored
+- **THEN** the response is 422 and no chat, bound root, or message is stored
 
 #### Scenario: An enabled bypass applies to every path decision
 
@@ -247,9 +247,9 @@ chat's creation record.
 
 The step MUST require `enter_workspace` in `tools.allowed`. For a local
 executor, `tools.nativeExecutorId` MUST equal the resolved executor id. A
-missing allowlist entry MUST answer `bind_failed` with `code` `tool_not_allowed`.
-A missing or different native id MUST answer `bind_failed` with `code`
-`executor_unavailable`.
+missing allowlist entry MUST answer `bind_failed` with `code`
+`tool_not_allowed`. A missing or different native id MUST answer `bind_failed`
+with `code` `executor_unavailable`.
 
 #### Scenario: Workspace entry is not allowlisted
 
@@ -267,20 +267,20 @@ A missing or different native id MUST answer `bind_failed` with `code`
 
 ### Requirement: A rejected path refuses the binding before any git command
 
-The step MUST use the `enter_workspace` group in this order. The submitted
-checkout path MUST be decided before any probe. The canonical source clone MUST
-be decided before any git call. The main working tree from `git.inspect` MUST be
-decided after that call when it differs. The canonical worktree directory MUST be
-decided before `git.worktreeAdd`. A reject or a missing allow MUST answer
-`bind_failed` with `code` `permission_denied`, with no binding and no later git
-call.
+The step MUST use the `enter_workspace` group in this order. The step MUST
+decide the submitted checkout path before any probe. It MUST decide the
+canonical source clone before any git call. It MUST decide the main tree from
+`git.inspect` after that call when it differs. It MUST decide the canonical
+worktree directory before `git.worktreeAdd`. A reject or a missing allow MUST
+answer `bind_failed` with `code` `permission_denied`, with no bound root and no
+later git call.
 
 #### Scenario: A rejected submitted path stops the creation
 
 - **WHEN** the `enter_workspace` permission group rejects the submitted path
 - **THEN** the response is 201 with `workspace.status` `bind_failed` and `code`
   `permission_denied`
-- **AND** no worktree command starts, no binding is stored, and the chat record
+- **AND** no worktree command starts, no bound root is stored, and the chat record
   stays
 
 #### Scenario: A rejected source clone stops the creation before any git call
@@ -289,7 +289,7 @@ call.
   rejected
 - **THEN** the response is 201 with `workspace.status` `bind_failed` and `code`
   `permission_denied`
-- **AND** no git call runs and no binding is stored
+- **AND** no git call runs and no bound root is stored
 
 #### Scenario: A rejected worktree directory stops the creation before the add
 
@@ -297,13 +297,13 @@ call.
   rejected
 - **THEN** the response is 201 with `workspace.status` `bind_failed` and `code`
   `permission_denied`
-- **AND** no `git.worktreeAdd` call runs and no binding is stored
+- **AND** no `git.worktreeAdd` call runs and no bound root is stored
 
 ### Requirement: The response workspace object has one closed status set
 
 The `workspace` object MUST carry `status`. It can also carry `root`,
-`executorId`, `worktree` (`path`, `branch`, `baseCommit`), `code`, `message`, and
-`leftDirectory`. `status` MUST be one of `bound`, `unbound`, `bind_failed`,
+`executorId`, `worktree` (`path`, `branch`, `baseCommit`), `code`, `message`,
+and `leftDirectory`. `status` MUST be one of `bound`, `unbound`, `bind_failed`,
 `worktree_failed`, `machine_unavailable`, `machine_update_required`, or
 `outcome_unknown`. `code` MUST appear only with `bind_failed` or
 `worktree_failed`. `leftDirectory` MUST name a directory that `outcome_unknown`
@@ -336,11 +336,12 @@ MUST start the Run. It MUST answer 201 with `workspace.status` `unbound`.
 ### Requirement: Failure statuses name their cause
 
 A path outside the Machine's registered roots MUST answer `worktree_failed` with
-`code` `path_not_registered`. Any other git failure MUST answer `worktree_failed`
-with no `code` and with `message` set to the git standard error. A source path
-that is not a directory MUST answer `bind_failed` with `code` `not_found`. A
-Machine link lost after the add MUST answer `outcome_unknown`. A daemon that
-lists no git method MUST answer `machine_update_required`.
+`code` `path_not_registered`. Any other git failure MUST answer
+`worktree_failed` with no `code` and with `message` set to the git standard
+error. A source path that is not a directory MUST answer `bind_failed` with
+`code` `not_found`. A Machine link lost after the add MUST answer
+`outcome_unknown`. A daemon that lists no git method MUST answer
+`machine_update_required`.
 
 #### Scenario: A worktree path outside the registered roots fails
 
@@ -370,10 +371,10 @@ lists no git method MUST answer `machine_update_required`.
 ### Requirement: A failed workspace leaves the chat filed and unbound
 
 If the Workspace step or the worktree creation fails, the server MUST keep the
-stored chat and its project. It MUST store no binding, no defaults row, and no
-lease. It MUST NOT store the message or enqueue the Run. It MUST answer 201 with
-the failure `status` and, when that status carries one, its `code`. The client
-MUST keep the message for a later send.
+stored chat and its project. It MUST store no bound root, no defaults row, and
+no lease. It MUST NOT store the message or enqueue the Run. It MUST answer 201
+with the failure `status` and, when that status carries one, its `code`. The
+client MUST keep the message for a later send.
 
 #### Scenario: Worktree creation fails
 
@@ -390,19 +391,19 @@ MUST keep the message for a later send.
 
 ### Requirement: The message step commits the message and its Run before the enqueue
 
-The server MUST insert the message and its Run row in one transaction. It MUST
+The server MUST insert the message and its Run row in one transaction, and MUST
 enqueue the Run after that commit. An enqueue failure MUST fail the Run and
 answer 5xx. The message and the Run row MUST stay stored, and so MUST the chat
-and the binding. The failed Run MUST free the single-flight slot. A later create
-request with the same chat id MUST answer 409. The client MUST then send the
-draft again as a new message, with a new `message.id`, through
+and the bound root. The failed Run MUST free the single-flight slot. A later
+create request with the same chat id MUST answer 409. The client MUST then send
+the draft again as a new message, with a new `message.id`, through
 `POST /api/v1/chats/:id/messages`.
 
 #### Scenario: An enqueue failure keeps the message and its Run
 
 - **WHEN** the enqueue fails after the message and the Run row commit
 - **THEN** the response is 5xx and the message and the failed Run stay stored
-- **AND** the chat and the binding stay stored
+- **AND** the chat and the bound root stay stored
 
 #### Scenario: A create resend after an enqueue failure is a conflict
 
@@ -413,12 +414,12 @@ draft again as a new message, with a new `message.id`, through
 
 ### Requirement: A resent create request reuses the stored chat and its binding
 
-A same-owner create request with a stored chat id MUST reuse that chat. It MUST
-NOT create a second chat, worktree, lease, or binding. It MUST run the message
-validation and the message step. A stored binding MUST stay unchanged. A chat
-with no binding MUST run the location, worktree, and binding steps. A chat with a
-creation lease MUST reuse that worktree and binding. A stored chat that holds a
-message MUST answer 409, and the client MUST send the draft as a new message
+A same-owner create request with a stored chat id MUST reuse that chat and run
+the message validation and message step. It MUST NOT create a second chat,
+worktree, lease, or bound root. A stored bound root MUST stay unchanged. A chat with
+no bound root MUST run the location, worktree, and bound root steps. A chat with a
+creation lease MUST reuse that worktree and bound root. A stored chat that holds
+a message MUST answer 409, and the client MUST send the draft as a new message
 with a new id.
 
 #### Scenario: A resend after a failed workspace binds the corrected location
@@ -431,10 +432,9 @@ with a new id.
 
 #### Scenario: A worktree resend with a message reuses the worktree
 
-- **WHEN** the first request carried `worktree` and no `message`, or failed
-  before storing a message, and stored a creation lease
+- **WHEN** the first request carried `worktree` and no `message`, or failed before it stored a message, and stored a creation lease
 - **AND** the owner resends that chat id with `worktree` and a message
-- **THEN** the server reuses that worktree and binding and creates no second
+- **THEN** the server reuses that worktree and bound root and creates no second
   worktree
 - **AND** the message is stored and the Run starts
 
@@ -442,7 +442,7 @@ with a new id.
 
 - **WHEN** the chat is bound to a main checkout with no creation lease, and the
   owner resends the same chat id with another location
-- **THEN** the stored binding stays unchanged and no worktree command starts
+- **THEN** the stored bound root stays unchanged and no worktree command starts
 - **AND** the message is stored and the Run starts
 
 #### Scenario: A resend of a chat with a message is a conflict
@@ -496,10 +496,10 @@ MUST receive 404.
 ### Requirement: Chat creation is owner-isolated
 
 The server MUST derive the owner from the session and store the chat under that
-owner. It MUST validate `projectId`, `repositoryId`, and `checkoutId` under owner
-row-level security. The check MUST run in the same transaction as the chat insert
-and MUST precede it. A foreign or missing id MUST answer 404 and store nothing.
-An archived project MUST answer 409 and store nothing.
+owner. It MUST validate `projectId`, `repositoryId`, and `checkoutId` under
+owner row-level security. The check MUST run in the same transaction as the chat
+insert and MUST precede it. A foreign or missing id MUST answer 404 and store
+nothing. An archived project MUST answer 409 and store nothing.
 
 #### Scenario: A foreign project is not found
 
@@ -509,7 +509,7 @@ An archived project MUST answer 409 and store nothing.
 #### Scenario: A foreign checkout is not found
 
 - **WHEN** the request names a checkout that belongs to another owner
-- **THEN** the request fails with 404 and no chat or binding is stored
+- **THEN** the request fails with 404 and no chat or bound root is stored
 
 #### Scenario: A missing checkout is not found
 
@@ -529,16 +529,16 @@ An archived project MUST answer 409 and store nothing.
 ### Requirement: The first-message creation path is unchanged
 
 `POST /api/v1/chats/:id/messages` MUST keep its current behavior. A first
-message to an unknown chat id MUST create a chat with no project and no binding.
-A message to an existing chat MUST NOT change its project or its binding.
-`PATCH /api/v1/chats/:id` MUST keep filing a chat.
+message to an unknown chat id MUST create a chat with no project and no bound
+root. A message to a stored chat MUST NOT change its project or its bound root.
+`PATCH /api/v1/chats/:id` MUST continue to file a chat.
 
 #### Scenario: A first message creates an unfiled chat
 
 - **WHEN** a client posts a first message for an unknown chat id
-- **THEN** the chat is stored with no project and no Workspace binding
+- **THEN** the chat is stored with no project and no bound Workspace root
 
 #### Scenario: Filing stays a separate request
 
 - **WHEN** the owner files the chat with `PATCH /api/v1/chats/:id`
-- **THEN** the chat gains the project and no Workspace binding changes
+- **THEN** the chat gains the project and no Workspace change of the bound roots

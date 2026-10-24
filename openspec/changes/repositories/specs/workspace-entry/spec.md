@@ -5,47 +5,54 @@
 ### Requirement: The Workspace binding is Chat-scoped and persists across Runs
 
 A successful entry MUST bind one Chat to the canonical root and to the native
-executor identity from its trusted Run context. The binding MUST persist across
-Runs until an authorized exit, a successful switch, or a detach. A binding
-change MUST apply only to the current attempt of the Run. A superseded attempt
-MUST NOT change the binding. Its fence MUST be checked before any filesystem
-probe, client stop, client start, declaration change, or other side effect. Only
-the owner's Run context changes the binding, through `enter_workspace`,
-`exit_workspace`, or a detach. An owner fork copies the binding, subject to the
-fork's first-Run re-check. The owner's Chat API MUST read the binding, including
-the owner's checkout list. The system MUST refuse any other principal a read or
-a change of it. The
-owner's Chat API response MUST expose the current canonical `workspace_root`, or
-`null` for an unbound Chat. A non-owner MUST receive `404` for that Chat. Public
-share projections and visitor forks MUST omit the binding. Owner-scoped data
-access MUST NOT let one owner read or change another owner's binding. Model
-input to `enter_workspace` MUST contain only `path` and an optional `worktree`
-object. That object MUST contain only `name` and `baseRef`. `exit_workspace`
-MUST accept no model-supplied arguments. Model input MUST NOT select an owner, a
-Chat, an executor, or a permission mode.
+executor identity from its trusted Run context. The bound root MUST persist
+across Runs until an authorized exit, a successful switch, or a detach. A change
+of the bound root MUST apply only to the current attempt of the Run. A
+superseded attempt MUST NOT change the bound root. The fence MUST check the
+attempt before any filesystem probe, client stop, client start, declaration
+change, or other side effect.
+
+Only the owner's Run context changes the bound root, through `enter_workspace`,
+`exit_workspace`, or a detach. An owner fork copies the bound root, subject to
+the fork's first-Run re-check.
+
+The owner's Chat API MUST read the bound root and the owner's checkout list. The
+system MUST refuse any other principal a read or a change of it. The owner's
+Chat API response MUST expose the current canonical `workspace_root`, or `null`
+for an unbound Chat. A non-owner MUST receive `404` for that Chat.
+
+Public share projections and visitor forks MUST omit the bound root.
+Owner-scoped data access MUST NOT let one owner read or change another owner's
+bound root.
+
+Model input to `enter_workspace` MUST contain only `path` and an optional
+`worktree` object. That object MUST contain only `name` and `baseRef`.
+`exit_workspace` MUST accept no model-supplied arguments. Model input MUST NOT
+select an owner, a Chat, an executor, or a permission mode.
 
 #### Scenario: Binding persists into a later Run
 
 - **WHEN** a later Run for the same owner and Chat starts on the bound native
   executor, with no exit, switch, or detach between the Runs
 - **THEN** the Chat's Workspace root stays bound across the Run boundary
-- **AND** the later Run re-checks that binding before it uses it
+- **AND** the later Run re-checks that bound root before it uses it
 
 #### Scenario: A superseded attempt has no side effect
 
 - **WHEN** a newer delivery of the same Run supersedes an attempt, and that
   attempt calls `enter_workspace` or `exit_workspace`
 - **THEN** the fence rejects the call before it probes the path, changes the
-  binding, changes the generation, or changes Workspace clients or declarations
-- **AND** the binding reflects only the current attempt's effects
+  bound root, changes the generation, or changes Workspace clients or
+  declarations
+- **AND** the bound root reflects only the current attempt's effects
 
 #### Scenario: Retry after a committed binding reaches the same state
 
-- **WHEN** a queue retry repeats an `enter_workspace` call after the binding
-  commit for that canonical root succeeded
+- **WHEN** a queue retry repeats an `enter_workspace` call after the commit of
+  the bound root for that canonical root succeeded
 - **THEN** the retry succeeds idempotently and keeps the same canonical root,
   executor identity, and effective Workspace state
-- **AND** it creates no second binding and no duplicate Workspace clients
+- **AND** it creates no second bound root and no duplicate Workspace clients
 
 #### Scenario: Owner API exposes the canonical root or null
 
@@ -60,22 +67,24 @@ Chat, an executor, or a permission mode.
 - **WHEN** another owner requests the Chat API response for a Chat they do not
   own
 - **THEN** the response is `404`
-- **AND** it discloses neither the Chat's Workspace root nor its binding state
+- **AND** it discloses neither the Chat's Workspace root nor the state of its
+  bound root
 
 #### Scenario: Owner-scoped binding access rejects cross-owner reads and writes
 
-- **WHEN** owner-scoped data access tries to read or update another owner's Chat
-  binding
-- **THEN** it sees no binding and cannot change the other owner's binding
-- **AND** the other owner's current binding stays unchanged
+- **WHEN** owner-scoped data access tries to read or update the bound root of
+  another owner's Chat
+- **THEN** it sees no bound root and cannot change the bound root of the other
+  owner
+- **AND** the current bound root of the other owner stays unchanged
 
 #### Scenario: Shared projections omit the Workspace binding
 
 - **WHEN** a public share projection or a visitor fork comes from a Chat with a
-  Workspace binding
+  bound Workspace root
 - **THEN** the projection and the fork expose neither `workspace_root` nor the
-  binding state
-- **AND** the share grants no access to the owner's binding
+  state of the bound root
+- **AND** the share grants no access to the bound root of the owner
 
 #### Scenario: Model input cannot select binding authority
 
@@ -84,7 +93,8 @@ Chat, an executor, or a permission mode.
   field other than `name` or `baseRef`, or supplies arguments to
   `exit_workspace`
 - **THEN** the extra fields or arguments are rejected as invalid input
-- **AND** binding authority comes only from the owning Chat's trusted Run context
+- **AND** authority over the bound root comes only from the trusted Run context
+  of the owner's Chat
 
 ## ADDED Requirements
 
@@ -92,10 +102,10 @@ Chat, an executor, or a permission mode.
 
 `enter_workspace` MUST accept an optional `worktree` object with only `name` and
 `baseRef`. The submitted `path` names the source clone. The source clone MUST be
-the main working tree that `git.inspect` reports. A successful call MUST create
-a worktree of it. The target root MUST be the new worktree directory, which the
-call binds as the Workspace. The call MUST record the worktree checkout and its
-lease. The result MUST name the root, the branch, and the base commit.
+the main tree that `git.inspect` reports. A successful call MUST create a
+worktree of it. The call MUST bind the new worktree directory as the Workspace
+root, and MUST record the worktree checkout and its lease. The result MUST name
+the root, the branch, and the base commit.
 
 #### Scenario: A local clone produces a worktree binding
 
@@ -125,13 +135,13 @@ lease. The result MUST name the root, the branch, and the base commit.
 
 ### Requirement: Worktree names, branches, and base refs follow one rule
 
-An omitted `name` MUST generate `<adjective>-<noun>-<4 hex>`. A supplied `name`
-MUST be used as written. A `name` MUST NOT start with `-`, MUST NOT contain a
-`.` or `..` segment, and MUST pass the git branch-name rules. The directory slug
-MUST replace each `/` in the name with `-`. The branch MUST be `llame/<name>`,
-or the name itself when it contains `/`. An omitted `baseRef` MUST use the
-source HEAD. A `baseRef` MUST NOT start with `-`. The call MUST NOT fetch or use
-the network.
+An omitted `name` MUST generate `<adjective>-<noun>-<4 hex>`, and the call MUST
+use a supplied `name` as written. A `name` MUST NOT start with `-`, MUST NOT
+contain a `.` or `..` segment, and MUST pass the git branch-name rules. The
+directory slug MUST replace each `/` in the name with `-`. The branch MUST be
+`llame/<name>`, or the name itself when it contains `/`. An omitted `baseRef`
+MUST use the source HEAD. A `baseRef` MUST NOT start with `-`, and the call MUST
+NOT fetch or use the network.
 
 #### Scenario: An omitted name is generated
 
@@ -182,15 +192,15 @@ the network.
 
 The worktree directory MUST be
 `<parent>/.llame-worktrees/<display name>/<slug>`. `<parent>` MUST be the parent
-of the real path of the source clone. A `worktree_base` on the main checkout
-MUST replace `<parent>/.llame-worktrees`. The call MUST canonicalize the
-directory by its deepest existing ancestor. The real path of the new directory
-MUST equal the decided directory. A difference MUST remove the new worktree and
-MUST fail as `worktree_failed`.
+of the real path of the source clone. A `worktree_base` on the main checkout MUST replace
+`<parent>/.llame-worktrees`. The call MUST canonicalize the directory by its
+deepest ancestor that exists. The real path of the new directory MUST equal the
+decided directory. A difference MUST remove the new worktree and MUST fail as
+`worktree_failed`.
 
 #### Scenario: The default placement uses the clone parent
 
-- **WHEN** the source clone's main working tree is `/home/dev/src/llame` and a
+- **WHEN** the source clone's main tree is `/home/dev/src/llame` and a
   Chat calls `enter_workspace` with that path and `worktree`
 - **THEN** the worktree directory is
   `/home/dev/src/.llame-worktrees/llame/<slug>`
@@ -223,11 +233,11 @@ MUST fail as `worktree_failed`.
 ### Requirement: An unregistered source clone is adopted on worktree entry
 
 A `worktree` call MUST adopt a source clone that has no recorded checkout. It
-MUST record a repository for the canonical remote, or one without a remote. It
-MUST record a main checkout with origin `adopted`. Adoption MUST insert or reuse
-those rows in the fenced transaction; a concurrent adopter MUST reuse the
-winner's rows. Adoption MUST NOT create a project link. A linked-worktree source
-MUST use its main clone as source and parent.
+MUST record a repository for the canonical remote, or one without a remote, and
+a main checkout with origin `adopted`. Adoption MUST insert or reuse those rows
+in the fenced transaction. A concurrent adopter MUST reuse the rows of the
+winner. Adoption MUST NOT create a project link. A linked-worktree source MUST
+use its main clone as source and parent.
 
 #### Scenario: An unregistered clone is adopted
 
@@ -276,11 +286,11 @@ MUST use its main clone as source and parent.
 ### Requirement: Worktree creation failure leaves the binding unchanged
 
 A worktree failure MUST NOT record a repository, a checkout, or a lease. The
-binding and its generation MUST NOT change. A source that is not a git
+bound root and its generation MUST NOT change. A source that is not a git
 repository MUST fail as `worktree_failed`. A git failure or timeout MUST fail as
 `worktree_failed` with the redacted git standard error. `path_not_registered`
 MUST be its only separate code. An offline Machine MUST fail as
-`machine_unavailable`. A daemon without the git methods MUST fail as
+`machine_unavailable`, and a daemon without the git methods MUST fail as
 `machine_update_required`.
 
 #### Scenario: A failed creation keeps the previous binding
@@ -298,8 +308,8 @@ MUST be its only separate code. An offline Machine MUST fail as
 
 #### Scenario: Adoption followed by a failed creation records nothing
 
-- **WHEN** an unregistered clone is adopted and the following worktree creation
-  fails
+- **WHEN** an unregistered clone is adopted and the worktree creation that
+  follows fails
 - **THEN** the owner has no new repository and no new checkout
 - **AND** the Chat stays bound to its previous root with the same generation
 
@@ -315,68 +325,70 @@ MUST be its only separate code. An offline Machine MUST fail as
 - **WHEN** a Chat calls `enter_workspace` with a Machine source and `worktree`,
   and the Machine is offline
 - **THEN** the call returns `machine_unavailable`
-- **AND** the binding and its generation are unchanged
+- **AND** the bound root and its generation are unchanged
 
 #### Scenario: An outdated daemon fails
 
 - **WHEN** the Machine daemon reports no git methods
 - **THEN** the call returns `machine_update_required`
-- **AND** no git call runs and the binding and its generation are unchanged
+- **AND** no git call runs, and the bound root and its generation are
+  unchanged
 
 #### Scenario: A timeout fails
 
 - **WHEN** the worktree operation exceeds its timeout
 - **THEN** the call returns `worktree_failed`
-- **AND** the binding and its generation are unchanged
+- **AND** the bound root and its generation are unchanged
 
 #### Scenario: A retry after a fixed failure succeeds
 
 - **WHEN** a later Run repeats the call after the owner fixes the directory
   permission
 - **THEN** the call creates the worktree
-- **AND** the binding root is the new directory
+- **AND** the bound root is the new directory
 
 ### Requirement: Worktree entry is fenced and atomic
 
-The checkout, lease, adopted rows, and binding MUST commit in one transaction
-under the binding fence. The worker MUST append a `native.attempt` with the
+The checkout, lease, adopted rows, and bound root MUST commit in one transaction
+under the same fence. The worker MUST append a `native.attempt` with the
 `worktree` operation before `git.worktreeAdd`. It MUST append that attempt's
 `native.result` in the same transaction. A redelivered Run with a
 `native.attempt` MUST fail as `outcome_unknown`. A fence loss MUST answer
 `executor_unavailable` with `leftDirectory`. A crash before the commit MUST
-leave no checkout, lease, adopted, or binding row.
+leave no checkout, lease, adopted row, or bound root.
 
 #### Scenario: A worker crash after the add fails the Run as unknown
 
 - **WHEN** a worker crashes after `git.worktreeAdd` succeeds and before the
   transaction commits
-- **THEN** a redelivery of that Run fails as `outcome_unknown` without replaying
-  its loop, per the `tool-calling` rule
-- **AND** it creates no second worktree and records no checkout, lease, or
-  binding change
+- **THEN** a redelivery of that Run fails as `outcome_unknown` without a replay
+  of its loop, per the `tool-calling` rule
+- **AND** it creates no second worktree and records no checkout, no lease, and
+  no change of the bound root
 
 #### Scenario: A fence loss after the add answers executor_unavailable
 
 - **WHEN** the fence is lost after `git.worktreeAdd` succeeds
-- **THEN** the call returns `executor_unavailable` with `leftDirectory` naming
+- **THEN** the call returns `executor_unavailable` with `leftDirectory` that holds
   the remaining directory
-- **AND** it records no checkout, lease, or binding change
+- **AND** it records no checkout, no lease, and no change of the bound root
 
 #### Scenario: A crash before the commit records no row
 
 - **WHEN** the worker stops before the transaction commits
 - **THEN** the owner holds no checkout and no lease for the new directory
-- **AND** the binding and its generation are unchanged
+- **AND** the bound root and its generation are unchanged
 
 #### Scenario: A lost Machine link reports an unknown outcome
 
 - **WHEN** the Machine link drops after the daemon received `git.worktreeAdd`
 - **THEN** the call returns `outcome_unknown` and records no row
-- **AND** the binding and its generation are unchanged, and `leftDirectory`
+- **AND** the bound root and its generation are unchanged, and `leftDirectory`
   names the directory when known
 
 #### Scenario: A superseded attempt creates no worktree
 
 - **WHEN** the attempt is superseded before `git.worktreeAdd`
 - **THEN** the fence check refuses the call
-- **AND** no directory, checkout, lease, or binding change results
+- **AND** no directory, no checkout, no lease, and no change of the bound root
+  results
