@@ -49,7 +49,7 @@ local executor.
 
 ## 2. `repositories/schema-and-registration` — tables, isolation, normalization, owner API, local inspection (design D1, D2, D4)
 
-- [ ] 2.1 Add `repositories`, `repository_aliases`, `checkouts`, and `worktree_leases` to `apps/api/src/db/schema/`.
+- [x] 2.1 Add `repositories`, `repository_aliases`, `checkouts`, and `worktree_leases` to `apps/api/src/db/schema/`.
   - Add the columns, unique `(owner_user_id, id)` on every parent, and unique `(owner_user_id, executor_id, path)` on checkouts.
   - Add a nullable `branch` on checkouts, and the CHECK enumerations for `kind` and `origin`.
   - Add `base_commit` to `worktree_leases`, with the HEAD that `git.worktreeAdd` reports.
@@ -64,13 +64,13 @@ local executor.
   - Verify that a checkout with a null branch is accepted. Verify that a lease row needs no unique key beyond its primary key.
   - Verify that a repository delete drops its checkout and lease rows. Verify that a main-checkout delete drops its worktree rows.
   - Name the requirements: "Repositories are owner-scoped records with a display name", "Checkouts record one repository on one executor", "Worktree leases are informational ownership receipts", "Repository and checkout deletion cascades records and never files".
-- [ ] 2.2 Add the pure remote normalization function with its unit tests.
+- [x] 2.2 Add the pure remote normalization function with its unit tests.
   - Cover scheme and userinfo removal, and a lowercase host with path case kept.
     Cover the removal of one `.git` and the slash at the end.
   - Cover the `git@host:path` form, a URL that carries a token, and a string that is not a remote.
   - Verify a table-driven test proves that `git@github.com:leon0399/llame.git` and `https://github.com/leon0399/llame` normalize equal.
   - Verify that no output contains a credential ("The canonical remote comes from the `origin` remote").
-- [ ] 2.3 Add `packages/git-executor` with `inspect` only.
+- [x] 2.3 Add `packages/git-executor` with `inspect` only.
   - Use argv arrays, and refuse a name, branch, or base ref that starts with `-`.
   - Put `--end-of-options` (or `--` where the subcommand takes it) before each remaining caller value.
   - Use absolute paths and the fixed environment on every call (`GIT_TERMINAL_PROMPT=0`, `LC_ALL=C`, `GIT_OPTIONAL_LOCKS=0`).
@@ -79,12 +79,12 @@ local executor.
   - The tests cover toplevel, `commonDir`, `linked` and `mainWorktree` on a linked worktree, remotes, branch, and head.
   - They also cover a repository with no remote, a path that is not a repository, and a timeout.
   - They also cover a repository whose config sets `core.fsmonitor` and a hook ("Executors expose typed git operations", "Git calls cannot run repository hooks or monitors", "Git calls refuse option-like caller values").
-- [ ] 2.4 Add the repositories and aliases API (`POST`/`GET /api/v1/repositories`, `PATCH`/`DELETE /api/v1/repositories/:id`, `POST /api/v1/repositories/:id/aliases`).
+- [x] 2.4 Add the repositories and aliases API (`POST`/`GET /api/v1/repositories`, `PATCH`/`DELETE /api/v1/repositories/:id`, `POST /api/v1/repositories/:id/aliases`).
   - Use DTOs, owner scope, display-name segment validation, alias uniqueness, and OpenAPI regeneration.
   - Verify controller and service tests for creation, a duplicate normalized remote as a conflict, and an invalid display name.
   - They also cover alias declaration and deletion.
   - Verify a clean second OpenAPI generation ("Repositories are owner-scoped records with a display name", "The canonical remote comes from the `origin` remote").
-- [ ] 2.5 Add the checkout API for the local executor.
+- [x] 2.5 Add the checkout API for the local executor.
   - `POST /api/v1/checkouts` takes one `path` (an absolute local path in this layer) plus an optional `repositoryId` or `remote` selector.
   - `GET /api/v1/checkouts?repositoryId=` lists every row with the ids of the owner's chats whose bound root equals its path.
   - Each worktree row also lists its lease chat.
@@ -104,20 +104,20 @@ local executor.
   - Also verify a `machine://` path as 503 `executor_unavailable`, and an unallowed path as 403 with no git call. Verify a missing allow as 403 `tool_not_allowed`.
   - Also verify an unset native id as 503 with no git call and no row. Verify the 502 map for a git failure and a timeout.
   - Also verify a `GET` that lists two bound chats on a main row. Verify the lease chat on a worktree row. Verify a `DELETE` that removes rows only ("A main checkout can carry a worktree base directory", "Checkout lists report the lease chat and every bound chat", "Checkout registration inspects the path on its executor", "Registration and removal need a configured executor", "Registration and removal obey the host access policy", "Registration and removal map failures to typed statuses", "Worktree checkouts are children of a main checkout").
-- [ ] 2.6 Add negative isolation integration tests.
+- [x] 2.6 Add negative isolation integration tests.
   - A cross-owner `SELECT` returns no rows.
   - A cross-owner `UPDATE` or `DELETE` affects 0 rows and leaves owner A's rows unchanged.
   - An `INSERT` with owner A's owner id fails with `42501`.
   - Cover a checkout that names owner A's `repositoryId`, and an alias declared on owner A's repository.
   - Cover a worktree parent on owner A's checkout, and a lease that names owner A's chat.
   - Verify the API answers 404 for a foreign id before the map ("Repository records are isolated per owner").
-- [ ] 2.7 Create `docs/product/operator/repositories.md` with the catalog and the registration API, and add the dated `CHANGELOG.md` entry.
+- [x] 2.7 Create `docs/product/operator/repositories.md` with the catalog and the registration API, and add the dated `CHANGELOG.md` entry.
   - State the filter-driver trust boundary
   - Repository hooks and the file-system monitor never run
   - Filter drivers from the repository or user config still run
   - They run as the executor user, which also runs `bash` for the owner
   - Then verify `pnpm lint:markdown`.
-- [ ] 2.8 Verify the layer locally with `pnpm --filter api lint`, `typecheck`, and focused unit tests. Also run `pnpm --filter api test:integration` for the new suites, `pnpm --filter git-executor test`, and a clean second OpenAPI generation.
+- [x] 2.8 Verify the layer locally with `pnpm --filter api lint`, `typecheck`, and focused unit tests. Also run `pnpm --filter api test:integration` for the new suites, `pnpm --filter git-executor test`, and a clean second OpenAPI generation.
 - [ ] 2.9 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
 - [ ] 2.10 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
 

@@ -2,7 +2,13 @@ import {
   execFileSync,
   type ExecFileSyncOptionsWithStringEncoding,
 } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +22,10 @@ import { gitPrefixArguments, inspectRepository } from "./inspect";
  * cleared at module load. Every command the test itself starts pins
  * `core.hooksPath=/dev/null`, so host hooks never run inside a temp repo, and
  * each repo sets the identity and disables line-ending rewriting.
+ *
+ * Covers openspec `repositories` — "Executors expose typed git operations",
+ * "Git calls cannot run repository hooks or monitors", and "Git calls refuse
+ * option-like caller values".
  */
 for (const name of execFileSync("git", ["rev-parse", "--local-env-vars"])
   .toString()
@@ -200,6 +210,73 @@ describe("inspectRepository", () => {
       });
     } finally {
       delete process.env["GIT_DIR"];
+    }
+  });
+
+  it("starts neither the monitor nor a hook that the repository config names", async () => {
+    const directory = repositoryWithCommit();
+    const evidence = tempDirectory();
+    const monitorMarker = join(evidence, "monitor-started");
+    const hookMarker = join(evidence, "hook-started");
+    const monitor = join(evidence, "monitor.sh");
+    const hooks = join(evidence, "hooks");
+    mkdirSync(hooks);
+    writeFileSync(monitor, `#!/bin/sh\ntouch '${monitorMarker}'\n`, {
+      mode: 0o755,
+    });
+    writeFileSync(
+      join(hooks, "post-checkout"),
+      `#!/bin/sh\ntouch '${hookMarker}'\n`,
+      {
+        mode: 0o755,
+      },
+    );
+    writeFileSync(
+      join(hooks, "post-index-change"),
+      `#!/bin/sh\ntouch '${hookMarker}'\n`,
+      { mode: 0o755 },
+    );
+    runGit(directory, ["config", "core.fsmonitor", monitor]);
+    runGit(directory, ["config", "core.hooksPath", hooks]);
+
+    // Control: the repository's own configuration is live, so a command the
+    // package does not start runs both the monitor and the index hook.
+    execFileSync("git", ["status", "--porcelain"], {
+      ...GIT_OPTIONS,
+      cwd: directory,
+    });
+    expect(existsSync(monitorMarker)).toBe(true);
+    expect(existsSync(hookMarker)).toBe(true);
+    rmSync(monitorMarker);
+    rmSync(hookMarker);
+
+    const result = await inspectRepository({ path: directory });
+
+    expect(result).toMatchObject({ status: "ok", toplevel: directory });
+    expect(existsSync(monitorMarker)).toBe(false);
+    expect(existsSync(hookMarker)).toBe(false);
+  });
+
+  it("reports a typed timeout when git does not answer within the deadline", async () => {
+    const directory = repositoryWithCommit();
+    const shim = mkdtempSync(join(tmpdir(), "git-executor-slow-"));
+    created.push(shim);
+    // `exec`, so the killed process is the sleeper itself and not a shell
+    // whose child would keep the pipes open past the deadline.
+    writeFileSync(join(shim, "git"), "#!/bin/sh\nexec sleep 30\n", {
+      mode: 0o755,
+    });
+    const previousPath = process.env["PATH"];
+    process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
+    try {
+      const result = await inspectRepository(
+        { path: directory },
+        { timeoutMs: 200 },
+      );
+
+      expect(result).toMatchObject({ status: "error", type: "timed_out" });
+    } finally {
+      process.env["PATH"] = previousPath;
     }
   });
 });

@@ -119,6 +119,23 @@ Failures answer with a typed `code`: `403` `tool_not_allowed` or
 git standard error,
 including a timeout; and `503` `executor_unavailable`.
 
+### Hooks, monitors, and filter drivers
+
+Every git call these routes start sets `core.hooksPath` to an empty directory
+and `core.fsmonitor` to `false`. A `post-checkout`, `post-merge`, or
+`post-index-change` hook, and a file-system monitor command, therefore never
+run: a repository's own configuration cannot start a process in the hub or the
+daemon through either of them.
+
+Filter drivers do still run. `filter.<driver>.smudge`, `.clean`, and
+`.process` from the repository or the user configuration run during the
+operations that read or materialize a working tree, and they run as the
+executor user — the same identity that runs `bash` for the owner. That is the
+trust boundary `enter_workspace` already carries as `execute_code`: a clone
+whose configuration names a filter command can run that command when llame
+inspects it. Disabling filters entirely is rejected: it would break a Git LFS
+checkout.
+
 ## Reading the catalog
 
 `GET /api/v1/checkouts` lists every checkout of the caller, filtered by

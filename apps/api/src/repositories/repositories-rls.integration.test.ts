@@ -6,11 +6,15 @@
  * SECURITY constrains even the owner — the worst case for a self-hosted
  * deployment. Requires TEST_DATABASE_URL (the integration project sets it).
  *
- * Covers openspec `repositories`: owner isolation for all four tables, the
- * composite owner foreign keys that make a cross-owner parent a `23503` rather
- * than a cross-owner cascade, a nullable branch, a lease with no unique key
- * beyond its primary key, and row-only deletion that removes checkouts and
- * leases but never a directory.
+ * Covers openspec `repositories` — "Repositories are owner-scoped records with
+ * a display name", "Checkouts record one repository on one executor",
+ * "Worktree leases are informational ownership receipts", "Repository and
+ * checkout deletion cascades records and never files", and "Repository records
+ * are isolated per owner": owner isolation for all four tables, the composite
+ * owner foreign keys that make a cross-owner parent a `23503` rather than a
+ * cross-owner cascade, a nullable branch, a lease with no unique key beyond
+ * its primary key, and row-only deletion that removes checkouts and leases but
+ * never a directory.
  */
 
 import postgres, { type Sql } from 'postgres';
@@ -21,6 +25,10 @@ import postgres, { type Sql } from 'postgres';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
+// A lease records the HEAD that `git.worktreeAdd` reports, so every seeded
+// lease carries one; the column has no default.
+const LEASE_BASE_COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
 type SqlClient = Sql;
 
@@ -240,8 +248,8 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       asUser(
         userB,
         (tx) =>
-          tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref)
-             VALUES (${userB}, ${chatA}, ${checkoutB}, 'main')`,
+          tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref, base_commit)
+             VALUES (${userB}, ${chatA}, ${checkoutB}, 'main', ${LEASE_BASE_COMMIT})`,
       ),
     ).rejects.toMatchObject({ code: '23503' });
   });
@@ -266,9 +274,9 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
     const leases = await asUser(
       userA,
       (tx) =>
-        tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref)
-           VALUES (${userA}, ${chatA}, ${checkoutId}, 'main'),
-                  (${userA}, ${chatA}, ${checkoutId}, 'HEAD~1')
+        tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref, base_commit)
+           VALUES (${userA}, ${chatA}, ${checkoutId}, 'main', ${LEASE_BASE_COMMIT}),
+                  (${userA}, ${chatA}, ${checkoutId}, 'HEAD~1', ${LEASE_BASE_COMMIT})
            RETURNING id`,
     );
     expect(leases.length).toBe(2);
@@ -300,8 +308,8 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
     await asUser(
       userA,
       (tx) =>
-        tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref)
-           VALUES (${userA}, ${chatA}, ${worktreeId}, 'main')`,
+        tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref, base_commit)
+           VALUES (${userA}, ${chatA}, ${worktreeId}, 'main', ${LEASE_BASE_COMMIT})`,
     );
 
     await asUser(
