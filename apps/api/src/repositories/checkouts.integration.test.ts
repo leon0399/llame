@@ -351,6 +351,12 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     expect(response.body).toMatchObject({ code: 'not_a_repository' });
   });
 
+  it('refuses a relative path as invalid input', async () => {
+    const response = await post({ path: 'srv/app' }).expect(422);
+
+    expect(response.body).toMatchObject({ code: 'invalid_path' });
+  });
+
   it('refuses a path that does not exist as a validation failure, not a 404', async () => {
     const response = await post({
       path: join(tmpdir(), `missing-${crypto.randomUUID()}`),
@@ -707,7 +713,9 @@ describe('checkout registration gates', () => {
     }
   });
 
-  it('refuses an unallowed path without starting a git call', async () => {
+  // The path does not exist, so a probe would answer 422; the 403 proves the
+  // submitted-path decision came first.
+  it('decides the submitted path before probing it, and starts no git call', async () => {
     const inspect = vi.fn();
     const harness = await boot({
       tools: tools({
@@ -723,7 +731,7 @@ describe('checkout registration gates', () => {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
-        .send({ path: repository() })
+        .send({ path: join(tmpdir(), `unallowed-${crypto.randomUUID()}`) })
         .expect(403);
       expect(response.body).toMatchObject({ code: 'permission_denied' });
       expect(inspect).not.toHaveBeenCalled();
