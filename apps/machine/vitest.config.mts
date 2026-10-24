@@ -25,6 +25,10 @@ export default defineConfig({
         find: /^@workspace\/mcp-workspace$/,
         replacement: pkgSrc("mcp-workspace"),
       },
+      {
+        find: /^@workspace\/git-executor$/,
+        replacement: pkgSrc("git-executor"),
+      },
     ],
   },
   test: {

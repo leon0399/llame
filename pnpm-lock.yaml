@@ -656,6 +656,9 @@ importers:
       '@workspace/bash-executor':
         specifier: workspace:*
         version: link:../../packages/bash-executor
+      '@workspace/git-executor':
+        specifier: workspace:*
+        version: link:../../packages/git-executor
       '@workspace/machine-protocol':
         specifier: workspace:*
         version: link:../../packages/machine-protocol
