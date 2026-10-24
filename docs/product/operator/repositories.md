@@ -1,8 +1,9 @@
 ---
-summary: "Registering the git repositories and checkouts a Chat can start from, and the host paths registration may inspect"
+summary: "Registering the git repositories and checkouts a Chat can start from, linking them to projects, and the host paths registration may inspect"
 read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
+  - you are linking a project to a repository or setting its isolation policy
   - you are deciding which host paths a checkout registration may inspect
 behavior:
   - ../reference/tools/enter-workspace.md
@@ -234,6 +235,105 @@ the same three gates as registration, removes the directory with
 The `llame/<name>` branch stays, so a removal loses no commit. A worktree row
 without a lease keeps the fail-closed rule: no recorded base can prove the
 branch is unchanged. Refusals answer `409` `worktree_not_clean`.
+
+## Project links
+
+A project links zero or more of its owner's repositories. A link is a row of its
+own: an alias the project shows, a primary flag, and an isolation policy. The
+alias defaults to the repository's display name and is stored, so renaming the
+catalog entry later leaves the project's label alone. A project holds at most
+one primary link, and a project with no link is still usable — its chats start
+with no location.
+
+An isolation policy is the default isolation the composer shows for a chat that
+starts on that link, and the request's `worktree` field still decides the
+outcome:
+
+- `inherit` reuses the source checkout, and turns a worktree start on when
+  another open chat already binds that checkout.
+- `always_worktree` starts a worktree, so two chats never share one tree.
+- `never` reuses the checkout.
+
+Deleting a project removes its links, and so does unlinking and deleting the
+repository. No route deletes a repository, a checkout, a directory, or a file
+because of a link.
+
+### The link routes
+
+```bash
+# Link one catalog repository; the alias defaults to its display name.
+curl -X POST localhost:3001/api/v1/projects/<project>/repositories \
+  -b "session=…" -H 'content-type: application/json' \
+  -d '{"repositoryId":"<repository>","isPrimary":true}'
+
+# Change the alias, the primary flag, or the isolation policy.
+curl -X PATCH localhost:3001/api/v1/projects/<project>/repositories/<repository> \
+  -b "session=…" -H 'content-type: application/json' \
+  -d '{"alias":"llame","isolation":"always_worktree"}'
+
+# Unlink: the link goes, the repository and its checkouts stay.
+curl -X DELETE \
+  localhost:3001/api/v1/projects/<project>/repositories/<repository> \
+  -b "session=…"
+
+# Read every link with its alias, flags, and policy.
+curl localhost:3001/api/v1/projects/<project>/repositories -b "session=…"
+```
+
+`GET /api/v1/projects/:id/repositories` returns each link with its alias,
+primary flag, and isolation policy. A project or repository of another owner,
+and an id that no longer exists, both answer `404`, so a foreign row is
+indistinguishable from a missing one; a repository the caller owns but the
+project does not link answers `404` as well. Every link write on an archived
+project answers `409` and changes nothing. Linking a repository the project
+already links answers `409`, and so does a concurrent change that collides on
+the one-primary rule; a sequential primary change clears the previous one and
+answers `200`.
+
+### The project page's Repositories section
+
+The project page is the edit surface for links, and the repository catalog
+appears there only as the picker inside its dialogs. The section sits inside the
+project's settings panel and lists every link with the project's alias, the
+primary badge, the isolation policy in words, and the catalog remote under it.
+It then lists the project's worktrees: each path and branch, the chat whose
+lease records it, and every chat bound to that path, by title.
+
+- **Link repository** offers the owner's catalog minus the links the project
+  already holds, with an optional alias, the primary flag, and one isolation
+  policy. A blank alias keeps the route's default, the repository's display
+  name.
+- **Edit** on a row changes the alias, the primary flag, and the isolation
+  policy together. A field that did not move is omitted from the request, and
+  a form with nothing moved closes without writing.
+- **Unlink** on a row confirms once, then removes the link.
+- **Remove** on a worktree asks once, then calls
+  `DELETE /api/v1/checkouts/:id/worktree`. A `409` `worktree_not_clean` refusal
+  leaves the row listed and shows the route's own sentence — uncommitted
+  changes, an unpushed commit, or an upstream it cannot vouch for.
+
+Every write on an archived project answers `409`, and the dialogs show that
+sentence in place of the form's usual footer.
+
+### Registering a checkout from the project page
+
+**Register checkout** takes one `path` — either a local absolute path or a
+`machine://<name>/…` locator — and has no executor field: the executor follows
+from the path, a plain path being this instance's local executor. Two selectors
+are optional and independent:
+
+- **Repository** narrows the catalog to one entry, or stays on "Let git decide
+  from the remote".
+- **Remote** names a remote that selects an existing repository, as the route's
+  `remote` selector does.
+
+With neither selector the inspected `origin` decides, which is the common case.
+Registration can adopt a repository llame has not seen and a main clone it has
+not recorded, so the catalog and the worktree list refresh once the path is
+registered. The route's typed failures — an invalid path, a directory that is
+not a repository, `origin_mismatch`, `path_taken`, or a Machine that is offline
+or needs an update — appear in the dialog, where the path can be corrected
+without reopening it.
 
 ## Reading the catalog
 
