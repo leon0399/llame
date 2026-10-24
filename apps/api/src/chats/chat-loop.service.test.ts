@@ -1,3 +1,4 @@
+/* eslint-disable typescript/no-unsafe-assignment -- a spied repository's mock call tuple is `any`; every read is asserted through the typed spy signature. */
 import {
   BadRequestException,
   ConflictException,
@@ -17,6 +18,7 @@ import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { heartbeatSeconds } from '../runs/run-queues';
+import { asDouble } from '../testing/support';
 import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -118,16 +120,15 @@ type Savepoint = {
   execute: () => Promise<Array<{ locked: boolean }>>;
 };
 
-function fakeTx(): Db {
+function fakeTx(creationLockHeld = true): Db {
   const savepoint: Savepoint = {
     transaction: (callback) => callback(tx),
-    execute: () => Promise.resolve([{ locked: true }]),
+    execute: () => Promise.resolve([{ locked: creationLockHeld }]),
   };
-  // SAFETY: ChatLoopService only uses tx.transaction as a savepoint around
+  // ChatLoopService only uses tx.transaction as a savepoint around
   // RunsRepository.create and tx.execute for the creation lock; every
   // repository method is prototype-spied.
-  // eslint-disable-next-line typescript/no-unsafe-type-assertion
-  const tx = savepoint as Db;
+  const tx = asDouble<Db>(savepoint);
   return tx;
 }
 
@@ -136,8 +137,10 @@ function makeService(options?: {
   permissionModes?: ReadonlyArray<PermissionMode>;
   /** The media the sender's own ownership read finds. */
   ownedMedia?: ReadonlyArray<MediaDescriptor>;
+  /** Whether the Chat's creation lock is free, for the routes that take it. */
+  creationLockHeld?: boolean;
 }) {
-  const tx = fakeTx();
+  const tx = fakeTx(options?.creationLockHeld ?? true);
   const tenantDb: TenantRunner = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
@@ -923,5 +926,158 @@ describe('ChatLoopService.createMessageStream', () => {
     await service.createMessageStream(input);
 
     expect(markFinished).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatLoopService.validateTurn', () => {
+  const mediaId = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
+  const sentFile = {
+    type: 'file',
+    mediaType: 'image/gif',
+    url: `media://${mediaId}`,
+    filename: 'x.gif',
+  };
+
+  it('resolves the stored media labels under the sender identity, writing nothing', async () => {
+    const { service, runAs, describeOwned } = makeService({
+      ownedMedia: [descriptor(mediaId, { name: 'stored.png' })],
+    });
+
+    const turn = await service.validateTurn({
+      userId: chat.ownerUserId,
+      modelId: model.id,
+      message: {
+        id: userMessage.id,
+        parts: [sentFile, { type: 'text', text: 'compare' }],
+      },
+    });
+
+    expect(runAs).not.toHaveBeenCalled();
+    expect(describeOwned).toHaveBeenCalledWith(chat.ownerUserId, [mediaId]);
+    expect(turn.parts).toEqual([
+      {
+        type: 'file',
+        mediaType: 'image/png',
+        url: `media://${mediaId}`,
+        filename: 'stored.png',
+      },
+      { type: 'text', text: 'compare' },
+    ]);
+    expect(turn.permissionMode).toBe('default');
+    expect(turn.effort).toBeUndefined();
+  });
+
+  it('rejects media the sender does not own before any transaction', async () => {
+    const { service, runAs } = makeService();
+
+    await expect(
+      service.validateTurn({
+        userId: chat.ownerUserId,
+        modelId: model.id,
+        message: { id: userMessage.id, parts: [sentFile] },
+      }),
+    ).rejects.toMatchObject({
+      constructor: BadRequestException,
+      message: 'Message references unavailable media',
+    });
+    expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('refuses a permission mode the process does not enable', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.validateTurn({
+        userId: chat.ownerUserId,
+        modelId: model.id,
+        permissionMode: 'bypass',
+        message: {
+          id: userMessage.id,
+          parts: [{ type: 'text', text: 'hello' }],
+        },
+      }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('bypass') });
+  });
+});
+
+describe('ChatLoopService.startFirstRun', () => {
+  const validated = {
+    modelId: model.id,
+    effort: undefined,
+    permissionMode: 'default' as const,
+    message: {
+      id: userMessage.id,
+      parts: [{ type: 'text' as const, text: 'hello' }],
+    },
+    parts: [{ type: 'text' as const, text: 'hello' }],
+  };
+
+  it('stores the message and its Run, then enqueues the Run', async () => {
+    const {
+      service,
+      findById,
+      createUserMessageIfAbsent,
+      createRun,
+      dispatchRun,
+    } = makeService({ creationLockHeld: false });
+
+    const started = await service.startFirstRun({
+      chatId: chat.id,
+      userId: chat.ownerUserId,
+      turn: validated,
+    });
+
+    expect(started).toEqual({ runId: expect.any(String) });
+    // The create request already filed the Chat; this step only sends into it.
+    expect(findById).toHaveBeenCalledWith(chat.id, chat.ownerUserId);
+    expect(createUserMessageIfAbsent).toHaveBeenCalledWith({
+      chatId: chat.id,
+      id: validated.message.id,
+      senderUserId: chat.ownerUserId,
+      parts: validated.parts,
+    });
+    expect(createRun).toHaveBeenCalledTimes(1);
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: started.runId,
+        chatId: chat.id,
+        userId: chat.ownerUserId,
+        modelId: model.id,
+      }),
+    );
+    // The enqueue names a committed Run row, never one still in the transaction.
+    expect(dispatchRun.mock.invocationCallOrder[0]).toBeGreaterThan(
+      createRun.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it('never takes the creation lock its own request already holds', async () => {
+    const { service } = makeService({ creationLockHeld: false });
+
+    // A taken lock would answer 409 inside the admission transaction; this
+    // create runs under the caller's session lock instead.
+    await expect(
+      service.startFirstRun({
+        chatId: chat.id,
+        userId: chat.ownerUserId,
+        turn: validated,
+      }),
+    ).resolves.toEqual({ runId: expect.any(String) });
+  });
+
+  it('propagates an enqueue failure after the rows commit', async () => {
+    const { service, createRun, dispatchRun } = makeService({
+      creationLockHeld: false,
+    });
+    dispatchRun.mockRejectedValue(new Error('queue unavailable'));
+
+    await expect(
+      service.startFirstRun({
+        chatId: chat.id,
+        userId: chat.ownerUserId,
+        turn: validated,
+      }),
+    ).rejects.toThrow('queue unavailable');
+    expect(createRun).toHaveBeenCalledTimes(1);
   });
 });

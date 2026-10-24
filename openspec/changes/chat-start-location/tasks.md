@@ -254,7 +254,7 @@ executor, and the start-location preview.
 
 ## 4. `chat-start-location/chat-creation` — the create request, resolution, the Run-free bound root, worktree, first Run, and the failure statuses (design D9)
 
-- [ ] 4.1 Add the request DTOs and the create route.
+- [x] 4.1 Add the request DTOs and the create route.
 
   - `CreateChatRequest` in `apps/api/src/chats/dto/chats.dto.ts`
   - `CreateChatMessageDto { id, parts, modelId, effort?, permissionMode? }`
@@ -270,7 +270,7 @@ executor, and the start-location preview.
   - Cite "A chat can be created with its project and location in one request"
   - Cite "A create request with a message validates it before any write"
 
-- [ ] 4.2 Implement location resolution in the D9 order.
+- [x] 4.2 Implement location resolution in the D9 order.
 
   - Use no silent primary
   - Explicit ids override every remembered default
@@ -298,7 +298,7 @@ executor, and the start-location preview.
   - Cite "Project repository defaults remember the last chosen checkout per
     executor"
 
-- [ ] 4.3 Reuse the `repositories` change's decision function.
+- [x] 4.3 Reuse the `repositories` change's decision function.
 
   - The four ordered decisions follow
   - 1: the submitted checkout path, before any probe
@@ -340,7 +340,7 @@ executor, and the start-location preview.
   - Cite "Chat-creation path decisions are recorded with the chat"
   - Cite "A creation attempt is appended only after a path decision"
 
-- [ ] 4.4 Add the Run-free worktree step.
+- [x] 4.4 Add the Run-free worktree step.
 
   - Run `git.worktreeAdd` for a registered `main` source
   - Run it under the chat's session advisory lock
@@ -356,7 +356,7 @@ executor, and the start-location preview.
   - Cite "The creation worktree commits with its lease and binding"
   - Cite "A failed workspace leaves the chat filed and unbound"
 
-- [ ] 4.5 Store the bound root after the worktree step.
+- [x] 4.5 Store the bound root after the worktree step.
 
   - Call `WorkspaceBindingRepository.bindAtCreation(tx, { chatId, ownerUserId, executorId, root })`
   - Pass the caller's transaction, under `runAs(owner)`
@@ -390,7 +390,7 @@ executor, and the start-location preview.
   - Cite "The message step commits the message and its Run before the enqueue"
   - Cite "The Workspace binding is Chat-scoped and persists across Runs"
 
-- [ ] 4.6 Validate every named owner id under owner RLS.
+- [x] 4.6 Validate every named owner id under owner RLS.
 
   - The ids are the project, the repository, and the checkout
   - Validate them in the transaction that inserts the chat
@@ -405,7 +405,7 @@ executor, and the start-location preview.
   - Cite "Chat creation is owner-isolated"
   - Cite "A named checkout decides its repository and executor"
 
-- [ ] 4.7 Add the per-chat session advisory lock and the resend behavior.
+- [x] 4.7 Add the per-chat session advisory lock and the resend behavior.
 
   - Take `pg_try_advisory_lock` on the chat id
   - Hold it on one dedicated connection for the whole request
@@ -437,7 +437,7 @@ executor, and the start-location preview.
   - Cite "A resent create request reuses the stored chat and its binding"
   - Cite "A resend refuses an archived chat or another project"
 
-- [ ] 4.8 Write the per-executor defaults row after a successful start.
+- [x] 4.8 Write the per-executor defaults row after a successful start.
 
   - Record its `updated_at`
   - Record the source `main` checkout for the link and executor
@@ -450,7 +450,7 @@ executor, and the start-location preview.
   - Cite "Project repository defaults remember the last chosen checkout per
     executor"
 
-- [ ] 4.9 Verify the first-message path is otherwise unchanged.
+- [x] 4.9 Verify the first-message path is otherwise unchanged.
 
   - The current `POST /api/v1/chats/:id/messages` suite passes without edits
     other than the new creation-lock refusal test
@@ -459,7 +459,7 @@ executor, and the start-location preview.
   - Cite "The first-message creation path is unchanged"
   - Cite "The message route refuses a chat that a create request holds"
 
-- [ ] 4.10 Add the `POST /api/v1/chats` reference page.
+- [x] 4.10 Add the `POST /api/v1/chats` reference page.
 
   - Include the request fields, the resolution order, and the 201 body
   - Include the closed status set and the cause codes
@@ -467,7 +467,7 @@ executor, and the start-location preview.
   - Add a dated `CHANGELOG.md` entry
   - Verify that `pnpm lint:markdown` passes
 
-- [ ] 4.11 Verify the layer locally.
+- [x] 4.11 Verify the layer locally.
 
   - `pnpm --filter api lint` and `typecheck`
   - `test:coverage` for the new modules
