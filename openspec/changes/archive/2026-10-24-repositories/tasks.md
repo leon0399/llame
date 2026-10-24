@@ -1,7 +1,7 @@
 Track no issue: no GitHub issue exists for this change, and Leo decided on
 2026-10-24 to proceed without one, as for `remote-machines`. No layer owns
 `Closes #N`. Each layer references the change by branch name instead. Read
-[CONTRIBUTING](../../../CONTRIBUTING.md) for approval, publication, and merge
+[CONTRIBUTING](../../../../CONTRIBUTING.md) for approval, publication, and merge
 policy.
 
 ## Delivery stack
