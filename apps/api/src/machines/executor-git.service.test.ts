@@ -22,9 +22,11 @@ import {
   createProtocolPeer,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
+import { isRecord, isString } from '@workspace/runtime-safety';
+
+import { ExecutorGitError } from './executor-git-error';
 import {
   ExecutorGit,
-  ExecutorGitError,
   localGitSurface,
   MACHINE_GIT_BUDGET_MS,
   type LocalGit,
@@ -293,6 +295,138 @@ describe('ExecutorGit.canonical', () => {
     await expect(
       unusable.executors.canonical(unusable.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toMatchObject({ code: 'git_failed' });
+  });
+});
+
+describe('ExecutorGit.canonicalTarget', () => {
+  it('resolves the deepest existing ancestor of a future local directory', async () => {
+    const { executors } = hub();
+    const directory = tempDirectory();
+    const real = join(directory, 'real');
+    mkdirSync(real);
+    symlinkSync(real, join(directory, 'worktrees'));
+    const target = executors.locate('/srv/app');
+
+    await expect(
+      executors.canonicalTarget(target, join(directory, 'worktrees', 'a', 'b')),
+    ).resolves.toBe(join(real, 'a', 'b'));
+  });
+
+  it('keeps a future local directory whose parent is missing', async () => {
+    const { executors } = hub();
+    const directory = tempDirectory();
+
+    await expect(
+      executors.canonicalTarget(
+        executors.locate('/srv/app'),
+        join(directory, 'missing', 'a'),
+      ),
+    ).resolves.toBe(join(directory, 'missing', 'a'));
+  });
+
+  it('refuses a relative, empty, or escaping path before touching the disk', async () => {
+    const { executors } = hub();
+    const target = executors.locate('/srv/app');
+
+    for (const value of ['relative/path', '/srv/app/../etc', '/srv/./app']) {
+      await expect(
+        executors.canonicalTarget(target, value),
+      ).rejects.toMatchObject({ code: 'invalid_path' });
+    }
+  });
+
+  it('walks a Machine path through the daemon and renders one locator', async () => {
+    const asked: Array<string> = [];
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answer: (call) => {
+        if (call.method !== 'fs.stat') return undefined;
+        const path = isRecord(call.params) ? call.params['path'] : undefined;
+        if (!isString(path)) return undefined;
+        asked.push(path);
+        return path === '/srv'
+          ? { value: { kind: 'directory', isLink: false, realPath: '/srv' } }
+          : { value: { kind: 'missing', isLink: false } };
+      },
+    });
+
+    await expect(
+      executors.canonicalTarget(
+        executors.locate(LOCATOR),
+        `${LOCATOR}/worktrees/a`,
+      ),
+    ).resolves.toBe(`${LOCATOR}/worktrees/a`);
+    expect(asked).toStrictEqual([
+      '/srv/app/worktrees/a',
+      '/srv/app/worktrees',
+      '/srv/app',
+      '/srv',
+    ]);
+  });
+
+  it('refuses a Machine ancestor that is not a directory', async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answer: (call) =>
+        call.method === 'fs.stat'
+          ? { value: { kind: 'file', isLink: false, size: 4 } }
+          : undefined,
+    });
+
+    await expect(
+      executors.canonicalTarget(
+        executors.locate(LOCATOR),
+        `${LOCATOR}/worktrees/a`,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_path' });
+  });
+
+  it('answers a daemon refusal of an ancestor with its own code', async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answers: { 'fs.stat': { error: 'path_not_registered' } },
+    });
+
+    await expect(
+      executors.canonicalTarget(
+        executors.locate(LOCATOR),
+        `${LOCATOR}/elsewhere/a`,
+      ),
+    ).rejects.toMatchObject({ code: 'path_not_registered' });
+  });
+});
+
+describe('ExecutorGit.exists', () => {
+  it('answers a local path that exists and one that does not', async () => {
+    const { executors } = hub();
+    const directory = tempDirectory();
+    const target = executors.locate('/srv/app');
+
+    await expect(executors.exists(target, directory)).resolves.toBe(true);
+    await expect(
+      executors.exists(target, join(directory, 'missing')),
+    ).resolves.toBe(false);
+  });
+
+  it('answers a Machine path from the daemon', async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answer: (call) =>
+        call.method === 'fs.stat'
+          ? {
+              value:
+                call.params?.['path'] === MACHINE_PATH
+                  ? { kind: 'directory', isLink: false, realPath: MACHINE_PATH }
+                  : { kind: 'missing', isLink: false },
+            }
+          : undefined,
+    });
+    const target = executors.locate(LOCATOR);
+
+    await expect(executors.exists(target, LOCATOR)).resolves.toBe(true);
+    await expect(executors.exists(target, `${LOCATOR}/missing`)).resolves.toBe(
+      false,
+    );
   });
 });
 

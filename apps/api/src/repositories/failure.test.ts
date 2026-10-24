@@ -39,6 +39,7 @@ const EXPECTED_STATUS: Record<RepositoryFailureCode, number> = {
   alias_taken: 409,
   path_taken: 409,
   worktrees_present: 409,
+  worktree_not_clean: 409,
   invalid_display_name: 422,
   invalid_path: 422,
   invalid_remote: 422,

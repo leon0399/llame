@@ -35,11 +35,10 @@ import { runTool } from './runner';
 import { AttemptToolAdditions } from './attempt-tool-additions';
 import type { ToolContext } from './types';
 import {
-  enterWorkspaceTool,
-  exitWorkspaceTool,
   MACHINE_WORKSPACE_AUTHORITY,
   WORKSPACE_AUTHORITY,
-} from './workspace';
+} from './workspace-binding';
+import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { createWorkspaceRootCell } from './workspace-path';
 
 vi.mock('node:fs/promises', async (importOriginal) => {

@@ -213,3 +213,53 @@ export const deleteCheckout = async (
   const data: void = body ? JSON.parse(body) : undefined;
   return data;
 };
+
+export type removeCheckoutWorktreeError =
+  | void
+  | void
+  | RepositoryFailureResponse
+  | RepositoryFailureResponse
+  | RepositoryFailureResponse
+  | RepositoryFailureResponse
+  | RepositoryFailureResponse
+  | RepositoryFailureResponse;
+
+export const getRemoveCheckoutWorktreeUrl = (id: string) => {
+  return `/api/v1/checkouts/${id}/worktree`;
+};
+
+/**
+ * @summary Remove a clean worktree directory, then its row
+ */
+export const removeCheckoutWorktree = async (
+  id: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<void> => {
+  const res = await fetchFn(getRemoveCheckoutWorktreeUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: removeCheckoutWorktreeError;
+      status?: number;
+    } = new globalThis.Error(
+      `DELETE ${getRemoveCheckoutWorktreeUrl(id)} failed (${res.status})`,
+    );
+    const data: removeCheckoutWorktreeError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: void = body ? JSON.parse(body) : undefined;
+  return data;
+};

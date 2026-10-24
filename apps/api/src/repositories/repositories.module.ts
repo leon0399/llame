@@ -7,6 +7,7 @@ import { CheckoutsController } from './checkouts.controller';
 import { CheckoutsService } from './checkouts.service';
 import { RepositoriesController } from './repositories.controller';
 import { RepositoriesService } from './repositories.service';
+import { WorktreeRemovalService } from './worktree-removal.service';
 
 /**
  * The repository catalog, its aliases, and the checkouts where a repository
@@ -23,6 +24,7 @@ import { RepositoriesService } from './repositories.service';
     RepositoriesService,
     CheckoutsService,
     CheckoutRegistrationService,
+    WorktreeRemovalService,
   ],
 })
 export class RepositoriesModule {}

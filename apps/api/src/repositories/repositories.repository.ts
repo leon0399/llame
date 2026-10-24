@@ -20,6 +20,7 @@ import {
   checkouts,
   repositories,
   repositoryAliases,
+  type WorktreeLease,
   worktreeLeases,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -344,6 +345,42 @@ export class RepositoriesRepository {
       )
       .returning({ id: checkouts.id });
     return deleted.length > 0;
+  }
+
+  /** The lease one worktree entry writes: who created it and from which base. */
+  async createLease(input: {
+    readonly ownerUserId: string;
+    readonly chatId: string;
+    readonly checkoutId: string;
+    readonly baseRef: string;
+    readonly baseCommit: string;
+  }): Promise<WorktreeLease> {
+    const [created] = await this.db
+      .insert(worktreeLeases)
+      .values(input)
+      .returning();
+    if (created === undefined)
+      throw new Error('A lease insert returned no row.');
+    return created;
+  }
+
+  /** The earliest lease of one checkout, which the removal guard reads. */
+  async findLease(
+    ownerUserId: string,
+    checkoutId: string,
+  ): Promise<WorktreeLease | undefined> {
+    const rows = await this.db
+      .select()
+      .from(worktreeLeases)
+      .where(
+        and(
+          eq(worktreeLeases.ownerUserId, ownerUserId),
+          eq(worktreeLeases.checkoutId, checkoutId),
+        ),
+      )
+      .orderBy(asc(worktreeLeases.createdAt), asc(worktreeLeases.id))
+      .limit(1);
+    return rows[0];
   }
 
   /**
