@@ -115,6 +115,24 @@ function HeaderActions({
   );
 }
 
+/** The remote under the sheet's title. Until the catalog is read, it claims
+ *  nothing about the remote. */
+function RemoteDescription({
+  repository,
+}: {
+  repository: RepositoryResponse | undefined;
+}) {
+  return (
+    <SheetDescription>
+      <code className="font-mono text-xs break-all">
+        {repository === undefined
+          ? null
+          : (repository.canonicalRemote ?? "No remote recorded")}
+      </code>
+    </SheetDescription>
+  );
+}
+
 export function RepositoryHeader({
   projectId,
   link,
@@ -134,11 +152,7 @@ export function RepositoryHeader({
       <div className="flex items-start gap-2">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-1">
           <SheetTitle>{link.alias}</SheetTitle>
-          <SheetDescription>
-            <code className="font-mono text-xs break-all">
-              {remote ?? "No remote recorded"}
-            </code>
-          </SheetDescription>
+          <RemoteDescription repository={repository} />
         </div>
         <HeaderActions remote={remote} onUnlink={() => setUnlinkOpen(true)} />
       </div>

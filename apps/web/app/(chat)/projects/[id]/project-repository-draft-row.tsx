@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import {
   Command,
   CommandGroup,
+  CommandInput,
   CommandItem,
   CommandList,
 } from "@workspace/ui/components/command";
@@ -12,6 +19,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { BookMarkedIcon, FolderPlusIcon } from "lucide-react";
 
 import { useRegisterCheckout } from "@/lib/services/checkouts/mutations";
+import { useCheckoutsQuery } from "@/lib/services/checkouts/queries";
 import { useLinkProjectRepository } from "@/lib/services/project/mutations";
 import { repositoryFailureMessage } from "@/lib/services/repositories/failure";
 import {
@@ -33,18 +41,40 @@ function looksLikePath(query: string) {
   return query.startsWith("/") || query.startsWith("machine://");
 }
 
+/** A pasted path as checkouts store it: no trailing separator. */
+function checkoutPath(path: string) {
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
+/** The repository a pasted path belongs to. A path that is already one of
+ *  the account's checkouts names that checkout's repository, since
+ *  registering it again is refused; any other path registers first. */
+function usePathRepository() {
+  const register = useRegisterCheckout();
+  const checkouts = useCheckoutsQuery();
+  const resolve = async (path: string) => {
+    const known = checkouts.data?.find(
+      (checkout) => checkout.path === checkoutPath(path),
+    );
+    return (
+      known?.repositoryId ?? (await register.mutateAsync({ path })).repositoryId
+    );
+  };
+  return { resolve, pending: register.isPending };
+}
+
 /**
  * The two writes behind the picker. A catalog repository links as it is; a
- * path registers the checkout first and links the repository it resolves to,
- * unless the project already links it. The first link a project takes is its
- * primary, so a one-repository project never asks what "primary" means.
+ * path links the repository it belongs to, unless the project already links
+ * it. The first link a project takes is its primary, so a one-repository
+ * project never asks what "primary" means.
  */
 function useAddRepository(
   { projectId, linkedRepositoryIds }: AddRepositoryProps,
   onDone: () => void,
 ) {
   const link = useLinkProjectRepository();
-  const register = useRegisterCheckout();
+  const pathRepository = usePathRepository();
   const [failure, setFailure] = useState<string | null>(null);
   const linkRepository = async (repositoryId: string) => {
     await link.mutateAsync({
@@ -64,14 +94,14 @@ function useAddRepository(
   };
   return {
     failure,
-    pending: link.isPending || register.isPending,
+    pending: link.isPending || pathRepository.pending,
     link: (repositoryId: string) =>
       run(() => linkRepository(repositoryId), "Couldn't link the repository."),
     addPath: (path: string) =>
       run(async () => {
-        const checkout = await register.mutateAsync({ path });
-        if (!linkedRepositoryIds.has(checkout.repositoryId)) {
-          await linkRepository(checkout.repositoryId);
+        const repositoryId = await pathRepository.resolve(path);
+        if (!linkedRepositoryIds.has(repositoryId)) {
+          await linkRepository(repositoryId);
         }
       }, "Couldn't add the repository."),
   };
@@ -79,7 +109,8 @@ function useAddRepository(
 
 /** The cmdk value of a catalog option; also what its search matches. */
 function optionValue(repository: RepositoryResponse) {
-  return `${repository.displayName} ${repository.canonicalRemote ?? ""}`;
+  // cmdk trims item values, so an untrimmed value never matches the active one.
+  return `${repository.displayName} ${repository.canonicalRemote ?? ""}`.trim();
 }
 
 function RepositoryOption({
@@ -223,41 +254,65 @@ type DraftFieldProps = {
   label: string;
   /** Set where the list's rows show paths in the code face. */
   monospace?: boolean;
+  /** Set inside a Command whose options the field picks from, so it is
+   *  announced as a combobox over them. */
+  combobox?: boolean;
 };
 
-export function DraftField({
+/** What both forms of the field share: focus on appearing, Escape and an
+ *  empty blur to discard, and Enter's own action. */
+function useDraftFieldBehavior({
   query,
-  onQueryChange,
   onCancel,
   cancelOnBlur,
   onEnter,
   placeholder,
   label,
-  monospace = false,
-}: DraftFieldProps) {
+}: Omit<DraftFieldProps, "onQueryChange" | "monospace" | "combobox">) {
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => field.current?.focus(), []);
+  return {
+    ref: field,
+    value: query,
+    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape") {
+        // The draft's Escape, not the enclosing sheet's: unstopped, it
+        // reaches the dialog and closes it too.
+        event.stopPropagation();
+        onCancel();
+      }
+      if (event.key === "Enter") onEnter?.();
+    },
+    onBlur: () => {
+      if (cancelOnBlur) onCancel();
+    },
+    placeholder,
+    "aria-label": label,
+    spellCheck: false,
+  };
+}
+
+export function DraftField({
+  onQueryChange,
+  monospace = false,
+  combobox = false,
+  ...props
+}: DraftFieldProps) {
+  const shared = useDraftFieldBehavior(props);
+  if (combobox) {
+    return (
+      <CommandInput
+        variant="inline"
+        onValueChange={onQueryChange}
+        {...shared}
+      />
+    );
+  }
   return (
     <input
-      ref={field}
-      value={query}
+      {...shared}
       onChange={(event) => onQueryChange(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          // The draft's Escape, not the enclosing sheet's: unstopped, it
-          // reaches the dialog and closes it too.
-          event.stopPropagation();
-          onCancel();
-        }
-        if (event.key === "Enter") onEnter?.();
-      }}
-      onBlur={() => {
-        if (cancelOnBlur) onCancel();
-      }}
-      placeholder={placeholder}
-      aria-label={label}
       autoComplete="off"
-      spellCheck={false}
       className={cn(
         "w-full min-w-0 bg-transparent text-sm outline-none placeholder:font-sans placeholder:font-normal placeholder:text-muted-foreground",
         monospace ? "font-mono" : "font-medium",
@@ -381,6 +436,7 @@ export function DraftRepositoryRow({
             cancelOnBlur={search === "" && !add.pending}
             placeholder="Repository name or path"
             label="Add repository"
+            combobox
           />
         </DraftLines>
         <DraftPopout search={search} matches={matches} add={add} />

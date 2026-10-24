@@ -146,9 +146,23 @@ export const SettingsSave: Story = {
   play: async () => {
     const view = await sheet();
 
-    await userEvent.click(view.getByRole("switch", { name: "Primary" }));
+    await userEvent.click(view.getByRole("combobox", { name: "Worktrees" }));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Always" }),
+    );
     await waitFor(() => expect(sentRoutes()).toContain(PATCH_ROUTE));
-    await expect(sentBody(PATCH_ROUTE)).resolves.toEqual({ isPrimary: false });
+    await expect(sentBody(PATCH_ROUTE)).resolves.toEqual({
+      isolation: "always_worktree",
+    });
+
+    const primary = view.getByRole("switch", { name: "Primary" });
+    await waitFor(() => expect(primary).toBeEnabled());
+    await userEvent.click(primary);
+    await waitFor(() =>
+      expect(
+        sentRoutes().filter((route) => route === PATCH_ROUTE),
+      ).toHaveLength(2),
+    );
   },
 };
 

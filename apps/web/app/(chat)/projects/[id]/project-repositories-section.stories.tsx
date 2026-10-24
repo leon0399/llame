@@ -32,11 +32,13 @@ const meta = {
     return routeFetch();
   },
   // The section lives in the project page's side panel column.
-  render: () => (
-    <div className="w-80 rounded-lg border">
-      <ProjectRepositoriesSection projectId="p1" />
-    </div>
-  ),
+  decorators: [
+    (Story) => (
+      <div className="w-80 rounded-lg border">
+        <Story />
+      </div>
+    ),
+  ],
 } satisfies Meta<typeof ProjectRepositoriesSection>;
 
 export default meta;
@@ -159,7 +161,7 @@ export const AddFromCatalog: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Add repository" }),
     );
-    const field = canvas.getByRole("textbox", { name: "Add repository" });
+    const field = canvas.getByRole("combobox", { name: "Add repository" });
     await expect(field).toHaveFocus();
     await userEvent.type(field, "web");
     await expect(await canvas.findByText("1 match")).toBeVisible();
@@ -193,17 +195,53 @@ export const AddByPath: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Add repository" }),
     );
-    await userEvent.type(
-      canvas.getByRole("textbox", { name: "Add repository" }),
-      "/home/leo/src/llame",
-    );
+    const field = canvas.getByRole("combobox", { name: "Add repository" });
+    await userEvent.type(field, "/home/leo/src/llame");
     await expect(canvas.getByText("Enter adds this clone")).toBeVisible();
+    // The field is a combobox over the options it picks from.
+    await expect(field).toHaveAttribute(
+      "aria-controls",
+      canvas.getByRole("listbox").id,
+    );
     await userEvent.keyboard("{Enter}");
 
     await waitFor(() => expect(sentRoutes()).toContain(LINK_ROUTE));
     await expect(sentBody(REGISTER_ROUTE)).resolves.toEqual({
       path: "/home/leo/src/llame",
     });
+    await expect(sentBody(LINK_ROUTE)).resolves.toEqual({
+      repositoryId: "r1",
+      isPrimary: true,
+    });
+  },
+};
+
+/**
+ * A pasted path that is already one of the account's checkouts links that
+ * checkout's repository without registering it again, which the api would
+ * refuse. A trailing separator still names the same checkout.
+ *
+ * @summary a registered path links its repository without re-registering
+ */
+export const AddRegisteredPath: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    api.checkouts = [localClone];
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText(/^Link the repositories this project/);
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Add repository" }),
+    );
+    await userEvent.type(
+      canvas.getByRole("combobox", { name: "Add repository" }),
+      "/home/leo/src/llame/{Enter}",
+    );
+
+    await waitFor(() => expect(sentRoutes()).toContain(LINK_ROUTE));
+    await expect(sentRoutes()).not.toContain(REGISTER_ROUTE);
     await expect(sentBody(LINK_ROUTE)).resolves.toEqual({
       repositoryId: "r1",
       isPrimary: true,
@@ -227,11 +265,11 @@ export const DraftEscape: Story = {
       canvas.getByRole("button", { name: "Add repository" }),
     );
     await userEvent.type(
-      canvas.getByRole("textbox", { name: "Add repository" }),
+      canvas.getByRole("combobox", { name: "Add repository" }),
       "something{Escape}",
     );
     await expect(
-      canvas.queryByRole("textbox", { name: "Add repository" }),
+      canvas.queryByRole("combobox", { name: "Add repository" }),
     ).not.toBeInTheDocument();
     await expect(
       canvas.getByText(/^Link the repositories this project/),

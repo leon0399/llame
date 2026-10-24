@@ -37,22 +37,22 @@ function RepositorySummary({
   repository: RepositoryResponse | undefined;
   checkouts: CheckoutsRead;
 }) {
-  const remote = repository?.canonicalRemote ?? "No remote";
-  // Until the checkouts are read, the row claims nothing about them.
-  if (checkouts.status !== "loaded") {
-    return (
-      <span className="truncate text-xs text-muted-foreground">{remote}</span>
+  // Until the catalog and the checkouts are read, the row claims nothing
+  // about them.
+  const parts =
+    repository === undefined ? [] : [repository.canonicalRemote ?? "No remote"];
+  if (checkouts.status === "loaded") {
+    const clones = checkouts.rows.filter((row) => row.kind === "main");
+    const worktrees = checkouts.rows.length - clones.length;
+    parts.push(
+      clones.length === 0
+        ? "No checkout"
+        : countLabel(clones.length, "checkout"),
     );
+    if (worktrees > 0) parts.push(countLabel(worktrees, "worktree"));
   }
-  const clones = checkouts.rows.filter((checkout) => checkout.kind === "main");
-  const worktrees = checkouts.rows.length - clones.length;
-  const parts = [
-    remote,
-    clones.length === 0 ? "No checkout" : countLabel(clones.length, "checkout"),
-  ];
-  if (worktrees > 0) parts.push(countLabel(worktrees, "worktree"));
   return (
-    <span className="truncate text-xs text-muted-foreground">
+    <span className="min-h-4 truncate text-xs text-muted-foreground">
       {parts.join(" · ")}
     </span>
   );
