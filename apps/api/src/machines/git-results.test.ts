@@ -1,28 +1,28 @@
 import {
-  readGitFailure,
   readGitInspectResult,
   readGitStatusResult,
   readGitWorktreeAddResult,
-  readGitWorktreeListResult,
   readGitWorktreeRemoveResult,
 } from './git-results';
 
-describe('readGitFailure', () => {
-  it('accepts each refusal type the git surface answers', () => {
+const MACHINE = 'devl';
+
+describe('a typed git refusal', () => {
+  it('passes each refusal type through a reader unchanged', () => {
     expect(
-      readGitFailure({
+      readGitWorktreeRemoveResult({
         status: 'error',
         type: 'invalid_input',
-        message: 'A base ref must not start with `-`.',
+        message: 'A git path must be absolute.',
       }),
     ).toEqual({
       status: 'error',
       type: 'invalid_input',
-      message: 'A base ref must not start with `-`.',
+      message: 'A git path must be absolute.',
     });
     for (const type of ['not_a_repository', 'timed_out', 'git_failed']) {
       expect(
-        readGitFailure({
+        readGitWorktreeRemoveResult({
           status: 'error',
           type,
           stderr: 'fatal: no repository',
@@ -33,12 +33,12 @@ describe('readGitFailure', () => {
 
   it.each([
     [{}],
-    [{ status: 'ok' }],
+    [{ status: 'error' }],
     [{ status: 'error', type: 'nope', stderr: 'x' }],
     [{ status: 'error', type: 'git_failed' }],
     [{ status: 'error', type: 'invalid_input', message: 7 }],
   ])('refuses %j', (value) => {
-    expect(readGitFailure(value)).toBeUndefined();
+    expect(readGitWorktreeRemoveResult(value)).toBeUndefined();
   });
 });
 
@@ -55,23 +55,55 @@ describe('readGitInspectResult', () => {
   };
 
   it('accepts the locator answer and copies its remotes', () => {
-    expect(readGitInspectResult(INSPECTED)).toEqual(INSPECTED);
+    expect(readGitInspectResult(INSPECTED, MACHINE)).toEqual(INSPECTED);
   });
 
   it('accepts a linked worktree with a null branch', () => {
     expect(
-      readGitInspectResult({
-        ...INSPECTED,
-        linked: true,
-        mainWorktree: 'machine://devl/srv/app',
-        branch: null,
-      }),
+      readGitInspectResult(
+        {
+          ...INSPECTED,
+          linked: true,
+          mainWorktree: 'machine://devl/srv/app',
+          branch: null,
+        },
+        MACHINE,
+      ),
     ).toMatchObject({ linked: true, branch: null });
+  });
+
+  it('re-encodes the reserved characters the daemon sent raw', () => {
+    expect(
+      readGitInspectResult(
+        {
+          ...INSPECTED,
+          toplevel: 'machine://devl/srv/a#b/100%',
+          commonDir: 'machine://devl/srv/a#b/100%/.git',
+          mainWorktree: 'machine://devl/srv/a#b/100%',
+        },
+        MACHINE,
+      ),
+    ).toMatchObject({
+      toplevel: 'machine://devl/srv/a%23b/100%25',
+      commonDir: 'machine://devl/srv/a%23b/100%25/.git',
+      mainWorktree: 'machine://devl/srv/a%23b/100%25',
+    });
+  });
+
+  it.each([
+    ['another Machine', 'machine://other/srv/app'],
+    ['a local host path', '/srv/app'],
+    ['a bare prefix', 'machine://devl'],
+    ['a prefix that continues the name', 'machine://devlx/srv/app'],
+  ])('refuses a toplevel that is %s', (_case, toplevel) => {
+    expect(
+      readGitInspectResult({ ...INSPECTED, toplevel }, MACHINE),
+    ).toBeUndefined();
   });
 
   it('returns a typed failure unchanged', () => {
     const failure = { status: 'error', type: 'timed_out', stderr: '' };
-    expect(readGitInspectResult(failure)).toEqual(failure);
+    expect(readGitInspectResult(failure, MACHINE)).toEqual(failure);
   });
 
   it.each([
@@ -82,7 +114,7 @@ describe('readGitInspectResult', () => {
     ['a branch that is not text or null', { ...INSPECTED, branch: 7 }],
     ['an unknown status', { ...INSPECTED, status: 'done' }],
   ])('refuses %s', (_case, value) => {
-    expect(readGitInspectResult(value)).toBeUndefined();
+    expect(readGitInspectResult(value, MACHINE)).toBeUndefined();
   });
 });
 
@@ -130,12 +162,15 @@ describe('readGitStatusResult', () => {
 describe('readGitWorktreeAddResult', () => {
   it('accepts the created worktree and a typed failure', () => {
     expect(
-      readGitWorktreeAddResult({
-        status: 'ok',
-        path: 'machine://devl/srv/trees/shop',
-        branch: 'llame/shop',
-        head: 'b'.repeat(40),
-      }),
+      readGitWorktreeAddResult(
+        {
+          status: 'ok',
+          path: 'machine://devl/srv/trees/shop',
+          branch: 'llame/shop',
+          head: 'b'.repeat(40),
+        },
+        MACHINE,
+      ),
     ).toEqual({
       status: 'ok',
       path: 'machine://devl/srv/trees/shop',
@@ -143,11 +178,14 @@ describe('readGitWorktreeAddResult', () => {
       head: 'b'.repeat(40),
     });
     expect(
-      readGitWorktreeAddResult({
-        status: 'error',
-        type: 'git_failed',
-        stderr: 'fatal: already exists',
-      }),
+      readGitWorktreeAddResult(
+        {
+          status: 'error',
+          type: 'git_failed',
+          stderr: 'fatal: already exists',
+        },
+        MACHINE,
+      ),
     ).toEqual({
       status: 'error',
       type: 'git_failed',
@@ -155,47 +193,37 @@ describe('readGitWorktreeAddResult', () => {
     });
   });
 
-  it('refuses an answer without a head', () => {
+  it('re-encodes a raw host path and refuses a foreign prefix', () => {
     expect(
-      readGitWorktreeAddResult({ status: 'ok', path: '/srv/a', branch: 'b' }),
+      readGitWorktreeAddResult(
+        {
+          status: 'ok',
+          path: 'machine://devl/srv/trees/100%',
+          branch: 'llame/shop',
+          head: 'b'.repeat(40),
+        },
+        MACHINE,
+      ),
+    ).toMatchObject({ path: 'machine://devl/srv/trees/100%25' });
+    expect(
+      readGitWorktreeAddResult(
+        {
+          status: 'ok',
+          path: 'machine://host/srv/trees/shop',
+          branch: 'llame/shop',
+          head: 'b'.repeat(40),
+        },
+        MACHINE,
+      ),
     ).toBeUndefined();
   });
-});
 
-describe('readGitWorktreeListResult', () => {
-  it('accepts each entry, with a detached branch read as null', () => {
+  it('refuses an answer without a head', () => {
     expect(
-      readGitWorktreeListResult({
-        status: 'ok',
-        worktrees: [
-          {
-            path: 'machine://devl/srv/app',
-            branch: 'main',
-            head: 'c'.repeat(40),
-            locked: false,
-            prunable: false,
-          },
-          {
-            path: 'machine://devl/srv/detached',
-            branch: null,
-            head: 'd'.repeat(40),
-            locked: true,
-            prunable: true,
-          },
-        ],
-      }),
-    ).toMatchObject({
-      worktrees: [{ branch: 'main' }, { branch: null, locked: true }],
-    });
-  });
-
-  it.each([
-    ['an entry that is not a record', [7]],
-    ['an entry without a path', [{ locked: false, prunable: false }]],
-    ['a lock flag that is not a boolean', [{ path: '/a', locked: 'no' }]],
-  ])('refuses %s', (_case, worktrees) => {
-    expect(
-      readGitWorktreeListResult({ status: 'ok', worktrees }),
+      readGitWorktreeAddResult(
+        { status: 'ok', path: 'machine://devl/srv/a', branch: 'b' },
+        MACHINE,
+      ),
     ).toBeUndefined();
   });
 });

@@ -156,7 +156,10 @@ register the source clone's parent directory, not only the clone itself;
 worktrees elsewhere, register that directory too and set `worktree_base` on the
 main checkout inside a root — for example
 `machine://devl/home/me/work/trees`. A directory no root contains answers
-`path_not_registered` and starts no git command.
+`path_not_registered` and starts no git command. A git result path outside
+every root — a repository whose toplevel sits above them, as a tracked home
+directory does, or a worktree kept elsewhere — is refused the same way rather
+than reported as a locator.
 
 ## Permissions
 

@@ -1,3 +1,13 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { type GitInspectSuccess } from '@workspace/git-executor';
 
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
@@ -5,52 +15,83 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
-import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import {
+  createProtocolPeer,
+  type ProtocolPeerOptions,
+} from '../testing/machine-protocol-peer';
 import {
   ExecutorGit,
   ExecutorGitError,
   localGitSurface,
   MACHINE_GIT_BUDGET_MS,
+  type LocalGit,
 } from './executor-git.service';
 import { MachineConnector } from './machine-connector.service';
 
 /**
- * The executor dispatch: which executor a submitted path runs on, and how a
- * Machine call carries it. The git operations themselves are pinned by
- * `@workspace/git-executor`'s own suite and by the daemon's; this suite covers
- * the derivation, the locator form, and the failure mapping.
+ * The executor dispatch: which executor a submitted path runs on, how a Machine
+ * call carries it, and how a Machine failure maps. The git operations
+ * themselves are pinned by `@workspace/git-executor`'s own suite and by the
+ * daemon's; this suite covers the derivation, the locator form, the canonical
+ * address, and the failure mapping.
  */
 const NAS = 'nas';
 const LOCAL_EXECUTOR = 'hub-host';
 const MACHINE_PATH = '/srv/app';
+const LOCATOR = `machine://${NAS}${MACHINE_PATH}`;
 
-function configWith(tools: Partial<LlameConfig['tools']>) {
+const MACHINE_ENDPOINTS = {
+  ssh: { knownHostsFile: '/dev/null' },
+  hosts: { [NAS]: { destination: 'nas.example' } },
+};
+
+function configWith(
+  tools: Partial<LlameConfig['tools']>,
+): Pick<InstanceConfigService, 'config'> {
   return {
     config: {
       ...BUILT_IN_DEFAULTS,
       tools: { ...BUILT_IN_DEFAULTS.tools, ...tools },
     },
-  } satisfies Pick<InstanceConfigService, 'config'>;
+  };
 }
 
-function connectors() {
-  const options = {
+const opened: Array<MachineConnector> = [];
+
+/** One ExecutorGit over a connector whose peer answers `options`. */
+function hub(
+  options: ProtocolPeerOptions = {},
+  local: LocalGit = localGitSurface(),
+  tools: Partial<LlameConfig['tools']> = { nativeExecutorId: LOCAL_EXECUTOR },
+) {
+  const peer = createProtocolPeer({ roots: ['/srv'], ...options });
+  const connector = new MachineConnector({
     hubVersion: 'test-hub',
-    machines: {
-      ssh: { knownHostsFile: '/dev/null' },
-      hosts: { [NAS]: { destination: 'nas.example' } },
-    },
+    machines: MACHINE_ENDPOINTS,
+    transportFactory: peer.factory,
     idleCloseMs: 1000,
+  });
+  opened.push(connector);
+  return {
+    executors: new ExecutorGit(configWith(tools), connector, local),
+    peer,
   };
-  const configured = new MachineConnector({
-    ...options,
-    transportFactory: createProtocolPeer({ roots: ['/srv'] }).factory,
-  });
-  const unconfigured = new MachineConnector({
-    ...options,
+}
+
+/** An ExecutorGit whose connector has no configured Machine at all. */
+function unconfiguredHub(): ExecutorGit {
+  const connector = new MachineConnector({
+    hubVersion: 'test-hub',
     machines: undefined,
+    transportFactory: createProtocolPeer().factory,
+    idleCloseMs: 1000,
   });
-  return { configured, unconfigured };
+  opened.push(connector);
+  return new ExecutorGit(
+    configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
+    connector,
+    localGitSurface(),
+  );
 }
 
 const IMPORTED: GitInspectSuccess = {
@@ -64,7 +105,13 @@ const IMPORTED: GitInspectSuccess = {
   head: 'a'.repeat(40),
 };
 
+const created: Array<string> = [];
+
 afterEach(() => {
+  for (const connector of opened.splice(0)) connector.onModuleDestroy();
+  for (const directory of created.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
   vi.restoreAllMocks();
 });
 
@@ -81,35 +128,31 @@ async function rejectionOf(
   throw new Error('The call resolved instead of failing.');
 }
 
+function tempDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'executor-git-'));
+  created.push(directory);
+  return directory;
+}
+
 describe('ExecutorGit.locate', () => {
   it('runs an absolute local path on the serving process executor', () => {
-    const { configured } = connectors();
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      configured,
-      localGitSurface(),
-    );
+    const { executors } = hub();
 
     expect(executors.locate('/srv/app')).toEqual({
       executorId: LOCAL_EXECUTOR,
       machine: undefined,
       path: '/srv/app',
     });
-    configured.onModuleDestroy();
   });
 
   it('refuses a local path on a process without a native executor', () => {
-    const { configured } = connectors();
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: undefined }),
-      configured,
-      localGitSurface(),
-    );
+    const { executors } = hub({}, localGitSurface(), {
+      nativeExecutorId: undefined,
+    });
 
     expect(() => executors.locate('/srv/app')).toThrow(
       expect.objectContaining({ code: 'executor_unavailable' }),
     );
-    configured.onModuleDestroy();
   });
 
   it.each([
@@ -118,105 +161,152 @@ describe('ExecutorGit.locate', () => {
     [''],
     ['machine://nas'],
     ['machine://Not A Name/srv/app'],
+    ['machine://nas/srv/app:12-14'],
   ])('refuses %j as an invalid path', (path) => {
-    const { configured } = connectors();
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      configured,
-      localGitSurface(),
-    );
+    const { executors } = hub();
 
     expect(() => executors.locate(path)).toThrow(
       expect.objectContaining({ code: 'invalid_path' }),
     );
-    configured.onModuleDestroy();
-  });
-
-  it('refuses a locator that carries a read selector', () => {
-    const { configured } = connectors();
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      configured,
-      localGitSurface(),
-    );
-
-    expect(() => executors.locate('machine://nas/srv/app:12-14')).toThrow(
-      expect.objectContaining({ code: 'invalid_path' }),
-    );
-    configured.onModuleDestroy();
   });
 
   it('refuses a locator that names no configured Machine', () => {
-    const { unconfigured } = connectors();
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      unconfigured,
-      localGitSurface(),
-    );
+    const executors = unconfiguredHub();
 
-    expect(() => executors.locate('machine://nas/srv/app')).toThrow(
+    expect(() => executors.locate(LOCATOR)).toThrow(
       expect.objectContaining({ code: 'executor_unavailable' }),
     );
-    unconfigured.onModuleDestroy();
   });
 
   it('derives the Machine executor and its own path from a locator', () => {
-    const { configured } = connectors();
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      configured,
-      localGitSurface(),
-    );
+    const { executors } = hub();
 
-    expect(executors.locate('machine://nas/srv/app')).toEqual({
+    expect(executors.locate(LOCATOR)).toEqual({
       executorId: `machine:${NAS}`,
       machine: NAS,
       path: MACHINE_PATH,
     });
-    configured.onModuleDestroy();
   });
 });
 
 describe('ExecutorGit.address', () => {
   it('keeps a local path and states a Machine path as its locator', () => {
-    const { configured } = connectors();
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      configured,
-      localGitSurface(),
-    );
+    const { executors } = hub();
 
     const local = executors.locate('/srv/app');
     expect(executors.address(local, '/srv/app')).toBe('/srv/app');
-    const machine = executors.locate(`${'machine://'}${NAS}${MACHINE_PATH}`);
-    expect(executors.address(machine, MACHINE_PATH)).toBe(
-      `machine://${NAS}${MACHINE_PATH}`,
-    );
-    configured.onModuleDestroy();
+    const machine = executors.locate(LOCATOR);
+    expect(executors.address(machine, MACHINE_PATH)).toBe(LOCATOR);
+  });
+});
+
+describe('ExecutorGit.canonical', () => {
+  it('resolves a local symbolic link and refuses a missing path', async () => {
+    const { executors } = hub();
+    const directory = tempDirectory();
+    const real = join(directory, 'real');
+    mkdirSync(real);
+    symlinkSync(real, join(directory, 'link'));
+    const target = executors.locate('/srv/app');
+
+    await expect(
+      executors.canonical(target, join(directory, 'link')),
+    ).resolves.toBe(real);
+    await expect(
+      executors.canonical(target, join(directory, 'missing')),
+    ).rejects.toMatchObject({ code: 'invalid_path' });
+  });
+
+  it('refuses a local path that is not a directory', async () => {
+    const { executors } = hub();
+    const file = join(tempDirectory(), 'file.txt');
+    writeFileSync(file, 'x\n');
+
+    await expect(
+      executors.canonical(executors.locate('/srv/app'), file),
+    ).rejects.toMatchObject({ code: 'not_a_directory' });
+  });
+
+  it('asks the daemon for the real path and renders the canonical locator', async () => {
+    const { executors, peer } = hub({
+      methods: ['git.inspect'],
+      answers: {
+        'fs.stat': {
+          value: {
+            kind: 'directory',
+            isLink: false,
+            realPath: '/srv/a#b/100%',
+          },
+        },
+      },
+    });
+
+    await expect(
+      executors.canonical(executors.locate(LOCATOR), LOCATOR),
+    ).resolves.toBe('machine://nas/srv/a%23b/100%25');
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'fs.stat')?.params,
+    ).toMatchObject({ path: MACHINE_PATH });
+  });
+
+  it('maps a daemon refusal and a missing directory to typed codes', async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answer: (call) =>
+        call.method === 'fs.stat'
+          ? { value: { kind: 'missing', isLink: false } }
+          : undefined,
+    });
+
+    await expect(
+      executors.canonical(executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toMatchObject({ code: 'invalid_path' });
+
+    const refused = hub({
+      methods: ['git.inspect'],
+      answers: { 'fs.stat': { error: 'path_not_registered' } },
+    });
+    await expect(
+      refused.executors.canonical(refused.executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toMatchObject({ code: 'path_not_registered' });
+  });
+
+  it('refuses an answer that is not a directory or carries no real path', async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answers: {
+        'fs.stat': { value: { kind: 'file', isLink: false, size: 12 } },
+      },
+    });
+    await expect(
+      executors.canonical(executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toMatchObject({ code: 'not_a_directory' });
+
+    const unusable = hub({
+      methods: ['git.inspect'],
+      answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+    });
+    await expect(
+      unusable.executors.canonical(unusable.executors.locate(LOCATOR), LOCATOR),
+    ).rejects.toMatchObject({ code: 'git_failed' });
   });
 });
 
 describe('ExecutorGit.inspect', () => {
   it('inspects a local path in process', async () => {
-    const { configured } = connectors();
     const inspect = vi.fn(() => Promise.resolve(IMPORTED));
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      configured,
-      { ...localGitSurface(), inspect },
-    );
+    const { executors } = hub({}, { ...localGitSurface(), inspect });
     const target = executors.locate('/srv/app');
 
     await expect(executors.inspect(target, '/srv/app')).resolves.toEqual(
       IMPORTED,
     );
     expect(inspect).toHaveBeenCalledWith({ path: '/srv/app' });
-    configured.onModuleDestroy();
   });
 
   it('answers the daemon locators for a Machine path', async () => {
-    const peer = createProtocolPeer({
-      roots: ['/srv'],
+    const { executors, peer } = hub({
       methods: ['git.inspect', 'git.worktreeAdd'],
       answers: {
         'git.inspect': {
@@ -228,27 +318,11 @@ describe('ExecutorGit.inspect', () => {
         },
       },
     });
-    const connector = new MachineConnector({
-      hubVersion: 'test-hub',
-      machines: {
-        ssh: { knownHostsFile: '/dev/null' },
-        hosts: { [NAS]: { destination: 'nas.example' } },
-      },
-      transportFactory: peer.factory,
-      idleCloseMs: 1000,
-    });
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      connector,
-      localGitSurface(),
-    );
-    const target = executors.locate(`machine://${NAS}${MACHINE_PATH}`);
+    const target = executors.locate(LOCATOR);
 
-    await expect(
-      executors.inspect(target, `machine://${NAS}${MACHINE_PATH}`),
-    ).resolves.toMatchObject({
+    await expect(executors.inspect(target, LOCATOR)).resolves.toMatchObject({
       status: 'ok',
-      toplevel: `machine://${NAS}${MACHINE_PATH}`,
+      toplevel: LOCATOR,
     });
     const machine = await peer.session(0);
     expect(
@@ -258,155 +332,67 @@ describe('ExecutorGit.inspect', () => {
       envelope: { budgetMs: MACHINE_GIT_BUDGET_MS },
       options: { displayPrefix: `machine://${NAS}` },
     });
-    connector.onModuleDestroy();
   });
 
   it('fails as machine_update_required on a daemon without the method', async () => {
-    const peer = createProtocolPeer({ roots: ['/srv'] });
-    const connector = new MachineConnector({
-      hubVersion: 'test-hub',
-      machines: {
-        ssh: { knownHostsFile: '/dev/null' },
-        hosts: { [NAS]: { destination: 'nas.example' } },
-      },
-      transportFactory: peer.factory,
-      idleCloseMs: 1000,
-    });
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      connector,
-      localGitSurface(),
-    );
-    const target = executors.locate(`machine://${NAS}${MACHINE_PATH}`);
+    const { executors } = hub();
+    const target = executors.locate(LOCATOR);
 
-    const error = await rejectionOf(
-      executors.inspect(target, `machine://${NAS}${MACHINE_PATH}`),
-    );
+    const error = await rejectionOf(executors.inspect(target, LOCATOR));
 
     expect(error.code).toBe('machine_update_required');
     expect(error.message).toContain('Update the daemon on that Machine');
-    connector.onModuleDestroy();
   });
 
   it('fails as machine_unavailable when the session cannot open', async () => {
-    const peer = createProtocolPeer({
+    const { executors } = hub({
       openFailure: () =>
         'ssh: connect to host nas.example port 22: No route to host',
     });
-    const connector = new MachineConnector({
-      hubVersion: 'test-hub',
-      machines: {
-        ssh: { knownHostsFile: '/dev/null' },
-        hosts: { [NAS]: { destination: 'nas.example' } },
-      },
-      transportFactory: peer.factory,
-      idleCloseMs: 1000,
-    });
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      connector,
-      localGitSurface(),
-    );
-    const target = executors.locate(`machine://${NAS}${MACHINE_PATH}`);
+    const target = executors.locate(LOCATOR);
 
-    await expect(
-      executors.inspect(target, `machine://${NAS}${MACHINE_PATH}`),
-    ).rejects.toThrow(expect.objectContaining({ code: 'machine_unavailable' }));
-    connector.onModuleDestroy();
+    await expect(executors.inspect(target, LOCATOR)).rejects.toThrow(
+      expect.objectContaining({ code: 'machine_unavailable' }),
+    );
   });
 
-  it('maps a daemon root refusal to permission_denied and another refusal to git_failed', async () => {
-    const peer = createProtocolPeer({
-      roots: ['/srv'],
+  it('keeps the daemon root refusal, and maps another refusal to git_failed', async () => {
+    const refused = hub({
       methods: ['git.inspect'],
       answers: { 'git.inspect': { error: 'path_not_registered' } },
     });
-    const connector = new MachineConnector({
-      hubVersion: 'test-hub',
-      machines: {
-        ssh: { knownHostsFile: '/dev/null' },
-        hosts: { [NAS]: { destination: 'nas.example' } },
-      },
-      transportFactory: peer.factory,
-      idleCloseMs: 1000,
-    });
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      connector,
-      localGitSurface(),
+    const target = refused.executors.locate(LOCATOR);
+
+    await expect(refused.executors.inspect(target, LOCATOR)).rejects.toThrow(
+      expect.objectContaining({ code: 'path_not_registered' }),
     );
-    const target = executors.locate(`machine://${NAS}${MACHINE_PATH}`);
 
-    await expect(
-      executors.inspect(target, `machine://${NAS}${MACHINE_PATH}`),
-    ).rejects.toBeInstanceOf(ExecutorGitError);
-    await expect(
-      executors.inspect(target, `machine://${NAS}${MACHINE_PATH}`),
-    ).rejects.toThrow(expect.objectContaining({ code: 'permission_denied' }));
-
-    const invalid = createProtocolPeer({
-      roots: ['/srv'],
+    const invalid = hub({
       methods: ['git.inspect'],
       answers: { 'git.inspect': { error: 'invalid_params' } },
     });
-    const otherConnector = new MachineConnector({
-      hubVersion: 'test-hub',
-      machines: {
-        ssh: { knownHostsFile: '/dev/null' },
-        hosts: { [NAS]: { destination: 'nas.example' } },
-      },
-      transportFactory: invalid.factory,
-      idleCloseMs: 1000,
-    });
-    const otherExecutors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      otherConnector,
-      localGitSurface(),
-    );
-
     await expect(
-      otherExecutors.inspect(target, `machine://${NAS}${MACHINE_PATH}`),
+      invalid.executors.inspect(invalid.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toThrow(expect.objectContaining({ code: 'git_failed' }));
-    connector.onModuleDestroy();
-    otherConnector.onModuleDestroy();
   });
 
   it('fails as git_failed on an answer it cannot read', async () => {
-    const peer = createProtocolPeer({
-      roots: ['/srv'],
+    const { executors } = hub({
       methods: ['git.inspect'],
       answers: { 'git.inspect': { value: { status: 'ok' } } },
     });
-    const connector = new MachineConnector({
-      hubVersion: 'test-hub',
-      machines: {
-        ssh: { knownHostsFile: '/dev/null' },
-        hosts: { [NAS]: { destination: 'nas.example' } },
-      },
-      transportFactory: peer.factory,
-      idleCloseMs: 1000,
-    });
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      connector,
-      localGitSurface(),
-    );
-    const target = executors.locate(`machine://${NAS}${MACHINE_PATH}`);
+    const target = executors.locate(LOCATOR);
 
-    const error = await rejectionOf(
-      executors.inspect(target, `machine://${NAS}${MACHINE_PATH}`),
-    );
+    const error = await rejectionOf(executors.inspect(target, LOCATOR));
 
     expect(error.code).toBe('git_failed');
     expect(error.message).toContain('unusable');
-    connector.onModuleDestroy();
   });
 });
 
 describe('ExecutorGit.worktreeAdd', () => {
   it('sends the executor paths of both the source and the directory', async () => {
-    const peer = createProtocolPeer({
-      roots: ['/srv'],
+    const { executors, peer } = hub({
       methods: ['git.worktreeAdd'],
       answers: {
         'git.worktreeAdd': {
@@ -419,25 +405,11 @@ describe('ExecutorGit.worktreeAdd', () => {
         },
       },
     });
-    const connector = new MachineConnector({
-      hubVersion: 'test-hub',
-      machines: {
-        ssh: { knownHostsFile: '/dev/null' },
-        hosts: { [NAS]: { destination: 'nas.example' } },
-      },
-      transportFactory: peer.factory,
-      idleCloseMs: 1000,
-    });
-    const executors = new ExecutorGit(
-      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
-      connector,
-      localGitSurface(),
-    );
-    const target = executors.locate(`machine://${NAS}${MACHINE_PATH}`);
+    const target = executors.locate(LOCATOR);
 
     await expect(
       executors.worktreeAdd(target, {
-        source: `machine://${NAS}${MACHINE_PATH}`,
+        source: LOCATOR,
         branch: 'llame/shop',
         baseRef: 'HEAD',
         directory: `machine://${NAS}/srv/trees/shop`,
@@ -453,6 +425,5 @@ describe('ExecutorGit.worktreeAdd', () => {
       directory: '/srv/trees/shop',
       options: { displayPrefix: `machine://${NAS}` },
     });
-    connector.onModuleDestroy();
   });
 });

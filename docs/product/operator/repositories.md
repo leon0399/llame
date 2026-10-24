@@ -42,7 +42,9 @@ settings decide that, and none of them has a default that admits anything:
   checkout row is stored at), and the main clone git reports are each evaluated
   in `default` mode, so a path no allow covers answers `permission_denied`
   without an inspection. A submission that names a subdirectory therefore needs
-  its clone's root admitted too.
+  its clone's root admitted too. On a Machine the canonical form is the
+  daemon's own real path from `fs.stat`, so a symbolic link is decided where it
+  lands.
 
 The recommended portable policy in
 [tool-call-permissions](tool-call-permissions.md) already admits
@@ -55,7 +57,9 @@ in process on the serving process's `tools.nativeExecutorId`. A
 `machine://<name>/<absolute path>` locator runs on that Machine through the
 protocol, and the row stores the locator — the same text a Chat's bound root
 carries — with the executor `machine:<name>`. A locator that names no
-configured Machine answers `executor_unavailable` and starts no git call.
+configured Machine answers `executor_unavailable` and starts no git call. A
+git result path outside every registered root is the daemon's refusal, so the
+route answers `403` `permission_denied` and stores no row.
 
 A Machine must run a daemon that answers the typed git methods; see
 [remote Machines](machines.md#install-the-daemon). Registration on a Machine

@@ -2,6 +2,11 @@
  * Untrusted-input narrowing for the typed git results. A Machine is not a
  * trusted peer, so every field a hub-side caller reads is rebuilt here; an
  * unusable answer narrows to `undefined` instead of a wrong value.
+ *
+ * Every path field is rebuilt as the canonical Machine locator, not copied: the
+ * daemon answers its display prefix plus the host path, and only
+ * `formatMachineLocator` decides where the reserved characters (`%`, `#`, `?`,
+ * `\`, a selector colon) go.
  */
 
 import {
@@ -11,16 +16,36 @@ import {
   type GitRepositoryRemote,
   type GitStatusResult,
   type GitWorktreeAddResult,
-  type GitWorktreeEntry,
-  type GitWorktreeListResult,
   type GitWorktreeRemoveResult,
   type JsonValue,
   type SerializableValue,
 } from '@workspace/machine-protocol';
 
-import { isCount, isFlag, isText, isUntrustedList } from './machine-results';
+import { formatMachineLocator, MACHINE_SCHEME } from './machine-locator';
+import { isCount, isFlag, isText } from './machine-results';
+
+/** One path field of a git result, as the canonical locator of this Machine. */
+function readLocatorPath(
+  machine: string,
+  value: SerializableValue,
+): { readonly value: string } | undefined {
+  if (!isText(value)) return undefined;
+  const prefix = `${MACHINE_SCHEME}://${machine}`;
+  if (!value.startsWith(`${prefix}/`)) return undefined;
+  const locator = formatMachineLocator(machine, value.slice(prefix.length));
+  return locator === undefined ? undefined : { value: locator };
+}
 
 /** A nullable path field of a git result: a locator, or `null`. */
+function readOptionalLocator(
+  machine: string,
+  value: SerializableValue,
+): { readonly value: string | null } | undefined {
+  if (value === null || value === undefined) return { value: null };
+  return readLocatorPath(machine, value);
+}
+
+/** A nullable text field that is not a path, such as a branch or a commit. */
 function readOptionalText(
   value: SerializableValue,
 ): { readonly value: string | null } | undefined {
@@ -29,7 +54,7 @@ function readOptionalText(
 }
 
 /** A git refusal or failure, as a `git.*` method answers it. */
-export function readGitFailure(value: JsonValue): GitFailure | undefined {
+function readGitFailure(value: JsonValue): GitFailure | undefined {
   if (!isSerializableRecord(value) || value['status'] !== 'error')
     return undefined;
   const type = value['type'];
@@ -67,19 +92,22 @@ function readGitRemotes(
 /** A `git.inspect` answer: locators on a Machine, or a typed failure. */
 export function readGitInspectResult(
   value: JsonValue,
+  machine: string,
 ): GitInspectResult | undefined {
   const failure = readGitFailure(value);
   if (failure !== undefined) return failure;
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
-  const { toplevel, commonDir, linked, remotes } = value;
-  const mainWorktree = readOptionalText(value['mainWorktree']);
+  const toplevel = readLocatorPath(machine, value['toplevel']);
+  const commonDir = readLocatorPath(machine, value['commonDir']);
+  const mainWorktree = readOptionalLocator(machine, value['mainWorktree']);
   const branch = readOptionalText(value['branch']);
   const head = readOptionalText(value['head']);
-  const repositoryRemotes = readGitRemotes(remotes ?? null);
+  const linked = value['linked'];
+  const repositoryRemotes = readGitRemotes(value['remotes'] ?? null);
   if (
-    !isText(toplevel) ||
-    !isText(commonDir) ||
+    toplevel === undefined ||
+    commonDir === undefined ||
     !isFlag(linked) ||
     mainWorktree === undefined ||
     branch === undefined ||
@@ -89,8 +117,8 @@ export function readGitInspectResult(
     return undefined;
   return {
     status: 'ok',
-    toplevel,
-    commonDir,
+    toplevel: toplevel.value,
+    commonDir: commonDir.value,
     linked,
     mainWorktree: mainWorktree.value,
     remotes: repositoryRemotes,
@@ -124,51 +152,16 @@ export function readGitStatusResult(
 /** A `git.worktreeAdd` answer: the created worktree, or a typed failure. */
 export function readGitWorktreeAddResult(
   value: JsonValue,
+  machine: string,
 ): GitWorktreeAddResult | undefined {
   const failure = readGitFailure(value);
   if (failure !== undefined) return failure;
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
-  const { path, branch, head } = value;
-  if (!isText(path) || !isText(branch) || !isText(head)) return undefined;
-  return { status: 'ok', path, branch, head };
-}
-
-function readWorktreeEntry(
-  value: SerializableValue,
-): GitWorktreeEntry | undefined {
-  if (!isSerializableRecord(value)) return undefined;
-  const { path, locked, prunable } = value;
-  const branch = readOptionalText(value['branch']);
-  const head = readOptionalText(value['head']);
-  if (
-    !isText(path) ||
-    !isFlag(locked) ||
-    !isFlag(prunable) ||
-    branch === undefined ||
-    head === undefined
-  )
-    return undefined;
-  return { path, branch: branch.value, head: head.value, locked, prunable };
-}
-
-/** A `git.worktreeList` answer: each worktree, or a typed failure. */
-export function readGitWorktreeListResult(
-  value: JsonValue,
-): GitWorktreeListResult | undefined {
-  const failure = readGitFailure(value);
-  if (failure !== undefined) return failure;
-  if (!isSerializableRecord(value) || value['status'] !== 'ok')
-    return undefined;
-  const listed = value['worktrees'] ?? null;
-  if (!isUntrustedList(listed)) return undefined;
-  const worktrees: Array<GitWorktreeEntry> = [];
-  for (const entry of listed) {
-    const parsed = readWorktreeEntry(entry);
-    if (parsed === undefined) return undefined;
-    worktrees.push(parsed);
-  }
-  return { status: 'ok', worktrees };
+  const path = readLocatorPath(machine, value['path']);
+  const { branch, head } = value;
+  if (path === undefined || !isText(branch) || !isText(head)) return undefined;
+  return { status: 'ok', path: path.value, branch, head };
 }
 
 /** A `git.worktreeRemove` answer: success, or a typed failure. */
