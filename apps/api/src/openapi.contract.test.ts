@@ -120,6 +120,7 @@ const EXPECTED_OPERATION_IDS = [
   'pinItem',
   'registerCheckout',
   'registerUser',
+  'removeCheckoutWorktree',
   'renameKnowledgeSpace',
   'reorderPins',
   'resumeChatStream',

@@ -211,7 +211,7 @@ export function machineReadResult(
 
 export type MachineMutationTarget = {
   readonly name: string;
-  readonly operation: 'edit' | 'write' | 'bash';
+  readonly operation: 'edit' | 'write' | 'bash' | 'worktree';
   /** The canonical Machine locator the attempt records, never a host path. */
   readonly locator: string;
 };

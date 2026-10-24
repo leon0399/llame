@@ -35,6 +35,7 @@ import {
   machineExecutorId,
   parseMachineLocator,
 } from './machine-locator';
+import { ExecutorGitError } from './executor-git-error';
 import {
   MachineUnavailableError,
   MachineUpdateRequiredError,
@@ -91,32 +92,6 @@ export function localGitSurface(): LocalGit {
  */
 export const MACHINE_GIT_BUDGET_MS = WORKTREE_ADD_TIMEOUT_MS + 15_000;
 
-/**
- * The codes this surface fails with. A checkout route answers each with the
- * status `repositories/failure.ts` maps it to; `path_not_registered` is the
- * daemon's own refusal of an address, which registration answers as
- * `permission_denied` and worktree entry reports under its own name.
- */
-export type ExecutorGitErrorCode =
-  | 'invalid_path'
-  | 'not_a_directory'
-  | 'executor_unavailable'
-  | 'machine_unavailable'
-  | 'machine_update_required'
-  | 'path_not_registered'
-  | 'permission_denied'
-  | 'git_failed';
-
-export class ExecutorGitError extends Error {
-  constructor(
-    readonly code: ExecutorGitErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'ExecutorGitError';
-  }
-}
-
 /** The executor one submitted address runs on, and the path it names there. */
 export type ExecutorTarget = {
   /** The stored executor identifier: `tools.nativeExecutorId` or `machine:<name>`. */
@@ -126,6 +101,19 @@ export type ExecutorTarget = {
   /** The path on that executor, in its own absolute form. */
   readonly path: string;
 };
+
+/**
+ * The segments of one absolute executor path that may not exist yet. An empty,
+ * `.`, or `..` segment, or a relative value, would make a lexical ancestor
+ * join disagree with the filesystem, so it is refused rather than resolved.
+ */
+function creatableSegments(value: string): ReadonlyArray<string> | undefined {
+  if (!path.posix.isAbsolute(value)) return undefined;
+  const segments = value.split('/').filter((segment) => segment !== '');
+  return segments.some((segment) => segment === '.' || segment === '..')
+    ? undefined
+    : segments;
+}
 
 @Injectable()
 export class ExecutorGit {
@@ -322,6 +310,74 @@ export class ExecutorGit {
     return canonical;
   }
 
+  /**
+   * The canonical address of one path that need not exist yet: its deepest
+   * existing ancestor is resolved — `realpath` locally, the daemon's own
+   * `fs.stat` real path on a Machine — and the segments below it are appended
+   * lexically. A `.` or `..` segment would make that join disagree with the
+   * filesystem, so it is refused instead of resolved.
+   *
+   * This is the form a worktree-directory decision sees, so a symlinked parent
+   * decides where it lands, and a Machine that does not register the
+   * destination refuses it here before any git call.
+   */
+  async canonicalTarget(
+    target: ExecutorTarget,
+    address: string,
+  ): Promise<string> {
+    const segments = creatableSegments(this.executorPath(target, address));
+    if (segments === undefined) {
+      throw new ExecutorGitError(
+        'invalid_path',
+        'A worktree directory must be an absolute path without `.` or `..` segments.',
+      );
+    }
+    const machine = target.machine;
+    if (machine !== undefined)
+      return this.machineCanonicalTarget({ ...target, machine }, segments);
+    for (let end = segments.length; end >= 1; end -= 1) {
+      const ancestor = `/${segments.slice(0, end).join('/')}`;
+      // codeql[js/path-injection]
+      const canonical = await realpath(ancestor).catch(() => undefined);
+      if (canonical !== undefined)
+        return path.posix.join(canonical, ...segments.slice(end));
+    }
+    return `/${segments.join('/')}`;
+  }
+
+  /** The daemon's real path for an existing ancestor of one future directory. */
+  private async machineCanonicalTarget(
+    target: ExecutorTarget & { readonly machine: string },
+    segments: ReadonlyArray<string>,
+  ): Promise<string> {
+    for (let end = segments.length; end >= 1; end -= 1) {
+      const entry = await this.statOn(
+        target.machine,
+        `/${segments.slice(0, end).join('/')}`,
+      );
+      if (entry.kind === 'missing') continue;
+      if (entry.kind !== 'directory' || entry.realPath === undefined) {
+        throw new ExecutorGitError(
+          'invalid_path',
+          'A worktree parent on this Machine is not a directory.',
+        );
+      }
+      return this.address(
+        target,
+        path.posix.join(entry.realPath, ...segments.slice(end)),
+      );
+    }
+    return `/${segments.join('/')}`;
+  }
+
+  /** Whether one address names an entry on its executor, creating nothing. */
+  async exists(target: ExecutorTarget, address: string): Promise<boolean> {
+    const value = this.executorPath(target, address);
+    if (target.machine !== undefined)
+      return (await this.statOn(target.machine, value)).kind !== 'missing';
+    return (await stat(value).catch(() => undefined)) !== undefined;
+  }
+
   async inspect(
     target: ExecutorTarget,
     address: string,
@@ -401,8 +457,12 @@ export class ExecutorGit {
     );
   }
 
-  /** The executor's own path for an address: a locator decodes to its path. */
-  private executorPath(target: ExecutorTarget, address: string): string {
+  /**
+   * The executor's own path for an address: a locator decodes to the path it
+   * names, and a local address is already that path. It is the inverse of
+   * {@link address}, and the form placement arithmetic joins onto.
+   */
+  executorPath(target: ExecutorTarget, address: string): string {
     if (target.machine === undefined) return address;
     const parsed = parseMachineLocator(address);
     if (parsed.kind !== 'path') {
@@ -468,6 +528,7 @@ export class ExecutorGit {
       return new ExecutorGitError(
         'machine_unavailable',
         `The Machine ${machine} is unavailable (${error.reason}).`,
+        error.sent,
       );
     if (error instanceof MachineProtocolError) {
       // A path outside the Machine's registered roots is its refusal of the

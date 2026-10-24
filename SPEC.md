@@ -213,7 +213,7 @@ image or PDF is refused. `media://<id>` reads an image or PDF the Run owner
 uploaded without an executor and can replay it across attempts; it is
 read-only, takes no selector, and another owner's id is `not_found`.
 
-The native host also exposes `enter_workspace({ path })` and
+The native host also exposes `enter_workspace({ path, worktree? })` and
 `exit_workspace({})` when both tools are allowlisted with their own permission
 groups. Entry accepts an absolute path, evaluates the submitted spelling
 before any filesystem probe, canonicalizes it, and independently evaluates the
@@ -224,7 +224,20 @@ executor absence or mismatch, a missing/non-directory or moved root, current
 permission rejection, or removal of `enter_workspace` from the allowlist.
 Relative native paths and Bash `cwd` values project lexically from the root,
 preserving trailing separators; `..` may leave it, and an omitted Bash `cwd`
-defaults to the root. This is host-user authority, not filesystem confinement.
+defaults to the root. With `worktree`, the call instead creates a git worktree of
+the source clone `path` names — the main tree git reports — at
+`<parent>/.llame-worktrees/<display name>/<slug>`, or under that main checkout's
+`worktree_base`, on branch `llame/<name>` (or `<name>` when it holds a `/`), and
+binds the new directory. The operator decides the submitted path, its canonical
+form, the inspected main clone, and the canonical worktree directory before any
+write; the Worktree checkout, its lease, any adopted repository and main checkout,
+the recorded `worktree` attempt and its result, and the bound root commit in one
+transaction, so a failure leaves the previous binding and generation unchanged.
+The owner's repository catalog records repositories by normalized remote, the
+checkouts where each exists on an executor, and the leases that say which Chat
+created a worktree; an owner removes a clean worktree through
+`DELETE /api/v1/checkouts/:id/worktree`, and deleting rows never deletes a
+directory. This is host-user authority, not filesystem confinement.
 Native `read`, `edit`, and `write` calls also load the touched directory's
 `LLAME.md`/`AGENTS.md`/`CLAUDE.md` chain; each loaded instruction body can expand
 same-store whole-file markers (`@path`, `@"…"`, `@'…'`, ``@`…` ``,

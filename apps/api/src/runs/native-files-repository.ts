@@ -40,7 +40,7 @@ export class NativeFilesRepository {
     fence: NativeFenceMode;
     deliverySequence: number | undefined;
     toolCallId: string;
-    operation: 'read' | 'edit' | 'write' | 'bash' | 'mcp';
+    operation: 'read' | 'edit' | 'write' | 'bash' | 'mcp' | 'worktree';
     path: string;
   }): Promise<ToolResult | undefined> {
     if (
