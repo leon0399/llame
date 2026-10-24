@@ -331,7 +331,11 @@ describe('ExecutorGit.canonicalTarget', () => {
     for (const value of ['relative/path', '/srv/app/../etc', '/srv/./app']) {
       await expect(
         executors.canonicalTarget(target, value),
-      ).rejects.toMatchObject({ code: 'invalid_path' });
+      ).rejects.toMatchObject({
+        code: 'invalid_path',
+        message:
+          'A worktree directory must be an absolute path without `.` or `..` segments.',
+      });
     }
   });
 
@@ -369,7 +373,15 @@ describe('ExecutorGit.canonicalTarget', () => {
       methods: ['git.inspect'],
       answer: (call) =>
         call.method === 'fs.stat'
-          ? { value: { kind: 'file', isLink: false, size: 4 } }
+          ? {
+              value: {
+                kind: 'file',
+                isLink: false,
+                size: 4,
+                // A file still carries a real path, so only the kind refuses it.
+                realPath: '/srv/app',
+              },
+            }
           : undefined,
     });
 
@@ -378,7 +390,27 @@ describe('ExecutorGit.canonicalTarget', () => {
         executors.locate(LOCATOR),
         `${LOCATOR}/worktrees/a`,
       ),
-    ).rejects.toMatchObject({ code: 'invalid_path' });
+    ).rejects.toMatchObject({
+      code: 'invalid_path',
+      message: 'A worktree parent on this Machine is not a directory.',
+    });
+  });
+
+  it('keeps a Machine path whose ancestors all do not exist yet', async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answer: (call) =>
+        call.method === 'fs.stat'
+          ? { value: { kind: 'missing', isLink: false } }
+          : undefined,
+    });
+
+    await expect(
+      executors.canonicalTarget(
+        executors.locate(LOCATOR),
+        `${LOCATOR}/worktrees/a`,
+      ),
+    ).resolves.toBe(`${LOCATOR}/worktrees/a`);
   });
 
   it('answers a daemon refusal of an ancestor with its own code', async () => {
@@ -517,6 +549,25 @@ describe('ExecutorGit.inspect', () => {
 
     // The daemon received the request, so the add may have happened.
     await expect(add).rejects.toMatchObject({
+      code: 'machine_unavailable',
+      sent: true,
+    });
+
+    const removed = hub({
+      methods: ['git.inspect', 'git.worktreeRemove'],
+      answer: (call) =>
+        call.method === 'git.worktreeRemove' ? { hold: true } : undefined,
+    });
+    const removal = removed.executors.removeWorktree(
+      removed.executors.locate(LOCATOR),
+      `${LOCATOR}/.llame-worktrees/probe/probe`,
+    );
+    const removeSession = await removed.peer.session(0);
+    await removeSession.awaitRequests(1);
+    removeSession.drop();
+
+    // A removal sent before the link dropped is a mutation too.
+    await expect(removal).rejects.toMatchObject({
       code: 'machine_unavailable',
       sent: true,
     });
@@ -827,5 +878,18 @@ describe('ExecutorGit refusals', () => {
     await expect(
       executors.canonical(executors.locate(LOCATOR), LOCATOR),
     ).rejects.toThrow(`fs.stat failed on ${NAS}:`);
+  });
+
+  it('defaults a typed refusal to a read that left no effect', () => {
+    const error = new ExecutorGitError('git_failed', 'git exited 1');
+
+    // A read writes nothing, so an unspecified `sent` must never claim that a
+    // request may have landed.
+    expect(error).toMatchObject({
+      name: 'ExecutorGitError',
+      code: 'git_failed',
+      message: 'git exited 1',
+      sent: false,
+    });
   });
 });
