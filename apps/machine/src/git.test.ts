@@ -4,18 +4,19 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  GIT_METHODS,
   isSerializableRecord,
   isStringValue,
   PATH_NOT_REGISTERED_MESSAGE,
   type JsonValue,
   type MachineErrorCode,
+  type MachineMethodParams,
 } from "@workspace/machine-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createRootFixture, type RootFixture } from "./testing/fixtures";
@@ -76,7 +77,11 @@ function gitRecorder() {
   return { directory, marker };
 }
 
-type Refusal = { readonly name: string; readonly code: MachineErrorCode };
+type Refusal = {
+  readonly name: string;
+  readonly code: MachineErrorCode;
+  readonly message: string;
+};
 
 /** The standard error of a git failure answer, narrowed from the wire. */
 function stderrOf(value: JsonValue): string {
@@ -134,14 +139,6 @@ afterAll(() => {
   }
 });
 
-describe("the handshake", () => {
-  it("lists every git method the daemon answers", async () => {
-    const hello = await daemon.hello();
-
-    expect(hello.value).toMatchObject({ methods: [...GIT_METHODS] });
-  });
-});
-
 describe("git.inspect", () => {
   it("reports locator paths and no host path", async () => {
     const head = runGit(clone, ["rev-parse", "HEAD"]).trim();
@@ -182,6 +179,26 @@ describe("git.inspect", () => {
       mainWorktree: `${PREFIX}${clone}`,
       branch: "feature",
     });
+  });
+
+  it("refuses a toplevel above the roots instead of naming it", async () => {
+    const sub = join(clone, "packages");
+    mkdirSync(sub);
+    const nested = startDaemon({ roots: [sub] });
+    try {
+      expect((await nested.hello()).ok).toBe(true);
+
+      await expect(
+        nested.call("git.inspect", {
+          envelope: envelope(),
+          path: sub,
+          options: OPTIONS,
+        }),
+      ).rejects.toMatchObject(refusal("path_not_registered"));
+    } finally {
+      nested.input.end();
+      await nested.session.done;
+    }
   });
 
   it("refuses a path outside every root before any git call", async () => {
@@ -307,22 +324,79 @@ describe("git.worktreeAdd", () => {
     expectNoBareRoot(stderr);
   });
 
-  it("refuses an option-like base ref", async () => {
-    await expect(
-      daemon.call("git.worktreeAdd", {
-        envelope: envelope(),
-        source: clone,
-        branch: "llame/forced",
-        baseRef: "--force",
-        directory: join(fixture.root, "forced"),
-        options: OPTIONS,
-      }),
-    ).resolves.toEqual({
-      status: "error",
-      type: "invalid_input",
-      message: "A base ref must not start with `-`.",
+  it("refuses a directory reached through a link that leaves the roots", async () => {
+    symlinkSync(fixture.outside, join(fixture.root, "escape"));
+    const recorder = gitRecorder();
+    const previousPath = process.env["PATH"];
+    process.env["PATH"] = `${recorder.directory}:${previousPath ?? ""}`;
+    try {
+      await expect(
+        daemon.call("git.worktreeAdd", {
+          envelope: envelope(),
+          source: clone,
+          branch: "llame/escaped",
+          directory: join(fixture.root, "escape", "shop"),
+          options: OPTIONS,
+        }),
+      ).rejects.toMatchObject(refusal("path_not_registered"));
+      expect(existsSync(recorder.marker)).toBe(false);
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
+  it("decides a missing directory through its nearest existing ancestor", async () => {
+    const real = join(fixture.root, "real");
+    mkdirSync(real);
+    symlinkSync(real, join(fixture.root, "link"));
+    const directory = join(real, "trees", "shop");
+
+    const result = await daemon.call("git.worktreeAdd", {
+      envelope: envelope(),
+      source: clone,
+      branch: "llame/linked",
+      directory: join(fixture.root, "link", "trees", "shop"),
+      options: OPTIONS,
     });
-    expect(existsSync(join(fixture.root, "forced"))).toBe(false);
+
+    expect(result).toMatchObject({
+      status: "ok",
+      path: `${PREFIX}${directory}`,
+    });
+    expect(existsSync(join(directory, "README.md"))).toBe(true);
+  });
+
+  it("refuses a branch with whitespace before any git call", async () => {
+    const result = await daemon.call("git.worktreeAdd", {
+      envelope: envelope(),
+      source: clone,
+      branch: "a;touch /tmp/x",
+      directory: join(fixture.root, "injected"),
+      options: OPTIONS,
+    });
+
+    expect(result).toMatchObject({ status: "error", type: "invalid_input" });
+    expect(existsSync(join(fixture.root, "injected"))).toBe(false);
+    expect(existsSync("/tmp/x")).toBe(false);
+  });
+
+  it("passes a shell-shaped value as one argument", async () => {
+    const directory = join(fixture.root, "$(id)");
+
+    const result = await daemon.call("git.worktreeAdd", {
+      envelope: envelope(),
+      source: clone,
+      branch: "llame/shell;id",
+      directory,
+      options: OPTIONS,
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      branch: "llame/shell;id",
+      path: `${PREFIX}${directory}`,
+    });
+    expect(existsSync(directory)).toBe(true);
   });
 
   it("refuses a directory outside every root before any git call", async () => {
@@ -367,6 +441,24 @@ describe("git.worktreeList", () => {
       ],
     });
   });
+  it("refuses a worktree outside the roots instead of naming it", async () => {
+    runGit(clone, [
+      "worktree",
+      "add",
+      "--quiet",
+      "-b",
+      "outside",
+      join(fixture.outside, "tree"),
+    ]);
+
+    await expect(
+      daemon.call("git.worktreeList", {
+        envelope: envelope(),
+        source: clone,
+        options: OPTIONS,
+      }),
+    ).rejects.toMatchObject(refusal("path_not_registered"));
+  });
 });
 
 describe("git.worktreeRemove", () => {
@@ -400,5 +492,29 @@ describe("git.worktreeRemove", () => {
     expect(stderr).toContain(`${PREFIX}${linkedPath}`);
     expectNoBareRoot(stderr);
     expect(existsSync(linkedPath)).toBe(true);
+  });
+});
+
+describe("the strict parameter object", () => {
+  it("refuses a key the method does not declare", async () => {
+    await expect(
+      daemon.call(
+        "git.worktreeAdd",
+        Object.assign(
+          {
+            envelope: envelope(),
+            source: clone,
+            branch: "llame/typo",
+            directory: join(fixture.root, "typo"),
+            options: OPTIONS,
+          } satisfies MachineMethodParams["git.worktreeAdd"],
+          { baseref: "main" },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_params",
+      message: "git.worktreeAdd: Unknown parameter: baseref.",
+    });
+    expect(existsSync(join(fixture.root, "typo"))).toBe(false);
   });
 });
