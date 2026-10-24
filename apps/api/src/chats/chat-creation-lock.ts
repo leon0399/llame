@@ -43,13 +43,24 @@ export function creationInProgress(): ConflictException {
   });
 }
 
-/** The message route's transaction lock: same key, released with the transaction. */
+/**
+ * The message route's transaction lock: same key, shared, released with the
+ * transaction.
+ *
+ * SHARED, because two sends to one Chat already serialize on the Chat row and
+ * must keep doing so: an exclusive transaction lock here would make the second
+ * send answer `409` instead of superseding the first. A create request takes
+ * the same key EXCLUSIVELY for its whole session, so it conflicts with this
+ * lock in both directions — a send during a create is refused, and a create
+ * that starts during a send cannot take the key until that send's transaction
+ * ends.
+ */
 export async function tryCreationTransactionLock(
   tx: Db,
   chatId: string,
 ): Promise<boolean> {
   const rows = await tx.execute<{ locked: boolean }>(
-    sql`select pg_try_advisory_xact_lock(hashtextextended(${chatCreationLockKey(chatId)}, 0)) as locked`,
+    sql`select pg_try_advisory_xact_lock_shared(hashtextextended(${chatCreationLockKey(chatId)}, 0)) as locked`,
   );
   return [...rows][0]?.locked === true;
 }

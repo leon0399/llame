@@ -51,6 +51,21 @@ export function expectRegisteredUserId(
   }
 }
 
+/**
+ * A collaborator double whose constructor the test does not want to run.
+ *
+ * The object implements exactly the members the code under test reads; the
+ * caller names the collaborator type, so a changed member list fails the
+ * assertion in the test that owns the double.
+ */
+// eslint-disable-next-line anti-slop/no-object-parameters -- a double is an object whose members the caller names through `T`; no owner type exists for it.
+export function asDouble<T>(value: object): T {
+  // SAFETY: the caller's `T` is the collaborator it injects, and the object it
+  // supplies implements the members that collaborator is read through.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as T;
+}
+
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {
   const set = res.get('Set-Cookie') ?? [];
