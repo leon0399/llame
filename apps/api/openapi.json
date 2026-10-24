@@ -2263,7 +2263,7 @@
             "description": ""
           },
           "409": {
-            "description": "The project already links that repository"
+            "description": "The project already links that repository, or the project is archived"
           }
         },
         "security": [
@@ -2380,6 +2380,9 @@
           },
           "404": {
             "description": ""
+          },
+          "409": {
+            "description": "The project is archived"
           }
         },
         "security": [

@@ -369,7 +369,7 @@ export const updateProjectRepositoryLink = async (
   return data;
 };
 
-export type unlinkProjectRepositoryError = void | void | void;
+export type unlinkProjectRepositoryError = void | void | void | void;
 
 export const getUnlinkProjectRepositoryUrl = (
   id: string,
