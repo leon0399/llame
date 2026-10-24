@@ -1,5 +1,19 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-24
+
+- CI audits dependencies for security advisories in a new `Security`
+  workflow. On a pull request, dependency review fails the run when the
+  lockfile change adds a package version with a high or critical advisory;
+  advisories already on `master` do not fail it. `pnpm audit` runs on every
+  pull request for information only, and fails the weekly scheduled run and
+  any `master` push that changes dependencies when a production dependency
+  carries a high or critical advisory. Development dependencies are reported
+  without failing the run. The production audit fails on the current
+  lockfile: since the 2026-10-15 security pass, it reports high or critical
+  advisories against `next`, `dompurify`, `@sentry/nextjs`, `storybook`,
+  `@modelcontextprotocol/sdk`, `zod`, `undici`, `multer`, and `body-parser`.
+
 # 2026-10-22
 
 - Thinking-mode tool loops on Chat Completions providers no longer fail with

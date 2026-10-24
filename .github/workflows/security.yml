@@ -1,0 +1,90 @@
+# Dependency advisories, outside the test pyramid (ci.yml) and the static
+# gates (lint.yml): a new advisory against an unchanged lockfile is news about
+# the registry, not about the code, so it reports on its own.
+#
+# Actions are pinned to commit SHAs (comment = the release tag they resolve to).
+
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    paths:
+      - "**/package.json"
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/security.yml
+  schedule:
+    # Weekly, so an advisory published against an unchanged lockfile still
+    # surfaces when no dependency moves.
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+# Pull request runs supersede each other; each master run has its own group,
+# so none is cancelled or replaced while pending.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Blocks a pull request whose lockfile change introduces a package version
+  # with a high or critical advisory. It diffs the dependency graph between
+  # base and head, so advisories already on master never fail it; the audit
+  # below owns those.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # No PR comment: that needs `pull-requests: write`, which a fork's token
+      # never gets. The failed check and its log are the signal.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # pnpm and Node only: `pnpm audit` reads the lockfile and installs
+      # nothing, so the shared setup action's frozen install and store cache
+      # would be wasted here.
+      - id: node-version
+        run: echo "version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          install: false
+          runtime: node@${{ steps.node-version.outputs.version }}
+
+      # Advisory on pull requests: an advisory published against master should
+      # not stop an unrelated change, and the step depends on the registry
+      # being up — dependency review already blocks what a pull request itself
+      # introduces. Blocking on the weekly schedule and on dependency pushes to
+      # master, so a high-severity advisory in a shipped dependency fails a run
+      # even when nothing changed.
+      - name: Audit production dependencies
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: pnpm audit --prod --audit-level high
+
+      # Build and test tooling never ships in the API or web runtime, so an
+      # advisory here is a scheduled-update item rather than a failed run.
+      # `!cancelled()` so a production failure above never hides this report.
+      - name: Audit development dependencies
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: pnpm audit --dev --audit-level high
