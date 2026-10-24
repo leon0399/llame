@@ -4,6 +4,7 @@ import {
   GIT_WORKTREE_ADD_METHOD,
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
+  PATH_NOT_REGISTERED_MESSAGE,
   type GitFailure,
   type GitInspectResult,
   type GitStatusResult,
@@ -22,9 +23,12 @@ import {
   statusRepository,
 } from "@workspace/git-executor";
 import type { OperationContext } from "./dispatch-types";
+import { MachineRequestError } from "./errors";
+import { isInsideRoots, rewriteRootPrefixes } from "./locators";
 import {
   optionalString,
   paramRecord,
+  refuseUnknownKeys,
   requireDisplayOptions,
   requireString,
 } from "./params";
@@ -45,34 +49,24 @@ import {
  * locator form, so no host path for a registered root reaches the hub.
  */
 
-/** One path in the locator form the hub renders. */
-function locator(options: NativeDisplayOptions, path: string): string {
-  return `${options.displayPrefix}${path}`;
-}
-
-/** A registered root as a matcher: only a whole path segment start matches, so
- *  `/srv/app` never rewrites inside `/srv/application`. */
-function rootPattern(root: string): RegExp {
-  const escaped = root.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
-  return new RegExp(`(?<![\\w.\\/-])${escaped}(?![\\w.-])`, "gu");
-}
-
 /**
- * Rewrite each registered-root prefix of `text` to the locator form. The
- * longest root goes first, so `/home/me/work` wins over `/home/me`.
+ * One result path in the locator form. A path outside every registered root is
+ * refused instead: a toplevel above the roots (a tracked home directory, say)
+ * discloses host layout the root guard hides, and the hub could not address it
+ * back.
  */
-export function rewriteRootPrefixes(
-  text: string,
-  roots: ReadonlyArray<string>,
-  displayPrefix: string,
+function resultLocator(
+  options: NativeDisplayOptions,
+  context: OperationContext,
+  path: string,
 ): string {
-  return [...roots]
-    .sort((left, right) => right.length - left.length)
-    .reduce(
-      (current, root) =>
-        current.replaceAll(rootPattern(root), `${displayPrefix}${root}`),
-      text,
+  if (!isInsideRoots(context.guard.roots, path)) {
+    throw new MachineRequestError(
+      "path_not_registered",
+      PATH_NOT_REGISTERED_MESSAGE,
     );
+  }
+  return `${options.displayPrefix}${path}`;
 }
 
 function renderFailure(
@@ -96,20 +90,28 @@ export async function inspectOperation(
   context: OperationContext,
 ): Promise<GitInspectResult> {
   const source = paramRecord(params, GIT_INSPECT_METHOD);
+  refuseUnknownKeys(source, GIT_INSPECT_METHOD, [
+    "envelope",
+    "options",
+    "path",
+  ]);
   const options = requireDisplayOptions(source, GIT_INSPECT_METHOD);
   const guarded = await context.guard.resolvePath(
     requireString(source, "path", GIT_INSPECT_METHOD),
   );
-  const result = await inspectRepository({ path: guarded.canonical });
+  const result = await inspectRepository(
+    { path: guarded.canonical },
+    { signal: context.signal },
+  );
   if (result.status === "error") return renderFailure(result, context, options);
   return {
     ...result,
-    toplevel: locator(options, result.toplevel),
-    commonDir: locator(options, result.commonDir),
+    toplevel: resultLocator(options, context, result.toplevel),
+    commonDir: resultLocator(options, context, result.commonDir),
     mainWorktree:
       result.mainWorktree === null
         ? null
-        : locator(options, result.mainWorktree),
+        : resultLocator(options, context, result.mainWorktree),
   };
 }
 
@@ -118,11 +120,15 @@ export async function statusOperation(
   context: OperationContext,
 ): Promise<GitStatusResult> {
   const source = paramRecord(params, GIT_STATUS_METHOD);
+  refuseUnknownKeys(source, GIT_STATUS_METHOD, ["envelope", "options", "path"]);
   const options = requireDisplayOptions(source, GIT_STATUS_METHOD);
   const guarded = await context.guard.resolvePath(
     requireString(source, "path", GIT_STATUS_METHOD),
   );
-  const result = await statusRepository({ path: guarded.canonical });
+  const result = await statusRepository(
+    { path: guarded.canonical },
+    { signal: context.signal },
+  );
   return result.status === "error"
     ? renderFailure(result, context, options)
     : result;
@@ -133,6 +139,14 @@ export async function worktreeAddOperation(
   context: OperationContext,
 ): Promise<GitWorktreeAddResult> {
   const source = paramRecord(params, GIT_WORKTREE_ADD_METHOD);
+  refuseUnknownKeys(source, GIT_WORKTREE_ADD_METHOD, [
+    "envelope",
+    "options",
+    "source",
+    "branch",
+    "baseRef",
+    "directory",
+  ]);
   const options = requireDisplayOptions(source, GIT_WORKTREE_ADD_METHOD);
   // Both paths are decided before git starts: the source clone and the
   // directory the worktree would occupy.
@@ -142,14 +156,17 @@ export async function worktreeAddOperation(
   const directory = await context.guard.resolvePath(
     requireString(source, "directory", GIT_WORKTREE_ADD_METHOD),
   );
-  const result = await addWorktree({
-    source: from.canonical,
-    branch: requireString(source, "branch", GIT_WORKTREE_ADD_METHOD),
-    baseRef: optionalString(source, "baseRef", GIT_WORKTREE_ADD_METHOD),
-    directory: directory.canonical,
-  });
+  const result = await addWorktree(
+    {
+      source: from.canonical,
+      branch: requireString(source, "branch", GIT_WORKTREE_ADD_METHOD),
+      baseRef: optionalString(source, "baseRef", GIT_WORKTREE_ADD_METHOD),
+      directory: directory.canonical,
+    },
+    { signal: context.signal },
+  );
   if (result.status === "error") return renderFailure(result, context, options);
-  return { ...result, path: locator(options, result.path) };
+  return { ...result, path: resultLocator(options, context, result.path) };
 }
 
 export async function worktreeListOperation(
@@ -157,18 +174,26 @@ export async function worktreeListOperation(
   context: OperationContext,
 ): Promise<GitWorktreeListResult> {
   const source = paramRecord(params, GIT_WORKTREE_LIST_METHOD);
+  refuseUnknownKeys(source, GIT_WORKTREE_LIST_METHOD, [
+    "envelope",
+    "options",
+    "source",
+  ]);
   const options = requireDisplayOptions(source, GIT_WORKTREE_LIST_METHOD);
   const guarded = await context.guard.resolvePath(
     requireString(source, "source", GIT_WORKTREE_LIST_METHOD),
   );
-  const result = await listWorktrees({ path: guarded.canonical });
+  const result = await listWorktrees(
+    { path: guarded.canonical },
+    { signal: context.signal },
+  );
   if (result.status === "error") return renderFailure(result, context, options);
   return {
     status: "ok",
     worktrees: result.worktrees.map(
       (entry): GitWorktreeEntry => ({
         ...entry,
-        path: locator(options, entry.path),
+        path: resultLocator(options, context, entry.path),
       }),
     ),
   };
@@ -179,11 +204,19 @@ export async function worktreeRemoveOperation(
   context: OperationContext,
 ): Promise<GitWorktreeRemoveResult> {
   const source = paramRecord(params, GIT_WORKTREE_REMOVE_METHOD);
+  refuseUnknownKeys(source, GIT_WORKTREE_REMOVE_METHOD, [
+    "envelope",
+    "options",
+    "path",
+  ]);
   const options = requireDisplayOptions(source, GIT_WORKTREE_REMOVE_METHOD);
   const guarded = await context.guard.resolvePath(
     requireString(source, "path", GIT_WORKTREE_REMOVE_METHOD),
   );
-  const result = await removeWorktree({ path: guarded.canonical });
+  const result = await removeWorktree(
+    { path: guarded.canonical },
+    { signal: context.signal },
+  );
   return result.status === "error"
     ? renderFailure(result, context, options)
     : result;
