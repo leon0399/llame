@@ -245,6 +245,25 @@ describe('RepositoriesRepository alias lookup', () => {
 });
 
 describe('RepositoriesRepository catalog writes', () => {
+  it('takes one advisory lock per owner and remote claim', async () => {
+    const { db, queries } = makeMockDb();
+    const repository = new RepositoriesRepository(db);
+
+    await repository
+      .lockRemoteClaim('owner-a', 'github.com/leon0399/llame')
+      .catch(() => null);
+    expect(lastQuery(queries).sql).toContain('pg_advisory_xact_lock');
+    expect(lastQuery(queries).sql).toContain("hashtext('repository-remotes')");
+    expect(lastQuery(queries).params).toEqual([
+      'owner-a:github.com/leon0399/llame',
+    ]);
+
+    // A repository without a remote still takes the lock; its key is the empty
+    // claim, which no alias can share.
+    await repository.lockRemoteClaim('owner-a', null).catch(() => null);
+    expect(lastQuery(queries).params).toEqual(['owner-a:']);
+  });
+
   it('creates a repository with its owner and remote as the conflict key', async () => {
     const { db, queries } = makeMockDb();
     const repository = repositoryRow();
