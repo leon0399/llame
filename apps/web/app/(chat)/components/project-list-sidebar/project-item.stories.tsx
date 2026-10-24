@@ -118,8 +118,9 @@ export const Archived: Story = {
 };
 
 /**
- * The "…" row menu opened — the lean project menu: pin, edit details, and
- * the archive/delete lifecycle. Edit details is its only edit action.
+ * The "…" row menu opened — the lean project menu: pin, a new chat in the
+ * project, edit details, and the archive/delete lifecycle. Edit details is its
+ * only edit action.
  *
  * @summary the project row menu open
  */
@@ -134,7 +135,13 @@ export const RowMenu: Story = {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Pin", "Edit details", "Archive", "Delete"]);
+    ).toEqual([
+      "Pin",
+      "New chat in project",
+      "Edit details",
+      "Archive",
+      "Delete",
+    ]);
   },
 };
 
