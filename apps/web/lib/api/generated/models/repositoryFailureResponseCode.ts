@@ -26,5 +26,7 @@ export const RepositoryFailureResponseCode = {
   tool_not_allowed: "tool_not_allowed",
   permission_denied: "permission_denied",
   executor_unavailable: "executor_unavailable",
+  machine_unavailable: "machine_unavailable",
+  machine_update_required: "machine_update_required",
   git_failed: "git_failed",
 } as const;

@@ -152,7 +152,7 @@ local executor.
 - [x] 3.5 Extend `docs/product/operator/repositories.md` with the daemon update step and the typed git surface.
   - Add to `docs/product/operator/machines.md` the note for Machine worktrees. It tells operators to register the parent directory or set `worktree_base` inside a root.
   - Verify `pnpm lint:markdown`.
-- [ ] 3.6 Verify the layer locally with `pnpm --filter machine test`, `pnpm --filter machine build`, `pnpm --filter machine-protocol test`, `pnpm --filter git-executor test`, `pnpm --filter api typecheck`, and the touched integration suites
+- [x] 3.6 Verify the layer locally with `pnpm --filter machine test`, `pnpm --filter machine build`, `pnpm --filter machine-protocol test`, `pnpm --filter git-executor test`, `pnpm --filter api typecheck`, and the touched integration suites
 - [ ] 3.7 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
 - [ ] 3.8 GR: complete the ready-PR monitoring loop with terminal green CI and no actionable unresolved feedback
 
