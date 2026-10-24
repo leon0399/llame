@@ -5,8 +5,6 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
-import type { CreateCheckoutDtoRemote } from "./createCheckoutDtoRemote";
-import type { CreateCheckoutDtoRepositoryId } from "./createCheckoutDtoRepositoryId";
 
 export interface CreateCheckoutDto {
   /**
@@ -14,11 +12,15 @@ export interface CreateCheckoutDto {
    * @maxLength 4096
    */
   path: string;
-  /** Selects an existing repository of this owner. */
-  repositoryId?: CreateCheckoutDtoRepositoryId;
+  /**
+   * Selects an existing repository of this owner.
+   * @nullable
+   */
+  repositoryId?: string | null;
   /**
    * A remote that selects an existing repository of this owner. The inspected origin decides.
    * @maxLength 4096
+   * @nullable
    */
-  remote?: CreateCheckoutDtoRemote;
+  remote?: string | null;
 }

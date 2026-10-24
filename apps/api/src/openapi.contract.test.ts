@@ -68,6 +68,7 @@ const document = openApiObjectSchema.parse(rawDocument);
 
 const EXPECTED_OPERATION_IDS = [
   'changeOrgUnitMembershipRole',
+  'createChat',
   'createChatMessage',
   'createChildOrgUnit',
   'createKnowledgeSpace',
@@ -83,6 +84,7 @@ const EXPECTED_OPERATION_IDS = [
   'forkChat',
   'forkSharedChat',
   'getChat',
+  'getChatCreationRecord',
   'getChatMessages',
   'getCurrentSession',
   'getCurrentUser',

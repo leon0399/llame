@@ -6,14 +6,18 @@
  * OpenAPI spec version: 0.1
  */
 import type {
+  ChatCreationRecordResponse,
   ChatListItemResponse,
   ChatMessagesResponse,
   ChatResponse,
   ChatSearchResponse,
+  CreateChatRequest,
+  CreateChatResponse,
   ForkChatDto,
   GetChatMessagesParams,
   GetSharedChatParams,
   ListChatsParams,
+  ModelDomainErrorResponse,
   SearchChatsParams,
   SharedChatResponse,
   UpdateChatDto,
@@ -65,6 +69,44 @@ export const listChats = async (
     throw err;
   }
   const data: ChatListItemResponse[] = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type createChatError =
+  void | void | void | void | ModelDomainErrorResponse;
+
+export const getCreateChatUrl = () => {
+  return `/api/v1/chats`;
+};
+
+export const createChat = async (
+  createChatRequest: CreateChatRequest,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<CreateChatResponse> => {
+  const res = await fetchFn(getCreateChatUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createChatRequest),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & { info?: createChatError; status?: number } =
+      new globalThis.Error(`POST ${getCreateChatUrl()} failed (${res.status})`);
+    const data: createChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: CreateChatResponse = body ? JSON.parse(body) : {};
   return data;
 };
 
@@ -281,6 +323,45 @@ export const getChatMessages = async (
     throw err;
   }
   const data: ChatMessagesResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type getChatCreationRecordError = void | void | void;
+
+export const getGetChatCreationRecordUrl = (id: string) => {
+  return `/api/v1/chats/${id}/creation-record`;
+};
+
+export const getChatCreationRecord = async (
+  id: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ChatCreationRecordResponse> => {
+  const res = await fetchFn(getGetChatCreationRecordUrl(id), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: getChatCreationRecordError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getGetChatCreationRecordUrl(id)} failed (${res.status})`,
+    );
+    const data: getChatCreationRecordError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ChatCreationRecordResponse = body ? JSON.parse(body) : {};
   return data;
 };
 

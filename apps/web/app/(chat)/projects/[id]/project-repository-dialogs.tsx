@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { DialogFrame } from "@/components/dialog-frame";
 import { repositoryFailureMessage } from "@/lib/services/repositories/failure";
 import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 import type { RepositoryResponse } from "@/lib/services/repositories/queries";
@@ -23,7 +24,6 @@ import {
   DialogFormFooter,
   IsolationPicker,
   PrimaryField,
-  RepositoryDialogFrame,
   RepositoryField,
 } from "./project-repository-dialog-parts";
 
@@ -51,7 +51,7 @@ export function LinkRepositoryDialog({
 }) {
   const repositories = useRepositoriesQuery(open);
   return (
-    <RepositoryDialogFrame
+    <DialogFrame
       open={open}
       onOpenChange={onOpenChange}
       title="Link repository"
@@ -63,7 +63,7 @@ export function LinkRepositoryDialog({
         )}
         onClose={() => onOpenChange(false)}
       />
-    </RepositoryDialogFrame>
+    </DialogFrame>
   );
 }
 
@@ -179,7 +179,7 @@ export function EditRepositoryLinkDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <RepositoryDialogFrame
+    <DialogFrame
       open={open}
       onOpenChange={onOpenChange}
       title="Edit repository link"
@@ -189,7 +189,7 @@ export function EditRepositoryLinkDialog({
         link={link}
         onClose={() => onOpenChange(false)}
       />
-    </RepositoryDialogFrame>
+    </DialogFrame>
   );
 }
 

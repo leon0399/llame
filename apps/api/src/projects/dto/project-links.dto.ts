@@ -11,6 +11,10 @@ import {
 } from 'class-validator';
 
 import {
+  OptionalExecutorId,
+  OptionalUuid,
+} from '../../common/dto/optional-field.decorators';
+import {
   PROJECT_REPOSITORY_ISOLATIONS,
   type ProjectRepository,
   type ProjectRepositoryDefault,
@@ -22,7 +26,6 @@ import {
   type IsolationDefault,
   type IsolationReason,
 } from '../start-location';
-import { EXECUTOR_ID_MAX } from './projects.dto';
 
 // The project-scoped name of a linked repository. Same bound as a project name:
 // it is owner-authored prose shown in the composer chip, never a path segment.
@@ -198,21 +201,13 @@ export function toProjectRepositoryLinkWithDefaultsResponse(
 // GET /api/v1/projects/:id/start-location — the same three ids the create
 // request takes, resolved in its order.
 export class StartLocationQueryDto {
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
+  @OptionalUuid()
   repositoryId?: string;
 
-  @ApiPropertyOptional({ maxLength: EXECUTOR_ID_MAX })
-  @IsOptional()
-  @IsString()
-  @Matches(/\S/, { message: 'executorId must not be blank' })
-  @MaxLength(EXECUTOR_ID_MAX)
+  @OptionalExecutorId()
   executorId?: string;
 
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
+  @OptionalUuid()
   checkoutId?: string;
 }
 

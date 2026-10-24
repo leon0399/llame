@@ -21,6 +21,12 @@ import {
  * `executor_unknown`, and an implicit step skips an offline Machine — before it
  * uses a resolution. Nothing here writes.
  *
+ * A `null` project is a create request that names no project ("new chat here"):
+ * the same repository, executor, and checkout order applies, but no link, no
+ * remembered default, and no project default executor exist, so an explicit
+ * `repositoryId` needs no link. Every link-derived step is then absent rather
+ * than skipped by a separate code path.
+ *
  * The order is the create request's order:
  *
  * 1. Repository: the request, else the primary link, else the only link, else
@@ -131,20 +137,17 @@ function onlyMainCheckoutId(checkouts: ReadonlyArray<Checkout>): string | null {
 export async function resolveStartLocation(
   source: StartLocationSource,
   ownerUserId: string,
-  project: Pick<Project, 'id' | 'defaultExecutorId'>,
+  project: Pick<Project, 'id' | 'defaultExecutorId'> | null,
   input: StartLocationInput,
 ): Promise<StartLocation> {
   const context: ResolverContext = { source, ownerUserId, input };
-  const links = await source.listLinks(ownerUserId, project.id);
-  const repository = await resolveRepositoryStep(context, links);
+  const links =
+    project === null ? [] : await source.listLinks(ownerUserId, project.id);
+  const repository = await resolveRepositoryStep(context, project, links);
 
   let executorId = repository.executorId;
   let checkoutId = repository.checkoutId;
-  if (
-    repository.link !== undefined &&
-    repository.repositoryId !== null &&
-    checkoutId === null
-  ) {
+  if (repository.repositoryId !== null && checkoutId === null) {
     ({ executorId, checkoutId } = await resolveExecutorStep(
       context,
       project,
@@ -175,17 +178,28 @@ export async function resolveStartLocation(
 
 async function resolveRepositoryStep(
   context: ResolverContext,
+  project: Pick<Project, 'id' | 'defaultExecutorId'> | null,
   links: ReadonlyArray<ProjectRepository>,
 ): Promise<RepositoryStep> {
   if (context.input.checkoutId !== undefined) {
-    return resolveNamedCheckout(context, links, context.input.checkoutId);
+    return resolveNamedCheckout(
+      context,
+      project,
+      links,
+      context.input.checkoutId,
+    );
   }
   // Never a silent primary when several links have none.
   const link =
     context.input.repositoryId === undefined
       ? (links.find((row) => row.isPrimary) ??
         (links.length === 1 ? links[0] : undefined))
-      : await linkedRepository(context, links, context.input.repositoryId);
+      : await linkedRepository(
+          context,
+          links,
+          context.input.repositoryId,
+          project !== null,
+        );
   return {
     link,
     repositoryId: link?.repositoryId ?? null,
@@ -197,6 +211,7 @@ async function resolveRepositoryStep(
 /** A named checkout decides its own repository and executor. */
 async function resolveNamedCheckout(
   context: ResolverContext,
+  project: Pick<Project, 'id'> | null,
   links: ReadonlyArray<ProjectRepository>,
   checkoutId: string,
 ): Promise<RepositoryStep> {
@@ -214,7 +229,7 @@ async function resolveNamedCheckout(
   }
   assertCheckoutAgrees(checkout, context.input);
   const link = links.find((row) => row.repositoryId === checkout.repositoryId);
-  if (link === undefined) {
+  if (link === undefined && project !== null) {
     throw new UnprocessableEntityException(
       'The project does not link that checkout.',
     );
@@ -250,12 +265,13 @@ function assertCheckoutAgrees(
   }
 }
 
-/** An explicit repository must be the caller's and linked to the project. */
+/** An explicit repository must be the caller's, and linked when a project names one. */
 async function linkedRepository(
   context: ResolverContext,
   links: ReadonlyArray<ProjectRepository>,
   repositoryId: string,
-): Promise<ProjectRepository> {
+  requireLink: boolean,
+): Promise<ProjectRepository | undefined> {
   const repository = await context.source.findRepository(
     context.ownerUserId,
     repositoryId,
@@ -264,7 +280,7 @@ async function linkedRepository(
     throw new NotFoundException(`Repository ${repositoryId} not found`);
   }
   const link = links.find((row) => row.repositoryId === repository.id);
-  if (link === undefined) {
+  if (link === undefined && requireLink) {
     throw new UnprocessableEntityException(
       'The project does not link that repository.',
     );
@@ -274,27 +290,27 @@ async function linkedRepository(
 
 async function resolveExecutorStep(
   context: ResolverContext,
-  project: Pick<Project, 'defaultExecutorId'>,
-  link: ProjectRepository,
+  project: Pick<Project, 'defaultExecutorId'> | null,
+  link: ProjectRepository | undefined,
   repositoryId: string,
 ): Promise<ExecutorStep> {
   const requested = context.input.executorId;
   if (requested !== undefined) {
-    return executorForLink(context, link.id, repositoryId, requested);
+    return executorForLink(context, link?.id, repositoryId, requested);
   }
 
-  const latest = await context.source.findLatestDefault(
-    context.ownerUserId,
-    link.id,
-  );
+  const latest =
+    link === undefined
+      ? undefined
+      : await context.source.findLatestDefault(context.ownerUserId, link.id);
   if (latest !== undefined) {
     return { executorId: latest.executorId, checkoutId: latest.checkoutId };
   }
 
-  if (project.defaultExecutorId !== null) {
+  if (project !== null && project.defaultExecutorId !== null) {
     return executorForLink(
       context,
-      link.id,
+      link?.id,
       repositoryId,
       project.defaultExecutorId,
     );
@@ -304,19 +320,23 @@ async function resolveExecutorStep(
 
 /**
  * One executor's answer for one link: its remembered default, else the only
- * main checkout there, else none.
+ * main checkout there, else none. Without a link there is no default to
+ * remember, so only the checkout step runs.
  */
 async function executorForLink(
   context: ResolverContext,
-  linkId: string,
+  linkId: string | undefined,
   repositoryId: string,
   executorId: string,
 ): Promise<ExecutorStep> {
-  const remembered = await context.source.findDefault(
-    context.ownerUserId,
-    linkId,
-    executorId,
-  );
+  const remembered =
+    linkId === undefined
+      ? undefined
+      : await context.source.findDefault(
+          context.ownerUserId,
+          linkId,
+          executorId,
+        );
   if (remembered !== undefined) {
     return {
       executorId: remembered.executorId,

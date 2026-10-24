@@ -1,14 +1,8 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useId } from "react";
 
 import { Alert, AlertTitle } from "@workspace/ui/components/alert";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@workspace/ui/components/dialog";
 import {
   Field,
   FieldContent,
@@ -25,31 +19,6 @@ import type { RepositoryResponse } from "@/lib/services/repositories/queries";
 import type { IsolationPolicy } from "@/lib/services/project/types";
 
 import { ISOLATION_OPTIONS } from "./project-repository-policy";
-
-/** The frame every repository dialog shares; the body is a child so its fields
- *  live BELOW `DialogContent` and re-seed each time the dialog opens. */
-export function RepositoryDialogFrame({
-  open,
-  onOpenChange,
-  title,
-  children,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        {children}
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 /** The footer every form here ends with: the server's refusal, when there is
  *  one, then the Cancel + submit pair. */

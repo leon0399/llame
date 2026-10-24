@@ -1,18 +1,13 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState } from "react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 import { Textarea } from "@workspace/ui/components/textarea";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { DialogFrame } from "@/components/dialog-frame";
 import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
 import {
   useCreateProject,
@@ -37,33 +32,6 @@ type ProjectRef = { id: string; name: string };
 
 /** What the details dialog edits: the lean card plus the description. */
 type ProjectDetailsRef = ProjectRef & { description: string | null };
-
-/** The Dialog frame both details dialogs share. The body is a child rather
- *  than a prop set, so its field state lives BELOW `DialogContent`: the
- *  content unmounts while the dialog is closed, which re-seeds the fields on
- *  every open without a mount-time reset. */
-function ProjectDetailsFrame({
-  open,
-  onOpenChange,
-  title,
-  children,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        {children}
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 /** The name field: single line, and Enter saves. */
 function ProjectNameField({
@@ -176,16 +144,12 @@ export function NewProjectDialog({
   onCreated?: (project: ProjectResponse) => void;
 }) {
   return (
-    <ProjectDetailsFrame
-      open={open}
-      onOpenChange={onOpenChange}
-      title="New project"
-    >
+    <DialogFrame open={open} onOpenChange={onOpenChange} title="New project">
       <NewProjectForm
         onClose={() => onOpenChange(false)}
         onCreated={onCreated}
       />
-    </ProjectDetailsFrame>
+    </DialogFrame>
   );
 }
 
@@ -305,11 +269,7 @@ export function EditProjectDialog({
 }) {
   const { description } = project;
   return (
-    <ProjectDetailsFrame
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Edit details"
-    >
+    <DialogFrame open={open} onOpenChange={onOpenChange} title="Edit details">
       {description === undefined ? (
         <ProjectDetailsPending failed={readFailed} />
       ) : (
@@ -318,7 +278,7 @@ export function EditProjectDialog({
           onClose={() => onOpenChange(false)}
         />
       )}
-    </ProjectDetailsFrame>
+    </DialogFrame>
   );
 }
 

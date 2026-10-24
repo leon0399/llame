@@ -1,9 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type {
-  CheckoutResponse,
-  CreateCheckoutDto,
-} from "../../api/generated/models";
+import type { CheckoutResponse } from "../../api/generated/models";
 import {
   registerCheckout as registerCheckoutEndpoint,
   removeCheckoutWorktree as removeCheckoutWorktreeEndpoint,
@@ -41,18 +38,15 @@ export type RegisterCheckoutInput = {
 export async function registerCheckout(
   input: RegisterCheckoutInput,
 ): Promise<CheckoutResponse> {
-  const body: CreateCheckoutDto = { path: input.path };
-  // The generated model types both selectors as objects because the API's
-  // OpenAPI annotation omits `type: String` for them
-  // (apps/api/src/repositories/dto/checkouts.dto.ts), while the route takes one
-  // string each. `Object.assign` carries the string into the slot without
-  // asserting a shape the types cannot express; an undefined selector is
-  // dropped by JSON.stringify, which is the omission the route expects.
-  Object.assign(body, {
-    repositoryId: input.repositoryId,
-    remote: input.remote,
-  });
-  return registerCheckoutEndpoint(body, undefined, authenticatedFetch());
+  return registerCheckoutEndpoint(
+    {
+      path: input.path,
+      repositoryId: input.repositoryId,
+      remote: input.remote,
+    },
+    undefined,
+    authenticatedFetch(),
+  );
 }
 
 export function useRegisterCheckout() {
