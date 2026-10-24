@@ -123,7 +123,7 @@ local executor.
 
 ## 3. `repositories/executor-git` — typed git on the protocol, the daemon, and the local executor (design D4, D6 inputs)
 
-- [ ] 3.1 Add `git.inspect`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`, and `git.status` to `packages/machine-protocol`.
+- [x] 3.1 Add `git.inspect`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`, and `git.status` to `packages/machine-protocol`.
   - Give them typed parameters and results that carry the `machine://<name>` display prefix through the current display options. `HelloParams` has no Machine name.
   - Make `git.status` report `{ dirty, ahead, upstream?, head }`.
   - Add the optional `methods` list to the `hello` result without a change to `PROTOCOL_VERSION`.

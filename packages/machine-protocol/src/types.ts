@@ -27,6 +27,9 @@ export type HelloResult = {
   readonly protocolVersion: number;
   readonly daemonVersion: string;
   readonly roots: ReadonlyArray<string>;
+  /** The git methods this daemon answers; absent on a daemon that predates
+   *  them, which is how the hub tells that it needs an update. */
+  readonly methods?: ReadonlyArray<string>;
 };
 
 /** The handshake refusal: both versions travel so the hub can report them. */
@@ -335,6 +338,117 @@ export type McpProtectedNotification = {
 };
 export type McpSetProtocolVersionNotification = { readonly version: string };
 
+/** One configured remote of a repository, as an inspection reports it. */
+export type GitRepositoryRemote = {
+  readonly name: string;
+  readonly url: string;
+};
+
+/**
+ * A git refusal or failure. `invalid_input` is refused before git starts, and
+ * carries the reason; every other type comes from a started process and
+ * carries the bounded, redacted standard error. On a Machine, each
+ * registered-root prefix in that text is a locator by the time it arrives.
+ */
+export type GitFailure =
+  | {
+      readonly status: "error";
+      readonly type: "invalid_input";
+      readonly message: string;
+    }
+  | {
+      readonly status: "error";
+      readonly type: "not_a_repository" | "timed_out" | "git_failed";
+      readonly stderr: string;
+    };
+
+/** `git.inspect`, exactly as `@workspace/git-executor` returns it: every path
+ *  field is a locator on a Machine and an absolute host path locally. */
+export type GitInspectParams = {
+  readonly envelope: RequestEnvelope;
+  readonly path: string;
+  readonly options: NativeDisplayOptions;
+};
+export type GitInspectSuccess = {
+  readonly status: "ok";
+  readonly toplevel: string;
+  readonly commonDir: string;
+  readonly linked: boolean;
+  readonly mainWorktree: string | null;
+  readonly remotes: ReadonlyArray<GitRepositoryRemote>;
+  readonly branch: string | null;
+  readonly head: string | null;
+};
+export type GitInspectResult = GitInspectSuccess | GitFailure;
+
+/** `git.status`: the working tree's state and its place against its upstream. */
+export type GitStatusParams = {
+  readonly envelope: RequestEnvelope;
+  readonly path: string;
+  readonly options: NativeDisplayOptions;
+};
+export type GitStatusSuccess = {
+  readonly status: "ok";
+  readonly dirty: boolean;
+  /** Commits the branch is ahead of its upstream; zero without an upstream. */
+  readonly ahead: number;
+  /** The upstream ref, absent when the branch tracks none. */
+  readonly upstream?: string;
+  /** `null` on an unborn branch, which has no commit yet. */
+  readonly head: string | null;
+};
+export type GitStatusResult = GitStatusSuccess | GitFailure;
+
+/** `git.worktreeAdd`: a new worktree of `source` on a new branch. */
+export type GitWorktreeAddParams = {
+  readonly envelope: RequestEnvelope;
+  readonly source: string;
+  readonly branch: string;
+  /** The commit-ish the branch starts from; absent means the source's HEAD. */
+  readonly baseRef?: string;
+  readonly directory: string;
+  readonly options: NativeDisplayOptions;
+};
+export type GitWorktreeAddSuccess = {
+  readonly status: "ok";
+  readonly path: string;
+  readonly branch: string;
+  /** The commit the new worktree's HEAD names. */
+  readonly head: string;
+};
+export type GitWorktreeAddResult = GitWorktreeAddSuccess | GitFailure;
+
+/** One registered worktree of a repository. */
+export type GitWorktreeEntry = {
+  readonly path: string;
+  /** `null` on a detached worktree. */
+  readonly branch: string | null;
+  readonly head: string | null;
+  readonly locked: boolean;
+  readonly prunable: boolean;
+};
+
+/** `git.worktreeList`: every worktree of `source`, its main tree first. */
+export type GitWorktreeListParams = {
+  readonly envelope: RequestEnvelope;
+  readonly source: string;
+  readonly options: NativeDisplayOptions;
+};
+export type GitWorktreeListResult =
+  | {
+      readonly status: "ok";
+      readonly worktrees: ReadonlyArray<GitWorktreeEntry>;
+    }
+  | GitFailure;
+
+/** `git.worktreeRemove`: the unforced removal of one registered worktree. */
+export type GitWorktreeRemoveParams = {
+  readonly envelope: RequestEnvelope;
+  readonly path: string;
+  readonly options: NativeDisplayOptions;
+};
+export type GitWorktreeRemoveResult = { readonly status: "ok" } | GitFailure;
+
 /** Every method's params, keyed by its wire name. */
 export type MachineMethodParams = {
   readonly hello: HelloParams;
@@ -349,6 +463,11 @@ export type MachineMethodParams = {
   readonly "proc.bash": ProcBashParams;
   readonly "mcp.servers": McpServersParams;
   readonly "mcp.open": McpOpenParams;
+  readonly "git.inspect": GitInspectParams;
+  readonly "git.worktreeAdd": GitWorktreeAddParams;
+  readonly "git.worktreeList": GitWorktreeListParams;
+  readonly "git.worktreeRemove": GitWorktreeRemoveParams;
+  readonly "git.status": GitStatusParams;
 };
 
 /** Every method's result, keyed by the same names. */
@@ -365,6 +484,11 @@ export type MachineMethodResults = {
   readonly "proc.bash": ProcBashResult;
   readonly "mcp.servers": McpServersResult;
   readonly "mcp.open": McpOpenResult;
+  readonly "git.inspect": GitInspectResult;
+  readonly "git.worktreeAdd": GitWorktreeAddResult;
+  readonly "git.worktreeList": GitWorktreeListResult;
+  readonly "git.worktreeRemove": GitWorktreeRemoveResult;
+  readonly "git.status": GitStatusResult;
 };
 
 export type MachineMethod = keyof MachineMethodParams;
