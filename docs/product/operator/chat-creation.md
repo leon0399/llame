@@ -51,7 +51,7 @@ before anything is stored.
 | -------------- | ------ | ----------------------------------------------------------------------------------- |
 | `id`           | uuid   | Client-chosen Chat id. Required.                                                    |
 | `projectId`    | uuid   | Files the Chat into this project.                                                   |
-| `repositoryId` | uuid   | The repository to start from, linked to the project when one is named.              |
+| `repositoryId` | uuid   | The repository to start from; it need not be linked to the named project.           |
 | `executorId`   | string | The executor that holds the checkout: `tools.nativeExecutorId` or `machine:<name>`. |
 | `checkoutId`   | uuid   | A `main` checkout; it decides its own repository and executor.                      |
 | `worktree`     | object | `name` and `baseRef` of a worktree to create before the bind.                       |
@@ -110,8 +110,10 @@ offline `projects.default_executor_id` is dropped from its step rather than
 failing the start.
 
 A named `checkoutId` must be a `main` row; a worktree answers `422`. A
-`repositoryId` or `executorId` that disagrees with it answers `422`, and so does
-a `repositoryId` the named project does not link. With no ids,
+`repositoryId` or `executorId` that disagrees with it answers `422`. A project
+and a working directory are separate settings, so a named repository or
+checkout need not be linked to the named project; a link adds only its
+isolation policy and remembered defaults. With no ids,
 `GET /api/v1/projects/:id/start-location` previews the project's suggested
 location in this order; a composer shows it and names its ids explicitly to
 bind it.
@@ -138,7 +140,7 @@ filed and unbound: it stores no bound root, no lease, no defaults row, and no
 message, and it starts no Run. The client keeps the draft for a later send.
 
 A successful start records the source `main` checkout as the link's default for
-that executor, so the next create in the same project needs no location ids. A
+that executor, so the next preview in the same project suggests it again. A
 worktree start records the source checkout, never the worktree it just created.
 That write runs after the commit, it is best-effort, and its failure changes
 nothing else: the create still answers `bound`, and the previous default stays.

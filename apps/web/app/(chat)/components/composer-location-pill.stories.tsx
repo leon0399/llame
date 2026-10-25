@@ -168,7 +168,7 @@ function PillHarness({ failed = null }: { failed?: WorkspaceFailure | null }) {
 
 const meta = {
   component: PillHarness,
-  tags: ["autodocs", "ai-generated"],
+  tags: ["autodocs"],
   parameters: { layout: "centered" },
   beforeEach: () => {
     links = [link("repo-1", "llame", { isPrimary: true })];
@@ -196,6 +196,7 @@ function cell(canvasElement: HTMLElement, name: RegExp) {
  * @summary a pre-filled working directory: Machine, folder, and branch
  */
 export const ProjectDefault: Story = {
+  tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     await expect(await cell(canvasElement, /^Machine, /)).toHaveAccessibleName(
       "Machine, nas",
@@ -217,6 +218,7 @@ export const ProjectDefault: Story = {
  * @summary choosing a worktree from the mode cell
  */
 export const WorktreeMode: Story = {
+  tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     await userEvent.click(await cell(canvasElement, /^Work in, /));
     await userEvent.click(
@@ -237,6 +239,7 @@ export const WorktreeMode: Story = {
  * @summary an offline Machine is disabled in the Machine cell
  */
 export const OfflineMachine: Story = {
+  tags: ["ai-generated"],
   beforeEach: () => {
     checkouts = [
       checkout("checkout-1"),
@@ -268,6 +271,7 @@ export const OfflineMachine: Story = {
  * @summary an outdated daemon: warned on the pill and disabled in its menu
  */
 export const OutdatedDaemon: Story = {
+  tags: ["ai-generated"],
   args: {
     failed: {
       status: "machine_update_required",
@@ -297,6 +301,7 @@ export const OutdatedDaemon: Story = {
  * @summary removing the working directory
  */
 export const Removed: Story = {
+  tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     await userEvent.click(
       await within(canvasElement).findByRole("button", {
@@ -318,6 +323,7 @@ export const Removed: Story = {
  * @summary no working directory, no pill
  */
 export const NoWorkingDirectory: Story = {
+  tags: ["ai-generated"],
   beforeEach: () => {
     links = [];
     checkouts = [];
