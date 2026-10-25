@@ -47,7 +47,9 @@ import type {
  * the path, `machine://<name>/…` naming a Machine).
  */
 
-const LOCAL = "local";
+// "This server": a value no Machine name can take (names are lowercase
+// alphanumerics and dashes), so it never collides with a configured Machine.
+const LOCAL = "@local";
 
 /** The last path segment, which is how a folder reads in a small control. */
 export function folderName(path: string): string {
@@ -159,11 +161,22 @@ export function ComposerWorkingDirectorySubmenu({
   );
 }
 
-/** A typed path as checkouts store it: a Machine's folder is its
- *  `machine://<name>/…` locator, a local one the plain path. */
+/**
+ * A typed path as checkouts store it: a local folder is the plain path, and a
+ * Machine's is its `machine://<name>/…` locator, whose path carries one layer
+ * of `%XX` escapes for `%`, `#`, `?`, `\`, and control characters.
+ */
 function folderLocator(machine: string, path: string): string {
   const trimmed = path.replace(/(.)\/+$/u, "$1");
-  return machine === LOCAL ? trimmed : `machine://${machine}${trimmed}`;
+  if (machine === LOCAL) return trimmed;
+  const encoded = Array.from(trimmed, (char) => {
+    const code = char.charCodeAt(0);
+    const escaped = code < 0x20 || code === 0x7f || "%#?\\".includes(char);
+    return escaped
+      ? `%${code.toString(16).toUpperCase().padStart(2, "0")}`
+      : char;
+  }).join("");
+  return `machine://${machine}${encoded}`;
 }
 
 /** The registered `main` checkout at this locator, if any. A worktree's path

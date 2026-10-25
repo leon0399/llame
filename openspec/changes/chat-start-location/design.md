@@ -447,8 +447,10 @@ Alternatives:
 ### D10. Project and working directory are separate chips in the toolbar (Q13, Q14, Q8 visibility, Q20)
 
 A project and a working directory are separate, optional capabilities. A chat
-can have either one, both, or neither. The composer's `+` menu adds each one,
-and each one shows as a filled chip beside `+`:
+can have either one, both, or neither, and a working directory need not be a
+checkout of a repository that the project links: a link adds only its policy
+and remembered defaults. The composer's `+` menu adds each one, and each one
+shows as a filled chip beside `+`:
 
 ```text
 [+] [▣ llame development ×] [⌂ docker | ⎇ llame | ⑂ master ×]
@@ -475,7 +477,8 @@ preview route, and the × leaves the chat unbound. A chat without a working
 directory is an ordinary unbound chat: no row, no warning, and no header chip.
 Warnings remain only for a start that would fail: an offline Machine, a daemon
 that lacks the typed git methods (`machine_update_required`), or a failed
-create, whose sentence stays above the input until the draft changes.
+create. The pill then carries a warning cell with the reason, and the failed
+create's sentence stays above the input until the draft changes.
 
 Isolation defaults to the link policy: the policy selects the mode that the
 pill pre-fills. Under `inherit`, another open chat that already binds the

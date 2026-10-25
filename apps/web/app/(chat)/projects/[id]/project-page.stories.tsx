@@ -316,9 +316,9 @@ export const NoChats: Story = {
       CHATS_ROUTE,
       PINS_ROUTE,
       PROJECT_LINKS_ROUTE,
-      REPOSITORIES_ROUTE,
       CHECKOUTS_ROUTE,
       START_LOCATION_ROUTE,
+      REPOSITORIES_ROUTE,
     ]);
   },
 };
@@ -367,9 +367,9 @@ export const SidePanelDemo: Story = {
       CHATS_ROUTE,
       PINS_ROUTE,
       PROJECT_LINKS_ROUTE,
-      REPOSITORIES_ROUTE,
       CHECKOUTS_ROUTE,
       START_LOCATION_ROUTE,
+      REPOSITORIES_ROUTE,
     ]);
   },
 };
@@ -415,8 +415,8 @@ export const SendCreatesFiledChat: Story = {
     await expect(body.executorId).toBeUndefined();
     await expect(body.checkoutId).toBeUndefined();
     await expect(body.worktree).toBeUndefined();
-    // The send empties the draft after the navigation, and the composer may
-    // remount meanwhile, so the field is found again.
+    // The textarea remounts when the send locks and unlocks the composer, so
+    // the cleared draft is read from the current element.
     await waitFor(() =>
       expect(
         canvas.getByPlaceholderText("Describe a task or ask a question"),

@@ -9,11 +9,9 @@ import type {
 import { useCheckoutsQuery } from "@/lib/services/checkouts/queries";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 import { useProjectRepositoryLinksQuery } from "@/lib/services/project/queries";
-import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 import {
   executorLabel,
   executorOptions,
-  isolationReasonLabel,
   resolveLocation,
   unavailableExecutor,
   useStartLocationPreview,
@@ -26,7 +24,6 @@ import {
 } from "@/lib/services/project/start-location";
 import type { StartLocationPrefill } from "@/lib/services/project/start-location-link";
 import type { ProjectRepositoryLink } from "@/lib/services/project/types";
-import type { RepositoryResponse } from "@/lib/services/repositories/queries";
 
 /** One registered `main` checkout the composer can start a chat in. */
 export type WorkingDirectoryOption = {
@@ -46,20 +43,18 @@ type SelectionDraft = StartLocationSelection & {
   isolation: StartLocationIsolation | null;
 };
 
-/** The levels and the labels the location row renders. */
+/** The levels the pill renders. */
 type ComposerLocationView = {
   workingDirectories: Array<WorkingDirectoryOption>;
   machineOptions: Array<ExecutorOption>;
   location: ResolvedLocation;
+  /** The reader's choice, else the preview's default. */
   isolation: StartLocationIsolation;
-  isolationLabel: string;
-  followsDefault: boolean;
 };
 
 type ComposerLocationActions = {
   selectWorkingDirectory: (checkout: CheckoutResponse) => void;
   clearWorkingDirectory: () => void;
-  selectExecutor: (executorId: string) => void;
   selectIsolation: (isolation: StartLocationIsolation) => void;
 };
 
@@ -68,7 +63,7 @@ export type ComposerLocation = ComposerLocationView &
   ComposerLocationActions & {
     /** The owner's checkouts, for matching a typed path to a registered one. */
     checkouts: ReadonlyArray<CheckoutResponse>;
-    preview: { pending: boolean; failed: boolean; refetch: () => void };
+    preview: { failed: boolean; refetch: () => void };
   };
 
 type PreviewState = {
@@ -81,37 +76,10 @@ type DeriveLocationViewInput = {
   draft: SelectionDraft;
   preview: PreviewState;
   links: ReadonlyArray<ProjectRepositoryLink>;
-  repositories: ReadonlyArray<RepositoryResponse>;
   checkouts: ReadonlyArray<CheckoutResponse>;
   machines: ReadonlyArray<MachineResponse> | undefined;
   failed: WorkspaceFailure | null;
 };
-
-/**
- * The effective isolation: the reader's override, else the preview's default;
- * the label names the preview's reason only while the value still follows it.
- */
-function isolationView(
-  draft: SelectionDraft,
-  location: ResolvedLocation,
-): Pick<
-  ComposerLocationView,
-  "isolation" | "isolationLabel" | "followsDefault"
-> {
-  const isolation = draft.isolation ?? location.isolation;
-  const followsDefault =
-    draft.isolation === null || draft.isolation === location.isolation;
-  return {
-    isolation,
-    followsDefault,
-    isolationLabel: isolationReasonLabel(
-      isolation,
-      location.isolationReason,
-      location.isolationChats,
-      followsDefault,
-    ),
-  };
-}
 
 /** Every registered `main` checkout, the project's own repositories first. */
 function workingDirectoriesOf(
@@ -143,14 +111,10 @@ function deriveLocationView(
   const location = resolveLocation({
     preview: preview.data,
     previewFailed: preview.isError,
-    pending: preview.isPending,
-    links: input.links,
-    repositories: input.repositories,
     checkouts: input.checkouts,
     machines: input.machines,
     failed: input.failed,
   });
-  const isolation = isolationView(draft, location);
   return {
     workingDirectories: workingDirectoriesOf(input),
     machineOptions: executorOptions({
@@ -160,7 +124,7 @@ function deriveLocationView(
       unavailable: unavailableExecutor(input.failed),
     }),
     location,
-    ...isolation,
+    isolation: draft.isolation ?? location.isolation,
   };
 }
 
@@ -199,9 +163,10 @@ function localPreview(
 }
 
 /**
- * The composer's selection state. A Machine choice drops the checkout, and
- * any choice clears the isolation override so the new default applies (design
- * D10). `initial` is the entry point's pre-fill, read once.
+ * The composer's selection state. Any choice clears the isolation override so
+ * the new default applies (design D10). `initial` is the entry point's
+ * pre-fill, read once. A project change keeps the draft: the project and the
+ * working directory are separate settings.
  */
 function initialDraft(
   initial: StartLocationPrefill | null | undefined,
@@ -238,43 +203,27 @@ function draftActions(update: DraftUpdate): ComposerLocationActions {
         cleared: true,
         isolation: null,
       })),
-    selectExecutor: (executorId: string) =>
-      update((current) => ({
-        ...current,
-        executorId,
-        checkoutId: undefined,
-        isolation: null,
-      })),
     selectIsolation: (isolation: StartLocationIsolation) =>
       update((current) => ({ ...current, isolation })),
   };
 }
 
 function useSelectionDraft(
-  projectId: string | null,
   initial: StartLocationPrefill | null | undefined,
   onChange?: () => void,
 ): ComposerLocationActions & { draft: SelectionDraft } {
-  const [state, setState] = useState(() => ({
-    projectId,
-    draft: initialDraft(initial),
-  }));
-  // Another project's levels mean nothing here, so a project switch starts
-  // from that project's defaults; the pre-fill named the first project only.
-  if (state.projectId !== projectId) {
-    setState({ projectId, draft: initialDraft(null) });
-  }
+  const [draft, setDraft] = useState(() => initialDraft(initial));
   const actions = draftActions((change) => {
-    setState((current) => ({ ...current, draft: change(current.draft) }));
+    setDraft(change);
     onChange?.();
   });
-  return { draft: state.draft, ...actions };
+  return { draft, ...actions };
 }
 
 type ComposerLocationArgs = {
   /** The project whose links and preview are read; null resolves locally. */
   projectId: string | null;
-  /** The create's Workspace failure, shown on the row until the draft moves. */
+  /** The create's Workspace failure, shown on the pill until the draft moves. */
   failed: WorkspaceFailure | null;
   /** Any change to the selection means the reader is correcting the draft. */
   onChange?: () => void;
@@ -309,7 +258,7 @@ function useLocationPreview(
   };
 }
 
-/** The location row's one source of truth (design D10). */
+/** The working-directory pill's one source of truth (design D10). */
 export function useComposerLocation({
   projectId,
   failed,
@@ -317,31 +266,25 @@ export function useComposerLocation({
   initial,
   enabled = true,
 }: ComposerLocationArgs): ComposerLocation {
-  const { draft, ...actions } = useSelectionDraft(projectId, initial, onChange);
+  const { draft, ...actions } = useSelectionDraft(initial, onChange);
   const links = useProjectRepositoryLinksQuery(
     projectId ?? "",
     enabled && projectId !== null,
   );
-  const repositories = useRepositoriesQuery(enabled);
   const checkouts = useCheckoutsQuery(undefined, enabled).data ?? [];
-  const machines = useMachinesQuery();
+  const machines = useMachinesQuery(enabled);
   const preview = useLocationPreview(projectId, draft, checkouts, enabled);
   return {
     ...deriveLocationView({
       draft,
       preview,
       links: links.data ?? [],
-      repositories: repositories.data ?? [],
       checkouts,
       machines: machines.data,
       failed,
     }),
     ...actions,
     checkouts,
-    preview: {
-      pending: preview.isPending,
-      failed: preview.isError,
-      refetch: preview.refetch,
-    },
+    preview: { failed: preview.isError, refetch: preview.refetch },
   };
 }

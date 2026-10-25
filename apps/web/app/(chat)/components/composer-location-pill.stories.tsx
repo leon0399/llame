@@ -203,8 +203,8 @@ export const ProjectDefault: Story = {
     await expect(await cell(canvasElement, /^Folder, /)).toHaveAccessibleName(
       "Folder, llame",
     );
-    await expect(await cell(canvasElement, /^Work in, /)).toHaveTextContent(
-      "master",
+    await expect(await cell(canvasElement, /^Work in, /)).toHaveAccessibleName(
+      "Work in, master",
     );
     await expect(sentRoutes()).toContain(`GET ${PREVIEW_PATH}`);
   },
@@ -224,11 +224,8 @@ export const WorktreeMode: Story = {
     );
     await waitFor(async () =>
       expect(await cell(canvasElement, /^Work in, /)).toHaveAccessibleName(
-        "Work in, a new worktree",
+        "Work in, Worktree",
       ),
-    );
-    await expect(await cell(canvasElement, /^Work in, /)).toHaveTextContent(
-      "Worktree",
     );
   },
 };
@@ -258,6 +255,36 @@ export const OfflineMachine: Story = {
     await expect(
       await screen.findByRole("menuitemradio", {
         name: "builder: Offline — Could not be reached",
+      }),
+    ).toHaveAttribute("aria-disabled", "true");
+  },
+};
+
+/**
+ * A create answered `machine_update_required`: the pill shows the warning,
+ * and the Machine cell disables the daemon that answered, with the update
+ * sentence as its reason.
+ *
+ * @summary an outdated daemon: warned on the pill and disabled in its menu
+ */
+export const OutdatedDaemon: Story = {
+  args: {
+    failed: {
+      status: "machine_update_required",
+      executorId: "machine:nas",
+      message: "Update the llame-machine daemon on nas.",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await expect(
+      await within(canvasElement).findByRole("button", {
+        name: "Location warning: Update the llame-machine daemon on nas.",
+      }),
+    ).toBeVisible();
+    await userEvent.click(await cell(canvasElement, /^Machine, /));
+    await expect(
+      await screen.findByRole("menuitemradio", {
+        name: /^nas: Update the llame-machine daemon on that Machine/,
       }),
     ).toHaveAttribute("aria-disabled", "true");
   },

@@ -1,6 +1,11 @@
 "use client";
 
-import { FolderGit2Icon, GitBranchIcon, MonitorIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  FolderGit2Icon,
+  GitBranchIcon,
+  MonitorIcon,
+} from "lucide-react";
 
 import { ButtonGroup } from "@workspace/ui/components/button-group";
 import {
@@ -12,6 +17,8 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+
+import { machinePathFromRoot } from "@/lib/services/machines/locator";
 
 import { ChipRemoveButton } from "./composer-project";
 import { ComposerTooltip } from "./composer-tooltip";
@@ -126,18 +133,20 @@ function PillMenuCell(props: PillMenuCellProps) {
 }
 
 /**
- * A Machine choice: its only `main` checkout of the repository at once, so
- * the pill never passes through an unresolved state, else the Machine alone.
+ * A Machine choice selects a `main` checkout of the repository on it at once —
+ * the first by path when it holds several — so the pill never passes through
+ * an unresolved state. The folder cell then changes the checkout.
  */
 function selectMachine(location: ComposerLocation, executorId: string) {
-  const mains = location.checkouts.filter(
-    (row) =>
-      row.kind === "main" &&
-      row.executorId === executorId &&
-      row.repositoryId === location.location.repositoryId,
-  );
-  if (mains.length === 1) location.selectWorkingDirectory(mains[0]);
-  else location.selectExecutor(executorId);
+  const [first] = location.checkouts
+    .filter(
+      (row) =>
+        row.kind === "main" &&
+        row.executorId === executorId &&
+        row.repositoryId === location.location.repositoryId,
+    )
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (first !== undefined) location.selectWorkingDirectory(first);
 }
 
 /** The Machine cell: the Machines holding a `main` checkout of the repository,
@@ -167,7 +176,7 @@ function PillMachineCell({ location }: { location: ComposerLocation }) {
 }
 
 /** The folder cell; the project chip owns the plain folder icon, so a
- *  checkout shows a git folder. */
+ *  checkout shows a git folder, and its tooltip prints the path. */
 function PillFolderCell({
   location,
   path,
@@ -178,9 +187,10 @@ function PillFolderCell({
   onOtherFolder: () => void;
 }) {
   const folder = folderName(path);
+  const shown = machinePathFromRoot(path) ?? path;
   return (
     <PillMenuCell
-      tooltip={path}
+      tooltip={shown}
       ariaLabel={`Folder, ${folder}`}
       icon={<FolderGit2Icon aria-hidden className="size-4" />}
       label={folder}
@@ -201,14 +211,16 @@ function PillFolderCell({
 function PillModeCell({ location }: { location: ComposerLocation }) {
   const branch = location.location.checkout?.branch ?? "detached HEAD";
   const worktree = location.isolation === "worktree";
+  const label = worktree ? "Worktree" : branch;
   return (
     <PillMenuCell
       tooltip={
         worktree ? `New worktree from ${branch}` : `Checkout on ${branch}`
       }
-      ariaLabel={`Work in, ${worktree ? "a new worktree" : "the checkout"}`}
+      // The visible label leads the name, so it can be spoken to reach it.
+      ariaLabel={`Work in, ${label}`}
       icon={<GitBranchIcon aria-hidden className="size-4" />}
-      label={worktree ? "Worktree" : branch}
+      label={label}
     >
       <ChoiceGroup
         title="Work in"
@@ -224,6 +236,30 @@ function PillModeCell({ location }: { location: ComposerLocation }) {
         ]}
       />
     </PillMenuCell>
+  );
+}
+
+/** A start that would fail, named under the pointer; nothing otherwise. A
+ *  failed preview retries from here. */
+function PillWarningCell({ location }: { location: ComposerLocation }) {
+  const warning = location.location.warning;
+  if (warning === null) return null;
+  return (
+    <ComposerTooltip
+      label={warning.message}
+      render={
+        <PromptInputButton
+          variant="secondary"
+          size="icon"
+          aria-label={`Location warning: ${warning.message}`}
+          onClick={
+            location.preview.failed ? location.preview.refetch : undefined
+          }
+        />
+      }
+    >
+      <AlertTriangleIcon aria-hidden className="text-destructive size-4" />
+    </ComposerTooltip>
   );
 }
 
@@ -246,6 +282,7 @@ export function ComposerLocationPill({
         onOtherFolder={onOtherFolder}
       />
       <PillModeCell location={location} />
+      <PillWarningCell location={location} />
       <ChipRemoveButton
         label="Remove working directory"
         onRemove={location.clearWorkingDirectory}

@@ -100,8 +100,6 @@ function createRequest(input: CreateRequestInput): CreateChatRequest | null {
             checkoutId: checkout.id,
           },
     isolation: checkout === null ? "reuse" : input.location.isolation,
-    // The server generates the worktree's branch from its source.
-    worktree: {},
     message: { parts, modelId, effort, permissionMode },
   });
 }
@@ -213,14 +211,21 @@ export type ChatCreation = {
 };
 
 /**
- * The last create attempt: its failed sentence, the Workspace status the row
- * shows, and the chat it left filed and unbound, which a resend reuses.
+ * The last create attempt: its failed sentence, the Workspace status the pill
+ * shows, and the chat it left filed and unbound, which a resend reuses. A
+ * project change is a new draft, so the failure it earned goes away.
  */
-function useCreationAttempt() {
+function useCreationAttempt(projectId: string | null) {
   const [failure, setFailure] = React.useState<string | null>(null);
   const [workspaceFailed, setWorkspaceFailure] =
     React.useState<WorkspaceFailure | null>(null);
   const [retry, setRetry] = React.useState<RetryChat | null>(null);
+  const [scope, setScope] = React.useState(projectId);
+  if (scope !== projectId) {
+    setScope(projectId);
+    setFailure(null);
+    setWorkspaceFailure(null);
+  }
   return {
     failure,
     setFailure,
@@ -266,7 +271,7 @@ function useOpenCreatedChat(args: ChatCreationArgs, forget: () => void) {
 export function useChatCreation(args: ChatCreationArgs): ChatCreation {
   const createChat = useCreateChat();
   const selections = useComposerSelections(args.composerChatId);
-  const attempt = useCreationAttempt();
+  const attempt = useCreationAttempt(args.projectId);
   const openCreated = useOpenCreatedChat(args, attempt.forget);
   const { projectId } = args;
   const location = useComposerLocation({

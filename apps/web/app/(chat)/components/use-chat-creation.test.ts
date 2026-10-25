@@ -41,8 +41,7 @@ function handlerFor(options: {
       modelSendUnavailableReason: null,
     },
     location: {
-      selection: {},
-      isolation: { worktree: false },
+      isolation: "reuse",
       location: { checkout: null },
     } as never,
     projectId: PROJECT_ID,

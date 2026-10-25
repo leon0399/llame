@@ -225,7 +225,7 @@ test.describe("chat start location (browser, full stack)", () => {
     await pillCell(page, "Work in").click();
     await page.getByRole("menuitemradio", { name: /^A new worktree/ }).click();
     await expect(pillCell(page, "Work in")).toHaveAccessibleName(
-      "Work in, a new worktree",
+      "Work in, Worktree",
     );
 
     const composer = await readyComposer(page);
@@ -392,7 +392,7 @@ test.describe("chat start location (browser, full stack)", () => {
     // The source chat already binds that checkout, so the start asks for a
     // worktree of it.
     await expect(pillCell(page, "Work in")).toHaveAccessibleName(
-      "Work in, a new worktree",
+      "Work in, Worktree",
     );
 
     // "New chat in project" is the project's own entry point: the deep link

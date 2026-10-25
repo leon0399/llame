@@ -22,11 +22,15 @@ A chat with neither is an ordinary chat. It shows no chip and no warning.
 
 ## The project chip
 
-"Add to project" in the `+` menu files the chat. The chip names the project:
-its name opens the project list to change it, and only its × removes it. On a
-project's own page the project is fixed, so the chip is disabled and "Change
-project" in the `+` menu is disabled. An existing chat's chip files the chat in
-place, as the sidebar's "Move to project" does.
+"Add to project" in the `+` menu files the new chat. The chip names the
+project: its name opens the project list to change it, and only its × removes
+it. On a project's own page the project is fixed, so the chip is disabled and
+"Change project" in the `+` menu is disabled. A chat that already exists has no
+chip; the sidebar's "Move to project" files it.
+
+A working directory need not belong to a repository the project links: the two
+settings are independent. A linked repository only adds its isolation policy
+and remembered defaults.
 
 ## The working-directory pill
 
@@ -103,6 +107,6 @@ the URL.
 
 The chips set the location of a start. A chat that already exists changes its
 root through `enter_workspace` and `exit_workspace`, and its project through
-the project chip or `PATCH /api/v1/chats/:id`. See
+the sidebar's "Move to project" or `PATCH /api/v1/chats/:id`. See
 [enter_workspace](tools/enter-workspace.md) and
 [repositories](../operator/repositories.md).

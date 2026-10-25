@@ -20,7 +20,6 @@ function draft(overrides: Partial<CreateChatDraft> = {}): CreateChatDraft {
     projectId: "project-1",
     selection: SELECTION,
     isolation: "reuse",
-    worktree: { name: "", baseRef: "" },
     message: {
       parts: [{ type: "text", text: "Start here" }],
       modelId: "model-1",
@@ -45,16 +44,8 @@ describe("buildCreateChatRequest", () => {
     });
   });
 
-  it("asks for a worktree only when isolating, with trimmed fields", () => {
-    expect(
-      buildCreateChatRequest(
-        draft({
-          isolation: "worktree",
-          worktree: { name: " clear-field-0192 ", baseRef: " master " },
-        }),
-      ).worktree,
-    ).toEqual({ name: "clear-field-0192", baseRef: "master" });
-
+  it("asks for a worktree only when isolating, as an empty object", () => {
+    // The server names the worktree and cuts it from the source checkout.
     expect(
       buildCreateChatRequest(draft({ isolation: "worktree" })).worktree,
     ).toEqual({});

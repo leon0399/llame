@@ -3,48 +3,17 @@ import { describe, expect, it } from "vitest";
 import type {
   CheckoutResponse,
   MachineResponse,
-  RepositoryResponse,
   StartLocationResponse,
 } from "../../api/generated/models";
-import type { ProjectRepositoryLink } from "./types";
 import {
   executorLabel,
   executorOptions,
-  isolationReasonLabel,
   machineNameFromExecutorId,
   resolveLocation,
   type ResolvedLocation,
 } from "./start-location";
 
 const AT = "2026-01-01T00:00:00.000Z";
-
-function link(
-  overrides: Partial<ProjectRepositoryLink> & { repositoryId: string },
-): ProjectRepositoryLink {
-  return {
-    id: `link-${overrides.repositoryId}`,
-    ownerUserId: "u1",
-    projectId: "p1",
-    alias: "llame",
-    isPrimary: false,
-    isolation: "inherit",
-    defaults: [],
-    createdAt: AT,
-    updatedAt: AT,
-    ...overrides,
-  };
-}
-
-function repository(id: string, displayName: string): RepositoryResponse {
-  return {
-    id,
-    ownerUserId: "u1",
-    displayName,
-    canonicalRemote: `git@example.com:leo/${id}.git`,
-    createdAt: AT,
-    updatedAt: AT,
-  };
-}
 
 function checkout(
   id: string,
@@ -100,10 +69,6 @@ function preview(
   };
 }
 
-const LINKS = [
-  link({ repositoryId: "repo-1", alias: "llame", isPrimary: true }),
-];
-const REPOSITORIES = [repository("repo-1", "llame")];
 const CHECKOUTS = [checkout("c1")];
 
 describe("machineNameFromExecutorId", () => {
@@ -196,35 +161,12 @@ describe("executorOptions", () => {
   });
 });
 
-describe("isolationReasonLabel", () => {
-  it("labels each preview reason and a changed value", () => {
-    expect(isolationReasonLabel("reuse", "project_policy", 0, true)).toBe(
-      "reuse (project policy)",
-    );
-    expect(isolationReasonLabel("worktree", "clone_in_use", 1, true)).toBe(
-      "worktree (clone in use by 1 chat)",
-    );
-    expect(isolationReasonLabel("worktree", "clone_in_use", 2, true)).toBe(
-      "worktree (clone in use by 2 chats)",
-    );
-    expect(isolationReasonLabel("reuse", "no_link", 0, true)).toBe(
-      "reuse (no linked repository)",
-    );
-    expect(isolationReasonLabel("reuse", "project_policy", 0, false)).toBe(
-      "reuse (your choice)",
-    );
-  });
-});
-
 function resolve(
   overrides: Partial<Parameters<typeof resolveLocation>[0]> = {},
 ): ResolvedLocation {
   return resolveLocation({
     preview: preview(),
     previewFailed: false,
-    pending: false,
-    links: LINKS,
-    repositories: REPOSITORIES,
     checkouts: CHECKOUTS,
     machines: [],
     failed: null,
@@ -236,7 +178,6 @@ describe("resolveLocation", () => {
   it("resolves the preview's ids against the owner's rows", () => {
     const location = resolve();
 
-    expect(location.repositoryLabel).toBe("llame");
     expect(location.executor?.label).toBe("local");
     expect(location.checkout?.id).toBe("c1");
     expect(location.isolation).toBe("reuse");
@@ -244,22 +185,15 @@ describe("resolveLocation", () => {
   });
 
   it("treats a project without a repository, or a repository without a checkout, as an ordinary start", () => {
-    const unresolved = preview({
-      repositoryId: null,
-      executorId: null,
-      checkoutId: null,
-    });
-
     // No link, several links with no primary, and a link no Machine holds a
-    // checkout of all create an unbound chat, which is a normal chat.
-    expect(resolve({ preview: unresolved, links: [] }).warning).toBeNull();
+    // checkout of all preview no checkout, which creates an unbound chat.
     expect(
       resolve({
-        preview: unresolved,
-        links: [
-          link({ repositoryId: "repo-1" }),
-          link({ repositoryId: "repo-2", alias: "other" }),
-        ],
+        preview: preview({
+          repositoryId: null,
+          executorId: null,
+          checkoutId: null,
+        }),
       }).warning,
     ).toBeNull();
     expect(

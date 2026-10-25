@@ -1125,7 +1125,7 @@ describe('chat creation over HTTP', () => {
       expect(await chatRow(chatId)).toBeUndefined();
     });
 
-    it('answers 422 for a worktree checkout, a disagreeing id, and an unlinked repository', async () => {
+    it('answers 422 for a worktree checkout and a disagreeing id', async () => {
       const worktree = newChatId();
       await create({
         id: worktree,
@@ -1149,14 +1149,22 @@ describe('chat creation over HTTP', () => {
         executorId: 'machine:nas',
       }).expect(422);
       expect(await chatRow(disagreeingExecutor)).toBeUndefined();
+    });
 
-      const unlinked = newChatId();
-      await create({
-        id: unlinked,
+    it('files a chat into a project whose links do not name its repository', async () => {
+      // A project and a working directory are separate settings: a named
+      // repository outside the project's links still starts in the project.
+      const chatId = newChatId();
+      const response = await create({
+        id: chatId,
         projectId,
         repositoryId: unlinkedRepositoryId,
-      }).expect(422);
-      expect(await chatRow(unlinked)).toBeUndefined();
+      }).expect(201);
+
+      expect(createResponseSchema.parse(response.body).chat).toMatchObject({
+        id: chatId,
+        projectId,
+      });
     });
 
     it('answers 404 for another owner’s creation record', async () => {

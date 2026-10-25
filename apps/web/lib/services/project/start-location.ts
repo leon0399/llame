@@ -5,7 +5,6 @@ import type {
   CreationWorkspaceResponseStatus,
   GetProjectStartLocationParams,
   MachineResponse,
-  RepositoryResponse,
   StartLocationResponse,
 } from "../../api/generated/models";
 import { getProjectStartLocation } from "../../api/generated/projects/projects";
@@ -17,19 +16,16 @@ import type {
   StartLocationIsolation,
   StartLocationSelection,
 } from "./start-location-link";
-import type { ProjectRepositoryLink } from "./types";
 
 export type { StartLocationResponse };
 
 /*
- * The one resolved-location module the location chip and its cascade popover
- * share (openspec `chat-start-location`, design D10).
+ * The one resolved-location module behind the composer's working-directory
+ * pill (openspec `chat-start-location`, design D10).
  *
- * It reads the two routes the create request mirrors — the project's links and
- * `GET /api/v1/projects/:id/start-location` — plus the owner's checkouts and
- * Machine status. Everything the chip renders is derived here, so the chip
- * cannot show a location the create would not resolve: the preview route runs
- * the same resolver as `POST /api/v1/chats`.
+ * It reads `GET /api/v1/projects/:id/start-location`, which runs the create's
+ * own resolver, plus the owner's checkouts and Machine status, so the pill
+ * names the checkout that a create naming it binds.
  */
 
 export type StartLocationIsolationReason =
@@ -198,34 +194,8 @@ export function executorOptions(
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-/**
- * The isolation label of design D10: the resolved default carries the reason
- * the preview named, and a value the reader changed says so instead.
- */
-export function isolationReasonLabel(
-  isolation: StartLocationIsolation,
-  reason: StartLocationIsolationReason,
-  isolationChats: number,
-  followsDefault: boolean,
-): string {
-  if (!followsDefault) return `${isolation} (your choice)`;
-  switch (reason) {
-    case "project_policy":
-      return `${isolation} (project policy)`;
-    case "clone_in_use":
-      return `${isolation} (clone in use by ${String(isolationChats)} ${
-        isolationChats === 1 ? "chat" : "chats"
-      })`;
-    case "no_link":
-      return `${isolation} (no linked repository)`;
-  }
-}
-
 export type ResolvedLocation = {
   repositoryId: string | null;
-  repositoryLabel: string | null;
-  /** The catalog's display name, which the worktree placement uses. */
-  repositoryName: string | null;
   executor: ExecutorOption | null;
   checkout: CheckoutResponse | null;
   isolation: StartLocationIsolation;
@@ -237,9 +207,6 @@ export type ResolvedLocation = {
 export type ResolveLocationInput = {
   preview: StartLocationResponse | undefined;
   previewFailed: boolean;
-  pending: boolean;
-  links: ReadonlyArray<ProjectRepositoryLink>;
-  repositories: ReadonlyArray<RepositoryResponse>;
   checkouts: ReadonlyArray<CheckoutResponse>;
   machines: ReadonlyArray<MachineResponse> | undefined;
   failed: WorkspaceFailure | null;
@@ -259,7 +226,7 @@ const WORKSPACE_FAILURE_FALLBACKS: Record<
 
 /**
  * The Machine a failed create proved unusable — offline, or a daemon that
- * answers no git method — with the sentence the cascade disables it with.
+ * answers no git method — with the sentence its menu disables it with.
  */
 export function unavailableExecutor(
   failed: WorkspaceFailure | null,
@@ -295,24 +262,6 @@ function workspaceWarning(failed: WorkspaceFailure): LocationWarning {
       WORKSPACE_FAILURE_FALLBACKS[failed.status] ??
       "The Workspace could not be prepared.",
   };
-}
-
-type RepositoryRows = {
-  link: ProjectRepositoryLink | undefined;
-  name: string | null;
-};
-
-/** The link and catalog row behind a preview's repository id. */
-function repositoryRows(input: ResolveLocationInput): RepositoryRows {
-  const repositoryId = input.preview?.repositoryId;
-  if (repositoryId === null || repositoryId === undefined) {
-    return { link: undefined, name: null };
-  }
-  const link = input.links.find((row) => row.repositoryId === repositoryId);
-  const repository = input.repositories.find(
-    (row) => row.id === (link?.repositoryId ?? repositoryId),
-  );
-  return { link, name: repository?.displayName ?? null };
 }
 
 /** The executor option the preview names, or null when none resolves. */
@@ -354,23 +303,18 @@ function locationWarning(
 
 /**
  * The location the create would use: the preview's ids resolved against the
- * owner's rows, plus the one warning the chip names.
+ * owner's rows, plus the one warning the pill shows.
  */
 export function resolveLocation(input: ResolveLocationInput): ResolvedLocation {
   const preview = input.preview;
-  const { link, name } = repositoryRows(input);
-  const executor = previewExecutor(input);
   const checkoutId = preview?.checkoutId ?? null;
-  const checkout =
-    checkoutId === null
-      ? null
-      : (input.checkouts.find((row) => row.id === checkoutId) ?? null);
   const location: ResolvedLocation = {
     repositoryId: preview?.repositoryId ?? null,
-    repositoryLabel: link?.alias ?? name,
-    repositoryName: name,
-    executor,
-    checkout,
+    executor: previewExecutor(input),
+    checkout:
+      checkoutId === null
+        ? null
+        : (input.checkouts.find((row) => row.id === checkoutId) ?? null),
     isolation: preview?.isolation ?? "reuse",
     isolationReason: preview?.isolationReason ?? "no_link",
     isolationChats: preview?.isolationChats ?? 0,

@@ -34,7 +34,6 @@ export type CreateChatDraft = {
   projectId?: string;
   selection: StartLocationSelection;
   isolation: StartLocationIsolation;
-  worktree: { name?: string; baseRef?: string };
   message: {
     parts: CreateChatMessageDto["parts"];
     modelId: string;
@@ -43,23 +42,11 @@ export type CreateChatDraft = {
   };
 };
 
-function worktreeFields(worktree: {
-  name?: string;
-  baseRef?: string;
-}): NonNullable<CreateChatRequest["worktree"]> {
-  const name = worktree.name?.trim() ?? "";
-  const baseRef = worktree.baseRef?.trim() ?? "";
-  return {
-    ...(name.length > 0 && { name }),
-    ...(baseRef.length > 0 && { baseRef }),
-  };
-}
-
 /**
- * The request the server validates. A blank base ref or name is omitted rather
- * than sent as `""` (the API rejects a blank value), and `worktree` is present
- * only when the composer asks for one — the request's `worktree` field is what
- * decides the outcome. The location is opt-in: an empty selection binds none.
+ * The request the server validates. `worktree` is present only when the
+ * composer asks for one, as an empty object: the server names the worktree
+ * and cuts it from the source checkout. The location is opt-in: an empty
+ * selection binds none.
  */
 export function buildCreateChatRequest(
   draft: CreateChatDraft,
@@ -77,9 +64,7 @@ export function buildCreateChatRequest(
     ...(draft.selection.checkoutId !== undefined && {
       checkoutId: draft.selection.checkoutId,
     }),
-    ...(draft.isolation === "worktree" && {
-      worktree: worktreeFields(draft.worktree),
-    }),
+    ...(draft.isolation === "worktree" && { worktree: {} }),
     message: {
       id: draft.messageId,
       parts: draft.message.parts,
@@ -144,8 +129,8 @@ export function useCreateChat() {
       queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
       // A bound start also moves the checkout rows: a worktree start records
       // the new row, and a reused clone gains this chat in its `chatIds`. The
-      // header's read-only chip and the project's worktree list read them, so
-      // a stale list leaves the new worktree unnameable until a reload.
+      // session details and the project's worktree list read them, so a stale
+      // list leaves the new worktree unnameable until a reload.
       queryClient.invalidateQueries({ queryKey: checkoutQueryKeys.lists() });
       queryClient.invalidateQueries({
         queryKey: projectQueryKeys.repositoryLinks(),

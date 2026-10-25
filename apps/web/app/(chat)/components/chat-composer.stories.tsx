@@ -747,10 +747,10 @@ async function expectUploadEnabled(
 
 /**
  * The `+` menu: "Upload photos & files" opens the file picker and shows its
- * Ctrl+U shortcut, which opens the picker from the page too; "Add to
- * project" is a disabled placeholder.
+ * Ctrl+U shortcut, which opens the picker from the page too. A composer that
+ * cannot file a chat offers nothing else.
  *
- * @summary the add menu and Ctrl+U open the picker; Add to project is disabled
+ * @summary the add menu and Ctrl+U open the picker
  */
 export const AddMenu: Story = {
   tags: ["ai-generated"],
@@ -774,12 +774,10 @@ export const AddMenu: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Add files and more" }),
     );
-    await expect(
-      await screen.findByRole("menuitem", { name: "Add to project" }),
-    ).toHaveAttribute("aria-disabled", "true");
-    const upload = screen.getByRole("menuitem", {
+    const upload = await screen.findByRole("menuitem", {
       name: "Upload photos & files",
     });
+    await expect(screen.getAllByRole("menuitem")).toEqual([upload]);
     // The chord this browser's platform uses, as command-palette.stories does.
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
