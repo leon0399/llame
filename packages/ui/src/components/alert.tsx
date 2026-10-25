@@ -20,8 +20,7 @@ const alertVariants = cva(
 );
 
 interface AlertProps
-  extends React.ComponentProps<"div">,
-    VariantProps<typeof alertVariants> {
+  extends React.ComponentProps<"div">, VariantProps<typeof alertVariants> {
   /**
    * Visual emphasis: `default` for neutral/informational content,
    * `destructive` for errors or other failed/dangerous outcomes.

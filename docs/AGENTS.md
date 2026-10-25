@@ -62,5 +62,5 @@ and `development/`.
 
 Run `pnpm lint:markdown` (markdownlint plus
 `scripts/check-markdown-links.mjs`: links, anchors, frontmatter keys, and
-`spec`/`configured_by`/`behavior` resolution), `pnpm exec prettier --check` on
+`spec`/`configured_by`/`behavior` resolution), `pnpm exec oxfmt --check` on
 the changed files, and `git diff --check`.

@@ -49,7 +49,7 @@ Spanish conversation, and an unresolved question. The runner checks that:
 
 - the fake token is absent while `[REDACTED]` is present;
 - the cancelled task is absent from `Active` and `Open Questions and Next
-Steps`;
+  Steps`;
 - the unresolved question is quoted verbatim under `Latest Request`;
 - the correction appears under `Errors and Corrections` and the superseded
   value is absent from the Active, Blocked, and Open Questions and Next Steps sections; and

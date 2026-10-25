@@ -25,7 +25,7 @@ from a grilling round with Leo on 2026-10-14, recorded on #1275.
   No text is extracted in this change.
 
 - **Model input declaration.** `models[].input` gains `pdf` (`["text", "pdf"]`, `["text", "image",
-"pdf"]`). It is still published by `GET /api/v1/models`, and absent still means text-only.
+  "pdf"]`). It is still published by `GET /api/v1/models`, and absent still means text-only.
 - **Media store.**
   - `POST /api/v1/media` accepts PDFs detected by `%PDF-` magic bytes.
   - A PDF is stored as its original only, with its page count and without dimensions or a model

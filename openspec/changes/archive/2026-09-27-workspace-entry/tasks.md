@@ -235,7 +235,7 @@ implementation layers.
 ## 6. `workspace-entry/workspace-mcp`: clients, config, and lifecycle
 
 - [x] 6.1 Add the per-Chat Workspace MCP client provider keyed by `(chatId, canonical root,
-workspace_generation)`. Keep Workspace candidates and executors out of the process-wide
+  workspace_generation)`. Keep Workspace candidates and executors out of the process-wide
       operator MCP runtime; compose each attempt from the current Chat key with its resolver
       layered over the operator resolver. Implement `.llame/mcp.json` over `.mcp.json` merge,
       portable entry shapes, start on entry or attempt start, stop on exit/switch/detach/shutdown,

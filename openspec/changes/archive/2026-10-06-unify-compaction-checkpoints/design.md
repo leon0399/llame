@@ -6,7 +6,7 @@ Inspected at `77e91506` (2026-10-01). See proposal.md for motivation.
   `parent_id` self-FK, `summary`, `replacement_history` jsonb, `usage`,
   `created_at`; unique `(chat_id, upto_seq)`; owner-only RLS with no public
   policy. `messages` (`:196-262`): `message_role` enum `user | assistant |
-system | tool` (`:201`), Chat-local `seq`, `parts` jsonb, and a
+  system | tool` (`:201`), Chat-local `seq`, `parts` jsonb, and a
   `messages_public_read` policy that exposes whole rows of public chats
   (`:263-266`). Production writes only `user` and `assistant` rows.
 - Replay. `buildContext` drops `system`/`tool` rows and rows with

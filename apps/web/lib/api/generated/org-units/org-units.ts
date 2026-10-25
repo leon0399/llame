@@ -96,8 +96,7 @@ export const listOrgUnits = async (
   return data;
 };
 
-export type createChildOrgUnitError =
-  void | void | void | OrgUnitConflictErrorResponse;
+export type createChildOrgUnitError = void | void | void | OrgUnitConflictErrorResponse;
 
 export const getCreateChildOrgUnitUrl = (id: string) => {
   return `/api/v1/org-units/${id}/children`;
@@ -223,8 +222,7 @@ export const updateOrgUnit = async (
   return data;
 };
 
-export type deleteOrgUnitError =
-  void | void | void | OrgUnitConflictErrorResponse;
+export type deleteOrgUnitError = void | void | void | OrgUnitConflictErrorResponse;
 
 export const getDeleteOrgUnitUrl = (id: string) => {
   return `/api/v1/org-units/${id}`;
@@ -302,8 +300,7 @@ export const listOrgUnitMemberships = async (
   return data;
 };
 
-export type grantOrgUnitMembershipError =
-  void | void | void | OrgUnitConflictErrorResponse;
+export type grantOrgUnitMembershipError = void | void | void | OrgUnitConflictErrorResponse;
 
 export const getGrantOrgUnitMembershipUrl = (id: string) => {
   return `/api/v1/org-units/${id}/memberships`;
@@ -345,8 +342,7 @@ export const grantOrgUnitMembership = async (
   return data;
 };
 
-export type changeOrgUnitMembershipRoleError =
-  void | void | void | OrgUnitConflictErrorResponse;
+export type changeOrgUnitMembershipRoleError = void | void | void | OrgUnitConflictErrorResponse;
 
 export const getChangeOrgUnitMembershipRoleUrl = (
   id: string,
@@ -392,8 +388,7 @@ export const changeOrgUnitMembershipRole = async (
   return data;
 };
 
-export type revokeOrgUnitMembershipError =
-  void | void | void | OrgUnitConflictErrorResponse;
+export type revokeOrgUnitMembershipError = void | void | void | OrgUnitConflictErrorResponse;
 
 export const getRevokeOrgUnitMembershipUrl = (id: string, userId: string) => {
   return `/api/v1/org-units/${id}/memberships/${userId}`;

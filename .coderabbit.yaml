@@ -38,7 +38,7 @@ reviews:
               (an interface with one implementation, a helper with one call site, config or
               options nothing sets).
 
-        Do not repeat what CI already enforces: oxlint (type-aware, on tsgo), prettier,
+        Do not repeat what CI already enforces: oxlint (type-aware, on tsgo), oxfmt,
         ast-grep, and markdownlint-cli2 all run as gates. Do not comment on formatting.
 
         Name the bug and its failure scenario, or name the specific documented rule violated.

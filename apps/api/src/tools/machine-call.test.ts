@@ -664,8 +664,8 @@ describe('runMachineMutation', () => {
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(prior);
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
     const { connector } = connectorFor();
-    const perform = vi.fn(
-      (): Promise<ToolResult> => Promise.resolve({ status: 'success' }),
+    const perform = vi.fn((): Promise<ToolResult> =>
+      Promise.resolve({ status: 'success' }),
     );
 
     await expect(
@@ -721,8 +721,8 @@ describe('runMachineMutation', () => {
     const { connector } = connectorFor();
     const controller = new AbortController();
     controller.abort();
-    const perform = vi.fn(
-      (): Promise<ToolResult> => Promise.resolve({ status: 'success' }),
+    const perform = vi.fn((): Promise<ToolResult> =>
+      Promise.resolve({ status: 'success' }),
     );
 
     await expect(

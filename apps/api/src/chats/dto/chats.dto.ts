@@ -66,9 +66,7 @@ function parseSafeIntegerQueryValue(value: unknown): number | null | undefined {
 type HistoryCursorValue = number | null | undefined;
 
 @ValidatorConstraint({ name: 'historyCursorsExclusive', async: false })
-class HistoryCursorsExclusiveConstraint
-  implements ValidatorConstraintInterface
-{
+class HistoryCursorsExclusiveConstraint implements ValidatorConstraintInterface {
   validate(_value: HistoryCursorValue, args: ValidationArguments): boolean {
     const query = args.object;
     return (

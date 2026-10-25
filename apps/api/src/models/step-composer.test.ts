@@ -217,9 +217,10 @@ describe('composeStepMessages', () => {
       descriptor(B, { modelByteSize }),
     ]);
     const composed = await composeStepMessages(
-      [A, B].map(
-        (id): ModelMessage => ({ role: 'user', content: [fileRef(id)] }),
-      ),
+      [A, B].map((id): ModelMessage => ({
+        role: 'user',
+        content: [fileRef(id)],
+      })),
       { resolver, context: VISION },
     );
 

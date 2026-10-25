@@ -319,13 +319,11 @@ export class RecencyDigestService {
     const firstUserByChat = new Map(
       firstUserMessages.map((message) => [message.chatId, message]),
     );
-    return chats.map(
-      (chat): DigestSourceChat => ({
-        ...chat,
-        firstUserMessage: firstUserByChat.get(chat.id),
-        messageCount: counts.get(chat.id) ?? 0,
-      }),
-    );
+    return chats.map((chat): DigestSourceChat => ({
+      ...chat,
+      firstUserMessage: firstUserByChat.get(chat.id),
+      messageCount: counts.get(chat.id) ?? 0,
+    }));
   }
 
   /**

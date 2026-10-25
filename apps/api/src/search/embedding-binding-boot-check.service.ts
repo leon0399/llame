@@ -46,9 +46,7 @@ import {
  * genuinely off case.
  */
 @Injectable()
-export class EmbeddingBindingBootCheckService
-  implements OnApplicationBootstrap
-{
+export class EmbeddingBindingBootCheckService implements OnApplicationBootstrap {
   private readonly logger = new Logger(EmbeddingBindingBootCheckService.name);
 
   constructor(

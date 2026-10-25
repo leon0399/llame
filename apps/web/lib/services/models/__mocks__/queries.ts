@@ -22,13 +22,11 @@ type MockedModelsQuery = {
   isPending: boolean;
 };
 
-export const useModelsQuery = fn(
-  (): MockedModelsQuery => ({
-    data: undefined,
-    isError: false,
-    isPending: true,
-  }),
-).mockName("useModelsQuery");
+export const useModelsQuery = fn((): MockedModelsQuery => ({
+  data: undefined,
+  isError: false,
+  isPending: true,
+})).mockName("useModelsQuery");
 
 export function modelDisplayName(
   modelId: string,

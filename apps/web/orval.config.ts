@@ -25,7 +25,7 @@ export default defineConfig({
     },
     hooks: {
       afterAllFilesWrite: {
-        command: "prettier --write",
+        command: "oxfmt",
         injectGeneratedDirsAndFiles: true,
       },
     },

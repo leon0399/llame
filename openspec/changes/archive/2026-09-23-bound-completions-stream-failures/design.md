@@ -26,8 +26,8 @@ packages:
   the delta on `.data`. It is out of scope (proposal, non-goals).
 - `@ai-sdk/provider@3.0.16` (the copy the adapter resolves) builds the two
   parse errors' messages from the whole event: `JSON parsing failed: Text:
-${text}` (`dist/index.mjs:172`) and `${prefix}: Value:
-${JSON.stringify(value)}` (`:307`).
+  ${text}` (`dist/index.mjs:172`) and `${prefix}: Value:
+  ${JSON.stringify(value)}` (`:307`).
 - `ai@6.0.256` `streamText` delivers every error part to `onError` and
   otherwise resolves the result: verified with a stubbed transport, a bad event
   after some text leaves `text` resolved with that text and `finishReason`
@@ -158,9 +158,9 @@ make the same choice (`openai-embedding-backend.ts:33-37`,
 ### D5: Owner-facing texts
 
 - Unreadable event: `Model request failed: the provider sent a stream event
-that could not be read.`
+  that could not be read.`
 - Redirect: `Model request failed: the provider answered with a redirect (HTTP
-<status>), which is not followed.`
+  <status>), which is not followed.`
 
 They name the provider rather than the wire because the owner chose a model,
 not a wire, and an `opencode-go` entry never names Chat Completions. Neither

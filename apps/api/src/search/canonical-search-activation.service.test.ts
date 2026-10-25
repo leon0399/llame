@@ -48,11 +48,8 @@ async function buildService(
     provisioned ? [{ bypass: true }] : [{ bypass: false }],
     ...queries,
   ];
-  const execute = vi.fn(
-    (): Promise<Iterable<FakeRow>> =>
-      Promise.resolve(
-        (results.length > 1 ? results.shift() : results[0]) ?? [],
-      ),
+  const execute = vi.fn((): Promise<Iterable<FakeRow>> =>
+    Promise.resolve((results.length > 1 ? results.shift() : results[0]) ?? []),
   );
   const runAsPublic = vi.fn(
     (

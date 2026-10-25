@@ -90,7 +90,7 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
  */
 function matchesGlob(glob, file) {
   let source = "";
-  for (let index = 0; index < glob.length; ) {
+  for (let index = 0; index < glob.length;) {
     const rest = glob.slice(index);
     if (rest.startsWith("**/")) {
       source += "(?:[^/]+/)*";

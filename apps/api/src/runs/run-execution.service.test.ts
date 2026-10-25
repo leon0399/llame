@@ -13109,11 +13109,10 @@ describe('RunExecutionService prompt imports', () => {
 
   /** The events recorded under the prompt-import origin, in append order. */
   function importEvents(events: ReadonlyArray<RecordedEvent>) {
-    return events.flatMap(
-      ({ type, payload }): Array<ImportEvent> =>
-        isRecord(payload) && payload['origin'] === 'prompt-import'
-          ? [{ type, payload }]
-          : [],
+    return events.flatMap(({ type, payload }): Array<ImportEvent> =>
+      isRecord(payload) && payload['origin'] === 'prompt-import'
+        ? [{ type, payload }]
+        : [],
     );
   }
 

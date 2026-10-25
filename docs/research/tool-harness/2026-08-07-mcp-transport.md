@@ -119,7 +119,7 @@ class used when you pass `{ transport: { type: 'http', url, headers } }` to
 `modelcontextprotocol.io/specification/2025-11-25/basic/transports`):
 
 - POST for every outgoing JSON-RPC message, `Accept: application/json,
-text/event-stream` on every POST (`mcp-http-transport.ts:183-186`) — the spec's MUST
+  text/event-stream` on every POST (`mcp-http-transport.ts:183-186`) — the spec's MUST
   that the client "include an `Accept` header, listing both `application/json` and
   `text/event-stream`".
 - Both allowed response shapes: a single `application/json` body, or a
@@ -206,7 +206,7 @@ warns. **#215 must build its own pagination loop** to get every tool. Copy openc
 - `catalog.ts:145-162`, `listTools()` wraps each page fetch and catches an
   `outputSchema`-shaped validation failure (`isOutputSchemaValidationError`,
   regex-matched against error text: `can't resolve reference|resolves to more than one
-schema|outputSchema|...`), retrying that one page against a schema with `outputSchema`
+  schema|outputSchema|...`), retrying that one page against a schema with `outputSchema`
   stripped (`TolerantListToolsResultSchema`). This exists because the **official**
   `@modelcontextprotocol/sdk`'s strict zod `ListToolsResultSchema` can fail on one
   tool's malformed/self-referencing `outputSchema` and take down discovery for **every
@@ -249,16 +249,16 @@ text) has to be built the same way.
   `continue`s — one server's connection or discovery failure never aborts the
   tool-resolution loop for the rest. The executable tool name it registers is
   `f'{server_id}*{tool*spec["name"]}'` (`:2652,2655`): server-id-prefixed but with **no
-character sanitization of the tool name itself**, unlike opencode/Claude Code's
-`[^A-Za-z0-9*-]→\_`pass (#214's F3, already decided as`mcp**server**tool`) — a gap
-in this peer, not a pattern to copy. Discovery for the separate OpenAPI-tool-server
-path (`utils/tools.py:1315-1411`) gathers every configured server concurrently with
-`asyncio.gather(\*tasks, return_exceptions=True)`, then per-result
-`if isinstance(response, Exception): log.error(...); continue` — the same
+  character sanitization of the tool name itself**, unlike opencode/Claude Code's
+  `[^A-Za-z0-9*-]→\_`pass (#214's F3, already decided as`mcp**server**tool`) — a gap
+  in this peer, not a pattern to copy. Discovery for the separate OpenAPI-tool-server
+  path (`utils/tools.py:1315-1411`) gathers every configured server concurrently with
+  `asyncio.gather(\*tasks, return_exceptions=True)`, then per-result
+  `if isinstance(response, Exception): log.error(...); continue` — the same
   isolate-and-skip shape, batched.
 - **opencode** (`mcp/index.ts:83-107`): a small closed discriminated status type per
   server — `connected | disabled | failed{error} | needs_auth |
-needs_client_registration` (`Schema.Union`, `:100-106`) — stored per-server-name in
+  needs_client_registration` (`Schema.Union`, `:100-106`) — stored per-server-name in
   `State.status` (`:144`). `defs()` (`catalog.ts:38-40`) wraps `listTools` in
   `Effect.catch(() => Effect.void)`, so discovery failure for one server degrades to
   "no tools from this server," never a thrown error the caller has to catch.

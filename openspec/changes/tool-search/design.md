@@ -27,7 +27,7 @@ See `proposal.md` for motivation. Facts that shape the design, verified on 2026-
 - **Anthropic.** `anthropic-messages` ships. Its adapter serializes a tool-level
   `providerOptions.anthropic.deferLoading` as `defer_loading` (`@ai-sdk/anthropic` `index.js:1519-1545`)
   and converts a tool-result content part `{ type: 'custom', providerOptions: { anthropic: {
-type: 'tool-reference', toolName } } }` into a `tool_reference` block (`index.js:2548-2555`).
+  type: 'tool-reference', toolName } } }` into a `tool_reference` block (`index.js:2548-2555`).
   Anthropic documents exactly that as custom client-side tool search: every candidate is sent in
   `tools` with `defer_loading: true`, deferred tools are excluded from the rendered prefix, and a
   `tool_reference` in a `tool_result` is expanded inline, "so prompt caching is preserved"; the
@@ -67,7 +67,7 @@ type: 'tool-reference', toolName } } }` into a `tool_reference` block (`index.js
   attempt's assistant message. No invocation table or per-tool index exists.
 - **Two MCP sources, one id space.** Operator servers are process-wide; Workspace servers from
   `.llame/mcp.json` and `.mcp.json` start per Chat, keyed by `(chatId, canonical root,
-workspace_generation)` (`mcp/workspace-mcp-clients.ts`, workspace-entry D8). Both produce
+  workspace_generation)` (`mcp/workspace-mcp-clients.ts`, workspace-entry D8). Both produce
   `mcp__<server>__<tool>` ids; a started Workspace server shadows a byte-equal operator server
   id from the next attempt. MCP tools are classified `unverified`: an exact `tools.allowed` entry
   or a namespace rule such as `mcp__playwright__*` makes them eligible, and every call needs an
@@ -449,7 +449,7 @@ What this change fixes so that selector is additive:
    that happened). The derivation reads both producers; nothing else changes.
 2. **Native delivery already has server-authored forms.** On `anthropic-messages` the item
    projects as a mid-conversation `role: "system"` message with `toolChanges: [{ type:
-'tool_addition', toolName }]` placed right after the user message, which the installed
+   'tool_addition', toolName }]` placed right after the user message, which the installed
    adapter emits today; the model sees the tool without a search step and `tools` is untouched.
    On `openai-responses` the counterpart is an `additional_tools` developer item, absent from
    the adapter; until it lands, the selector can narrow instead of load, sending the full set

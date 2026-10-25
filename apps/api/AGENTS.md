@@ -165,7 +165,7 @@ function keeps its parameters.
   glob in `.markdownlint-cli2.jsonc`
   (`apps/api/src/<module>/prompts/**`, the `**` form, because a bare directory
   path does not match in micromatch); and the same directory in
-  `.prettierignore` in gitignore directory form. Never a globstar such as
+  the root `.oxfmtrc.jsonc` `ignorePatterns`, in gitignore directory form. Never a globstar such as
   `apps/api/src/**/prompts/**`: it also swallows
   `apps/api/src/prompts/chat-default.md` and drops its MD033 override. Also add
   one import per colocated directory to

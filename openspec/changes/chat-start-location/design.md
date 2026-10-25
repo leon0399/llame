@@ -121,13 +121,13 @@ Composer and entry-point shapes:
 Schema:
 
 - `project_repositories(owner_user_id, project_id, repository_id, alias,
-is_primary, isolation)` with unique `(owner_user_id, project_id,
-repository_id)` and a partial unique `(owner_user_id, project_id) WHERE
-is_primary`. `isolation` is `inherit`, `always_worktree`, or `never`, default
+  is_primary, isolation)` with unique `(owner_user_id, project_id,
+  repository_id)` and a partial unique `(owner_user_id, project_id) WHERE
+  is_primary`. `isolation` is `inherit`, `always_worktree`, or `never`, default
   `inherit`.
 
 - Per-executor defaults: `project_repository_defaults(owner_user_id,
-project_repository_id, executor_id, checkout_id, updated_at)` with a unique
+  project_repository_id, executor_id, checkout_id, updated_at)` with a unique
   key on `(owner_user_id, project_repository_id, executor_id)`. `checkout_id`
   must be a `main` checkout of that repository on that executor. The row is
   written from the last successful chat start, and each write replaces
@@ -135,7 +135,7 @@ project_repository_id, executor_id, checkout_id, updated_at)` with a unique
 
 - Every row carries `owner_user_id` with composite owner foreign keys:
   `(owner_user_id, project_id)` to `projects`, `(owner_user_id,
-repository_id)` to `repositories`, `(owner_user_id, checkout_id)` to
+  repository_id)` to `repositories`, `(owner_user_id, checkout_id)` to
   `checkouts`, and `(owner_user_id, project_repository_id)` to the link. Each
   parent needs its `(owner_user_id, id)` unique key: this change adds it to
   `projects` and to the link table, and change 1 already declares it on
@@ -305,7 +305,6 @@ Server order:
    3. The inspected main tree, after the read-only `git.inspect` and
       before any write.
    4. The canonical worktree directory, before `git.worktreeAdd`.
-
    - The mode is `message.permissionMode`, and `default` when the request omits
      it, evaluated against this process's config
    - Every decision runs in the `enter_workspace` permission group
@@ -570,8 +569,8 @@ prompt.
 - API and web additions are additive. `POST /api/v1/chats/:id/messages`,
   `PATCH /api/v1/chats/:id`, and the project routes keep their contracts.
   `GET /api/v1/projects/:id/repositories`, `GET
-/api/v1/projects/:id/start-location`, and `GET
-/api/v1/chats/:id/creation-record` are new reads with no effects.
+  /api/v1/projects/:id/start-location`, and `GET
+  /api/v1/chats/:id/creation-record` are new reads with no effects.
 
 - Rollback withdraws the web entry points and the create route, then drops the
   three tables, the unique key, and the column. Current chats keep

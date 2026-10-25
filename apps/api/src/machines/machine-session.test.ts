@@ -53,8 +53,8 @@ type SpanOptions = Parameters<typeof Sentry.startSpanManual>[0];
 
 vi.mock('@sentry/nestjs', () => ({
   getTraceData: vi.fn(() => ({})),
-  startSpan: vi.fn(
-    <T>(_options: SpanOptions, callback: () => T): T => callback(),
+  startSpan: vi.fn(<T>(_options: SpanOptions, callback: () => T): T =>
+    callback(),
   ),
   startSpanManual: vi.fn(
     <T>(_options: SpanOptions, callback: (active: typeof span) => T): T =>

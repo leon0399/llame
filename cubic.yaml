@@ -80,7 +80,7 @@ reviews:
           unchecked, and a requirement naming a config key, tool, or endpoint the code no
           longer has.
 
-    Do not repeat what CI already enforces: oxlint (type-aware, on tsgo), prettier,
+    Do not repeat what CI already enforces: oxlint (type-aware, on tsgo), oxfmt,
     ast-grep, knip, markdownlint-cli2, actionlint, zizmor, and pinact all run as gates. Do
     not comment on formatting, line wrapping, import order, or prose style.
 

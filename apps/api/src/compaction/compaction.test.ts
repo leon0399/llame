@@ -1073,19 +1073,17 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       earlier: Array<{ id: string; mediaType: string }>,
       trigger: Array<{ id: string; mediaType: string }>,
     ): Array<ModelMessage> =>
-      [earlier, trigger].map(
-        (files): ModelMessage => ({
-          role: 'user',
-          content: [
-            ...files.map(({ id, mediaType }) => ({
-              type: 'file' as const,
-              data: `media://${id}`,
-              mediaType,
-            })),
-            { type: 'text' as const, text: 'look' },
-          ],
-        }),
-      );
+      [earlier, trigger].map((files): ModelMessage => ({
+        role: 'user',
+        content: [
+          ...files.map(({ id, mediaType }) => ({
+            type: 'file' as const,
+            data: `media://${id}`,
+            mediaType,
+          })),
+          { type: 'text' as const, text: 'look' },
+        ],
+      }));
     const pdf = 'application/pdf';
 
     it('compacts on PDF overflow when a stored PDF sits before the trigger', async () => {

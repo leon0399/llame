@@ -108,18 +108,16 @@ async function listDirectory(
   // A directory swapped for a link after the listing keeps no entries: the
   // names it returned describe a tree the roots no longer hold.
   if (!(await unchanged(walk, rel))) return [];
-  return dirents.map(
-    (dirent): GrepEntry => ({
-      name: dirent.name,
-      kind: dirent.isSymbolicLink()
-        ? "link"
-        : dirent.isDirectory()
-          ? "directory"
-          : dirent.isFile()
-            ? "file"
-            : "other",
-    }),
-  );
+  return dirents.map((dirent): GrepEntry => ({
+    name: dirent.name,
+    kind: dirent.isSymbolicLink()
+      ? "link"
+      : dirent.isDirectory()
+        ? "directory"
+        : dirent.isFile()
+          ? "file"
+          : "other",
+  }));
 }
 
 /** One file, opened without following a link or blocking on a FIFO. */

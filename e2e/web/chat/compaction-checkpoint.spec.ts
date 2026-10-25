@@ -42,7 +42,7 @@ async function precedes(first: Locator, second: Locator): Promise<boolean> {
     (earlier, later) =>
       Boolean(
         earlier.compareDocumentPosition(later) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
+        Node.DOCUMENT_POSITION_FOLLOWING,
       ),
     secondHandle,
   );

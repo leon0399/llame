@@ -291,7 +291,7 @@ conversation as told about an event it never received.
   Synchronized the disclosure count to three across `memory`, `proposal.md`, and the digest spec.
 - **v3 (2026-08-12):** Removed a stale chat identifier from the no-text-excerpt scenario, which
   still rendered `title, date, and id` and contradicted the same requirement's `SHALL NOT carry chat
-identifiers` two paragraphs above (round 2, GP reviewer). Added a task covering the never-inferred
+  identifiers` two paragraphs above (round 2, GP reviewer). Added a task covering the never-inferred
   scenario in `memory`, and clarified that the `{{#if user}}` gate test runs against a fixture rather
   than the packaged default, which gains no digest block until activation.
 - **v2 (2026-08-12):** Reordered the stack so activation is the final layer. The v1 order put the

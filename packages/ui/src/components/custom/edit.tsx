@@ -93,26 +93,22 @@ function replacementRows(
 ): Array<DiffRow> {
   const paired = removed.length === added.length;
   return [
-    ...removed.map(
-      (text, index): DiffRow => ({
-        kind: "removed",
-        oldNumber: lineNumber(numbers.old, index),
-        newNumber: null,
-        segments: paired
-          ? wordSegments(text, added[index] ?? "", "removed")
-          : [{ text, changed: false }],
-      }),
-    ),
-    ...added.map(
-      (text, index): DiffRow => ({
-        kind: "added",
-        oldNumber: null,
-        newNumber: lineNumber(numbers.new, index),
-        segments: paired
-          ? wordSegments(removed[index] ?? "", text, "added")
-          : [{ text, changed: false }],
-      }),
-    ),
+    ...removed.map((text, index): DiffRow => ({
+      kind: "removed",
+      oldNumber: lineNumber(numbers.old, index),
+      newNumber: null,
+      segments: paired
+        ? wordSegments(text, added[index] ?? "", "removed")
+        : [{ text, changed: false }],
+    })),
+    ...added.map((text, index): DiffRow => ({
+      kind: "added",
+      oldNumber: null,
+      newNumber: lineNumber(numbers.new, index),
+      segments: paired
+        ? wordSegments(removed[index] ?? "", text, "added")
+        : [{ text, changed: false }],
+    })),
   ];
 }
 

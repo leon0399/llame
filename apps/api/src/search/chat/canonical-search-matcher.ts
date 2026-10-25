@@ -458,7 +458,7 @@ type NormalizedFragment = {
  *  normalize together. Phase 1 of `buildNormalizedMapping`. */
 function buildCombiningMarkFragments(raw: string): Array<NormalizedFragment> {
   const fragments: Array<NormalizedFragment> = [];
-  for (let offset = 0; offset < raw.length; ) {
+  for (let offset = 0; offset < raw.length;) {
     const rawStart = offset;
     const firstCodePoint = raw.codePointAt(offset);
     if (firstCodePoint === undefined) break;

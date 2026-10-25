@@ -58,17 +58,17 @@ pre-commit:
     - name: format
       glob: &format-glob "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
       files: git diff --name-only --cached --diff-filter=ACMR
-      run: pnpm exec prettier --check --cache --cache-strategy content --no-error-on-unmatched-pattern {files}
+      run: pnpm exec oxfmt --check --no-error-on-unmatched-pattern {files}
 
 pre-push:
   parallel: true
   jobs:
     - name: format
       glob: *format-glob
-      run: pnpm exec prettier --check --cache --cache-strategy content --no-error-on-unmatched-pattern {push_files}
+      run: pnpm exec oxfmt --check --no-error-on-unmatched-pattern {push_files}
 
     - name: format config
-      glob: "{.prettierrc*,**/.prettierrc*,.prettierignore,prettier.config.*,**/prettier.config.*}"
+      glob: ".oxfmtrc.jsonc"
       run: pnpm format:check
 
     - name: markdown lint

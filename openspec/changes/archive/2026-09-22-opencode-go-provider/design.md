@@ -472,8 +472,8 @@ endpoint it serves, and Go gets that module unchanged.
 Accepted risks, documented in the runbook and here:
 
 - A model the format gate rejects arrives as HTTP 401 with body `{"type":
-"error","error":{"type":"ModelError","message":"Model <id> is not supported
-for format oa-compat"}}` (or `"Model <id> is not supported"`). The owner sees
+  "error","error":{"type":"ModelError","message":"Model <id> is not supported
+  for format oa-compat"}}` (or `"Model <id> is not supported"`). The owner sees
   that message as the run failure; the status is not shown. The runbook states
   this first, because a misdeclared model is the likeliest operator error, and
   maps the message to its remedy: declare a chat-accepted model, or wait for
@@ -843,5 +843,5 @@ no chat history needs reprocessing.
   #908: bounding the SDK parse-error message for a malformed stream chunk,
   which is pre-existing behavior of the shared Chat Completions module. The
   authored-size figure now follows one convention, `git diff --shortstat
-master` insertions plus deletions at publication, in the ledger, the
+  master` insertions plus deletions at publication, in the ledger, the
   proposal, and the PR body.

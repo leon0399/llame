@@ -145,7 +145,7 @@ What matters for a repository that already owns Playwright and Storybook:
   completely replace standalone end-to-end test runners" and recommends
   keeping one[^vitest-browser-why].
 - **Limitation, no module-namespace spying.** `vi.spyOn(namespaceImport,
-"method")` throws, because native ESM namespace objects are sealed; the
+  "method")` throws, because native ESM namespace objects are sealed; the
   workaround is `vi.mock("./mod.js", { spy: true })`. `vi.mock` itself
   works[^vitest-browser-guide][^vitest-mocking].
 - **Limitation, blocking dialogs.** `alert`, `confirm` and `print` are
