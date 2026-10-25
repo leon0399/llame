@@ -144,9 +144,10 @@ local executor is this process's `tools.nativeExecutorId` and is never offline.
 
 A named `checkoutId` MUST decide its repository and its executor. It MUST be a
 `main` checkout, and a worktree row MUST answer 422. A given `repositoryId` or
-`executorId` that disagrees with it MUST answer 422. When the request names
-`projectId`, a `repositoryId` that the project does not link MUST answer 422. A
-named `checkoutId` whose repository the project does not link MUST also answer 422. A 422 MUST store nothing and MUST start no git call.
+`executorId` that disagrees with it MUST answer 422. A 422 MUST store nothing
+and MUST start no git call. A project and a working directory are separate
+settings, so a named repository or checkout MUST NOT need a link in the named
+project.
 
 #### Scenario: A worktree checkout cannot be the source
 
@@ -165,18 +166,11 @@ named `checkoutId` whose repository the project does not link MUST also answer 4
   executor
 - **THEN** the response is 422 and nothing is stored
 
-#### Scenario: An unlinked repository is rejected
-
-- **WHEN** the request names a `projectId` and a `repositoryId` that the project
-  does not link
-- **THEN** the response is 422 and nothing is stored
-
-#### Scenario: A checkout of an unlinked repository is rejected
+#### Scenario: A checkout of an unlinked repository starts in the project
 
 - **WHEN** the request names a `projectId` and a `checkoutId` whose repository
   the project does not link
-- **THEN** the response is 422 and nothing is stored
-- **AND** no git call starts
+- **THEN** the chat is filed into the project and binds that checkout
 
 ### Requirement: A create request with a message validates it before any write
 
