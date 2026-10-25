@@ -686,17 +686,15 @@ sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
   - Self-review completed in the layer, whose single commit is `66ca44da`. It
     carries the two entry points, the deep link, the header chip, the
     reference page, and the browser suite
-  - The suite was not run locally, as 6.3 records. No generated churn
-  - The branch is published as `chat-start-location/composer-entry-points` on
-    top of #1412. It has no PR of its own before this finalize layer
+  - No generated churn. The layer is #1413, on top of #1412
 
 - [x] 6.7 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
-  - Not run. Leo decided that the GitHub review loop is a non-blocking
-    follow-up for this stack. This box records that decision, not a green loop
-  - This layer has no PR yet, so it has no check rollup either. Its end-to-end
-    suite stays unproven until CI runs it
+  - Completed on #1413 on 2026-10-25: every check green except API DAST
+    Schemathesis and ZAP, which are red on master too. All 7 review threads
+    answered and resolved; the accepted one disables "New chat here" for a
+    root that no registered checkout holds
 
 ## 6b. `chat-start-location/composer-redesign` — the toolbar chips and the opt-in create (design D9, D10)
 
@@ -721,14 +719,24 @@ sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
 
 - [x] 6b.5 Update the stories and the end-to-end suite for the chips.
 
-- [ ] 6b.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+- [x] 6b.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
   - Record authored size and generated churn separately
   - Fix accepted findings, then mark ready
+  - A reviewer pass raised 13 findings; the accepted ones are fixed in the
+    layer (unlinked checkouts allowed, warning cell, encoded Machine paths,
+    removed worktree plumbing, cleared failure on a project switch)
+  - Authored size is 2,730 added and 2,943 deleted lines, over the budget as a
+    named exception in #1426: most deletions are whole removed files. No
+    generated churn
 
-- [ ] 6b.7 GR: complete the ready-PR monitoring loop.
+- [x] 6b.7 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
+  - Completed on #1426 on 2026-10-25: every check green except API DAST
+    Schemathesis and ZAP, which are red on master too. Both review threads
+    accepted, fixed, and resolved; patch coverage raised with the Other folder
+    and project chip stories
 
 ## 7. Finalize readiness (`chat-start-location/finalize`)
 
