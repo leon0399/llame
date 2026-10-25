@@ -7,7 +7,7 @@ for approval, publication, and merge policy.
 ## Delivery stack
 
 ```text
-master <- proposals/repositories-and-chat-start-location <- repositories/schema-and-registration <- repositories/executor-git <- repositories/workspace-worktree <- repositories/finalize <- chat-start-location/project-links-api <- chat-start-location/project-links-ui <- chat-start-location/chat-creation <- chat-start-location/composer-chip <- chat-start-location/composer-entry-points <- chat-start-location/finalize
+master <- proposals/repositories-and-chat-start-location <- repositories/schema-and-registration <- repositories/executor-git <- repositories/workspace-worktree <- repositories/finalize <- chat-start-location/project-links-api <- chat-start-location/project-links-ui <- chat-start-location/chat-creation <- chat-start-location/composer-chip <- chat-start-location/composer-entry-points <- chat-start-location/composer-redesign <- chat-start-location/finalize
 ```
 
 - `proposals/repositories-and-chat-start-location` (parent `master`): one PR
@@ -68,8 +68,18 @@ master <- proposals/repositories-and-chat-start-location <- repositories/schema-
   - Justification: every remaining entry point reuses the chip
   - Each of them needs the end-to-end proof
 
-- `chat-start-location/finalize` (parent
+- `chat-start-location/composer-redesign` (parent
   `chat-start-location/composer-entry-points`):
+
+  - It owns the toolbar project chip and working-directory pill, which replace
+    the location chip, the cascade, and the header chip
+  - It owns the opt-in create location (design D9, D10)
+  - It owns the spec delta and reference changes for both
+  - Justification: Leo's review of the running composer on 2026-10-25 made the
+    project and the working directory separate, optional capabilities
+
+- `chat-start-location/finalize` (parent
+  `chat-start-location/composer-redesign`):
   - It owns only spec synchronization, task records, and archive movement
   - The estimate is under 200 authored lines
 
@@ -578,6 +588,38 @@ executor, and the start-location preview.
   - Fix accepted findings, then mark ready
 
 - [ ] 6.7 GR: complete the ready-PR monitoring loop.
+  - Terminal green CI
+  - No actionable unresolved feedback
+
+## 6b. `chat-start-location/composer-redesign` — the toolbar chips and the opt-in create (design D9, D10)
+
+- [x] 6b.1 Make the create's location opt-in.
+
+  - A request that names no repository, executor, or checkout binds nothing,
+    whatever the project defaults
+  - A worktree without a named location answers 422
+  - The composer names the checkout that its pill shows, or none
+  - Verify in the creation unit and integration suites
+
+- [x] 6b.2 Replace the chip and the cascade with the toolbar chips.
+
+  - "Add to project" and "Add working directory" in the `+` menu
+  - The project chip and the working-directory pill, each removed only by its ×
+  - "Other folder…" matches a registered checkout or registers the folder
+  - The worktree name and base fields are removed; the server names the tree
+
+- [x] 6b.3 Remove the read-only header chip.
+
+- [x] 6b.4 Update the spec delta, design D10, and the reference entry.
+
+- [x] 6b.5 Update the stories and the end-to-end suite for the chips.
+
+- [ ] 6b.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+
+  - Record authored size and generated churn separately
+  - Fix accepted findings, then mark ready
+
+- [ ] 6b.7 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
 

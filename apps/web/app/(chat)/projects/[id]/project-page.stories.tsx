@@ -57,7 +57,7 @@ const PINS_ROUTE = "GET /api/v1/pins";
 const PROJECT_LINKS_ROUTE = "GET /api/v1/projects/p1/repositories";
 const REPOSITORIES_ROUTE = "GET /api/v1/repositories";
 const CHECKOUTS_ROUTE = "GET /api/v1/checkouts";
-// The composer's location preview: no link, so the chip names the level to fix
+// The composer's location preview: no link, so no working directory resolves
 // and the send creates an unbound chat.
 const START_LOCATION_ROUTE = "GET /api/v1/projects/p1/start-location";
 const CREATE_CHAT_ROUTE = "POST /api/v1/chats";
@@ -283,8 +283,9 @@ export const NoChats: Story = {
     ).toBeVisible();
     await expect(canvas.getByRole("button", { name: "Pin" })).toBeVisible();
     await expect(canvas.getByRole("button", { name: "More" })).toBeVisible();
-    // The composer is enabled and its chip names the level to fix: this
-    // project links no repository, so a send creates an unbound chat (#1328).
+    // The composer is enabled, its project chip names this project and is
+    // fixed here, and this project links no repository, so there is no
+    // working-directory pill and a send creates an unbound chat (#1328).
     await expect(
       canvas.getByPlaceholderText("Describe a task or ask a question"),
     ).not.toBeDisabled();
@@ -294,8 +295,11 @@ export const NoChats: Story = {
       ).toBeEnabled(),
     );
     await expect(
-      await canvas.findByRole("button", { name: /Chat location/ }),
-    ).toHaveTextContent("Trip planning · Choose a repository");
+      await canvas.findByRole("button", { name: "Project Trip planning" }),
+    ).toBeDisabled();
+    await expect(
+      canvas.queryByRole("button", { name: /^Folder, / }),
+    ).not.toBeInTheDocument();
     await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
     const chats = within(
       canvas.getByRole("region", { name: "Chats in this project" }),
@@ -312,9 +316,9 @@ export const NoChats: Story = {
       CHATS_ROUTE,
       PINS_ROUTE,
       PROJECT_LINKS_ROUTE,
-      REPOSITORIES_ROUTE,
       CHECKOUTS_ROUTE,
       START_LOCATION_ROUTE,
+      REPOSITORIES_ROUTE,
     ]);
   },
 };
@@ -363,9 +367,9 @@ export const SidePanelDemo: Story = {
       CHATS_ROUTE,
       PINS_ROUTE,
       PROJECT_LINKS_ROUTE,
-      REPOSITORIES_ROUTE,
       CHECKOUTS_ROUTE,
       START_LOCATION_ROUTE,
+      REPOSITORIES_ROUTE,
     ]);
   },
 };
@@ -405,14 +409,14 @@ export const SendCreatesFiledChat: Story = {
         parts: [{ type: "text", text: "Start here" }],
       },
     });
-    // This project links no repository, so the chip sent no location and no
-    // worktree: the server resolves nothing and creates an unbound chat.
+    // This project links no repository, so the composer named no location and
+    // no worktree: the server binds nothing and creates an unbound chat.
     await expect(body.repositoryId).toBeUndefined();
     await expect(body.executorId).toBeUndefined();
     await expect(body.checkoutId).toBeUndefined();
     await expect(body.worktree).toBeUndefined();
-    // The send empties the draft after the navigation, and the composer may
-    // remount meanwhile, so the field is found again.
+    // The textarea remounts when the send locks and unlocks the composer, so
+    // the cleared draft is read from the current element.
     await waitFor(() =>
       expect(
         canvas.getByPlaceholderText("Describe a task or ask a question"),
@@ -423,7 +427,7 @@ export const SendCreatesFiledChat: Story = {
 
 /**
  * A `workspace` failure leaves the chat filed and unbound and stores no
- * message, so the draft stays, the chip warns, and the resend reuses the same
+ * message, so the draft stays under the failure sentence, and the resend reuses the same
  * chat id — the server's retry path, not a second chat.
  *
  * @summary a failed workspace keeps the draft and resends the same chat id
@@ -456,11 +460,6 @@ export const SendKeepsDraftOnWorkspaceFailure: Story = {
       "git refused the path",
     );
     await expect(composer).toHaveValue("Fix the base ref");
-    await expect(
-      await canvas.findByRole("button", {
-        name: /Warning: git refused the path/,
-      }),
-    ).toBeVisible();
     await expect(routerPush).not.toHaveBeenCalled();
 
     await userEvent.click(canvas.getByRole("button", { name: "Send message" }));

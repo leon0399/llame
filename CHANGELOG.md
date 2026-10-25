@@ -70,9 +70,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `POST /api/v1/chats` takes a client chat id, an optional project, repository,
   executor, checkout, and `worktree` (`name`, `baseRef`), and an optional first
   message. The server validates every named id under owner RLS in the
-  transaction that inserts the Chat, resolves the location through the same
-  order the project page previews (never a silent primary, remembering one
-  default checkout per link and executor), and then runs the Workspace step as
+  transaction that inserts the Chat. The location is opt-in: a request that
+  names no repository, executor, or checkout starts unbound, whatever the
+  project's defaults, and a named one resolves through the order the project
+  page previews (never a silent primary, remembering one default checkout per
+  link and executor). It then runs the Workspace step as
   the Run-free twin of `enter_workspace`: the same ordered path decisions in the
   request's permission mode, one recorded attempt before the first git write,
   and the same entry gates. A requested worktree adds through the typed git
@@ -90,17 +92,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   serves the owner each attempt's decisions. See
   [chat creation](docs/product/operator/chat-creation.md).
 
-- Every chat-start entry point pre-fills one location chip. A project's row
-  menu offers "New chat in project", and an existing chat's row menu offers
-  "New chat here": it copies that chat's project, repository, executor, and
-  source checkout, and asks for a worktree because the source chat already
-  holds the tree. The deep link
+- A new chat's project and working directory are separate, optional settings,
+  each added from the composer's `+` menu and shown as a filled chip beside
+  it. The project chip opens the project list and is fixed on a project's own
+  page; the working-directory pill's Machine, folder, and mode cells open
+  their menus, "Other folder…" selects or registers a typed path, and only
+  each chip's × removes it. A chat with neither is an ordinary chat with no
+  warning. A project's row menu offers "New chat in project", and an existing
+  chat's row menu offers "New chat here": it copies that chat's project,
+  repository, executor, and source checkout, and asks for a worktree because
+  the source chat already holds the tree. The deep link
   `/chat/new?project=&repository=&executor=&checkout=&worktree=1` forwards a
-  named project to its composer with the same pre-fill, and the composer never
-  rewrites the URL while the chip is edited. The chat header shows the same
-  chip read-only from the chat's own `workspace_root`, warning for a chat bound
-  to nothing, and naming a root the checkout catalog does not hold instead of
-  hiding it. See
+  named project to its composer with the same pre-fill. See
   [chat location](docs/product/reference/chat-location.md).
 
 - The chat's Session details show the Workspace's repository and branch when

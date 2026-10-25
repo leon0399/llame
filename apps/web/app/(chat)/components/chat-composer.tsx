@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import type { ChatStatus } from "ai";
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
 
@@ -20,8 +22,19 @@ import {
   dropFilesInto,
   pasteFilesInto,
 } from "./composer-attachments";
+import { ComposerLocationPill } from "./composer-location-pill";
+import {
+  type ComposerProject,
+  ComposerProjectChip,
+  ComposerProjectSubmenu,
+} from "./composer-project";
 import { ComposerTooltip } from "./composer-tooltip";
+import {
+  ComposerWorkingDirectorySubmenu,
+  OtherFolderDialog,
+} from "./composer-working-directory";
 import type { ComposerAttachments } from "./use-composer-attachments";
+import type { ComposerLocation } from "./use-composer-location";
 
 type ChatComposerSendButtonProps = {
   status: ChatStatus;
@@ -133,6 +146,8 @@ type ChatComposerFormProps = {
   disabled: boolean;
   chatId: string;
   attachments: ComposerAttachments;
+  project: ComposerProject | undefined;
+  location: ComposerLocation | undefined;
 };
 
 function preventWhenDisabled(
@@ -150,35 +165,102 @@ function preventWhenDisabled(
 
 type ChatComposerToolbarProps = Pick<
   ChatComposerFormProps,
-  "status" | "onStop" | "modelReadyForSend" | "pendingStop" | "attachments"
+  | "status"
+  | "onStop"
+  | "modelReadyForSend"
+  | "pendingStop"
+  | "attachments"
+  | "project"
+  | "location"
 > & {
   /** The whole composer is locked: no upload, by menu or by shortcut. */
   locked: boolean;
 };
 
-/** The toolbar under the textarea: the `+` menu on the left, send/stop on
- *  the right. */
+/** The working-directory pill and the typed-folder dialog its menus open. */
+function ComposerLocationChip({
+  location,
+  otherFolder,
+  onOtherFolderChange,
+}: {
+  location: ComposerLocation;
+  otherFolder: boolean;
+  onOtherFolderChange: (open: boolean) => void;
+}) {
+  return (
+    <>
+      <ComposerLocationPill
+        location={location}
+        onOtherFolder={() => onOtherFolderChange(true)}
+      />
+      <OtherFolderDialog
+        open={otherFolder}
+        onOpenChange={onOtherFolderChange}
+        location={location}
+      />
+    </>
+  );
+}
+
+/** The toolbar's left side: the `+` menu with its project and working
+ *  directory items, then the project and working-directory chips. */
+function ComposerToolbarStart({
+  attachments,
+  project,
+  location,
+  locked,
+}: Pick<
+  ChatComposerToolbarProps,
+  "attachments" | "project" | "location" | "locked"
+>) {
+  const [otherFolder, setOtherFolder] = useState(false);
+  return (
+    <div className="flex items-center gap-1">
+      <ComposerAddMenu
+        onFiles={attachments.add}
+        accept={attachments.accept}
+        attachDisabled={attachments.attachDisabled || locked}
+      >
+        {project === undefined ? null : (
+          <ComposerProjectSubmenu project={project} />
+        )}
+        {location === undefined ? null : (
+          <ComposerWorkingDirectorySubmenu
+            location={location}
+            onOtherFolder={() => setOtherFolder(true)}
+          />
+        )}
+      </ComposerAddMenu>
+      {project === undefined ? null : <ComposerProjectChip project={project} />}
+      {location === undefined ? null : (
+        <ComposerLocationChip
+          location={location}
+          otherFolder={otherFolder}
+          onOtherFolderChange={setOtherFolder}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The toolbar under the textarea: the `+` menu and the project chip on the
+ *  left, send/stop on the right. */
 function ChatComposerToolbar({
   status,
   onStop,
   modelReadyForSend,
   pendingStop,
-  attachments,
-  locked,
+  ...start
 }: ChatComposerToolbarProps) {
   return (
     <PromptInputToolbar>
-      <ComposerAddMenu
-        onFiles={attachments.add}
-        accept={attachments.accept}
-        attachDisabled={attachments.attachDisabled || locked}
-      />
+      <ComposerToolbarStart {...start} />
       <div className="ml-auto">
         <ChatComposerSendButton
           status={status}
           onStop={onStop}
           modelReadyForSend={
-            modelReadyForSend && !locked && !attachments.sendBlocked
+            modelReadyForSend && !start.locked && !start.attachments.sendBlocked
           }
           pendingStop={pendingStop}
         />
@@ -195,6 +277,7 @@ function ChatComposerForm({
   disabled,
   attachments,
   chatId,
+  location,
   ...toolbar
 }: ChatComposerFormProps) {
   return (
@@ -220,6 +303,7 @@ function ChatComposerForm({
         <ChatComposerToolbar
           {...toolbar}
           attachments={attachments}
+          location={location}
           locked={disabled}
         />
       </PromptInput>
@@ -243,43 +327,64 @@ type ChatComposerProps = {
   disabled?: boolean;
   /** Images and PDFs attached to the unsent message. */
   attachments: ComposerAttachments;
+  /** The project the chat is filed into, with the `+` menu's way to change
+   *  it; absent where the composer cannot file a chat. */
+  project?: ComposerProject;
+  /** The filed chat's start location, for the row under the input. */
+  location?: ComposerLocation;
+  /** A failed create's sentence; the draft stays for a resend. */
+  failure?: string | null;
 };
+
+/** A failed create's sentence, then why the model cannot send, if either. */
+function ComposerNotices({
+  failure,
+  unavailableReason,
+}: {
+  failure: string | null;
+  unavailableReason: string | null;
+}) {
+  return (
+    <>
+      {failure === null ? null : (
+        <p role="alert" className="mb-2 text-xs text-destructive">
+          {failure}
+        </p>
+      )}
+      {unavailableReason && (
+        <p className="mb-2 text-xs text-destructive">{unavailableReason}</p>
+      )}
+    </>
+  );
+}
 
 /** The composer itself — the message textarea, attachments, permission mode,
  *  model/effort selectors and the send/stop affordance — with no placement
  *  of its own, so a page can set it into its own layout (the project page
  *  sets it into a column). */
 export function ChatComposerBody({
-  chatId,
-  input,
-  onInputChange,
-  onSubmit,
-  status,
-  onStop,
-  modelReadyForSend,
   modelSendUnavailableReason,
   pendingStop = false,
   disabled = false,
-  attachments,
+  project,
+  location,
+  failure = null,
+  ...form
 }: ChatComposerProps) {
-  const unavailableReason =
-    modelSendUnavailableReason ?? attachments.blockReason;
   return (
     <>
-      {unavailableReason && (
-        <p className="mb-2 text-xs text-destructive">{unavailableReason}</p>
-      )}
+      <ComposerNotices
+        failure={failure}
+        unavailableReason={
+          modelSendUnavailableReason ?? form.attachments.blockReason
+        }
+      />
       <ChatComposerForm
-        chatId={chatId}
-        input={input}
-        onInputChange={onInputChange}
-        onSubmit={onSubmit}
-        status={status}
-        onStop={onStop}
-        modelReadyForSend={modelReadyForSend}
+        {...form}
         pendingStop={pendingStop}
         disabled={disabled}
-        attachments={attachments}
+        project={project}
+        location={location}
       />
     </>
   );

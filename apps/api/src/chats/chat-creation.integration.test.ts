@@ -603,7 +603,11 @@ describe('chat creation over HTTP', () => {
     it('binds the resolved checkout, files the Chat, and records the default', async () => {
       const chatId = newChatId();
 
-      const response = await create({ id: chatId, projectId }).expect(201);
+      const response = await create({
+        id: chatId,
+        projectId,
+        repositoryId,
+      }).expect(201);
       const body = createResponseSchema.parse(response.body);
 
       expect(body.chat).toMatchObject({ id: chatId, projectId });
@@ -642,24 +646,23 @@ describe('chat creation over HTTP', () => {
       ]);
     });
 
-    it('needs no location ids once the default is remembered', async () => {
+    it('starts unbound without location ids, even with a remembered default', async () => {
       const first = newChatId();
       const second = newChatId();
-      await create({ id: first, projectId }).expect(201);
+      await create({ id: first, projectId, repositoryId }).expect(201);
 
       const response = await create({ id: second, projectId }).expect(201);
       const body = createResponseSchema.parse(response.body);
 
-      expect(body.workspace).toEqual({
-        status: 'bound',
-        root: source,
-        executorId: 'creation-host',
-      });
+      // The location is opt-in: the project's primary link and its remembered
+      // default only pre-fill a client; the server binds nothing unasked.
+      expect(body.workspace).toEqual({ status: 'unbound' });
+      expect((await chatRow(second)).workspace_root).toBeNull();
     });
 
     it('lets an explicit repository override the primary link and its default', async () => {
       const chatId = newChatId();
-      await create({ id: newChatId(), projectId }).expect(201);
+      await create({ id: newChatId(), projectId, repositoryId }).expect(201);
 
       const response = await create({
         id: chatId,
@@ -689,6 +692,7 @@ describe('chat creation over HTTP', () => {
       const response = await create({
         id: chatId,
         projectId,
+        repositoryId,
         message: {
           id: messageId,
           modelId: MODEL_ID,
@@ -748,6 +752,7 @@ describe('chat creation over HTTP', () => {
       const response = await create({
         id: chatId,
         projectId,
+        repositoryId,
         worktree: { name: 'creation-one' },
         message: {
           id: messageId,
@@ -820,6 +825,7 @@ describe('chat creation over HTTP', () => {
       const first = await create({
         id: chatId,
         projectId,
+        repositoryId,
         worktree: { name: 'creation-two' },
       }).expect(201);
       const root = createResponseSchema.parse(first.body).workspace.root;
@@ -832,6 +838,7 @@ describe('chat creation over HTTP', () => {
       const resent = await create({
         id: chatId,
         projectId,
+        repositoryId,
         worktree: { name: 'creation-two' },
         message: {
           id: crypto.randomUUID(),
@@ -972,6 +979,7 @@ describe('chat creation over HTTP', () => {
       const response = await create({
         id: chatId,
         projectId,
+        repositoryId,
         worktree: { name: 'creation-taken' },
         message: {
           id: crypto.randomUUID(),
@@ -1056,7 +1064,7 @@ describe('chat creation over HTTP', () => {
 
     it('refuses an archived Chat', async () => {
       const chatId = newChatId();
-      await create({ id: chatId, projectId }).expect(201);
+      await create({ id: chatId, projectId, repositoryId }).expect(201);
       await request(harness.http)
         .patch(`/api/v1/chats/${chatId}`)
         .set('Cookie', owner.cookie)
@@ -1117,7 +1125,7 @@ describe('chat creation over HTTP', () => {
       expect(await chatRow(chatId)).toBeUndefined();
     });
 
-    it('answers 422 for a worktree checkout, a disagreeing id, and an unlinked repository', async () => {
+    it('answers 422 for a worktree checkout and a disagreeing id', async () => {
       const worktree = newChatId();
       await create({
         id: worktree,
@@ -1141,14 +1149,22 @@ describe('chat creation over HTTP', () => {
         executorId: 'machine:nas',
       }).expect(422);
       expect(await chatRow(disagreeingExecutor)).toBeUndefined();
+    });
 
-      const unlinked = newChatId();
-      await create({
-        id: unlinked,
+    it('files a chat into a project whose links do not name its repository', async () => {
+      // A project and a working directory are separate settings: a named
+      // repository outside the project's links still starts in the project.
+      const chatId = newChatId();
+      const response = await create({
+        id: chatId,
         projectId,
         repositoryId: unlinkedRepositoryId,
-      }).expect(422);
-      expect(await chatRow(unlinked)).toBeUndefined();
+      }).expect(201);
+
+      expect(createResponseSchema.parse(response.body).chat).toMatchObject({
+        id: chatId,
+        projectId,
+      });
     });
 
     it('answers 404 for another owner’s creation record', async () => {
@@ -1231,13 +1247,19 @@ describe('chat creation over HTTP', () => {
     it('creates one worktree for one id across a refused and a successful request', async () => {
       const chatId = newChatId();
       const refused = await withCreationLock(chatId, () =>
-        create({ id: chatId, projectId, worktree: { name: 'creation-three' } }),
+        create({
+          id: chatId,
+          projectId,
+          repositoryId,
+          worktree: { name: 'creation-three' },
+        }),
       );
       expect(refused.status).toBe(409);
 
       const accepted = await create({
         id: chatId,
         projectId,
+        repositoryId,
         worktree: { name: 'creation-three' },
       }).expect(201);
       expect(createResponseSchema.parse(accepted.body).workspace).toMatchObject(

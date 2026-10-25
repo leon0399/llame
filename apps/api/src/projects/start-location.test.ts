@@ -278,8 +278,8 @@ describe('resolveStartLocation repository step', () => {
     );
   });
 
-  it('answers 422 for an owned repository the project does not link', async () => {
-    const resolution = resolveStartLocation(
+  it('resolves an owned repository the project does not link, without its policy', async () => {
+    const location = await resolveStartLocation(
       makeSource({
         links: [linkRow()],
         repositories: [repositoryRow({ id: OTHER_REPOSITORY_ID })],
@@ -289,12 +289,10 @@ describe('resolveStartLocation repository step', () => {
       { repositoryId: OTHER_REPOSITORY_ID },
     );
 
-    await expect(resolution).rejects.toBeInstanceOf(
-      UnprocessableEntityException,
-    );
-    await expect(resolution).rejects.toThrow(
-      'The project does not link that repository.',
-    );
+    // A project and a working directory are separate: the named repository
+    // stands, and with no link there is no policy behind its isolation.
+    expect(location.repositoryId).toBe(OTHER_REPOSITORY_ID);
+    expect(location.isolationReason).toBe('no_link');
   });
 });
 
@@ -528,21 +526,17 @@ describe('resolveStartLocation executor and checkout steps', () => {
     );
   });
 
-  it('answers 422 when the project does not link the named checkout', async () => {
+  it('resolves a named checkout the project does not link', async () => {
     const checkout = checkoutRow();
-    const resolution = resolveStartLocation(
+    const location = await resolveStartLocation(
       makeSource({ checkouts: [checkout] }),
       OWNER,
       projectRow(),
       { checkoutId: checkout.id },
     );
 
-    await expect(resolution).rejects.toBeInstanceOf(
-      UnprocessableEntityException,
-    );
-    await expect(resolution).rejects.toThrow(
-      'The project does not link that checkout.',
-    );
+    expect(location.checkoutId).toBe(checkout.id);
+    expect(location.executorId).toBe(checkout.executorId);
   });
 
   it('keeps the named checkout when another executor holds a main checkout', async () => {
@@ -843,17 +837,19 @@ describe('resolveStartLocation repository and checkout edge cases', () => {
     expect(location.repositoryId).toBe(OTHER_REPOSITORY_ID);
   });
 
-  it('answers 422 for a named checkout of an unlinked repository', async () => {
+  it('keeps a named checkout of a repository beside the linked one', async () => {
     const checkout = checkoutRow({ repositoryId: OTHER_REPOSITORY_ID });
 
-    await expect(
-      resolveStartLocation(
-        makeSource({ links: [linkRow()], checkouts: [checkout] }),
-        OWNER,
-        projectRow(),
-        { checkoutId: checkout.id },
-      ),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    const location = await resolveStartLocation(
+      makeSource({ links: [linkRow()], checkouts: [checkout] }),
+      OWNER,
+      projectRow(),
+      { checkoutId: checkout.id },
+    );
+
+    // The project's primary link does not override a named working directory.
+    expect(location.repositoryId).toBe(OTHER_REPOSITORY_ID);
+    expect(location.checkoutId).toBe(checkout.id);
   });
 
   it('drops a remembered default whose checkout is gone', async () => {

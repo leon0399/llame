@@ -157,7 +157,7 @@ function resolveChatMenuAction(
   }
 }
 
-function ProjectSearchFilter({
+export function ProjectSearchFilter({
   value,
   onChange,
 }: {
@@ -184,7 +184,7 @@ function ProjectSearchFilter({
   );
 }
 
-function ProjectRadioList({
+export function ProjectRadioList({
   chat,
   allProjects,
   filteredProjects,

@@ -10,6 +10,7 @@ import { expect, fn, mocked, screen, waitFor, within } from "storybook/test";
 import { Toaster } from "@workspace/ui/components/sonner";
 
 import { ChatProvider, useChatContext } from "@/contexts/chat-context";
+import type { ProjectResponse } from "@/lib/api/generated/models";
 import * as uploads from "@/lib/services/media/uploads";
 import type { MediaDescriptor } from "@/lib/services/media/uploads";
 import * as modelQueries from "@/lib/services/models/queries";
@@ -747,10 +748,10 @@ async function expectUploadEnabled(
 
 /**
  * The `+` menu: "Upload photos & files" opens the file picker and shows its
- * Ctrl+U shortcut, which opens the picker from the page too; "Add to
- * project" is a disabled placeholder.
+ * Ctrl+U shortcut, which opens the picker from the page too. A composer that
+ * cannot file a chat offers nothing else.
  *
- * @summary the add menu and Ctrl+U open the picker; Add to project is disabled
+ * @summary the add menu and Ctrl+U open the picker
  */
 export const AddMenu: Story = {
   tags: ["ai-generated"],
@@ -774,12 +775,10 @@ export const AddMenu: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Add files and more" }),
     );
-    await expect(
-      await screen.findByRole("menuitem", { name: "Add to project" }),
-    ).toHaveAttribute("aria-disabled", "true");
-    const upload = screen.getByRole("menuitem", {
+    const upload = await screen.findByRole("menuitem", {
       name: "Upload photos & files",
     });
+    await expect(screen.getAllByRole("menuitem")).toEqual([upload]);
     // The chord this browser's platform uses, as command-palette.stories does.
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
@@ -800,6 +799,102 @@ export const AddMenu: Story = {
       isMac ? "{Meta>}u{/Meta}" : "{Control>}u{/Control}",
     );
     await expect(openPicker).toHaveBeenCalledTimes(2);
+  },
+};
+
+function project(id: string, name: string): ProjectResponse {
+  return {
+    id,
+    ownerUserId: "u1",
+    name,
+    description: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    defaultExecutorId: null,
+  };
+}
+
+const PROJECTS = [project("p1", "Trip planning"), project("p2", "Taxes")];
+
+/** The composer with a draft's project held in state, as the chat page does. */
+function FilingComposer(args: ComponentProps<typeof ChatComposer>) {
+  const [projectId, setProjectId] = useState<string | null>(null);
+  return (
+    <ChatComposer
+      {...args}
+      project={{
+        projects: PROJECTS,
+        selected: PROJECTS.find((row) => row.id === projectId) ?? null,
+        onSelect: setProjectId,
+      }}
+    />
+  );
+}
+
+/** A radio choice leaves the menu open, so each level is dismissed in turn. */
+async function closeMenus(userEvent: {
+  keyboard: (text: string) => Promise<void>;
+}) {
+  for (let open = screen.queryAllByRole("menu").length; open > 0; open--) {
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryAllByRole("menu").length).toBeLessThan(open),
+    );
+  }
+}
+
+/** Picks a menu radio item by keyboard: a submenu's popup is not yet
+ *  hit-testable while it opens, and a pointer click would miss it. */
+async function chooseRadio(
+  userEvent: { keyboard: (text: string) => Promise<void> },
+  name: string,
+) {
+  const item = await screen.findByRole("menuitemradio", { name });
+  item.focus();
+  await userEvent.keyboard("{Enter}");
+}
+
+/**
+ * "Add to project" in the `+` menu files the draft: the chip names the
+ * project, its menu changes it, and only its × removes it.
+ *
+ * @summary adding, changing, and removing the draft's project
+ */
+export const ProjectChip: Story = {
+  tags: ["ai-generated"],
+  // Base UI's portalled menu leaves aria-hidden focus guards that axe's
+  // aria-hidden-focus rule misreads (as in AddMenu above).
+  parameters: {
+    a11y: {
+      config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
+    },
+  },
+  render: (args) => <FilingComposer {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Add files and more" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    await chooseRadio(userEvent, "Trip planning");
+    await closeMenus(userEvent);
+
+    const chip = await canvas.findByRole("button", {
+      name: "Project Trip planning",
+    });
+    await userEvent.click(chip);
+    await chooseRadio(userEvent, "Taxes");
+    await closeMenus(userEvent);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Remove from project Taxes" }),
+    );
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: /^Project / }),
+      ).not.toBeInTheDocument(),
+    );
   },
 };
 

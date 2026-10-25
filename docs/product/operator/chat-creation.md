@@ -11,9 +11,10 @@ behavior:
 
 # Chat creation
 
-`POST /api/v1/chats` files a Chat into a project, resolves the checkout it starts
-in, authorizes the Workspace, optionally creates a worktree, and optionally
-stores a first message and starts its Run — in that order, in one request. The
+`POST /api/v1/chats` files a Chat into a project, resolves the checkout the
+request names, authorizes the Workspace, optionally creates a worktree, and
+optionally stores a first message and starts its Run — in that order, in one
+request. The
 client chooses the Chat id, so a request that fails can be sent again with the
 same id instead of leaving a half-created Chat behind.
 
@@ -50,26 +51,32 @@ before anything is stored.
 | -------------- | ------ | ----------------------------------------------------------------------------------- |
 | `id`           | uuid   | Client-chosen Chat id. Required.                                                    |
 | `projectId`    | uuid   | Files the Chat into this project.                                                   |
-| `repositoryId` | uuid   | The repository to start from, linked to the project when one is named.              |
+| `repositoryId` | uuid   | The repository to start from; it need not be linked to the named project.           |
 | `executorId`   | string | The executor that holds the checkout: `tools.nativeExecutorId` or `machine:<name>`. |
 | `checkoutId`   | uuid   | A `main` checkout; it decides its own repository and executor.                      |
 | `worktree`     | object | `name` and `baseRef` of a worktree to create before the bind.                       |
 | `message`      | object | `id`, `parts`, `modelId`, optional `effort` and `permissionMode`.                   |
+
+The location is opt-in. A request that names no `repositoryId`, `executorId`,
+or `checkoutId` binds nothing and answers `unbound`, whatever the project's
+primary link and remembered defaults; a `worktree` with none of them answers
+`422`.
 
 The `worktree` field decides by its presence: omit it to reuse the source
 checkout, and send an object — even an empty one — to create a worktree. An
 empty object generates the name.
 
 ```bash
-# File a Chat in a project and let the server resolve its checkout.
+# File a Chat in a project without a Workspace.
 curl -X POST localhost:3001/api/v1/chats -b "session=…" \
   -H 'content-type: application/json' -d '{"id":"<client uuid>","projectId":"<id>"}'
 
-# The same request, with a worktree of its own and a first message.
+# Start in a repository's checkout, in a worktree of its own, with a message.
 curl -X POST localhost:3001/api/v1/chats -b "session=…" \
   -H 'content-type: application/json' -d '{
     "id":"<client uuid>",
     "projectId":"<id>",
+    "repositoryId":"<id>",
     "worktree":{"name":"clear-field-0192","baseRef":"main"},
     "message":{
       "id":"<client uuid>",
@@ -81,7 +88,8 @@ curl -X POST localhost:3001/api/v1/chats -b "session=…" \
 
 ## The resolution order
 
-The server never picks a primary silently.
+Once the request names a location, the server fills the levels it did not
+name, and never picks a primary silently.
 
 1. **Repository** — the request's `repositoryId` or `checkoutId`, else the
    project's primary link, else its only link, else none. Several links and no
@@ -102,10 +110,13 @@ offline `projects.default_executor_id` is dropped from its step rather than
 failing the start.
 
 A named `checkoutId` must be a `main` row; a worktree answers `422`. A
-`repositoryId` or `executorId` that disagrees with it answers `422`, and so does
-a `repositoryId` the named project does not link. The resolution is the one
-`GET /api/v1/projects/:id/start-location` previews, so the location a composer
-shows is the location a create uses.
+`repositoryId` or `executorId` that disagrees with it answers `422`. A project
+and a working directory are separate settings, so a named repository or
+checkout need not be linked to the named project; a link adds only its
+isolation policy and remembered defaults. With no ids,
+`GET /api/v1/projects/:id/start-location` previews the project's suggested
+location in this order; a composer shows it and names its ids explicitly to
+bind it.
 
 ## The response
 
@@ -129,7 +140,7 @@ filed and unbound: it stores no bound root, no lease, no defaults row, and no
 message, and it starts no Run. The client keeps the draft for a later send.
 
 A successful start records the source `main` checkout as the link's default for
-that executor, so the next create in the same project needs no location ids. A
+that executor, so the next preview in the same project suggests it again. A
 worktree start records the source checkout, never the worktree it just created.
 That write runs after the commit, it is best-effort, and its failure changes
 nothing else: the create still answers `bound`, and the previous default stays.

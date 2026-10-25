@@ -34,26 +34,38 @@ response MUST carry the chat and a `workspace` object.
 - **WHEN** a client sends `repositoryId` in `POST /api/v1/chats/:id/messages`
 - **THEN** the request is rejected as malformed and no message is stored
 
-### Requirement: Location resolution uses project defaults and never a silent primary
+### Requirement: The create location is opt-in
 
-The repository MUST be the request's `repositoryId`, else the primary link,
-else the single link, else none. The server MUST NOT choose a primary when the
-links have no primary and the request names no repository. The checkout MUST
-come from the remembered default for the link. Else it MUST be the only main
-checkout of the resolved repository on the resolved executor, else none. An
-explicit `repositoryId` or `checkoutId` MUST override a remembered default.
+A request that names no `repositoryId`, no `executorId`, and no `checkoutId`
+MUST resolve no location, whatever the project links and the remembered
+defaults. A request that names no location and sets `worktree` MUST answer 422.
 
-#### Scenario: One linked repository resolves to its only checkout
+#### Scenario: A request without a location binds nothing
 
 - **WHEN** the owner sends a request with a project whose single link has one
   main checkout, and the request names no location
+- **THEN** `workspace.status` is `unbound` and the chat stores no bound root
+
+#### Scenario: A worktree without a location is rejected
+
+- **WHEN** the request sets `worktree` and names no repository, executor, or
+  checkout
+- **THEN** the response is 422 and nothing is stored
+
+### Requirement: A named location resolves through project defaults and never a silent primary
+
+When the request names a location without a `checkoutId`, the repository MUST
+be the request's `repositoryId`, else the primary link, else the single link,
+else none. The server MUST NOT choose a primary when the links have no primary.
+The checkout MUST come from the remembered default for the link. Else it MUST be
+the only main checkout of the resolved repository on the resolved executor,
+else none. An explicit `repositoryId` MUST override a remembered default.
+
+#### Scenario: A named repository resolves to its only checkout
+
+- **WHEN** the request names the single linked repository, and it has one main
+  checkout
 - **THEN** the chat binds to that checkout
-
-#### Scenario: Several links and no primary choose no repository
-
-- **WHEN** the project links two repositories, sets no primary, and the request
-  names no `repositoryId`
-- **THEN** the server chooses no repository, and `workspace.status` is `unbound`
 
 #### Scenario: A named repository overrides the primary
 
@@ -132,9 +144,10 @@ local executor is this process's `tools.nativeExecutorId` and is never offline.
 
 A named `checkoutId` MUST decide its repository and its executor. It MUST be a
 `main` checkout, and a worktree row MUST answer 422. A given `repositoryId` or
-`executorId` that disagrees with it MUST answer 422. When the request names
-`projectId`, a `repositoryId` that the project does not link MUST answer 422. A
-named `checkoutId` whose repository the project does not link MUST also answer 422. A 422 MUST store nothing and MUST start no git call.
+`executorId` that disagrees with it MUST answer 422. A 422 MUST store nothing
+and MUST start no git call. A project and a working directory are separate
+settings, so a named repository or checkout MUST NOT need a link in the named
+project.
 
 #### Scenario: A worktree checkout cannot be the source
 
@@ -153,18 +166,11 @@ named `checkoutId` whose repository the project does not link MUST also answer 4
   executor
 - **THEN** the response is 422 and nothing is stored
 
-#### Scenario: An unlinked repository is rejected
-
-- **WHEN** the request names a `projectId` and a `repositoryId` that the project
-  does not link
-- **THEN** the response is 422 and nothing is stored
-
-#### Scenario: A checkout of an unlinked repository is rejected
+#### Scenario: A checkout of an unlinked repository starts in the project
 
 - **WHEN** the request names a `projectId` and a `checkoutId` whose repository
   the project does not link
-- **THEN** the response is 422 and nothing is stored
-- **AND** no git call starts
+- **THEN** the chat is filed into the project and binds that checkout
 
 ### Requirement: A create request with a message validates it before any write
 
@@ -387,17 +393,15 @@ store the chat and the message. It MUST start the Run. It MUST answer 201 with
 `workspace.status` `unbound`. When the request carries no `message`, the server
 MUST store the chat only, and it MUST start no Run.
 
-#### Scenario: A start without a resolvable location still sends
+#### Scenario: A start without a location still sends
 
-- **WHEN** the project links two repositories with no primary and the request
-  names no location
+- **WHEN** the project links a repository and the request names no location
 - **THEN** the chat and the message are stored and the Run starts
 - **AND** the response is 201 with `workspace.status` `unbound`
 
 #### Scenario: An unbound start without a message starts no Run
 
-- **WHEN** the project links two repositories with no primary, the request names
-  no location, and the request omits `message`
+- **WHEN** the request names no location and omits `message`
 - **THEN** the chat is stored, and no message and no Run are stored
 - **AND** the response is 201 with `workspace.status` `unbound`
 
@@ -562,18 +566,34 @@ field of that chat.
 
 `GET /api/v1/projects/:id/start-location` MUST accept `repositoryId`,
 `executorId`, and `checkoutId`. It MUST resolve them in the create request's
-order and with its validation. It MUST return the resolved repository, executor,
-checkout, and the isolation default with its reason. It MUST write nothing and
-MUST start no git call. Only the project owner MUST read it, and another owner
-MUST receive 404.
+order and with its validation. With no ids, it MUST resolve the project's
+suggested location from the primary link, the single link, and the remembered
+defaults. It MUST return the resolved repository, executor, checkout, and the
+isolation default with its reason. It MUST write nothing and MUST start no git
+call. Only the project owner MUST read it.
 
-#### Scenario: The preview names the location the create uses
+#### Scenario: The preview names the location that a named create binds
 
-- **WHEN** the owner previews the start location and then creates a chat on the
-  same project with no ids
-- **THEN** the preview names the repository, executor, and checkout that the
-  create resolves
+- **WHEN** the owner previews the start location with no ids and then creates a
+  chat that names the previewed repository, executor, and checkout
+- **THEN** the create binds the checkout that the preview named
 - **AND** the preview stores no defaults row
+
+#### Scenario: Another owner cannot read the preview
+
+- **WHEN** a user previews the start location of another owner's project
+- **THEN** the response is 404
+
+### Requirement: A create binds the suggested location only when it names it
+
+A create MUST NOT bind the location that the preview suggests unless the
+request names it.
+
+#### Scenario: A create without ids does not bind the suggestion
+
+- **WHEN** the preview with no ids names a checkout and the owner creates a chat
+  on the same project with no ids
+- **THEN** `workspace.status` is `unbound`
 
 ### Requirement: Chat creation is owner-isolated
 

@@ -188,24 +188,14 @@ async function resolveRepositoryStep(
   links: ReadonlyArray<ProjectRepository>,
 ): Promise<RepositoryStep> {
   if (context.input.checkoutId !== undefined) {
-    return resolveNamedCheckout(
-      context,
-      project,
-      links,
-      context.input.checkoutId,
-    );
+    return resolveNamedCheckout(context, links, context.input.checkoutId);
   }
   // Never a silent primary when several links have none.
   const link =
     context.input.repositoryId === undefined
       ? (links.find((row) => row.isPrimary) ??
         (links.length === 1 ? links[0] : undefined))
-      : await linkedRepository(
-          context,
-          links,
-          context.input.repositoryId,
-          project !== null,
-        );
+      : await ownedRepositoryLink(context, links, context.input.repositoryId);
   return {
     link,
     // The request's repository is the first step of the order, and it stays
@@ -216,10 +206,13 @@ async function resolveRepositoryStep(
   };
 }
 
-/** A named checkout decides its own repository and executor. */
+/**
+ * A named checkout decides its own repository and executor. A project and a
+ * working directory are separate settings, so the checkout need not belong to
+ * a repository the project links; a link only adds its policy and defaults.
+ */
 async function resolveNamedCheckout(
   context: ResolverContext,
-  project: Pick<Project, 'id'> | null,
   links: ReadonlyArray<ProjectRepository>,
   checkoutId: string,
 ): Promise<RepositoryStep> {
@@ -236,14 +229,8 @@ async function resolveNamedCheckout(
     );
   }
   assertCheckoutAgrees(checkout, context.input);
-  const link = links.find((row) => row.repositoryId === checkout.repositoryId);
-  if (link === undefined && project !== null) {
-    throw new UnprocessableEntityException(
-      'The project does not link that checkout.',
-    );
-  }
   return {
-    link,
+    link: links.find((row) => row.repositoryId === checkout.repositoryId),
     repositoryId: checkout.repositoryId,
     executorId: checkout.executorId,
     checkoutId: checkout.id,
@@ -273,12 +260,12 @@ function assertCheckoutAgrees(
   }
 }
 
-/** An explicit repository must be the caller's, and linked when a project names one. */
-async function linkedRepository(
+/** An explicit repository must be the caller's; the project's link for it,
+ *  when there is one, adds its policy and defaults. */
+async function ownedRepositoryLink(
   context: ResolverContext,
   links: ReadonlyArray<ProjectRepository>,
   repositoryId: string,
-  requireLink: boolean,
 ): Promise<ProjectRepository | undefined> {
   const repository = await context.source.findRepository(
     context.ownerUserId,
@@ -287,13 +274,7 @@ async function linkedRepository(
   if (repository === undefined) {
     throw new NotFoundException(`Repository ${repositoryId} not found`);
   }
-  const link = links.find((row) => row.repositoryId === repository.id);
-  if (link === undefined && requireLink) {
-    throw new UnprocessableEntityException(
-      'The project does not link that repository.',
-    );
-  }
-  return link;
+  return links.find((row) => row.repositoryId === repository.id);
 }
 
 async function resolveExecutorStep(

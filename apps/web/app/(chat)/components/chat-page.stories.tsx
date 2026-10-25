@@ -171,6 +171,15 @@ function routeOf(input: RequestInfo | URL) {
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
+// A draft's composer reads the owner's projects and checkouts for its `+`
+// menu. They answer empty here, and `sentRoutes` leaves them out: the stories
+// are about what the chat itself sends.
+const DRAFT_CATALOG_ROUTES = [
+  "GET /api/v1/projects",
+  "GET /api/v1/checkouts",
+  "GET /api/v1/repositories",
+];
+
 function routeOpenChat(history: Array<ChatMessageResponse>) {
   fetchMock = stubFetch();
   unrouted = [];
@@ -181,6 +190,9 @@ function routeOpenChat(history: Array<ChatMessageResponse>) {
     }
     if (key === RESUME_ROUTE) return Promise.resolve(emptyResponse());
     if (key === SEND_ROUTE) return new Promise<Response>(() => {});
+    if (DRAFT_CATALOG_ROUTES.includes(key)) {
+      return Promise.resolve(jsonResponse([]));
+    }
     unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
@@ -201,14 +213,19 @@ function routeAlso(
   });
 }
 
-/** "METHOD /path" of every request sent so far, in order. */
-function sentRoutes() {
+/** "METHOD /path" of every request sent so far, in order, catalog included. */
+function everyRoute() {
   return fetchMock.mock.calls.map(([input]) => routeOf(input));
+}
+
+/** "METHOD /path" of every request the chat sent so far, in order. */
+function sentRoutes() {
+  return everyRoute().filter((route) => !DRAFT_CATALOG_ROUTES.includes(route));
 }
 
 /** The JSON body of the first request sent to `route`. */
 async function sentBody(route: string) {
-  const index = sentRoutes().indexOf(route);
+  const index = everyRoute().indexOf(route);
   const input = fetchMock.mock.calls[index]?.[0];
   if (!(input instanceof Request)) {
     throw new Error(`expected a Request for ${route}`);

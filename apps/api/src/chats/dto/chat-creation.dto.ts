@@ -102,6 +102,8 @@ export class CreateChatRequest {
   @IsUUID()
   projectId?: string;
 
+  // The location is opt-in: a request that names none of these starts the
+  // chat unbound, whatever the project's defaults.
   @OptionalUuid()
   repositoryId?: string;
 
