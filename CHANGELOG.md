@@ -17,6 +17,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
     not-blank, absolute-path, cursor, and Knowledge Space name rules as
     patterns. The checkout selectors are typed strings, so the web client
     no longer works around object types.
+  - A deadlock between org-unit writes is a 409 `CONCURRENT_TREE_CHANGE`,
+    not a 500, and a JSON body that is not an object is a 400 where the
+    handler declares a DTO.
   - A pin reorder that does not list exactly the caller's pins is a 409, and
     `type: null` on a new org unit or `isolation: null` on a new project link
     is a 400 instead of being read as absent.

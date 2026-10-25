@@ -892,6 +892,23 @@ describe('IdentityService failure messages', () => {
     });
   });
 
+  it('maps a deadlock on delete to a retryable concurrent-change conflict', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(root);
+    vi.spyOn(OrgUnitsRepository.prototype, 'delete').mockRejectedValue(
+      Object.assign(new Error('deadlock'), { cause: { code: '40P01' } }),
+    );
+
+    await expect(
+      service.deleteOrgUnit({ userId: ownerId, orgUnitId: root.id }),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        code: ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+      },
+    });
+  });
+
   it('separates an absent membership from a refused role change', async () => {
     const { service } = makeService();
     vi.spyOn(
