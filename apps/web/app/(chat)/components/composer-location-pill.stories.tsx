@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState } from "react";
 import { expect, screen, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
 
@@ -11,9 +12,14 @@ import type {
 } from "@/lib/api/generated/models";
 import * as machinesQueries from "@/lib/services/machines/queries";
 import type { WorkspaceFailure } from "@/lib/services/project/start-location";
-import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
+import {
+  jsonResponse,
+  requestFromCall,
+  stubFetch,
+} from "@/lib/test-support/fetch-stub";
 
 import { ComposerLocationPill } from "./composer-location-pill";
+import { OtherFolderDialog } from "./composer-working-directory";
 import { useComposerLocation } from "./use-composer-location";
 
 // The Machines query is module-mocked in the storybook preview (no SSH-backed
@@ -27,6 +33,7 @@ const AT = "2026-01-01T00:00:00.000Z";
 const LINKS_ROUTE = "GET /api/v1/projects/p1/repositories";
 const REPOSITORIES_ROUTE = "GET /api/v1/repositories";
 const CHECKOUTS_ROUTE = "GET /api/v1/checkouts";
+const REGISTER_ROUTE = "POST /api/v1/checkouts";
 const PREVIEW_PATH = "/api/v1/projects/p1/start-location";
 
 function link(
@@ -119,6 +126,8 @@ let links: Array<ProjectRepositoryLinkWithDefaultsResponse>;
 let checkouts: Array<CheckoutResponse>;
 let machines: Array<MachineResponse>;
 let previewByQuery = new Map<string, StartLocationResponse>();
+// What `POST /api/v1/checkouts` answers: a registered row, or a refusal.
+let registered: () => Response;
 
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
@@ -137,13 +146,31 @@ function routeFetch() {
     if (key === CHECKOUTS_ROUTE) {
       return Promise.resolve(jsonResponse(checkouts));
     }
+    if (key === REGISTER_ROUTE) return Promise.resolve(registered());
     if (key.startsWith(`GET ${PREVIEW_PATH}`)) {
       const query = key.slice(`GET ${PREVIEW_PATH}`.length).replace("?", "");
-      const body = previewByQuery.get(query) ?? previewByQuery.get("");
+      const body =
+        previewByQuery.get(query) ??
+        namedCheckoutPreview(query) ??
+        previewByQuery.get("");
       if (body === undefined) throw new Error(`unrouted preview: ${query}`);
       return Promise.resolve(jsonResponse(body));
     }
     throw new Error(`unrouted fetch in story: ${key}`);
+  });
+}
+
+/** The server's answer to a named checkout: that checkout, whatever the
+ *  project links (the composer's ids are opt-in and decide the location). */
+function namedCheckoutPreview(query: string) {
+  const named = checkouts.find(
+    (row) => row.id === new URLSearchParams(query).get("checkoutId"),
+  );
+  if (named === undefined) return undefined;
+  return preview({
+    repositoryId: named.repositoryId,
+    executorId: named.executorId,
+    checkoutId: named.id,
   });
 }
 
@@ -163,7 +190,20 @@ function setMachines(next: Array<MachineResponse>) {
 
 function PillHarness({ failed = null }: { failed?: WorkspaceFailure | null }) {
   const location = useComposerLocation({ projectId: "p1", failed });
-  return <ComposerLocationPill location={location} onOtherFolder={() => {}} />;
+  const [otherFolder, setOtherFolder] = useState(false);
+  return (
+    <>
+      <ComposerLocationPill
+        location={location}
+        onOtherFolder={() => setOtherFolder(true)}
+      />
+      <OtherFolderDialog
+        open={otherFolder}
+        onOpenChange={setOtherFolder}
+        location={location}
+      />
+    </>
+  );
 }
 
 const meta = {
@@ -174,6 +214,7 @@ const meta = {
     links = [link("repo-1", "llame", { isPrimary: true })];
     checkouts = [checkout("checkout-1")];
     previewByQuery = new Map([["", preview()]]);
+    registered = () => jsonResponse({ message: "unrouted" }, 500);
     setMachines([machine("nas")]);
     routeFetch();
     return () => {
@@ -336,5 +377,127 @@ export const NoWorkingDirectory: Story = {
     await expect(
       within(canvasElement).queryByRole("button", { name: /^Folder, / }),
     ).not.toBeInTheDocument();
+  },
+};
+
+/** Opens "Other folder…" from the folder cell, picks the Machine, and types. */
+async function typeOtherFolder(
+  canvasElement: HTMLElement,
+  machineName: string,
+  path: string,
+) {
+  await userEvent.click(await cell(canvasElement, /^Folder, /));
+  await userEvent.click(
+    await screen.findByRole("menuitem", { name: "Other folder…" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Working directory",
+  });
+  await userEvent.click(
+    within(dialog).getByRole("combobox", { name: "Machine" }),
+  );
+  await userEvent.click(
+    await screen.findByRole("option", { name: machineName }),
+  );
+  await userEvent.type(within(dialog).getByLabelText("Folder"), path);
+  return dialog;
+}
+
+/**
+ * A typed folder that is already a registered checkout is that checkout: a
+ * trailing slash does not matter, and nothing new is registered.
+ *
+ * @summary "Other folder…" picks the registered checkout at the typed path
+ */
+export const OtherFolderMatchesCheckout: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    checkouts = [
+      checkout("checkout-1"),
+      checkout("checkout-2", {
+        repositoryId: "repo-2",
+        path: "machine://nas/srv/src/notes",
+      }),
+    ];
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await typeOtherFolder(
+      canvasElement,
+      "nas",
+      "/srv/src/notes/",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Use folder" }),
+    );
+    await waitFor(async () =>
+      expect(await cell(canvasElement, /^Folder, /)).toHaveAccessibleName(
+        "Folder, notes",
+      ),
+    );
+    await expect(sentRoutes()).not.toContain(REGISTER_ROUTE);
+  },
+};
+
+/**
+ * A folder that is not yet a checkout is registered first, under its
+ * `machine://` locator with `#` escaped, and the new checkout is selected.
+ *
+ * @summary "Other folder…" registers a new checkout
+ */
+export const OtherFolderRegisters: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    // The server stores the row, so the list the composer refetches holds it.
+    registered = () => {
+      const row = checkout("checkout-3", {
+        repositoryId: "repo-3",
+        path: "machine://nas/srv/src/c%23",
+      });
+      checkouts = [...checkouts, row];
+      return jsonResponse(row, 201);
+    };
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await typeOtherFolder(canvasElement, "nas", "/srv/src/c#");
+    await userEvent.keyboard("{Enter}");
+    await waitFor(async () =>
+      expect(await cell(canvasElement, /^Folder, /)).toHaveAccessibleName(
+        "Folder, c%23",
+      ),
+    );
+    const index = sentRoutes().indexOf(REGISTER_ROUTE);
+    const body = await requestFromCall(fetchMock, index).clone().json();
+    await expect(body).toEqual({
+      path: "machine://nas/srv/src/c%23",
+    });
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+  },
+};
+
+/**
+ * The server refuses a folder that is not a git clone: the dialog stays open
+ * with the server's sentence, so the reader can correct the path.
+ *
+ * @summary "Other folder…" shows a refused registration
+ */
+export const OtherFolderRefused: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    registered = () =>
+      jsonResponse({ message: "That folder is not a git clone." }, 422);
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await typeOtherFolder(
+      canvasElement,
+      "This server",
+      "/tmp/plain",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Use folder" }),
+    );
+    await expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "That folder is not a git clone.",
+    );
+    await expect(dialog).toBeVisible();
   },
 };
