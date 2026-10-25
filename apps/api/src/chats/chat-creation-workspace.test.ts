@@ -123,28 +123,26 @@ function fakeGit(overrides: { readonly canonical?: string } = {}) {
     ),
     executorPath: vi.fn((_target: ExecutorTarget, path: string) => path),
     exists: vi.fn(() => Promise.resolve(false)),
-    inspect: vi.fn(
-      (): Promise<GitInspectResult> =>
-        Promise.resolve({
-          status: 'ok',
-          toplevel: ROOT,
-          commonDir: `${ROOT}/.git`,
-          linked: false,
-          mainWorktree: null,
-          remotes: [],
-          branch: 'main',
-          head: HEAD,
-        }),
+    inspect: vi.fn((): Promise<GitInspectResult> =>
+      Promise.resolve({
+        status: 'ok',
+        toplevel: ROOT,
+        commonDir: `${ROOT}/.git`,
+        linked: false,
+        mainWorktree: null,
+        remotes: [],
+        branch: 'main',
+        head: HEAD,
+      }),
     ),
     removeWorktree: vi.fn(),
-    worktreeAdd: vi.fn(
-      (): Promise<GitWorktreeAddResult> =>
-        Promise.resolve({
-          status: 'ok',
-          path: DIRECTORY,
-          branch: 'llame/clear-field-0192',
-          head: ADDED_HEAD,
-        }),
+    worktreeAdd: vi.fn((): Promise<GitWorktreeAddResult> =>
+      Promise.resolve({
+        status: 'ok',
+        path: DIRECTORY,
+        branch: 'llame/clear-field-0192',
+        head: ADDED_HEAD,
+      }),
     ),
   };
   return { git: asDouble<ExecutorGit>(executors), calls: executors };

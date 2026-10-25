@@ -72,8 +72,7 @@ export const listChats = async (
   return data;
 };
 
-export type createChatError =
-  void | void | void | void | ModelDomainErrorResponse;
+export type createChatError = void | void | void | void | ModelDomainErrorResponse;
 
 export const getCreateChatUrl = () => {
   return `/api/v1/chats`;
