@@ -95,14 +95,23 @@ action, then read the fields back ([Project tracking](../../../CONTRIBUTING.md#p
 maps each PR state to a Status). A draft implementation or chore PR is
 `In progress`.
 
-## 5. Self-review, then ready
+## 5. Self-review and green CI, then ready
 
-- Review the actual parent-relative diff against
+Mark a PR ready only when both hold for its current head:
+
+- **Self-review is done.** Review the actual parent-relative diff against
   [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) and the approved scope. Fix
   findings with new commits, rerun affected checks, and update the body.
-- Then `gh pr ready <N>`, move the Project item to `In review` (proposals:
-  `Awaiting approval`), and run
-  [Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring), reading
-  feedback with `$fetch-pr-reviews`.
-- Never toggle draft state to retrigger reviews, and never merge without Leo's
-  explicit permission.
+- **CI is green.** Watch the draft's checks to a terminal state
+  (`npx -y pullfrog watch leon0399/llame --pr <N>`, then
+  `gh pr checks <N>`). Fix a failure the PR caused and wait again. A check
+  that also fails on `master`, or a known flake, does not block; name it in a
+  PR comment.
+
+A push during either step restarts both. Then `gh pr ready <N>`, move the
+Project item to `In review` (proposals: `Awaiting approval`), and run
+[Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring), reading
+feedback with `$fetch-pr-reviews`.
+
+Never toggle draft state to retrigger reviews, and never merge without Leo's
+explicit permission.

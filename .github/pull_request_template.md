@@ -70,6 +70,7 @@ Before opening this PR (CONTRIBUTING.md, "PR contract"):
 
 ### General
 
-- [ ] Self-reviewed the parent-relative diff against `REVIEW_GUIDE.md` before marking ready
+- [ ] Self-reviewed the parent-relative diff against `REVIEW_GUIDE.md`
+- [ ] CI green on the current head (or only `master`-red checks, named in a comment) before marking ready
 - [ ] No debug, scratch, or unrelated code in the diff
 - [ ] Delivery Project item added and its Status / Next action set
