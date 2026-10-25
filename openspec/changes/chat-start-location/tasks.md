@@ -486,7 +486,7 @@ executor, and the start-location preview.
 
 ## 5. `chat-start-location/composer-chip` — the chip, the cascade, and the project page send; closes #1328 (design D10)
 
-- [ ] 5.1 Build the location chip from one resolved-location module.
+- [x] 5.1 Build the location chip from one resolved-location module.
 
   - Include the reuse form, the worktree form, and the warning state
   - Share the module with the popover
@@ -497,7 +497,7 @@ executor, and the start-location preview.
   - Cite "The owner reads a project's links and their defaults"
   - Cite "The owner previews the start location without effects"
 
-- [ ] 5.2 Build the cascade popover.
+- [x] 5.2 Build the cascade popover.
 
   - The levels: project, repository, machine, source checkout, isolation
   - Then the base ref and the name
@@ -508,7 +508,7 @@ executor, and the start-location preview.
   - Verify story tests for each label and a disabled machine
   - Verify an outdated daemon and a level with a single option
 
-- [ ] 5.3 Enable the project page composer.
+- [x] 5.3 Enable the project page composer.
 
   - The file is `apps/web/app/(chat)/projects/[id]/project-prompt-input.tsx`
   - One send calls `POST /api/v1/chats` with the project
@@ -518,7 +518,7 @@ executor, and the start-location preview.
   - Verify the end-to-end test
   - Record `Closes #1328` in the PR body
 
-- [ ] 5.4 Verify the layer locally.
+- [x] 5.4 Verify the layer locally.
 
   - `pnpm --filter web lint` and `typecheck`
   - The story tests

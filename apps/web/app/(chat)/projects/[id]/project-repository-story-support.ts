@@ -47,6 +47,7 @@ export function link(
     alias: "llame",
     isPrimary: false,
     isolation: "inherit",
+    defaults: [],
     createdAt: AT,
     updatedAt: AT,
     ...overrides,
