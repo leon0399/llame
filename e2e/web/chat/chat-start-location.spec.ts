@@ -312,8 +312,10 @@ test.describe("chat start location (browser, full stack)", () => {
         .filter({ hasText: `The executor ${MACHINE_OFFLINE} is offline.` }),
     ).toBeVisible();
     await expect(composer).toHaveValue(draft);
+    // The failed create keeps the deep link's pre-fill in the query, so the
+    // project page is the destination and the query is not part of the claim.
     await expect(page).toHaveURL(
-      new RegExp(`/projects/${started.project.id}$`),
+      new RegExp(`/projects/${started.project.id}(?:\\?|$)`),
     );
   });
 
