@@ -57,6 +57,9 @@ export type ProtocolPeerOptions = {
   readonly daemonVersion?: string;
   /** Override the version the daemon claims, to test a handshake refusal. */
   readonly helloProtocolVersion?: number;
+  /** The git methods the handshake lists; absent means a daemon that predates
+   *  them, which the hub answers with `machine_update_required`. */
+  readonly methods?: ReadonlyArray<string>;
   /** Never answer the handshake at all. */
   readonly silentHello?: boolean;
   readonly heartbeatIntervalMs?: number;
@@ -343,11 +346,15 @@ class PeerSessionImpl implements PeerSession {
       });
       return;
     }
-    channel.result({
+    const hello = {
       protocolVersion: version,
       daemonVersion: this.options.daemonVersion ?? '0.0.1',
       roots: [...(this.options.roots ?? [])],
-    });
+    };
+    const methods = this.options.methods;
+    channel.result(
+      methods === undefined ? hello : { ...hello, methods: [...methods] },
+    );
   }
 }
 

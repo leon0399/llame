@@ -42,7 +42,9 @@ settings decide that, and none of them has a default that admits anything:
   checkout row is stored at), and the main clone git reports are each evaluated
   in `default` mode, so a path no allow covers answers `permission_denied`
   without an inspection. A submission that names a subdirectory therefore needs
-  its clone's root admitted too.
+  its clone's root admitted too. On a Machine the canonical form is the
+  daemon's own real path from `fs.stat`, so a symbolic link is decided where it
+  lands.
 
 The recommended portable policy in
 [tool-call-permissions](tool-call-permissions.md) already admits
@@ -50,9 +52,19 @@ The recommended portable policy in
 group is enough, and a narrower group limits registration to the same
 directories the model may enter.
 
-Only the local executor is supported so far: a `machine://<name>/<path>`
-locator answers `executor_unavailable` rather than storing a row the hub cannot
-inspect.
+The executor is derived from the submitted path. An absolute local path runs
+in process on the serving process's `tools.nativeExecutorId`. A
+`machine://<name>/<absolute path>` locator runs on that Machine through the
+protocol, and the row stores the locator — the same text a Chat's bound root
+carries — with the executor `machine:<name>`. A locator that names no
+configured Machine answers `executor_unavailable` and starts no git call. A
+git result path outside every registered root is the daemon's refusal, so the
+route answers `403` `permission_denied` and stores no row.
+
+A Machine must run a daemon that answers the typed git methods; see
+[remote Machines](machines.md#install-the-daemon). Registration on a Machine
+whose daemon predates them answers `503` `machine_update_required` and stores
+no row, while every other Machine operation keeps working.
 
 ## The API
 
@@ -127,7 +139,33 @@ Failures answer with a typed `code`: `403` `tool_not_allowed` or
 `not_a_directory`,
 `origin_mismatch`, or `not_a_repository`; `502` `git_failed` with the redacted
 git standard error,
-including a timeout; and `503` `executor_unavailable`.
+including a timeout; and `503` `executor_unavailable`, `machine_unavailable`,
+or `machine_update_required`.
+
+### The typed git surface
+
+Both executors answer five typed methods, and no owner or model string ever
+becomes a command line on either side:
+
+| Method               | Inputs                                     | Answer                                                                        |
+| -------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
+| `git.inspect`        | `path`                                     | toplevel, common directory, linked flag, main worktree, remotes, branch, head |
+| `git.status`         | `path`                                     | dirty flag, commits ahead of the upstream, upstream, head                     |
+| `git.worktreeAdd`    | `source`, `branch`, `baseRef`, `directory` | the new worktree's path, branch, and head                                     |
+| `git.worktreeList`   | `source`                                   | each worktree: path, branch, head, locked, prunable                           |
+| `git.worktreeRemove` | `path`                                     | success, or the git standard error                                            |
+
+Each call takes one strict object, passes git an argument vector, runs under the
+fixed environment with an empty hooks directory and `core.fsmonitor=false`, and
+has a timeout. A value that starts with `-` is refused as invalid input before
+git starts, and every path must be absolute. A failure is typed and carries the
+bounded, redacted standard error.
+
+On a Machine, every path in an answer is a locator, and each registered-root
+prefix in a failure's standard error is rewritten to the locator form, so a host
+path for a registered root never reaches the hub. The methods are additive: the
+protocol version did not change, and the daemon's handshake lists the git
+methods it answers.
 
 ### Hooks, monitors, and filter drivers
 

@@ -1,10 +1,6 @@
-import { realpath, stat } from 'node:fs/promises';
-import path from 'node:path';
-
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import {
-  type GitInspectFailure,
-  type GitInspectResult,
+  type GitFailure,
   type GitInspectSuccess,
 } from '@workspace/git-executor';
 
@@ -15,18 +11,22 @@ import {
 } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { isMachineLocator } from '../machines/machine-locator';
+import {
+  ExecutorGit,
+  ExecutorGitError,
+  type ExecutorTarget,
+} from '../machines/executor-git.service';
 import { evaluatePermission } from '../tools/permissions/evaluator';
 import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import { type CompiledPolicy } from '../tools/permissions/types';
 import { derivedDisplayName } from './display-name';
-import { notFound, repositoryFailure } from './failure';
+import { checkoutFailureCode, notFound, repositoryFailure } from './failure';
 import { canonicalOrigin, normalizeRemote } from './remote';
 import { RepositoriesRepository } from './repositories.repository';
 
 /*
- * Checkout registration for the local executor (design D4).
+ * Checkout registration (design D4).
  *
  * The order is load-bearing and mirrors `enter_workspace`: refuse an
  * unconfigured executor and a missing allowlist entry before anything else,
@@ -35,17 +35,16 @@ import { RepositoriesRepository } from './repositories.repository';
  * only then write. A route therefore never probes a host path the owner may not
  * enter, and the inspected origin — never a caller's claim — decides which
  * repository the checkout joins.
+ *
+ * The executor is derived from the submitted path: an absolute local path runs
+ * in-process on this process's `tools.nativeExecutorId`, and a
+ * `machine://<name>/<abs>` locator reaches that Machine through the protocol.
+ * Both store the address form in `checkouts.path`: the absolute path locally,
+ * the locator on a Machine, which is the same text a bound root carries.
  */
 
-/** The token of the in-process git surface, so a suite can substitute a fake. */
-export const GIT_INSPECTOR = Symbol('GIT_INSPECTOR');
-
-export type GitInspector = {
-  inspect(path: string): Promise<GitInspectResult>;
-};
-
 export type RegisterCheckoutInput = {
-  /** One absolute local path in this layer. */
+  /** One absolute local path, or one `machine://<name>/<abs>` locator. */
   readonly path: string;
   /** Selects an existing repository of the owner; inspection is the authority. */
   readonly repositoryId?: string | null;
@@ -56,7 +55,7 @@ export type RegisterCheckoutInput = {
 type RegistrationPlan = {
   readonly executorId: string;
   readonly inspection: GitInspectSuccess;
-  /** The canonical path stored: the toplevel the executor reports. */
+  /** The canonical address stored: the toplevel the executor reports. */
   readonly checkoutPath: string;
   /** The main clone a linked worktree belongs to, and its parent row's path. */
   readonly mainClone: string;
@@ -75,8 +74,7 @@ export class CheckoutRegistrationService {
     // the emitted design type is not the class Nest would resolve.
     @Inject(InstanceConfigService)
     private readonly config: Pick<InstanceConfigService, 'config'>,
-    @Inject(GIT_INSPECTOR)
-    private readonly inspector: GitInspector,
+    private readonly executors: ExecutorGit,
     @Inject(TOOL_PERMISSION_POLICY)
     private readonly policy: CompiledPolicy,
   ) {}
@@ -85,7 +83,16 @@ export class CheckoutRegistrationService {
     ownerUserId: string,
     input: RegisterCheckoutInput,
   ): Promise<Checkout> {
-    const plan = await this.planInspection(input.path);
+    const plan = await this.planInspection(input.path).catch(
+      (error: unknown) => {
+        // A refusal of the executor surface is the same typed failure the
+        // routes answer: an unconfigured executor, an unreachable or outdated
+        // Machine, a refused address, or a failed git call.
+        throw error instanceof ExecutorGitError
+          ? repositoryFailure(checkoutFailureCode(error.code), error.message)
+          : error;
+      },
+    );
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       this.store(new RepositoriesRepository(tx), ownerUserId, input, plan),
     );
@@ -94,21 +101,27 @@ export class CheckoutRegistrationService {
   private async planInspection(
     submittedPath: string,
   ): Promise<RegistrationPlan> {
-    const executorId = this.localExecutor(submittedPath);
+    const target = this.executors.locate(submittedPath);
     if (!this.config.config.tools.allowed.includes(WORKSPACE_TOOL_ID)) {
       throw repositoryFailure(
         'tool_not_allowed',
         `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this path may not be inspected.`,
       );
     }
-    this.requirePathAllowed(submittedPath);
+    // The address form is what policy matches: a Machine locator is never
+    // admitted by a rule written against the local filesystem.
+    const submitted = this.executors.address(target, target.path);
+    this.requirePathAllowed(submitted);
 
     // Every path this route probes has been admitted by the operator's policy
     // in its submitted form, and its canonical form is admitted again below.
-    const canonicalPath = await this.admittedCanonicalDirectory(submittedPath);
-    this.requirePathAllowed(canonicalPath);
+    // The canonical form is decided before any git call: `realpath` locally,
+    // and the daemon's own `fs.stat` real path on a Machine, as
+    // `enter_workspace` decides a root before it binds one.
+    const canonicalPath = await this.executors.canonical(target, submitted);
+    if (canonicalPath !== submitted) this.requirePathAllowed(canonicalPath);
 
-    const inspection = await this.inspect(canonicalPath);
+    const inspection = await this.inspect(target, canonicalPath);
     // The stored path is the toplevel git reports, so a subdirectory of a clone
     // records the clone once, and a linked worktree records its own root. Its
     // main clone is the path its parent row is stored at. Both are decided
@@ -119,49 +132,12 @@ export class CheckoutRegistrationService {
     const mainClone = inspection.mainWorktree ?? inspection.toplevel;
     this.requirePathAllowed(mainClone);
     return {
-      executorId,
+      executorId: target.executorId,
       inspection,
       checkoutPath: inspection.toplevel,
       mainClone,
       canonicalRemote: canonicalOrigin(inspection.remotes),
     };
-  }
-
-  /**
-   * The executor a submitted path runs on. A `machine://` locator names
-   * `machine:<name>`, whose git methods arrive with the daemon layer, so this
-   * layer refuses it as unavailable rather than storing a row it cannot
-   * inspect. A local path needs the serving process's own executor id: a split
-   * topology whose API replica is not that executor must not inspect a host
-   * path it does not hold.
-   */
-  private localExecutor(submittedPath: string): string {
-    if (submittedPath.includes('\0')) {
-      throw repositoryFailure(
-        'invalid_path',
-        'A checkout path must not contain a NUL byte.',
-      );
-    }
-    if (isMachineLocator(submittedPath)) {
-      throw repositoryFailure(
-        'executor_unavailable',
-        'A Machine path cannot be inspected by this hub yet; register it on a Machine that serves the git methods.',
-      );
-    }
-    if (!path.isAbsolute(submittedPath)) {
-      throw repositoryFailure(
-        'invalid_path',
-        'A checkout path must be absolute.',
-      );
-    }
-    const executorId = this.config.config.tools.nativeExecutorId;
-    if (executorId === undefined) {
-      throw repositoryFailure(
-        'executor_unavailable',
-        'The serving process holds no tools.nativeExecutorId, so it cannot inspect a local path.',
-      );
-    }
-    return executorId;
   }
 
   /**
@@ -183,49 +159,11 @@ export class CheckoutRegistrationService {
     }
   }
 
-  /**
-   * The canonical directory of a path the operator's allow list admits.
-   *
-   * The admission check is the boundary: `planInspection` refuses the submitted
-   * path before this probe, and re-evaluates the canonical path it returns
-   * before any git call, so a symlink cannot walk out of the allow list. The
-   * probe therefore only ever sees a value the `enter_workspace` policy allows.
-   *
-   * The path-injection analyzer cannot see through `evaluatePermission`: the
-   * policy is compiled from operator configuration at boot, and its matchers
-   * are data, not a syntactic check it can model. The suppression names that
-   * guard for a reviewer; it does not weaken the runtime check, which the
-   * route's tests exercise on both sides of the decision.
-   */
-  private async admittedCanonicalDirectory(
-    submittedPath: string,
-  ): Promise<string> {
-    // codeql[js/path-injection]
-    const canonicalPath = await realpath(submittedPath).catch(() => undefined);
-    if (canonicalPath === undefined) {
-      throw repositoryFailure(
-        'invalid_path',
-        'The checkout path does not exist.',
-      );
-    }
-    const target = await stat(canonicalPath).catch(() => undefined);
-    if (target === undefined) {
-      throw repositoryFailure(
-        'invalid_path',
-        'The checkout path cannot be read.',
-      );
-    }
-    if (!target.isDirectory()) {
-      throw repositoryFailure(
-        'not_a_directory',
-        'The checkout path is not a directory.',
-      );
-    }
-    return canonicalPath;
-  }
-
-  private async inspect(canonicalPath: string): Promise<GitInspectSuccess> {
-    const result = await this.inspector.inspect(canonicalPath);
+  private async inspect(
+    target: ExecutorTarget,
+    address: string,
+  ): Promise<GitInspectSuccess> {
+    const result = await this.executors.inspect(target, address);
     if (result.status === 'error') throw gitInspectionFailure(result);
     return result;
   }
@@ -450,7 +388,7 @@ export class CheckoutRegistrationService {
   }
 }
 
-function gitInspectionFailure(result: GitInspectFailure): HttpException {
+function gitInspectionFailure(result: GitFailure): HttpException {
   switch (result.type) {
     case 'invalid_input':
       return repositoryFailure('invalid_path', result.message);

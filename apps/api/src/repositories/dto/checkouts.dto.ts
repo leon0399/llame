@@ -13,12 +13,11 @@ import { type CheckoutSummary } from '../checkouts.service';
 const PATH_MAX = 4096;
 
 // POST /api/v1/checkouts — one path, plus at most one selector. The path names
-// an absolute local path in this layer; a `machine://` locator answers 503
-// `executor_unavailable` from the service until the daemon answers git.
+// an absolute local path or a configured `machine://<name>/<abs>` locator.
 export class CreateCheckoutDto {
   @ApiProperty({
     maxLength: PATH_MAX,
-    description: 'One absolute local path.',
+    description: 'An absolute local path or a configured `machine://` locator.',
   })
   @IsString()
   @Matches(/\S/, { message: 'path must not be blank' })

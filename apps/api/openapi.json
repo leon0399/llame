@@ -5188,6 +5188,8 @@
               "tool_not_allowed",
               "permission_denied",
               "executor_unavailable",
+              "machine_unavailable",
+              "machine_update_required",
               "git_failed"
             ]
           },
@@ -5250,7 +5252,7 @@
           "path": {
             "type": "string",
             "maxLength": 4096,
-            "description": "One absolute local path."
+            "description": "An absolute local path or a configured `machine://` locator."
           },
           "repositoryId": {
             "type": "object",

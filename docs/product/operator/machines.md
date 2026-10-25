@@ -124,6 +124,15 @@ stable. On jump hosts, allow forwarding only to the next hop, for example
 To report the daemon's errors and traces to Sentry, set its variables in the
 same forced command; see [observability](observability.md#machine-daemon).
 
+The daemon also answers the typed git methods (`git.inspect`, `git.status`,
+`git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`) that checkout
+registration and worktree entry use. They are additive to the protocol: the
+version did not change, and the handshake lists every method a daemon answers.
+After updating the hub, replace the daemon binary on each box with the same
+build. A box whose handshake listed no git methods keeps serving files and
+`bash`, and a git call on it fails as `machine_update_required` until the
+binary is replaced.
+
 ## Register roots
 
 On the box, as the daemon's user:
@@ -138,6 +147,19 @@ Roots live in `$XDG_CONFIG_HOME/llame-machine/roots.json`. The daemon refuses
 every path outside them with `path_not_registered`. Roots bound addressing
 only: anything running as that user, including Machine `bash` and Workspace MCP
 servers, can edit the roots file. The hub has no operation that changes roots.
+
+A git worktree on a Machine must lie inside a registered root, because the
+daemon decides the worktree directory before any git call. By default a new
+worktree sits in a sibling `.llame-worktrees` directory of the source clone, so
+register the source clone's parent directory, not only the clone itself;
+`llame-machine roots add ~/work` covers both. If you would rather keep the
+worktrees elsewhere, register that directory too and set `worktree_base` on the
+main checkout inside a root — for example
+`machine://devl/home/me/work/trees`. A directory no root contains answers
+`path_not_registered` and starts no git command. A git result path outside
+every root — a repository whose toplevel sits above them, as a tracked home
+directory does, or a worktree kept elsewhere — is refused the same way rather
+than reported as a locator.
 
 ## Permissions
 

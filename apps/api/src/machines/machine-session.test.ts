@@ -16,6 +16,7 @@ import {
   createLineFramer,
   decodeFrame,
   encodeFrame,
+  GIT_METHODS,
   JSON_RPC_INVALID_PARAMS,
   MAX_CONCURRENT_STREAMS,
   MAX_FRAME_BYTES,
@@ -39,6 +40,7 @@ import {
 import {
   MachineSession,
   MachineUnavailableError,
+  MachineUpdateRequiredError,
   type MachineCall,
   type MachineSessionOptions,
 } from './machine-session';
@@ -77,6 +79,22 @@ const ROOTS_CALL: MachineCall<'roots.list'> = {
 const FS_STAT_CALL: MachineCall<'fs.stat'> = {
   method: 'fs.stat',
   params: { envelope: ENVELOPE, path: '/srv/app/a.ts' },
+};
+const FS_READ_CALL: MachineCall<'fs.read'> = {
+  method: 'fs.read',
+  params: {
+    envelope: ENVELOPE,
+    path: '/srv/app/a.ts',
+    options: { displayPrefix: 'machine://devl' },
+  },
+};
+const GIT_STATUS_CALL: MachineCall<'git.status'> = {
+  method: 'git.status',
+  params: {
+    envelope: ENVELOPE,
+    path: '/srv/app',
+    options: { displayPrefix: 'machine://devl' },
+  },
 };
 const MCP_OPEN_CALL: MachineCall<'mcp.open'> = {
   method: 'mcp.open',
@@ -567,6 +585,61 @@ describe('MachineSession readiness', () => {
       established: true,
     });
     expect(session.isReady).toBe(false);
+  });
+});
+
+describe('MachineSession git methods', () => {
+  const FS_READ_ANSWER = {
+    value: { status: 'error', type: 'not_found', message: 'no' },
+  };
+
+  it('refuses a git call on a daemon that listed none, before writing a frame', async () => {
+    const { peer, session } = peerSession({
+      roots: ['/srv/app'],
+      answers: { 'fs.read': FS_READ_ANSWER },
+    });
+    await session.ready();
+
+    const error = await failedCall(session.request(GIT_STATUS_CALL));
+
+    expect(error).toBeInstanceOf(MachineUpdateRequiredError);
+    expect(error.name).toBe('MachineUpdateRequiredError');
+    expect(error.message).toBe(
+      'The llame-machine daemon on devl answers no git.status. Update the daemon on that Machine to use git operations on it.',
+    );
+    // The same session still runs a file tool: only the git surface is
+    // missing on a daemon that predates it.
+    await expect(session.request(FS_READ_CALL)).resolves.toMatchObject({
+      status: 'error',
+      type: 'not_found',
+    });
+    const machine = await peer.session(0);
+    expect(machine.requests).not.toContain('git.status');
+    expect(machine.requests).toContain('fs.read');
+  });
+
+  it('sends a listed git method with its display prefix', async () => {
+    const { peer, session } = peerSession({
+      roots: ['/srv/app'],
+      methods: [...GIT_METHODS],
+      answers: {
+        'git.status': {
+          value: { status: 'ok', dirty: false, ahead: 0, head: null },
+        },
+      },
+    });
+    await session.ready();
+
+    await expect(session.request(GIT_STATUS_CALL)).resolves.toEqual({
+      status: 'ok',
+      dirty: false,
+      ahead: 0,
+      head: null,
+    });
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.status')?.params,
+    ).toMatchObject({ options: { displayPrefix: 'machine://devl' } });
   });
 });
 

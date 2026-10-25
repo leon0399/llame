@@ -9,6 +9,7 @@ import {
   decodeFrame,
   encodeFrame,
   FrameSizeError,
+  GIT_METHODS,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_MISSES,
   INCOMPATIBLE_VERSION_MESSAGE,
@@ -140,6 +141,9 @@ function handleHello(
     protocolVersion: PROTOCOL_VERSION,
     daemonVersion: session.daemonVersion,
     roots: [...session.roots],
+    // Additive: the version stays 1, and a hub reads this list to know
+    // whether this daemon answers the git methods.
+    methods: [...GIT_METHODS],
   });
 }
 
