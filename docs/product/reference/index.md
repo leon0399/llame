@@ -21,9 +21,9 @@ read_when:
   touch loads into context, and when.
 - [Prompt imports](prompt-imports.md): which markers in a prompt import a
   `read` locator before the first model request, and the bounds that apply.
-- [Chat location](chat-location.md): how the composer names a chat's start
-  location, what each cascade level changes, and which entry points pre-fill
-  it.
+- [Chat location](chat-location.md): how the composer sets a new chat's project
+  and working directory, what each chip cell changes, and which entry points
+  pre-fill them.
 - [Permission modes](permission-modes.md): what `default` and `bypass` change
   for one Run.
 - [Mutation recovery](mutation-recovery.md): how `edit`, `write`, and `bash`

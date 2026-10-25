@@ -105,14 +105,14 @@ Session-creation shapes in peer harnesses and their treatment of location:
 
 Composer and entry-point shapes:
 
-| Surface                    | How location is chosen                                            | Followed or rejected                                                    |
-| -------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| bb                         | only through the create call; no in-product picker                | Followed: the create request carries resolved ids                       |
-| Emdash task creation       | a form picks project and worktree before create                   | Followed as the chip cascade                                            |
-| Synara                     | pending gate after create                                         | Rejected                                                                |
-| Open WebUI, ai-chatbot     | no location                                                       | Rejected for located chats                                              |
-| ACP, OpenCode, Codex       | the host supplies the directory; the product resolves the default | Followed: one resolved default with an override, shown as a single chip |
-| llame project page (#1328) | disabled composer                                                 | Replaced: the composer sends and creates in one call                    |
+| Surface                    | How location is chosen                                            | Followed or rejected                                                 |
+| -------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
+| bb                         | only through the create call; no in-product picker                | Followed: the create request carries resolved ids                    |
+| Emdash task creation       | a form picks project and worktree before create                   | Followed as separate project and working-directory chips             |
+| Synara                     | pending gate after create                                         | Rejected                                                             |
+| Open WebUI, ai-chatbot     | no location                                                       | Rejected for located chats                                           |
+| ACP, OpenCode, Codex       | the host supplies the directory; the product resolves the default | Followed: a suggested default the client names explicitly, removable |
+| llame project page (#1328) | disabled composer                                                 | Replaced: the composer sends and creates in one call                 |
 
 ## Decisions
 
@@ -161,8 +161,8 @@ alias, `is_primary`, `isolation`, and its defaults rows with `updated_at`.
 and `checkoutId` returns the resolution without effects: repository, executor,
 checkout, and the isolation default with its reason. `GET
 /api/v1/chats/:id/creation-record` returns the creation record of an owner's
-chat. The composer reads the first two routes, so the chip shows the root the
-server will resolve.
+chat. The composer reads the first two routes, so the pill shows the root that
+a create naming it binds.
 
 API writes: `POST` and `DELETE` on `/api/v1/projects/:id/repositories`,
 `PATCH` on `/api/v1/projects/:id/repositories/:repositoryId` with `alias`,
@@ -444,40 +444,49 @@ Alternatives:
   stream starts, and the client must parse a stream to learn whether the chat
   was bound.
 
-### D10. One chip, one cascade, and reasons in the labels (Q13, Q14, Q8 visibility, Q20)
+### D10. Project and working directory are separate chips in the toolbar (Q13, Q14, Q8 visibility, Q20)
 
-The composer shows one editable chip with the resolved bound root:
+A project and a working directory are separate, optional capabilities. A chat
+can have either one, both, or neither. The composer's `+` menu adds each one,
+and each one shows as a filled chip beside `+`:
 
 ```text
-llame development · llame · nas · ~/src/llame (master)
-llame development · llame · nas · ~/.llame-worktrees/llame/clear-field-0192
-  (llame/clear-field-0192 ← master)
+[+] [▣ llame development ×] [⌂ docker | ⎇ llame | ⑂ master ×]
 ```
 
-A click opens one popover with the cascade as stacked selects: project,
-repository (only when the project has more than one), machine (an offline
-machine is disabled with its reason), source checkout (only when the executor
-holds more than one `main` checkout), isolation, then base ref and name. A
-change at one level recomputes the levels below from their defaults.
+The project chip names the project. Its name opens the project list, and only
+its joined × removes it. The project page fixes its project, so there the chip
+is disabled and the `+` item "Change project" is disabled.
 
-Isolation defaults to the link policy: the policy selects the default that the
-composer shows. Under `inherit`, another open chat that already binds the
+The working-directory pill has three cells and a joined ×. The Machine cell
+lists the executors that hold a `main` checkout of the repository, with an
+offline Machine disabled and its reason named. A Machine that holds one such
+checkout selects it at once. The folder cell lists every registered `main`
+checkout, the project's own repositories first, and "Other folder…". A typed
+folder that is a registered checkout is that checkout; any other is registered
+first through the repositories route. The mode cell names the state: the
+checkout's branch while the chat works in the checkout, `Worktree` once the
+chat starts in a new worktree cut from that branch. The server generates the
+worktree's branch name. Only the × removes the working directory.
+
+The create is opt-in (D9): the request names the checkout that the pill shows,
+or no location. A project with a primary link pre-fills the pill from the
+preview route, and the × leaves the chat unbound. A chat without a working
+directory is an ordinary unbound chat: no row, no warning, and no header chip.
+Warnings remain only for a start that would fail: an offline Machine, a daemon
+that lacks the typed git methods (`machine_update_required`), or a failed
+create, whose sentence stays above the input until the draft changes.
+
+Isolation defaults to the link policy: the policy selects the mode that the
+pill pre-fills. Under `inherit`, another open chat that already binds the
 source checkout turns it on. The request's `worktree` field decides the
-outcome. The per-chat toggle sets that field, and its label names the reason.
+outcome.
 
-The labels read `worktree (project policy)`, `worktree (clone in use by 1
-chat)`, and `reuse (project policy)`. A step that cannot resolve renders the
-chip in a warning state that names it, for example a missing primary. The
-warning state also names a Machine whose daemon lacks the typed git methods,
-which answers `machine_update_required`. A send still works and creates the
-chat filed and unbound.
-
-Entry points pre-fill the chip: the project page composer, sidebar "New chat in
+Entry points pre-fill the chips: the project page composer, sidebar "New chat in
 project", "New chat here" on a chat that exists, and the deep link
 `/chat/new?project=&repository=&executor=&checkout=&worktree=1`. "New chat
 here" copies project, repository, executor, and checkout, and turns isolation
-on, because the source chat holds the tree. The chat header shows the same chip
-read-only from the bound root.
+on, because the source chat holds the tree.
 
 The project page's "Repositories" section is the edit surface for D8. It
 links and unlinks a repository. It sets the primary, the alias, and the
@@ -528,16 +537,16 @@ prompt.
   filed.
 
 - [A crash between `git.worktreeAdd` and the commit of the bound root] → the chat stays
-  filed and unbound. The directory stays on disk with no rows. The header chip
-  shows the warning, and the owner resends with the same id or enters a
-  Workspace later.
+  filed and unbound. The directory stays on disk with no rows. The create's
+  failure sentence names the step, and the owner resends with the same id or
+  enters a Workspace later.
 
-- [A filed, unbound chat with no Run] → the header chip shows the warning, the
-  sidebar lists the chat, and the owner resends or enters a Workspace later.
+- [A filed, unbound chat with no Run] → the sidebar lists the chat, and the
+  owner resends or enters a Workspace later.
 
-- [The chip hides the real path] → the chip always prints the resolved root and
-  the worktree branch. The cascade shows why a worktree was chosen, and the
-  start-location read route returns the same resolution that the create uses.
+- [The pill hides the real path] → the folder cell's tooltip prints the path,
+  the mode cell names the branch, and the start-location read route returns
+  the same resolution that a named create uses.
 
 - [Cross-owner link access] → links and defaults are visible only through the
   RLS of the project that owns them. Their composite owner foreign keys refuse another
@@ -584,8 +593,10 @@ prompt.
     default-executor routes
   - `project-links-ui` renders them
   - `chat-creation` writes defaults, creation records, and bound roots
-  - The two composer layers read the resolution routes
-  - The two composer layers write only through the create route
+  - The composer layers read the resolution routes and write only through the
+    create route
+  - `composer-redesign` replaces the chip and cascade with the toolbar chips,
+    makes the create's location opt-in, and drops the header chip
 
 - The `specs/workspace-entry/spec.md` MODIFIED block is written against the
   `repositories` change's delta text. Finalize re-bases it on the canonical
