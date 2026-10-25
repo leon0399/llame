@@ -264,10 +264,16 @@ failures separately from repository defects.
 
 ## PR contract
 
-Confirm every PR's immediate base and ownership with `$gh-stack`. Its body
-contains the one concern, issues served, stack position, and commands actually
-run. Use `Closes #N` only for completed issues. Do not add a `Test plan`
+Confirm every PR's immediate base and ownership; a stack layer does so with
+`$gh-stack`. Choose a single PR or a stack by the change: dependent layers and
+feature delivery stack, while a self-contained fix or chore within the review
+budget is one PR against `master`. The body contains the one concern, issues
+served, stack position, and commands actually run. Use `Closes #N` only for completed issues. Do not add a `Test plan`
 section or mention agent tooling unless asked.
+
+Start the body from
+[`.github/pull_request_template.md`](.github/pull_request_template.md);
+`$open-pull-request` covers writing it, visuals included, and publishing.
 
 Every layer has two separate review checkpoints:
 

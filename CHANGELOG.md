@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-25
 
+- Pull requests start from `.github/pull_request_template.md` (concern,
+  issues and stack position, review budget, decisions, commands run, and a
+  surface checklist). The `open-pull-request` agent skill covers choosing a
+  single PR or a stack, filling the template from the diff, one visual per
+  change shape, measurements with deltas, and the delivery Project item. A PR
+  is marked ready only after both self-review and green CI on its head.
+
 - The formatter is Oxfmt 0.73.0 instead of Prettier. One root
   `.oxfmtrc.jsonc` replaces `.prettierignore` and the `apps/api` and
   `packages/mcp-workspace` `.prettierrc` files, which become an `overrides`
