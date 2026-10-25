@@ -39,6 +39,7 @@ export class CreateChatWorktreeDto {
   // `-`-prefixed name is refused by the create's own step-1 validation with
   // the 422 the request contract names, not silently dropped here.
   @ApiPropertyOptional({
+    maxLength: EXECUTOR_ID_MAX,
     description:
       'Worktree name; becomes the `llame/<name>` branch unless it carries a `/`.',
   })
@@ -48,6 +49,8 @@ export class CreateChatWorktreeDto {
   name?: string;
 
   @ApiPropertyOptional({
+    maxLength: EXECUTOR_ID_MAX,
+    pattern: '\\S',
     description: 'Commit, branch, or tag the new worktree branches from.',
   })
   @ValidateIf((o: CreateChatWorktreeDto) => o.baseRef !== undefined)
@@ -66,12 +69,16 @@ export class CreateChatMessageDto extends MessagePartsDto {
   @IsUUID()
   id!: string;
 
-  @ApiProperty({ description: 'Opaque llame model id selected for this turn.' })
+  @ApiProperty({
+    description: 'Opaque llame model id selected for this turn.',
+    pattern: '\\S',
+  })
   @IsString()
   @Matches(/\S/, { message: 'modelId must not be blank' })
   modelId!: string;
 
   @ApiPropertyOptional({
+    pattern: '\\S',
     description:
       "Reasoning effort for this turn. Must be one of the selected model's " +
       '`reasoning.effortLevels[].value`; omit to use its `defaultEffort`.',

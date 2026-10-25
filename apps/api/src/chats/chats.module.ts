@@ -8,6 +8,7 @@ import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
 import { ChatCreationLock } from './chat-creation-lock';
+import { ChatCreationController } from './chat-creation.controller';
 import { ChatCreationService } from './chat-creation.service';
 import { ChatCreationWorkspace } from './chat-creation-workspace';
 import { ChatLoopService } from './chat-loop.service';
@@ -35,7 +36,12 @@ import { SharedChatsController } from './shared-chats.controller';
     RunWorkerModule,
     SearchModule,
   ],
-  controllers: [ChatsController, MeRunsController, SharedChatsController],
+  controllers: [
+    ChatsController,
+    ChatCreationController,
+    MeRunsController,
+    SharedChatsController,
+  ],
   providers: [
     ChatsService,
     ChatLoopService,
