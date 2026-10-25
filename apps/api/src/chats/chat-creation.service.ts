@@ -386,12 +386,27 @@ export class ChatCreationService {
    * The one start-location resolver, with the create route's configuration
    * checks: an offline project default is dropped from its step rather than
    * answered as unavailable, and an implicit executor step sees only online
-   * executors.
+   * executors. The location is opt-in: a request that names no repository,
+   * executor, or checkout starts unbound, whatever the project defaults, and a
+   * worktree needs a named source.
    */
   private async resolveLocation(
     context: AdmitContext,
     project: Project | null,
-  ): Promise<StartLocation> {
+  ): Promise<StartLocation | null> {
+    const { input } = context;
+    if (
+      input.repositoryId === undefined &&
+      input.executorId === undefined &&
+      input.checkoutId === undefined
+    ) {
+      if (input.worktree !== undefined) {
+        throw new UnprocessableEntityException(
+          'A worktree needs a repository, executor, or checkout to start from.',
+        );
+      }
+      return null;
+    }
     const offlineDefault =
       project?.defaultExecutorId !== null &&
       project?.defaultExecutorId !== undefined &&

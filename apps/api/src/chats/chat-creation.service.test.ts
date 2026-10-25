@@ -513,6 +513,7 @@ describe('ChatCreationService Workspace outcomes', () => {
       OWNER,
       request({
         projectId: PROJECT_ID,
+        repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
           modelId: 'system:openai:gpt-5.4',
@@ -573,6 +574,7 @@ describe('ChatCreationService Workspace outcomes', () => {
       OWNER,
       request({
         projectId: PROJECT_ID,
+        repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
           modelId: 'system:openai:gpt-5.4',
@@ -602,7 +604,11 @@ describe('ChatCreationService Workspace outcomes', () => {
 
     await service.service.create(
       OWNER,
-      request({ projectId: PROJECT_ID, worktree: {} }),
+      request({
+        projectId: PROJECT_ID,
+        repositoryId: REPOSITORY_ID,
+        worktree: {},
+      }),
     );
 
     expect(service.enter).toHaveBeenCalledWith(
@@ -616,12 +622,49 @@ describe('ChatCreationService Workspace outcomes', () => {
     const service = makeService({ stubs });
     service.enter.mockResolvedValue({ status: 'bound', root: ROOT });
 
-    await service.service.create(OWNER, request({ projectId: PROJECT_ID }));
+    await service.service.create(
+      OWNER,
+      request({ projectId: PROJECT_ID, repositoryId: REPOSITORY_ID }),
+    );
 
     expect(service.enter).toHaveBeenCalledWith(
       expect.objectContaining({ permissionMode: 'default' }),
     );
     expect(service.startFirstRun).not.toHaveBeenCalled();
+  });
+
+  it('starts unbound when the request names no location, whatever the project defaults', async () => {
+    const stubs = stubRepositories();
+    resolvableCatalog(stubs);
+    const service = makeService({ stubs });
+    service.validateTurn.mockResolvedValue(turn());
+
+    const response = await service.service.create(
+      OWNER,
+      request({
+        projectId: PROJECT_ID,
+        message: {
+          id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
+          modelId: 'system:openai:gpt-5.4',
+          parts: [{ type: 'text', text: 'hi' }],
+        },
+      }),
+    );
+
+    // The project's link would resolve a checkout, but the location is
+    // opt-in: the chat is filed, unbound, and its Run starts.
+    expect(response.workspace).toEqual({ status: 'unbound' });
+    expect(service.enter).not.toHaveBeenCalled();
+    expect(service.startFirstRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a worktree that names no source', async () => {
+    const service = makeService({ stubs: stubRepositories() });
+
+    await expect(
+      service.service.create(OWNER, request({ worktree: {} })),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(service.enter).not.toHaveBeenCalled();
   });
 
   it('stores the message on an unbound start and starts its Run', async () => {
@@ -663,6 +706,7 @@ describe('ChatCreationService Workspace outcomes', () => {
       OWNER,
       request({
         projectId: PROJECT_ID,
+        repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
           modelId: 'system:openai:gpt-5.4',
@@ -692,6 +736,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         OWNER,
         request({
           projectId: PROJECT_ID,
+          repositoryId: REPOSITORY_ID,
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
             modelId: 'system:openai:gpt-5.4',
@@ -725,6 +770,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         OWNER,
         request({
           projectId: PROJECT_ID,
+          repositoryId: REPOSITORY_ID,
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
             modelId: 'system:openai:gpt-5.4',
@@ -1133,7 +1179,10 @@ describe('ChatCreationService offline executors', () => {
     const service = makeService({ stubs });
 
     await expect(
-      service.service.create(OWNER, request({ projectId: PROJECT_ID })),
+      service.service.create(
+        OWNER,
+        request({ projectId: PROJECT_ID, repositoryId: REPOSITORY_ID }),
+      ),
     ).rejects.toMatchObject({
       status: 422,
       response: {
@@ -1177,7 +1226,10 @@ describe('ChatCreationService offline executors', () => {
     });
     service.enter.mockResolvedValue({ status: 'bound', root: ROOT });
 
-    await service.service.create(OWNER, request({ projectId: PROJECT_ID }));
+    await service.service.create(
+      OWNER,
+      request({ projectId: PROJECT_ID, repositoryId: REPOSITORY_ID }),
+    );
 
     // The create's own source drops the offline Machine before the resolver
     // sorts, so the local executor wins the implicit step.
