@@ -150,6 +150,11 @@ export const SettingsSave: Story = {
     await userEvent.click(
       await screen.findByRole("option", { name: "Always" }),
     );
+    // The closing popup's unnamed listbox would otherwise still be mounted
+    // when the story's accessibility scan runs.
+    await waitFor(() =>
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
+    );
     await waitFor(() => expect(sentRoutes()).toContain(PATCH_ROUTE));
     await expect(sentBody(PATCH_ROUTE)).resolves.toEqual({
       isolation: "always_worktree",
