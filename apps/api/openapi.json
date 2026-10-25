@@ -481,6 +481,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Model catalog is not configured correctly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [

@@ -19,6 +19,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
@@ -26,6 +27,7 @@ import {
 
 import { CurrentUser } from '../auth/auth-context';
 import { ErrorResponse } from '../common/dto/error-response.dto';
+import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { ChatCreationService } from './chat-creation.service';
 import {
   ChatCreationRecordResponse,
@@ -80,6 +82,11 @@ export class ChatCreationController {
   @ApiUnprocessableEntityResponse({
     description: 'Unavailable model, mode, executor, or worktree argument',
     type: ErrorResponse,
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'Model catalog is not configured correctly',
+    type: ModelDomainErrorResponse,
   })
   @ApiUnauthorizedResponse()
   async createChat(
