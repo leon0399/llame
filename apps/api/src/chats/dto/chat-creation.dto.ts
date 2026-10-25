@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -120,8 +121,11 @@ export class CreateChatRequest {
   @OptionalUuid()
   checkoutId?: string;
 
+  // ValidateIf (not IsOptional): only absence skips validation, so an explicit
+  // null is refused here instead of reaching the create as a present field.
   @ApiPropertyOptional({ type: () => CreateChatWorktreeDto })
-  @IsOptional()
+  @ValidateIf((o: CreateChatRequest) => o.worktree !== undefined)
+  @IsObject()
   @ValidateNested()
   @Type(() => CreateChatWorktreeDto)
   worktree?: CreateChatWorktreeDto;
@@ -129,7 +133,8 @@ export class CreateChatRequest {
   // @IsDefined would make the message required; absence is the empty-chat
   // create, so only a present message is nested-validated.
   @ApiPropertyOptional({ type: () => CreateChatMessageDto })
-  @IsOptional()
+  @ValidateIf((o: CreateChatRequest) => o.message !== undefined)
+  @IsObject()
   @ValidateNested()
   @Type(() => CreateChatMessageDto)
   message?: CreateChatMessageDto;
