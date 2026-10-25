@@ -628,6 +628,17 @@ sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
   - `/chat/new?project=&repository=&executor=&checkout=&worktree=1`
   - Add the isolation default that follows from the source chat
   - Verify every entry point in end-to-end tests
+  - GitHub review X15 (Codex P2): "New chat here" stayed a live link while the
+    checkout list was pending or failed. The empty list made
+    `startLocationFromRoot` answer only `{ worktree: true }`, so the link asked
+    for a worktree of no known checkout. The row now guards on
+    `checkouts.isSuccess` right after the null-project and null-root guard, so
+    it is the same disabled placeholder until the list loads. Commit `21d7ad64`
+  - Two stories hold it: `NewChatHerePending` (a `GET /api/v1/checkouts` that
+    never settles leaves the item disabled) and `NewChatHereLoaded` (a resolved
+    list gives the item the href with `project`, `repository`, `executor`,
+    `checkout`, and `worktree=1`). Each routes only that one request, so the
+    meta's unrouted-fetch guard still holds
 
 - [x] 6.2 Add the read-only location chip to the chat header.
 
@@ -647,6 +658,13 @@ sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
   - It holds five tests: the filed and bound send, the worktree branch in the
     header, the offline Machine that keeps the draft, the outdated daemon that
     keeps the draft, and the sidebar entries that pre-fill the chip
+  - GitHub review X17 (Codex P2), which was the CI failure: the offline test
+    ended on `/projects/<id>$`, but the failed create keeps the deep link's
+    pre-fill query (`repository`, `executor`), so the assertion required a URL
+    the composer never leaves. It now allows `(?:\?|$)`, which keeps the
+    destination as the claim. Commit `23e3e29c`
+  - Do not strip the query in the app: `prefillKey` remounts the composer and
+    would drop the draft
 
 - [x] 6.4 Add the reference entry for the chip, the cascade, and the entries.
 
@@ -741,8 +759,8 @@ sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
     three inserts and no deletion or replacement, so no canonical sentence
     changed
   - `openspec/specs/chat-creation/spec.md` is new. It holds the delta's
-    Purpose and all 24 requirements in the delta's order
-  - `openspec/specs/projects/spec.md` gains the 7 added requirements after the
+    Purpose and all 26 requirements in the delta's order
+  - `openspec/specs/projects/spec.md` gains the 9 added requirements after the
     4 canonical ones. Every canonical requirement and scenario keeps its text
     and its order
   - `openspec/specs/tool-call-permissions/spec.md` gains the 2 added
@@ -755,6 +773,28 @@ sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
   - The verification parses both files and compares each requirement body, its
     scenario titles, and each scenario body word for word. Every delta
     requirement is present, and no canonical scenario is lost
+  - The first sync merged a stale delta snapshot. A second pass re-read the
+    archived deltas and rebuilt the two canonical specs from them, so the four
+    capabilities are again word-for-word identical
+  - `chat-creation` gained the 2 requirements the first pass missed: "A resend
+    reads the recorded worktree directory" and "A failed defaults write does
+    not fail the create". Five shared requirements took the newer delta text:
+    the request's `repositoryId` leads the repository order; the executor order
+    is scoped "of the resolved repository" and gains "An executor that holds
+    only another repository's checkout is skipped"; a named `checkoutId` of a
+    repository the project does not link answers 422 with "A checkout of an
+    unlinked repository is rejected"; the unresolved-location rule carries the
+    `message` precondition with "An unbound start without a message starts no
+    Run"; and the resend rule drops the client resend-as-a-new-message sentence
+  - `projects` splits the defaults requirement the way the delta does: the
+    write is an attempt after the commit, best-effort, last write wins. "The
+    latest defaults write wins" and "A failed defaults write does not fail the
+    chat start" arrive as their own requirements with their scenarios
+  - The re-sync compares each capability's requirement bodies, scenario titles,
+    and scenario bodies, plus the `chat-creation` Purpose, and reports no
+    difference against the archived deltas
+  - Source of truth is the archived delta in this branch. `master` carries no
+    `chat-start-location` change, so it cannot arbitrate
 
 - [x] 7.2 Verify that every task above is checked.
 
@@ -791,6 +831,15 @@ sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
   - `git diff --check` reports no whitespace error
   - This finalize layer has no PR yet. The archive readiness belongs in its PR
     body at publication, after the archive movement in the commit that follows
+  - GitHub review P2 (pullfrog, carried from #1408): the research note still
+    pointed at `openspec/changes/chat-start-location`, which this layer
+    archives. Its three references now name `openspec/specs/projects`,
+    `openspec/specs/chat-creation`, and
+    `openspec/changes/archive/2026-10-24-chat-start-location`
+  - The dropped `chat-start-location/project-links-ui` layer is recorded in the
+    delivery stack and its layer list, and section 3 carries what replaced it:
+    #1418 implements the project page Repositories section, and PR #1410 is
+    closed without merging
 
 ## Workflow follow-up
 
