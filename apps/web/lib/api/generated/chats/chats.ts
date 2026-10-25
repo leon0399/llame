@@ -13,11 +13,11 @@ import type {
   ChatSearchResponse,
   CreateChatRequest,
   CreateChatResponse,
+  ErrorResponse,
   ForkChatDto,
   GetChatMessagesParams,
   GetSharedChatParams,
   ListChatsParams,
-  ModelDomainErrorResponse,
   SearchChatsParams,
   SharedChatResponse,
   UpdateChatDto,
@@ -72,7 +72,7 @@ export const listChats = async (
   return data;
 };
 
-export type createChatError = void | void | void | void | void | ModelDomainErrorResponse;
+export type createChatError = void | void | void | void | void | ErrorResponse;
 
 export const getCreateChatUrl = () => {
   return `/api/v1/chats`;

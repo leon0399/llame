@@ -25,7 +25,7 @@ import {
 } from '@nestjs/swagger';
 
 import { CurrentUser } from '../auth/auth-context';
-import { ModelDomainErrorResponse } from '../models/dto/models.dto';
+import { ErrorResponse } from '../common/dto/error-response.dto';
 import { ChatCreationService } from './chat-creation.service';
 import {
   ChatCreationRecordResponse,
@@ -75,9 +75,11 @@ export class ChatCreationController {
   @ApiConflictResponse({
     description: 'The Chat holds a message, a Run, or another project',
   })
+  // The create's own argument refusals carry no `code`; a model, effort, or
+  // mode refusal adds one, which the open response schema admits.
   @ApiUnprocessableEntityResponse({
     description: 'Unavailable model, mode, executor, or worktree argument',
-    type: ModelDomainErrorResponse,
+    type: ErrorResponse,
   })
   @ApiUnauthorizedResponse()
   async createChat(
