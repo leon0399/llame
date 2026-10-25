@@ -7,7 +7,7 @@ import type {
   CreationWorkspaceResponse,
 } from "../../api/generated/models";
 import { createChat as createChatEndpoint } from "../../api/generated/chats/chats";
-import { getApiErrorInfo } from "../../api/errors";
+import { getApiErrorInfo, getApiErrorStatus } from "../../api/errors";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import type {
   StartLocationIsolation,
@@ -110,6 +110,22 @@ export function createChatFailureMessage(error: unknown): string {
   return parsed.success
     ? parsed.data.message
     : "The chat could not be created. Try again.";
+}
+
+/**
+ * True when the create route refused because the Chat already holds a message.
+ *
+ * That refusal is the server's answer to a resend whose first request did reach
+ * it: the draft is filed, so the composer treats it as sent rather than sending
+ * a duplicate through the message route.
+ */
+export function chatAlreadyHoldsMessage(error: unknown): boolean {
+  const info = failureEnvelope.partial().safeParse(getApiErrorInfo(error));
+  return (
+    getApiErrorStatus(error) === 409 &&
+    info.success &&
+    info.data.message?.includes("already holds a message") === true
+  );
 }
 
 export function useCreateChat() {

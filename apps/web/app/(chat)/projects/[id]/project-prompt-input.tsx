@@ -12,6 +12,7 @@ import type {
 } from "@/lib/api/generated/models";
 import {
   buildCreateChatRequest,
+  chatAlreadyHoldsMessage,
   createChatFailureMessage,
   useCreateChat,
   workspaceFailure,
@@ -100,6 +101,8 @@ type SubmitArgs = {
   location: ComposerLocation;
   projectId: string;
   retryChatId: string | null;
+  /** Retain the id a submit allocated, before any request leaves the browser. */
+  onRetain: (chatId: string) => void;
   onFailure: (message: string | null) => void;
   onWorkspaceFailure: (workspace: WorkspaceFailure, chatId: string) => void;
   onSent: (chatId: string) => void;
@@ -128,12 +131,23 @@ async function sendCreate(
       chatId,
     );
   } catch (error) {
+    // The Chat exists and already holds this draft's message, so the earlier
+    // request did reach the server: the draft is filed, and a second send would
+    // duplicate it.
+    if (chatAlreadyHoldsMessage(error)) {
+      args.onSent(chatId);
+      return;
+    }
     args.onFailure(createChatFailureMessage(error));
   }
 }
 
-/** The submit handler — split out as a plain factory, so it calls no hooks. */
-function createSubmitHandler(args: SubmitArgs) {
+/**
+ * The submit handler — split out as a plain factory, so it calls no hooks. The
+ * Chat id is allocated once per draft and retained before the request, so a
+ * lost response cannot mint a second Chat on the next submit.
+ */
+export function createSubmitHandler(args: SubmitArgs) {
   return (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (args.createChat.isPending || args.attachments.sendBlocked) return;
@@ -150,6 +164,7 @@ function createSubmitHandler(args: SubmitArgs) {
     });
     if (request === null) return;
     args.onFailure(null);
+    args.onRetain(chatId);
     void sendCreate(args, request, chatId);
   };
 }
@@ -163,7 +178,7 @@ type ProjectDraft = {
   workspaceFailed: WorkspaceFailure | null;
   setWorkspaceFailure: (failure: WorkspaceFailure | null) => void;
   retryChatId: string | null;
-  setRetryChatId: (chatId: string) => void;
+  setRetryChatId: (chatId: string | null) => void;
   location: ComposerLocation;
 };
 
@@ -216,6 +231,9 @@ function useProjectSubmit(args: {
     location: draft.location,
     projectId: args.projectId,
     retryChatId: draft.retryChatId,
+    onRetain: (chatId) => {
+      draft.setRetryChatId(chatId);
+    },
     onFailure: (message) => {
       draft.setFailure(message);
     },
@@ -228,6 +246,8 @@ function useProjectSubmit(args: {
     },
     onSent: (chatId) => {
       const sent = args.attachments.items;
+      // The Chat holds the draft now, so the next one starts from a new id.
+      draft.setRetryChatId(null);
       draft.setInput("");
       args.attachments.clear();
       revokePreviews(sent);
