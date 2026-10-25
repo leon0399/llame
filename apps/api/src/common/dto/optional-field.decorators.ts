@@ -36,7 +36,7 @@ export function OptionalUuid(): PropertyDecorator {
  */
 export function OptionalExecutorId(): PropertyDecorator {
   return applyDecorators(
-    ApiPropertyOptional({ maxLength: EXECUTOR_ID_MAX }),
+    ApiPropertyOptional({ maxLength: EXECUTOR_ID_MAX, pattern: '\\S' }),
     IsOptional(),
     IsString(),
     Matches(/\S/, { message: 'executorId must not be blank' }),

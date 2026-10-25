@@ -325,6 +325,44 @@ export const getChatMessages = async (
   return data;
 };
 
+export type forkChatError = void | void | void | void;
+
+export const getForkChatUrl = (id: string) => {
+  return `/api/v1/chats/${id}/forks`;
+};
+
+export const forkChat = async (
+  id: string,
+  forkChatDto: ForkChatDto | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ChatResponse> => {
+  const res = await fetchFn(getForkChatUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(forkChatDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & { info?: forkChatError; status?: number } =
+      new globalThis.Error(`POST ${getForkChatUrl(id)} failed (${res.status})`);
+    const data: forkChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ChatResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
 export type getChatCreationRecordError = void | void | void;
 
 export const getGetChatCreationRecordUrl = (id: string) => {
@@ -361,44 +399,6 @@ export const getChatCreationRecord = async (
     throw err;
   }
   const data: ChatCreationRecordResponse = body ? JSON.parse(body) : {};
-  return data;
-};
-
-export type forkChatError = void | void | void | void;
-
-export const getForkChatUrl = (id: string) => {
-  return `/api/v1/chats/${id}/forks`;
-};
-
-export const forkChat = async (
-  id: string,
-  forkChatDto: ForkChatDto | undefined = undefined,
-  options: RequestInit | undefined,
-  fetchFn: typeof globalThis.fetch,
-): Promise<ChatResponse> => {
-  const res = await fetchFn(getForkChatUrl(id), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(forkChatDto),
-  });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-  if (!res.ok) {
-    const err: globalThis.Error & { info?: forkChatError; status?: number } =
-      new globalThis.Error(`POST ${getForkChatUrl(id)} failed (${res.status})`);
-    const data: forkChatError = (() => {
-      try {
-        return body ? JSON.parse(body) : {};
-      } catch {
-        return body;
-      }
-    })();
-    err.info = data;
-    err.status = res.status;
-    throw err;
-  }
-  const data: ChatResponse = body ? JSON.parse(body) : {};
   return data;
 };
 

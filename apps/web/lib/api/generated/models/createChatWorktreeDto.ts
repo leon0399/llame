@@ -7,8 +7,15 @@
  */
 
 export interface CreateChatWorktreeDto {
-  /** Worktree name; becomes the `llame/<name>` branch unless it carries a `/`. */
+  /**
+   * Worktree name; becomes the `llame/<name>` branch unless it carries a `/`.
+   * @maxLength 200
+   */
   name?: string;
-  /** Commit, branch, or tag the new worktree branches from. */
+  /**
+   * Commit, branch, or tag the new worktree branches from.
+   * @maxLength 200
+   * @pattern \S
+   */
   baseRef?: string;
 }

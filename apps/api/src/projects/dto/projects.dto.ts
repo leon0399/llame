@@ -87,6 +87,7 @@ export class UpdateProjectDto {
   @ApiPropertyOptional({
     type: String,
     maxLength: EXECUTOR_ID_MAX,
+    pattern: '\\S',
     nullable: true,
     description:
       'Executor id a chat start on this project prefers. Pass null to clear it; omit to leave it unchanged.',
