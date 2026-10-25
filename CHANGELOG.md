@@ -2,6 +2,28 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
+- The instance gains a repository catalog: an owner's repositories, their
+  aliases, and the checkouts where each exists on an executor, plus the worktree
+  leases that record which Chat created one, from which base ref, and at which
+  commit. `POST /api/v1/checkouts` inspects the submitted path with a new typed
+  git surface (argv arrays, an empty hooks directory, `core.fsmonitor` off, a
+  fixed environment, and a timeout), takes the repository from the inspected
+  `origin` remote — normalized, so `git@github.com:leon0399/llame.git` and
+  `https://github.com/leon0399/llame` are one repository — stores the toplevel
+  git reports, so a subdirectory of a clone records that clone once, records a
+  linked worktree under its main clone, and adopts what it has not seen. A
+  registration answers with the row the checkout list would show, including any
+  Chat already bound to the path. Registration runs git only when
+  `tools.nativeExecutorId` is set, `enter_workspace` is in `tools.allowed`, and
+  the `enter_workspace` permission group allows the submitted path, its
+  canonical form, the toplevel the row is stored at, and the inspected main
+  clone; failures answer typed 403, 404, 409, 422, 502, or 503 codes, and a
+  `machine://` locator answers
+  `executor_unavailable` until Machines answer the git methods. Deleting a
+  repository or checkout deletes rows only, never a directory, and every table
+  is owner-isolated with forced RLS. See
+  [repositories](docs/product/operator/repositories.md).
+
 - Every native tool call has its own chat row instead of raw parameter and
   result JSON. `edit` shows a unified diff with line numbers and the changed
   words marked; `write` shows the written file; `grep` groups matching

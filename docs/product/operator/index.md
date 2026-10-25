@@ -19,6 +19,8 @@ below state additional ordering where a change needs it.
 
 - [Native files](native-files.md): host executor identity, `read`, `edit`,
   `write`, `bash`, Workspace entry, and permission modes.
+- [Repositories](repositories.md): the owner's repository catalog, checkout
+  registration, the host access policy it obeys, and row-only deletion.
 - [Remote Machines](machines.md): experimental SSH-reached Machines, the
   `llame-machine` daemon, registered roots, permissions, and status.
 - [SSH locators](ssh.md): experimental `ssh://` reads and bash working

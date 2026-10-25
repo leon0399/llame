@@ -451,6 +451,9 @@ importers:
       '@workspace/config-interpolation':
         specifier: workspace:*
         version: link:../../packages/config-interpolation
+      '@workspace/git-executor':
+        specifier: workspace:*
+        version: link:../../packages/git-executor
       '@workspace/machine-protocol':
         specifier: workspace:*
         version: link:../../packages/machine-protocol
@@ -1007,6 +1010,33 @@ importers:
         version: 4.1.11(patch_hash=cc6da1c5844bfb9366199bed1cd753753c948f216f55e8f06590c73ac75b8817)(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
 
   packages/config-typescript: {}
+
+  packages/git-executor:
+    devDependencies:
+      '@barney-media/crap-typescript':
+        specifier: 'catalog:'
+        version: 0.5.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.16.5
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(vitest@4.1.11)
+      '@workspace/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.82.0(oxlint-tsgolint@7.0.2001)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 7.0.2001
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(patch_hash=cc6da1c5844bfb9366199bed1cd753753c948f216f55e8f06590c73ac75b8817)(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
 
   packages/machine-protocol:
     devDependencies:

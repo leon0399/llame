@@ -2170,6 +2170,600 @@
         "tags": ["projects"]
       }
     },
+    "/api/v1/repositories": {
+      "post": {
+        "operationId": "createRepository",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRepositoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create one repository record",
+        "tags": ["repositories"]
+      },
+      "get": {
+        "operationId": "listRepositories",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RepositoryResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the owner's repositories",
+        "tags": ["repositories"]
+      }
+    },
+    "/api/v1/repositories/{id}": {
+      "patch": {
+        "operationId": "updateRepository",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRepositoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed repository id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rename a repository or re-declare its remote",
+        "tags": ["repositories"]
+      },
+      "delete": {
+        "operationId": "deleteRepository",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Malformed repository id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a repository record and its cascaded rows",
+        "tags": ["repositories"]
+      }
+    },
+    "/api/v1/repositories/{id}/aliases": {
+      "post": {
+        "operationId": "declareRepositoryAlias",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAliasDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryAliasResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed repository id or remote"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Declare an alternate remote of one repository",
+        "tags": ["repositories"]
+      }
+    },
+    "/api/v1/checkouts": {
+      "post": {
+        "operationId": "registerCheckout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body"
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Inspect a path and record it as a checkout",
+        "tags": ["checkouts"]
+      },
+      "get": {
+        "operationId": "listCheckouts",
+        "parameters": [
+          {
+            "name": "repositoryId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed repositoryId"
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the owner's checkouts with their bound chats",
+        "tags": ["checkouts"]
+      }
+    },
+    "/api/v1/checkouts/{id}": {
+      "patch": {
+        "operationId": "updateCheckout",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed checkout id or body"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set the worktree base of a main checkout",
+        "tags": ["checkouts"]
+      },
+      "delete": {
+        "operationId": "deleteCheckout",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Malformed checkout id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a checkout record and its cascaded rows",
+        "tags": ["checkouts"]
+      }
+    },
     "/api/v1/pins": {
       "get": {
         "operationId": "listPins",
@@ -4513,6 +5107,252 @@
             "description": "Archive (true) or unarchive (false) the project. Omit to leave unchanged."
           }
         }
+      },
+      "CreateRepositoryDto": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "One path segment, without \"/\" or a NUL byte."
+          },
+          "remote": {
+            "type": "string",
+            "maxLength": 2048,
+            "description": "The origin remote. Stored normalized; omit for a repository whose clone has no origin."
+          }
+        },
+        "required": ["displayName"]
+      },
+      "RepositoryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerUserId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "canonicalRemote": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ownerUserId",
+          "displayName",
+          "canonicalRemote",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "RepositoryFailureResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "not_found",
+              "remote_taken",
+              "alias_taken",
+              "path_taken",
+              "worktrees_present",
+              "invalid_display_name",
+              "invalid_path",
+              "invalid_remote",
+              "invalid_selector",
+              "not_a_directory",
+              "origin_mismatch",
+              "not_a_repository",
+              "invalid_worktree_base",
+              "tool_not_allowed",
+              "permission_denied",
+              "executor_unavailable",
+              "git_failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "error", "code", "message"]
+      },
+      "UpdateRepositoryDto": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "remote": {
+            "type": "string",
+            "maxLength": 2048,
+            "nullable": true,
+            "description": "Pass null to clear the canonical remote."
+          }
+        }
+      },
+      "CreateAliasDto": {
+        "type": "object",
+        "properties": {
+          "remote": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "required": ["remote"]
+      },
+      "RepositoryAliasResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canonicalAlias": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": ["id", "repositoryId", "canonicalAlias", "createdAt"]
+      },
+      "CreateCheckoutDto": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "One absolute local path."
+          },
+          "repositoryId": {
+            "type": "object",
+            "format": "uuid",
+            "description": "Selects an existing repository of this owner."
+          },
+          "remote": {
+            "type": "object",
+            "maxLength": 4096,
+            "description": "A remote that selects an existing repository of this owner. The inspected origin decides."
+          }
+        },
+        "required": ["path"]
+      },
+      "CheckoutResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "executorId": {
+            "type": "string",
+            "description": "The local executor id, or machine:<name>."
+          },
+          "path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["main", "worktree"]
+          },
+          "parentCheckoutId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "branch": {
+            "type": "string",
+            "nullable": true,
+            "description": "Null for a detached HEAD registration or adoption."
+          },
+          "origin": {
+            "type": "string",
+            "enum": ["registered", "adopted", "created"]
+          },
+          "worktreeBase": {
+            "type": "string",
+            "nullable": true
+          },
+          "chatIds": {
+            "description": "The ids of this owner's chats whose Workspace root equals path.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "leaseChatId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "The chat whose lease records this worktree, when one does."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "repositoryId",
+          "executorId",
+          "path",
+          "kind",
+          "parentCheckoutId",
+          "branch",
+          "origin",
+          "worktreeBase",
+          "chatIds",
+          "leaseChatId",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UpdateCheckoutDto": {
+        "type": "object",
+        "properties": {
+          "worktreeBase": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "The placement base of new worktrees: an absolute host path, or a machine:// locator of this checkout’s own Machine."
+          }
+        },
+        "required": ["worktreeBase"]
       },
       "ChatRefCard": {
         "type": "object",

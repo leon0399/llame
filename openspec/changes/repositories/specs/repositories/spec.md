@@ -33,6 +33,13 @@ declared alternate remote to one repository of that owner.
   checkout of that remote
 - **THEN** the checkout joins the repository that the alias names
 
+#### Scenario: One remote names one repository
+
+- **WHEN** the owner declares an alias for a remote that already names another
+  of their repositories, or stores that alias's remote as a repository's
+  canonical remote
+- **THEN** the request fails with status 409 and stores nothing
+
 ### Requirement: The canonical remote comes from the `origin` remote
 
 The canonical remote MUST come from the remote named `origin`. The canonical
