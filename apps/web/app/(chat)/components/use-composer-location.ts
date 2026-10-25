@@ -66,9 +66,6 @@ type ComposerLocationActions = {
 /** Everything the location row reads; the hook is its only producer. */
 export type ComposerLocation = ComposerLocationView &
   ComposerLocationActions & {
-    selection: StartLocationSelection;
-    /** The reader removed the working directory, overriding any default. */
-    cleared: boolean;
     /** The owner's checkouts, for matching a typed path to a registered one. */
     checkouts: ReadonlyArray<CheckoutResponse>;
     preview: { pending: boolean; failed: boolean; refetch: () => void };
@@ -340,12 +337,6 @@ export function useComposerLocation({
       failed,
     }),
     ...actions,
-    selection: {
-      repositoryId: draft.repositoryId,
-      executorId: draft.executorId,
-      checkoutId: draft.checkoutId,
-    },
-    cleared: draft.cleared,
     checkouts,
     preview: {
       pending: preview.isPending,
