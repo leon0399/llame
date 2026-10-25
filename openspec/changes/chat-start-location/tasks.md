@@ -556,7 +556,8 @@ executor, and the start-location preview.
   - An offline machine that cannot be chosen
   - An outdated daemon that shows the warning
   - The suite is `e2e/web/chat/chat-start-location.spec.ts`
-  - The local stack could not start here (no docker), so CI runs it
+  - CI ran it: Product e2e (Playwright) passed on #1413 at da5be30e (run
+    40171792231); the local stack could not start here (no docker)
 
 - [x] 6.4 Add the reference entry for the chip, the cascade, and the entries.
 
@@ -567,7 +568,8 @@ executor, and the start-location preview.
 - [x] 6.5 Verify the layer locally.
 
   - `pnpm --filter web lint` and `typecheck`
-  - The story tests and the end-to-end suite for the touched specs
+  - The touched story files locally; CI's Tests (storybook) and Product e2e
+    passed on #1413 at da5be30e (run 40171792231)
 
 - [ ] 6.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 

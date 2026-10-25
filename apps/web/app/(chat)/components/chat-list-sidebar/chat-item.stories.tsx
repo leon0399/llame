@@ -889,3 +889,33 @@ export const NewChatHereLoaded: Story = {
     ).not.toHaveAttribute("aria-disabled", "true");
   },
 };
+
+/**
+ * A bound root that no registered checkout holds has no source to copy: the
+ * row stays disabled rather than linking to the project's default location.
+ *
+ * @summary New chat here stays disabled for an uncatalogued root
+ */
+export const NewChatHereUncatalogued: Story = {
+  args: {
+    chat: { ...baseChat, projectId: "p1", workspaceRoot: "/srv/elsewhere" },
+  },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  beforeEach: () =>
+    routeCheckouts(() => Promise.resolve(jsonResponse(boundCheckouts))),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+
+    // A pending list also disables the row, so let the loaded list render
+    // before reading it: the disabled row is then the root's, not the wait's.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 200);
+    await settled.promise;
+    const item = screen.getByRole("menuitem", { name: "New chat here" });
+    await expect(item).toHaveAttribute("aria-disabled", "true");
+    await expect(item).not.toHaveAttribute("href");
+  },
+};

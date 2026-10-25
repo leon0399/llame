@@ -311,9 +311,9 @@ function ChatMenuActionItem({
  * executor, and source checkout, and asks for a worktree of it. A chat with no
  * project or no bound root has nothing "here" to copy, so its row stays a
  * disabled placeholder instead of a link that would start somewhere else. The
- * same holds while the checkout list is pending or failed: without its rows the
- * copied location would name a worktree of no known checkout, so the row stays
- * disabled until the list loads.
+ * same holds while the checkout list is pending or failed, and for a root that
+ * no registered checkout holds: without a source checkout the link would name a
+ * worktree of nothing, and the request carries no root to recover it from.
  */
 function NewChatHereItem({
   chat,
@@ -334,9 +334,13 @@ function NewChatHereItem({
   if (!checkouts.isSuccess) {
     return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
   }
+  const location = startLocationFromRoot(chat.workspaceRoot, checkouts.data);
+  if (location.checkoutId === undefined) {
+    return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
+  }
   const href = startLocationDeepLink({
     projectId: chat.projectId,
-    ...startLocationFromRoot(chat.workspaceRoot, checkouts.data ?? []),
+    ...location,
   });
   return (
     <DropdownMenuItem render={<Link href={href} prefetch={false} />}>
