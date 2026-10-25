@@ -50,7 +50,10 @@
     },
     {
       // GitHub issue templates use angle-bracket placeholders as authoring controls.
-      "filter": [".github/ISSUE_TEMPLATE/**/*.md"],
+      "filter": [
+        ".github/ISSUE_TEMPLATE/**/*.md",
+        ".github/pull_request_template.md",
+      ],
       "combine": "merge",
       "config": { "MD033": false, "MD041": false },
     },
