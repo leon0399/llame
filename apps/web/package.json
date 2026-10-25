@@ -20,7 +20,7 @@
   "dependencies": {
     "@ai-sdk/react": "3.0.259",
     "@hookform/resolvers": "catalog:",
-    "@sentry/nextjs": "^10.63.0",
+    "@sentry/nextjs": "^10.76.2",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-query-devtools": "^5.81.5",
     "@workspace/ui": "workspace:*",

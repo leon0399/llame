@@ -38,6 +38,26 @@ minimumReleaseAgeExclude:
   # the cooldown by design, so it would otherwise block bumping. Exact versions
   # still land in the lockfile, so this exclusion widens no other attack surface.
   - "@typescript/native-preview"
+  # Exact versions younger than the cooldown, each dropped by
+  # minimumReleaseAgeExcludePrune once it ages past it. Security fixes:
+  # body-parser (GHSA-27r3) and multer (GHSA-q7qp) for express and
+  # @nestjs/platform-express, fast-uri (GHSA-w74x, GHSA-wjr9) for ajv.
+  - body-parser@2.4.0
+  - multer@2.5.0
+  - fast-uri@3.1.9
+  # Storybook 10.6.3 mocks the `LayoutRouterContext.parentRenderTree` that
+  # Next 16.4's `useRouter` reads; on 10.6.2 every story that renders a router
+  # consumer crashes. The Storybook family moves in lockstep.
+  - storybook@10.6.3
+  - "@storybook/addon-a11y@10.6.3"
+  - "@storybook/addon-docs@10.6.3"
+  - "@storybook/addon-vitest@10.6.3"
+  - "@storybook/builder-vite@10.6.3"
+  - "@storybook/nextjs-vite@10.6.3"
+  - "@storybook/react@10.6.3"
+  - "@storybook/react-dom-shim@10.6.3"
+  - "@storybook/react-vite@10.6.3"
+  - vite-plugin-storybook-nextjs@10.6.3
   # oxc-resolver (a storybook transitive) releases several times a month and
   # co-publishes ~20 platform-binding packages minutes after the parent, so a
   # matching mature set often doesn't exist inside any 7-day window — resolving
@@ -65,9 +85,9 @@ catalog:
   # packages/mcp-workspace), so the two move together. The hub's HTTP path
   # stays on `@ai-sdk/mcp`'s own transport; the Machine daemon (apps/machine)
   # also uses this package's `StreamableHTTPClientTransport` for Workspace MCP
-  # servers it opens on the box. 1.31.0 clears the GHSA-6qxp advisory; it is
-  # the newest release whose transport surface both uses unchanged.
-  "@modelcontextprotocol/sdk": 1.31.0
+  # servers it opens on the box. 1.32.0 clears GHSA-22jm, GHSA-46jr,
+  # GHSA-6prh, and GHSA-rvq5, all fixed only from 1.32.0.
+  "@modelcontextprotocol/sdk": 1.32.0
   # `@playwright/test` and `playwright` are separate packages that MUST move
   # together: they share a `playwright-core`, and `playwright install` only
   # fetches the browser build its own version pins. A split (root on one
@@ -85,8 +105,8 @@ catalog:
   "@typescript/native-preview": 7.0.0-dev.20260703.1
   # apps/storybook and apps/web both run stories as browser-mode tests, so
   # the addon and the browser provider are shared.
-  "@storybook/addon-vitest": ^10.5.0
-  "@storybook/nextjs-vite": ^10.5.0
+  "@storybook/addon-vitest": ^10.6.3
+  "@storybook/nextjs-vite": ^10.6.3
   "@stryker-mutator/core": 9.6.1
   "@stryker-mutator/typescript-checker": 9.6.1
   "@stryker-mutator/vitest-runner": 9.6.1
@@ -97,10 +117,10 @@ catalog:
   motion: ^12.23.0
   # apps/web and apps/storybook must run the same Next (storybook compiles ui
   # stories through Next's compiler via @storybook/nextjs-vite).
-  # Patch-level on purpose: 16.3.8 carries the 16.3 line's security fixes, and a
-  # caret here would resolve 16.4.0 (2026-10-06) on the next re-resolution —
-  # a minor llame adopts deliberately, not as a side effect of a security pass.
-  next: ~16.3.8
+  # Patch-level on purpose: a caret would pick up the next minor on any
+  # re-resolution, and llame adopts minors deliberately. 16.4 was adopted for
+  # GHSA-2464, GHSA-673q, and GHSA-p3m5, which no 16.3.x release fixes.
+  next: ~16.4.1
   next-themes: ^0.4.4
   oxlint: 1.82.0
   oxlint-tsgolint: 7.0.2001
@@ -108,10 +128,10 @@ catalog:
   react: ^19.2.7
   react-dom: ^19.2.7
   react-hook-form: ^7.59.0
-  shadcn: 4.13.0
+  shadcn: 4.22.0
   shiki: ^3.23.0
   sonner: ^2.0.5
-  storybook: ^10.5.0
+  storybook: ^10.6.3
   streamdown: 2.5.0
   tsx: ^4.23.12
   typescript: 5.9.3
@@ -124,11 +144,9 @@ catalog:
   "@barney-media/crap-typescript": 0.5.1
   vitest: ^4.1.11
   # Exact, not a range: the 4.6.x line is still settling — 4.6.3 reverted
-  # 4.6.0's standalone z.properties(), 4.6.4 landed a z.url() rewrite, and
-  # 4.6.6/4.6.7 are days old. 4.6.5 itself has aged past the cooldown, so it
-  # needs no `minimumReleaseAgeExclude` entry; widen to a caret once the line
-  # stops moving.
-  zod: 4.6.5
+  # 4.6.0's standalone z.properties() and 4.6.4 landed a z.url() rewrite.
+  # 4.6.6 fixes GHSA-mrhx; widen to a caret once the line stops moving.
+  zod: 4.6.6
 
 # Successor to onlyBuiltDependencies (v10.26+; the only mechanism in pnpm 11).
 # Packages not listed are blocked from running install scripts. Every entry
@@ -179,7 +197,7 @@ overrides:
   # ~0.18.20. Its own subtree only ever bundles for drizzle-kit.
   "@esbuild-kit/core-utils>esbuild": "^0.25.12"
   # @nestjs/platform-express pins 2.2.0.
-  "@nestjs/platform-express>multer": 2.4.0
+  "@nestjs/platform-express>multer": 2.5.0
   # @nestjs/swagger pins 5.2.1.
   "@nestjs/swagger>js-yaml": 5.4.1
   # @storybook/addon-mcp and @storybook/mcp pin 1.2.0.
@@ -193,9 +211,11 @@ overrides:
   "rehype-katex>katex": 0.18.2
   # @tailwindcss/typography pins 6.0.10; the advisory has no 6.x fix.
   "@tailwindcss/typography>postcss-selector-parser": 7.1.6
-  # @vitest/browser and @vitest/browser-playwright pin 4.1.10 exactly.
-  "@vitest/browser>@vitest/mocker": 4.1.11
-  "@vitest/browser-playwright>@vitest/mocker": 4.1.11
+  # @vitest/browser, @vitest/browser-playwright, and vitest pin their own
+  # version exactly.
+  "@vitest/browser>@vitest/mocker": 4.1.12
+  "@vitest/browser-playwright>@vitest/mocker": 4.1.12
+  "vitest>@vitest/mocker": 4.1.12
   # @xhmikosr/{archive-type,downloader,decompress-*}, reached through @swc/cli,
   # pin ^20.5.0.
   "@xhmikosr/archive-type>file-type": 21.3.4
@@ -207,7 +227,7 @@ overrides:
   # markdownlint-cli2 pins js-yaml 5.2.2, markdown-it 14.3.0, and smol-toml
   # 1.7.0.
   "markdownlint-cli2>js-yaml": 5.4.1
-  "markdownlint-cli2>markdown-it": 14.3.1
+  "markdownlint-cli2>markdown-it": 14.3.3
   "markdownlint-cli2>smol-toml": 1.9.0
   # orval pins 4.3.1.
   "orval>js-yaml": 4.3.2

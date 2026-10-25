@@ -2,6 +2,28 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-24
 
+- Dependency security pass: `pnpm audit` goes from 42 advisories (6 critical,
+  15 high) to none, so the `Security` workflow's production audit passes
+  again. `next` moves from 16.3.8 to 16.4.2, a deliberate minor: no 16.3.x
+  release fixes GHSA-2464, GHSA-673q, or GHSA-p3m5. Pins also move for
+  `@modelcontextprotocol/sdk` 1.31.0 → 1.32.0, `zod` 4.6.5 → 4.6.6,
+  `undici` 8.10.2 → 8.12.2 in `apps/api`, `vite` 6.4.3 → 6.4.4 in
+  `apps/storybook`, and `shadcn` 4.13.0 → 4.22.0. That last one is the
+  first `shadcn` on zod 4, which retires the zod 3 copy that had no patched
+  release; its `tailwind.css` gains only a reduced-motion rule for `shimmer`.
+  Storybook packages move to 10.6.3, whose Next.js integration mocks the
+  `LayoutRouterContext.parentRenderTree` that Next 16.4's `useRouter` reads;
+  on 10.6.2 every story rendering a router consumer crashed. `@sentry/nextjs`
+  moves to 10.76.2 within its range, as do `dompurify`, `hono`, `ip-address`, `fast-uri`,
+  `body-parser`, and every `undici` major. Three parent-scoped overrides move
+  to their fixes: `multer` 2.5.0, `markdown-it` 14.3.3, and `@vitest/mocker`
+  4.1.12, now also under `vitest` itself. `body-parser@2.4.0`,
+  `multer@2.5.0`, `fast-uri@3.1.9`, and the ten Storybook 10.6.3 packages are
+  younger than the 7-day release cooldown and are excluded by exact version
+  until they age past it.
+  `pnpm audit --fix`'s own output was not committed: its 18 overrides were
+  unscoped and would have forced zod 4 onto zod 3 consumers.
+
 - The project page gains a Repositories section in its side panel: one row per
   linked repository with the project's alias, a Primary badge when there is a
   choice, and its remote with how many checkouts and worktrees it holds. The
