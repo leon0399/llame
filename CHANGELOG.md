@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-25
+
+- The `pr-review-fetcher` agent skill and its script print the review threads, verdicts, and comments of one or more pull
+  requests, filtered by resolution, outdatedness, kind, author, head commit,
+  and age. Bot markup, encoded state, icons, analysis transcripts, and
+  duplicate agent prompts are stripped, so #1418's 155,574 characters of
+  feedback print as about 20,000. Ready-PR monitoring uses it.
+
 # 2026-10-24
 
 - Dependency security pass: `pnpm audit` goes from 42 advisories (6 critical,
