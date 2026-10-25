@@ -297,8 +297,8 @@ After every non-draft push:
 3. For at least 15 uninterrupted minutes, poll CI, verdicts, comments, and
    review threads at least every two minutes. Do not replace polling with one
    sleep.
-4. Use `pr-review-fetcher` when available; otherwise use paginated APIs and
-   GraphQL `reviewThreads`.
+4. Fetch feedback with `$fetch-pr-reviews`; its script pages GraphQL
+   `reviewThreads`, reviews, and comments and strips bot markup.
 5. Process each finding:
 
    ```text
