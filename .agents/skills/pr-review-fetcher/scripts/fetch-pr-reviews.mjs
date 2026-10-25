@@ -85,12 +85,12 @@ function parsePrRef(text, defaultRepo) {
   throw new Error(`not a pull request reference: ${text}`);
 }
 
-/** An absolute date, or an age before `now` such as `90m`, `6h`, or `2d`. */
-function parseSince(text, now = Date.now()) {
+/** An absolute date, or an age before now such as `90m`, `6h`, or `2d`. */
+function parseSince(text) {
   const age = /^(\d+)([mhd])$/.exec(text);
   if (age) {
     const unit = { m: 60_000, h: 3_600_000, d: 86_400_000 }[age[2]];
-    return new Date(now - Number(age[1]) * unit);
+    return new Date(Date.now() - Number(age[1]) * unit);
   }
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) throw new Error(`not a date: ${text}`);
@@ -130,7 +130,7 @@ const OPTION_SPEC = {
 };
 
 /** The command line as options and pull request references. */
-function parseOptions(argv, now = Date.now()) {
+function parseOptions(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -157,7 +157,7 @@ function parseOptions(argv, now = Date.now()) {
           oneOf("kinds", kind.trim(), ["threads", "reviews", "comments"]),
         ),
     ),
-    since: values.since === undefined ? null : parseSince(values.since, now),
+    since: values.since === undefined ? null : parseSince(values.since),
     authors: listOf(values.author),
     excludedAuthors: listOf(values["exclude-author"]),
     currentHead: values["current-head"],
@@ -319,21 +319,24 @@ function query(connection) {
 
 /** Every node of one connection of a pull request, and the pull request's
  *  own fields. */
-function readConnection(gh, ref, connection) {
+function readConnection(ref, connection) {
   const [owner, name] = ref.repo.split("/");
   const nodes = [];
   let pull;
   let cursor = null;
   do {
-    const args = ["api", "graphql", "-f", `query=${query(connection)}`];
-    args.push(
+    const args = [
+      "api",
+      "graphql",
+      "-f",
+      `query=${query(connection)}`,
       "-f",
       `owner=${owner}`,
       "-f",
       `name=${name}`,
       "-F",
       `number=${ref.number}`,
-    );
+    ];
     if (cursor) args.push("-f", `cursor=${cursor}`);
     pull = JSON.parse(gh(args)).data.repository.pullRequest;
     nodes.push(...pull[connection].nodes);
@@ -354,7 +357,7 @@ const comment = (node) => ({
 });
 
 /** One pull request as plain data: only the kinds asked for are read. */
-function readPull(gh, ref, kinds) {
+function readPull(ref, kinds) {
   const pr = {
     repo: ref.repo,
     number: ref.number,
@@ -363,7 +366,7 @@ function readPull(gh, ref, kinds) {
     comments: [],
   };
   for (const kind of kinds) {
-    const { pull, nodes } = readConnection(gh, ref, KIND_CONNECTION[kind]);
+    const { pull, nodes } = readConnection(ref, KIND_CONNECTION[kind]);
     Object.assign(pr, {
       title: pull.title,
       url: pull.url,
@@ -418,26 +421,22 @@ function threadSelected(thread, options) {
   return thread.comments.some((item) => after(item.at, options.since));
 }
 
-/** A review with no body text left after cleaning is only the container of
- *  its inline comments, unless its verdict says something. */
 function reviewSelected(review, pr, options) {
-  if (
-    !authorAllowed(review.author, options) ||
-    !after(review.at, options.since)
-  )
-    return false;
   if (options.currentHead && review.commit !== pr.head) return false;
   return (
-    review.body !== "" ||
-    review.state === "APPROVED" ||
-    review.state === "CHANGES_REQUESTED"
+    authorAllowed(review.author, options) && after(review.at, options.since)
   );
 }
 
+/** A review with no body text left after cleaning is only the container of
+ *  its inline comments, unless its verdict says something. */
+const reviewSaysSomething = (review) =>
+  review.body !== "" ||
+  review.state === "APPROVED" ||
+  review.state === "CHANGES_REQUESTED";
+
 const commentSelected = (item, options) =>
-  item.body !== "" &&
-  authorAllowed(item.author, options) &&
-  after(item.at, options.since);
+  authorAllowed(item.author, options) && after(item.at, options.since);
 
 function prepare(text, options) {
   const body = options.raw ? text : cleanBody(text);
@@ -450,18 +449,19 @@ function prepare(text, options) {
  *  the totals read, for the header. */
 function selectItems(pr, options) {
   const clean = (item) => ({ ...item, body: prepare(item.body, options) });
-  const threads = pr.threads
-    .map((thread) => ({ ...thread, comments: thread.comments.map(clean) }))
-    .filter((thread) => threadSelected(thread, options));
   return {
     ...pr,
-    threads,
+    threads: pr.threads
+      .filter((thread) => threadSelected(thread, options))
+      .map((thread) => ({ ...thread, comments: thread.comments.map(clean) })),
     reviews: pr.reviews
+      .filter((review) => reviewSelected(review, pr, options))
       .map(clean)
-      .filter((review) => reviewSelected(review, pr, options)),
+      .filter(reviewSaysSomething),
     comments: pr.comments
+      .filter((item) => commentSelected(item, options))
       .map(clean)
-      .filter((item) => commentSelected(item, options)),
+      .filter((item) => item.body !== ""),
     totals: {
       threads: pr.threads.length,
       reviews: pr.reviews.length,
@@ -559,7 +559,7 @@ function run(argv) {
   const repo = needsRepo ? currentRepo() : options.repo;
   const selections = [];
   for (const text of options.refs) {
-    const pr = readPull(gh, parsePrRef(text, repo), [...options.kinds]);
+    const pr = readPull(parsePrRef(text, repo), [...options.kinds]);
     const selection = selectItems(pr, options);
     const printed = formatText(selection, options.kinds);
     selections.push(selection);
