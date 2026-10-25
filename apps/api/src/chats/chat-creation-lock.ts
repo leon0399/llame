@@ -12,10 +12,16 @@ import { type Db } from '../db/tenant-db.service';
  *
  * A create request holds the chat id's SESSION advisory lock on one dedicated
  * connection for the whole request, because its steps keep their separate
- * transactions. The message route takes the same key as a TRANSACTION lock
- * inside its admission transaction, so a message that overlaps a create is
- * refused instead of blocking behind it, and a create that overlaps a message
- * answers the same refusal.
+ * transactions. That connection comes from its own small pool
+ * (`DB_CREATION_LOCK`), never from the tenant pool those transactions use: a
+ * reserved connection is out of the pool until the create ends, so a
+ * `db.poolSize: 1` tenant pool would wait for a connection that it is itself
+ * holding.
+ *
+ * The message route takes the same key as a TRANSACTION lock inside its
+ * admission transaction, so a message that overlaps a create is refused
+ * instead of blocking behind it, and a create that overlaps a message answers
+ * the same refusal.
  *
  * The key names its family: org-unit triggers hash the bare id with seed 0, and
  * a Chat id must never collide with one of those keys by accident.
@@ -27,9 +33,13 @@ const CREATION_LOCK_FAMILY = 'chat-creation';
 /** The body code both routes answer while the other holds the lock. */
 export const CREATION_IN_PROGRESS = 'creation_in_progress';
 
-/** The one key derivation both routes use. */
+/**
+ * The one key derivation both routes use. The id is lowercased, because
+ * `@IsUUID` and `ParseUUIDPipe` accept either case and Postgres stores the
+ * lowercase form: `A` and `a` name one Chat, so they must name one lock.
+ */
 export function chatCreationLockKey(chatId: string): string {
-  return `${CREATION_LOCK_FAMILY}:${chatId}`;
+  return `${CREATION_LOCK_FAMILY}:${chatId.toLowerCase()}`;
 }
 
 /** The 409 a create or a message answers when a create holds the Chat. */
@@ -72,7 +82,10 @@ type DbWithClient = PostgresJsDatabase<typeof schema> & {
 @Injectable()
 export class ChatCreationLock {
   constructor(
-    @Inject('DB_DEV')
+    // Its own connection, not `DB_DEV`: the reserved connection below lives for
+    // the whole request, so sharing the tenant pool would deadlock a small one
+    // (`db.poolSize: 1`) against the transactions the create then needs.
+    @Inject('DB_CREATION_LOCK')
     private readonly db: DbWithClient,
   ) {}
 

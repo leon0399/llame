@@ -538,7 +538,8 @@ describe('ChatCreationService Workspace outcomes', () => {
       target: { executorId: 'host', machine: undefined, path: ROOT },
       checkout: checkoutRow(),
       repository: repositoryRow(),
-      worktree: {},
+      // An omitted `worktree` carries no object: presence decides the bind.
+      worktree: undefined,
     });
     expect(service.recordProjectDefault).toHaveBeenCalledWith(
       OWNER,
@@ -552,6 +553,61 @@ describe('ChatCreationService Workspace outcomes', () => {
       turn: expect.objectContaining({ permissionMode: 'default' }),
     });
     expect(stubs.bindAtCreation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the bound start when the defaults write fails', async () => {
+    const stubs = stubRepositories();
+    resolvableCatalog(stubs);
+    const service = makeService({ stubs });
+    service.validateTurn.mockResolvedValue(turn());
+    service.enter.mockResolvedValue({
+      status: 'bound',
+      root: ROOT,
+      executorId: 'host',
+    });
+    service.recordProjectDefault.mockRejectedValue(
+      new Error('the defaults table is unavailable'),
+    );
+
+    const response = await service.service.create(
+      OWNER,
+      request({
+        projectId: PROJECT_ID,
+        message: {
+          id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
+          modelId: 'system:openai:gpt-5.4',
+          parts: [{ type: 'text', text: 'hi' }],
+        },
+      }),
+    );
+
+    // Best-effort after the commit: the failure changes nothing else.
+    expect(response.workspace).toEqual({
+      status: 'bound',
+      root: ROOT,
+      executorId: 'host',
+    });
+    expect(service.startFirstRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards an empty worktree object so the step creates one', async () => {
+    const stubs = stubRepositories();
+    resolvableCatalog(stubs);
+    const service = makeService({ stubs });
+    service.enter.mockResolvedValue({
+      status: 'bound',
+      root: ROOT,
+      executorId: 'host',
+    });
+
+    await service.service.create(
+      OWNER,
+      request({ projectId: PROJECT_ID, worktree: {} }),
+    );
+
+    expect(service.enter).toHaveBeenCalledWith(
+      expect.objectContaining({ worktree: {} }),
+    );
   });
 
   it('uses `default` for an omitted mode and starts no Run without a message', async () => {
@@ -813,6 +869,42 @@ describe('ChatCreationService resend rules', () => {
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
     expect(stubs.bindAtCreation).not.toHaveBeenCalled();
     expect(service.startFirstRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers outcome_unknown for a resend whose worktree add never committed', async () => {
+    const recorded = '/srv/.llame-worktrees/llame/lost-field';
+    const stubs = stubRepositories();
+    stubs.findChatById.mockResolvedValue(chat);
+    stubs.findAttempts.mockResolvedValue([
+      { createdAt: CREATED_AT.toISOString(), decisions: [] },
+      {
+        createdAt: CREATED_AT.toISOString(),
+        decisions: [],
+        worktreeDirectory: recorded,
+      },
+    ]);
+    const service = makeService({ stubs });
+    service.validateTurn.mockResolvedValue(turn());
+
+    const response = await service.service.create(
+      OWNER,
+      request({
+        worktree: {},
+        message: {
+          id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
+          modelId: 'system:openai:gpt-5.4',
+          parts: [{ type: 'text', text: 'hi' }],
+        },
+      }),
+    );
+
+    expect(response.workspace).toMatchObject({
+      status: 'outcome_unknown',
+      leftDirectory: recorded,
+    });
+    // The recorded directory is read instead of a second `git.worktreeAdd`.
+    expect(service.enter).not.toHaveBeenCalled();
+    expect(service.startFirstRun).not.toHaveBeenCalled();
   });
 
   it('reports the worktree only for the root its own lease names', async () => {

@@ -142,6 +142,67 @@ describe('ChatCreationRecordRepository', () => {
     expect(compiled.params.join('')).toContain(ROOT);
   });
 
+  it('records the worktree directory only when the attempt decided one', async () => {
+    const { db, inserts } = makeDb();
+    const records = new ChatCreationRecordRepository(db);
+
+    await records.appendAttempt({
+      ownerUserId: OWNER,
+      chatId: CHAT_ID,
+      decisions: [DECISION],
+      worktreeDirectory: ROOT,
+    });
+    await records.appendAttempt({
+      ownerUserId: OWNER,
+      chatId: CHAT_ID,
+      decisions: [DECISION],
+    });
+
+    expect(inserts[0]?.values?.attempts[0]?.worktreeDirectory).toBe(ROOT);
+    expect(inserts[1]?.values?.attempts[0]).not.toHaveProperty(
+      'worktreeDirectory',
+    );
+  });
+
+  it('reads the newest recorded directory, and none when no attempt has one', async () => {
+    const { db } = makeDb([
+      [
+        {
+          attempts: [
+            { createdAt: '2026-10-24T00:00:00.000Z', decisions: [] },
+            {
+              createdAt: '2026-10-24T00:01:00.000Z',
+              decisions: [],
+              worktreeDirectory: '/srv/first',
+            },
+            {
+              createdAt: '2026-10-24T00:02:00.000Z',
+              decisions: [],
+              worktreeDirectory: '/srv/second',
+            },
+          ],
+        },
+      ],
+      [
+        {
+          attempts: [{ createdAt: '2026-10-24T00:00:00.000Z', decisions: [] }],
+        },
+      ],
+      [],
+    ]);
+    const records = new ChatCreationRecordRepository(db);
+
+    await expect(
+      records.findRecordedWorktreeDirectory(OWNER, CHAT_ID),
+    ).resolves.toBe('/srv/second');
+    await expect(
+      records.findRecordedWorktreeDirectory(OWNER, CHAT_ID),
+    ).resolves.toBeUndefined();
+    await expect(
+      records.findRecordedWorktreeDirectory(OWNER, CHAT_ID),
+    ).resolves.toBeUndefined();
+  });
+
   it('answers the stored attempts, and none for a Chat never touched', async () => {
     const { db } = makeDb([
       [

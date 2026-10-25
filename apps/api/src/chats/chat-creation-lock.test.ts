@@ -58,6 +58,14 @@ describe('chatCreationLockKey', () => {
   it('names its family so a Chat id never collides with an org-unit key', () => {
     expect(chatCreationLockKey(CHAT_ID)).toBe(`chat-creation:${CHAT_ID}`);
   });
+
+  it('derives one key from either case of the same Chat id', () => {
+    // `@IsUUID` and `ParseUUIDPipe` both accept uppercase, and Postgres stores
+    // the lowercase form: the create and the message must name one lock.
+    expect(chatCreationLockKey(CHAT_ID.toUpperCase())).toBe(
+      chatCreationLockKey(CHAT_ID),
+    );
+  });
 });
 
 describe('creationInProgress', () => {
@@ -101,6 +109,14 @@ describe('tryCreationTransactionLock', () => {
 });
 
 describe('ChatCreationLock.runExclusively', () => {
+  it('takes the lock on its own connection, not the tenant pool', () => {
+    // The reserved connection lives for the whole request, so it must not come
+    // from the pool the request's transactions then need (X9).
+    expect(Reflect.getMetadata('self:paramtypes', ChatCreationLock)).toEqual([
+      { index: 0, param: 'DB_CREATION_LOCK' },
+    ]);
+  });
+
   it('reserves one connection, locks, runs, unlocks, and releases', async () => {
     const client = fakeClient([{ locked: true }]);
     const order: Array<string> = [];

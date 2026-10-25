@@ -206,7 +206,8 @@ function input(
     target: { executorId: 'host', machine: undefined, path: ROOT },
     checkout: checkoutRow(),
     repository: repositoryRow(),
-    worktree: {},
+    // An omitted field binds the checkout; `{}` asks for a worktree.
+    worktree: undefined,
     ...overrides,
   };
 }
@@ -606,6 +607,10 @@ describe('ChatCreationWorkspace binding', () => {
     expect(appendAttempt.mock.invocationCallOrder[0]).toBeLessThan(
       calls.worktreeAdd.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
     );
+    // The recorded directory is what a resend reads instead of a second add.
+    expect(appendAttempt.mock.calls[0]?.[0]).toMatchObject({
+      worktreeDirectory: DIRECTORY,
+    });
     expect(createCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         path: DIRECTORY,
@@ -639,6 +644,29 @@ describe('ChatCreationWorkspace binding', () => {
     await expect(workspace.enter(input())).resolves.toEqual({
       status: 'conflict',
     });
+  });
+
+  it('creates a generated worktree when the request sends an empty object', async () => {
+    const { git, calls } = fakeGit();
+    const { workspace, bindAtCreation } = makeWorkspace({ git });
+
+    const result = await workspace.enter(input({ worktree: {} }));
+    if (result.status !== 'bound' || result.worktree === undefined) {
+      throw new Error('expected a generated worktree');
+    }
+
+    expect(result.root).toMatch(
+      /^\/srv\/\.llame-worktrees\/llame\/[a-z]+-[a-z]+-[0-9a-f]{4}$/u,
+    );
+    expect(result.worktree).toMatchObject({
+      path: result.root,
+      branch: expect.stringMatching(/^llame\//u),
+      baseCommit: ADDED_HEAD,
+    });
+    expect(calls.worktreeAdd).toHaveBeenCalledTimes(1);
+    expect(bindAtCreation).toHaveBeenCalledWith(
+      expect.objectContaining({ root: result.root }),
+    );
   });
 
   it('answers conflict when the worktree commit cannot bind', async () => {

@@ -65,8 +65,13 @@ export type CreationWorkspaceInput = {
   readonly target: ExecutorTarget;
   readonly checkout: Checkout;
   readonly repository: Repository;
-  /** The request's validated `worktree` object; an empty one binds the checkout. */
-  readonly worktree: WorktreeRequest;
+  /**
+   * The request's validated `worktree` object, or `undefined` when it omitted
+   * the field. Presence decides: an empty object asks for a generated worktree,
+   * an absent one binds the checkout (openspec "Creation runs its steps in one
+   * fixed order": the request's `worktree` field decides worktree creation).
+   */
+  readonly worktree: WorktreeRequest | undefined;
 };
 
 /** Every outcome of the step, in the response's closed status set. */
@@ -166,18 +171,17 @@ export class ChatCreationWorkspace {
     canonical: string,
   ): Promise<CreationWorkspaceResult> {
     const { input } = log;
-    const planInput = {
+    if (input.worktree === undefined) {
+      await this.recordAttempt(log);
+      return this.bindAtCheckout(input, canonical);
+    }
+    return this.createWorktree(log, {
       target: input.target,
       source: { checkout: input.checkout, repository: input.repository },
       canonical,
       name: input.worktree.name,
       baseRef: input.worktree.baseRef,
-    };
-    if (planInput.name === undefined && planInput.baseRef === undefined) {
-      await this.recordAttempt(log);
-      return this.bindAtCheckout(input, canonical);
-    }
-    return this.createWorktree(log, planInput);
+    });
   }
 
   /** The worktree plan, its recorded attempt, and the add that follows them. */
@@ -189,7 +193,11 @@ export class ChatCreationWorkspace {
       ...planInput,
       decide: (_kind, address) => this.decideOrRefuse(log, address),
     });
-    await this.recordAttempt(log);
+    // The recorded directory is what a resend reads instead of a second add.
+    await this.recordAttempt(
+      log,
+      'status' in plan ? undefined : plan.directory,
+    );
     if ('status' in plan) return workspaceFailure(plan.result);
 
     const outcome = await addCreationWorktree(
@@ -275,12 +283,16 @@ export class ChatCreationWorkspace {
   }
 
   /** One attempt in its own transaction, before any git write. */
-  private async recordAttempt(log: DecisionLog): Promise<void> {
+  private async recordAttempt(
+    log: DecisionLog,
+    worktreeDirectory?: string,
+  ): Promise<void> {
     await this.tenantDb.runAs(log.input.ownerUserId, (tx) =>
       new ChatCreationRecordRepository(tx).appendAttempt({
         ownerUserId: log.input.ownerUserId,
         chatId: log.input.chatId,
         decisions: [...log.decisions],
+        ...(worktreeDirectory !== undefined && { worktreeDirectory }),
       }),
     );
   }

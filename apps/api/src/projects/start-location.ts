@@ -208,7 +208,9 @@ async function resolveRepositoryStep(
         );
   return {
     link,
-    repositoryId: link?.repositoryId ?? null,
+    // The request's repository is the first step of the order, and it stays
+    // resolved when no link names it: a create without a project links nothing.
+    repositoryId: link?.repositoryId ?? context.input.repositoryId ?? null,
     executorId: null,
     checkoutId: null,
   };

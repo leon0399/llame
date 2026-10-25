@@ -234,20 +234,24 @@ describe('resolveStartLocation repository step', () => {
     expect(location.isolationReason).toBe('no_link');
   });
 
-  it('validates an explicit repository for a chat without a project', async () => {
-    // No project means no link, so the id can only prove the row is the
-    // caller's: an owned repository resolves to no link, a foreign one is 404.
+  it('keeps the explicit repository of a chat without a project', async () => {
+    // No project means no link, so the id proves the row is the caller's and
+    // then stays resolved: the request's repository is the first step of the
+    // order, with or without a project.
     await expect(
       resolveStartLocation(
-        makeSource({ repositories: [repositoryRow()] }),
+        makeSource({
+          repositories: [repositoryRow()],
+          checkouts: [checkoutRow()],
+        }),
         OWNER,
         null,
         { repositoryId: REPOSITORY_ID },
       ),
     ).resolves.toEqual({
-      repositoryId: null,
-      executorId: null,
-      checkoutId: null,
+      repositoryId: REPOSITORY_ID,
+      executorId: 'host',
+      checkoutId: checkoutRow().id,
       isolation: 'reuse',
       isolationReason: 'no_link',
       isolationChats: 0,

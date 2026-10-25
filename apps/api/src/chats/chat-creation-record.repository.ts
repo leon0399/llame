@@ -25,10 +25,14 @@ export class ChatCreationRecordRepository {
     readonly ownerUserId: string;
     readonly chatId: string;
     readonly decisions: ReadonlyArray<ChatCreationPathDecision>;
+    readonly worktreeDirectory?: string;
   }): Promise<void> {
     const attempt: ChatCreationAttempt = {
       createdAt: new Date().toISOString(),
       decisions: [...input.decisions],
+      ...(input.worktreeDirectory !== undefined && {
+        worktreeDirectory: input.worktreeDirectory,
+      }),
     };
     await this.db
       .insert(chatCreationRecords)
@@ -43,6 +47,22 @@ export class ChatCreationRecordRepository {
           attempts: sql`${chatCreationRecords.attempts} || ${JSON.stringify([attempt])}::jsonb`,
         },
       });
+  }
+
+  /**
+   * The newest worktree directory this Chat's attempts recorded, or
+   * `undefined` when none did. A resend answers `outcome_unknown` with it
+   * instead of running a second add.
+   */
+  async findRecordedWorktreeDirectory(
+    ownerUserId: string,
+    chatId: string,
+  ): Promise<string | undefined> {
+    const attempts = await this.findAttempts(ownerUserId, chatId);
+    return [...attempts]
+      .reverse()
+      .find((attempt) => attempt.worktreeDirectory !== undefined)
+      ?.worktreeDirectory;
   }
 
   /** The Chat's attempts, or an empty list for a Chat creation never touched. */

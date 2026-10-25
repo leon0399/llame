@@ -2,6 +2,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -12,7 +13,6 @@ import {
   type Checkout,
   type Project,
   type Repository,
-  type WorktreeLease,
 } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -43,6 +43,17 @@ import {
   executorTarget,
   isConfiguredExecutor,
 } from './chat-creation-executors';
+import {
+  type AdmitContext,
+  type AdmittedChat,
+  type CreationLease,
+} from './chat-creation-admission';
+import { recordCreationDefault } from './chat-creation-defaults';
+import {
+  recordedWorktreeUnknown,
+  storedBinding,
+  worktreeOf,
+} from './chat-creation-outcomes';
 import { ChatCreationLock } from './chat-creation-lock';
 import { ChatCreationRecordRepository } from './chat-creation-record.repository';
 import {
@@ -63,33 +74,10 @@ import { WorkspaceBindingRepository } from './workspace-binding.repository';
  * chat filed and unbound.
  */
 
-/** The Chat, its project, and the location one admit decided. */
-type AdmittedChat = {
-  readonly chat: Chat;
-  readonly project: Project | null;
-  /** The location this request resolved; null when a binding already exists. */
-  readonly location: StartLocation | null;
-  /** The Worktree this Chat's own creation made, which a resend reuses. */
-  readonly lease: CreationLease | null;
-  /** The executors that can run right now, as this request observed them. */
-  readonly online: (executorId: string) => boolean;
-};
-
-type CreationLease = {
-  readonly lease: WorktreeLease;
-  readonly checkout: Checkout;
-};
-
-/** One request's admission: its transaction, identity, request, availability. */
-type AdmitContext = {
-  readonly tx: Db;
-  readonly userId: string;
-  readonly input: CreateChatRequest;
-  readonly online: (executorId: string) => boolean;
-};
-
 @Injectable()
 export class ChatCreationService {
+  private readonly logger = new Logger(ChatCreationService.name);
+
   constructor(
     private readonly tenantDb: TenantDbService,
     @Inject(InstanceConfigService)
@@ -109,8 +97,13 @@ export class ChatCreationService {
     userId: string,
     input: CreateChatRequest,
   ): Promise<CreateChatResponse> {
-    const worktree = readWorktreeRequest(input.worktree ?? {});
-    if ('message' in worktree) {
+    // Presence decides, not the fields: an omitted `worktree` reuses the
+    // checkout, and an empty one asks for a generated worktree.
+    const worktree =
+      input.worktree === undefined
+        ? undefined
+        : readWorktreeRequest(input.worktree);
+    if (worktree !== undefined && 'message' in worktree) {
       throw new UnprocessableEntityException(worktree.message);
     }
     if (
@@ -184,7 +177,7 @@ export class ChatCreationService {
   private async createLocked(
     userId: string,
     input: CreateChatRequest,
-    worktree: WorktreeRequest,
+    worktree: WorktreeRequest | undefined,
     turn: ValidatedChatTurn | undefined,
   ): Promise<CreateChatResponse> {
     const admitted = await this.admitChat(userId, input);
@@ -201,7 +194,7 @@ export class ChatCreationService {
       );
     }
     if (workspace.status === 'bound') {
-      await this.recordDefault(userId, admitted);
+      await this.writeBackDefault(userId, admitted);
     }
     // Only a bound or an unresolved start accepts the message: every failure
     // keeps the chat filed and unbound, stores no message, and starts no Run.
@@ -217,6 +210,22 @@ export class ChatCreationService {
       chat: toChatResponse(chat),
       workspace: toWorkspaceResponse(workspace),
     };
+  }
+
+  /** The link default of a successful start, written back after the commit. */
+  private async writeBackDefault(
+    userId: string,
+    admitted: AdmittedChat,
+  ): Promise<void> {
+    await recordCreationDefault(
+      { logger: this.logger, tenantDb: this.tenantDb, projects: this.projects },
+      {
+        ownerUserId: userId,
+        chatId: admitted.chat.id,
+        project: admitted.project,
+        location: admitted.location,
+      },
+    );
   }
 
   /**
@@ -264,14 +273,25 @@ export class ChatCreationService {
         project,
         location: null,
         lease,
+        recordedWorktree: null,
         online: context.online,
       };
     }
+    // Nothing committed: an earlier attempt may still have added a worktree
+    // before its transaction rolled back.
+    const recordedWorktree =
+      (await new ChatCreationRecordRepository(
+        context.tx,
+      ).findRecordedWorktreeDirectory(context.userId, stored.id)) ?? null;
     return {
       chat: stored,
       project,
-      location: await this.resolveLocation(context, project),
+      location:
+        recordedWorktree === null
+          ? await this.resolveLocation(context, project)
+          : null,
       lease: null,
+      recordedWorktree,
       online: context.online,
     };
   }
@@ -290,7 +310,14 @@ export class ChatCreationService {
       ...(project !== null && { projectId: project.id }),
     });
     if (chat !== undefined) {
-      return { chat, project, location, lease: null, online: context.online };
+      return {
+        chat,
+        project,
+        location,
+        lease: null,
+        recordedWorktree: null,
+        online: context.online,
+      };
     }
 
     // The id is taken: by our own concurrent row (re-read it) or by another
@@ -308,6 +335,7 @@ export class ChatCreationService {
       project,
       location,
       lease: null,
+      recordedWorktree: null,
       online: context.online,
     };
   }
@@ -390,7 +418,7 @@ export class ChatCreationService {
   private async enterWorkspace(
     userId: string,
     admitted: AdmittedChat,
-    worktree: WorktreeRequest,
+    worktree: WorktreeRequest | undefined,
     turn: ValidatedChatTurn | undefined,
   ): Promise<CreationWorkspaceResult> {
     const { chat, lease } = admitted;
@@ -398,6 +426,19 @@ export class ChatCreationService {
       return storedBinding(chat.workspaceRoot, chat.workspaceExecutorId, lease);
     }
     if (lease !== null) return this.rebindLease(userId, chat, lease);
+    if (admitted.recordedWorktree !== null) {
+      return recordedWorktreeUnknown(admitted.recordedWorktree);
+    }
+    return this.enterLocated(userId, admitted, worktree, turn);
+  }
+
+  /** The bind or worktree the resolved location decides, on an online executor. */
+  private async enterLocated(
+    userId: string,
+    admitted: AdmittedChat,
+    worktree: WorktreeRequest | undefined,
+    turn: ValidatedChatTurn | undefined,
+  ): Promise<CreationWorkspaceResult> {
     const located = await this.readLocated(userId, admitted.location);
     if (located === null) return { status: 'unbound' };
     // An implicit step never reaches an offline executor (the resolver saw only
@@ -419,7 +460,7 @@ export class ChatCreationService {
     }
     return this.workspace.enter({
       ownerUserId: userId,
-      chatId: chat.id,
+      chatId: admitted.chat.id,
       permissionMode: turn?.permissionMode ?? 'default',
       target,
       checkout: located.checkout,
@@ -511,43 +552,6 @@ export class ChatCreationService {
     };
   }
 
-  /**
-   * The default of the link and executor, recorded after a successful start:
-   * the SOURCE `main` checkout, never the worktree the start just created.
-   */
-  private async recordDefault(
-    userId: string,
-    admitted: AdmittedChat,
-  ): Promise<void> {
-    const project = admitted.project;
-    const location = admitted.location;
-    const repositoryId = location?.repositoryId ?? null;
-    const checkoutId = location?.checkoutId ?? null;
-    const executorId = location?.executorId ?? null;
-    if (
-      project === null ||
-      repositoryId === null ||
-      checkoutId === null ||
-      executorId === null
-    ) {
-      return;
-    }
-    const link = await this.tenantDb.runAs(userId, (tx) =>
-      new ProjectLinksRepository(tx).findLinkByRepository(
-        userId,
-        project.id,
-        repositoryId,
-      ),
-    );
-    if (link === undefined) return;
-    await this.projects.recordProjectDefault(
-      userId,
-      link.id,
-      executorId,
-      checkoutId,
-    );
-  }
-
   private async readChat(userId: string, chatId: string): Promise<Chat> {
     const chat = await this.tenantDb.runAs(userId, (tx) =>
       new ChatsRepository(tx).findById(chatId, userId),
@@ -557,28 +561,4 @@ export class ChatCreationService {
     }
     return chat;
   }
-}
-
-/** The binding a stored Chat already holds, which a resend never changes. */
-function storedBinding(
-  root: string,
-  executorId: string | null,
-  lease: CreationLease | null,
-): CreationWorkspaceResult {
-  return {
-    status: 'bound',
-    root,
-    ...(executorId !== null && { executorId }),
-    ...(lease !== null &&
-      lease.checkout.path === root && { worktree: worktreeOf(lease) }),
-  };
-}
-
-/** The worktree a bound root names, as the response reports it. */
-function worktreeOf(lease: CreationLease) {
-  return {
-    path: lease.checkout.path,
-    branch: lease.checkout.branch ?? lease.lease.baseRef,
-    baseCommit: lease.lease.baseCommit,
-  };
 }

@@ -210,13 +210,13 @@ function configFor(): LlameConfig {
   };
 }
 
-async function boot(): Promise<Harness> {
+async function boot(config: LlameConfig = configFor()): Promise<Harness> {
   const models = new FakeModelsService();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
     .useValue({ assertReady: () => Promise.resolve() })
     .overrideProvider(InstanceConfigService)
-    .useValue({ config: configFor() })
+    .useValue({ config })
     .overrideProvider(ModelsService)
     .useValue(models)
     .compile();
@@ -1199,6 +1199,20 @@ describe('chat creation over HTTP', () => {
       expect(await countRows('runs', { chatId })).toBe(0);
     });
 
+    it('takes the same lock for either case of one chat id', async () => {
+      const chatId = newChatId();
+
+      // `ParseUUIDPipe` accepts uppercase, so the create must name the same
+      // key the lowercase id does.
+      const response = await withCreationLock(chatId, () =>
+        create({ id: chatId.toUpperCase(), projectId }),
+      );
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({ code: 'creation_in_progress' });
+      expect(await chatRow(chatId)).toBeUndefined();
+    });
+
     it('creates one worktree for one id across a refused and a successful request', async () => {
       const chatId = newChatId();
       const refused = await withCreationLock(chatId, () =>
@@ -1216,5 +1230,46 @@ describe('chat creation over HTTP', () => {
       );
       expect(await countRows('worktree_leases', { chatId })).toBe(1);
     });
+  });
+});
+
+/*
+ * The creation lock reserves a connection for the whole request, so it must not
+ * take it from the pool the request's own transactions then need. A tenant pool
+ * of one connection is a valid configuration, and this suite proves the create
+ * still finishes on it.
+ */
+describe('chat creation on a one-connection tenant pool', () => {
+  let harness: Harness;
+
+  beforeAll(async () => {
+    harness = await boot({ ...configFor(), db: { poolSize: 1 } });
+  });
+
+  afterAll(async () => {
+    await harness?.app.close();
+  });
+
+  it('completes a create while the creation lock holds its own connection', async () => {
+    const registered = await request(harness.http)
+      .post('/auth/v1/register')
+      .send({
+        email: `chat-creation-single-${crypto.randomUUID()}@test.com`,
+        password: 'password123',
+        name: 'Chat creation single pool',
+      })
+      .expect(201);
+    const body: unknown = registered.body;
+    expectRegisteredUserId(body);
+
+    const response = await request(harness.http)
+      .post('/api/v1/chats')
+      .set('Cookie', cookieOf(registered))
+      .send({ id: crypto.randomUUID() })
+      .expect(201);
+
+    expect(createResponseSchema.parse(response.body).workspace.status).toBe(
+      'unbound',
+    );
   });
 });

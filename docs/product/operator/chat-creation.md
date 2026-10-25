@@ -56,6 +56,10 @@ before anything is stored.
 | `worktree`     | object | `name` and `baseRef` of a worktree to create before the bind.                       |
 | `message`      | object | `id`, `parts`, `modelId`, optional `effort` and `permissionMode`.                   |
 
+The `worktree` field decides by its presence: omit it to reuse the source
+checkout, and send an object — even an empty one — to create a worktree. An
+empty object generates the name.
+
 ```bash
 # File a Chat in a project and let the server resolve its checkout.
 curl -X POST localhost:3001/api/v1/chats -b "session=…" \
@@ -127,6 +131,8 @@ message, and it starts no Run. The client keeps the draft for a later send.
 A successful start records the source `main` checkout as the link's default for
 that executor, so the next create in the same project needs no location ids. A
 worktree start records the source checkout, never the worktree it just created.
+That write runs after the commit, it is best-effort, and its failure changes
+nothing else: the create still answers `bound`, and the previous default stays.
 
 ## Resends, and the creation lock
 
@@ -147,6 +153,9 @@ A second create with a stored Chat id is a resend:
   with no bound root runs the location, worktree, and bind steps again, so a
   corrected location binds. A Chat that holds a creation lease reuses that
   worktree and its root.
+- A Chat whose earlier attempt added a worktree and rolled back keeps the
+  directory that attempt recorded, and the resend answers `outcome_unknown`
+  with `leftDirectory` instead of adding a second worktree.
 - A Chat id stored for another owner answers `404` and discloses no field of it.
 
 ## The creation record
