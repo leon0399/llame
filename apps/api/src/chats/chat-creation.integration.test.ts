@@ -38,6 +38,7 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
@@ -210,16 +211,30 @@ function configFor(): LlameConfig {
   };
 }
 
-async function boot(config: LlameConfig = configFor()): Promise<Harness> {
+/**
+ * Boots the API. `workers: false` registers no queue consumer: a pool sized
+ * for HTTP alone must not also carry the search sweep and the Run worker,
+ * which the operator sizing rule forbids (`scaling.md`).
+ */
+async function boot(
+  config: LlameConfig = configFor(),
+  { workers = true } = {},
+): Promise<Harness> {
   const models = new FakeModelsService();
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
     .useValue({ assertReady: () => Promise.resolve() })
     .overrideProvider(InstanceConfigService)
     .useValue({ config })
     .overrideProvider(ModelsService)
-    .useValue(models)
-    .compile();
+    .useValue(models);
+  const moduleRef = await (
+    workers
+      ? builder
+      : builder
+          .overrideProvider(WorkerProfileService)
+          .useValue({ concurrencyFor: () => null })
+  ).compile();
   const app = moduleRef.createNestApplication();
   configureApp(app);
   await app.listen(0);
@@ -1243,7 +1258,11 @@ describe('chat creation on a one-connection tenant pool', () => {
   let harness: Harness;
 
   beforeAll(async () => {
-    harness = await boot({ ...configFor(), db: { poolSize: 1 } });
+    // HTTP only: the claim is about the request path's connections.
+    harness = await boot(
+      { ...configFor(), db: { poolSize: 1 } },
+      { workers: false },
+    );
   });
 
   afterAll(async () => {
