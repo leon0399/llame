@@ -108,10 +108,11 @@ decision as a bypass decision.
 - **WHEN** the `enter_workspace` group allows `/home/operator/src/llame` and
   `/home/operator/src/.llame-worktrees/`, and `enter_workspace` submits
   `/home/operator/src/llame` with `worktree: {"name": "clear-field-0192"}`
-- **THEN** the submitted-path, `canonical`, `main_clone`, and
-  `worktree_directory` decisions for
-  `/home/operator/src/.llame-worktrees/llame/clear-field-0192` record `allow`
-  with their policy provenance
+- **THEN** the submitted-path, `canonical`, and `main_clone` decisions for
+  `/home/operator/src/llame` record `allow` with their policy provenance
+- **AND** the `worktree_directory` decision for
+  `/home/operator/src/.llame-worktrees/llame/clear-field-0192` records `allow`
+  with its policy provenance
 - **AND** one `git.worktreeAdd` call runs, and the Workspace binds the worktree
   directory
 

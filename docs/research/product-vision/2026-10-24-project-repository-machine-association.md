@@ -214,7 +214,7 @@ Keep the Chat Workspace binding exactly as shipped: one canonical root, one
 executor, the existing re-check and detach. Add three owner-scoped entities
 above it and one receipt beside it. Projects store no paths.
 
-`openspec/changes/repositories` and `openspec/changes/chat-start-location` are
+`openspec/specs/repositories` and `openspec/changes/chat-start-location` are
 canonical for this model.
 
 ```mermaid
@@ -278,7 +278,7 @@ base_commit, created_at)`: an informational ownership receipt, written when a
 ### Chat creation
 
 Chat creation is one request, `POST /api/v1/chats`, carrying the first message
-and the location together. `openspec/changes/repositories` owns the repository,
+and the location together. `openspec/specs/repositories` owns the repository,
 checkout, lease, and worktree rules; `openspec/changes/chat-start-location`
 owns this flow.
 
@@ -482,10 +482,11 @@ after the first turn adds a rename path for little value. Change 1 generates
 
 ## Canonical changes
 
-- `openspec/changes/repositories`: the repository and checkout catalog under
+- `openspec/specs/repositories`: the repository and checkout catalog under
   owner RLS, canonical remote and aliases, registration through typed executor
   git methods, the `enter_workspace` worktree option with its four decisions,
-  the lease receipt, and the guarded owner removal.
+  the lease receipt, and the guarded owner removal. This capability shipped
+  its proposal as `openspec/changes/archive/2026-10-24-repositories`.
 - `openspec/changes/chat-start-location`: the project↔repository link with an
   alias, one primary, and an isolation policy; per-executor defaults; project
   `default_executor_id`; `POST /api/v1/chats` that resolves, authorizes, and

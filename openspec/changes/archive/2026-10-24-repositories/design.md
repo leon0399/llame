@@ -14,7 +14,7 @@ See proposal.md - Why. Current state that shapes the approach:
 - Fixtures and tests pin the `enter_workspace` argument shapes: `apps/api/src/testing/portable-tool-policy.ts`, `apps/api/src/testing/tool-permission-policy.ts`, `apps/api/src/instance-config/tool-permissions-config.test.ts`, and `apps/api/src/tools/workspace.test.ts`.
 
 The evidence base is the
-[project, repository, and machine association study](../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md)
+[project, repository, and machine association study](../../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md)
 and the 2026-10-24 grilling record cited by Q code below. The settled decisions
 are: leases are informational, no sweep ships, and `owner-chat-forks` is
 unchanged.

@@ -101,11 +101,14 @@ select an owner, a Chat, an executor, or a permission mode.
 ### Requirement: Workspace entry can create a worktree of the source clone
 
 `enter_workspace` MUST accept an optional `worktree` object with only `name` and
-`baseRef`. The submitted `path` names the source clone. The source clone MUST be
-the main tree that `git.inspect` reports. A successful call MUST create a
-worktree of it. The call MUST bind the new worktree directory as the Workspace
-root, and MUST record the worktree checkout and its lease. The result MUST name
-the root, the branch, and the base commit.
+`baseRef`. The submitted `path` MUST be a directory in the source clone, which
+can be the main tree or a subdirectory of it. `git.inspect` MUST resolve the
+submitted directory to the main tree. That main tree MUST be the source clone. A
+successful call MUST create a worktree of it.
+
+The call MUST bind the new worktree directory as the Workspace root, and MUST
+record the worktree checkout and its lease. The result MUST name the root, the
+branch, and the base commit.
 
 #### Scenario: A local clone produces a worktree binding
 
