@@ -159,10 +159,12 @@ jobs:
 
       # Through turbo, not pnpm directly: some packages' test:coverage
       # depends on ^build, since their workspace imports resolve to dist/.
+      # Streamed, not grouped (turbo's CI default): grouped output prints a
+      # task only when it ends, so a 12-minute suite shows no progress.
       - env:
           TEST_FILTER: ${{ matrix.filter || format('./{0}', matrix.dir) }}
           TEST_TASK: ${{ matrix.task || 'test:coverage' }}
-        run: pnpm exec turbo run "$TEST_TASK" --filter="$TEST_FILTER"
+        run: pnpm exec turbo run "$TEST_TASK" --filter="$TEST_FILTER" --log-order=stream
 
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
