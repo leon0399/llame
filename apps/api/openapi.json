@@ -2170,6 +2170,233 @@
         "tags": ["projects"]
       }
     },
+    "/api/v1/projects/{id}/repositories": {
+      "get": {
+        "operationId": "listProjectRepositories",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectRepositoryLinkResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed project id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a project's linked repositories",
+        "tags": ["projects"]
+      },
+      "post": {
+        "operationId": "linkProjectRepository",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRepositoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRepositoryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed project or repository id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "The project already links that repository, or the project is archived"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Link one catalog repository to a project",
+        "tags": ["projects"]
+      }
+    },
+    "/api/v1/projects/{id}/repositories/{repositoryId}": {
+      "patch": {
+        "operationId": "updateProjectRepositoryLink",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "repositoryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRepositoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRepositoryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed id or field"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change a link alias, primary flag, or isolation policy",
+        "tags": ["projects"]
+      },
+      "delete": {
+        "operationId": "unlinkProjectRepository",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "repositoryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "Malformed id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": "The project is archived"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove one repository from a project's links",
+        "tags": ["projects"]
+      }
+    },
     "/api/v1/repositories": {
       "post": {
         "operationId": "createRepository",
@@ -5202,6 +5429,97 @@
           "archived": {
             "type": "boolean",
             "description": "Archive (true) or unarchive (false) the project. Omit to leave unchanged."
+          }
+        }
+      },
+      "ProjectRepositoryLinkResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerUserId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["inherit", "always_worktree", "never"]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ownerUserId",
+          "projectId",
+          "repositoryId",
+          "alias",
+          "isPrimary",
+          "isolation",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CreateProjectRepositoryDto": {
+        "type": "object",
+        "properties": {
+          "repositoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The project's own label for the repository. Defaults to the repository display name."
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "description": "Make this the project primary link, clearing any previous one."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["inherit", "always_worktree", "never"]
+          }
+        },
+        "required": ["repositoryId"]
+      },
+      "UpdateProjectRepositoryDto": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "description": "True makes this the project primary link and clears the previous one; false clears this link."
+          },
+          "isolation": {
+            "type": "string",
+            "enum": ["inherit", "always_worktree", "never"]
           }
         }
       },

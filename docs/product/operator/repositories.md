@@ -1,8 +1,9 @@
 ---
-summary: "Registering the git repositories and checkouts a Chat can start from, and the host paths registration may inspect"
+summary: "Registering the git repositories and checkouts a Chat can start from, linking them to projects, and the host paths registration may inspect"
 read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
+  - you are linking a project to a repository or setting its isolation policy
   - you are deciding which host paths a checkout registration may inspect
 behavior:
   - ../reference/tools/enter-workspace.md
@@ -234,6 +235,109 @@ the same three gates as registration, removes the directory with
 The `llame/<name>` branch stays, so a removal loses no commit. A worktree row
 without a lease keeps the fail-closed rule: no recorded base can prove the
 branch is unchanged. Refusals answer `409` `worktree_not_clean`.
+
+## Project links
+
+A project links zero or more of its owner's repositories. A link is a row of its
+own: an alias the project shows, a primary flag, and an isolation policy. The
+alias defaults to the repository's display name and is stored, so renaming the
+catalog entry later leaves the project's label alone. A project holds at most
+one primary link.
+
+The primary flag and the isolation policy are stored for the chat start that
+resolves a project's location; until that ships, nothing reads them, and a
+chat in a project starts with no location as before. The isolation policy is
+the default isolation such a start will offer for a chat on that link:
+
+- `inherit` reuses the source checkout, and turns a worktree start on when
+  another open chat already binds that checkout.
+- `always_worktree` starts a worktree, so two chats never share one tree.
+- `never` reuses the checkout.
+
+Deleting a project removes its links, and so does unlinking and deleting the
+repository. No route deletes a repository, a checkout, a directory, or a file
+because of a link.
+
+### The link routes
+
+```bash
+# Link one catalog repository; the alias defaults to its display name.
+curl -X POST localhost:3001/api/v1/projects/<project>/repositories \
+  -b "session=…" -H 'content-type: application/json' \
+  -d '{"repositoryId":"<repository>","isPrimary":true}'
+
+# Change the alias, the primary flag, or the isolation policy.
+curl -X PATCH localhost:3001/api/v1/projects/<project>/repositories/<repository> \
+  -b "session=…" -H 'content-type: application/json' \
+  -d '{"alias":"llame","isolation":"always_worktree"}'
+
+# Unlink: the link goes, the repository and its checkouts stay.
+curl -X DELETE \
+  localhost:3001/api/v1/projects/<project>/repositories/<repository> \
+  -b "session=…"
+
+# Read every link with its alias, flags, and policy.
+curl localhost:3001/api/v1/projects/<project>/repositories -b "session=…"
+```
+
+`GET /api/v1/projects/:id/repositories` returns each link with its alias,
+primary flag, and isolation policy. A project or repository of another owner,
+and an id that no longer exists, both answer `404`, so a foreign row is
+indistinguishable from a missing one; a repository the caller owns but the
+project does not link answers `404` as well. Every link write on an archived
+project answers `409` and changes nothing. Linking a repository the project
+already links answers `409`, and so does a concurrent change that collides on
+the one-primary rule; a sequential primary change clears the previous one and
+answers `200`.
+
+### The project page's Repositories section
+
+The project page is the edit surface for links. The section sits in the
+project's side panel, below Instructions and Context, with one row per link:
+the project's alias, a Primary badge when the project links more than one
+repository, and a line with the catalog remote and how many checkouts and
+worktrees the repository holds — or "No checkout" when a chat cannot start in
+it yet.
+
+The section's `+` adds a draft row that searches the owner's catalog, minus the
+links the project already holds, and takes a pasted path:
+
+- Picking a catalog repository links it under its display name.
+- An absolute path or a `machine://<name>/…` locator
+  registers that clone (`POST /api/v1/checkouts`) and then links the
+  repository it resolves to, unless the project already links it.
+- The first link a project takes is its primary. Escape, or leaving the empty
+  field, discards the draft.
+
+A row opens the repository's sheet:
+
+- **In this project**: the alias, the primary switch, and the isolation policy
+  ("When busy", "Always", "Never"). Each change writes at once; the alias
+  writes when the field is left.
+- **Checkouts**: each clone by its path — a Machine clone by the path on that
+  Machine — with where it lives, its Machine's reachability, and the branch it
+  was registered on. The section's `+` registers another clone of this
+  repository by path.
+- **Worktrees**: each worktree by branch, the chat whose lease records it as a
+  link to that chat, and how many other chats are bound to it. **Remove** asks
+  once, then calls `DELETE /api/v1/checkouts/:id/worktree`; a `409`
+  `worktree_not_clean` refusal leaves the row listed with the route's own
+  sentence.
+- The header links to the repository's page on GitHub, GitLab, Bitbucket,
+  Codeberg, or sourcehut when the remote is on one of them, and its menu holds
+  **Unlink from project**, which confirms once and removes only the link.
+
+A checkout or worktree row copies its location: a local path at once, a
+Machine one as the path on that Machine or as its `machine://` locator. The
+branch shown is the one recorded when the checkout was registered or the
+worktree created; a later rename or switch is not read back
+([#1417](https://github.com/leon0399/llame/issues/1417)).
+
+Every write on an archived project answers `409`, and the section shows that
+sentence where the write was made. Registration's typed failures — an invalid
+path, a directory that is not a repository, `origin_mismatch`, `path_taken`, or
+a Machine that is offline or needs an update — appear under the draft, where
+the path can be corrected.
 
 ## Reading the catalog
 

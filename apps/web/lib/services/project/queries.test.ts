@@ -8,7 +8,11 @@ import {
   type Mock,
 } from "vitest";
 
-import { fetchProjects, projectQueryKeys } from "./queries";
+import {
+  fetchProjectRepositoryLinks,
+  fetchProjects,
+  projectQueryKeys,
+} from "./queries";
 import {
   jsonResponse,
   requestFromCall,
@@ -58,5 +62,25 @@ describe("fetchProjects", () => {
     const params = new URL(request.url).searchParams;
     expect(params.get("pinned")).toBe("only");
     expect(params.get("archived")).toBe("with");
+  });
+});
+
+describe("projectQueryKeys links", () => {
+  it("keeps links in their own scope under the project resource", () => {
+    expect(projectQueryKeys.repositoryLinks()).toEqual(["projects", "link"]);
+    expect(projectQueryKeys.links("p1")).toEqual(["projects", "link", "p1"]);
+  });
+});
+
+describe("fetchProjectRepositoryLinks", () => {
+  it("reads one project's links", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    await fetchProjectRepositoryLinks("p1");
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/projects/p1/repositories",
+    );
   });
 });

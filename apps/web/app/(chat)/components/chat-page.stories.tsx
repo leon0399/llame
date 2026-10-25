@@ -598,7 +598,7 @@ async function settledChat(
   await waitFor(() =>
     expect(within(canvas.getByRole("log")).getByText(text)).toBeVisible(),
   );
-  await waitFor(() => expect(sentRoutes()).toEqual(routes));
+  await waitFor(() => expect(chatRoutes()).toEqual(routes));
 }
 
 /** Waits for the settled chat, then returns the model selector. */
@@ -2014,6 +2014,14 @@ export const RunReceiptWithoutSwitch: Story = {
 
 const LIST_ROUTE = "GET /api/v1/chats";
 const DETAIL_ROUTE = `GET /api/v1/chats/${CHAT_ID}`;
+// Session details read the checkout catalog for a bound chat, to name its
+// repository and branch; these stories are about the chat card, not that.
+const CATALOG_ROUTES = ["GET /api/v1/checkouts", "GET /api/v1/repositories"];
+
+/** The routes sent so far, without the session details' catalog reads. */
+function chatRoutes() {
+  return sentRoutes().filter((route) => !CATALOG_ROUTES.includes(route));
+}
 const LLAME_ROOT = "/home/operator/projects/llame";
 const NEXT_ROOT = "/home/operator/projects/next";
 const DOCS_ROOT = "/home/operator/projects/docs";
@@ -2059,6 +2067,12 @@ function serveChatCard(listed: boolean) {
     );
   }
   routeAlso({
+    ...Object.fromEntries(
+      CATALOG_ROUTES.map((route) => [
+        route,
+        () => Promise.resolve(jsonResponse([])),
+      ]),
+    ),
     [LIST_ROUTE]: (input) =>
       Promise.resolve(
         jsonResponse(
@@ -2091,11 +2105,16 @@ const HEADED_CHAT = {
   nextjs: { navigation: { pathname: `/chat/${CHAT_ID}` } },
 };
 
-/** Waits until session details show the chat bound to `root`. */
+/**
+ * Waits until session details show the chat bound to `root`. The transcript's
+ * workspace tool row can show the same path, so the query stays in the panel.
+ */
 async function panelShows(canvasElement: HTMLElement, root: string) {
   await waitFor(() =>
     expect(
-      within(canvasElement).getByRole("button", { name: root }),
+      within(within(canvasElement).getByLabelText("Session details")).getByText(
+        root,
+      ),
     ).toBeVisible(),
   );
 }
@@ -2143,7 +2162,7 @@ export const WorkspaceRefreshesEachRun: Story = {
     await sendFollowUp(canvasElement);
     await panelShows(canvasElement, NEXT_ROOT);
     await expect(stop()).toBeVisible();
-    await expect(sentRoutes()).toEqual([
+    await expect(chatRoutes()).toEqual([
       ...OPEN_CHAT_ROUTES,
       SEND_ROUTE,
       ...refresh,
@@ -2158,13 +2177,13 @@ export const WorkspaceRefreshesEachRun: Story = {
       ...refresh,
       HISTORY_ROUTE,
     ];
-    await waitFor(() => expect(sentRoutes()).toEqual(firstRun));
+    await waitFor(() => expect(chatRoutes()).toEqual(firstRun));
 
     boundRoot = DOCS_ROOT;
     await sendFollowUp(canvasElement);
     await panelShows(canvasElement, DOCS_ROOT);
     await expect(stop()).toBeVisible();
-    await expect(sentRoutes()).toEqual([...firstRun, SEND_ROUTE, ...refresh]);
+    await expect(chatRoutes()).toEqual([...firstRun, SEND_ROUTE, ...refresh]);
   },
 };
 
@@ -2229,7 +2248,7 @@ export const WorkspaceRefreshesOnEntry: Story = {
     await sendFollowUp(canvasElement);
     // The reply's start refreshes the card before the entry rebinds the chat.
     const started = [...OPEN_CHAT_ROUTES, SEND_ROUTE, LIST_ROUTE, LIST_ROUTE];
-    await waitFor(() => expect(sentRoutes()).toEqual(started));
+    await waitFor(() => expect(chatRoutes()).toEqual(started));
     await panelShows(canvasElement, LLAME_ROOT);
 
     boundRoot = NEXT_ROOT;
@@ -2237,7 +2256,7 @@ export const WorkspaceRefreshesOnEntry: Story = {
 
     await panelShows(canvasElement, NEXT_ROOT);
     await transcriptShows(canvasElement, "Workspace is ready.");
-    await expect(sentRoutes()).toEqual([...started, LIST_ROUTE, LIST_ROUTE]);
+    await expect(chatRoutes()).toEqual([...started, LIST_ROUTE, LIST_ROUTE]);
   },
 };
 
@@ -2279,6 +2298,6 @@ export const PastWorkspaceEntryKeepsCard: Story = {
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Entered the project.");
     await panelShows(canvasElement, LLAME_ROOT);
-    await expect(sentRoutes()).toEqual(OPEN_CHAT_ROUTES);
+    await expect(chatRoutes()).toEqual(OPEN_CHAT_ROUTES);
   },
 };
