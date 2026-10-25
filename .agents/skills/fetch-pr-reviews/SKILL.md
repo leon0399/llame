@@ -1,5 +1,5 @@
 ---
-name: pr-review-fetcher
+name: fetch-pr-reviews
 description: This skill should be used when fetching or monitoring review feedback on one or more llame pull requests — unresolved or resolved review threads, review verdicts, conversation comments, feedback since a time, from or excluding an author — during Ready-PR monitoring, before replying to and resolving threads, or when asked to "fetch reviews", "check review comments", "what did CodeRabbit/Codex/pullfrog say", or "list unresolved threads". Prints bot feedback stripped of markup, state blobs, and duplicate agent prompts to save tokens.
 metadata:
   version: "1.0.0"
@@ -27,16 +27,16 @@ Run from the repository root.
 
 ```bash
 # Unresolved threads, verdicts, and comments of one PR (bare numbers use the current repo)
-node .agents/skills/pr-review-fetcher/scripts/fetch-pr-reviews.mjs 1418
+node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs 1418
 
 # Several PRs, only what changed in the last 20 minutes (one monitoring round)
-node .agents/skills/pr-review-fetcher/scripts/fetch-pr-reviews.mjs 1409 1411 1412 --since 20m
+node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs 1409 1411 1412 --since 20m
 
 # Only unresolved threads on current code, for the fix -> reply -> resolve loop
-node .agents/skills/pr-review-fetcher/scripts/fetch-pr-reviews.mjs 1418 --kinds threads --outdated exclude
+node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs 1418 --kinds threads --outdated exclude
 
 # Verdicts on the head commit only
-node .agents/skills/pr-review-fetcher/scripts/fetch-pr-reviews.mjs 1418 --kinds reviews --current-head
+node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs 1418 --kinds reviews --current-head
 ```
 
 |Option|Effect|

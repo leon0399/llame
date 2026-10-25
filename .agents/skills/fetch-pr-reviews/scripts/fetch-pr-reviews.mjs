@@ -8,14 +8,14 @@
  *
  * Read-only: it never replies to, resolves, or edits anything.
  *
- *   node .agents/skills/pr-review-fetcher/scripts/fetch-pr-reviews.mjs [options] <pr>...
+ *   node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs [options] <pr>...
  *
  * Run with --help for the options.
  */
 import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
-const USAGE = `Usage: node .agents/skills/pr-review-fetcher/scripts/fetch-pr-reviews.mjs [options] <pr>...
+const USAGE = `Usage: node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs [options] <pr>...
 
 <pr> is 123, #123, owner/repo#123, or a pull request URL.
 
