@@ -7,8 +7,14 @@ for approval, publication, and merge policy.
 ## Delivery stack
 
 ```text
-master <- proposals/repositories-and-chat-start-location <- repositories/schema-and-registration <- repositories/executor-git <- repositories/workspace-worktree <- repositories/finalize <- chat-start-location/project-links-api <- chat-start-location/project-links-ui <- chat-start-location/chat-creation <- chat-start-location/composer-chip <- chat-start-location/composer-entry-points <- chat-start-location/composer-redesign <- chat-start-location/finalize
+master <- proposals/repositories-and-chat-start-location <- repositories/schema-and-registration <- repositories/executor-git <- repositories/workspace-worktree <- repositories/finalize <- chat-start-location/project-links-api <- chat-start-location/chat-creation <- chat-start-location/composer-chip <- chat-start-location/composer-entry-points <- chat-start-location/composer-redesign <- chat-start-location/finalize
 ```
+
+`chat-start-location/project-links-ui` is dropped: #1418
+(`chat-start-location/project-repositories`) implements the project page
+Repositories section, and its PR #1410 is closed without merging. The chain
+skips it, so `chat-start-location/chat-creation` descends from
+`chat-start-location/project-links-api`.
 
 - `proposals/repositories-and-chat-start-location` (parent `master`): one PR
   for both changes, without `$gh-stack`. It owns `proposal.md`, `design.md`,
@@ -27,18 +33,14 @@ master <- proposals/repositories-and-chat-start-location <- repositories/schema-
   - Justification: the schema, its routes, and the RLS proofs form one story
   - The project page can land after it
 
-- `chat-start-location/project-links-ui` (parent
-  `chat-start-location/project-links-api`):
-
-  - It owns the project page "Repositories" section
-  - It owns its register-checkout form and docs
-  - It owns the worktree list with the guarded Remove action
-  - It owns its stories
-  - The estimate is under 2,000 authored lines
-  - Justification: one UI surface with one story set reads the finished routes
+- `chat-start-location/project-links-ui` (dropped): its project page
+  "Repositories" section, register-checkout form, docs, worktree list, guarded
+  Remove action, and stories are implemented in #1418
+  (`chat-start-location/project-repositories`). PR #1410 is closed without
+  merging. Section 3 records what replaced it.
 
 - `chat-start-location/chat-creation` (parent
-  `chat-start-location/project-links-ui`):
+  `chat-start-location/project-links-api`):
 
   - It owns `POST /api/v1/chats` and the resolution order
   - It owns the Run-free worktree and bound-root write

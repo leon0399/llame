@@ -214,8 +214,8 @@ Keep the Chat Workspace binding exactly as shipped: one canonical root, one
 executor, the existing re-check and detach. Add three owner-scoped entities
 above it and one receipt beside it. Projects store no paths.
 
-`openspec/specs/repositories` and `openspec/changes/chat-start-location` are
-canonical for this model.
+`openspec/specs/repositories`, `openspec/specs/projects`, and
+`openspec/specs/chat-creation` are canonical for this model.
 
 ```mermaid
 erDiagram
@@ -279,8 +279,8 @@ erDiagram
 
 Chat creation is one request, `POST /api/v1/chats`, carrying the first message
 and the location together. `openspec/specs/repositories` owns the repository,
-checkout, lease, and worktree rules; `openspec/changes/chat-start-location`
-owns this flow.
+checkout, lease, and worktree rules; `openspec/specs/chat-creation` owns this
+flow.
 
 ```text
 { id (client uuid), projectId?, repositoryId?, executorId?, checkoutId?,
@@ -487,10 +487,12 @@ after the first turn adds a rename path for little value. Change 1 generates
   git methods, the `enter_workspace` worktree option with its four decisions,
   the lease receipt, and the guarded owner removal. This capability shipped
   its proposal as `openspec/changes/archive/2026-10-24-repositories`.
-- `openspec/changes/chat-start-location`: the project↔repository link with an
-  alias, one primary, and an isolation policy; per-executor defaults; project
-  `default_executor_id`; `POST /api/v1/chats` that resolves, authorizes, and
-  binds before the first Run; the composer chip and cascade.
+- `openspec/specs/projects`: the project↔repository link with an alias, one
+  primary, and an isolation policy; per-executor defaults; and project
+  `default_executor_id`. `openspec/specs/chat-creation` owns
+  `POST /api/v1/chats`, which resolves, authorizes, and binds before the first
+  Run, and the composer chip and cascade. Both capabilities ship their
+  proposals as `openspec/changes/archive/2026-10-24-chat-start-location`.
 
 ## Decisions
 

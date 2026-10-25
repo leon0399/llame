@@ -190,10 +190,11 @@ decide the outcome.
 
 For each link and each executor, a project MUST store at most one default
 checkout. That default MUST be a main checkout of the repository on that
-executor. A successful chat start MUST record the main checkout it used, or the
-source main checkout of a worktree, as that default. Each defaults row MUST
-record `updated_at`, the time of its last write. When a link has defaults on
-several executors, the most recently written row MUST win.
+executor.
+
+A successful chat start MUST attempt to record the main checkout it used, or the
+source main checkout of a worktree, as that default. That write MUST run after
+the commit, it MUST be best-effort, and the last write MUST win.
 
 #### Scenario: A chat start records the default
 
@@ -217,10 +218,26 @@ several executors, the most recently written row MUST win.
   E
 - **THEN** the project stores the new checkout as the default for that link on E
 
+### Requirement: The latest defaults write wins
+
+Each defaults row MUST record `updated_at`, the time of its last write. When a
+link has defaults on several executors, the most recently written row MUST win.
+
 #### Scenario: Defaults on two executors resolve to the last write
 
 - **WHEN** a link stores a default on executor E1, then a default on executor E2
 - **THEN** a chat start on that link uses the default on E2
+
+### Requirement: A failed defaults write does not fail the chat start
+
+A failed defaults write MUST NOT fail the chat start, and it MUST leave the
+previous defaults row in place.
+
+#### Scenario: A failed defaults write does not fail a later start
+
+- **WHEN** the defaults write fails after the chat start binds
+- **THEN** the chat start keeps its bound root
+- **AND** the previous defaults row stays
 
 ### Requirement: A project can have a default executor
 
