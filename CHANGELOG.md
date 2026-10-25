@@ -4,8 +4,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Pull requests start from `.github/pull_request_template.md` (concern,
   issues and stack position, review budget, decisions, commands run, and a
-  surface checklist). The `open-pull-request` agent skill covers filling it
-  from the diff, one visual per change shape, measurements with deltas, the
+  surface checklist). The `open-pull-request` agent skill covers choosing a
+  single PR or a stack, filling the template from the diff, one visual per change shape, measurements with deltas, the
   delivery Project item, and the self-review before ready.
 
 - The formatter is Oxfmt 0.73.0 instead of Prettier. One root
