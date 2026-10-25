@@ -11,16 +11,13 @@ import { useMachinesQuery } from "@/lib/services/machines/queries";
 import { useProjectRepositoryLinksQuery } from "@/lib/services/project/queries";
 import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 import {
-  checkoutOptions,
+  executorLabel,
   executorOptions,
   isolationReasonLabel,
-  locationChip,
   resolveLocation,
   unavailableExecutor,
   useStartLocationPreview,
-  type CheckoutOption,
   type ExecutorOption,
-  type LocationChipSummary,
   type ResolvedLocation,
   type StartLocationIsolation,
   type StartLocationResponse,
@@ -31,50 +28,49 @@ import type { StartLocationPrefill } from "@/lib/services/project/start-location
 import type { ProjectRepositoryLink } from "@/lib/services/project/types";
 import type { RepositoryResponse } from "@/lib/services/repositories/queries";
 
-/** One repository link as the cascade's repository level offers it. */
-export type RepositoryOption = {
-  id: string;
-  label: string;
-  isPrimary: boolean;
+/** One registered `main` checkout the composer can start a chat in. */
+export type WorkingDirectoryOption = {
+  checkoutId: string;
+  path: string;
+  /** The Machine (or local executor) that holds it. */
+  machine: string;
+  /** The project links its repository, so it is offered first. */
+  linked: boolean;
 };
 
-/** The selection the composer holds; `undefined`/`null` means "let the server
+/** The selection the composer holds; `undefined` means "let the server
  *  resolve it", which is what the common case sends. */
 type SelectionDraft = StartLocationSelection & {
+  /** The reader removed the working directory: the chat starts unbound. */
+  cleared: boolean;
   isolation: StartLocationIsolation | null;
-  worktreeName: string;
-  baseRef: string;
 };
 
-/** The levels and the labels the chip and the cascade render. */
+/** The levels and the labels the location row renders. */
 type ComposerLocationView = {
-  projectName: string;
-  /** The repository level's choices; the popover renders above one link only. */
-  repositoryOptions: Array<RepositoryOption>;
+  workingDirectories: Array<WorkingDirectoryOption>;
   machineOptions: Array<ExecutorOption>;
-  checkoutChoices: Array<CheckoutOption>;
   location: ResolvedLocation;
-  chip: LocationChipSummary;
   isolation: StartLocationIsolation;
   isolationLabel: string;
   followsDefault: boolean;
-  worktreeName: string;
-  baseRef: string;
 };
 
 type ComposerLocationActions = {
-  selectRepository: (repositoryId: string) => void;
+  selectWorkingDirectory: (checkout: CheckoutResponse) => void;
+  clearWorkingDirectory: () => void;
   selectExecutor: (executorId: string) => void;
-  selectCheckout: (checkoutId: string) => void;
   selectIsolation: (isolation: StartLocationIsolation) => void;
-  setWorktreeName: (name: string) => void;
-  setBaseRef: (baseRef: string) => void;
 };
 
-/** Everything the chip and the cascade read; the hook is its only producer. */
+/** Everything the location row reads; the hook is its only producer. */
 export type ComposerLocation = ComposerLocationView &
   ComposerLocationActions & {
     selection: StartLocationSelection;
+    /** The reader removed the working directory, overriding any default. */
+    cleared: boolean;
+    /** The owner's checkouts, for matching a typed path to a registered one. */
+    checkouts: ReadonlyArray<CheckoutResponse>;
     preview: { pending: boolean; failed: boolean; refetch: () => void };
   };
 
@@ -85,7 +81,6 @@ type PreviewState = {
 };
 
 type DeriveLocationViewInput = {
-  projectName: string;
   draft: SelectionDraft;
   preview: PreviewState;
   links: ReadonlyArray<ProjectRepositoryLink>;
@@ -121,34 +116,25 @@ function isolationView(
   };
 }
 
-function repositoryOptionsOf(
-  links: ReadonlyArray<ProjectRepositoryLink>,
-): Array<RepositoryOption> {
-  return links.map((link) => ({
-    id: link.repositoryId,
-    label: link.alias,
-    isPrimary: link.isPrimary,
-  }));
-}
-
-/** The machine and checkout levels of the resolved repository. */
-function locationChoices(
-  location: ResolvedLocation,
+/** Every registered `main` checkout, the project's own repositories first. */
+function workingDirectoriesOf(
   input: DeriveLocationViewInput,
-): Pick<ComposerLocationView, "machineOptions" | "checkoutChoices"> {
-  return {
-    machineOptions: executorOptions({
-      repositoryId: location.repositoryId,
-      checkouts: input.checkouts,
-      machines: input.machines,
-      unavailable: unavailableExecutor(input.failed),
-    }),
-    checkoutChoices: checkoutOptions(
-      location.repositoryId,
-      location.executor?.executorId ?? null,
-      input.checkouts,
-    ),
-  };
+): Array<WorkingDirectoryOption> {
+  const linked = new Set(input.links.map((link) => link.repositoryId));
+  return input.checkouts
+    .filter((checkout) => checkout.kind === "main")
+    .map((checkout) => ({
+      checkoutId: checkout.id,
+      path: checkout.path,
+      machine: executorLabel(checkout.executorId, input.machines),
+      linked: linked.has(checkout.repositoryId),
+    }))
+    .sort(
+      (left, right) =>
+        Number(right.linked) - Number(left.linked) ||
+        left.machine.localeCompare(right.machine) ||
+        left.path.localeCompare(right.path),
+    );
 }
 
 /** The whole view, from the reads the hook performs; pure so it is unit-tested
@@ -169,64 +155,90 @@ function deriveLocationView(
   });
   const isolation = isolationView(draft, location);
   return {
-    projectName: input.projectName,
-    repositoryOptions: repositoryOptionsOf(input.links),
-    ...locationChoices(location, input),
+    workingDirectories: workingDirectoriesOf(input),
+    machineOptions: executorOptions({
+      repositoryId: location.repositoryId,
+      checkouts: input.checkouts,
+      machines: input.machines,
+      unavailable: unavailableExecutor(input.failed),
+    }),
     location,
     ...isolation,
-    chip: locationChip({
-      projectName: input.projectName,
-      location,
-      isolation: isolation.isolation,
-      worktreeName: draft.worktreeName,
-      baseRef: draft.baseRef,
-      pending: preview.isPending,
-      followsDefault: isolation.followsDefault,
-      isolationLabel: isolation.isolationLabel,
-    }),
-    worktreeName: draft.worktreeName,
-    baseRef: draft.baseRef,
   };
 }
 
 /**
- * The composer's selection state and its level setters. Every level recomputes
- * the levels below it from their defaults: a repository or machine choice
- * drops the checkout, and any level clears the isolation override so the new
- * preview default applies (design D10). `onChange` lets the composer clear a
- * failed create's warning, because the draft is being corrected. `initial` is
- * the entry point's pre-fill (a deep link or "New chat here"), read once.
+ * The location a create without a project would use. No project means no
+ * links and no policy, so the named checkout (or a repository's only `main`
+ * checkout on the named Machine) is the whole answer, and isolation follows
+ * the reader.
+ */
+function localPreview(
+  draft: SelectionDraft,
+  checkouts: ReadonlyArray<CheckoutResponse>,
+): StartLocationResponse {
+  const mains = checkouts.filter(
+    (row) =>
+      row.kind === "main" &&
+      row.repositoryId === draft.repositoryId &&
+      row.executorId === draft.executorId,
+  );
+  const row = draft.cleared
+    ? undefined
+    : draft.checkoutId === undefined
+      ? mains.length === 1
+        ? mains[0]
+        : undefined
+      : checkouts.find((checkout) => checkout.id === draft.checkoutId);
+  return {
+    projectId: "",
+    repositoryId: row?.repositoryId ?? null,
+    executorId: row?.executorId ?? null,
+    checkoutId: row?.id ?? null,
+    isolation: "reuse",
+    isolationReason: "no_link",
+    isolationChats: 0,
+  };
+}
+
+/**
+ * The composer's selection state. A Machine choice drops the checkout, and
+ * any choice clears the isolation override so the new default applies (design
+ * D10). `initial` is the entry point's pre-fill, read once.
  */
 function initialDraft(
   initial: StartLocationPrefill | null | undefined,
 ): SelectionDraft {
   return {
     ...initial?.selection,
+    cleared: false,
     isolation: initial?.isolation ?? null,
-    worktreeName: "",
-    baseRef: "",
   };
 }
 
-function useSelectionDraft(
-  initial: StartLocationPrefill | null | undefined,
-  onChange?: () => void,
-): ComposerLocationActions & { draft: SelectionDraft } {
-  const [draft, setDraft] = useState<SelectionDraft>(() =>
-    initialDraft(initial),
-  );
-  const update = (change: (current: SelectionDraft) => SelectionDraft) => {
-    setDraft(change);
-    onChange?.();
-  };
+type DraftUpdate = (
+  change: (current: SelectionDraft) => SelectionDraft,
+) => void;
+
+/** The level setters over one draft update. */
+function draftActions(update: DraftUpdate): ComposerLocationActions {
   return {
-    draft,
-    selectRepository: (repositoryId: string) =>
+    selectWorkingDirectory: (checkout: CheckoutResponse) =>
       update((current) => ({
         ...current,
-        repositoryId,
+        repositoryId: checkout.repositoryId,
+        executorId: checkout.executorId,
+        checkoutId: checkout.id,
+        cleared: false,
+        isolation: null,
+      })),
+    clearWorkingDirectory: () =>
+      update((current) => ({
+        ...current,
+        repositoryId: undefined,
         executorId: undefined,
         checkoutId: undefined,
+        cleared: true,
         isolation: null,
       })),
     selectExecutor: (executorId: string) =>
@@ -236,71 +248,109 @@ function useSelectionDraft(
         checkoutId: undefined,
         isolation: null,
       })),
-    selectCheckout: (checkoutId: string) =>
-      update((current) => ({ ...current, checkoutId, isolation: null })),
     selectIsolation: (isolation: StartLocationIsolation) =>
       update((current) => ({ ...current, isolation })),
-    setWorktreeName: (worktreeName: string) =>
-      update((current) => ({ ...current, worktreeName })),
-    setBaseRef: (baseRef: string) =>
-      update((current) => ({ ...current, baseRef })),
   };
 }
 
+function useSelectionDraft(
+  projectId: string | null,
+  initial: StartLocationPrefill | null | undefined,
+  onChange?: () => void,
+): ComposerLocationActions & { draft: SelectionDraft } {
+  const [state, setState] = useState(() => ({
+    projectId,
+    draft: initialDraft(initial),
+  }));
+  // Another project's levels mean nothing here, so a project switch starts
+  // from that project's defaults; the pre-fill named the first project only.
+  if (state.projectId !== projectId) {
+    setState({ projectId, draft: initialDraft(null) });
+  }
+  const actions = draftActions((change) => {
+    setState((current) => ({ ...current, draft: change(current.draft) }));
+    onChange?.();
+  });
+  return { draft: state.draft, ...actions };
+}
+
 type ComposerLocationArgs = {
-  projectId: string;
-  projectName: string;
-  /** The create's Workspace failure, shown on the chip until the draft moves. */
+  /** The project whose links and preview are read; null resolves locally. */
+  projectId: string | null;
+  /** The create's Workspace failure, shown on the row until the draft moves. */
   failed: WorkspaceFailure | null;
   /** Any change to the selection means the reader is correcting the draft. */
   onChange?: () => void;
   /** The entry point's pre-fill: a deep link, or "New chat here". */
   initial?: StartLocationPrefill | null;
+  /** False for a chat that already exists: it reads nothing. */
+  enabled?: boolean;
 };
 
 /**
- * The chip's and the cascade's one source of truth (design D10). It reads the
- * project's links, the preview route, the owner's checkouts, and Machine
- * status; the resolved location and its warning are computed from those reads,
- * never guessed locally.
+ * Where the location comes from: a project's preview route, which runs the
+ * create's own resolver, or the chosen checkout resolved locally when there
+ * is no project. A removed working directory resolves to nothing either way.
  */
+function useLocationPreview(
+  projectId: string | null,
+  draft: SelectionDraft,
+  checkouts: ReadonlyArray<CheckoutResponse>,
+  enabled: boolean,
+): PreviewState & { refetch: () => void } {
+  const served = enabled && projectId !== null && !draft.cleared;
+  const remote = useStartLocationPreview(projectId ?? "", draft, served);
+  const refetch = () => {
+    void remote.refetch();
+  };
+  if (served) return { ...remote, refetch };
+  return {
+    data: localPreview(draft, checkouts),
+    isPending: false,
+    isError: false,
+    refetch,
+  };
+}
+
+/** The location row's one source of truth (design D10). */
 export function useComposerLocation({
   projectId,
-  projectName,
   failed,
   onChange,
   initial,
+  enabled = true,
 }: ComposerLocationArgs): ComposerLocation {
-  const { draft, ...actions } = useSelectionDraft(initial, onChange);
-  const links = useProjectRepositoryLinksQuery(projectId);
-  const repositories = useRepositoriesQuery();
-  const checkouts = useCheckoutsQuery();
+  const { draft, ...actions } = useSelectionDraft(projectId, initial, onChange);
+  const links = useProjectRepositoryLinksQuery(
+    projectId ?? "",
+    enabled && projectId !== null,
+  );
+  const repositories = useRepositoriesQuery(enabled);
+  const checkouts = useCheckoutsQuery(undefined, enabled).data ?? [];
   const machines = useMachinesQuery();
-  const preview = useStartLocationPreview(projectId, draft);
-  const view = deriveLocationView({
-    projectName,
-    draft,
-    preview,
-    links: links.data ?? [],
-    repositories: repositories.data ?? [],
-    checkouts: checkouts.data ?? [],
-    machines: machines.data,
-    failed,
-  });
+  const preview = useLocationPreview(projectId, draft, checkouts, enabled);
   return {
-    ...view,
+    ...deriveLocationView({
+      draft,
+      preview,
+      links: links.data ?? [],
+      repositories: repositories.data ?? [],
+      checkouts,
+      machines: machines.data,
+      failed,
+    }),
     ...actions,
     selection: {
       repositoryId: draft.repositoryId,
       executorId: draft.executorId,
       checkoutId: draft.checkoutId,
     },
+    cleared: draft.cleared,
+    checkouts,
     preview: {
       pending: preview.isPending,
       failed: preview.isError,
-      refetch: () => {
-        void preview.refetch();
-      },
+      refetch: preview.refetch,
     },
   };
 }

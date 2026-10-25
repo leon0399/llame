@@ -1,7 +1,13 @@
 "use client";
 
-import { type RefObject, useEffect, useRef, useState } from "react";
-import { FolderIcon, PaperclipIcon, PlusIcon } from "lucide-react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { PaperclipIcon, PlusIcon } from "lucide-react";
 
 import { Kbd } from "@workspace/ui/components/kbd";
 import {
@@ -12,8 +18,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import {
@@ -137,14 +141,16 @@ function UploadMenuItem({
   );
 }
 
-/** The `+` button and its menu: the file upload, then the placeholder for
- *  filing the chat into a project, disabled until the composer can do that. */
+/** The `+` button and its menu: the file upload, then the items the composer
+ *  adds (filing into a project, a working directory). */
 function ComposerAddDropdown({
   attachDisabled,
   onUpload,
+  children,
 }: {
   attachDisabled: boolean;
   onUpload: () => void;
+  children: ReactNode;
 }) {
   return (
     <DropdownMenu>
@@ -168,12 +174,7 @@ function ComposerAddDropdown({
           shortcut. */}
       <DropdownMenuContent align="start" className="w-max min-w-56">
         <UploadMenuItem disabled={attachDisabled} onUpload={onUpload} />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled>
-            <FolderIcon />
-            <span>Add to project</span>
-          </DropdownMenuSubTrigger>
-        </DropdownMenuSub>
+        {children}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -208,10 +209,13 @@ export function ComposerAddMenu({
   onFiles,
   accept,
   attachDisabled,
+  children,
 }: {
   onFiles: (files: Iterable<File>) => void;
   accept: string;
   attachDisabled: boolean;
+  /** Menu items after the upload. */
+  children?: ReactNode;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useUploadShortcut(inputRef, !attachDisabled);
@@ -220,7 +224,9 @@ export function ComposerAddMenu({
       <ComposerAddDropdown
         attachDisabled={attachDisabled}
         onUpload={() => inputRef.current?.click()}
-      />
+      >
+        {children}
+      </ComposerAddDropdown>
       <input
         ref={inputRef}
         type="file"

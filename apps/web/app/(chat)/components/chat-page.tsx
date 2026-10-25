@@ -32,6 +32,8 @@ import {
 } from "./use-chat-markdown-ready";
 import { ChatTranscript } from "./chat-transcript";
 import { ChatComposer } from "./chat-composer";
+import { useChatPageProject } from "./composer-project";
+import { useChatCreation } from "./use-chat-creation";
 import {
   ArchivedChatBanner,
   useOpenChatArchived,
@@ -319,6 +321,57 @@ type ChatSessionBodyProps = ChatSessionContentProps & {
   conversation: ReturnType<typeof useChatConversation>;
 };
 
+type ChatSessionComposerProps = {
+  chatId: string;
+  exists: boolean;
+  status: ReturnType<typeof useChatConversation>["status"];
+  composer: ReturnType<typeof useChatConversation>["composer"];
+  disabled: boolean;
+};
+
+/**
+ * The chat page's composer. A chat that does not exist yet, with a project or
+ * a working directory chosen, sends through the create, which binds its
+ * location; every other send stays on the chat's own message route.
+ */
+function ChatSessionComposer({
+  chatId,
+  exists,
+  status,
+  composer,
+  disabled,
+}: ChatSessionComposerProps) {
+  const { project, draftProjectId } = useChatPageProject(exists);
+  const creation = useChatCreation({
+    projectId: draftProjectId,
+    composerChatId: chatId,
+    input: composer.input,
+    setInput: composer.setInput,
+    attachments: composer.attachments,
+    enabled: !exists,
+  });
+  // Only a chat that does not exist yet chooses where it starts.
+  const creates = !exists && creation.active;
+  return (
+    <ChatComposer
+      chatId={chatId}
+      input={composer.input}
+      onInputChange={composer.setInput}
+      onSubmit={creates ? creation.onSubmit : composer.handleSubmit}
+      status={status}
+      onStop={composer.handleStop}
+      pendingStop={composer.pendingStop}
+      modelReadyForSend={composer.modelReadyForSend}
+      modelSendUnavailableReason={composer.modelSendUnavailableReason}
+      attachments={composer.attachments}
+      project={project}
+      location={exists ? undefined : creation.location}
+      failure={creates ? creation.failure : null}
+      disabled={disabled || creation.pending}
+    />
+  );
+}
+
 /** Transcript-or-spinner + composer + inspector for one ready session. */
 function ChatSessionBody({
   markdown,
@@ -337,17 +390,13 @@ function ChatSessionBody({
         onInspectContext={dialog.setInspectedRunId}
       />
       {archived && <ArchivedChatBanner chatId={session.chatId} />}
-      <ChatComposer
+      <ChatSessionComposer
         chatId={session.chatId}
-        input={composer.input}
-        onInputChange={composer.setInput}
-        onSubmit={composer.handleSubmit}
+        exists={
+          session.initialChatExists || transcript.displayMessages.length > 0
+        }
         status={status}
-        onStop={composer.handleStop}
-        pendingStop={composer.pendingStop}
-        modelReadyForSend={composer.modelReadyForSend}
-        modelSendUnavailableReason={composer.modelSendUnavailableReason}
-        attachments={composer.attachments}
+        composer={composer}
         disabled={markdown.renderers === null || archived}
       />
       <ChatSessionDialog dialog={dialog} />

@@ -3,10 +3,10 @@
 import type * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createSubmitHandler } from "./project-prompt-input";
+import { createSubmitHandler } from "./use-chat-creation";
 
 /*
- * The project composer's submit handler (openspec `chat-start-location`, design
+ * The filed composer's submit handler (openspec `chat-start-location`, design
  * D10): one Chat id per draft, retained before the request leaves the browser,
  * so a lost response cannot mint a second Chat and its Run on the next submit.
  */
@@ -43,9 +43,7 @@ function handlerFor(options: {
     location: {
       selection: {},
       isolation: { worktree: false },
-      location: {},
-      worktreeName: undefined,
-      baseRef: undefined,
+      location: { checkout: null },
     } as never,
     projectId: PROJECT_ID,
     retryChatId: options.retryChatId ?? null,

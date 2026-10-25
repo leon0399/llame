@@ -59,7 +59,7 @@ function worktreeFields(worktree: {
  * The request the server validates. A blank base ref or name is omitted rather
  * than sent as `""` (the API rejects a blank value), and `worktree` is present
  * only when the composer asks for one — the request's `worktree` field is what
- * decides the outcome.
+ * decides the outcome. The location is opt-in: an empty selection binds none.
  */
 export function buildCreateChatRequest(
   draft: CreateChatDraft,

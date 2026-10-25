@@ -9,9 +9,8 @@ import { MainRailTrigger } from "@/app/shell/main-rail";
 import { topBarClasses } from "@/app/shell/top-bar";
 import { useTypewriter } from "@/components/use-typewriter";
 
-import { useOpenChat, type ChatResponse } from "@/lib/services/chat/queries";
+import { useOpenChat } from "@/lib/services/chat/queries";
 
-import { BoundRootChip } from "../bound-root-chip";
 import { SessionDetailsTrigger, useOpenChatId } from "../session-details";
 
 export interface ChatHeaderProps {
@@ -31,17 +30,17 @@ function isResolvedTitle(title: string | null | undefined): title is string {
 }
 
 /** Resolves the active chat from the list caches, falling back to a direct
- *  fetch for chats those caches drop (see `useOpenChat`). */
+ * fetch for chats those caches drop (see `useOpenChat`). */
 function useResolvedChat(
   chatId: string | undefined,
-): (ChatResponse & { title: string }) | null | undefined {
+): { title: string } | null | undefined {
   const chat = useOpenChat(chatId);
 
   return !chatId
     ? null
     : chat === undefined
       ? undefined
-      : { ...chat, title: chat.title ?? UNTITLED_CHAT_LABEL };
+      : { title: chat.title ?? UNTITLED_CHAT_LABEL };
 }
 
 /** Keeps the tab title in sync with the resolved chat title, and restores the
@@ -100,11 +99,6 @@ export function ChatHeader({ className }: ChatHeaderProps) {
       {chatId && resolvedChat ? (
         <>
           <ChatHeaderTitle key={chatId} title={resolvedChat.title} />
-          <BoundRootChip
-            key={`location-${chatId}`}
-            chat={resolvedChat}
-            className="hidden min-w-0 sm:flex"
-          />
           <span className="ml-auto">
             <SessionDetailsTrigger />
           </span>

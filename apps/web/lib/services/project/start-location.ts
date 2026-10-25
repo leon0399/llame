@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import type {
   CheckoutResponse,
@@ -45,9 +45,10 @@ export type WorkspaceFailure = {
   message?: string;
 };
 
+/** A start the create would refuse or fail; an unchosen level is not one. */
 export type LocationWarning = {
-  /** The level the reader has to fix, or `workspace` for a failed create. */
-  step: "repository" | "machine" | "checkout" | "preview" | "workspace";
+  /** `machine` for an unusable Machine, `workspace` for a failed create. */
+  step: "machine" | "preview" | "workspace";
   message: string;
 };
 
@@ -82,7 +83,9 @@ export async function fetchStartLocation(
   );
 }
 
-/** The preview a create on this project would use; it writes nothing. */
+/** The preview a create on this project would use; it writes nothing. A new
+ *  selection keeps the previous answer on screen until its own arrives, so a
+ *  changed level does not blank the row. */
 export function useStartLocationPreview(
   projectId: string,
   selection: StartLocationSelection,
@@ -92,6 +95,7 @@ export function useStartLocationPreview(
     queryKey: startLocationQueryKeys.preview(projectId, selection),
     queryFn: () => fetchStartLocation(projectId, selection),
     enabled,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -194,28 +198,6 @@ export function executorOptions(
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-export type CheckoutOption = {
-  id: string;
-  path: string;
-  branch: string | null;
-};
-
-/** The source checkout level: one executor's `main` clones of the repository. */
-export function checkoutOptions(
-  repositoryId: string | null,
-  executorId: string | null,
-  checkouts: ReadonlyArray<CheckoutResponse>,
-): Array<CheckoutOption> {
-  if (repositoryId === null || executorId === null) return [];
-  return checkouts.flatMap((checkout) =>
-    checkout.kind === "main" &&
-    checkout.repositoryId === repositoryId &&
-    checkout.executorId === executorId
-      ? [{ id: checkout.id, path: checkout.path, branch: checkout.branch }]
-      : [],
-  );
-}
-
 /**
  * The isolation label of design D10: the resolved default carries the reason
  * the preview named, and a value the reader changed says so instead.
@@ -315,17 +297,6 @@ function workspaceWarning(failed: WorkspaceFailure): LocationWarning {
   };
 }
 
-/** No link resolved: say whether the project has none or the reader must pick. */
-function repositoryWarning(input: ResolveLocationInput): LocationWarning {
-  return {
-    step: "repository",
-    message:
-      input.links.length === 0
-        ? "Link a repository to this project."
-        : "Choose a repository for this project.",
-  };
-}
-
 type RepositoryRows = {
   link: ProjectRepositoryLink | undefined;
   name: string | null;
@@ -357,7 +328,11 @@ function previewExecutor(input: ResolveLocationInput): ExecutorOption | null {
   return options.find((option) => option.executorId === executorId) ?? null;
 }
 
-/** The first unresolved or unavailable level, or a failed create's reason. */
+/**
+ * Why the start cannot go ahead: a failed create, a failed preview, or a
+ * Machine that cannot serve. A project without a repository, or a repository
+ * without a checkout, is an ordinary unbound start, so it warns about nothing.
+ */
 function locationWarning(
   input: ResolveLocationInput,
   location: ResolvedLocation,
@@ -369,27 +344,12 @@ function locationWarning(
       message: "Could not resolve the start location.",
     };
   }
-  if (input.preview === undefined) return null;
-  if (location.repositoryId === null) return repositoryWarning(input);
-  if (location.executor === null) {
-    return {
-      step: "machine",
-      message: "No Machine holds a checkout of this repository.",
-    };
-  }
-  if (location.executor.reason !== null) {
-    return {
-      step: "machine",
-      message: `${location.executor.label}: ${location.executor.reason}`,
-    };
-  }
-  if (location.checkout === null) {
-    return {
-      step: "checkout",
-      message: `No checkout resolves on ${location.executor.label}.`,
-    };
-  }
-  return null;
+  const executor = location.executor;
+  if (executor === null || executor.reason === null) return null;
+  return {
+    step: "machine",
+    message: `${executor.label}: ${executor.reason}`,
+  };
 }
 
 /**
@@ -417,201 +377,4 @@ export function resolveLocation(input: ResolveLocationInput): ResolvedLocation {
     warning: null,
   };
   return { ...location, warning: locationWarning(input, location) };
-}
-
-export type LocationChipSummary = {
-  /** The resolved root, one segment per level, joined by the chip. */
-  segments: Array<string>;
-  /** The isolation's second line (the worktree branch), when isolating. */
-  detail: string | null;
-  /** The missing level's short name, when the location does not resolve. */
-  unresolved: string | null;
-};
-
-type LocationChipInput = {
-  projectName: string;
-  location: ResolvedLocation;
-  isolation: StartLocationIsolation;
-  worktreeName: string;
-  baseRef: string;
-  pending: boolean;
-  followsDefault: boolean;
-  isolationLabel: string;
-};
-
-const UNRESOLVED_LABELS: Record<LocationWarning["step"], string | null> = {
-  repository: "Choose a repository",
-  machine: "Choose a machine",
-  checkout: "Choose a checkout",
-  preview: "Location unavailable",
-  workspace: null,
-};
-
-/**
- * The directory `enter_workspace` would create for a named worktree, from the
- * documented placement rule: the source clone's parent (or the checkout's
- * `worktreeBase`), then `.llame-worktrees/<repository display name>/<slug>`.
- * An unnamed worktree gets a server-generated name, so its path is unknown.
- */
-function worktreeDirectory(
-  checkout: CheckoutResponse,
-  repositoryName: string,
-  name: string,
-): string {
-  const index = checkout.path.lastIndexOf("/");
-  const parent = index <= 0 ? "/" : checkout.path.slice(0, index);
-  const base = checkout.worktreeBase ?? `${parent}/.llame-worktrees`;
-  return `${base}/${repositoryName}/${name.replaceAll("/", "-")}`;
-}
-
-/** The worktree branch the request would create, or the generated placeholder. */
-function worktreeBranch(name: string): string {
-  const trimmed = name.trim();
-  if (trimmed.length === 0) return "new worktree";
-  return trimmed.includes("/") ? trimmed : `llame/${trimmed}`;
-}
-
-/** The checkout line: the path, with its branch when the chat reuses it. */
-function checkoutSegment(
-  checkout: CheckoutResponse,
-  isolation: StartLocationIsolation,
-): string {
-  if (isolation === "worktree" || checkout.branch === null)
-    return checkout.path;
-  return `${checkout.path} (${checkout.branch})`;
-}
-
-/** The worktree form: the directory a named tree lands in, then its branch. */
-function worktreeChip(
-  input: LocationChipInput,
-  location: ResolvedLocation,
-  segments: Array<string>,
-): LocationChipSummary {
-  const checkout = location.checkout;
-  if (checkout === null) return { segments, detail: null, unresolved: null };
-  const base = input.baseRef.trim() || checkout.branch || "HEAD";
-  const name = input.worktreeName.trim();
-  const directory =
-    name.length > 0 && location.repositoryName !== null
-      ? worktreeDirectory(checkout, location.repositoryName, name)
-      : null;
-  return {
-    segments:
-      directory === null ? segments : [...segments.slice(0, -1), directory],
-    detail: `${worktreeBranch(name)} ← ${base} · ${input.isolationLabel}`,
-    unresolved: null,
-  };
-}
-
-/**
- * What the chip shows. An unnamed worktree gets a server-generated name, so the
- * chip keeps the source checkout and names the branch the create will make.
- */
-export function locationChip(input: LocationChipInput): LocationChipSummary {
-  const { location } = input;
-  const segments = [input.projectName];
-  if (location.repositoryLabel !== null)
-    segments.push(location.repositoryLabel);
-  if (location.executor !== null) segments.push(location.executor.label);
-  if (location.checkout !== null) {
-    segments.push(checkoutSegment(location.checkout, input.isolation));
-  }
-  const warning = location.warning;
-  if (input.pending) {
-    return { segments, detail: "Resolving location…", unresolved: null };
-  }
-  // A resolved location that still cannot start names the failure (an offline
-  // Machine, an outdated daemon, a rejected worktree); an unresolved level
-  // names the choice the reader has to make.
-  const resolved =
-    location.repositoryId !== null &&
-    location.executor !== null &&
-    location.checkout !== null;
-  if (warning !== null && resolved) {
-    return { segments, detail: warning.message, unresolved: null };
-  }
-  if (input.isolation === "worktree" && location.checkout !== null) {
-    return worktreeChip(input, location, segments);
-  }
-  return {
-    segments,
-    detail: location.checkout === null ? null : input.isolationLabel,
-    unresolved:
-      warning === null ? null : (UNRESOLVED_LABELS[warning.step] ?? null),
-  };
-}
-
-/** What the chat header's read-only chip says about a chat's bound root. */
-export type BoundRootChipSummary = {
-  /** The bound root, one segment per level, joined by the chip. */
-  segments: Array<string>;
-  /** The worktree branch and its source, when the root is a worktree. */
-  detail: string | null;
-  /** Why the chat needs attention, or null when a root is bound. */
-  warning: string | null;
-};
-
-export type BoundRootInput = {
-  projectName: string | null;
-  workspaceRoot: string | null;
-  /** The chat's project's links, for the repository alias the chip shows. */
-  links: ReadonlyArray<ProjectRepositoryLink>;
-  repositories: ReadonlyArray<RepositoryResponse>;
-  checkouts: ReadonlyArray<CheckoutResponse>;
-  machines: ReadonlyArray<MachineResponse> | undefined;
-};
-
-const UNBOUND_WARNING = "This chat is not bound to a Workspace.";
-
-/** The worktree line: its branch, then the source checkout's branch. */
-function worktreeBranchLine(
-  branch: string | null,
-  source: string | null,
-): string {
-  const head = branch ?? "detached HEAD";
-  return source === null ? head : `${head} ← ${source}`;
-}
-
-/**
- * The read-only chip of design D10: the chat's own `workspace_root`, resolved
- * against the owner's catalog for the repository alias and the Machine name.
- * A root the catalog does not hold is still the truth, so the chip prints it;
- * only a chat without a root warns.
- */
-export function boundRootChip(input: BoundRootInput): BoundRootChipSummary {
-  const segments = input.projectName === null ? [] : [input.projectName];
-  const root = input.workspaceRoot?.trim() ?? "";
-  if (root.length === 0) {
-    return {
-      segments: [...segments, "No Workspace"],
-      detail: null,
-      warning: UNBOUND_WARNING,
-    };
-  }
-  const checkout = input.checkouts.find((row) => row.path === root);
-  if (checkout === undefined) {
-    return { segments: [...segments, root], detail: null, warning: null };
-  }
-  const link = input.links.find(
-    (row) => row.repositoryId === checkout.repositoryId,
-  );
-  const repository = input.repositories.find(
-    (row) => row.id === checkout.repositoryId,
-  );
-  const alias = link?.alias ?? repository?.displayName;
-  if (alias !== undefined) segments.push(alias);
-  segments.push(executorLabel(checkout.executorId, input.machines));
-  const isWorktree = checkout.kind === "worktree";
-  segments.push(checkoutSegment(checkout, isWorktree ? "worktree" : "reuse"));
-  const parent =
-    checkout.parentCheckoutId === null
-      ? undefined
-      : input.checkouts.find((row) => row.id === checkout.parentCheckoutId);
-  return {
-    segments,
-    detail: isWorktree
-      ? worktreeBranchLine(checkout.branch, parent?.branch ?? null)
-      : null,
-    warning: null,
-  };
 }

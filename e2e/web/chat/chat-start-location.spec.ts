@@ -1,12 +1,13 @@
 /**
  * Chat-start location browser e2e (openspec `chat-start-location`, design
- * D10/D11, tasks 6.1-6.4).
+ * D10/D11, tasks 6.1-6.4 and 6b.5).
  *
  * Every case runs against the full stack: Next.js web, the NestJS api on the
  * throwaway database, deterministic mock model, and a real throwaway git clone
  * on this host, registered through `POST /api/v1/checkouts` as the owner's
  * checkout. The project composer and the two sidebar entries then create filed,
- * bound chats exactly as the operator would.
+ * bound chats exactly as the operator would, through the working-directory
+ * pill beside `+`.
  *
  * Two Machine states cannot be produced by a suite with no remote host:
  *
@@ -15,7 +16,7 @@
  * - An outdated daemon is a daemon whose protocol lacks the typed git methods.
  *   It has no local double, so the last case answers the create request with
  *   the documented `machine_update_required` status (`page.route`) and proves
- *   only the client's response to it: the warning, the disabled daemon, and
+ *   only the client's response to it: the sentence, the disabled daemon, and
  *   the kept draft. The server's own statuses are covered by the API suites.
  */
 
@@ -169,18 +170,14 @@ async function readChat(
   );
 }
 
-/** The project composer's chip trigger, whose name starts with its summary. */
-function locationChip(page: Page) {
-  return page.getByRole("button", { name: /^Chat location/ });
+/** A pill cell, named `<cell>, <value>`; its value is a prefix of the name. */
+function pillCell(page: Page, cell: "Machine" | "Folder" | "Work in") {
+  return page.getByRole("button", { name: new RegExp(`^${cell}, `) });
 }
 
-/**
- * The chat header's read-only location, scoped to the header itself. The shell
- * nests its `<header>` inside the inset's `<main>`, so the element is not a
- * `banner` landmark and `getByRole("banner")` resolves nothing.
- */
-function headerLocation(page: Page) {
-  return page.locator("header");
+/** The last path segment, which is how the folder cell names a checkout. */
+function folderOf(checkoutPath: string): string {
+  return path.basename(checkoutPath);
 }
 
 test.describe("chat start location (browser, full stack)", () => {
@@ -194,9 +191,10 @@ test.describe("chat start location (browser, full stack)", () => {
     const started = await startProject(request, account, "send");
 
     await page.goto(`/projects/${started.project.id}`);
-    const chip = locationChip(page);
-    await expect(chip).toContainText("llame");
-    await expect(chip).toContainText(started.checkout.path);
+    // The project's primary link pre-fills the pill; the send names it.
+    await expect(pillCell(page, "Folder")).toHaveAccessibleName(
+      `Folder, ${folderOf(started.checkout.path)}`,
+    );
 
     const composer = await readyComposer(page);
     await composer.fill("Start from the project page");
@@ -210,37 +208,25 @@ test.describe("chat start location (browser, full stack)", () => {
     });
 
     const chatId = new URL(page.url()).pathname.split("/").at(-1) ?? "";
-    // The header chip prints the root the create bound, not the draft's guess.
-    await expect(
-      headerLocation(page).getByText(started.checkout.path, { exact: false }),
-    ).toBeVisible();
 
     const chat = await readChat(request, account, chatId);
     expect(chat.projectId).toBe(started.project.id);
     expect(chat.workspaceRoot).toBe(started.checkout.path);
   });
 
-  test("a worktree start shows its branch in the header", async ({
+  test("a worktree start binds a new worktree of the clone", async ({
     page,
     request,
     account,
   }) => {
     const started = await startProject(request, account, "worktree");
-    // The placement rule is shared per repository, and a Playwright retry runs
-    // against the same /tmp, so a fixed name collides with the previous
-    // attempt's directory on the second try.
-    const treeName = `e2e-tree-${randomUUID().slice(0, 8)}`;
-    const treeBranch = `llame/${treeName}`;
 
     await page.goto(`/projects/${started.project.id}`);
-    await locationChip(page).click();
-    const cascade = page.getByRole("dialog", { name: "Chat location" });
-    await cascade
-      .getByRole("listbox", { name: "Isolation" })
-      .getByRole("option", { name: "Start a worktree" })
-      .click();
-    await cascade.getByLabel("Name").fill(treeName);
-    await page.keyboard.press("Escape");
+    await pillCell(page, "Work in").click();
+    await page.getByRole("menuitemradio", { name: /^A new worktree/ }).click();
+    await expect(pillCell(page, "Work in")).toHaveAccessibleName(
+      "Work in, a new worktree",
+    );
 
     const composer = await readyComposer(page);
     await composer.fill("Start in a worktree of this clone");
@@ -249,9 +235,7 @@ test.describe("chat start location (browser, full stack)", () => {
     await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/u, {
       timeout: 30_000,
     });
-    await expect(
-      headerLocation(page).getByText(treeBranch, { exact: false }),
-    ).toBeVisible({ timeout: 30_000 });
+    const chatId = new URL(page.url()).pathname.split("/").at(-1) ?? "";
 
     const worktrees = await body<Array<CheckoutRow>>(
       await request.get(
@@ -260,11 +244,13 @@ test.describe("chat start location (browser, full stack)", () => {
       ),
       "list checkouts",
     );
-    const worktree = worktrees.find((row) => row.branch === treeBranch);
-    expect(worktree?.branch).toBe(treeBranch);
+    // The server names the worktree; the chat binds it and owns its lease.
+    const worktree = worktrees.find((row) => row.chatIds.includes(chatId));
+    expect(worktree?.kind).toBe("worktree");
     // The placement rule puts it beside the clone, never inside it.
     expect(worktree?.path).toContain("/.llame-worktrees/");
-    expect(worktree?.chatIds).toHaveLength(1);
+    const chat = await readChat(request, account, chatId);
+    expect(chat.workspaceRoot).toBe(worktree?.path);
   });
 
   test("an offline Machine is disabled, and a create naming it keeps the draft", async ({
@@ -280,7 +266,7 @@ test.describe("chat start location (browser, full stack)", () => {
       account.id,
     );
 
-    // The deep link pre-fills the offline Machine, which is how the cascade and
+    // The deep link pre-fills the offline Machine, which is how the pill and
     // the create see it without a click on a disabled option.
     await page.goto(
       `/chat/new?project=${started.project.id}&repository=${started.checkout.repositoryId}&executor=${MACHINE_OFFLINE}`,
@@ -289,13 +275,14 @@ test.describe("chat start location (browser, full stack)", () => {
       new RegExp(`/projects/${started.project.id}\\?`),
     );
 
-    const chip = locationChip(page);
-    await expect(chip).toContainText(`${OFFICE_MACHINE}: Offline`);
-    await chip.click();
+    await expect(pillCell(page, "Machine")).toHaveAccessibleName(
+      `Machine, ${OFFICE_MACHINE}`,
+    );
+    await pillCell(page, "Machine").click();
     await expect(
-      page
-        .getByRole("listbox", { name: "Machine" })
-        .getByRole("option", { name: new RegExp(`^${OFFICE_MACHINE}:`) }),
+      page.getByRole("menuitemradio", {
+        name: new RegExp(`^${OFFICE_MACHINE}: Offline`),
+      }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
 
@@ -325,12 +312,11 @@ test.describe("chat start location (browser, full stack)", () => {
     account,
   }) => {
     const started = await startProject(request, account, "outdated");
-    // The chip names a failed create's sentence only for a location that
-    // resolves, and the Machine level lists an executor only while it holds a
-    // `main` checkout of the repository — so the daemon needs a row of its own
-    // for both the warning and the disabled option to be observable. The path
-    // is distinct from the offline case's: (owner, executor, path) is unique,
-    // and both tests share the worker's account when they land in one worker.
+    // The Machine cell lists an executor only while it holds a `main` checkout
+    // of the repository, so the daemon needs a row of its own for the disabled
+    // option to be observable. The path is distinct from the offline case's:
+    // (owner, executor, path) is unique, and both tests share the worker's
+    // account when they land in one worker.
     runSeedSql(
       `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${MACHINE_OFFLINE}', '${MACHINE_OFFLINE}/srv/src/llame-e2e-outdated', 'main', 'main', 'registered');`,
       account.id,
@@ -369,17 +355,19 @@ test.describe("chat start location (browser, full stack)", () => {
     await composer.fill(draft);
     await page.getByRole("button", { name: "Send message" }).click();
 
-    await expect(locationChip(page)).toContainText(daemonWarning);
-    await expect(composer).toHaveValue(draft);
-    await locationChip(page).click();
     await expect(
-      page
-        .getByRole("listbox", { name: "Machine" })
-        .getByRole("option", { name: new RegExp(`^${OFFICE_MACHINE}:`) }),
+      page.getByRole("alert").filter({ hasText: daemonWarning }),
+    ).toBeVisible();
+    await expect(composer).toHaveValue(draft);
+    await pillCell(page, "Machine").click();
+    await expect(
+      page.getByRole("menuitemradio", {
+        name: new RegExp(`^${OFFICE_MACHINE}: Update the llame-machine`),
+      }),
     ).toBeDisabled();
   });
 
-  test("the sidebar entries pre-fill the composer's chip", async ({
+  test("the sidebar entries pre-fill the composer's pill", async ({
     page,
     request,
     account,
@@ -401,12 +389,14 @@ test.describe("chat start location (browser, full stack)", () => {
         `/projects/${started.project.id}\\?repository=${started.checkout.repositoryId}.*worktree=1`,
       ),
     );
-    // The source chat already binds that checkout, so the preview's default is
-    // a worktree too; either way the isolation is on and named with its reason.
-    await expect(locationChip(page)).toContainText("worktree (");
+    // The source chat already binds that checkout, so the start asks for a
+    // worktree of it.
+    await expect(pillCell(page, "Work in")).toHaveAccessibleName(
+      "Work in, a new worktree",
+    );
 
     // "New chat in project" is the project's own entry point: the deep link
-    // names only the project, so the chip follows the link policy.
+    // names only the project, so the pill follows its primary link.
     await page.goto("/projects");
     const projectRow = page
       .locator("li")
@@ -421,6 +411,8 @@ test.describe("chat start location (browser, full stack)", () => {
     await expect(page).toHaveURL(
       new RegExp(`/projects/${started.project.id}$`),
     );
-    await expect(locationChip(page)).toContainText(started.checkout.path);
+    await expect(pillCell(page, "Folder")).toHaveAccessibleName(
+      `Folder, ${folderOf(started.checkout.path)}`,
+    );
   });
 });
