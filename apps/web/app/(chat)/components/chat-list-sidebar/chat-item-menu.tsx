@@ -12,17 +12,24 @@ import {
   PinOffIcon,
   PlusIcon,
   Share2Icon,
+  SquarePenIcon,
   TrashIcon,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { useCheckoutsQuery } from "@/lib/services/checkouts/queries";
 import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import { useForkChat } from "@/lib/services/chat/fork";
 import type { ChatResponse } from "@/lib/services/chat/queries";
 import { useSetChatArchive } from "@/lib/services/chat/management";
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useFileChat } from "@/lib/services/project/mutations";
+import {
+  startLocationDeepLink,
+  startLocationFromRoot,
+} from "@/lib/services/project/start-location-link";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { SearchFilterInput } from "@/components/search-filter-input";
 import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
@@ -60,6 +67,9 @@ type ChatMenuAction = {
 
 const CHAT_MENU_GROUPS: Array<Array<ChatMenuAction>> = [
   [{ id: "pin", label: "Pin", icon: PinIcon }],
+  // Starts an empty chat on this chat's own project and bound root, with a
+  // worktree because this chat holds the tree (design D10).
+  [{ id: "new-here", label: "New chat here", icon: SquarePenIcon }],
   [
     { id: "rename", label: "Rename", icon: PenLineIcon },
     // Rendered as a select-like radio submenu; the visible label is dynamic
@@ -84,7 +94,7 @@ const CHAT_MENU_GROUPS: Array<Array<ChatMenuAction>> = [
 /** Everything the menu's rows need, bundled so each row component takes one
  * prop instead of re-declaring the same handful of fields. */
 type ChatMenuCtx = {
-  chat: Pick<ChatResponse, "projectId">;
+  chat: Pick<ChatResponse, "projectId" | "workspaceRoot">;
   projects: Array<ProjectResponse>;
   projectFilter: string;
   onFilterChange: (value: string) => void;
@@ -296,6 +306,49 @@ function ChatMenuActionItem({
   );
 }
 
+/**
+ * "New chat here": the deep link that copies this chat's project, repository,
+ * executor, and source checkout, and asks for a worktree of it. A chat with no
+ * project or no bound root has nothing "here" to copy, so its row stays a
+ * disabled placeholder instead of a link that would start somewhere else. The
+ * same holds while the checkout list is pending or failed, and for a root that
+ * no registered checkout holds: without a source checkout the link would name a
+ * worktree of nothing, and the request carries no root to recover it from.
+ */
+function NewChatHereItem({
+  chat,
+}: {
+  chat: Pick<ChatResponse, "projectId" | "workspaceRoot">;
+}) {
+  const label = (
+    <>
+      <SquarePenIcon />
+      <span>New chat here</span>
+    </>
+  );
+  const bound = chat.projectId !== null && chat.workspaceRoot !== null;
+  const checkouts = useCheckoutsQuery(undefined, bound);
+  if (chat.projectId === null || chat.workspaceRoot === null) {
+    return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
+  }
+  if (!checkouts.isSuccess) {
+    return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
+  }
+  const location = startLocationFromRoot(chat.workspaceRoot, checkouts.data);
+  if (location.checkoutId === undefined) {
+    return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
+  }
+  const href = startLocationDeepLink({
+    projectId: chat.projectId,
+    ...location,
+  });
+  return (
+    <DropdownMenuItem render={<Link href={href} prefetch={false} />}>
+      {label}
+    </DropdownMenuItem>
+  );
+}
+
 function ChatMenuGroupRow({
   group,
   index,
@@ -310,6 +363,8 @@ function ChatMenuGroupRow({
       {group.map((action) =>
         action.id === "project" ? (
           <MoveToProjectSubmenu key={action.id} {...ctx} />
+        ) : action.id === "new-here" ? (
+          <NewChatHereItem key={action.id} chat={ctx.chat} />
         ) : (
           <ChatMenuActionItem key={action.id} action={action} {...ctx} />
         ),

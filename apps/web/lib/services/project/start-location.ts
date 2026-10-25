@@ -13,6 +13,10 @@ import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 import { MACHINE_FAILURE_LABELS } from "../machines/labels";
 import { findMachineByName } from "../machines/locator";
 import { projectQueryKeys } from "./queries";
+import type {
+  StartLocationIsolation,
+  StartLocationSelection,
+} from "./start-location-link";
 import type { ProjectRepositoryLink } from "./types";
 
 export type { StartLocationResponse };
@@ -28,16 +32,11 @@ export type { StartLocationResponse };
  * the same resolver as `POST /api/v1/chats`.
  */
 
-export type StartLocationIsolation = StartLocationResponse["isolation"];
 export type StartLocationIsolationReason =
   StartLocationResponse["isolationReason"];
 
-/** The three ids the create request and the preview route share. */
-export type StartLocationSelection = {
-  repositoryId?: string;
-  executorId?: string;
-  checkoutId?: string;
-};
+/** The isolation and the three ids the create request and the preview share. */
+export type { StartLocationIsolation, StartLocationSelection };
 
 /** Why a create's Workspace step failed, as the chip names it. */
 export type WorkspaceFailure = {
@@ -121,6 +120,16 @@ export type UnavailableExecutor = {
   reason: string;
 };
 
+/** An executor id as a reader reads it: the Machine's name, or the id itself. */
+export function executorLabel(
+  executorId: string,
+  machines: ReadonlyArray<MachineResponse> | undefined,
+): string {
+  const machineName = machineNameFromExecutorId(executorId);
+  const machine = findMachineByName(machines, machineName);
+  return machine?.name ?? machineName ?? executorId;
+}
+
 function executorOption(
   machines: ReadonlyArray<MachineResponse> | undefined,
   executorId: string,
@@ -128,7 +137,7 @@ function executorOption(
 ): Omit<ExecutorOption, "mainCheckouts"> {
   const machineName = machineNameFromExecutorId(executorId);
   const machine = findMachineByName(machines, machineName);
-  const label = machine?.name ?? machineName ?? executorId;
+  const label = executorLabel(executorId, machines);
   if (unavailable?.executorId === executorId) {
     return { executorId, label, reason: unavailable.reason };
   }
@@ -529,5 +538,80 @@ export function locationChip(input: LocationChipInput): LocationChipSummary {
     detail: location.checkout === null ? null : input.isolationLabel,
     unresolved:
       warning === null ? null : (UNRESOLVED_LABELS[warning.step] ?? null),
+  };
+}
+
+/** What the chat header's read-only chip says about a chat's bound root. */
+export type BoundRootChipSummary = {
+  /** The bound root, one segment per level, joined by the chip. */
+  segments: Array<string>;
+  /** The worktree branch and its source, when the root is a worktree. */
+  detail: string | null;
+  /** Why the chat needs attention, or null when a root is bound. */
+  warning: string | null;
+};
+
+export type BoundRootInput = {
+  projectName: string | null;
+  workspaceRoot: string | null;
+  /** The chat's project's links, for the repository alias the chip shows. */
+  links: ReadonlyArray<ProjectRepositoryLink>;
+  repositories: ReadonlyArray<RepositoryResponse>;
+  checkouts: ReadonlyArray<CheckoutResponse>;
+  machines: ReadonlyArray<MachineResponse> | undefined;
+};
+
+const UNBOUND_WARNING = "This chat is not bound to a Workspace.";
+
+/** The worktree line: its branch, then the source checkout's branch. */
+function worktreeBranchLine(
+  branch: string | null,
+  source: string | null,
+): string {
+  const head = branch ?? "detached HEAD";
+  return source === null ? head : `${head} ← ${source}`;
+}
+
+/**
+ * The read-only chip of design D10: the chat's own `workspace_root`, resolved
+ * against the owner's catalog for the repository alias and the Machine name.
+ * A root the catalog does not hold is still the truth, so the chip prints it;
+ * only a chat without a root warns.
+ */
+export function boundRootChip(input: BoundRootInput): BoundRootChipSummary {
+  const segments = input.projectName === null ? [] : [input.projectName];
+  const root = input.workspaceRoot?.trim() ?? "";
+  if (root.length === 0) {
+    return {
+      segments: [...segments, "No Workspace"],
+      detail: null,
+      warning: UNBOUND_WARNING,
+    };
+  }
+  const checkout = input.checkouts.find((row) => row.path === root);
+  if (checkout === undefined) {
+    return { segments: [...segments, root], detail: null, warning: null };
+  }
+  const link = input.links.find(
+    (row) => row.repositoryId === checkout.repositoryId,
+  );
+  const repository = input.repositories.find(
+    (row) => row.id === checkout.repositoryId,
+  );
+  const alias = link?.alias ?? repository?.displayName;
+  if (alias !== undefined) segments.push(alias);
+  segments.push(executorLabel(checkout.executorId, input.machines));
+  const isWorktree = checkout.kind === "worktree";
+  segments.push(checkoutSegment(checkout, isWorktree ? "worktree" : "reuse"));
+  const parent =
+    checkout.parentCheckoutId === null
+      ? undefined
+      : input.checkouts.find((row) => row.id === checkout.parentCheckoutId);
+  return {
+    segments,
+    detail: isWorktree
+      ? worktreeBranchLine(checkout.branch, parent?.branch ?? null)
+      : null,
+    warning: null,
   };
 }

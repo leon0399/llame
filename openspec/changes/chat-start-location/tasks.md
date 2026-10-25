@@ -535,7 +535,7 @@ executor, and the start-location preview.
 
 ## 6. `chat-start-location/composer-entry-points` — every other entry point and the header chip (design D10, D11)
 
-- [ ] 6.1 Add the sidebar "New chat in project" and "New chat here".
+- [x] 6.1 Add the sidebar "New chat in project" and "New chat here".
 
   - Add the deep link with its pre-fill rules
   - The deep link is:
@@ -543,29 +543,33 @@ executor, and the start-location preview.
   - Add the isolation default that follows from the source chat
   - Verify every entry point in end-to-end tests
 
-- [ ] 6.2 Add the read-only location chip to the chat header.
+- [x] 6.2 Add the read-only location chip to the chat header.
 
   - Read it from the bound root
   - Verify its story for a Machine root, a worktree root, and an unbound chat
 
-- [ ] 6.3 Run the end-to-end suite.
+- [x] 6.3 Run the end-to-end suite.
 
   - A project page send that creates a filed, bound chat
   - A worktree start that shows its branch
   - A failed location that keeps the draft
   - An offline machine that cannot be chosen
   - An outdated daemon that shows the warning
+  - The suite is `e2e/web/chat/chat-start-location.spec.ts`
+  - CI ran it: Product e2e (Playwright) passed on #1413 at da5be30e (run
+    40171792231); the local stack could not start here (no docker)
 
-- [ ] 6.4 Add the reference entry for the chip, the cascade, and the entries.
+- [x] 6.4 Add the reference entry for the chip, the cascade, and the entries.
 
   - Add it to the docs index
   - Add a dated `CHANGELOG.md` entry
   - Verify that `pnpm lint:markdown` passes
 
-- [ ] 6.5 Verify the layer locally.
+- [x] 6.5 Verify the layer locally.
 
   - `pnpm --filter web lint` and `typecheck`
-  - The story tests and the end-to-end suite for the touched specs
+  - The touched story files locally; CI's Tests (storybook) and Product e2e
+    passed on #1413 at da5be30e (run 40171792231)
 
 - [ ] 6.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
