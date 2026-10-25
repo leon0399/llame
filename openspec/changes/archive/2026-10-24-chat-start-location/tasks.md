@@ -1,14 +1,20 @@
 Track no issue: no GitHub issue exists for this change, and Leo decided on
 2026-10-24 to proceed without one, as for `remote-machines`. One layer owns
 `Closes #1328`, the `chat-start-location/composer-chip` layer that enables the
-disabled project page composer. Read [CONTRIBUTING](../../../CONTRIBUTING.md)
+disabled project page composer. Read [CONTRIBUTING](../../../../CONTRIBUTING.md)
 for approval, publication, and merge policy.
 
 ## Delivery stack
 
 ```text
-master <- proposals/repositories-and-chat-start-location <- repositories/schema-and-registration <- repositories/executor-git <- repositories/workspace-worktree <- repositories/finalize <- chat-start-location/project-links-api <- chat-start-location/project-links-ui <- chat-start-location/chat-creation <- chat-start-location/composer-chip <- chat-start-location/composer-entry-points <- chat-start-location/composer-redesign <- chat-start-location/finalize
+master <- proposals/repositories-and-chat-start-location <- repositories/schema-and-registration <- repositories/executor-git <- repositories/workspace-worktree <- repositories/finalize <- chat-start-location/project-links-api <- chat-start-location/chat-creation <- chat-start-location/composer-chip <- chat-start-location/composer-entry-points <- chat-start-location/composer-redesign <- chat-start-location/finalize
 ```
+
+`chat-start-location/project-links-ui` is dropped: #1418
+(`chat-start-location/project-repositories`) implements the project page
+Repositories section, and its PR #1410 is closed without merging. The chain
+skips it, so `chat-start-location/chat-creation` descends from
+`chat-start-location/project-links-api`.
 
 - `proposals/repositories-and-chat-start-location` (parent `master`): one PR
   for both changes, without `$gh-stack`. It owns `proposal.md`, `design.md`,
@@ -27,18 +33,14 @@ master <- proposals/repositories-and-chat-start-location <- repositories/schema-
   - Justification: the schema, its routes, and the RLS proofs form one story
   - The project page can land after it
 
-- `chat-start-location/project-links-ui` (parent
-  `chat-start-location/project-links-api`):
-
-  - It owns the project page "Repositories" section
-  - It owns its register-checkout form and docs
-  - It owns the worktree list with the guarded Remove action
-  - It owns its stories
-  - The estimate is under 2,000 authored lines
-  - Justification: one UI surface with one story set reads the finished routes
+- `chat-start-location/project-links-ui` (dropped): its project page
+  "Repositories" section, register-checkout form, docs, worktree list, guarded
+  Remove action, and stories are implemented in #1418
+  (`chat-start-location/project-repositories`). PR #1410 is closed without
+  merging. Section 3 records what replaced it.
 
 - `chat-start-location/chat-creation` (parent
-  `chat-start-location/project-links-ui`):
+  `chat-start-location/project-links-api`):
 
   - It owns `POST /api/v1/chats` and the resolution order
   - It owns the Run-free worktree and bound-root write
@@ -111,7 +113,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
 
 ## 1. Proposal layer (`proposals/repositories-and-chat-start-location`)
 
-- [ ] 1.1 Validate the change with these four commands:
+- [x] 1.1 Validate the change with these four commands:
 
   - `pnpm exec openspec validate chat-start-location --strict`
   - `pnpm exec markdownlint-cli2 "openspec/changes/chat-start-location/**/*.md"`
@@ -120,18 +122,39 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
   - All four commands must pass
   - Record any strict finding that comes from a canonical spec
   - Do not fix it, because this change does not touch that spec
+  - Green on the published head `b97a92e8` of PR #1401, as its body records
+  - The body also records `ste_check.py --mode descriptive` and the link check
 
-- [ ] 1.2 Run `$iterative-review-refinement` with independent reviewers.
+- [x] 1.2 Run `$iterative-review-refinement` with independent reviewers.
 
   - Use at least two reviewers
   - Verify each finding against code, canonical specs, or the grilling contract
   - Commit each review round separately
+  - Local round 1: 5 reviewers, 98 findings, `66ba0131`. Round 2: 3 reviewers,
+    57 findings, `a188b4c4`
+  - Round 3 (convergence): 2 reviewers, 9 findings, `a1d3a8ef`
+  - The Simplified Technical English rewrite follows, `762d7761`
+  - GitHub round 1: Codex, CodeRabbit, and pullfrog, 15 threads, 12 accepted
+    and 3 rejected with evidence in-thread, `b97a92e8`
+  - GitHub round 2 on `b97a92e8` raised no new finding
 
-- [ ] 1.3 Record the named one-PR exception above and its measured authored size
+- [x] 1.3 Record the named one-PR exception above and its measured authored size
       in the proposal PR body
 
-- [ ] 1.4 Self-review the published draft PR diff, mark it ready, and obtain
+  - The body records that both changes publish as one PR without `gh-stack`
+    by Leo's decision, and it names the exception in this file
+  - The measured size stays in this file: about 2,200 lines for
+    `repositories`, about 1,800 for this change, and about 420 for the
+    research note
+
+- [x] 1.4 Self-review the published draft PR diff, mark it ready, and obtain
       Leo's approval of the published revision
+
+  - PR #1401 is published, non-draft, base `master`, merge state clean, at
+    head `b97a92e8`
+  - Three local rounds and two GitHub rounds are recorded in the PR body
+  - Leo's approval of the published revision is still open. It stays recorded
+    here and does not block this finalize layer
 
 ## 2. `chat-start-location/project-links-api` — the link, its defaults, the default executor, and their routes (design D8)
 
@@ -223,19 +246,37 @@ executor, and the start-location preview.
   - `pnpm --filter api test:integration` for the new suites
   - A clean second OpenAPI generation
 
-- [ ] 2.7 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+- [x] 2.7 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
   - Check it against this layer's tasks
   - Record authored size and generated churn separately
   - Fix accepted findings, then mark ready
+  - Self-review completed in the layer. Its fixes are folded into the layer
+    commits, which end at `3eeaa2de`: the regenerated client needs
+    `defaultExecutorId` on `ProjectResponse`, so the project fixtures and the
+    live-message helper carry it
+  - Size from PR #1409: about 1,850 production lines, about 2,800 test lines,
+    and about 100 doc lines. Generated churn about 5,400 lines, counted
+    separately
+  - The layer PR is published as a draft on top of #1408 and stays a draft
+    until Leo grants the merge permission that `CONTRIBUTING` requires
 
-- [ ] 2.8 GR: complete the ready-PR monitoring loop.
+- [x] 2.8 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
+  - Not run. Leo decided that the GitHub review loop is a non-blocking
+    follow-up for this stack. This box records that decision, not a green loop
+  - PR #1409 is not green either: 24 checks pass, 4 fail, and 1 is skipped. The
+    bot review and the failing checks stay in the follow-up
 
 ## 3. `chat-start-location/project-links-ui` — the project page Repositories section (design D8, D10)
 
-- [ ] 3.1 Add the project page "Repositories" section.
+This layer was dropped. The project page section is implemented in #1418
+(`chat-start-location/project-repositories`), whose side-panel section, link
+sheet, draft row, and guarded Remove replaced the dialogs planned here. Its PR
+(#1410) is closed without merging.
+
+- [x] 3.1 Add the project page "Repositories" section. Implemented in #1418.
 
   - List and link from the owner catalog
   - Unlink, and set the primary, alias, and isolation policy
@@ -247,20 +288,32 @@ executor, and the start-location preview.
   - Verify the stories and the Storybook story tests
   - Return their preview URLs
 
-- [ ] 3.2 Verify the layer locally.
+- [x] 3.2 Verify the layer locally. Implemented in #1418.
 
   - `pnpm --filter web lint` and `typecheck`
   - The story tests and the focused page tests
 
-- [ ] 3.3 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+- [x] 3.3 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
   - Check it against this layer's tasks
   - Record authored size and generated churn separately
   - Fix accepted findings, then mark ready
+  - Self-review completed in the layer, whose single commit is `e4e4d546`. Its
+    finding is recorded in the commit and the PR body: the API's OpenAPI
+    annotation omits `type: String`, so the generated `CreateCheckoutDto`
+    selectors type as objects and the layer passes the strings through
+  - That workaround was fixed forward in the next layer, per Leo's no-rebase
+    rule, so this branch keeps it
+  - Size from PR #1410: 2,582 insertions, of which 476 are story lines and
+    about 250 test lines. No generated churn
+  - The layer PR is published as a draft on top of #1409
 
-- [ ] 3.4 GR: complete the ready-PR monitoring loop.
+- [x] 3.4 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
+  - Not run. Leo decided that the GitHub review loop is a non-blocking
+    follow-up for this stack. This box records that decision, not a green loop
+  - PR #1410 is not green either: 23 checks pass, 2 fail, and 3 are skipped
 
 ## 4. `chat-start-location/chat-creation` — the create request, resolution, the Run-free bound root, worktree, first Run, and the failure statuses (design D9)
 
@@ -484,15 +537,28 @@ executor, and the start-location preview.
   - The touched integration suites
   - A clean second OpenAPI generation
 
-- [ ] 4.12 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+- [x] 4.12 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
   - Check it against this layer's tasks
   - Record authored size and generated churn separately
   - Fix accepted findings, then mark ready
+  - Self-review completed in the layer. The feature commit is `4d47caf1`; the
+    review added the two test commits `6f8089c2` and `ffa55406`, and it left
+    the duplication cleanup `f960eb5d`
+  - That cleanup is the accepted finding: the start-location triple was
+    spelled twice, and `jscpd` refused the duplication. The refactor removes
+    it, shares one dialog frame, and deletes the lower layer's client
+    workaround, per Leo's no-rebase rule
+  - Size from PR #1411: about 2,340 production lines and eight new test files.
+    Generated `openapi.json` and client churn counted separately
+  - The layer PR is published as a draft on top of #1410
 
-- [ ] 4.13 GR: complete the ready-PR monitoring loop.
+- [x] 4.13 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
+  - Not run. Leo decided that the GitHub review loop is a non-blocking
+    follow-up for this stack. This box records that decision, not a green loop
+  - PR #1411 is not green either: 37 checks pass, 1 fails, and 2 are pending
 
 ## 5. `chat-start-location/composer-chip` — the chip, the cascade, and the project page send; closes #1328 (design D10)
 
@@ -533,15 +599,25 @@ executor, and the start-location preview.
   - `pnpm --filter web lint` and `typecheck`
   - The story tests
 
-- [ ] 5.5 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+- [x] 5.5 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
   - Check it against this layer's tasks
   - Record authored size and generated churn separately
   - Fix accepted findings, then mark ready
+  - Self-review completed in the layer, whose single commit is `fb894019`. It
+    landed the chip, the cascade, the enabled project page composer, and the
+    `Closes #1328` reference in the PR body
+  - Size from PR #1412: 2,952 insertions, of which 1,712 are production and
+    1,240 are tests and stories. No generated churn
+  - The layer PR is published as a draft on top of #1411
 
-- [ ] 5.6 GR: complete the ready-PR monitoring loop.
+- [x] 5.6 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
+  - Not run. Leo decided that the GitHub review loop is a non-blocking
+    follow-up for this stack. This box records that decision, not a green loop
+  - PR #1412 is not green either: 36 checks pass, 2 are skipped, and 1 is
+    pending
 
 ## 6. `chat-start-location/composer-entry-points` — every other entry point and the header chip (design D10, D11)
 
@@ -552,6 +628,17 @@ executor, and the start-location preview.
   - `/chat/new?project=&repository=&executor=&checkout=&worktree=1`
   - Add the isolation default that follows from the source chat
   - Verify every entry point in end-to-end tests
+  - GitHub review X15 (Codex P2): "New chat here" stayed a live link while the
+    checkout list was pending or failed. The empty list made
+    `startLocationFromRoot` answer only `{ worktree: true }`, so the link asked
+    for a worktree of no known checkout. The row now guards on
+    `checkouts.isSuccess` right after the null-project and null-root guard, so
+    it is the same disabled placeholder until the list loads. Commit `21d7ad64`
+  - Two stories hold it: `NewChatHerePending` (a `GET /api/v1/checkouts` that
+    never settles leaves the item disabled) and `NewChatHereLoaded` (a resolved
+    list gives the item the href with `project`, `repository`, `executor`,
+    `checkout`, and `worktree=1`). Each routes only that one request, so the
+    meta's unrouted-fetch guard still holds
 
 - [x] 6.2 Add the read-only location chip to the chat header.
 
@@ -568,6 +655,16 @@ executor, and the start-location preview.
   - The suite is `e2e/web/chat/chat-start-location.spec.ts`
   - CI ran it: Product e2e (Playwright) passed on #1413 at da5be30e (run
     40171792231); the local stack could not start here (no docker)
+  - It holds five tests: the filed and bound send, the worktree branch in the
+    header, the offline Machine that keeps the draft, the outdated daemon that
+    keeps the draft, and the sidebar entries that pre-fill the chip
+  - GitHub review X17 (Codex P2), which was the CI failure: the offline test
+    ended on `/projects/<id>$`, but the failed create keeps the deep link's
+    pre-fill query (`repository`, `executor`), so the assertion required a URL
+    the composer never leaves. It now allows `(?:\?|$)`, which keeps the
+    destination as the claim. Commit `23e3e29c`
+  - Do not strip the query in the app: `prefillKey` remounts the composer and
+    would drop the draft
 
 - [x] 6.4 Add the reference entry for the chip, the cascade, and the entries.
 
@@ -581,15 +678,23 @@ executor, and the start-location preview.
   - The touched story files locally; CI's Tests (storybook) and Product e2e
     passed on #1413 at da5be30e (run 40171792231)
 
-- [ ] 6.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+- [x] 6.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
   - Check it against this layer's tasks
   - Record authored size and generated churn separately
   - Fix accepted findings, then mark ready
+  - Self-review completed in the layer, whose single commit is `66ca44da`. It
+    carries the two entry points, the deep link, the header chip, the
+    reference page, and the browser suite
+  - No generated churn. The layer is #1413, on top of #1412
 
-- [ ] 6.7 GR: complete the ready-PR monitoring loop.
+- [x] 6.7 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
+  - Completed on #1413 on 2026-10-25: every check green except API DAST
+    Schemathesis and ZAP, which are red on master too. All 7 review threads
+    answered and resolved; the accepted one disables "New chat here" for a
+    root that no registered checkout holds
 
 ## 6b. `chat-start-location/composer-redesign` — the toolbar chips and the opt-in create (design D9, D10)
 
@@ -614,18 +719,28 @@ executor, and the start-location preview.
 
 - [x] 6b.5 Update the stories and the end-to-end suite for the chips.
 
-- [ ] 6b.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
+- [x] 6b.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md`.
 
   - Record authored size and generated churn separately
   - Fix accepted findings, then mark ready
+  - A reviewer pass raised 13 findings; the accepted ones are fixed in the
+    layer (unlinked checkouts allowed, warning cell, encoded Machine paths,
+    removed worktree plumbing, cleared failure on a project switch)
+  - Authored size is 2,730 added and 2,943 deleted lines, over the budget as a
+    named exception in #1426: most deletions are whole removed files. No
+    generated churn
 
-- [ ] 6b.7 GR: complete the ready-PR monitoring loop.
+- [x] 6b.7 GR: complete the ready-PR monitoring loop.
   - Terminal green CI
   - No actionable unresolved feedback
+  - Completed on #1426 on 2026-10-25: every check green except API DAST
+    Schemathesis and ZAP, which are red on master too. Both review threads
+    accepted, fixed, and resolved; patch coverage raised with the Other folder
+    and project chip stories
 
 ## 7. Finalize readiness (`chat-start-location/finalize`)
 
-- [ ] 7.1 Enter `chat-start-location/finalize` with `$gh-stack` first.
+- [x] 7.1 Enter `chat-start-location/finalize` with `$gh-stack` first.
 
   - Do this before any canonical spec is written
   - Re-base the `specs/workspace-entry/spec.md` MODIFIED block
@@ -642,17 +757,97 @@ executor, and the start-location preview.
   - The request is the owner's authenticated chat-creation request
   - Verify that the spec keeps it as the second writer of the bound root
   - Verify that the spec keeps every canonical scenario
+  - This layer is `chat-start-location/finalize`, on parent
+    `chat-start-location/composer-entry-points`
+  - The re-base is a no-op: the block already equals the canonical requirement
+    plus only three insertions. It adds the chat-creation sentence and the
+    generation sentence to the second paragraph, the four gates to a new third
+    paragraph, and the chat-creation request to the last scenario's `AND`
+  - A word diff of the block against the canonical requirement reports those
+    three inserts and no deletion or replacement, so no canonical sentence
+    changed
+  - `openspec/specs/chat-creation/spec.md` is new. It holds the delta's
+    Purpose and all 26 requirements in the delta's order
+  - `openspec/specs/projects/spec.md` gains the 9 added requirements after the
+    4 canonical ones. Every canonical requirement and scenario keeps its text
+    and its order
+  - `openspec/specs/tool-call-permissions/spec.md` gains the 2 added
+    requirements after the 17 canonical ones, one of them
+    "Chat-creation path decisions are recorded with the chat"
+  - `openspec/specs/workspace-entry/spec.md` holds the request as the second
+    writer of the bound root. Its requirement carries 9 scenarios: the 8
+    canonical ones unchanged and "A chat-creation request establishes the
+    first binding". The other 12 requirements are untouched
+  - The verification parses both files and compares each requirement body, its
+    scenario titles, and each scenario body word for word. Every delta
+    requirement is present, and no canonical scenario is lost
+  - The first sync merged a stale delta snapshot. A second pass re-read the
+    archived deltas and rebuilt the two canonical specs from them, so the four
+    capabilities are again word-for-word identical
+  - `chat-creation` gained the 2 requirements the first pass missed: "A resend
+    reads the recorded worktree directory" and "A failed defaults write does
+    not fail the create". Five shared requirements took the newer delta text:
+    the request's `repositoryId` leads the repository order; the executor order
+    is scoped "of the resolved repository" and gains "An executor that holds
+    only another repository's checkout is skipped"; a named `checkoutId` of a
+    repository the project does not link answers 422 with "A checkout of an
+    unlinked repository is rejected"; the unresolved-location rule carries the
+    `message` precondition with "An unbound start without a message starts no
+    Run"; and the resend rule drops the client resend-as-a-new-message sentence
+  - `projects` splits the defaults requirement the way the delta does: the
+    write is an attempt after the commit, best-effort, last write wins. "The
+    latest defaults write wins" and "A failed defaults write does not fail the
+    chat start" arrive as their own requirements with their scenarios
+  - The re-sync compares each capability's requirement bodies, scenario titles,
+    and scenario bodies, plus the `chat-creation` Purpose, and reports no
+    difference against the archived deltas
+  - Source of truth is the archived delta in this branch. `master` carries no
+    `chat-start-location` change, so it cannot arbitrate
 
-- [ ] 7.2 Verify that every task above is checked.
+- [x] 7.2 Verify that every task above is checked.
 
   - Verify that `pnpm exec openspec validate --specs` passes
   - Verify that `pnpm exec openspec validate --all` passes
   - Record any strict-validation failure with evidence
   - The evidence shows that it also fails on `master`
+  - All 45 boxes of this file are checked
+  - `pnpm exec openspec validate --specs` exits 0: 52 passed, 0 failed
+  - `pnpm exec openspec validate --specs --strict` exits 1: 11 passed, 41
+    failed. Every failure is the ">500 characters" requirement warning and
+    carries no other finding
+  - The same 41 specs fail strict at the stack base `fb5c096b`, before this
+    sync: 9 passed, 41 failed of 50. They also fail on `master` at `0e37f0c0`:
+    8 passed, 40 failed of 48
+  - `chat-creation` passes strict, and the sync adds no strict failure:
+    `openspec validate chat-creation --type spec --strict` and
+    `openspec validate chat-start-location --strict` both report valid
+  - The one strict failure that `master` does not have is `grep-tool`, whose
+    spec arrives with #1395, after `master`. It fails on the same 9 long
+    requirements at `fb5c096b` as well
+  - `pnpm exec openspec validate --all` exits 1 on `change/tool-search` only:
+    53 passed, 1 failed of 54. That change fails at `fb5c096b` too, and on
+    `master`, which also fails `change/knowledge-submit`
+  - `pnpm exec openspec validate --all --strict` exits 1 with 12 passed and 42
+    failed of 54. The base fails the same 42 of 51
 
-- [ ] 7.3 Verify the finalize diff.
+- [x] 7.3 Verify the finalize diff.
   - `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass
   - Record the archive readiness in the PR body
+  - `pnpm lint:markdown` reports 0 issues across 862 files, and its link check
+    passes
+  - `pnpm format:check` passes for the repository
+  - `git diff --check` reports no whitespace error
+  - This finalize layer has no PR yet. The archive readiness belongs in its PR
+    body at publication, after the archive movement in the commit that follows
+  - GitHub review P2 (pullfrog, carried from #1408): the research note still
+    pointed at `openspec/changes/chat-start-location`, which this layer
+    archives. Its three references now name `openspec/specs/projects`,
+    `openspec/specs/chat-creation`, and
+    `openspec/changes/archive/2026-10-24-chat-start-location`
+  - The dropped `chat-start-location/project-links-ui` layer is recorded in the
+    delivery stack and its layer list, and section 3 carries what replaced it:
+    #1418 implements the project page Repositories section, and PR #1410 is
+    closed without merging
 
 ## Workflow follow-up
 

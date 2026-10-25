@@ -9,7 +9,7 @@ place from project defaults, binds it, and can start it inside a new worktree.
 
 Decision provenance: Leo settled the design in a grilling session on
 2026-10-24, recorded against the
-[project, repository, and machine association study](../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md).
+[project, repository, and machine association study](../../../../docs/research/product-vision/2026-10-24-project-repository-machine-association.md).
 No issue tracks the change: Leo decided on 2026-10-24 to proceed without one,
 as for `remote-machines`.
 
