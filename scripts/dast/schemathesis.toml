@@ -84,7 +84,8 @@ enabled = false
 # Constraints OpenAPI 3.0 cannot state, answered with 400: `beforeSeq` and
 # `targetSeq` exclude each other, a Knowledge Space cursor must be one the
 # server issued, and a message holds at most 50 text and 10 file parts (the
-# schema can bound only the total).
+# schema can bound only the total), on the message route and on the create's
+# first message.
 [[operations]]
 include-operation-id = "getChatMessages"
 checks.positive_data_acceptance.expected-statuses = [
@@ -117,6 +118,21 @@ checks.positive_data_acceptance.expected-statuses = [
 
 [[operations]]
 include-operation-id = "createChatMessage"
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  "3xx",
+  "400",
+  "401",
+  "403",
+  "404",
+  "409",
+  "422",
+  "429",
+  "5xx",
+]
+
+[[operations]]
+include-operation-id = "createChat"
 checks.positive_data_acceptance.expected-statuses = [
   "2xx",
   "3xx",
