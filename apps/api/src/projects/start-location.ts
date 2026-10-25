@@ -140,11 +140,13 @@ export async function resolveStartLocation(
 
   let executorId = repository.executorId;
   let checkoutId = repository.checkoutId;
-  if (
-    repository.link !== undefined &&
-    repository.repositoryId !== null &&
-    checkoutId === null
-  ) {
+  if (repository.repositoryId === null) {
+    // Without a repository the executor order still applies: the request's
+    // `executorId`, else the project default. Only the checkout steps need a
+    // repository to name one (openspec `chat-creation`: the implicit steps are
+    // scoped to the resolved repository, the explicit ones are not).
+    executorId = context.input.executorId ?? project.defaultExecutorId;
+  } else if (checkoutId === null && repository.link !== undefined) {
     ({ executorId, checkoutId } = await resolveExecutorStep(
       context,
       project,

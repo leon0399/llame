@@ -506,3 +506,116 @@ describe('resolveStartLocation isolation default', () => {
     });
   });
 });
+
+describe('resolveStartLocation without a resolved repository', () => {
+  it('keeps the executor the request names', async () => {
+    const location = await resolveStartLocation(
+      makeSource({}),
+      OWNER,
+      projectRow(),
+      { executorId: 'machine:nas' },
+    );
+
+    expect(location).toEqual({
+      repositoryId: null,
+      executorId: 'machine:nas',
+      checkoutId: null,
+      isolation: 'reuse',
+      isolationReason: 'no_link',
+      isolationChats: 0,
+    });
+  });
+
+  it('keeps the project default executor', async () => {
+    const location = await resolveStartLocation(
+      makeSource({ links: [] }),
+      OWNER,
+      projectRow({ defaultExecutorId: 'machine:nas' }),
+      {},
+    );
+
+    expect(location).toMatchObject({
+      repositoryId: null,
+      executorId: 'machine:nas',
+      checkoutId: null,
+      isolationReason: 'no_link',
+    });
+  });
+});
+
+describe('resolveStartLocation repository and checkout edge cases', () => {
+  it('lets an explicit repository override links that have no primary', async () => {
+    const other = linkRow({
+      id: '77777777-7777-4777-8777-777777777777',
+      repositoryId: OTHER_REPOSITORY_ID,
+      alias: 'notes',
+    });
+    const location = await resolveStartLocation(
+      makeSource({
+        links: [linkRow(), other],
+        repositories: [
+          repositoryRow(),
+          repositoryRow({ id: OTHER_REPOSITORY_ID, displayName: 'notes' }),
+        ],
+      }),
+      OWNER,
+      projectRow(),
+      { repositoryId: OTHER_REPOSITORY_ID },
+    );
+
+    expect(location.repositoryId).toBe(OTHER_REPOSITORY_ID);
+  });
+
+  it('answers 422 for a named checkout of an unlinked repository', async () => {
+    const checkout = checkoutRow({ repositoryId: OTHER_REPOSITORY_ID });
+
+    await expect(
+      resolveStartLocation(
+        makeSource({ links: [linkRow()], checkouts: [checkout] }),
+        OWNER,
+        projectRow(),
+        { checkoutId: checkout.id },
+      ),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  it('drops a remembered default whose checkout is gone', async () => {
+    const location = await resolveStartLocation(
+      makeSource({
+        links: [linkRow()],
+        defaults: [
+          defaultRow({
+            executorId: 'machine:nas',
+            checkoutId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          }),
+        ],
+      }),
+      OWNER,
+      projectRow(),
+      {},
+    );
+
+    expect(location).toEqual({
+      repositoryId: REPOSITORY_ID,
+      executorId: 'machine:nas',
+      checkoutId: null,
+      isolation: 'reuse',
+      isolationReason: 'project_policy',
+      isolationChats: 0,
+    });
+  });
+
+  it('keeps the request executor when the link has no checkout on it', async () => {
+    const location = await resolveStartLocation(
+      makeSource({ links: [linkRow()], checkouts: [checkoutRow()] }),
+      OWNER,
+      projectRow(),
+      { executorId: 'machine:nas' },
+    );
+
+    expect(location).toMatchObject({
+      executorId: 'machine:nas',
+      checkoutId: null,
+    });
+  });
+});
