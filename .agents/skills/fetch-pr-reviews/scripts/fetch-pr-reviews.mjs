@@ -280,15 +280,18 @@ function cleanMarkup(text) {
   return shortenOpaque(compactTables(out));
 }
 
-/** A review or comment body as an agent should read it. Rule lines that end
- *  a body, or repeat, separate nothing once the noise between them is gone. */
+/** A review or comment body as an agent should read it. Whitespace is
+ *  normalized while code is still masked, so code keeps its blank lines and
+ *  trailing spaces. Rule lines that end a body, or repeat, separate nothing
+ *  once the noise between them is gone. */
 function cleanBody(body) {
-  return outsideCode(body ?? "", cleanMarkup)
-    .replaceAll(/[ \t]+$/gm, "")
-    .replaceAll(/\n{3,}/g, "\n\n")
-    .replaceAll(/^---\n\n(?=---$)/gm, "")
-    .replace(/(?:\n+---)+\s*$/, "")
-    .trim();
+  return outsideCode(body ?? "", (text) =>
+    cleanMarkup(text)
+      .replaceAll(/[ \t]+$/gm, "")
+      .replaceAll(/\n{3,}/g, "\n\n")
+      .replaceAll(/^---\n\n(?=---$)/gm, "")
+      .replace(/(?:\n+---)+\s*$/, ""),
+  ).trim();
 }
 
 // -------------------------------------------------------------- GitHub reads
