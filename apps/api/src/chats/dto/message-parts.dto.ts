@@ -111,11 +111,13 @@ class MessagePartCountsConstraint implements ValidatorConstraintInterface {
   }
 }
 
-export class CreateMessageBodyDto {
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  id!: string;
-
+/**
+ * The `parts` field alone, shared by every request that carries one message:
+ * the message route's body and the chat-creation request's `message` compose
+ * this schema and add their own fields. Nothing else is shared, so a location
+ * field can never reach the message route's schema.
+ */
+export class MessagePartsDto {
   @ApiProperty({
     type: 'array',
     items: {
@@ -136,4 +138,11 @@ export class CreateMessageBodyDto {
     Array.isArray(value) ? value.map(toMessagePartDto) : value,
   )
   parts!: Array<CreateTextMessagePartDto | CreateFileMessagePartDto>;
+}
+
+/** `POST /api/v1/chats/:id/messages`: one client message id and its parts. */
+export class CreateMessageBodyDto extends MessagePartsDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  id!: string;
 }

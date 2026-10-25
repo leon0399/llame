@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -247,7 +243,26 @@ describe('ProjectsService project links', () => {
       makeService().linkRepository(OWNER, 'project-1', {
         repositoryId: linkRow().repositoryId,
       }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow(`Repository ${linkRow().repositoryId} not found`);
+  });
+
+  it('answers 409 when the insert trips the unique index', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findRepository',
+    ).mockResolvedValue(repositoryRow());
+    vi.spyOn(ProjectLinksRepository.prototype, 'createLink').mockRejectedValue(
+      Object.assign(new Error('duplicate key'), { code: '23505' }),
+    );
+
+    await expect(
+      makeService().linkRepository(OWNER, 'project-1', {
+        repositoryId: linkRow().repositoryId,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('answers 404 for a missing project and 409 for an archived one', async () => {
@@ -259,7 +274,24 @@ describe('ProjectsService project links', () => {
       makeService().linkRepository(OWNER, 'project-1', {
         repositoryId: linkRow().repositoryId,
       }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow('Project project-1 not found');
+
+    await expect(
+      makeService().updateProjectRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+        { alias: 'core' },
+      ),
+    ).rejects.toThrow('Project project-1 not found');
+
+    await expect(
+      makeService().unlinkRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+      ),
+    ).rejects.toThrow('Project project-1 not found');
 
     findById.mockResolvedValue(projectRow({ archivedAt: INSTANT }));
     await expect(
@@ -269,6 +301,81 @@ describe('ProjectsService project links', () => {
         linkRow().repositoryId,
       ),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('answers 409 when the update trips the unique index', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findLinkByRepository',
+    ).mockResolvedValue(linkRow());
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'clearPrimary',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockRejectedValue(
+      Object.assign(new Error('duplicate key'), { code: '23505' }),
+    );
+
+    await expect(
+      makeService().updateProjectRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+        { isPrimary: true },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('leaves the primary flag alone when the patch changes only the alias', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findLinkByRepository',
+    ).mockResolvedValue(linkRow());
+    const clearPrimary = vi
+      .spyOn(ProjectLinksRepository.prototype, 'clearPrimary')
+      .mockResolvedValue(undefined);
+    vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockResolvedValue(
+      linkRow({ alias: 'core' }),
+    );
+
+    await makeService().updateProjectRepository(
+      OWNER,
+      'project-1',
+      linkRow().repositoryId,
+      { alias: 'core' },
+    );
+
+    expect(clearPrimary).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the link disappears before the update', async () => {
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      projectRow(),
+    );
+    vi.spyOn(
+      ProjectLinksRepository.prototype,
+      'findLinkByRepository',
+    ).mockResolvedValue(linkRow());
+    vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      makeService().updateProjectRepository(
+        OWNER,
+        'project-1',
+        linkRow().repositoryId,
+        { alias: 'core' },
+      ),
+    ).rejects.toThrow(
+      `The project does not link repository ${linkRow().repositoryId}`,
+    );
   });
 
   it('clears the primary flag before it updates a link', async () => {
@@ -409,7 +516,9 @@ describe('ProjectsService project links', () => {
         linkRow().repositoryId,
         { alias: 'core' },
       ),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow(
+      `The project does not link repository ${linkRow().repositoryId}`,
+    );
 
     await expect(
       makeService().unlinkRepository(
@@ -417,7 +526,9 @@ describe('ProjectsService project links', () => {
         'project-1',
         linkRow().repositoryId,
       ),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow(
+      `The project does not link repository ${linkRow().repositoryId}`,
+    );
   });
 
   it('removes one link and leaves the repository alone', async () => {
@@ -505,7 +616,7 @@ describe('ProjectsService project links', () => {
 
     await expect(
       makeService().listProjectRepositories(OWNER, 'project-1'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow('Project project-1 not found');
   });
 });
 
@@ -552,7 +663,7 @@ describe('ProjectsService start-location preview', () => {
 
     await expect(
       makeService().getStartLocation(OWNER, 'project-1', {}),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow('Project project-1 not found');
   });
 });
 
@@ -604,7 +715,9 @@ describe('ProjectsService project defaults', () => {
         'host',
         checkoutRow().id,
       ),
-    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    ).rejects.toThrow(
+      `Checkout ${checkoutRow().id} cannot be the default of link ${linkRow().id} on executor host: checkout_not_main.`,
+    );
     expect(upsert).not.toHaveBeenCalled();
   });
 
@@ -621,6 +734,6 @@ describe('ProjectsService project defaults', () => {
         'host',
         checkoutRow().id,
       ),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toThrow(`Project repository link ${linkRow().id} not found`);
   });
 });

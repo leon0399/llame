@@ -56,8 +56,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   choice, and its remote with how many checkouts and worktrees it holds. The
   section's `+` adds a draft row that searches the owner's catalog or takes a
   pasted path, which registers the clone and links its repository; a project's
-  first link is marked primary, a flag stored for chat start, which does not
-  read it yet. A row opens a sheet with the link's settings,
+  first link is marked primary, the flag a chat start reads to pick a
+  repository. A row opens a sheet with the link's settings,
   which save as they change, the repository's clones with each Machine's
   reachability, and its worktrees with the chat that made each one; a
   worktree's Remove is guarded by the route and shows its refusal in place.
@@ -65,6 +65,30 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `machine://` locator, and the sheet links to the repository's page on a known
   forge. See
   [repositories](docs/product/operator/repositories.md#the-project-pages-repositories-section).
+
+- A Chat is now created with its project and Workspace location in one request:
+  `POST /api/v1/chats` takes a client chat id, an optional project, repository,
+  executor, checkout, and `worktree` (`name`, `baseRef`), and an optional first
+  message. The server validates every named id under owner RLS in the
+  transaction that inserts the Chat, resolves the location through the same
+  order the project page previews (never a silent primary, remembering one
+  default checkout per link and executor), and then runs the Workspace step as
+  the Run-free twin of `enter_workspace`: the same ordered path decisions in the
+  request's permission mode, one recorded attempt before the first git write,
+  and the same entry gates. A requested worktree adds through the typed git
+  surface and commits its checkout row, its lease, and the Chat's first bound
+  root in one transaction; a bound or unresolved start then stores the message
+  and its Run before the enqueue. The response's `workspace` object carries one
+  closed status set (`bound`, `unbound`, `bind_failed`, `worktree_failed`,
+  `machine_unavailable`, `machine_update_required`, `outcome_unknown`) with
+  `code` only on the two that have codes, and a failure leaves the Chat filed
+  and unbound. A create holds the Chat id's session advisory lock for the whole
+  request, and the message route takes the same key, so an overlapping send
+  answers `409` `creation_in_progress`; a resend reuses the stored Chat, its
+  lease, and its bound root. A successful start records the source `main`
+  checkout as the link's default, and `GET /api/v1/chats/:id/creation-record`
+  serves the owner each attempt's decisions. See
+  [chat creation](docs/product/operator/chat-creation.md).
 
 - The chat's Session details show the Workspace's repository and branch when
   its root is a registered checkout: the repository as a link to its GitHub (or

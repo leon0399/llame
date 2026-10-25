@@ -202,7 +202,9 @@ describe('ProjectLinksRepository links', () => {
     expect(lastQuery(queries).sql).toContain(
       'insert into "project_repositories"',
     );
-    expect(lastQuery(queries).sql).toContain('on conflict');
+    expect(lastQuery(queries).sql).toContain(
+      'on conflict ("owner_user_id","project_id","repository_id") do nothing',
+    );
     expect(lastQuery(queries).sql).toContain('"owner_user_id"');
     expect(lastQuery(queries).sql).toContain('"project_id"');
     expect(lastQuery(queries).sql).toContain('"repository_id"');
@@ -245,6 +247,14 @@ describe('ProjectLinksRepository links', () => {
         isPrimary: true,
       }),
     ).resolves.toBe(updated);
+
+    const { db: loggedDb, queries } = makeMockDb();
+    await new ProjectLinksRepository(loggedDb)
+      .updateLink(OWNER, updated.id, { isPrimary: true })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('set "is_primary" = $1');
+    expect(lastQuery(queries).sql).toContain('"updated_at" = $2');
   });
 
   it('writes only the patched columns and stamps updated_at', async () => {
@@ -284,6 +294,14 @@ describe('ProjectLinksRepository links', () => {
         deleted.id,
       ),
     ).resolves.toBe(false);
+
+    const { db, queries } = makeMockDb();
+    await new ProjectLinksRepository(db)
+      .deleteLink(OWNER, PROJECT_ID, deleted.id)
+      .catch(() => null);
+    // The boolean is the row count of the rows the statement returns; an
+    // empty projection would count rows the caller never asked for.
+    expect(lastQuery(queries).sql).toContain('returning "id"');
   });
 });
 
@@ -397,6 +415,7 @@ describe('ProjectLinksRepository resolver reads', () => {
     expect(lastQuery(queries).sql).toContain('"workspace_root" = $2');
     expect(lastQuery(queries).sql).toContain('"workspace_executor_id" = $3');
     expect(lastQuery(queries).sql).toContain('"archived_at" is null');
+    expect(lastQuery(queries).sql).toContain('count(*)::int');
     expect(lastQuery(queries).params).toEqual([OWNER, '/srv/llame', 'host']);
   });
 

@@ -27,6 +27,13 @@ export type ChatCreationPathDecision = {
 export type ChatCreationAttempt = {
   readonly createdAt: string;
   readonly decisions: ReadonlyArray<ChatCreationPathDecision>;
+  /**
+   * The canonical worktree directory this attempt decided, recorded before
+   * `git.worktreeAdd`. A resend reads it instead of adding a second worktree
+   * (openspec `chat-start-location`: "A resend reads the recorded worktree
+   * directory"). Absent when the attempt bound the checkout.
+   */
+  readonly worktreeDirectory?: string;
 };
 
 /**

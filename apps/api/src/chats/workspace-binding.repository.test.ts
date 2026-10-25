@@ -1,3 +1,4 @@
+import { isRecord } from '@workspace/runtime-safety';
 import { type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
@@ -28,6 +29,8 @@ type QueryCall = {
   method: string;
   value?: QueryUpdate;
   projection?: QueryProjection;
+  /// The projection a `select` asked for, when it is not one of the two above.
+  selection?: Readonly<{ id?: unknown }>;
 };
 type QueryRows = ReadonlyArray<QueryRow>;
 
@@ -40,6 +43,7 @@ function queryResult(value: QueryRows, calls: Array<QueryCall>) {
   };
   return Object.assign(terminal, {
     from: chain,
+    innerJoin: chain,
     set,
     where: chain,
     for: chain,
@@ -66,9 +70,13 @@ function makeDb(options: {
   const calls: Array<QueryCall> = [];
   const selects = [...(options.select ?? [])];
   const updates = [...(options.update ?? [])];
-  vi.spyOn(db, 'select').mockImplementation(() =>
-    asQuery(queryResult(selects.shift() ?? [], calls)),
-  );
+  vi.spyOn(db, 'select').mockImplementation((selection) => {
+    calls.push({
+      method: 'select',
+      selection: isRecord(selection) ? selection : undefined,
+    });
+    return asQuery(queryResult(selects.shift() ?? [], calls));
+  });
   vi.spyOn(db, 'update').mockImplementation(() =>
     asQuery(queryResult(updates.shift() ?? [], calls)),
   );
@@ -92,6 +100,84 @@ function fenceSelect(
 ): Array<QueryRows> {
   return [run, started, [chat]];
 }
+
+const unbound = {
+  workspaceRoot: null,
+  workspaceExecutorId: null,
+  workspaceGeneration: 3,
+};
+
+describe('WorkspaceBindingRepository.bindAtCreation', () => {
+  const input = {
+    chatId: 'chat-a',
+    ownerUserId: 'owner-a',
+    executorId: 'worker-b',
+    root: '/work/new',
+  };
+
+  it('binds an unbound Chat and answers the generation the update wrote', async () => {
+    const { db, calls } = makeDb({
+      select: [[unbound], [], []],
+      update: [[{ workspaceGeneration: 4 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).bindAtCreation(input),
+    ).resolves.toEqual({ status: 'bound', generation: 4 });
+    const setCall = calls.find(({ method }) => method === 'set');
+    expect(setCall?.value?.workspaceRoot).toBe('/work/new');
+    expect(setCall?.value?.workspaceExecutorId).toBe('worker-b');
+  });
+
+  it('refuses a Chat that already holds a message or a Run', async () => {
+    const withMessage = makeDb({ select: [[unbound], [{ id: 'message-1' }]] });
+    await expect(
+      new WorkspaceBindingRepository(withMessage.db).bindAtCreation(input),
+    ).resolves.toEqual({ status: 'conflict' });
+    expect(withMessage.calls).toContainEqual({
+      method: 'select',
+      selection: { id: schema.messages.id },
+    });
+
+    const withRun = makeDb({ select: [[unbound], [], [{ id: 'run-1' }]] });
+    await expect(
+      new WorkspaceBindingRepository(withRun.db).bindAtCreation(input),
+    ).resolves.toEqual({ status: 'conflict' });
+    expect(withRun.calls).toContainEqual({
+      method: 'select',
+      selection: { id: schema.runs.id },
+    });
+  });
+
+  it('binds the root of its own creation lease', async () => {
+    const { db, calls } = makeDb({
+      select: [[current], [], [], [{ id: 'lease-1' }]],
+      update: [[{ workspaceGeneration: 5 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).bindAtCreation({
+        ...input,
+        root: current.workspaceRoot,
+      }),
+    ).resolves.toEqual({ status: 'bound', generation: 5 });
+    expect(calls).toContainEqual({
+      method: 'select',
+      selection: { id: schema.worktreeLeases.id },
+    });
+  });
+
+  it('refuses a stored root that no creation lease of this Chat names', async () => {
+    const { db } = makeDb({ select: [[current], [], [], []] });
+
+    await expect(
+      new WorkspaceBindingRepository(db).bindAtCreation({
+        ...input,
+        root: current.workspaceRoot,
+      }),
+    ).resolves.toEqual({ status: 'conflict' });
+  });
+});
 
 describe('WorkspaceBindingRepository', () => {
   it('stores told state with the compaction epoch that rendered it', async () => {
