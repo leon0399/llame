@@ -911,9 +911,8 @@ export const NewChatHereUncatalogued: Story = {
     // A pending list also disables the row, so let the loaded list render
     // before reading it: the disabled row is then the root's, not the wait's.
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const settled = Promise.withResolvers<void>();
-    setTimeout(settled.resolve, 200);
-    await settled.promise;
+    // (The web tsconfig's lib predates Promise.withResolvers.)
+    await new Promise((resolve) => setTimeout(resolve, 200));
     const item = screen.getByRole("menuitem", { name: "New chat here" });
     await expect(item).toHaveAttribute("aria-disabled", "true");
     await expect(item).not.toHaveAttribute("href");
