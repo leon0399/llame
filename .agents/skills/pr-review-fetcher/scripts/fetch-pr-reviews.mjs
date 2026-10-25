@@ -13,7 +13,6 @@
  * Run with --help for the options.
  */
 import { execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
 
 const USAGE = `Usage: node .agents/skills/pr-review-fetcher/scripts/fetch-pr-reviews.mjs [options] <pr>...
@@ -75,7 +74,7 @@ const TAG =
 // ---------------------------------------------------------------- arguments
 
 /** Reads a pull request reference; a bare number takes `defaultRepo`. */
-export function parsePrRef(text, defaultRepo) {
+function parsePrRef(text, defaultRepo) {
   const url = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(text);
   if (url) return { repo: url[1], number: Number(url[2]) };
   const qualified = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(text);
@@ -87,7 +86,7 @@ export function parsePrRef(text, defaultRepo) {
 }
 
 /** An absolute date, or an age before `now` such as `90m`, `6h`, or `2d`. */
-export function parseSince(text, now = Date.now()) {
+function parseSince(text, now = Date.now()) {
   const age = /^(\d+)([mhd])$/.exec(text);
   if (age) {
     const unit = { m: 60_000, h: 3_600_000, d: 86_400_000 }[age[2]];
@@ -283,7 +282,7 @@ function cleanMarkup(text) {
 
 /** A review or comment body as an agent should read it. Rule lines that end
  *  a body, or repeat, separate nothing once the noise between them is gone. */
-export function cleanBody(body) {
+function cleanBody(body) {
   return outsideCode(body ?? "", cleanMarkup)
     .replaceAll(/[ \t]+$/gm, "")
     .replaceAll(/\n{3,}/g, "\n\n")
@@ -533,10 +532,10 @@ function rawSize(pr) {
   return bodies.reduce((sum, item) => sum + item.body.length, 0);
 }
 
-const defaultGh = (args) =>
+const gh = (args) =>
   execFileSync("gh", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
 
-function currentRepo(gh) {
+function currentRepo() {
   return gh([
     "repo",
     "view",
@@ -547,21 +546,17 @@ function currentRepo(gh) {
   ]).trim();
 }
 
-const writeLine = (line) => process.stdout.write(`${line}\n`);
+const out = (line) => process.stdout.write(`${line}\n`);
 
-/** The whole command; `gh` runs the GitHub CLI and returns its stdout. */
-export function run(
-  argv,
-  { gh = defaultGh, out = writeLine, err = console.error, now } = {},
-) {
-  const options = parseOptions(argv, now);
+function run(argv) {
+  const options = parseOptions(argv);
   if (options.help || options.refs.length === 0) {
     out(USAGE);
     return options.help ? 0 : 2;
   }
   const needsRepo =
     options.refs.some((ref) => /^#?\d+$/.test(ref)) && !options.repo;
-  const repo = needsRepo ? currentRepo(gh) : options.repo;
+  const repo = needsRepo ? currentRepo() : options.repo;
   const selections = [];
   for (const text of options.refs) {
     const pr = readPull(gh, parsePrRef(text, repo), [...options.kinds]);
@@ -570,7 +565,7 @@ export function run(
     selections.push(selection);
     if (!options.json) out(printed);
     if (options.stats) {
-      err(
+      console.error(
         `${pr.repo}#${pr.number}: ${rawSize(pr)} raw chars, ${printed.length} printed`,
       );
     }
@@ -581,11 +576,9 @@ export function run(
   return 0;
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === import.meta.filename) {
-  try {
-    process.exitCode = run(process.argv.slice(2));
-  } catch (error) {
-    console.error(error.message);
-    process.exitCode = 1;
-  }
+try {
+  process.exitCode = run(process.argv.slice(2));
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
 }

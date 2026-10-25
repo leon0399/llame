@@ -98,5 +98,5 @@ them with `gh pr comment <pr> --body ...`.
 - Thread comments are read 100 per thread; longer threads are truncated.
 - Cleaning follows the markup of CodeRabbit, Codex, pullfrog, and Indent as
   observed in this repository. When a bot changes its format and noise slips
-  through, extend `NOISE_DETAILS`, `NOISE_REGIONS`, or `BOILERPLATE_LINES` and
-  add a case to [`scripts/fetch-pr-reviews.test.mjs`](scripts/fetch-pr-reviews.test.mjs).
+  through, extend `NOISE_DETAILS`, `NOISE_REGIONS`, or `BOILERPLATE_LINES` and check
+  the result against `--raw`.
