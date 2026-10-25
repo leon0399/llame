@@ -128,8 +128,6 @@ export const projectRepositories = pgTable(
   ],
 ).enableRLS();
 
-
-
 /**
  * The last checkout a chat start used for one link on one executor. One row
  * per `(link, executor)`, replaced in place on the next start, so
