@@ -25,6 +25,15 @@ import {
   KNOWLEDGE_SPACE_MAX_LIMIT,
 } from '../knowledge-space.service';
 
+// The name rule as a schema pattern: after trimming, 1-100 code points with
+// no control, format, line-separator, or paragraph-separator character. The
+// surrounding whitespace the API trims is unbounded, so the length lives in the
+// pattern rather than in maxLength. JSON Schema patterns have no Unicode
+// property classes, so the BMP members of those categories are listed; the
+// rule itself is `INVALID_NAME_CHARACTERS`.
+const EXCLUDED = String.raw`\u0000-\u001F\u007F-\u009F\u00AD\u0600-\u0605\u061C\u06DD\u070F\u0890\u0891\u08E2\u180E\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB`;
+const NAME_PATTERN = String.raw`^\s*[^\s${EXCLUDED}](?:[^${EXCLUDED}]{0,98}[^\s${EXCLUDED}])?\s*$`;
+
 @ValidatorConstraint({ name: 'knowledgeSpaceName', async: false })
 class KnowledgeSpaceNameConstraint implements ValidatorConstraintInterface {
   validate(value: string): boolean {
@@ -37,7 +46,7 @@ class KnowledgeSpaceNameConstraint implements ValidatorConstraintInterface {
 }
 
 export class CreateKnowledgeSpaceDto {
-  @ApiProperty({ minLength: 1, maxLength: 100 })
+  @ApiProperty({ pattern: NAME_PATTERN })
   @IsDefined()
   @IsString()
   @Transform(({ value }) => (isString(value) ? value.trim() : undefined))
@@ -46,7 +55,7 @@ export class CreateKnowledgeSpaceDto {
 }
 
 export class UpdateKnowledgeSpaceDto {
-  @ApiProperty({ minLength: 1, maxLength: 100 })
+  @ApiProperty({ pattern: NAME_PATTERN })
   @IsDefined()
   @IsString()
   @Transform(({ value }) => (isString(value) ? value.trim() : undefined))
@@ -69,6 +78,7 @@ export class ListKnowledgeSpacesQueryDto {
   limit?: number;
 
   @ApiPropertyOptional({
+    pattern: '^[A-Za-z0-9_-]+$',
     description: 'Opaque base64url keyset cursor from the preceding page.',
   })
   @IsOptional()

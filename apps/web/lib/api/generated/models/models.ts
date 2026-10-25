@@ -7,7 +7,7 @@
  */
 import type { ModelDomainErrorResponse, ModelsResponse } from "./.";
 
-export type listModelsError = void | ModelDomainErrorResponse;
+export type listModelsError = void | void | ModelDomainErrorResponse;
 
 export const getListModelsUrl = () => {
   return `/api/v1/models`;

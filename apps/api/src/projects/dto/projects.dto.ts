@@ -22,7 +22,7 @@ const DESCRIPTION_MAX = 1000;
 // to a DB write (same guard as CreateTextMessagePartDto.text /
 // CreateMessageDto.modelId).
 export class CreateProjectDto {
-  @ApiProperty({ minLength: 1, maxLength: 200 })
+  @ApiProperty({ minLength: 1, maxLength: 200, pattern: '\\S' })
   @IsString()
   @Matches(/\S/, { message: 'name must not be blank' })
   @MaxLength(200)
@@ -47,7 +47,7 @@ export class CreateProjectDto {
 // reach the repository and fail as a DB constraint violation (500) instead of a
 // clean 400. Only absence skips validation, mirroring UpdateChatDto.title.
 export class UpdateProjectDto {
-  @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
+  @ApiPropertyOptional({ minLength: 1, maxLength: 200, pattern: '\\S' })
   @ValidateIf((o: UpdateProjectDto) => o.name !== undefined)
   @IsString()
   @Matches(/\S/, { message: 'name must not be blank' })

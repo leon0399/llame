@@ -10,6 +10,7 @@ export interface UpdateRepositoryDto {
   /**
    * @minLength 1
    * @maxLength 200
+   * @pattern ^[^/]*\S[^/]*$
    */
   displayName?: string;
   /**

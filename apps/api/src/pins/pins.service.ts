@@ -1,5 +1,5 @@
 import {
-  BadRequestException,
+  ConflictException,
   HttpException,
   Injectable,
   NotFoundException,
@@ -40,7 +40,7 @@ export class PinsService {
       );
     } catch (error) {
       if (error instanceof PinReorderMismatchError) {
-        throw new BadRequestException(error.message);
+        throw new ConflictException(error.message);
       }
       throw error;
     }

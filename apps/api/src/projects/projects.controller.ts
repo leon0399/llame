@@ -106,6 +106,10 @@ export class ProjectsController {
   @ApiOkResponse({ type: ProjectResponse })
   @ApiBadRequestResponse({ description: 'Malformed project id (not a UUID)' })
   @ApiNotFoundResponse()
+  @ApiConflictResponse({
+    description:
+      'The project is archived and the update does more than archive or unarchive it.',
+  })
   @ApiUnauthorizedResponse()
   async updateProject(
     @CurrentUser() userId: string,

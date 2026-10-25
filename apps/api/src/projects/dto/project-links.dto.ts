@@ -42,6 +42,8 @@ export class CreateProjectRepositoryDto {
   @ApiPropertyOptional({
     minLength: 1,
     maxLength: LINK_ALIAS_MAX,
+    pattern: '\\S',
+    nullable: true,
     description:
       "The project's own label for the repository. Defaults to the repository display name.",
   })
@@ -52,6 +54,7 @@ export class CreateProjectRepositoryDto {
   alias?: string;
 
   @ApiPropertyOptional({
+    nullable: true,
     description:
       'Make this the project primary link, clearing any previous one.',
   })
@@ -59,8 +62,9 @@ export class CreateProjectRepositoryDto {
   @IsBoolean()
   isPrimary?: boolean;
 
+  // ValidateIf, not IsOptional: null is not a policy.
   @ApiPropertyOptional({ enum: PROJECT_REPOSITORY_ISOLATIONS })
-  @IsOptional()
+  @ValidateIf((o: CreateProjectRepositoryDto) => o.isolation !== undefined)
   @IsIn([...PROJECT_REPOSITORY_ISOLATIONS])
   isolation?: ProjectRepositoryIsolation;
 }
@@ -69,7 +73,11 @@ export class CreateProjectRepositoryDto {
 // link. Omitted fields stay untouched; the alias and the isolation are not
 // nullable columns, so an explicit null is refused rather than stored.
 export class UpdateProjectRepositoryDto {
-  @ApiPropertyOptional({ minLength: 1, maxLength: LINK_ALIAS_MAX })
+  @ApiPropertyOptional({
+    minLength: 1,
+    maxLength: LINK_ALIAS_MAX,
+    pattern: '\\S',
+  })
   @ValidateIf((o: UpdateProjectRepositoryDto) => o.alias !== undefined)
   @IsString()
   @Matches(/\S/, { message: 'alias must not be blank' })

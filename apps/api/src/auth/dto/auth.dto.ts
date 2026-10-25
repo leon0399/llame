@@ -21,7 +21,7 @@ export class RegisterDto {
   @MaxLength(72)
   password!: string;
 
-  @ApiPropertyOptional({ maxLength: 200 })
+  @ApiPropertyOptional({ maxLength: 200, nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(200)
@@ -33,7 +33,7 @@ export class LoginDto {
   @IsEmail()
   email!: string;
 
-  @ApiProperty()
+  @ApiProperty({ minLength: 1, maxLength: 256 })
   @IsString()
   @MinLength(1)
   @MaxLength(256)

@@ -10,7 +10,7 @@ import type {
   SkillCatalogCollectionResponse,
 } from "../models";
 
-export type listSkillsError = void;
+export type listSkillsError = void | void;
 
 export const getListSkillsUrl = (params?: ListSkillsParams) => {
   const normalizedParams = new URLSearchParams();

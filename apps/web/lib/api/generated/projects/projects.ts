@@ -18,7 +18,7 @@ import type {
   UpdateProjectRepositoryDto,
 } from "../models";
 
-export type createProjectError = void;
+export type createProjectError = void | void | void;
 
 export const getCreateProjectUrl = () => {
   return `/api/v1/projects`;
@@ -59,7 +59,7 @@ export const createProject = async (
   return data;
 };
 
-export type listProjectsError = void;
+export type listProjectsError = void | void;
 
 export const getListProjectsUrl = (params?: ListProjectsParams) => {
   const normalizedParams = new URLSearchParams();
@@ -147,7 +147,7 @@ export const getProject = async (
   return data;
 };
 
-export type updateProjectError = void | void | void;
+export type updateProjectError = void | void | void | void | void;
 
 export const getUpdateProjectUrl = (id: string) => {
   return `/api/v1/projects/${id}`;
@@ -155,7 +155,7 @@ export const getUpdateProjectUrl = (id: string) => {
 
 export const updateProject = async (
   id: string,
-  updateProjectDto: UpdateProjectDto,
+  updateProjectDto: UpdateProjectDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<ProjectResponse> => {
@@ -272,7 +272,7 @@ export const listProjectRepositories = async (
   return data;
 };
 
-export type linkProjectRepositoryError = void | void | void | void;
+export type linkProjectRepositoryError = void | void | void | void | void;
 
 export const getLinkProjectRepositoryUrl = (id: string) => {
   return `/api/v1/projects/${id}/repositories`;
@@ -317,7 +317,7 @@ export const linkProjectRepository = async (
   return data;
 };
 
-export type updateProjectRepositoryLinkError = void | void | void | void;
+export type updateProjectRepositoryLinkError = void | void | void | void | void;
 
 export const getUpdateProjectRepositoryLinkUrl = (
   id: string,
@@ -332,7 +332,9 @@ export const getUpdateProjectRepositoryLinkUrl = (
 export const updateProjectRepositoryLink = async (
   id: string,
   repositoryId: string,
-  updateProjectRepositoryDto: UpdateProjectRepositoryDto,
+  updateProjectRepositoryDto:
+    | UpdateProjectRepositoryDto
+    | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<ProjectRepositoryLinkResponse> => {

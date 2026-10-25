@@ -128,8 +128,9 @@ export class UpdateChatDto {
   // Archive (true) or unarchive (false) the chat. Omit to leave archive state
   // unchanged. Idempotent; honored by the repository's archive guard.
   @ApiPropertyOptional({
+    nullable: true,
     description:
-      'Archive (true) or unarchive (false) the chat. Omit to leave unchanged.',
+      'Archive (true) or unarchive (false) the chat. Omit or send null to leave unchanged.',
   })
   @IsOptional()
   @IsBoolean()
@@ -159,7 +160,10 @@ export class ForkChatDto {
 }
 
 export class CreateMessageDto {
-  @ApiProperty({ description: 'Opaque llame model id selected for this turn.' })
+  @ApiProperty({
+    description: 'Opaque llame model id selected for this turn.',
+    pattern: '\\S',
+  })
   @IsString()
   @Matches(/\S/, { message: 'modelId must not be blank' })
   modelId!: string;
@@ -171,6 +175,7 @@ export class CreateMessageDto {
   // exact membership after the model resolves, so the DTO's only job is to
   // reject a blank or non-string one.
   @ApiPropertyOptional({
+    pattern: '\\S',
     description:
       "Reasoning effort for this turn. Must be one of the selected model's " +
       '`reasoning.effortLevels[].value`; omit to use its `defaultEffort`. Matched ' +

@@ -24,6 +24,7 @@ export class CreateRepositoryDto {
   @ApiProperty({
     minLength: 1,
     maxLength: DISPLAY_NAME_MAX,
+    pattern: '^[^/]*\\S[^/]*$',
     description: 'One path segment, without "/" or a NUL byte.',
   })
   @IsString()
@@ -33,6 +34,7 @@ export class CreateRepositoryDto {
 
   @ApiPropertyOptional({
     type: String,
+    nullable: true,
     maxLength: REMOTE_MAX,
     description:
       'The origin remote. Stored normalized; omit for a repository whose clone has no origin.',
@@ -51,7 +53,11 @@ export class CreateRepositoryDto {
 // distinction as `UpdateProjectDto.name`. `remote` keeps IsOptional, because an
 // explicit null there is the documented way to clear it.
 export class UpdateRepositoryDto {
-  @ApiPropertyOptional({ minLength: 1, maxLength: DISPLAY_NAME_MAX })
+  @ApiPropertyOptional({
+    minLength: 1,
+    maxLength: DISPLAY_NAME_MAX,
+    pattern: '^[^/]*\\S[^/]*$',
+  })
   @ValidateIf((o: UpdateRepositoryDto) => o.displayName !== undefined)
   @IsString()
   @Matches(/\S/, { message: 'displayName must not be blank' })
@@ -105,7 +111,7 @@ export function toRepositoryResponse(
 
 // POST /api/v1/repositories/:id/aliases — one declared alternate remote.
 export class CreateAliasDto {
-  @ApiProperty({ maxLength: REMOTE_MAX })
+  @ApiProperty({ maxLength: REMOTE_MAX, pattern: '\\S' })
   @IsString()
   @Matches(/\S/, { message: 'remote must not be blank' })
   @MaxLength(REMOTE_MAX)

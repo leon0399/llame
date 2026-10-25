@@ -7,6 +7,9 @@
  */
 
 export interface CreateAliasDto {
-  /** @maxLength 2048 */
+  /**
+   * @maxLength 2048
+   * @pattern \S
+   */
   remote: string;
 }

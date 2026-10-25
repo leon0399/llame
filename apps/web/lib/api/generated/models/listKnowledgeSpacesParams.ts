@@ -14,6 +14,7 @@ export type ListKnowledgeSpacesParams = {
   limit?: number;
   /**
    * Opaque base64url keyset cursor from the preceding page.
+   * @pattern ^[A-Za-z0-9_-]+$
    */
   after?: string;
 };

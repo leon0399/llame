@@ -11,6 +11,43 @@ request-timeout = 10
 max-time = 900
 max-failures = 200
 
+# Postgres text cannot hold U+0000, so the API refuses it in any request value
+# with a documented 400; generating it would only test that refusal.
+generation.allow-x00 = false
+
+# Requests the schema cannot fully describe. The API answers 400 for a
+# request that fails validation and 422 for a valid one the domain refuses (an
+# unknown model, a path that is not a repository, a move into its own
+# subtree), so 422 is an expected answer to schema-valid data. A body over the
+# JSON parser's limit is refused with 413, which every operation with a body
+# documents.
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  "3xx",
+  "401",
+  "403",
+  "404",
+  "409",
+  "422",
+  "429",
+  "5xx",
+]
+checks.negative_data_rejection.expected-statuses = [
+  "400",
+  "401",
+  "403",
+  "404",
+  "405",
+  "406",
+  "409",
+  "413",
+  "415",
+  "422",
+  "428",
+  "429",
+  "5xx",
+]
+
 [auth]
 auto-signup = false
 
@@ -43,3 +80,75 @@ enabled = false
 [[operations]]
 include-operation-id = "logoutUser"
 enabled = false
+
+# Constraints OpenAPI 3.0 cannot state, answered with 400: `beforeSeq` and
+# `targetSeq` exclude each other, a Knowledge Space cursor must be one the
+# server issued, and a message holds at most 50 text and 10 file parts (the
+# schema can bound only the total).
+[[operations]]
+include-operation-id = "getChatMessages"
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  "3xx",
+  "400",
+  "401",
+  "403",
+  "404",
+  "409",
+  "422",
+  "429",
+  "5xx",
+]
+
+[[operations]]
+include-operation-id = "listKnowledgeSpaces"
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  "3xx",
+  "400",
+  "401",
+  "403",
+  "404",
+  "409",
+  "422",
+  "429",
+  "5xx",
+]
+
+[[operations]]
+include-operation-id = "createChatMessage"
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  "3xx",
+  "400",
+  "401",
+  "403",
+  "404",
+  "409",
+  "422",
+  "429",
+  "5xx",
+]
+
+# An upload is accepted by its bytes, not its declared type: anything other than
+# a PNG, JPEG, GIF, or WebP image is a 415.
+[[operations]]
+include-operation-id = "uploadMedia"
+checks.positive_data_acceptance.expected-statuses = [
+  "2xx",
+  "3xx",
+  "401",
+  "403",
+  "404",
+  "409",
+  "415",
+  "422",
+  "429",
+  "5xx",
+]
+
+# A locator naming a Machine this instance does not configure is refused with
+# 503 `executor_unavailable` (openspec `repositories`); other 5xx still fail.
+[[operations]]
+include-operation-id = "registerCheckout"
+checks.not_a_server_error.expected-statuses = ["2xx", "3xx", "4xx", "503"]

@@ -72,7 +72,7 @@ export const listChats = async (
   return data;
 };
 
-export type createChatError = void | void | void | void | ModelDomainErrorResponse;
+export type createChatError = void | void | void | void | void | ModelDomainErrorResponse;
 
 export const getCreateChatUrl = () => {
   return `/api/v1/chats`;
@@ -193,7 +193,7 @@ export const getChat = async (
   return data;
 };
 
-export type updateChatError = void | void | void;
+export type updateChatError = void | void | void | void | void;
 
 export const getUpdateChatUrl = (id: string) => {
   return `/api/v1/chats/${id}`;
@@ -201,7 +201,7 @@ export const getUpdateChatUrl = (id: string) => {
 
 export const updateChat = async (
   id: string,
-  updateChatDto: UpdateChatDto,
+  updateChatDto: UpdateChatDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<ChatResponse> => {
@@ -364,7 +364,7 @@ export const getChatCreationRecord = async (
   return data;
 };
 
-export type forkChatError = void | void;
+export type forkChatError = void | void | void | void;
 
 export const getForkChatUrl = (id: string) => {
   return `/api/v1/chats/${id}/forks`;
@@ -372,7 +372,7 @@ export const getForkChatUrl = (id: string) => {
 
 export const forkChat = async (
   id: string,
-  forkChatDto: ForkChatDto,
+  forkChatDto: ForkChatDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<ChatResponse> => {
@@ -402,7 +402,7 @@ export const forkChat = async (
   return data;
 };
 
-export type getSharedChatError = void;
+export type getSharedChatError = void | void;
 
 export const getGetSharedChatUrl = (
   id: string,
@@ -457,7 +457,7 @@ export const getSharedChat = async (
   return data;
 };
 
-export type forkSharedChatError = void | void;
+export type forkSharedChatError = void | void | void;
 
 export const getForkSharedChatUrl = (id: string) => {
   return `/api/v1/shared/chats/${id}/forks`;

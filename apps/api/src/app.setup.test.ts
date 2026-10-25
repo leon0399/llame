@@ -6,9 +6,10 @@ import {
   type AppSetupApplication,
 } from './app.setup';
 import { RegisterDto } from './auth/dto/auth.dto';
+import { RejectNulCharactersPipe } from './common/reject-nul-characters.pipe';
 
 describe('configureApp', () => {
-  it('installs a fail-closed global ValidationPipe', () => {
+  it('installs the NUL check before a fail-closed global ValidationPipe', () => {
     const useGlobalPipes = vi.fn();
     const enableCors = vi.fn();
     const app: AppSetupApplication = {
@@ -19,8 +20,12 @@ describe('configureApp', () => {
 
     configureApp(app);
 
-    expect(useGlobalPipes).toHaveBeenCalledWith(expect.any(ValidationPipe));
     expect(useGlobalPipes).toHaveBeenCalledWith(
+      expect.any(RejectNulCharactersPipe),
+      expect.any(ValidationPipe),
+    );
+    expect(useGlobalPipes).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         validatorOptions: {
           forbidUnknownValues: false,

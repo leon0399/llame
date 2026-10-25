@@ -26,7 +26,7 @@ export class CreateTextMessagePartDto {
   @IsIn(['text'])
   type!: 'text';
 
-  @ApiProperty({ minLength: 1, maxLength: 20_000 })
+  @ApiProperty({ minLength: 1, maxLength: 20_000, pattern: '\\S' })
   @IsString()
   @Matches(/\S/, { message: 'text must not be blank' })
   @MaxLength(20_000)

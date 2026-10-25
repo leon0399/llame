@@ -16,7 +16,7 @@ import type {
   SessionsResponse,
 } from "../models";
 
-export type registerUserError = void | void;
+export type registerUserError = void | void | void | void;
 
 export const getRegisterUserUrl = () => {
   return `/auth/v1/register`;
@@ -57,7 +57,7 @@ export const registerUser = async (
   return data;
 };
 
-export type loginUserError = void | void;
+export type loginUserError = void | void | void | void;
 
 export const getLoginUserUrl = () => {
   return `/auth/v1/login`;
@@ -94,7 +94,7 @@ export const loginUser = async (
   return data;
 };
 
-export type getCurrentUserError = void;
+export type getCurrentUserError = void | void;
 
 export const getGetCurrentUserUrl = () => {
   return `/auth/v1/me`;
@@ -132,7 +132,7 @@ export const getCurrentUser = async (
   return data;
 };
 
-export type listSessionsError = void;
+export type listSessionsError = void | void;
 
 export const getListSessionsUrl = () => {
   return `/auth/v1/sessions`;
@@ -170,7 +170,7 @@ export const listSessions = async (
   return data;
 };
 
-export type revokeSessionsError = void;
+export type revokeSessionsError = void | void;
 
 export const getRevokeSessionsUrl = (params?: RevokeSessionsParams) => {
   const normalizedParams = new URLSearchParams();
@@ -221,7 +221,7 @@ export const revokeSessions = async (
   return data;
 };
 
-export type getCurrentSessionError = void;
+export type getCurrentSessionError = void | void;
 
 export const getGetCurrentSessionUrl = () => {
   return `/auth/v1/sessions/current`;
@@ -259,7 +259,7 @@ export const getCurrentSession = async (
   return data;
 };
 
-export type logoutUserError = void;
+export type logoutUserError = void | void;
 
 export const getLogoutUserUrl = () => {
   return `/auth/v1/sessions/current`;

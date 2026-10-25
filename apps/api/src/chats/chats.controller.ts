@@ -455,6 +455,10 @@ export class ChatsController {
     description:
       'Chat not found/not owned, or (when filing) projectId not found/not owned',
   })
+  @ApiConflictResponse({
+    description:
+      'The chat is archived and the update does more than archive or unarchive it.',
+  })
   @ApiUnauthorizedResponse()
   async updateChat(
     @CurrentUser() userId: string,

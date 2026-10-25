@@ -8,6 +8,9 @@
         "responses": {
           "200": {
             "description": ""
+          },
+          "400": {
+            "description": "The request failed validation."
           }
         },
         "summary": "",
@@ -39,8 +42,14 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "409": {
             "description": "Email already registered"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "429": {
             "description": "Rate limit exceeded"
@@ -75,8 +84,14 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": "Invalid credentials"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "429": {
             "description": "Rate limit exceeded"
@@ -100,6 +115,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -131,6 +149,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -172,6 +193,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           }
@@ -203,6 +227,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           }
@@ -231,6 +258,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -439,6 +469,9 @@
           "409": {
             "description": "The Chat holds a message, a Run, or another project"
           },
+          "413": {
+            "description": "The request body is larger than the server accepts."
+          },
           "422": {
             "description": "Unavailable model, mode, executor, or worktree argument",
             "content": {
@@ -580,7 +613,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -608,6 +641,12 @@
           },
           "404": {
             "description": "Chat not found/not owned, or (when filing) projectId not found/not owned"
+          },
+          "409": {
+            "description": "The chat is archived and the update does more than archive or unarchive it."
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -789,6 +828,9 @@
           "409": {
             "description": "Message id already exists, or another run is already in flight for this chat"
           },
+          "413": {
+            "description": "The request body is larger than the server accepts."
+          },
           "422": {
             "description": "Selected model is not available, or the requested effort is not one of that model's declared levels",
             "content": {
@@ -884,7 +926,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -904,11 +946,17 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
           "404": {
             "description": "Chat not found, not owned, or the fork-point message (when given) is absent"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -950,6 +998,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -1017,6 +1068,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "404": {
             "description": "Chat not found or not public"
           }
@@ -1049,6 +1103,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -1087,6 +1144,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -1122,7 +1182,8 @@
                     "type": "string",
                     "format": "binary"
                   }
-                }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -1288,6 +1349,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -1361,6 +1425,9 @@
           "304": {
             "description": ""
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -1416,6 +1483,9 @@
           "304": {
             "description": ""
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -1449,6 +1519,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -1501,8 +1574,14 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -1551,6 +1630,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -1628,7 +1710,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -1656,6 +1738,12 @@
           },
           "404": {
             "description": ""
+          },
+          "409": {
+            "description": "The project is archived and the update does more than archive or unarchive it."
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -1802,6 +1890,9 @@
           },
           "409": {
             "description": "The project already links that repository, or the project is archived"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -1840,7 +1931,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -1871,6 +1962,9 @@
           },
           "409": {
             "description": ""
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -2034,6 +2128,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -2078,6 +2175,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -2086,6 +2186,9 @@
           },
           "409": {
             "description": "Run already finished"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "summary": "",
@@ -2116,6 +2219,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -2163,6 +2269,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -2204,6 +2313,9 @@
           },
           "401": {
             "description": ""
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "503": {
             "description": "",
@@ -2247,6 +2359,7 @@
             "in": "query",
             "description": "Opaque base64url keyset cursor from the preceding page.",
             "schema": {
+              "pattern": "^[A-Za-z0-9_-]+$",
               "type": "string"
             }
           }
@@ -2369,6 +2482,9 @@
           },
           "404": {
             "description": ""
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -2420,6 +2536,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           }
@@ -2451,6 +2570,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           }
@@ -2470,7 +2592,7 @@
         "operationId": "updatePersonalization",
         "parameters": [],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -2490,8 +2612,14 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -2521,6 +2649,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           }
@@ -2540,7 +2671,7 @@
         "operationId": "updateMemory",
         "parameters": [],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -2560,8 +2691,14 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -2601,6 +2738,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -2613,6 +2753,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "422": {
             "description": "",
@@ -2653,6 +2796,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           }
@@ -2684,7 +2830,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -2729,6 +2875,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "422": {
             "description": "",
@@ -2869,6 +3018,9 @@
               }
             }
           },
+          "413": {
+            "description": "The request body is larger than the server accepts."
+          },
           "422": {
             "description": "",
             "content": {
@@ -2952,6 +3104,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "422": {
             "description": "",
@@ -3091,6 +3246,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "422": {
             "description": "",
@@ -3299,6 +3457,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           }
@@ -3358,10 +3519,16 @@
             }
           },
           "400": {
-            "description": "Body is not exactly the caller's current pin set, or fails validation"
+            "description": "The body fails validation."
           },
           "401": {
             "description": ""
+          },
+          "409": {
+            "description": "The body is not exactly the caller's current pin set."
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -3515,8 +3682,14 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -3546,6 +3719,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -3598,6 +3774,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -3616,6 +3795,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -3655,6 +3837,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -3687,7 +3872,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3707,6 +3892,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -3725,6 +3913,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           },
           "422": {
             "description": "Cannot move an org unit into its own subtree",
@@ -3764,6 +3955,9 @@
         "responses": {
           "204": {
             "description": ""
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -3825,6 +4019,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -3870,6 +4067,9 @@
           "204": {
             "description": "Membership granted"
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -3888,6 +4088,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -3945,6 +4148,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -3963,6 +4169,9 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
           }
         },
         "security": [
@@ -4000,6 +4209,9 @@
         "responses": {
           "204": {
             "description": ""
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -4058,6 +4270,9 @@
               }
             }
           },
+          "400": {
+            "description": "The request failed validation."
+          },
           "401": {
             "description": ""
           },
@@ -4091,6 +4306,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "The request failed validation."
           },
           "401": {
             "description": ""
@@ -4145,10 +4363,12 @@
           },
           "name": {
             "type": "string",
-            "maxLength": 200
+            "maxLength": 200,
+            "nullable": true
           }
         },
-        "required": ["email", "password"]
+        "required": ["email", "password"],
+        "additionalProperties": false
       },
       "PublicUserResponse": {
         "type": "object",
@@ -4242,10 +4462,13 @@
             "format": "email"
           },
           "password": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           }
         },
-        "required": ["email", "password"]
+        "required": ["email", "password"],
+        "additionalProperties": false
       },
       "SessionsResponse": {
         "type": "object",
@@ -4550,10 +4773,12 @@
           "text": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 20000
+            "maxLength": 20000,
+            "pattern": "\\S"
           }
         },
-        "required": ["type", "text"]
+        "required": ["type", "text"],
+        "additionalProperties": false
       },
       "CreateFileMessagePartDto": {
         "type": "object",
@@ -4576,7 +4801,8 @@
             "description": "Ignored: the stored part carries the media's own name."
           }
         },
-        "required": ["type", "mediaType", "url"]
+        "required": ["type", "mediaType", "url"],
+        "additionalProperties": false
       },
       "CreateMessageBodyDto": {
         "type": "object",
@@ -4602,17 +4828,20 @@
             "format": "uuid"
           }
         },
-        "required": ["parts", "id"]
+        "required": ["parts", "id"],
+        "additionalProperties": false
       },
       "CreateMessageDto": {
         "type": "object",
         "properties": {
           "modelId": {
             "type": "string",
-            "description": "Opaque llame model id selected for this turn."
+            "description": "Opaque llame model id selected for this turn.",
+            "pattern": "\\S"
           },
           "effort": {
             "type": "string",
+            "pattern": "\\S",
             "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`. Matched byte-exactly — not case-folded."
           },
           "permissionMode": {
@@ -4624,7 +4853,8 @@
             "$ref": "#/components/schemas/CreateMessageBodyDto"
           }
         },
-        "required": ["modelId", "message"]
+        "required": ["modelId", "message"],
+        "additionalProperties": false
       },
       "ModelDomainErrorResponse": {
         "type": "object",
@@ -4655,7 +4885,8 @@
             "type": "string",
             "description": "Commit, branch, or tag the new worktree branches from."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateChatMessageDto": {
         "type": "object",
@@ -4694,7 +4925,8 @@
             "description": "Permission mode the Workspace step evaluates; omit for `default`."
           }
         },
-        "required": ["parts", "id", "modelId"]
+        "required": ["parts", "id", "modelId"],
+        "additionalProperties": false
       },
       "CreateChatRequest": {
         "type": "object",
@@ -4727,7 +4959,8 @@
             "$ref": "#/components/schemas/CreateChatMessageDto"
           }
         },
-        "required": ["id"]
+        "required": ["id"],
+        "additionalProperties": false
       },
       "CreationWorktreeResponse": {
         "type": "object",
@@ -4887,9 +5120,11 @@
           },
           "archived": {
             "type": "boolean",
-            "description": "Archive (true) or unarchive (false) the chat. Omit to leave unchanged."
+            "nullable": true,
+            "description": "Archive (true) or unarchive (false) the chat. Omit or send null to leave unchanged."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ForkChatDto": {
         "type": "object",
@@ -4899,7 +5134,8 @@
             "format": "uuid",
             "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ActiveRunResponse": {
         "type": "object",
@@ -5350,7 +5586,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "\\S"
           },
           "description": {
             "type": "string",
@@ -5359,7 +5596,8 @@
             "description": "What this project is for. Omit or pass null for none."
           }
         },
-        "required": ["name"]
+        "required": ["name"],
+        "additionalProperties": false
       },
       "ProjectResponse": {
         "type": "object",
@@ -5413,7 +5651,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "\\S"
           },
           "description": {
             "type": "string",
@@ -5431,7 +5670,8 @@
             "nullable": true,
             "description": "Executor id a chat start on this project prefers. Pass null to clear it; omit to leave it unchanged."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ProjectRepositoryDefaultResponse": {
         "type": "object",
@@ -5533,10 +5773,13 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
+            "pattern": "\\S",
+            "nullable": true,
             "description": "The project's own label for the repository. Defaults to the repository display name."
           },
           "isPrimary": {
             "type": "boolean",
+            "nullable": true,
             "description": "Make this the project primary link, clearing any previous one."
           },
           "isolation": {
@@ -5544,7 +5787,8 @@
             "enum": ["inherit", "always_worktree", "never"]
           }
         },
-        "required": ["repositoryId"]
+        "required": ["repositoryId"],
+        "additionalProperties": false
       },
       "ProjectRepositoryLinkResponse": {
         "type": "object",
@@ -5601,7 +5845,8 @@
           "alias": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "\\S"
           },
           "isPrimary": {
             "type": "boolean",
@@ -5611,7 +5856,8 @@
             "type": "string",
             "enum": ["inherit", "always_worktree", "never"]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "StartLocationResponse": {
         "type": "object",
@@ -5826,18 +6072,19 @@
             "enum": ["cancelled"]
           }
         },
-        "required": ["status"]
+        "required": ["status"],
+        "additionalProperties": false
       },
       "CreateKnowledgeSpaceDto": {
         "type": "object",
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 100
+            "pattern": "^\\s*[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB](?:[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB]{0,98}[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB])?\\s*$"
           }
         },
-        "required": ["name"]
+        "required": ["name"],
+        "additionalProperties": false
       },
       "KnowledgeSpaceResponse": {
         "type": "object",
@@ -5900,11 +6147,11 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 100
+            "pattern": "^\\s*[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB](?:[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB]{0,98}[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB])?\\s*$"
           }
         },
-        "required": ["name"]
+        "required": ["name"],
+        "additionalProperties": false
       },
       "SkillCatalogEntryResponse": {
         "type": "object",
@@ -6049,7 +6296,8 @@
             "type": "boolean",
             "description": "Send your account display name and email address to the model provider the operator has configured — which in a multi-user instance may be a third party with no relationship to you. Defaults to false, and applies only where the configured prompt references those values."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "MemoryResponse": {
         "type": "object",
@@ -6067,7 +6315,8 @@
             "type": "boolean",
             "description": "Share titles and opening excerpts from your other chats with the model provider configured by the operator, which on a multi-user instance may be a third party with no relationship to you. Enabling is retroactive over your whole existing corpus, including chats and opening excerpts created long before opt-in. Disabling is not retroactive: it stops new baselines, re-bakes, and appends, but chats with an existing baseline keep sending it. Deleting a chat is not erasure: its title and excerpt survive in other chats' already-bound prompts, persisted appends, and receipts already issued. Defaults to false."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateRepositoryDto": {
         "type": "object",
@@ -6076,15 +6325,18 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
+            "pattern": "^[^/]*\\S[^/]*$",
             "description": "One path segment, without \"/\" or a NUL byte."
           },
           "remote": {
             "type": "string",
+            "nullable": true,
             "maxLength": 2048,
             "description": "The origin remote. Stored normalized; omit for a repository whose clone has no origin."
           }
         },
-        "required": ["displayName"]
+        "required": ["displayName"],
+        "additionalProperties": false
       },
       "RepositoryResponse": {
         "type": "object",
@@ -6167,7 +6419,8 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "^[^/]*\\S[^/]*$"
           },
           "remote": {
             "type": "string",
@@ -6175,17 +6428,20 @@
             "nullable": true,
             "description": "Pass null to clear the canonical remote."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateAliasDto": {
         "type": "object",
         "properties": {
           "remote": {
             "type": "string",
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           }
         },
-        "required": ["remote"]
+        "required": ["remote"],
+        "additionalProperties": false
       },
       "RepositoryAliasResponse": {
         "type": "object",
@@ -6214,6 +6470,7 @@
           "path": {
             "type": "string",
             "maxLength": 4096,
+            "pattern": "^(?:/|[Mm][Aa][Cc][Hh][Ii][Nn][Ee]://)",
             "description": "An absolute local path or a configured `machine://` locator."
           },
           "repositoryId": {
@@ -6229,7 +6486,8 @@
             "description": "A remote that selects an existing repository of this owner. The inspected origin decides."
           }
         },
-        "required": ["path"]
+        "required": ["path"],
+        "additionalProperties": false
       },
       "CheckoutResponse": {
         "type": "object",
@@ -6315,10 +6573,12 @@
           "worktreeBase": {
             "type": "string",
             "maxLength": 4096,
+            "pattern": "^(?:/|[Mm][Aa][Cc][Hh][Ii][Nn][Ee]://)",
             "description": "The placement base of new worktrees: an absolute host path, or a machine:// locator of this checkout’s own Machine."
           }
         },
-        "required": ["worktreeBase"]
+        "required": ["worktreeBase"],
+        "additionalProperties": false
       },
       "ChatRefCard": {
         "type": "object",
@@ -6411,7 +6671,8 @@
             "format": "uuid"
           }
         },
-        "required": ["itemType", "itemId"]
+        "required": ["itemType", "itemId"],
+        "additionalProperties": false
       },
       "ReorderPinsDto": {
         "type": "object",
@@ -6423,7 +6684,8 @@
             }
           }
         },
-        "required": ["items"]
+        "required": ["items"],
+        "additionalProperties": false
       },
       "CreateOrgUnitDto": {
         "type": "object",
@@ -6431,14 +6693,16 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "\\S"
           },
           "type": {
             "type": "string",
             "enum": ["organization", "group", "team", "department"]
           }
         },
-        "required": ["name"]
+        "required": ["name"],
+        "additionalProperties": false
       },
       "OrgUnitResponse": {
         "type": "object",
@@ -6531,7 +6795,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "\\S"
           },
           "settings": {
             "type": "object",
@@ -6544,7 +6809,8 @@
             "nullable": true,
             "description": "Move under this parent id. Explicit null promotes the unit to root. Omit to leave the unit where it is."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "OrgUnitValidationErrorResponse": {
         "type": "object",
@@ -6602,7 +6868,8 @@
         "type": "object",
         "properties": {
           "userId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "role": {
             "type": "string",
@@ -6616,7 +6883,8 @@
             ]
           }
         },
-        "required": ["userId", "role"]
+        "required": ["userId", "role"],
+        "additionalProperties": false
       },
       "ChangeMembershipRoleDto": {
         "type": "object",
@@ -6633,7 +6901,8 @@
             ]
           }
         },
-        "required": ["role"]
+        "required": ["role"],
+        "additionalProperties": false
       },
       "EffectiveRoleResponse": {
         "type": "object",

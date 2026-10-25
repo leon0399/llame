@@ -12,6 +12,7 @@ export interface CreateTextMessagePartDto {
   /**
    * @minLength 1
    * @maxLength 20000
+   * @pattern \S
    */
   text: string;
 }

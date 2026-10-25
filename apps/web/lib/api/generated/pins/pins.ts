@@ -11,7 +11,7 @@ import type {
   ReorderPinsDto,
 } from "../models";
 
-export type listPinsError = void;
+export type listPinsError = void | void;
 
 export const getListPinsUrl = () => {
   return `/api/v1/pins`;
@@ -47,7 +47,7 @@ export const listPins = async (
   return data;
 };
 
-export type reorderPinsError = void | void;
+export type reorderPinsError = void | void | void | void;
 
 export const getReorderPinsUrl = () => {
   return `/api/v1/pins/order`;

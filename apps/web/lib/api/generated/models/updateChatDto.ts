@@ -20,6 +20,9 @@ export interface UpdateChatDto {
    * @nullable
    */
   projectId?: string | null;
-  /** Archive (true) or unarchive (false) the chat. Omit to leave unchanged. */
-  archived?: boolean;
+  /**
+   * Archive (true) or unarchive (false) the chat. Omit or send null to leave unchanged.
+   * @nullable
+   */
+  archived?: boolean | null;
 }

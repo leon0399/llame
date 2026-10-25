@@ -10,6 +10,7 @@ export interface UpdateCheckoutDto {
   /**
    * The placement base of new worktrees: an absolute host path, or a machine:// locator of this checkout’s own Machine.
    * @maxLength 4096
+   * @pattern ^(?:/|[Mm][Aa][Cc][Hh][Ii][Nn][Ee]://)
    */
   worktreeBase: string;
 }
