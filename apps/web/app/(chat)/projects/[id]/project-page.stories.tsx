@@ -411,7 +411,13 @@ export const SendCreatesFiledChat: Story = {
     await expect(body.executorId).toBeUndefined();
     await expect(body.checkoutId).toBeUndefined();
     await expect(body.worktree).toBeUndefined();
-    await expect(composer).toHaveValue("");
+    // The send empties the draft after the navigation, and the composer may
+    // remount meanwhile, so the field is found again.
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText("Describe a task or ask a question"),
+      ).toHaveValue(""),
+    );
   },
 };
 
