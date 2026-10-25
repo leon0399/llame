@@ -179,12 +179,13 @@ function ProjectPageBody({
   return (
     <div className="space-y-6">
       <ProjectDetailsHeader project={data.project} isPinned={data.isPinned} />
-      {/* Three columns from `lg`: the chats take two, and the third is
-          reserved for the project's other panels as they arrive. Below `lg`
-          the chats take the full width. */}
+      {/* Below `lg` the side panel sits between the composer and the chats. */}
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <ProjectPromptInput projectId={data.project.id} />
+        </div>
+        <ProjectSidePanel projectId={data.project.id} />
+        <div className="min-w-0 lg:col-span-2">
           <ProjectChats
             view={data.view}
             rows={{
@@ -194,7 +195,6 @@ function ProjectPageBody({
             }}
           />
         </div>
-        <ProjectSidePanel />
       </div>
     </div>
   );

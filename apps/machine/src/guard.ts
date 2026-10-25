@@ -3,6 +3,7 @@ import { lstat, readlink, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { PATH_NOT_REGISTERED_MESSAGE } from "@workspace/machine-protocol";
 import { MachineRequestError } from "./errors";
+import { isInsideRoots } from "./locators";
 
 /** How many symbolic-link hops one resolution follows before refusing. */
 const MAX_LINK_DEPTH = 16;
@@ -97,13 +98,6 @@ function isAbsentEntry(error: unknown): boolean {
 export function createRootGuard(roots: ReadonlyArray<string>): RootGuard {
   const canonicalRoots = roots.map((root) => resolve(root));
 
-  function isInside(target: string): boolean {
-    return canonicalRoots.some(
-      (root) =>
-        target === root || target.startsWith(root === "/" ? "/" : `${root}/`),
-    );
-  }
-
   async function resolvePath(path: string): Promise<GuardedPath> {
     if (!isAbsolute(path) || path.includes("\0"))
       throw new MachineRequestError(
@@ -113,9 +107,9 @@ export function createRootGuard(roots: ReadonlyArray<string>): RootGuard {
     const lexical = resolve(path);
     // Lexical first, before any probe: a path outside the roots is refused
     // whether or not anything exists there.
-    if (!isInside(lexical)) refuse();
+    if (!isInsideRoots(canonicalRoots, lexical)) refuse();
     const canonical = await canonicalTarget(lexical, 0);
-    if (!isInside(canonical)) refuse();
+    if (!isInsideRoots(canonicalRoots, canonical)) refuse();
     const entry = await describe(lexical);
     const followed = await describeFollowed(lexical);
     const isLink = entry !== undefined && entry.isSymbolicLink();

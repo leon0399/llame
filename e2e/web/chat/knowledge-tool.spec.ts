@@ -124,6 +124,19 @@ async function expectCompletedTool(
   await expect(card.locator("..")).toContainText(expectedPath);
 }
 
+/** The text of each gutter-numbered line in a tool row, in order, without
+ *  its line number. */
+async function expectSourceLines(
+  details: Locator,
+  expected: ReadonlyArray<string>,
+): Promise<void> {
+  const lines = details.locator("[data-line] > span:last-child");
+  await expect(lines).toHaveCount(expected.length);
+  for (const [index, text] of expected.entries()) {
+    await expect(lines.nth(index)).toHaveJSProperty("textContent", text);
+  }
+}
+
 async function expectErroredTool(
   log: Locator,
   expectedMessage: string,
@@ -357,9 +370,8 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await card.click();
     const details = card.locator("..");
     await expect(details).toContainText("notes/worker-note.md");
-    await expect(details).toContainText(/"complete":\s*false/u);
-    await expect(details).toContainText("knowledge_space_unavailable");
-    await expect(details).toContainText(broken.id);
+    // The degraded space is named with its stable id under the results.
+    await expect(details).toContainText(`Warning: Broken (${broken.id})`);
   });
 
   test("finds live notes, renders a relative-path citation, and sees a new file", async ({
@@ -491,7 +503,10 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await explicitRead.click();
     const explicitReadDetails = explicitRead.locator("..");
     await expect(explicitReadDetails).toContainText(`${longNotePath}:3-5`);
-    await expect(explicitReadDetails).toContainText("3: KNOWLEDGE_E2E_PAGED");
+    // Line numbers sit in the gutter, outside the line text.
+    await expect(explicitReadDetails.locator('[data-line="3"]')).toContainText(
+      "KNOWLEDGE_E2E_PAGED",
+    );
     await expect(explicitReadDetails).not.toContainText(requireKnowledgeRoot());
 
     await sendPrompt(
@@ -797,15 +812,14 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(unterminated).toContainText("Completed", { timeout: 30_000 });
     await unterminated.click();
     const unterminatedDetails = unterminated.locator("..");
-    // The content block holds the result's exact bytes: the CRLF line keeps
-    // its `\r`, the lone `\r` does not split an extra numbered line, and the
-    // unterminated last line carries no newline.
-    await expect(
-      unterminatedDetails.locator("pre", { hasText: "1: alpha LF" }),
-    ).toHaveJSProperty(
-      "textContent",
-      "1: alpha LF\n2: bravo CRLF\r\n3: charlie CR\rstill charlie\n4: delta end",
-    );
+    // Each numbered line keeps the result's exact bytes: the CRLF line keeps
+    // its `\r`, and the lone `\r` does not split an extra numbered line.
+    await expectSourceLines(unterminatedDetails, [
+      "alpha LF",
+      "bravo CRLF\r",
+      "charlie CR\rstill charlie",
+      "delta end",
+    ]);
     await expect(unterminatedDetails).toContainText("Shown lines: 1–4");
     await expect(unterminatedDetails).not.toContainText(requireKnowledgeRoot());
 
@@ -821,15 +835,13 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await terminated.click();
     const terminatedDetails = terminated.locator("..");
     await expect(terminatedDetails).toContainText("Shown lines: 1–4");
-    // Same 4 logical lines, but the file's own trailing newline survives
-    // into the last rendered line -- the terminal-delimiter contrast with
-    // the unterminated read above.
-    await expect(
-      terminatedDetails.locator("pre", { hasText: "1: alpha LF" }),
-    ).toHaveJSProperty(
-      "textContent",
-      "1: alpha LF\n2: bravo CRLF\r\n3: charlie CR\rstill charlie\n4: delta end\n",
-    );
+    // Same 4 logical lines: a terminal delimiter does not add a fifth.
+    await expectSourceLines(terminatedDetails, [
+      "alpha LF",
+      "bravo CRLF\r",
+      "charlie CR\rstill charlie",
+      "delta end",
+    ]);
 
     await sendPrompt(
       page,

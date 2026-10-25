@@ -9,5 +9,7 @@ export * from './system-prompt-receipts';
 export * from './memory';
 export * from './personalization';
 export * from './pins';
+export * from './project-links';
 export * from './projects';
+export * from './repositories';
 export * from './search';

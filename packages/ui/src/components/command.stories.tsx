@@ -175,6 +175,39 @@ export const Basic: Story = {
 };
 
 /**
+ * Use `variant="inline"` on `CommandInput` when the field sits in a row of
+ * text rather than heading a palette — a list row being named, say. It drops
+ * the search icon, rule, and fixed height, and stays a combobox over the
+ * list. The play function types a query and verifies the input still
+ * filters the list.
+ *
+ * @summary for a borderless search field inside a row of text
+ */
+export const InlineInput: Story = {
+  tags: ["ai-generated"],
+  render: () => (
+    <Command label="Add repository" className="rounded-lg border p-2">
+      <CommandInput variant="inline" placeholder="Repository name" />
+      <CommandList>
+        <CommandGroup heading="Your repositories">
+          <CommandItem>llame</CommandItem>
+          <CommandItem>website</CommandItem>
+        </CommandGroup>
+      </CommandList>
+    </Command>
+  ),
+  play: async ({ canvas, userEvent }) => {
+    const input = canvas.getByRole("combobox", { name: "Add repository" });
+
+    await userEvent.type(input, "web");
+    await expect(canvas.getByRole("option", { name: "website" })).toBeVisible();
+    await expect(
+      canvas.queryByRole("option", { name: "llame" }),
+    ).not.toBeInTheDocument();
+  },
+};
+
+/**
  * Use `CommandDialog` for a global command palette summoned by a keyboard
  * shortcut (here `⌘J` / `Ctrl+J`) — the same command menu, mounted in a modal
  * dialog. Our `CommandDialog` wraps `<Command>` internally, so its children

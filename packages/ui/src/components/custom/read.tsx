@@ -3,14 +3,7 @@
 import { type ComponentType, type ReactElement, useState } from "react";
 import { z } from "zod";
 
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-  type ToolHeaderState,
-} from "@workspace/ui/components/ai-elements/tool";
+import type { ToolHeaderState } from "@workspace/ui/components/ai-elements/tool";
 import { MediaThumbnail } from "@workspace/ui/components/custom/media-thumbnail";
 import {
   ImageDimensionsTile,
@@ -20,6 +13,16 @@ import {
   mediaCaption,
 } from "@workspace/ui/components/custom/media-lightbox";
 import { ScrollRegion } from "@workspace/ui/components/custom/scroll-region";
+import {
+  languageForPath,
+  parseNumberedLines,
+  SourceLines,
+} from "@workspace/ui/components/custom/source-lines";
+import {
+  ToolDetails,
+  ToolResultFallback,
+  ToolRow,
+} from "@workspace/ui/components/custom/tool-row";
 import { SearchLink } from "@workspace/ui/components/custom/web-search";
 import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
@@ -247,18 +250,6 @@ function pdfName({ path, finalUrl }: PdfReadOutput): string {
   return segment ?? "document.pdf";
 }
 
-function ReadMetadata({ rows }: { rows: Array<[string, string]> }) {
-  return (
-    <ul className="space-y-0.5 border-border border-t px-4 py-3 text-muted-foreground text-xs">
-      {rows.map(([label, value], index) => (
-        <li className="break-words" key={`${label}-${index}`}>
-          <span className="font-medium">{label}:</span> {value}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function ReadSource({
   output,
   Markdown,
@@ -287,6 +278,35 @@ function ReadSource({
   );
 }
 
+/** Numbered file content with its line numbers in a gutter; a `:raw` read
+ *  or a directory listing carries no line numbers and shows verbatim. */
+function ReadContent({ output }: { output: ReadOutput }) {
+  if (output.content === "") {
+    return <p className="text-muted-foreground text-sm">No content.</p>;
+  }
+  if (output.kind === "file" && output.representation !== "raw") {
+    // Web reads arrive as Markdown unless the URL names another type.
+    const language =
+      languageForPath(output.path) ??
+      (output.finalUrl === undefined ? undefined : "markdown");
+    return (
+      <SourceLines
+        lines={parseNumberedLines(output.content)}
+        label="File contents"
+        language={language}
+      />
+    );
+  }
+  // Cap height so a large read cannot inflate the transcript when expanded.
+  return (
+    <ScrollRegion label="File contents" className="rounded-md bg-muted/50">
+      <pre className="whitespace-pre-wrap break-words p-3 font-mono text-xs">
+        {output.content}
+      </pre>
+    </ScrollRegion>
+  );
+}
+
 function ReadBody({
   output,
   Markdown,
@@ -298,23 +318,9 @@ function ReadBody({
     <div className="space-y-4">
       <ReadSource output={output} Markdown={Markdown} />
       <div className="px-4">
-        {output.content === "" ? (
-          <p className="text-muted-foreground text-sm">No content.</p>
-        ) : (
-          // Cap height so a large read cannot inflate the transcript when
-          // expanded. ScrollRegion is tab-focusable — Firefox/Safari omit
-          // bare overflow nodes from the tab order (Chromium does not).
-          <ScrollRegion
-            label="File contents"
-            className="rounded-md bg-muted/50"
-          >
-            <pre className="whitespace-pre-wrap break-words p-3 font-mono text-xs">
-              {output.content}
-            </pre>
-          </ScrollRegion>
-        )}
+        <ReadContent output={output} />
       </div>
-      <ReadMetadata rows={metadataRows(output)} />
+      <ToolDetails rows={metadataRows(output)} />
     </div>
   );
 }
@@ -392,7 +398,7 @@ function ReadImageBody({
       <div className="px-4">
         <ReadImagePreview {...props} />
       </div>
-      <ReadMetadata rows={imageMetadataRows(props.output)} />
+      <ToolDetails rows={imageMetadataRows(props.output)} />
     </div>
   );
 }
@@ -420,7 +426,7 @@ function ReadPdfBody({
       <div className="px-4">
         <MediaThumbnail kind="pdf" name={pdfName(output)} href={href} />
       </div>
-      <ReadMetadata rows={pdfMetadataRows(output)} />
+      <ToolDetails rows={pdfMetadataRows(output)} />
     </div>
   );
 }
@@ -454,10 +460,7 @@ function ReadResult({
       />
     );
   }
-  if (output !== undefined) {
-    return <ToolOutput output={output} errorText={undefined} />;
-  }
-  return <p className="p-4 text-muted-foreground text-sm">Reading…</p>;
+  return <ToolResultFallback output={output} pendingLabel="Reading…" />;
 }
 
 /**
@@ -480,26 +483,23 @@ export function ReadTool({
   Markdown,
   mediaSources,
 }: ReadToolProps): ReactElement {
+  // The header names the submitted locator, so the arguments panel would
+  // only repeat it.
   return (
-    <Tool>
-      <ToolHeader state={state} type="tool-read" />
-      <ToolContent>
-        <ToolInput input={input} />
-        {state === "cancelled" ? null : errorText ? (
-          <ToolOutput
-            errorText={errorText}
-            output={undefined}
-            state="output-error"
-          />
-        ) : (
-          <ReadResult
-            input={input}
-            output={output}
-            Markdown={Markdown}
-            mediaSources={mediaSources}
-          />
-        )}
-      </ToolContent>
-    </Tool>
+    <ToolRow
+      name="read"
+      summary={submittedPathSchema.safeParse(input).data?.path}
+      input={input}
+      errorText={errorText}
+      state={state}
+      showInput={false}
+    >
+      <ReadResult
+        input={input}
+        output={output}
+        Markdown={Markdown}
+        mediaSources={mediaSources}
+      />
+    </ToolRow>
   );
 }

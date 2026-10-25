@@ -19,7 +19,12 @@ import {
   machineNameFromRoot,
 } from "@/lib/services/machines/locator";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
-import { useProjectById } from "@/lib/services/project/queries";
+import { useCheckoutsQuery } from "@/lib/services/checkouts/queries";
+import {
+  useProjectById,
+  useProjectRepositoryLinksQuery,
+} from "@/lib/services/project/queries";
+import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 
 import {
   DemoChangesSection,
@@ -30,6 +35,7 @@ import type { SessionDetailsLayout } from "./details-cookie";
 import {
   EnvironmentSection,
   environmentSummary,
+  type EnvironmentCheckout,
   type EnvironmentSectionProps,
 } from "./environment-section";
 import { SectionList } from "./section-list";
@@ -71,6 +77,42 @@ function useChatProject(projectId: string | undefined, chatLoaded: boolean) {
   return project === undefined ? null : { id: project.id, name: project.name };
 }
 
+/**
+ * The registered checkout the Workspace root is, with its repository under
+ * the name the Chat's Project gives it. Null when the root is no registered
+ * checkout; undefined until the reads settle.
+ */
+function useWorkspaceCheckout(
+  workspaceRoot: string | null,
+  projectId: string | undefined,
+): EnvironmentCheckout | null | undefined {
+  const bound = workspaceRoot !== null;
+  const checkouts = useCheckoutsQuery(undefined, bound);
+  const repositories = useRepositoriesQuery(bound);
+  const links = useProjectRepositoryLinksQuery(
+    projectId ?? "",
+    bound && projectId !== undefined,
+  );
+  if (!bound) return null;
+  if (checkouts.data === undefined || repositories.data === undefined) {
+    return undefined;
+  }
+  const checkout = checkouts.data.find((row) => row.path === workspaceRoot);
+  if (checkout === undefined) return null;
+  const repository = repositories.data.find(
+    (row) => row.id === checkout.repositoryId,
+  );
+  const link = links.data?.find(
+    (row) => row.repositoryId === checkout.repositoryId,
+  );
+  return {
+    repository: link?.alias ?? repository?.displayName ?? "Repository",
+    remote: repository?.canonicalRemote ?? null,
+    kind: checkout.kind,
+    branch: checkout.branch,
+  };
+}
+
 /** The Chat's environment, read from the caches the header already loads. */
 function useEnvironment(chatId: string): EnvironmentSectionProps {
   const chat = useOpenChat(chatId, { fetch: false });
@@ -82,9 +124,14 @@ function useEnvironment(chatId: string): EnvironmentSectionProps {
     chat?.projectId ?? undefined,
     chat !== undefined,
   );
+  const checkout = useWorkspaceCheckout(
+    workspaceRoot,
+    chat?.projectId ?? undefined,
+  );
   return {
     chatLoaded: chat !== undefined,
     workspaceRoot,
+    checkout,
     machineName,
     machine: findMachineByName(machinesQuery.data, machineName),
     // A disabled query also reads as pending, so only a Machine root waits.

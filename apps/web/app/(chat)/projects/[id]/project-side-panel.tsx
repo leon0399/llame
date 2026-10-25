@@ -11,6 +11,8 @@ import { PencilIcon, PlusIcon } from "lucide-react";
 import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { DemoChip } from "@/app/shell/soon-chip";
 
+import { ProjectRepositoriesSection } from "./project-repositories-section";
+
 /** One titled section of the panel, with its single action on the right.
  *  Every section here is still a sample-data preview, so each carries the
  *  demo chip. */
@@ -67,7 +69,7 @@ function InstructionsSection() {
           {SAMPLE_INSTRUCTIONS}
         </p>
       ) : (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Add instructions to tailor llame&apos;s responses
         </p>
       )}
@@ -116,7 +118,7 @@ function ContextSection() {
       }
     >
       {files.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Add PDFs, documents, or other text to reference in this project.
         </p>
       ) : (
@@ -133,16 +135,21 @@ function ContextSection() {
   );
 }
 
-/** The project page's side panel: the project's own settings, as previews of
- *  what is coming. */
-export function ProjectSidePanel() {
+/** The project page's side panel: the project's settings, demo previews
+ *  first, then its repositories. From `lg` it takes the page grid's third
+ *  column beside the composer and chats, out of flow so its height never
+ *  stretches the composer's row. */
+export function ProjectSidePanel({ projectId }: { projectId: string }) {
   return (
-    <aside
-      aria-label="Project settings"
-      className="self-start divide-y rounded-lg border"
-    >
-      <InstructionsSection />
-      <ContextSection />
-    </aside>
+    <div className="min-w-0 lg:relative lg:col-start-3 lg:row-span-2 lg:row-start-1">
+      <aside
+        aria-label="Project settings"
+        className="divide-y rounded-lg border lg:absolute lg:inset-x-0 lg:top-0"
+      >
+        <InstructionsSection />
+        <ContextSection />
+        <ProjectRepositoriesSection projectId={projectId} />
+      </aside>
+    </div>
   );
 }

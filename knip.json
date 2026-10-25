@@ -69,6 +69,7 @@
         "@base-ui/react",
         "@hookform/resolvers",
         "@radix-ui/react-use-controllable-state",
+        "diff",
         "motion",
         "next-themes",
         "react-hook-form",
@@ -83,6 +84,10 @@
       "project": ["src/**/*.ts"]
     },
     "packages/machine-protocol": {
+      "entry": ["src/index.ts", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "packages/git-executor": {
       "entry": ["src/index.ts", "src/**/*.test.ts"],
       "project": ["src/**/*.ts"]
     },

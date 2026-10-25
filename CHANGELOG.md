@@ -24,6 +24,50 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `pnpm audit --fix`'s own output was not committed: its 18 overrides were
   unscoped and would have forced zod 4 onto zod 3 consumers.
 
+- The project page gains a Repositories section in its side panel: one row per
+  linked repository with the project's alias, a Primary badge when there is a
+  choice, and its remote with how many checkouts and worktrees it holds. The
+  section's `+` adds a draft row that searches the owner's catalog or takes a
+  pasted path, which registers the clone and links its repository; a project's
+  first link is marked primary, a flag stored for chat start, which does not
+  read it yet. A row opens a sheet with the link's settings,
+  which save as they change, the repository's clones with each Machine's
+  reachability, and its worktrees with the chat that made each one; a
+  worktree's Remove is guarded by the route and shows its refusal in place.
+  Checkout and worktree rows copy their path, or a Machine's path or
+  `machine://` locator, and the sheet links to the repository's page on a known
+  forge. See
+  [repositories](docs/product/operator/repositories.md#the-project-pages-repositories-section).
+
+- The chat's Session details show the Workspace's repository and branch when
+  its root is a registered checkout: the repository as a link to its GitHub (or
+  other known forge) page, named `owner/name`, and the branch marked when the
+  Workspace is a worktree. The Workspace path row now only states the path; its
+  one copy action offers a Machine path or its `machine://` locator, and a copy
+  confirms itself with a check in place of a toast.
+
+- A project links the owner's repositories: each link carries a project-scoped
+  alias, one primary flag per project, and an isolation policy of `inherit`,
+  `always_worktree`, or `never`. The link routes sit under
+  `/api/v1/projects/:id/repositories` with create, read, update, and unlink, and
+  a write on an archived project answers `409` without changing anything. Every
+  link is owner-isolated with forced RLS and composite owner foreign keys, so a
+  row that names another owner's project or repository is refused by the
+  database; deletion cascades rows only, never a directory. See
+  [repositories](docs/product/operator/repositories.md#project-links).
+
+- Every native tool call has its own chat row instead of raw parameter and
+  result JSON. `edit` shows a unified diff with line numbers and the changed
+  words marked; `write` shows the written file; `grep` groups matching
+  passages by file with the matching lines emphasized; `bash` shows the
+  command as a prompt with its exit code and output streams;
+  `search_conversations`, `conversation_read`, `knowledge_search`, the
+  Workspace tools, and MCP tools each get a dedicated view. `read`, `write`,
+  `grep`, and `conversation_read` content shows its line numbers in
+  a gutter with syntax highlighting, so a copied selection carries no
+  line-number prefixes. Collapsed rows name the path, command, or query, and
+  a failed command's error text keeps its line breaks.
+
 - CI audits dependencies for security advisories in a new `Security`
   workflow. On a pull request, a dependency review fails the run when the
   lockfile change adds a package version with a high or critical advisory;
@@ -50,6 +94,44 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `apps/storybook` are never matched against the unrelated public `machine`
   and `storybook` packages. Expect Dependabot alerts for the advisories above
   once the first snapshot lands.
+
+- `enter_workspace` accepts an optional `worktree` object with `name` and
+  `baseRef`, so one Chat can take its own tree of the clone it names: the tool
+  creates the worktree beside the clone (or under the main checkout's
+  `worktree_base`) on a `llame/<name>` branch, records the Worktree checkout,
+  its lease with the base commit, and any adopted repository and main checkout,
+  and binds the new root in the same transaction as the attempt that precedes
+  `git worktree add`. An unregistered clone is adopted from its inspected
+  `origin` remote, a linked-worktree source resolves to its main clone, and a
+  symlinked worktree parent decides on its canonical form. A failed creation
+  records nothing and leaves the previous binding alone. The owner can remove a
+  clean worktree through `DELETE /api/v1/checkouts/:id/worktree`, which refuses a
+  dirty tree, unpushed commits, and an unknown upstream unless HEAD is the
+  recorded base commit, and keeps the branch. See
+  [repositories](docs/product/operator/repositories.md) and
+  [enter_workspace](docs/product/reference/tools/enter-workspace.md).
+
+- The instance gains a repository catalog: an owner's repositories, their
+  aliases, and the checkouts where each exists on an executor, plus the worktree
+  leases that record which Chat created one, from which base ref, and at which
+  commit. `POST /api/v1/checkouts` inspects the submitted path with a new typed
+  git surface (argv arrays, an empty hooks directory, `core.fsmonitor` off, a
+  fixed environment, and a timeout), takes the repository from the inspected
+  `origin` remote — normalized, so `git@github.com:leon0399/llame.git` and
+  `https://github.com/leon0399/llame` are one repository — stores the toplevel
+  git reports, so a subdirectory of a clone records that clone once, records a
+  linked worktree under its main clone, and adopts what it has not seen. A
+  registration answers with the row the checkout list would show, including any
+  Chat already bound to the path. Registration runs git only when
+  `tools.nativeExecutorId` is set, `enter_workspace` is in `tools.allowed`, and
+  the `enter_workspace` permission group allows the submitted path, its
+  canonical form, the toplevel the row is stored at, and the inspected main
+  clone; failures answer typed 403, 404, 409, 422, 502, or 503 codes, and a
+  `machine://` locator answers
+  `executor_unavailable` until Machines answer the git methods. Deleting a
+  repository or checkout deletes rows only, never a directory, and every table
+  is owner-isolated with forced RLS. See
+  [repositories](docs/product/operator/repositories.md).
 
 # 2026-10-22
 

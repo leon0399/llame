@@ -14,6 +14,7 @@ import {
   type MachineWorkspaceState,
 } from './machine-workspace';
 import { MachineConnector } from '../machines/machine-connector.service';
+import { ExecutorGit } from '../machines/executor-git.service';
 import { parseMachineExecutorId } from '../machines/machine-locator';
 import {
   createSshClient,
@@ -857,6 +858,11 @@ export class RunExecutionService {
     @Optional()
     @Inject(SSH_CLIENT_FACTORY)
     private readonly sshClientFactory: SshClientFactory = createSshClient,
+    // The typed git surface a worktree entry runs through. Absent in a worker
+    // that serves no git, where a `worktree` call fails before any probe.
+    @Optional()
+    @Inject(ExecutorGit)
+    private readonly executorGit?: ExecutorGit,
   ) {
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
@@ -1350,6 +1356,7 @@ export class RunExecutionService {
         claim.nativeDeliverySequence,
       ),
       sshClient: this.sshClient,
+      executorGit: this.executorGit,
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
@@ -2852,6 +2859,7 @@ export class RunExecutionService {
       machineStatus: this.machinesStatus,
       machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
       sshClient: this.sshClient,
+      executorGit: this.executorGit,
     };
   }
 

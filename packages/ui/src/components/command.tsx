@@ -94,10 +94,33 @@ function CommandDialog({
   );
 }
 
+/**
+ * CommandInput is the search field that drives a Command's list, exposed to
+ * assistive technology as a combobox over that list. `inline` drops the
+ * search icon, rule, and height, for a field that sits in a row of text — a
+ * list row being named, say — rather than heading a palette.
+ *
+ * @summary for the search field of a Command, as a palette header or inline
+ */
 function CommandInput({
   className,
+  variant = "default",
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  variant?: "default" | "inline";
+}) {
+  if (variant === "inline") {
+    return (
+      <CommandPrimitive.Input
+        data-slot="command-input"
+        className={cn(
+          "w-full min-w-0 bg-transparent text-sm font-medium outline-hidden placeholder:font-normal placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+          className,
+        )}
+        {...props}
+      />
+    );
+  }
   return (
     <div
       data-slot="command-input-wrapper"

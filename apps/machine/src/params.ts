@@ -25,6 +25,21 @@ export function paramRecord(
   return value;
 }
 
+/**
+ * Refuse every key the method does not declare: each git method takes one
+ * strict object, and a misspelled key would otherwise be dropped silently.
+ */
+export function refuseUnknownKeys(
+  source: SerializableRecord,
+  method: string,
+  allowed: ReadonlyArray<string>,
+): void {
+  const unknown = Object.keys(source).find((key) => !allowed.includes(key));
+  if (unknown !== undefined) {
+    throw invalidParams(method, `Unknown parameter: ${unknown}.`);
+  }
+}
+
 export function requireString(
   source: SerializableRecord,
   key: string,
