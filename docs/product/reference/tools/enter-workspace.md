@@ -13,16 +13,47 @@ configured_by:
 
 ## Purpose
 
-`enter_workspace({ path })` binds the owner's Chat to one canonical directory: a
-host directory, or a directory on a configured
+`enter_workspace({ path, worktree? })` binds the owner's Chat to one canonical
+directory: a host directory, or a directory on a configured
 [Machine](../locators/machine.md). While entered, a relative native-file or Bash
-path resolves from that root instead of failing.
+path resolves from that root instead of failing. With `worktree`, the call
+creates a new git worktree of the clone `path` names and binds that directory
+instead.
 
 ## Arguments
 
-| Argument | Meaning                                                                                                    |
-| -------- | ---------------------------------------------------------------------------------------------------------- |
-| `path`   | an absolute host path, or a `machine://` locator naming a directory on a Machine; nothing else is accepted |
+| Argument           | Meaning                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `path`             | an absolute host path, or a `machine://` locator naming a directory on a Machine; nothing else is accepted |
+| `worktree`         | optional: create a worktree of the source clone `path` names and bind it                                   |
+| `worktree.name`    | optional: the worktree name; an omitted name is generated                                                  |
+| `worktree.baseRef` | optional: the commit-ish the new branch starts at; an omitted value uses the source HEAD                   |
+
+A `worktree` object with any other member, and `exit_workspace` with any
+argument, is invalid input.
+
+## Worktree entries
+
+With `worktree`, `path` is a source clone: a subdirectory of one, a linked
+worktree of one, or the clone itself. The source is the main tree git reports,
+and the call runs one read-only inspection of it.
+
+- The directory is `<parent>/.llame-worktrees/<display name>/<slug>`, beside the
+  clone, unless the clone's main checkout carries a `worktree_base`, which
+  replaces `<parent>/.llame-worktrees`. `<slug>` is the name with each `/`
+  replaced by `-`.
+- The branch is `llame/<name>`, or the name itself when it holds a `/`. A
+  supplied name is used as written; an omitted one becomes
+  `<adjective>-<noun>-<4 hex>` and is retried while its directory exists.
+- The policy decides the submitted path, then the canonical source clone, then
+  the main clone git reports, then the canonical worktree directory — resolved
+  through its deepest existing ancestor, so a symlinked parent decides where it
+  lands. A refusal on any of the four creates nothing.
+- The Worktree checkout, its lease, any adopted repository and main checkout, and
+  the binding commit together. The result names the root, the branch, and the
+  base commit.
+- Removing a worktree is an owner action, not a tool: see
+  [repositories](../../operator/repositories.md#worktrees-a-chat-creates).
 
 ## Locators
 
@@ -35,7 +66,8 @@ names one Machine and an absolute directory path on it. Entry accepts no
 
 A successful entry returns the canonical address that is now the binding: the
 canonical absolute host path, or the canonical `machine://<name>/<path>` locator
-for a Machine target. The result carries the authority the bound root discloses,
+for a Machine target. A worktree entry adds `worktree` with its `path`, `branch`,
+and `baseCommit`. The result carries the authority the bound root discloses,
 which for a Machine names the Machine and states that its operations run as that
 Machine's own OS user; see [machine authority](../locators/machine.md#authority).
 
@@ -112,6 +144,15 @@ target adds that surface's failures: `machine_not_found` for a name the operator
 did not configure, `machine_unavailable` for a Machine that could not be reached,
 and the Machine's own refusal for a path no registered root contains; see
 [machine errors](../locators/machine.md#errors).
+
+A worktree call adds `invalid_input` for a name or base ref git would refuse,
+`permission_denied` for a refused decision, and `worktree_failed` for a failed
+creation — including a name whose directory or branch exists, a source that is
+not a repository, a timeout, and the redacted git standard error. A failure
+records no row and leaves the previous binding and its generation unchanged. A
+fence lost after the directory was created answers `executor_unavailable` with
+`leftDirectory`, and a Machine link that dropped after the request was sent
+answers `outcome_unknown`; the directory can remain on disk in both cases.
 
 ## Configured by
 

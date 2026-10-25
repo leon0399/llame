@@ -6,6 +6,7 @@ import { type CheckoutRegistrationService } from './checkout-registration.servic
 import { CheckoutsController } from './checkouts.controller';
 import { type CheckoutSummary, CheckoutsService } from './checkouts.service';
 import { type CheckoutResponse, toCheckoutResponse } from './dto/checkouts.dto';
+import { WorktreeRemovalService } from './worktree-removal.service';
 
 const summary: CheckoutSummary = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
@@ -52,6 +53,17 @@ function unusedRegistration(): CheckoutRegistrationService {
   return { register: vi.fn() } as never;
 }
 
+/**
+ * The removal service's own gate never runs in this file, so a stub that records
+ * the forwarded call stands in for it. The class carries injected private state,
+ * so a structural object cannot name its type.
+ */
+function worktrees(remove: () => Promise<void>): WorktreeRemovalService {
+  // SAFETY: the controller only calls `remove`, which the stub supplies.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return { remove } as never;
+}
+
 // The controller is a mapping layer: each route forwards the verified user and
 // its inputs to one service call, and hands back the row's public shape.
 // `ownerUserId` is not part of that shape, so the mapping cannot leak an owner.
@@ -71,12 +83,14 @@ function makeController() {
   const deleteCheckout = vi
     .spyOn(service, 'deleteCheckout')
     .mockResolvedValue(undefined);
+  const remove = vi.fn().mockResolvedValue(undefined);
   return {
-    controller: new CheckoutsController(service),
+    controller: new CheckoutsController(service, worktrees(remove)),
     register,
     listCheckouts,
     setWorktreeBase,
     deleteCheckout,
+    remove,
   };
 }
 
@@ -142,6 +156,16 @@ describe('CheckoutsController', () => {
       summary.id,
       '/srv/worktrees',
     );
+  });
+
+  it('removes a worktree through the removal service and answers no body', async () => {
+    const { controller, remove } = makeController();
+
+    await expect(
+      controller.removeCheckoutWorktree('owner-a', summary.id),
+    ).resolves.toBeUndefined();
+
+    expect(remove).toHaveBeenCalledWith('owner-a', summary.id);
   });
 
   it('deletes the row through the service and answers no body', async () => {

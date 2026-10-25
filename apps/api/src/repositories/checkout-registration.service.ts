@@ -11,9 +11,9 @@ import {
 } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { ExecutorGitError } from '../machines/executor-git-error';
 import {
   ExecutorGit,
-  ExecutorGitError,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
 import { evaluatePermission } from '../tools/permissions/evaluator';

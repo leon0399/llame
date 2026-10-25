@@ -9,15 +9,11 @@ import { WorkspaceBindingRepository } from '../chats/workspace-binding.repositor
 import {
   formatMachineLocator,
   isMachineLocator,
-  machineExecutorId,
   parseMachineLocator,
 } from '../machines/machine-locator';
 import { readFsStatResult } from '../machines/machine-results';
 import { isSshLocator } from '../ssh/ssh-locator';
 import { type MachineConnector } from '../machines/machine-connector.service';
-import { boundSkillCatalog } from '../skills/skill-prompt-baseline';
-import { type SkillCatalogPort } from '../skills/skill-catalog';
-import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
@@ -29,93 +25,34 @@ import {
   machineUnavailableResult,
   machineUnusableResult,
 } from './machine-call';
-import { admitPermission } from './permissions/admit';
-import { evaluatePermission } from './permissions/evaluator';
 import { projectNativeFilePath } from './permissions/locator-projection';
-import { permissionDeniedResult } from './permissions/messages';
-import {
-  type WorkspaceMcpEntryState,
-  type WorkspaceMcpKey,
-} from '../mcp/workspace-mcp-clients';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import {
+  applyBindingTransition,
+  bindCanonicalRoot,
+  boundResult,
+  claimTransition,
+  executorUnavailable,
+  isCurrentDelivery,
+  localAuthority,
+  machineAuthority,
+  requireDerivedPermission,
+  requireSubmittedPermission,
+  transitionConflict,
+  type WorkspaceAuthority,
+} from './workspace-binding';
+import {
+  readWorktreeRequest,
+  type WorktreeRequest,
+} from './workspace-worktree';
+import { enterWorktree } from './workspace-worktree-entry';
 
-/** Workspace chooses a working root; it is not an isolation boundary. */
-export const WORKSPACE_AUTHORITY =
-  "Workspace selects a working root but is not filesystem confinement; host operations retain the host user's authority.";
-
-/**
- * The same disclosure for a Machine Workspace: the root is remote, and the
- * authority the model's operations carry is the Machine's own OS user, which
- * every hub user bound to that Machine shares.
- */
-export const MACHINE_WORKSPACE_AUTHORITY =
-  "Workspace selects a working root on the Machine; Machine operations run as that Machine's own OS user without sandboxing, which every hub user bound to it shares, and its registered roots bound addressing only.";
-
-type EnterWorkspaceInput = { path: string };
-type ExitWorkspaceInput = Record<never, never>;
-
-/**
- * The executor a Workspace transition binds, and the fence it applies. An
- * absolute host path pins the Run to the local executor; a Machine Workspace
- * binds `machine:<name>` without pinning anything, because the Run stays free
- * to use `file:` aliases and other Machines and needs no local executor at all.
- */
-type WorkspaceAuthority = {
-  readonly runId: string;
-  readonly toolCallId: string;
-  /** The executor id the Chat binds: the local executor, or `machine:<name>`. */
-  readonly executorId: string;
-  /** The executor this transition pins the Run to; absent leaves it unbound. */
-  readonly bindExecutorId?: string;
-  /** The Machine this Workspace names, when it names one. */
-  readonly machine?: { readonly name: string; readonly path: string };
+type EnterWorkspaceInput = {
+  path: string;
+  worktree?: { name?: string; baseRef?: string };
 };
 
-function localAuthority(context: ToolContext): WorkspaceAuthority | ToolResult {
-  if (!context.runId || !context.nativeExecutorId || !context.toolCallId) {
-    return {
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
-    };
-  }
-  return {
-    runId: context.runId,
-    toolCallId: context.toolCallId,
-    executorId: context.nativeExecutorId,
-    bindExecutorId: context.nativeExecutorId,
-  };
-}
-
-/**
- * A Machine entry needs no local executor: it needs the Run identity the fence
- * and the durable attempt are keyed by, and nothing else.
- */
-function machineAuthority(
-  context: ToolContext,
-  machine: { readonly name: string; readonly path: string },
-): WorkspaceAuthority | ToolResult {
-  if (!context.runId || !context.toolCallId) {
-    return {
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'This Run cannot bind a Workspace.',
-    };
-  }
-  return {
-    runId: context.runId,
-    toolCallId: context.toolCallId,
-    executorId: machineExecutorId(machine.name),
-    machine,
-  };
-}
-
-/** The authority text one bound root discloses; the Machine's own when remote. */
-function authorityDisclosure(authority: WorkspaceAuthority): string {
-  return authority.machine === undefined
-    ? WORKSPACE_AUTHORITY
-    : MACHINE_WORKSPACE_AUTHORITY;
-}
+type ExitWorkspaceInput = Record<never, never>;
 
 function invalidWorkspacePath(message: string): ToolResult {
   return { status: 'error', type: 'invalid_path', message };
@@ -135,43 +72,6 @@ function notDirectory(): ToolResult {
     type: 'not_directory',
     message: 'The Workspace path is not a directory.',
   };
-}
-
-function requireSubmittedPermission(
-  context: ToolContext,
-  submittedPath: string,
-): ToolResult | undefined {
-  const decision = admitPermission(context, (policy) =>
-    evaluatePermission(policy, {
-      toolId: 'enter_workspace',
-      args: { path: submittedPath },
-    }),
-  );
-  if (decision === undefined) return permissionDeniedResult('no_allow');
-  return decision.decision === 'reject'
-    ? permissionDeniedResult(decision.reason)
-    : undefined;
-}
-
-function requireCanonicalPermission(
-  context: ToolContext,
-  canonicalPath: string,
-): ToolResult | undefined {
-  const decision = admitPermission(context, (policy) =>
-    evaluatePermission(policy, {
-      toolId: 'enter_workspace',
-      args: { path: canonicalPath },
-    }),
-  );
-  if (decision === undefined) return permissionDeniedResult('no_allow');
-  context.onDerivedDecision?.({
-    kind: 'canonical',
-    url: canonicalPath,
-    decision,
-  });
-  return decision.decision === 'reject'
-    ? permissionDeniedResult(decision.reason)
-    : undefined;
 }
 
 type CanonicalDirectory = { readonly path: string };
@@ -230,159 +130,12 @@ async function machineDirectory(
   return isString(canonical) ? { path: canonical } : notFound();
 }
 
-function executorUnavailable(): ToolResult {
-  return {
-    status: 'error',
-    type: 'executor_unavailable',
-    message: 'This Run cannot use this native executor.',
-  };
-}
-
-function transitionConflict(): ToolResult {
-  return {
-    status: 'error',
-    type: 'workspace_transition_conflict',
-    message: 'Only one Workspace transition may run in a model step.',
-  };
-}
-type WorkspaceSkillResult = {
-  readonly skills: ReadonlyArray<{
-    readonly name: string;
-    readonly description: string;
-  }>;
-  readonly skillsOmitted: number;
+/** One Machine entry: the submitted locator, its Machine, and its worktree. */
+type MachineEntryRequest = {
+  readonly submittedPath: string;
+  readonly machine: { readonly name: string; readonly path: string };
+  readonly worktree: WorktreeRequest | undefined;
 };
-
-function workspaceSkillResult(
-  catalog: SkillCatalogPort | undefined,
-  root: string,
-): WorkspaceSkillResult {
-  if (catalog === undefined) return { skills: [], skillsOmitted: 0 };
-
-  const sources = workspaceSkillSources(root);
-  const snapshot = catalog.getSnapshot(sources);
-  if (!snapshot.available) return { skills: [], skillsOmitted: 0 };
-
-  const workspaceEntries = snapshot.entries.filter(
-    (entry) =>
-      entry.available &&
-      entry.proactive &&
-      entry.description !== null &&
-      entry.sourceDirectory !== null &&
-      sources.includes(entry.sourceDirectory),
-  );
-  const bounded = boundSkillCatalog(workspaceEntries);
-  return {
-    skills: bounded.entries,
-    skillsOmitted: bounded.omitted,
-  };
-}
-
-async function isCurrentDelivery(
-  context: ToolContext,
-  runId: string,
-): Promise<boolean> {
-  return context.tenantDb.runAs(context.userId, (db) =>
-    new WorkspaceBindingRepository(db).isCurrentDelivery({
-      runId,
-      ownerUserId: context.userId,
-      deliverySequence: context.nativeDeliverySequence,
-    }),
-  );
-}
-
-function claimTransition(context: ToolContext): boolean {
-  return (
-    context.workspaceRoot === undefined ||
-    context.workspaceRoot.claimTransition()
-  );
-}
-
-async function workspaceMcpServers(
-  context: ToolContext,
-  root: string,
-  generation: number,
-  start: boolean,
-): Promise<WorkspaceMcpEntryState['servers']> {
-  const clients = context.workspaceMcp;
-  if (clients === undefined) return [];
-  const key: WorkspaceMcpKey = {
-    chatId: context.chatId,
-    root,
-    generation,
-  };
-  const state = start
-    ? await clients.startForChat(key)
-    : clients.stateForKey(key);
-  if (start) clients.transferAttempt(context.chatId, key);
-  if (state === undefined) return [];
-  if (!start) {
-    return state.servers.map((server) =>
-      context.toolAdditions?.hasWorkspaceDeclaration(server.id) &&
-      !context.toolAdditions.hasAvailableWorkspaceDeclaration(server.id)
-        ? { ...server, reason: 'shadows from the next Run' }
-        : server,
-    );
-  }
-  if (context.toolAdditions === undefined) return state.servers;
-  const added = await clients.addToAttempt(key, context.toolAdditions);
-  return added.servers;
-}
-
-async function bindCanonicalRoot(
-  context: ToolContext,
-  authority: WorkspaceAuthority,
-  canonical: string,
-): Promise<ToolResult> {
-  const result = await context.tenantDb.runAs(context.userId, (db) =>
-    new WorkspaceBindingRepository(db).enter({
-      chatId: context.chatId,
-      ownerUserId: context.userId,
-      runId: authority.runId,
-      deliverySequence: context.nativeDeliverySequence,
-      executorId: authority.executorId,
-      root: canonical,
-      ...(authority.bindExecutorId !== undefined && {
-        bindExecutorId: authority.bindExecutorId,
-      }),
-    }),
-  );
-  if (result.status === 'fence_lost') return executorUnavailable();
-  await applyBindingTransition(context, canonical, result.status);
-  const mcpServers = await workspaceMcpServers(
-    context,
-    canonical,
-    result.generation,
-    result.status !== 'unchanged',
-  );
-  return {
-    status: 'success',
-    root: canonical,
-    state: result.status,
-    authority: authorityDisclosure(authority),
-    ...workspaceSkillResult(context.skillCatalog, canonical),
-    mcpServers,
-  };
-}
-
-/**
- * The local effects of a binding that changed: a switch drops the previous
- * root's MCP servers and declarations, and any other outcome commits the new
- * root to the Run's Workspace cell.
- */
-async function applyBindingTransition(
-  context: ToolContext,
-  canonical: string,
-  state: 'bound' | 'switched' | 'unchanged',
-): Promise<void> {
-  if (state === 'switched') {
-    context.toolAdditions?.disableAll();
-    await context.workspaceMcp?.stopForChat(context.chatId);
-  }
-  if (state !== 'unchanged') {
-    context.workspaceRoot?.commit(canonical);
-  }
-}
 
 /**
  * Enter one directory on the Machine the locator names. The submitted and the
@@ -393,9 +146,9 @@ async function applyBindingTransition(
 async function enterMachineWorkspace(
   context: ToolContext,
   connector: MachineConnector,
-  submittedPath: string,
-  machine: { readonly name: string; readonly path: string },
+  entry: MachineEntryRequest,
 ): Promise<ToolResult> {
+  const { machine, submittedPath, worktree } = entry;
   const authority = machineAuthority(context, machine);
   if ('status' in authority) return authority;
   if (!claimTransition(context)) return transitionConflict();
@@ -422,14 +175,17 @@ async function enterMachineWorkspace(
   context.abortSignal?.throwIfAborted();
   if ('status' in canonicalResult) return canonicalResult;
 
-  const canonicalRejection = requireCanonicalPermission(
+  const canonicalRejection = requireDerivedPermission(
     context,
+    'canonical',
     canonicalResult.path,
   );
   if (canonicalRejection !== undefined) return canonicalRejection;
 
   context.abortSignal?.throwIfAborted();
-  return bindCanonicalRoot(context, authority, canonicalResult.path);
+  return worktree === undefined
+    ? bindCanonicalRoot(context, authority, canonicalResult.path)
+    : enterWorktreeEntry(context, authority, canonicalResult.path, worktree);
 }
 
 /**
@@ -462,6 +218,7 @@ function machineEntry(
 function enterMachineEntry(
   context: ToolContext,
   path: string,
+  worktree: WorktreeRequest | undefined,
 ): ToolResult | Promise<ToolResult> {
   const connector = machineConnector(context);
   if (connector === undefined)
@@ -469,57 +226,130 @@ function enterMachineEntry(
   const machine = machineEntry(connector, path);
   return 'status' in machine
     ? machine
-    : enterMachineWorkspace(context, connector, path, machine);
+    : enterMachineWorkspace(context, connector, {
+        submittedPath: path,
+        machine,
+        worktree,
+      });
+}
+
+/**
+ * One worktree entry after the source clone is decided: the flow decides the
+ * main clone and the directory, appends the attempt, adds the worktree, and
+ * commits the rows and the binding, and this applies the transition the
+ * committed binding needs before it reports it.
+ */
+async function enterWorktreeEntry(
+  context: ToolContext,
+  authority: WorkspaceAuthority,
+  canonical: string,
+  worktree: WorktreeRequest,
+): Promise<ToolResult> {
+  const outcome = await enterWorktree(context, {
+    authority,
+    canonical,
+    name: worktree.name,
+    baseRef: worktree.baseRef,
+  });
+  if (outcome.status === 'failed') return outcome.result;
+  await applyBindingTransition(context, outcome.root, outcome.status);
+  return boundResult(context, authority, {
+    root: outcome.root,
+    state: outcome.status,
+    generation: outcome.generation,
+    worktree: outcome.worktree,
+  });
+}
+
+/**
+ * The submitted call, validated before any probe: a name or base ref git would
+ * refuse, and a path a Workspace can never name, fail here.
+ */
+function readEntry(
+  input: EnterWorkspaceInput,
+): { readonly path: string; readonly worktree?: WorktreeRequest } | ToolResult {
+  const request = readWorktreeRequest(input.worktree ?? {});
+  if ('message' in request) {
+    return { status: 'error', type: 'invalid_input', message: request.message };
+  }
+  if (input.path.includes('\0')) {
+    return invalidWorkspacePath(
+      'Workspace path must be absolute and contain no NUL bytes.',
+    );
+  }
+  if (isSshLocator(input.path)) {
+    return invalidWorkspacePath(
+      'An ssh:// locator cannot be a Workspace root; Workspace selects a local or Machine directory.',
+    );
+  }
+  return {
+    path: input.path,
+    ...(input.worktree !== undefined && { worktree: request }),
+  };
+}
+
+/**
+ * The local branch: the submitted path, the canonical path, and the binding,
+ * each decided in that order, with the Run pinned to this native executor.
+ */
+async function enterLocalWorkspace(
+  context: ToolContext,
+  entry: { readonly path: string; readonly worktree?: WorktreeRequest },
+): Promise<ToolResult> {
+  const authority = localAuthority(context);
+  if ('status' in authority) return authority;
+  if (!path.isAbsolute(entry.path)) {
+    return invalidWorkspacePath(
+      'Workspace path must be absolute and contain no NUL bytes.',
+    );
+  }
+  if (!claimTransition(context)) return transitionConflict();
+
+  const submittedRejection = requireSubmittedPermission(
+    context,
+    projectNativeFilePath(entry.path),
+  );
+  if (submittedRejection !== undefined) return submittedRejection;
+  if (!(await isCurrentDelivery(context, authority.runId))) {
+    return executorUnavailable();
+  }
+
+  const canonicalResult = await canonicalDirectory(entry.path);
+  context.abortSignal?.throwIfAborted();
+  if ('status' in canonicalResult) return canonicalResult;
+  const canonical = canonicalResult.path;
+  const canonicalRejection = requireDerivedPermission(
+    context,
+    'canonical',
+    canonical,
+  );
+  if (canonicalRejection !== undefined) return canonicalRejection;
+
+  context.abortSignal?.throwIfAborted();
+  return entry.worktree === undefined
+    ? bindCanonicalRoot(context, authority, canonical)
+    : enterWorktreeEntry(context, authority, canonical, entry.worktree);
 }
 
 export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
   id: 'enter_workspace',
   classification: 'execute_code',
   description: loadPackagedToolDescription('enter_workspace'),
-  inputSchema: z.strictObject({ path: z.string().min(1) }),
-  execute: async (context, input): Promise<ToolResult> => {
-    if (input.path.includes('\0')) {
-      return invalidWorkspacePath(
-        'Workspace path must be absolute and contain no NUL bytes.',
-      );
-    }
-    if (isMachineLocator(input.path))
-      return enterMachineEntry(context, input.path);
-    if (isSshLocator(input.path))
-      return invalidWorkspacePath(
-        'An ssh:// locator cannot be a Workspace root; Workspace selects a local or Machine directory.',
-      );
-
-    const authority = localAuthority(context);
-    if ('status' in authority) return authority;
-    if (!path.isAbsolute(input.path)) {
-      return invalidWorkspacePath(
-        'Workspace path must be absolute and contain no NUL bytes.',
-      );
-    }
-
-    if (!claimTransition(context)) return transitionConflict();
-
-    const submittedRejection = requireSubmittedPermission(
-      context,
-      projectNativeFilePath(input.path),
-    );
-    if (submittedRejection !== undefined) return submittedRejection;
-
-    if (!(await isCurrentDelivery(context, authority.runId))) {
-      return executorUnavailable();
-    }
-
-    const canonicalResult = await canonicalDirectory(input.path);
-    context.abortSignal?.throwIfAborted();
-    if ('status' in canonicalResult) return canonicalResult;
-    const canonical = canonicalResult.path;
-
-    const canonicalRejection = requireCanonicalPermission(context, canonical);
-    if (canonicalRejection !== undefined) return canonicalRejection;
-
-    context.abortSignal?.throwIfAborted();
-    return bindCanonicalRoot(context, authority, canonical);
+  inputSchema: z.strictObject({
+    path: z.string().min(1),
+    worktree: z
+      .strictObject({
+        name: z.string().min(1).optional(),
+        baseRef: z.string().min(1).optional(),
+      })
+      .optional(),
+  }),
+  execute: (context, input): Promise<ToolResult> => {
+    const entry = readEntry(input);
+    if ('status' in entry) return Promise.resolve(entry);
+    return isMachineLocator(entry.path)
+      ? Promise.resolve(enterMachineEntry(context, entry.path, entry.worktree))
+      : enterLocalWorkspace(context, entry);
   },
 };
 

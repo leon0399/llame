@@ -35,11 +35,10 @@ import { runTool } from './runner';
 import { AttemptToolAdditions } from './attempt-tool-additions';
 import type { ToolContext } from './types';
 import {
-  enterWorkspaceTool,
-  exitWorkspaceTool,
   MACHINE_WORKSPACE_AUTHORITY,
   WORKSPACE_AUTHORITY,
-} from './workspace';
+} from './workspace-binding';
+import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { createWorkspaceRootCell } from './workspace-path';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -403,6 +402,22 @@ describe('Workspace host tools', () => {
       status: 'error',
       type: 'invalid_path',
       message: 'Workspace path must be absolute and contain no NUL bytes.',
+    });
+    expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid worktree request before any binding call', async () => {
+    const base = context();
+    const runAs = vi.spyOn(base.tenantDb, 'runAs');
+    const result = await enterWorkspaceTool.execute(base, {
+      path: root,
+      worktree: { baseRef: '-x' },
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_input',
+      message: 'A base ref must not start with `-`.',
     });
     expect(runAs).not.toHaveBeenCalled();
   });

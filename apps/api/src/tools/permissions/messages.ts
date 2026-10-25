@@ -1,5 +1,6 @@
-import { isString, type ToolResult } from '@workspace/runtime-safety';
+import { isString } from '@workspace/runtime-safety';
 
+import { type ToolErrorResult } from '../types';
 import { type PermissionRejectionReason } from './types';
 
 /**
@@ -41,7 +42,7 @@ const QUERY_OR_FRAGMENT = /[?#][\s\S]*$/u;
 /** The non-fatal `permission_denied` observation for a rejected call. */
 export function permissionDeniedResult(
   reason: PermissionRejectionReason,
-): ToolResult {
+): ToolErrorResult {
   return {
     status: 'error',
     type: 'permission_denied',
