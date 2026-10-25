@@ -23,7 +23,7 @@
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
-import { BadRequestException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 import * as schema from '../db/schema';
@@ -343,7 +343,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
           itemId: row.item_id,
         })),
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ConflictException);
 
     const updated = await asUser(
       userBId,
