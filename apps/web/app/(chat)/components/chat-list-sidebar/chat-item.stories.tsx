@@ -26,9 +26,11 @@ import {
 import * as fork from "@/lib/services/chat/fork";
 import { forkMutate } from "@/lib/services/chat/__mocks__/fork";
 import type { ChatResponse } from "@/lib/services/chat/queries";
+import type { CheckoutResponse } from "@/lib/services/checkouts/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import {
   emptyResponse,
+  jsonResponse,
   requestFromCall,
   stubFetch,
 } from "@/lib/test-support/fetch-stub";
@@ -79,6 +81,48 @@ function sentRoutes() {
     const request = input instanceof Request ? input : new Request(input);
     return `${request.method} ${new URL(request.url).pathname}`;
   });
+}
+
+// The bound chat a "New chat here" story opens on: its Workspace root and the
+// catalog row that root maps back onto.
+const BOUND_ROOT = "/repos/acme";
+
+const boundCheckouts: Array<CheckoutResponse> = [
+  {
+    id: "co-1",
+    repositoryId: "repo-1",
+    executorId: "exec-1",
+    path: BOUND_ROOT,
+    kind: "main",
+    parentCheckoutId: null,
+    branch: "master",
+    origin: "registered",
+    worktreeBase: null,
+    chatIds: ["chat-1"],
+    leaseChatId: null,
+    createdAt: "2026-07-20T10:00:00.000Z",
+    updatedAt: "2026-07-20T10:00:00.000Z",
+  },
+];
+
+/**
+ * Stub `fetch` so the row's checkout read is the only routed request. The
+ * handler decides the shape the read sees: a resolved list, or a request that
+ * never settles so the query stays pending.
+ */
+function routeCheckouts(handler: () => Promise<Response>) {
+  fetchMock = stubFetch();
+  unrouted = [];
+  fetchMock.mockImplementation((input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const key = `${request.method} ${new URL(request.url).pathname}`;
+    if (key === "GET /api/v1/checkouts") return handler();
+    unrouted.push(key);
+    throw new Error(`unrouted fetch in story: ${key}`);
+  });
+  return () => {
+    vi.unstubAllGlobals();
+  };
 }
 
 /** Opens the row menu, then its project submenu by the trigger's label. */
@@ -788,5 +832,60 @@ export const ProjectMenuNewProjectDisabled: Story = {
     await expect(
       await screen.findByRole("menuitem", { name: "New project" }),
     ).toHaveAttribute("aria-disabled", "true");
+  },
+};
+
+/**
+ * "New chat here" copies this chat's location, so it needs the checkout list
+ * that maps its root back onto a repository, an executor, and a checkout. While
+ * that read is pending the row is a disabled placeholder, not a link that would
+ * pre-fill a worktree of no known checkout.
+ *
+ * @summary New chat here stays disabled while the checkout list loads
+ */
+export const NewChatHerePending: Story = {
+  args: { chat: { ...baseChat, projectId: "p1", workspaceRoot: BOUND_ROOT } },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  beforeEach: () =>
+    routeCheckouts(() => new Promise<Response>(() => undefined)),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+
+    await expect(
+      await screen.findByRole("menuitem", { name: "New chat here" }),
+    ).toHaveAttribute("aria-disabled", "true");
+  },
+};
+
+/**
+ * With the checkout list loaded, "New chat here" is the deep link that copies
+ * the source chat's project, repository, executor, and source checkout, and
+ * asks for a worktree of it.
+ *
+ * @summary New chat here links to the bound root once the list loads
+ */
+export const NewChatHereLoaded: Story = {
+  args: { chat: { ...baseChat, projectId: "p1", workspaceRoot: BOUND_ROOT } },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  beforeEach: () =>
+    routeCheckouts(() => Promise.resolve(jsonResponse(boundCheckouts))),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+
+    await waitFor(async () => {
+      await expect(
+        screen.getByRole("menuitem", { name: "New chat here" }),
+      ).toHaveAttribute(
+        "href",
+        "/chat/new?project=p1&repository=repo-1&executor=exec-1&checkout=co-1&worktree=1",
+      );
+    });
+    await expect(
+      screen.getByRole("menuitem", { name: "New chat here" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
   },
 };

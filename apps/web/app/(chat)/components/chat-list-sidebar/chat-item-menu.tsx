@@ -310,7 +310,10 @@ function ChatMenuActionItem({
  * "New chat here": the deep link that copies this chat's project, repository,
  * executor, and source checkout, and asks for a worktree of it. A chat with no
  * project or no bound root has nothing "here" to copy, so its row stays a
- * disabled placeholder instead of a link that would start somewhere else.
+ * disabled placeholder instead of a link that would start somewhere else. The
+ * same holds while the checkout list is pending or failed: without its rows the
+ * copied location would name a worktree of no known checkout, so the row stays
+ * disabled until the list loads.
  */
 function NewChatHereItem({
   chat,
@@ -326,6 +329,9 @@ function NewChatHereItem({
   const bound = chat.projectId !== null && chat.workspaceRoot !== null;
   const checkouts = useCheckoutsQuery(undefined, bound);
   if (chat.projectId === null || chat.workspaceRoot === null) {
+    return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
+  }
+  if (!checkouts.isSuccess) {
     return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
   }
   const href = startLocationDeepLink({
