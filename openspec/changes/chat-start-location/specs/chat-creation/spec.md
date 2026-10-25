@@ -54,12 +54,14 @@ defaults. A request that names no location and sets `worktree` MUST answer 422.
 
 ### Requirement: A named location resolves through project defaults and never a silent primary
 
-When the request names a location, the repository MUST be the request's
-`repositoryId`, else the primary link, else the single link, else none. The
-server MUST NOT choose a primary when the links have no primary. The checkout
-MUST come from the remembered default for the link. Else it MUST be the only
-main checkout of the resolved repository on the resolved executor, else none.
-An explicit `repositoryId` or `checkoutId` MUST override a remembered default.
+When the request names a `checkoutId`, that checkout MUST decide the
+repository and the executor before any link is read. Otherwise, when the
+request names a location, the repository MUST be the request's `repositoryId`,
+else the primary link, else the single link, else none. The server MUST NOT
+choose a primary when the links have no primary. The checkout MUST come from
+the remembered default for the link. Else it MUST be the only main checkout of
+the resolved repository on the resolved executor, else none. An explicit
+`repositoryId` or `checkoutId` MUST override a remembered default.
 
 #### Scenario: A named repository resolves to its only checkout
 
