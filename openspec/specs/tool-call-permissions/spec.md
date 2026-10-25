@@ -1110,16 +1110,18 @@ another principal MUST receive 404.
 
 #### Scenario: A bypass create records its decisions
 
-- **WHEN** the owner creates a chat with `bypass` enabled and the group rejects
-  both paths
-- **THEN** the creation record holds both decisions with `allow`, reason
+- **WHEN** the owner creates a chat that reuses its checkout, with `bypass`
+  enabled, and the group rejects both paths
+- **THEN** the creation record holds the submitted-path and `canonical`
+  decisions with `allow`, reason
   `permission_mode_bypass`, the policy-instance ID, and no clause reference
 
 #### Scenario: A default-mode create records its decisions
 
-- **WHEN** the owner creates a chat in `default` mode and the group allows both
-  paths
-- **THEN** the creation record holds both decisions with their clause and
+- **WHEN** the owner creates a chat that reuses its checkout, in `default`
+  mode, and the group allows both paths
+- **THEN** the creation record holds the submitted-path and `canonical`
+  decisions with their clause and
   policy-instance provenance
 
 #### Scenario: A resend after a rejected decision keeps both attempts' decisions

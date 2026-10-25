@@ -243,8 +243,9 @@ previous defaults row in place.
 
 A project MUST store zero or one default executor. The owner MUST set and clear
 it under `/api/v1/projects/:id`. Chat creation MUST use a stored link default
-before the project default executor. An archived project MUST reject a change to
-its default executor with `409`.
+before the project default executor, and only for a request that names a
+location. An archived project MUST reject a change to its default executor with
+`409`.
 
 #### Scenario: A new project has no default executor
 
@@ -254,7 +255,8 @@ its default executor with `409`.
 #### Scenario: The owner sets a default executor
 
 - **WHEN** the owner sets a default executor on a project
-- **THEN** a chat start without an executor choice uses that executor
+- **THEN** a chat start that names a location and no executor uses that
+  executor
 
 #### Scenario: The owner clears the default executor
 

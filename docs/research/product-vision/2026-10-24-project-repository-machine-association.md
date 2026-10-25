@@ -491,8 +491,8 @@ after the first turn adds a rename path for little value. Change 1 generates
   primary, and an isolation policy; per-executor defaults; and project
   `default_executor_id`. `openspec/specs/chat-creation` owns
   `POST /api/v1/chats`, which resolves, authorizes, and binds before the first
-  Run, and the composer chip and cascade. Both capabilities ship their
-  proposals as `openspec/changes/archive/2026-10-24-chat-start-location`.
+  Run. The composer's project chip and working-directory pill are described in
+  [chat location](../../product/reference/chat-location.md).
 
 ## Decisions
 
