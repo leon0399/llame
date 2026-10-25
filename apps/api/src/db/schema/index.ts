@@ -1,4 +1,5 @@
 export * from './auth';
+export * from './chat-creation-records';
 export * from './chats';
 export * from './identity';
 export * from './knowledge-spaces';

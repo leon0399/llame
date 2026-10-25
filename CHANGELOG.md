@@ -75,12 +75,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - A project links the owner's repositories: each link carries a project-scoped
   alias, one primary flag per project, and an isolation policy of `inherit`,
-  `always_worktree`, or `never`. The link routes sit under
-  `/api/v1/projects/:id/repositories` with create, read, update, and unlink, and
-  a write on an archived project answers `409` without changing anything. Every
-  link is owner-isolated with forced RLS and composite owner foreign keys, so a
-  row that names another owner's project or repository is refused by the
-  database; deletion cascades rows only, never a directory. See
+  `always_worktree`, or `never`, and it remembers one default checkout per
+  executor — the `main` checkout the last successful chat start used, stamped
+  with `updated_at`, where the newest row wins across executors. The link routes
+  sit under `/api/v1/projects/:id/repositories`, and
+  `GET /api/v1/projects/:id/start-location` previews the location a chat start
+  resolves without writing anything. Every link and defaults row is
+  owner-isolated with forced RLS and composite owner foreign keys, so a row that
+  names another owner's project, repository, or checkout is refused by the
+  database; deletion cascades rows only, never a directory. `projects` gains a
+  nullable `default_executor_id`, and chats gain an owner-only creation record
+  whose `attempts` hold each create's path decisions. See
   [repositories](docs/product/operator/repositories.md#project-links).
 
 - Every native tool call has its own chat row instead of raw parameter and

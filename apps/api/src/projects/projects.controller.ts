@@ -37,7 +37,11 @@ import {
 import {
   CreateProjectRepositoryDto,
   ProjectRepositoryLinkResponse,
+  ProjectRepositoryLinkWithDefaultsResponse,
+  StartLocationQueryDto,
+  StartLocationResponse,
   toProjectRepositoryLinkResponse,
+  toProjectRepositoryLinkWithDefaultsResponse,
   UpdateProjectRepositoryDto,
 } from './dto/project-links.dto';
 
@@ -136,27 +140,30 @@ export class ProjectsController {
     }
   }
 
-  // The project's linked repositories. A read: it writes nothing, so an
-  // archived project still answers.
+  // The project's linked repositories, each with the per-executor defaults a
+  // chat start would reuse. A read: it writes nothing, so an archived project
+  // still answers.
   @Get(':id/repositories')
   @ApiOperation({
     operationId: 'listProjectRepositories',
-    summary: "List a project's linked repositories",
+    summary: "List a project's linked repositories and their defaults",
   })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOkResponse({ type: ProjectRepositoryLinkResponse, isArray: true })
+  @ApiOkResponse({
+    type: ProjectRepositoryLinkWithDefaultsResponse,
+    isArray: true,
+  })
   @ApiBadRequestResponse({ description: 'Malformed project id (not a UUID)' })
   @ApiNotFoundResponse()
   @ApiUnauthorizedResponse()
   async listProjectRepositories(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<Array<ProjectRepositoryLinkResponse>> {
-    const links = await this.projectsService.listProjectRepositories(
-      userId,
-      id,
+  ): Promise<Array<ProjectRepositoryLinkWithDefaultsResponse>> {
+    const rows = await this.projectsService.listProjectRepositories(userId, id);
+    return rows.map(({ link, defaults }) =>
+      toProjectRepositoryLinkWithDefaultsResponse(link, defaults),
     );
-    return links.map(toProjectRepositoryLinkResponse);
   }
 
   @Post(':id/repositories')
@@ -212,7 +219,8 @@ export class ProjectsController {
     );
   }
 
-  // Row-only unlink: the repository and its checkouts stay.
+  // Row-only unlink: the link's defaults cascade, the repository and its
+  // checkouts stay.
   @Delete(':id/repositories/:repositoryId')
   @ApiOperation({
     operationId: 'unlinkProjectRepository',
@@ -232,5 +240,29 @@ export class ProjectsController {
     @Param('repositoryId', ParseUUIDPipe) repositoryId: string,
   ): Promise<void> {
     await this.projectsService.unlinkRepository(userId, id, repositoryId);
+  }
+
+  // The location a create with the same ids resolves, with no effects.
+  @Get(':id/start-location')
+  @ApiOperation({
+    operationId: 'getProjectStartLocation',
+    summary: 'Preview the location a chat start on this project resolves',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: StartLocationResponse })
+  @ApiBadRequestResponse({ description: 'Malformed project or location id' })
+  @ApiNotFoundResponse()
+  @ApiUnauthorizedResponse()
+  async getProjectStartLocation(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: StartLocationQueryDto,
+  ): Promise<StartLocationResponse> {
+    const location = await this.projectsService.getStartLocation(
+      userId,
+      id,
+      query,
+    );
+    return { projectId: id, ...location };
   }
 }

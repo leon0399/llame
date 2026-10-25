@@ -15,11 +15,12 @@ import {
 import { timestamptz } from '../columns';
 import { users } from './auth';
 import { projects } from './projects';
-import { repositories } from './repositories';
+import { checkouts, repositories } from './repositories';
 
 /**
  * The repositories a project links (openspec `projects`: "A project links
- * repositories with an alias and a primary link").
+ * repositories with an alias and a primary link"), and the checkout each link
+ * started from on each executor (openspec `chat-start-location`, design D8).
  *
  * The table is owner-scoped. The row carries `owner_user_id` for the composite
  * owner foreign keys, and the policy admits a row only when the caller can read
@@ -88,8 +89,10 @@ export const projectRepositories = pgTable(
     uniqueIndex('project_repositories_owner_project_primary_uidx')
       .on(t.ownerUserId, t.projectId)
       .where(sql`${t.isPrimary}`),
-    // Composite owner key. A table constraint, not an index: it is what a
-    // foreign key can name, and keeping the owner in every key is the rule.
+    // Parent key for the defaults table's composite owner foreign key. A table
+    // constraint, not an index: the foreign key is created after the tables in
+    // one generated migration, and the referenced unique key must exist by
+    // then — the same reason as `repositories_owner_id_key`.
     unique('project_repositories_owner_id_key').on(t.ownerUserId, t.id),
     index('project_repositories_owner_project_idx').on(
       t.ownerUserId,
@@ -125,4 +128,70 @@ export const projectRepositories = pgTable(
   ],
 ).enableRLS();
 
+/**
+ * The last checkout a chat start used for one link on one executor. One row
+ * per `(link, executor)`, replaced in place on the next start, so
+ * `updated_at` is the tiebreak that picks the most recently chosen executor
+ * when a link holds rows on several of them.
+ *
+ * The row names a `main` checkout of the link's own repository on that
+ * executor. That rule spans three tables, so no single foreign key states it:
+ * the composite owner keys below prove the owner match, and the writer
+ * (`ProjectLinksRepository.recordDefault`) refuses any other checkout.
+ */
+export const projectRepositoryDefaults = pgTable(
+  'project_repository_defaults',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerUserId: text('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    projectRepositoryId: uuid('project_repository_id').notNull(),
+    /** The local native executor id, or `machine:<name>`. */
+    executorId: text('executor_id').notNull(),
+    checkoutId: uuid('checkout_id').notNull(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    /** Replaced on every write, so the newest choice wins. */
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('project_repository_defaults_owner_link_executor_uidx').on(
+      t.ownerUserId,
+      t.projectRepositoryId,
+      t.executorId,
+    ),
+    index('project_repository_defaults_owner_link_idx').on(
+      t.ownerUserId,
+      t.projectRepositoryId,
+    ),
+    index('project_repository_defaults_owner_checkout_idx').on(
+      t.ownerUserId,
+      t.checkoutId,
+    ),
+    // An unlink, a deleted project, and a deleted repository remove the
+    // link, and the link's cascade removes these rows.
+    foreignKey({
+      name: 'project_repository_defaults_link_owner_fk',
+      columns: [t.ownerUserId, t.projectRepositoryId],
+      foreignColumns: [projectRepositories.ownerUserId, projectRepositories.id],
+    }).onDelete('cascade'),
+    // A deleted checkout leaves no default behind; the link survives.
+    foreignKey({
+      name: 'project_repository_defaults_checkout_owner_fk',
+      columns: [t.ownerUserId, t.checkoutId],
+      foreignColumns: [checkouts.ownerUserId, checkouts.id],
+    }).onDelete('cascade'),
+    // A default is visible only through a link the caller owns. The link
+    // subquery runs under `project_repositories_owner` RLS, so it yields the
+    // caller's own links; the tables never scan each other back.
+    pgPolicy('project_repository_defaults_owner', {
+      using: sql`owner_user_id = current_setting('app.current_user_id', true) AND project_repository_id IN (SELECT id FROM project_repositories WHERE owner_user_id = current_setting('app.current_user_id', true))`,
+      withCheck: sql`owner_user_id = current_setting('app.current_user_id', true) AND project_repository_id IN (SELECT id FROM project_repositories WHERE owner_user_id = current_setting('app.current_user_id', true))`,
+    }),
+  ],
+).enableRLS();
+
 export type ProjectRepository = InferSelectModel<typeof projectRepositories>;
+export type ProjectRepositoryDefault = InferSelectModel<
+  typeof projectRepositoryDefaults
+>;

@@ -2,6 +2,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 
 import { assertNotArchived } from '../db/assert-not-archived';
@@ -9,11 +10,21 @@ import { pgErrorCode } from '../db/pg-error';
 import {
   type Project,
   type ProjectRepository,
+  type ProjectRepositoryDefault,
   type ProjectRepositoryIsolation,
 } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import { ProjectLinksRepository } from './project-links.repository';
+import { defaultTargetProblem } from './default-target';
+import {
+  ProjectLinksRepository,
+  type ProjectLinkWithDefaults,
+} from './project-links.repository';
 import { ProjectsRepository } from './projects-repository';
+import {
+  resolveStartLocation,
+  type StartLocation,
+  type StartLocationInput,
+} from './start-location';
 
 @Injectable()
 export class ProjectsService {
@@ -53,7 +64,12 @@ export class ProjectsService {
   async updateProject(
     projectId: string,
     ownerUserId: string,
-    patch: { name?: string; description?: string | null; archived?: boolean },
+    patch: {
+      name?: string;
+      description?: string | null;
+      archived?: boolean;
+      defaultExecutorId?: string | null;
+    },
   ): Promise<Project | undefined> {
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       new ProjectsRepository(tx).update(projectId, ownerUserId, patch),
@@ -70,13 +86,13 @@ export class ProjectsService {
   }
 
   /**
-   * The project's links, oldest first. A read, so it admits an archived
-   * project; another owner's project is simply absent (404).
+   * The project's links and their per-executor defaults. A read, so it admits
+   * an archived project; another owner's project is simply absent (404).
    */
   async listProjectRepositories(
     ownerUserId: string,
     projectId: string,
-  ): Promise<Array<ProjectRepository>> {
+  ): Promise<Array<ProjectLinkWithDefaults>> {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const project = await new ProjectsRepository(tx).findById(
         projectId,
@@ -85,7 +101,16 @@ export class ProjectsService {
       if (project === undefined) {
         throw new NotFoundException(`Project ${projectId} not found`);
       }
-      return new ProjectLinksRepository(tx).listLinks(ownerUserId, project.id);
+      const links = new ProjectLinksRepository(tx);
+      const rows = await links.listLinks(ownerUserId, project.id);
+      const defaults = await links.listDefaults(
+        ownerUserId,
+        rows.map((row) => row.id),
+      );
+      return rows.map((link) => ({
+        link,
+        defaults: defaults.filter((row) => row.projectRepositoryId === link.id),
+      }));
     });
   }
 
@@ -208,7 +233,8 @@ export class ProjectsService {
     return links.updateLink(ownerUserId, link.id, patch);
   }
 
-  /** Unlink a repository; the rows of the repository and its checkouts stay. */
+  /** Unlink a repository; the link's defaults cascade, the rows of the
+   *  repository and its checkouts stay. */
   async unlinkRepository(
     ownerUserId: string,
     projectId: string,
@@ -235,6 +261,69 @@ export class ProjectsService {
         );
       }
       await links.deleteLink(ownerUserId, project.id, link.id);
+    });
+  }
+
+  /**
+   * The location a create with the same ids resolves, with no effects. The
+   * resolver is the one chat creation calls; the create route adds the checks
+   * that need the executor configuration, not the owner's rows.
+   */
+  async getStartLocation(
+    ownerUserId: string,
+    projectId: string,
+    input: StartLocationInput,
+  ): Promise<StartLocation> {
+    return this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const project = await new ProjectsRepository(tx).findById(
+        projectId,
+        ownerUserId,
+      );
+      if (project === undefined) {
+        throw new NotFoundException(`Project ${projectId} not found`);
+      }
+      return resolveStartLocation(
+        new ProjectLinksRepository(tx),
+        ownerUserId,
+        project,
+        input,
+      );
+    });
+  }
+
+  /**
+   * Record the checkout a successful chat start used as the link's default on
+   * that executor, replacing a previous choice and stamping `updated_at`.
+   * Refuses anything but a `main` checkout of the linked repository on that
+   * executor, which is the rule no foreign key can state.
+   */
+  async recordProjectDefault(
+    ownerUserId: string,
+    linkId: string,
+    executorId: string,
+    checkoutId: string,
+  ): Promise<ProjectRepositoryDefault> {
+    return this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const links = new ProjectLinksRepository(tx);
+      const link = await links.findLinkById(ownerUserId, linkId);
+      if (link === undefined) {
+        throw new NotFoundException(
+          `Project repository link ${linkId} not found`,
+        );
+      }
+      const checkout = await links.findCheckout(ownerUserId, checkoutId);
+      const problem = defaultTargetProblem(checkout, link, executorId);
+      if (problem !== null) {
+        throw new UnprocessableEntityException(
+          `Checkout ${checkoutId} cannot be the default of link ${linkId} on executor ${executorId}: ${problem}.`,
+        );
+      }
+      return links.upsertDefault({
+        ownerUserId,
+        projectRepositoryId: link.id,
+        executorId,
+        checkoutId,
+      });
     });
   }
 }

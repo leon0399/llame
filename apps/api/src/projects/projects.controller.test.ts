@@ -17,9 +17,14 @@ type ProjectServiceMethods = Pick<
   | 'linkRepository'
   | 'updateProjectRepository'
   | 'unlinkRepository'
+  | 'getStartLocation'
 >;
 
-import type { Project, ProjectRepository } from '../db/schema';
+import type {
+  Project,
+  ProjectRepository,
+  ProjectRepositoryDefault,
+} from '../db/schema';
 
 const link: ProjectRepository = {
   id: '44444444-4444-4444-8444-444444444444',
@@ -33,6 +38,16 @@ const link: ProjectRepository = {
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
 };
 
+const linkDefault: ProjectRepositoryDefault = {
+  id: '66666666-6666-4666-8666-666666666666',
+  ownerUserId: 'verified-user',
+  projectRepositoryId: link.id,
+  executorId: 'host',
+  checkoutId: '55555555-5555-4555-8555-555555555555',
+  createdAt: new Date('2026-08-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+};
+
 const project: Project = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'verified-user',
@@ -41,6 +56,7 @@ const project: Project = {
   createdAt: new Date('2026-08-01T00:00:00.000Z'),
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   archivedAt: null,
+  defaultExecutorId: null,
 };
 
 describe('ProjectsController', () => {
@@ -67,7 +83,7 @@ describe('ProjectsController', () => {
       .mockResolvedValue(true);
     const listProjectRepositories = vi
       .spyOn(service, 'listProjectRepositories')
-      .mockResolvedValue([link]);
+      .mockResolvedValue([{ link, defaults: [linkDefault] }]);
     const linkRepository = vi
       .spyOn(service, 'linkRepository')
       .mockResolvedValue(link);
@@ -77,6 +93,16 @@ describe('ProjectsController', () => {
     const unlinkRepository = vi
       .spyOn(service, 'unlinkRepository')
       .mockResolvedValue(undefined);
+    const getStartLocation = vi
+      .spyOn(service, 'getStartLocation')
+      .mockResolvedValue({
+        repositoryId: link.repositoryId,
+        executorId: 'host',
+        checkoutId: linkDefault.checkoutId,
+        isolation: 'reuse',
+        isolationReason: 'project_policy',
+        isolationChats: 0,
+      });
 
     if (overrides.createProject !== undefined) {
       createProject.mockImplementation(overrides.createProject);
@@ -109,6 +135,9 @@ describe('ProjectsController', () => {
     if (overrides.unlinkRepository !== undefined) {
       unlinkRepository.mockImplementation(overrides.unlinkRepository);
     }
+    if (overrides.getStartLocation !== undefined) {
+      getStartLocation.mockImplementation(overrides.getStartLocation);
+    }
 
     return {
       controller: new ProjectsController(service),
@@ -122,6 +151,7 @@ describe('ProjectsController', () => {
       linkRepository,
       updateProjectRepository,
       unlinkRepository,
+      getStartLocation,
     };
   }
 
@@ -201,7 +231,7 @@ describe('ProjectsController', () => {
     expect(deleteProject).toHaveBeenCalledWith(project.id, 'verified-user');
   });
 
-  it('maps every link of the project', async () => {
+  it('maps every link with its own defaults', async () => {
     const { controller, listProjectRepositories } = makeController();
 
     await expect(
@@ -217,6 +247,15 @@ describe('ProjectsController', () => {
         isolation: link.isolation,
         createdAt: link.createdAt,
         updatedAt: link.updatedAt,
+        defaults: [
+          {
+            id: linkDefault.id,
+            projectRepositoryId: link.id,
+            executorId: linkDefault.executorId,
+            checkoutId: linkDefault.checkoutId,
+            updatedAt: linkDefault.updatedAt,
+          },
+        ],
       },
     ]);
     expect(listProjectRepositories).toHaveBeenCalledWith(
@@ -268,5 +307,26 @@ describe('ProjectsController', () => {
       project.id,
       link.repositoryId,
     );
+  });
+
+  it('returns the start location with the project id', async () => {
+    const { controller, getStartLocation } = makeController();
+
+    await expect(
+      controller.getProjectStartLocation('verified-user', project.id, {
+        executorId: 'host',
+      }),
+    ).resolves.toEqual({
+      projectId: project.id,
+      repositoryId: link.repositoryId,
+      executorId: 'host',
+      checkoutId: linkDefault.checkoutId,
+      isolation: 'reuse',
+      isolationReason: 'project_policy',
+      isolationChats: 0,
+    });
+    expect(getStartLocation).toHaveBeenCalledWith('verified-user', project.id, {
+      executorId: 'host',
+    });
   });
 });

@@ -1,15 +1,18 @@
 /**
- * HTTP-boundary tests for the project repository link routes.
+ * HTTP-boundary tests for the project repository link routes and the
+ * start-location preview.
  *
  * Runs against real Postgres (integration project) as the non-superuser `app`
  * role, with two registered owners, so every 404, 409, and read is answered by
- * the real RLS-scoped queries.
+ * the real RLS-scoped queries. Checkouts are seeded directly, because they need
+ * no git for these routes.
  *
- * Covers openspec `projects` — "A project links repositories with an alias and
- * a primary link", "An isolation policy selects the default isolation
- * of a chat start", "The owner reads a project's links", "Project repository
- * links are owner-isolated", and "Project repository links are deleted with the
- * project".
+ * Covers openspec `chat-start-location` — "A project links repositories with an
+ * alias and a primary link", "An isolation policy selects the default isolation
+ * of a chat start", "A project can have a default executor", "The owner reads a
+ * project's links and their defaults", "The owner previews the start location
+ * without effects", "Project repository links are owner-isolated", and "Project
+ * repository links are deleted with the project".
  */
 
 import { type IncomingMessage, Server, type ServerResponse } from 'node:http';
@@ -41,6 +44,24 @@ const linkSchema = z.looseObject({
   alias: z.string(),
   isPrimary: z.boolean(),
   isolation: z.enum(['inherit', 'always_worktree', 'never']),
+});
+const linkWithDefaultsSchema = linkSchema.extend({
+  defaults: z.array(
+    z.looseObject({
+      executorId: z.string(),
+      checkoutId: z.guid(),
+      updatedAt: z.string().datetime({ offset: true }),
+    }),
+  ),
+});
+const startLocationSchema = z.looseObject({
+  projectId: z.guid(),
+  repositoryId: z.guid().nullable(),
+  executorId: z.string().nullable(),
+  checkoutId: z.guid().nullable(),
+  isolation: z.enum(['reuse', 'worktree']),
+  isolationReason: z.enum(['project_policy', 'clone_in_use', 'no_link']),
+  isolationChats: z.number(),
 });
 
 type HttpServer = Server<typeof IncomingMessage, typeof ServerResponse>;
@@ -163,9 +184,9 @@ describe('project repository links over HTTP', () => {
     });
   });
 
-  it('reads the link with its alias, flags, and policy', async () => {
+  it('reads the link with its alias, flags, and defaults', async () => {
     const response = await linksOf(owner, projectId).expect(200);
-    const links = z.array(linkSchema).parse(response.body);
+    const links = z.array(linkWithDefaultsSchema).parse(response.body);
 
     expect(links).toHaveLength(1);
     expect(links[0]).toMatchObject({
@@ -173,6 +194,7 @@ describe('project repository links over HTTP', () => {
       alias: 'llame-core',
       isPrimary: false,
       isolation: 'inherit',
+      defaults: [],
     });
   });
 
@@ -203,7 +225,7 @@ describe('project repository links over HTTP', () => {
       .expect(201);
 
     const links = z
-      .array(linkSchema)
+      .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, projectId).expect(200)).body);
     expect(links.filter((link) => link.isPrimary)).toHaveLength(1);
     expect(links.find((link) => link.isPrimary)?.repositoryId).toBe(
@@ -217,7 +239,7 @@ describe('project repository links over HTTP', () => {
       .expect(200);
 
     const after = z
-      .array(linkSchema)
+      .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, projectId).expect(200)).body);
     expect(after.filter((link) => link.isPrimary)).toHaveLength(1);
     expect(after.find((link) => link.isPrimary)?.repositoryId).toBe(
@@ -225,8 +247,78 @@ describe('project repository links over HTTP', () => {
     );
   });
 
+  it('returns each defaults row with its updated_at', async () => {
+    const [link] = z
+      .array(linkWithDefaultsSchema)
+      .parse((await linksOf(owner, projectId).expect(200)).body)
+      .filter((row) => row.repositoryId === repositoryId);
+
+    await asOwner(
+      owner.userId,
+      (tx) =>
+        tx`INSERT INTO project_repository_defaults (owner_user_id, project_repository_id, executor_id, checkout_id)
+         VALUES (${owner.userId}, ${link.id}, 'host', ${checkoutId})`,
+    );
+
+    const links = z
+      .array(linkWithDefaultsSchema)
+      .parse((await linksOf(owner, projectId).expect(200)).body);
+    const withDefaults = links.find((row) => row.repositoryId === repositoryId);
+
+    const [defaultsRow] = withDefaults?.defaults ?? [];
+    expect(defaultsRow).toMatchObject({ executorId: 'host', checkoutId });
+    expect(defaultsRow?.updatedAt).toEqual(expect.any(String));
+  });
+
+  it('previews the resolved start location and writes nothing', async () => {
+    const before = await asOwner(
+      owner.userId,
+      (tx) =>
+        tx`SELECT count(*)::int AS count FROM project_repository_defaults`,
+    );
+    const first = startLocationSchema.parse(
+      (
+        await request(owner.http)
+          .get(`/api/v1/projects/${projectId}/start-location`)
+          .set('Cookie', owner.cookie)
+          .expect(200)
+      ).body,
+    );
+    const second = startLocationSchema.parse(
+      (
+        await request(owner.http)
+          .get(`/api/v1/projects/${projectId}/start-location`)
+          .set('Cookie', owner.cookie)
+          .expect(200)
+      ).body,
+    );
+    const after = await asOwner(
+      owner.userId,
+      (tx) =>
+        tx`SELECT count(*)::int AS count FROM project_repository_defaults`,
+    );
+
+    // The primary link, the remembered default on its executor, and that
+    // executor's only main checkout — the create request's order.
+    expect(first).toEqual({
+      projectId,
+      repositoryId,
+      executorId: 'host',
+      checkoutId,
+      isolation: 'reuse',
+      isolationReason: 'project_policy',
+      isolationChats: 0,
+    });
+    expect(second).toEqual(first);
+    expect(after[0].count).toBe(before[0].count);
+  });
+
   it('answers 404 for another owner and stores no foreign link', async () => {
     await linksOf(other, projectId).expect(404);
+    await request(other.http)
+      .get(`/api/v1/projects/${projectId}/start-location`)
+      .set('Cookie', other.cookie)
+      .expect(404);
 
     const otherProject = projectSchema.parse(
       (
@@ -245,7 +337,7 @@ describe('project repository links over HTTP', () => {
 
     expect(
       z
-        .array(linkSchema)
+        .array(linkWithDefaultsSchema)
         .parse((await linksOf(other, otherProject.id).expect(200)).body),
     ).toEqual([]);
   });
@@ -272,7 +364,7 @@ describe('project repository links over HTTP', () => {
       .expect(200);
 
     const before = z
-      .array(linkSchema)
+      .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, archived.id).expect(200)).body);
 
     await request(owner.http)
@@ -289,24 +381,37 @@ describe('project repository links over HTTP', () => {
       .delete(`/api/v1/projects/${archived.id}/repositories/${repositoryId}`)
       .set('Cookie', owner.cookie)
       .expect(409);
+    await request(owner.http)
+      .patch(`/api/v1/projects/${archived.id}`)
+      .set('Cookie', owner.cookie)
+      .send({ defaultExecutorId: 'host' })
+      .expect(409);
 
     expect(
       z
-        .array(linkSchema)
+        .array(linkWithDefaultsSchema)
         .parse((await linksOf(owner, archived.id).expect(200)).body),
     ).toEqual(before);
   });
 
-  it('unlinks a repository, removing only the link', async () => {
+  it('unlinks a repository, removing only the link and its defaults', async () => {
     await request(owner.http)
       .delete(`/api/v1/projects/${projectId}/repositories/${repositoryId}`)
       .set('Cookie', owner.cookie)
       .expect(204);
 
     const links = z
-      .array(linkSchema)
+      .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, projectId).expect(200)).body);
     expect(links.map((link) => link.repositoryId)).toEqual([otherRepositoryId]);
+
+    const [remaining] = await asOwner(
+      owner.userId,
+      (tx) =>
+        tx`SELECT count(*)::int AS count FROM project_repository_defaults d
+           JOIN project_repositories l ON l.id = d.project_repository_id`,
+    );
+    expect(remaining.count).toBe(0);
 
     const [rows] = await asOwner(
       owner.userId,
@@ -315,6 +420,22 @@ describe('project repository links over HTTP', () => {
         (SELECT count(*)::int FROM checkouts WHERE id = ${checkoutId}) AS checkouts`,
     );
     expect(rows).toEqual({ repositories: 1, checkouts: 1 });
+  });
+
+  it('stores the default executor and clears it', async () => {
+    const set = await request(owner.http)
+      .patch(`/api/v1/projects/${projectId}`)
+      .set('Cookie', owner.cookie)
+      .send({ defaultExecutorId: 'machine:nas' })
+      .expect(200);
+    expect(set.body).toMatchObject({ defaultExecutorId: 'machine:nas' });
+
+    const cleared = await request(owner.http)
+      .patch(`/api/v1/projects/${projectId}`)
+      .set('Cookie', owner.cookie)
+      .send({ defaultExecutorId: null })
+      .expect(200);
+    expect(cleared.body).toMatchObject({ defaultExecutorId: null });
   });
 
   it('a project deletion removes its links and unfiles its chats', async () => {
@@ -335,11 +456,13 @@ describe('project repository links over HTTP', () => {
       owner.userId,
       (tx) => tx`SELECT
         (SELECT count(*)::int FROM project_repositories WHERE project_id = ${projectId}) AS links,
+        (SELECT count(*)::int FROM project_repository_defaults) AS defaults,
         (SELECT project_id FROM chats WHERE id = ${chatId}) AS chat_project,
         (SELECT count(*)::int FROM repositories WHERE id IN (${repositoryId}, ${otherRepositoryId})) AS repositories`,
     );
     expect(rows).toEqual({
       links: 0,
+      defaults: 0,
       chat_project: null,
       repositories: 2,
     });
