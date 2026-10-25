@@ -68,6 +68,6 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      # Whole repo via the root .prettierignore — the same surface the
+      # Whole repo via .oxfmtrc.jsonc's ignorePatterns — the same surface the
       # lefthook pre-commit hook gates per staged file (#175).
       - run: pnpm run format:check

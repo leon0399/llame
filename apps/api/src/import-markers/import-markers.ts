@@ -314,7 +314,7 @@ function visitNode(node: Nodes, context: MarkerContext): void {
 
 function appendChildren(node: Nodes, pending: Array<Nodes>): void {
   if ('children' in node) {
-    for (let index = node.children.length; index; ) {
+    for (let index = node.children.length; index;) {
       index -= 1;
       pending.push(node.children[index]);
     }
@@ -408,7 +408,7 @@ function collectBareMarkers(
     markers,
   };
 
-  for (let offset = 0; source.at(offset) !== undefined; ) {
+  for (let offset = 0; source.at(offset) !== undefined;) {
     if (
       source.at(offset) !== '@' ||
       !isBareBoundary(source, offset) ||

@@ -149,9 +149,7 @@ export class CanonicalSearchCoverageService {
  *  Bootstrap, not module init: AppModule bootstraps after SearchModule, so a
  *  co-located reindex consumer is already draining the queue it waits on. */
 @Injectable()
-export class CanonicalSearchActivationService
-  implements OnApplicationBootstrap
-{
+export class CanonicalSearchActivationService implements OnApplicationBootstrap {
   constructor(
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,

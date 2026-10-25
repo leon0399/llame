@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-25
 
+- The formatter is Oxfmt 0.73.0 instead of Prettier. One root
+  `.oxfmtrc.jsonc` replaces `.prettierignore` and the `apps/api` and
+  `packages/mcp-workspace` `.prettierrc` files, which become an `overrides`
+  entry for their single quotes. `pnpm format`, `pnpm format:check`, the
+  lefthook hooks, the API build's `openapi.json` and migration-snapshot
+  formatting, orval's client hook, and the AsyncAPI module generator all run
+  `oxfmt`. Widths and quoting are unchanged; 55 files are reformatted once
+  where Oxfmt follows newer Prettier output (class `implements` and `extends`
+  lists, hugged call arguments, empty `for` clauses, and indented continuation
+  lines inside Markdown list items). `prettier-ignore` comments keep working.
+
 - The `fetch-pr-reviews` agent skill and its script print the review
   threads, verdicts, and comments of one or more pull requests, filtered by
   resolution, outdatedness, kind, author, head commit, and age. Bot markup,
@@ -2067,7 +2078,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   (`text-[0.86rem]`, `gap-[0.4rem]`, `px-[1.2rem]`) and 194 overrides of a
   component's own color, typography, spacing, shape, effects, or motion. The
   fixes are code, not exemptions — hand-rolled `bg-destructive text-white
-hover:bg-destructive/90` on `AlertDialogAction` becomes
+  hover:bg-destructive/90` on `AlertDialogAction` becomes
   `variant="destructive"`, off-scale values snap to the scale, and
   component-owned spacing moves to a parent's `gap` or a plain wrapper. Two
   patterns earned a place in the design system instead: a `chromeless`
@@ -2909,10 +2920,10 @@ hover:bg-destructive/90` on `AlertDialogAction` becomes
   prove the removed `Array.isArray` branches were dead code on this
   platform-express app, and `testing/support.ts` already had `isRecord`
   imported and unused for the same narrowing. No behavior change; `pnpm
---filter api lint`/`typecheck` clean, `pnpm --filter api test` 1158/1158,
+  --filter api lint`/`typecheck` clean, `pnpm --filter api test` 1158/1158,
   full `pnpm --filter api test:integration` 348/351 (3 pre-existing skips),
   root `pnpm lint` clean across all five workspaces, `pnpm --filter api
-build` confirms `openapi.json` byte-identical. See
+  build` confirms `openapi.json` byte-identical. See
   `docs/development/code-quality-tracker.md` for the full site-by-site breakdown.
 
 - Started `anti-slop/no-runtime-typeof` remediation (Arc 2's eighth rule; not
@@ -2927,7 +2938,7 @@ build` confirms `openapi.json` byte-identical. See
   byte-identical inline register-response assertions; several sites were
   outright dead/redundant `typeof` re-checks against an already-typed value
   (deleted, not disabled). No behavior change; `pnpm --filter api
-lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153. See
+  lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153. See
   `docs/development/code-quality-tracker.md` for the full bucket classification and the
   remaining work.
 - Closed `anti-slop/no-runtime-typeof` remediation, enabling it at error
@@ -2944,8 +2955,8 @@ lint`/`typecheck` clean, `pnpm --filter api test` 1153/1153. See
   inline disable (`` `...type ${typeof value}` `` diagnostic message
   interpolation, not narrowing — no predicate form applies). No behavior
   change; `pnpm --filter api lint`/`typecheck` clean, `pnpm --filter api
-test` 1158/1158, full `pnpm --filter api test:integration`, `pnpm
---filter api build` confirms `openapi.json` byte-identical. See
+  test` 1158/1158, full `pnpm --filter api test:integration`, `pnpm
+  --filter api build` confirms `openapi.json` byte-identical. See
   `docs/development/code-quality-tracker.md` for the closeout narrative and a queued
   follow-up on `MessagePart`'s open-union type-design smell this
   remediation surfaced but didn't fix.
@@ -3013,13 +3024,13 @@ test` 1158/1158, full `pnpm --filter api test:integration`, `pnpm
   since the tracker's own adoption policy rules out a file-level override.
   No behavior change; `openapi.json` confirmed byte-identical (both touched
   DTO fields carry explicit `@ApiProperty({ type: Object, additionalProperties:
-true })` decorators, unaffected by the TS-level alias swap).
+  true })` decorators, unaffected by the TS-level alias swap).
 - Removed 37 of 43 `anti-slop/no-unsafe-dictionary-type` findings (Arc 2's
   fifth rule, not enabled yet — 6 remain: 4 sites that should redirect to the
   existing `JsonSchemaDocument` alias instead of a blanket swap, its own
   declaration, and the rule's one structurally-unavoidable finding) across 27
   files. A dedicated `UnknownRecord` alias (`type UnknownRecord = Record<string,
-unknown>`, `src/unknown-record.ts`, beside the existing `isRecord` guard)
+  unknown>`, `src/unknown-record.ts`, beside the existing `isRecord` guard)
   consolidates the project's one sanctioned "narrowed from `unknown`, not yet
   validated" idiom that was previously repeated ad hoc — parsing boundaries
   (raw JSONC config, JSON Schema documents, tool-availability manifests,
@@ -3033,7 +3044,7 @@ unknown>`, `src/unknown-record.ts`, beside the existing `isRecord` guard)
   the alias and converting `mcp-server-client.ts`'s 9 sites first, which took
   the fresh count from 53 to 43 with `mcp-server-client.ts` reaching 0. No
   behavior change; `openapi.json` confirmed byte-identical after `pnpm
---filter api build` for the touched DTOs (`chats.dto.ts`'s `usage`,
+  --filter api build` for the touched DTOs (`chats.dto.ts`'s `usage`,
   `identity.dto.ts`'s `settings`).
 - Enabled `anti-slop/no-module-mocking` at error in `apps/api/.oxlintrc.json`
   (Arc 2's fourth rule), after removing its remaining 6 findings across 5
@@ -3047,9 +3058,9 @@ unknown>`, `src/unknown-record.ts`, beside the existing `isRecord` guard)
   `createOpenAIModelClient(config, dependencies?)` injects the AI SDK's
   `createOpenAI`/`streamText` instead of module-mocking `@ai-sdk/openai`/
   `ai`, and `model-client-factory.ts`'s `createModelClient(input,
-dependencies?)` injects `createOpenAIModelClient` the same way, threaded
+  dependencies?)` injects `createOpenAIModelClient` the same way, threaded
   through `ModelsService`'s constructor via the same `@Optional()
-@Inject(TOKEN)` idiom already used for `DYNAMIC_TOOL_EXECUTOR_RESOLVER`
+  @Inject(TOKEN)` idiom already used for `DYNAMIC_TOOL_EXECUTOR_RESOLVER`
   (`ModelsService` is Nest-container-constructed, so a bare optional
   constructor parameter would have broken bootstrap). No behavior change.
 - Enabled `anti-slop/no-known-value-widening` at error in
@@ -3117,7 +3128,7 @@ dependencies?)` injects `createOpenAIModelClient` the same way, threaded
   error in `apps/api/.oxlintrc.json`, closing Arc 1. `eventPayloadField`
   gets the same `isRecord` treatment as `run-stream-bridge.ts`'s identical
   helper; the tool-completion handler replaces an untyped `output as
-ToolResult` cast with a real discriminated success/error construction,
+  ToolResult` cast with a real discriminated success/error construction,
   and the two `history as StoredMessage[]` casts reuse
   `compaction.service.ts`'s newly-exported `toStoredMessages` helper
   instead of duplicating its JSONB-narrowing logic. The four remaining
@@ -3160,11 +3171,11 @@ ToolResult` cast with a real discriminated success/error construction,
   files. `mcp-failure-policy.test.ts`'s two calls tested
   `classifyMcpFailure`'s already-fail-closed handling of an unrecognized
   stage/kind; its parameter type now honestly widens with the `(string &
-{})` branded-string idiom instead of claiming a closed union the
+  {})` branded-string idiom instead of claiming a closed union the
   function's own control flow never required, so the tests call it
   directly. `chat-loop.integration.test.ts`'s `Reflect.apply` was itself a
   `no-unsafe-type-assertion` repair for a real gap — `strictBindCallApply:
-false` makes `.call`/`.apply`/`.bind` fall through to the untyped legacy
+  false` makes `.call`/`.apply`/`.bind` fall through to the untyped legacy
   `Function` overload — but the deeper fix needed no dynamic-dispatch
   mechanism: `mockImplementationOnce` plus `spy.mockRestore()` before
   re-invoking the method as a plain, ordinarily-typed call resolves through

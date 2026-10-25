@@ -190,12 +190,10 @@ export async function worktreeListOperation(
   if (result.status === "error") return renderFailure(result, context, options);
   return {
     status: "ok",
-    worktrees: result.worktrees.map(
-      (entry): GitWorktreeEntry => ({
-        ...entry,
-        path: resultLocator(options, context, entry.path),
-      }),
-    ),
+    worktrees: result.worktrees.map((entry): GitWorktreeEntry => ({
+      ...entry,
+      path: resultLocator(options, context, entry.path),
+    })),
   };
 }
 

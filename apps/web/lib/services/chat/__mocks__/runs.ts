@@ -26,13 +26,11 @@ type MockedReceiptQuery = {
   data: RunContextReceipt | undefined;
 };
 
-export const useRunContextReceipt = fn(
-  (): MockedReceiptQuery => ({
-    isPending: true,
-    isError: false,
-    data: undefined,
-  }),
-).mockName("useRunContextReceipt");
+export const useRunContextReceipt = fn((): MockedReceiptQuery => ({
+  isPending: true,
+  isError: false,
+  data: undefined,
+})).mockName("useRunContextReceipt");
 
 export const fetchRunContextReceipt = fn().mockName("fetchRunContextReceipt");
 export const runContextReceiptQueryOptions = fn().mockName(

@@ -93,8 +93,10 @@ function DropdownMenuLabel({
   );
 }
 
-interface DropdownMenuItemProps
-  extends Omit<MenuPrimitive.Item.Props, "onSelect"> {
+interface DropdownMenuItemProps extends Omit<
+  MenuPrimitive.Item.Props,
+  "onSelect"
+> {
   /** Adds left padding to align with sibling items that have a leading icon or checkmark. */
   inset?: boolean;
   /** `"destructive"` marks an irreversible or dangerous action (e.g. delete) with the destructive color. */

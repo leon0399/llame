@@ -91,7 +91,7 @@ call.
   shadow from the next attempt that composes the live binding, including a retry attempt of the
   same Run, under the same tool ids and exact-id permission groups. A Workspace id that differs
   from an operator id only by ASCII case is unavailable with reason `case-only collision with an
-operator server` and contributes no tools; operator tools are unaffected. A failed Workspace
+  operator server` and contributes no tools; operator tools are unaffected. A failed Workspace
   server does not shadow.
 - Trusted Workspace entry adds admitted declarations through the exact mutable tool handle and
   bound-executable map used for execution. Additions are callable from the next model step; on

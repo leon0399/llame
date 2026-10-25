@@ -103,7 +103,7 @@ deletion safety; what the agent sees.
 | Synara[^synara]                        | Realpath of project root                                                                | No: second project on one path rejected                                                     | 1 primary + N additional folders, write-once; git actions primary-only; worktree mode refused for multi-folder | None; "Change project path…" repair                                                                                 | `remove` without force; branch deleted only if unchanged; orphan scan preserves unowned dirs                 | One cwd + `<project_folders>` preamble |
 | Paseo[^paseo]                          | Root path per daemon; opaque `projectKey` (normalized remote) for cross-daemon grouping | No                                                                                          | No                                                                                                             | "Project host entry" per (project, daemon)                                                                          | `window.confirm` warning, deletes on accept                                                                  | One cwd                                |
 | bb[^bb]                                | None; `projects.git_remote_url` optional                                                | Yes: two `project_sources` rows at the same (host, path)                                    | No per host: `project_sources` unique `(project, host)`                                                        | `project_sources(project, host, path)`; `environments(project, host, path)`                                         | None documented; force remove + teardown                                                                     | One cwd                                |
-| Kandev[^kandev]                        | Workspace-scoped `Repository` row carrying `LocalPath` + `RemoteURL`                    | No: same repo in two workspaces = two rows                                                  | Yes: Task ↔ repos N:M (`TaskRepository`), `RepositorySet`                                                     | Paths derived `<base>/<task>/<repo>[-<slug>]` as siblings; remote via executor prepare script                       | Dirty-check all before delete, explicit discard, offline journaled `worktree-inventory-repair`               | Multiple sibling roots                 |
+| Kandev[^kandev]                        | Workspace-scoped `Repository` row carrying `LocalPath` + `RemoteURL`                    | No: same repo in two workspaces = two rows                                                  | Yes: Task ↔ repos N:M (`TaskRepository`), `RepositorySet`                                                      | Paths derived `<base>/<task>/<repo>[-<slug>]` as siblings; remote via executor prepare script                       | Dirty-check all before delete, explicit discard, offline journaled `worktree-inventory-repair`               | Multiple sibling roots                 |
 | Orchestrator.inc[^ao]                  | Project `Path` unique; `RepositoryIdentity` used only for PR attribution                | No                                                                                          | Yes: `workspace` kind with `workspace_repos` children                                                          | None                                                                                                                | `ErrWorkspaceDirty` + explicit `ForceDestroy`, preserve-ref stash                                            | Root dir with nested repos             |
 | Coder[^coder]                          | None: repo is a template parameter string                                               | n/a                                                                                         | n/a                                                                                                            | Workspace is the machine; `coder_agent.dir`[^coder-agent]                                                           | n/a                                                                                                          | One dir                                |
 | VS Code multi-root[^vscode-multi-root] | Folder paths; repos discovered beneath                                                  | Yes (same folder in many `.code-workspace`)                                                 | Yes                                                                                                            | One remote connection per window; folders open on that host[^vscode-remote]                                         | n/a                                                                                                          | Multi-root                             |
@@ -239,7 +239,7 @@ erDiagram
   catalog (Cluster A trap). A display name is one path segment without `/` or
   NUL, and never `.` or `..`.
 - `checkouts(id, owner_user_id, repository_id, executor_id, path, kind,
-parent_checkout_id, branch, origin, worktree_base)`: a holding. `executor_id`
+  parent_checkout_id, branch, origin, worktree_base)`: a holding. `executor_id`
   uses the existing grammar (local executor id or `machine:<name>`); `path` is
   the canonical absolute path on that executor, or the canonical
   `machine://<name>/<path>` locator, which compares equal to a bound root;
@@ -258,17 +258,17 @@ parent_checkout_id, branch, origin, worktree_base)`: a holding. `executor_id`
   without a per-project matrix, and C1 by letting two projects reference one
   repository whose single checkout exists once.
 - `project_repositories(owner_user_id, project_id, repository_id, alias,
-is_primary, isolation)`, unique `(owner_user_id, project_id, repository_id)`,
+  is_primary, isolation)`, unique `(owner_user_id, project_id, repository_id)`,
   partial unique on `(owner_user_id, project_id) WHERE is_primary`.
   `isolation` is `inherit`, `always_worktree`, or `never`. `alias` is the
   project-local name the UI uses (`firmware`, `app`). This is C2 and C3. The
   project also gains `default_executor_id` nullable.
 - `project_repository_defaults(owner_user_id, project_repository_id,
-executor_id, checkout_id)`, unique `(owner_user_id, project_repository_id,
-executor_id)`. `checkout_id` MUST name a `main` checkout of that repository on
+  executor_id, checkout_id)`, unique `(owner_user_id, project_repository_id,
+  executor_id)`. `checkout_id` MUST name a `main` checkout of that repository on
   that executor. The row is written from the last successful chat start.
 - `worktree_leases(id, owner_user_id, chat_id, checkout_id, base_ref,
-base_commit, created_at)`: an informational ownership receipt, written when a
+  base_commit, created_at)`: an informational ownership receipt, written when a
   chat creates a worktree. It records the owner, the chat, the worktree
   checkout, the base ref, the base commit that the add reported, and the
   creation time. It reserves nothing and refuses nothing: a second chat can

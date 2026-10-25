@@ -25,24 +25,20 @@ function chipEntries(
   payload: InstructionsPayload,
 ): Array<InstructionFileChipEntry> {
   return [
-    ...payload.files.map(
-      (file): InstructionFileChipEntry => ({
-        key: `file:${file.path}`,
-        state: file.truncated ? "truncated" : "loaded",
-        path: file.path,
-        canonicalPath: file.canonicalPath,
-        importedBy: file.importedBy,
-      }),
-    ),
-    ...payload.denied.map(
-      (path): InstructionFileChipEntry => ({
-        key: `denied:${path}`,
-        state: "denied",
-        path,
-        canonicalPath: null,
-        importedBy: undefined,
-      }),
-    ),
+    ...payload.files.map((file): InstructionFileChipEntry => ({
+      key: `file:${file.path}`,
+      state: file.truncated ? "truncated" : "loaded",
+      path: file.path,
+      canonicalPath: file.canonicalPath,
+      importedBy: file.importedBy,
+    })),
+    ...payload.denied.map((path): InstructionFileChipEntry => ({
+      key: `denied:${path}`,
+      state: "denied",
+      path,
+      canonicalPath: null,
+      importedBy: undefined,
+    })),
   ];
 }
 

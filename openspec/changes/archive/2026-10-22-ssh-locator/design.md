@@ -72,7 +72,7 @@ are relative to `apps/api/src/tools/`):
 - `evaluateToolPermission` and `previewToolPermission` are synchronous and
   run before the per-call timeout wrapper (`tools/runner.ts:360-398`);
   preview is called synchronously from `runs/run-execution.service.ts:1562,
-2672, 2919`, and prompt imports never plan an unknown scheme
+  2672, 2919`, and prompt imports never plan an unknown scheme
   (`prompt-imports.ts:238-247`). `bypass` mode evaluates no group
   (`apps/api/src/tools/permissions/admit.ts:11`). When Workspace projection
   changed an argument,
@@ -207,7 +207,7 @@ keeps brackets in `u@[v6]`.
    does not go through Workspace projection, so `runner.ts:299` does not skip
    the submitted text.
 5. Execution connects with `-o HostName=<hostname> -o Port=<port>
--o User=<user> -- <host>`, where `<host>` is the lowercase host that step 3
+   -o User=<user> -- <host>`, where `<host>` is the lowercase host that step 3
    resolved, so the checked address is the address used, and `Host`-scoped
    `ProxyJump` and identities from the included configuration match the same
    name in both steps. A `Match host` criterion can evaluate differently in

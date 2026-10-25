@@ -149,18 +149,16 @@ async function listHostDirectory(
         : hostPathFailureResult(),
     );
   }
-  return dirents.map(
-    (dirent): GrepEntry => ({
-      name: dirent.name,
-      kind: dirent.isSymbolicLink()
-        ? 'link'
-        : dirent.isDirectory()
-          ? 'directory'
-          : dirent.isFile()
-            ? 'file'
-            : 'other',
-    }),
-  );
+  return dirents.map((dirent): GrepEntry => ({
+    name: dirent.name,
+    kind: dirent.isSymbolicLink()
+      ? 'link'
+      : dirent.isDirectory()
+        ? 'directory'
+        : dirent.isFile()
+          ? 'file'
+          : 'other',
+  }));
 }
 
 /**

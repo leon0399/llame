@@ -136,7 +136,7 @@ type WebSearchOutput =
   13,300 units with JSON overhead, so one citation always fits, while 20 maximal citations
   (about 45,000 units) do not and are dropped from the tail.
 - `notes` record what the answering engine ignored, for example `recency is not supported by
-duckduckgo`, and which earlier engines failed or were empty.
+  duckduckgo`, and which earlier engines failed or were empty.
 - Citations are deduplicated by URL.
 
 Alternative rejected: OpenClaw's `raw` passthrough branch. Every engine here is code-owned, so

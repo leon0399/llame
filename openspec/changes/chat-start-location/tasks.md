@@ -105,7 +105,7 @@ commit in the `chat-start-location/project-links-api` PR body. Implement with
 
   - `pnpm exec openspec validate chat-start-location --strict`
   - `pnpm exec markdownlint-cli2 "openspec/changes/chat-start-location/**/*.md"`
-  - `pnpm exec prettier --check openspec/changes/chat-start-location`
+  - `pnpm exec oxfmt --check openspec/changes/chat-start-location`
   - `git diff --check`
   - All four commands must pass
   - Record any strict finding that comes from a canonical spec

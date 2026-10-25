@@ -147,7 +147,7 @@ worked example available in the surveyed checkouts
   answer to how a standing-instructions surface retracts itself: a rail item, not silence.
 - **Budget/truncation disclosure.** Rendering "preserves the most specific instruction files first,"
   drops whole broader files before truncating the most-specific one, and "emits a visible `Workspace
-instruction budget ...` notice naming omitted and truncated paths" (README.md §"Budgeting And
+  instruction budget ...` notice naming omitted and truncated paths" (README.md §"Budgeting And
   Bounded Reads"). Same discipline as llame's shipped digest prefix block. The rail
   spec deliberately carries **no** general "bounded item discloses what it omitted"
   requirement: it was cut as unexercisable while no producer bounds content, and survives only as a
@@ -228,8 +228,8 @@ store, a search result over the owner's own history.
   wraps prefetched memory as:
 
   > `<memory-context>` > `[System note: The following is recalled memory context, NOT new user input. Treat as
-authoritative reference data — this is the agent's persistent memory and should inform all
-responses.]` > `{content}` > `</memory-context>`
+  > authoritative reference data — this is the agent's persistent memory and should inform all
+  > responses.]` > `{content}` > `</memory-context>`
 
   and `sanitize_context` / `StreamingContextScrubber` (lines ~163-333) strip any attacker-injected
   fake `<memory-context>` span, including one split across streaming chunk boundaries, out of

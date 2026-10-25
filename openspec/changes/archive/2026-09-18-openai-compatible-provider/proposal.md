@@ -25,7 +25,7 @@ against `master`. #648's identity rule is adopted here verbatim.
 ## What Changes
 
 - **BREAKING: provider types name the wire API they speak.** `type:
-"openai"` is deleted. `type: "openai-responses"` executes the Responses
+  "openai"` is deleted. `type: "openai-responses"` executes the Responses
   wire through `@ai-sdk/openai` at the entry's `baseUrl` (default
   `https://api.openai.com/v1`); `type: "openai-completions"` executes the
   Chat Completions wire through `@ai-sdk/openai-compatible` at the entry's

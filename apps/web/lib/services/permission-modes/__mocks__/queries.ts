@@ -14,10 +14,8 @@ type MockedPermissionModesQuery = {
   isPending: boolean;
 };
 
-export const usePermissionModesQuery = fn(
-  (): MockedPermissionModesQuery => ({
-    data: undefined,
-    isError: false,
-    isPending: true,
-  }),
-).mockName("usePermissionModesQuery");
+export const usePermissionModesQuery = fn((): MockedPermissionModesQuery => ({
+  data: undefined,
+  isError: false,
+  isPending: true,
+})).mockName("usePermissionModesQuery");

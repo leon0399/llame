@@ -86,19 +86,17 @@ const twoReads: Array<ModelMessage> = [
       ['call-1', ENVELOPE, ID],
       ['call-2', ENVELOPE2, ID2],
     ] as const
-  ).map(
-    ([toolCallId, envelope, id]): ModelMessage => ({
-      role: 'tool',
-      content: [
-        {
-          type: 'tool-result',
-          toolCallId,
-          toolName: 'read',
-          output: toolResultOutput(envelope, id),
-        },
-      ],
-    }),
-  ),
+  ).map(([toolCallId, envelope, id]): ModelMessage => ({
+    role: 'tool',
+    content: [
+      {
+        type: 'tool-result',
+        toolCallId,
+        toolName: 'read',
+        output: toolResultOutput(envelope, id),
+      },
+    ],
+  })),
 ];
 
 const sse = (events: ReadonlyArray<string>) =>

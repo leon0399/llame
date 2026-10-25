@@ -79,8 +79,8 @@ RECENT CONVERSATION CONTENT
   already has a tag-balance sanitizer, so tags are the cheaper choice here.
 - Top ~5 entries carry second precision; the rest are truncated to the hour.
 - Other blocks carry explicit framing prose (`These notes reflect assumed user preferences based on
-past conversations`, `Auto-generated from ChatGPT request activity… may be imprecise and not
-user-provided`). `RECENT CONVERSATION CONTENT` is a bare header with **no framing**.
+  past conversations`, `Auto-generated from ChatGPT request activity… may be imprecise and not
+  user-provided`). `RECENT CONVERSATION CONTENT` is a bare header with **no framing**.
 
 **The exploit.** Rehberger demonstrated that processing untrusted content (summarize a page, analyze
 a PDF) lets the document author exfiltrate the entire `Recent Conversation Content` section to a

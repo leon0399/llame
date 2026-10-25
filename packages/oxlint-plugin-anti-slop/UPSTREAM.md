@@ -24,7 +24,7 @@ The base of this directory is vendored from
 
 - `require-readable-spacing` and its vendored
   `vendor/eslint-stylistic/padding-line-between-statements.ts`. It is an
-  autofixable blank-line policy, llame's formatter is `prettier` and has no
+  autofixable blank-line policy, llame's formatter is `oxfmt` and has no
   blank-line policy, and applying it measured **11,315 insertions across 757
   files** (362 of them non-test source) — a repository-wide formatting
   migration, not a lint-rule upgrade. Upstream's own install guidance keeps
@@ -124,7 +124,7 @@ now a single-pass push/pop.
 - Style-only divergence, applied to every vendored rule and helper:
   `Array<T>`/`ReadonlyArray<T>` rather than `T[]`/`readonly T[]`, because
   `typescript/array-type` is set to `generic` in the root `.oxlintrc.json`.
-  Formatting is `prettier`. Neither changes behavior.
+  Formatting is `oxfmt`. Neither changes behavior.
 - `shared/scope.ts` and `shared/function-parameters.ts` are adopted under
   upstream's own file names, replacing llame's `resolve-variable.ts` and
   `function-like.ts`, so the next re-pull matches file for file.
@@ -143,7 +143,7 @@ now a single-pass push/pop.
   beside `no-array-filter-map`.
 - Local correctness patch: `shared/type-alias-resolution.ts` records
   `TSImportEqualsDeclaration` as a type binding, so `import Record =
-Models.Record` shadows the built-in for `hasVisibleTypeBinding` exactly as
+  Models.Record` shadows the built-in for `hasVisibleTypeBinding` exactly as
   the three import forms upstream already handles do. Without it,
   `no-unsafe-dictionary-type` reads a local `Record<string, unknown>` as the
   built-in. The valid regression case sits with the existing import-shadowing

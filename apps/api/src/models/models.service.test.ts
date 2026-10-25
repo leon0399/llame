@@ -468,9 +468,8 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
   it('the committed llame.config.jsonc.example public catalog is exactly the loaded config with internal fields stripped', async () => {
     // Load a `.jsonc` copy of the `.example` template (a `cp` source, not a
     // bootable name) so the extension-based loader picks it up like a real boot.
-    const { readFileSync, writeFileSync, mkdtempSync } = await import(
-      'node:fs'
-    );
+    const { readFileSync, writeFileSync, mkdtempSync } =
+      await import('node:fs');
     const { tmpdir } = await import('node:os');
     const dir = mkdtempSync(path.join(tmpdir(), 'models-config-'));
     const copy = path.join(dir, 'llame.config.jsonc');
