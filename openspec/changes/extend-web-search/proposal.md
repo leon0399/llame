@@ -72,7 +72,7 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
 - The catalog shows generated facts plus an optional sanitized operator `description` (Q6 B).
 - The field is named `objective`, capped at 2,000 units, and the description asks for a concise
   value (Q7 A). Hosted engines receive it as a `Goal:` line (Q8 A). Engines without an objective field ignore it with no note (Leo, after the grilling).
-- All five engine types ship (Q9). DeepSeek's `ori_question` takes the objective cut silently to
+- All four engine types ship (Q9, narrowed after the grilling: `yandex-gen` dropped). DeepSeek's `ori_question` takes the objective cut silently to
   128 code points (Q16 B), on evidence from the
   [objective spike](../../../docs/research/tool-harness/2026-10-26-web-search-objective-spike/report.md):
   76 to 100 percent of objectives fit 128 characters, no query exceeded 124 characters, and

@@ -32,7 +32,7 @@ See proposal.md for motivation. Code facts at `master` `ba5b101`:
 
 ## Goals / Non-Goals
 
-**Goals:** a model-facing goal channel that each engine uses natively or reports as ignored;
+**Goals:** a model-facing goal channel that each engine uses natively and other engines ignore silently;
 model choice among the configured engines with full visibility of what exists; three new
 providers on the existing engine contract; answer engines inside aggregates.
 
@@ -187,7 +187,7 @@ the full objective.
 `recency` becomes an `after:YYYY-MM-DD` operator appended to the query when it fits the limit;
 otherwise the date is omitted with a note. Results map `summary ?? snippet` to the snippet
 (`summary` is the 600 to 800 character model-oriented field; `output.ts` cuts it to 300) and
-`date` to `published`. Status mapping: 401 `auth`, 429 `rate_limited`, 408 or 504 `timeout`, else `upstream_error`; 402
+`date` to `published`. Status mapping: 401 and 403 `auth`, 429 `rate_limited`, 408 and 504 `timeout`, else `upstream_error`; 402
 (insufficient balance) stays `upstream_error` because no billing class exists, and the runbook
 names it as an unfunded account. A live probe returned 401 bodies that echo the key's last four characters, so
 the fixed-class rule is load-bearing here. Price: $0.75 per 1,000 requests; empty results are not
@@ -202,7 +202,7 @@ excerpt_settings: { max_chars_per_result } } }` ([API reference](https://docs.pa
 `site:` hosts become `include_domains`, `-site:` hosts `exclude_domains` (the vendor ignores
 exclusions when inclusions exist; the engine notes that case). `recency` becomes `after_date`.
 Results map `excerpts[0]`, minus a leading copy of the title, to the snippet and `publish_date` to
-`published`. Status mapping: 401 or 403 `auth`, 429 `rate_limited`, 408 `timeout`, else `upstream_error`;
+`published`. Status mapping, the same as DeepSeek: 401 and 403 `auth`, 429 `rate_limited`, 408 and 504 `timeout`, else `upstream_error`;
 402 (insufficient credit) stays `upstream_error`, named in the runbook. Modes ([modes](https://docs.parallel.ai/search/modes.md)): `turbo` (about
 200 ms, $1 per 1,000, English and Japanese only), `fast` (about 700 ms, $1), `basic` (about 1 s,
 $5), `advanced` (about 3 s, $5, the vendor default). The default here is `fast`, which the vendor
@@ -253,7 +253,7 @@ merge as results at citation rank, with the citation title and no snippet. An un
 counts as failed. The aggregate's existing empty and failure rules apply to the merged results.
 Output bounds: each attached answer keeps the 8,000-unit and 20-citation caps; over the
 15,000-unit result cap, results go first from the end, then citations from the end of the last
-answer (each answer keeps its first), then answer text from the last answer backwards. The
+answer (each answer keeps its first), then answer text from the last answer backwards, and finally whole answers from the end. The
 renderer shows attached answers after the results with their engine id.
 
 Alternatives rejected (Q15): citations-as-results only, which discards the paid answer; the
