@@ -5,7 +5,7 @@ import {
   type EngineRequest,
   type RawResult,
 } from './chain';
-import { NO_REMOVAL, removalFor } from '../../testing/web-search-removal';
+import { removalFor } from '../../testing/web-search-removal';
 import { createAggregateEngine, type AggregateChild } from './aggregate';
 
 const request = (
@@ -20,7 +20,7 @@ const request = (
   signal,
   userAgent: undefined,
   chatId: 'chat',
-  removal: NO_REMOVAL,
+  removal: removalFor(undefined),
   ...overrides,
 });
 
@@ -477,6 +477,8 @@ it('removes excluded entries before the merge and the limit cut', async () => {
   const engine = createAggregateEngine([
     child('a', () =>
       results(
+        // Not an absolute URL: the host test must miss it, not throw.
+        result('/relative/one'),
         result('https://old.reddit.com/r/one'),
         result('https://example.test/u1'),
       ),

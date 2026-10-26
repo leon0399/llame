@@ -86,6 +86,21 @@ const PROJECT_DERIVED_LOCATOR = (_field: string, value: string): string =>
   projectNativeFilePath(value);
 
 /**
+ * What the `read` policy decides for a web locator that no `read` call submits
+ * — the same submitted-then-projected reject precedence a submitted call gets,
+ * used by `web_search` to drop the results its own `read` group rejects.
+ * `undefined` means no compiled policy, as for every other admission.
+ */
+export function evaluateWebLocatorRead(
+  context: ToolContext,
+  url: string,
+): PermissionDecision | undefined {
+  return admitPermission(context, (policy) =>
+    evaluateLocatorPermission(policy, url, PROJECT_DERIVED_LOCATOR),
+  );
+}
+
+/**
  * Builds one call's reject-only address admission check. A raw-text rejection
  * gets the same precedence as for a submitted call, then the
  * `derived-locator projection` is evaluated. Allows are not evaluated as address permissions: a domain
@@ -98,9 +113,7 @@ export function createAddressAdmission(context: ToolContext): AdmitAddress {
   const reportedRefusals = new Set<string>();
 
   return (address, locator) => {
-    const decision = admitPermission(context, (policy) =>
-      evaluateLocatorPermission(policy, locator, PROJECT_DERIVED_LOCATOR),
-    );
+    const decision = evaluateWebLocatorRead(context, locator);
     if (decision === undefined) return false;
 
     const refused =
@@ -137,21 +150,6 @@ function evaluateLocatorPermission(
 }
 
 /**
- * What the `read` policy decides for a web locator that no `read` call submits
- * — the same submitted-then-projected reject precedence a submitted call gets,
- * used by `web_search` to drop the results its own `read` group rejects.
- * `undefined` means no compiled policy, as for every other admission.
- */
-export function evaluateWebLocatorRead(
-  context: ToolContext,
-  url: string,
-): PermissionDecision | undefined {
-  return admitPermission(context, (policy) =>
-    evaluateLocatorPermission(policy, url, PROJECT_DERIVED_LOCATOR),
-  );
-}
-
-/**
  * The fail-closed decision for a context with no compiled policy — a code
  * error, not a caller choice. No derived locator is admitted, and there is no
  * policy instance to attribute the refusal to, so the id is empty rather than
@@ -176,10 +174,7 @@ export function createDerivedAdmission(
 ): AdmitDerivedLocator {
   const report = context.onDerivedDecision;
   return (kind, url) => {
-    const decision =
-      admitPermission(context, (policy) =>
-        evaluateLocatorPermission(policy, url, PROJECT_DERIVED_LOCATOR),
-      ) ?? NO_POLICY;
+    const decision = evaluateWebLocatorRead(context, url) ?? NO_POLICY;
     report?.({ kind, url, decision });
     return decision;
   };

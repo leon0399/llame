@@ -6,16 +6,11 @@ import {
   type ResultRemoval,
 } from '../tools/web-search/removal';
 
-/** A removal rule that removes nothing, for fixtures that do not test it. */
-export const NO_REMOVAL: ResultRemoval = {
-  removes: () => false,
-  removedCount: () => 0,
-};
-
 /**
  * The removal rule of a call whose `read` group is `read` and whose query
- * excludes `excludedHosts`; an absent `read` group leaves the context without
- * a compiled policy.
+ * excludes `excludedHosts`. An absent `read` group leaves the context without
+ * a compiled policy, which removes nothing: the fixture for a call that does
+ * not test removal.
  */
 export function removalFor(
   read: PermissionGroup | undefined,

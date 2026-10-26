@@ -95,6 +95,8 @@ type ChainBase = {
   readonly engine: string;
   readonly query: string;
   readonly notes?: ReadonlyArray<string>;
+  /** Entries this call removed, for the output layer's one count note. */
+  readonly removed?: number;
 };
 export type SearchChainSuccess =
   | (ChainBase & ResultOutcome)
@@ -138,18 +140,6 @@ function withChainNotes(
   return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
 
-/**
- * The one note that counts the entries the call removed, or nothing when it
- * removed none. It comes before every other note so the cap cannot drop it,
- * and it names no URL or host: the model learns that something was removed,
- * not what.
- */
-function removalNotes(removal: ResultRemoval): Array<string> {
-  const removed = removal.removedCount();
-  if (removed === 0) return [];
-  return [`removed ${removed} ${removed === 1 ? 'entry' : 'entries'}`];
-}
-
 export function canonicalizeResults(
   results: ReadonlyArray<RawResult>,
 ): Array<RawResult> {
@@ -179,16 +169,25 @@ function canonicalizeOutcome(
     : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
 }
 
-/** A Markdown inline link: its text, and the target it points at. */
-const MARKDOWN_LINK = /\[([^\]\n]*)\]\(([^()\s]+)\)/gu;
-/** A URL written as itself rather than as a Markdown link target. */
-const BARE_URL = /\bhttps?:\/\/[^\s<>()[\]"'`]+/gu;
+/**
+ * A Markdown inline link: its text, and the target it points at. Both
+ * quantifiers are a single character class, so a hostile line cannot make the
+ * engine backtrack.
+ */
+const MARKDOWN_LINK = /\[([^[\]\n]*)\]\(([^()\s]*)\)/gu;
+/**
+ * A URL written as itself rather than as a Markdown link target. The last
+ * character cannot be sentence punctuation or Markdown emphasis, so deleting a
+ * copy keeps the text around it intact.
+ */
+const BARE_URL = /\bhttps?:\/\/[^\s<>()[\]"'`]*[^\s<>()[\]"'`.,;:!?*_]/giu;
 
 /**
  * Removes the entries the call excludes from one engine outcome, before the
  * chain decides on it and before an aggregate merges and cuts it. An answer
- * keeps the text of a link it loses and the text loses its target, so a
- * removed URL survives nowhere; an answer whose citations are all removed has
+ * keeps the text of a link it loses and the text loses its target; a link whose
+ * text is itself the removed URL or its host is a bare copy and goes whole, so
+ * a removed URL survives nowhere. An answer whose citations are all removed has
  * none left, which the chain reports as `ungrounded`.
  */
 function removeEntries(
@@ -196,26 +195,30 @@ function removeEntries(
   removal: ResultRemoval,
 ): EngineOutcome {
   if (outcome.kind === 'results') {
-    const results = outcome.results.filter(
-      (result) => !removal.removes(result.url),
-    );
-    return results.length === outcome.results.length
-      ? outcome
-      : { ...outcome, results };
+    const results = outcome.results.filter((result) => {
+      if (!removal.removes(result.url)) return true;
+      removal.count(result.url);
+      return false;
+    });
+    return { ...outcome, results };
   }
   if (outcome.kind === 'answer') {
-    const citations = outcome.citations.filter(
-      (citation) => !removal.removes(citation.url),
-    );
+    const citations = outcome.citations.filter((citation) => {
+      if (!removal.removes(citation.url)) return true;
+      removal.count(citation.url);
+      return false;
+    });
     const answer = outcome.answer
-      .replace(MARKDOWN_LINK, (link, text: string, target: string) =>
-        removal.removes(target) ? text : link,
-      )
+      .replace(MARKDOWN_LINK, (link, text: string, target: string) => {
+        if (!removal.removes(target)) return link;
+        const label = text.trim().toLowerCase();
+        const shown = (canonicalUrl(target) ?? target).toLowerCase();
+        // A label that spells the removed target or its host is a bare copy of
+        // the entry, not text worth keeping.
+        return [shown, URL.parse(shown)?.hostname].includes(label) ? '' : text;
+      })
       .replace(BARE_URL, (url) => (removal.removes(url) ? '' : url));
-    return citations.length === outcome.citations.length &&
-      answer === outcome.answer
-      ? outcome
-      : { ...outcome, answer, citations };
+    return { ...outcome, answer, citations };
   }
   return outcome;
 }
@@ -322,6 +325,18 @@ function classifyOutcome(
   return { kind: 'success', success };
 }
 
+/**
+ * Attaches the call's removed-entry count, which the output layer turns into
+ * the one note that comes before every other note.
+ */
+function withRemoved(
+  result: SearchChainSuccess,
+  removal: ResultRemoval,
+): SearchChainSuccess {
+  const removed = removal.removedCount();
+  return removed === 0 ? result : { ...result, removed };
+}
+
 function totalFailure(notes: ReadonlyArray<string>): SearchChainError {
   return {
     status: 'error',
@@ -356,18 +371,19 @@ export async function executeSearchChain(
       notes,
     );
     if (decision.kind === 'success')
-      return withChainNotes(
-        { ...decision.success, engine: id, query: request.query },
-        [...removalNotes(request.removal), ...notes],
+      return withRemoved(
+        withChainNotes(
+          { ...decision.success, engine: id, query: request.query },
+          notes,
+        ),
+        request.removal,
       );
     if (decision.lastEmpty !== undefined) lastEmpty = decision.lastEmpty;
   }
   if (lastEmpty === undefined) return totalFailure(notes);
   const finalNotes = withoutNote(notes, lastEmpty.noteIndex);
-  return emptyResult(
-    request.query,
-    lastEmpty.engine,
-    [...removalNotes(request.removal), ...finalNotes],
-    lastEmpty.notes,
+  return withRemoved(
+    emptyResult(request.query, lastEmpty.engine, finalNotes, lastEmpty.notes),
+    request.removal,
   );
 }
