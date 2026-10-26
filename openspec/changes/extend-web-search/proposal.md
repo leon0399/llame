@@ -25,6 +25,8 @@ their own length limits, which today surfaces as an opaque `upstream_error`
   over-long query makes no vendor request and fails that engine with the new failure class
   `unsupported`, so the chain advances. An `aggregate` skips only the children whose limit the
   query exceeds. **BREAKING** for consumers that enumerate failure classes: `unsupported` is new.
+- **Result counts clamp.** A `limit` above an engine's vendor maximum is sent as that maximum;
+  the call never fails for it.
 - **Engine selection.** `web_search` gains an optional `engines` list. When set, it replaces
   `webSearch.chain` for that call; the listed engines run in order with the usual fallback among
   them only. Any configured engine is selectable. An unknown id fails the call with the list of
@@ -65,6 +67,7 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
   76 to 100 percent of objectives fit 128 characters, no query exceeded 124 characters, and
   `ori_question` left the top-10 order unchanged in 56 of 59 comparisons.
 - Parallel's `session_id` is the Chat id (Q10 A). Rerank preparation is out of scope (Q11 A).
+- A `limit` above a vendor maximum is clamped, never an error (Leo, after the grilling).
 - Answer engines are allowed in aggregates with the `answers` shape (Q15 B); that work is its own
   issue (Q17 C).
 - DeepSeek's hosted search through the Responses API is out of scope; `model-hosted` validation is
@@ -114,7 +117,8 @@ None.
   - MODIFIED "Total failure is a fixed, non-disclosing error" (adds `unsupported`).
   - MODIFIED "API and keyless engines speak their vendor wire" (new engine types).
   - MODIFIED "Model-hosted engines run a bounded grounded sub-request" (`Goal:` line).
-  - ADDED "Engines skip queries over their query limit", "Aggregate engines run only the
+  - ADDED "Engines skip queries over their query limit", "Engines clamp the result count to their vendor
+    maximum", "Aggregate engines run only the
     children that accept the query", "Engines receive the objective where their vendor accepts
     one", "The model can select the engines for one call", "The web search description lists the
     configured engines", "Aggregate engines attach the answers of answer children", "Attached

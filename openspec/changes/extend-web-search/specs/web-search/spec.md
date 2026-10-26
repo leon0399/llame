@@ -170,6 +170,20 @@ An engine MUST NOT send a request when the query is over its query limit. It MUS
 - **WHEN** a `yandex` engine receives a query of 45 words and 300 characters
 - **THEN** the engine sends no request and fails with `unsupported`
 
+### Requirement: Engines clamp the result count to their vendor maximum
+
+When `limit` is above the maximum result count of the vendor, the engine MUST send that maximum. The call MUST NOT fail for that reason. An engine without a count parameter MUST cut its results to `limit`. The output can then contain fewer results than `limit`.
+
+#### Scenario: A large limit is clamped
+
+- **WHEN** an engine with a vendor maximum of 10 receives `limit: 20`
+- **THEN** the engine requests 10 results and the call succeeds
+
+#### Scenario: A small limit passes unchanged
+
+- **WHEN** a `deepseek` engine receives `limit: 5`
+- **THEN** the request has `count: 5`
+
 ### Requirement: Aggregate engines run only the children that accept the query
 
 An `aggregate` engine MUST NOT run a child when the query is over the query limit of that child. The aggregate MUST note that child with `unsupported` and MUST run its other children. When the query limit skips all children, the aggregate MUST fail with `unsupported`.

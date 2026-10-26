@@ -80,6 +80,15 @@ and leads the model to retry the same query; truncate the query, which silently 
 something else. The spike measured no query above 124 characters across three models, so the
 class is a guard, not a common path.
 
+### D2a: Result counts clamp to the vendor maximum
+
+`limit` stays 1 to 20 for the model. Each engine sends `min(limit, vendor maximum)` and never fails
+because the vendor caps fewer results; an engine without a count parameter (`searxng`, `duckduckgo`, `parallel-mcp`) cuts
+its results to `limit`, as the output bounds already do. Today every vendor maximum is at least 20 (Brave 20, Parallel 20,
+DeepSeek 50, Yandex 100 per page), so the clamp is a guard for future engines and vendor changes.
+The asymmetry with D2 is deliberate: a smaller result set answers the same search, while a
+truncated query is a different search. Leo's decision, 2026-10-26.
+
 ### D3: `engines` replaces the chain for one call
 
 When set, the listed engines run in the given order with the usual fallback among them only.
