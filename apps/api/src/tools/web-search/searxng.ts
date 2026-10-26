@@ -73,7 +73,9 @@ export function createSearxngEngine(
       },
       SearxngPayloadSchema,
     );
-    const results = payload.results.flatMap(mapSearxngResult);
+    const results = payload.results
+      .flatMap(mapSearxngResult)
+      .slice(0, request.limit);
     return results.length > 0
       ? { kind: 'results', results, ...extra }
       : { kind: 'empty', ...extra };

@@ -29,6 +29,34 @@ describe('web search tool declaration', () => {
     });
   });
 
+  it('accepts a bounded objective and refuses an empty or over-long one', () => {
+    expect(
+      webSearchInputSchema.parse({
+        query: 'llame',
+        objective: 'compare pgvector benchmarks',
+      }),
+    ).toEqual({
+      query: 'llame',
+      objective: 'compare pgvector benchmarks',
+      limit: 10,
+    });
+    expect(
+      webSearchInputSchema.safeParse({ query: 'llame', objective: '' }).success,
+    ).toBe(false);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        objective: 'x'.repeat(2000),
+      }).success,
+    ).toBe(true);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        objective: 'x'.repeat(2001),
+      }).success,
+    ).toBe(false);
+  });
+
   it('uses the stable read-only declaration and fixed unconfigured error', async () => {
     const context: ToolContext = {
       userId: 'user',
@@ -178,6 +206,52 @@ it('forwards recency and the product user agent to the configured engine', async
       url instanceof Request ? url.url : url instanceof URL ? url.href : url;
     expect(new URL(requestUrl).searchParams.get('freshness')).toBe('pd');
     expect(new Headers(init?.headers).get('User-Agent')).toBe('llame/test');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('forwards the objective to an engine that accepts one', async () => {
+  const fetch = vi.fn<VendorFetch>(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          results: [{ title: 'Result', url: 'https://example.test/a' }],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          { id: 'exa', type: 'exa', key: 'test-key', timeoutSeconds: 60 },
+        ],
+        chain: ['exa'],
+      },
+    };
+    await expect(
+      webSearchTool.execute(context, {
+        query: 'llame',
+        objective: 'compare pgvector benchmarks',
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({ status: 'success', kind: 'results' });
+    const text = await new Response(
+      fetch.mock.calls[0]?.[1]?.body ?? null,
+    ).text();
+    const body: unknown = JSON.parse(text);
+    expect(body).toMatchObject({
+      query: 'llame',
+      objective: 'compare pgvector benchmarks',
+    });
   } finally {
     vi.unstubAllGlobals();
   }

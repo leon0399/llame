@@ -12,6 +12,7 @@ const request = (
   limit = 10,
 ): EngineRequest => ({
   query: 'query',
+  objective: undefined,
   recency: undefined,
   limit,
   signal,
@@ -46,7 +47,7 @@ const child = (
   id: string,
   engine: Engine,
   timeoutSeconds = 60,
-): AggregateChild => ({ id, engine, timeoutSeconds });
+): AggregateChild => ({ id, engine, timeoutSeconds, limits: {} });
 
 it('puts a shared result first with reciprocal rank fusion', async () => {
   const engine = createAggregateEngine([
@@ -183,6 +184,54 @@ it('fails upstream when every child fails', async () => {
     name: 'EngineFailure',
     failureClass: 'upstream_error',
   });
+});
+
+it('runs only the children whose query limit the query fits', async () => {
+  const started: Array<string> = [];
+  const engine = createAggregateEngine([
+    {
+      ...child('narrow', () => {
+        started.push('narrow');
+        return results(result('https://example.test/narrow'));
+      }),
+      limits: { query: { codePoints: 128 } },
+    },
+    {
+      ...child('wide', () => {
+        started.push('wide');
+        return results(result('https://example.test/wide'));
+      }),
+      limits: { query: { codePoints: 200 } },
+    },
+  ]);
+  const output = await engine({ ...request(), query: 'x'.repeat(150) });
+
+  expect(started).toStrictEqual(['wide']);
+  expect(output).toStrictEqual({
+    kind: 'results',
+    results: [result('https://example.test/wide')],
+    notes: ['narrow: unsupported'],
+  });
+});
+
+it('fails unsupported when every child skips the query', async () => {
+  let started = 0;
+  const count = (): Promise<EngineOutcome> => {
+    started += 1;
+    return results(result('https://example.test/a'));
+  };
+  const engine = createAggregateEngine([
+    { ...child('narrow', count), limits: { query: { codePoints: 128 } } },
+    { ...child('wide', count), limits: { query: { codePoints: 200 } } },
+  ]);
+
+  await expect(
+    engine({ ...request(), query: 'x'.repeat(250) }),
+  ).rejects.toMatchObject({
+    name: 'EngineFailure',
+    failureClass: 'unsupported',
+  });
+  expect(started).toBe(0);
 });
 
 it('notes a timed-out child while merging the others', async () => {

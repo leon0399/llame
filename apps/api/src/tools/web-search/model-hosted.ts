@@ -16,7 +16,7 @@ import {
   type EngineRequest,
   type RawCitation,
 } from './chain';
-import { splitSiteFilters } from './query';
+import { splitSiteFilters, type SiteFilters } from './query';
 
 type HostedConfig = Extract<
   WebSearchEngineConfig,
@@ -44,17 +44,59 @@ export const HOSTED_SEARCH_INSTRUCTIONS = loadPackagedTemplate<
 /** Anthropic bills and bounds server-side searches per request. */
 const ANTHROPIC_MAX_SEARCHES = 5;
 
-/** What differs between the hosted-search wires. */
-type WireProfile = {
-  readonly tools: (allowedDomains: Array<string>) => ToolSet;
-  readonly toolChoice: ModelStreamInput['toolChoice'];
-  readonly isCitation: (source: UrlSource) => boolean;
+/** What a query's `site:` and `-site:` hosts become on the hosted search tool. */
+type DomainPlan = {
+  readonly allowedDomains: Array<string>;
+  readonly blockedDomains: Array<string>;
+  /** Whether `-site:` hosts were dropped because the wire accepts one list. */
+  readonly droppedExclusions: boolean;
 };
 
-function anthropicWebSearch(allowedDomains: Array<string>): ToolSet[string] {
+/** What differs between the hosted-search wires. */
+type WireProfile = {
+  readonly tools: (plan: DomainPlan) => ToolSet;
+  readonly toolChoice: ModelStreamInput['toolChoice'];
+  readonly isCitation: (source: UrlSource) => boolean;
+  /** The wire rejects one request that sets both domain lists. */
+  readonly singleDomainList: boolean;
+};
+
+/** The query's hosts as one tool's domain lists; Anthropic keeps the inclusions. */
+function domainPlan(wire: WireProfile, filters: SiteFilters): DomainPlan {
+  const droppedExclusions =
+    wire.singleDomainList &&
+    filters.include.length > 0 &&
+    filters.exclude.length > 0;
+  return {
+    allowedDomains: filters.include,
+    blockedDomains: droppedExclusions ? [] : filters.exclude,
+    droppedExclusions,
+  };
+}
+
+/** The OpenAI `filters` object, absent when the query names no host. */
+function openaiFilters(plan: DomainPlan) {
+  if (plan.allowedDomains.length === 0 && plan.blockedDomains.length === 0)
+    return undefined;
+  return {
+    ...(plan.allowedDomains.length > 0 && {
+      allowedDomains: plan.allowedDomains,
+    }),
+    ...(plan.blockedDomains.length > 0 && {
+      blockedDomains: plan.blockedDomains,
+    }),
+  };
+}
+
+function anthropicWebSearch(plan: DomainPlan): ToolSet[string] {
   const searchTool = anthropic.tools.webSearch_20250305({
     maxUses: ANTHROPIC_MAX_SEARCHES,
-    ...(allowedDomains.length > 0 && { allowedDomains }),
+    ...(plan.allowedDomains.length > 0 && {
+      allowedDomains: plan.allowedDomains,
+    }),
+    ...(plan.blockedDomains.length > 0 && {
+      blockedDomains: plan.blockedDomains,
+    }),
   });
   // SAFETY: `@ai-sdk/anthropic` resolves its own copy of `@ai-sdk/provider-utils`, so the tool's schema type carries a different `unique symbol` than the `ToolSet` of `ai`. Both copies register the schema brand with `Symbol.for("vercel.ai.schema")`, so the value is the SDK's own, valid provider tool at runtime.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- type-only mismatch between two installed copies of one package; the value is not reshaped.
@@ -62,29 +104,34 @@ function anthropicWebSearch(allowedDomains: Array<string>): ToolSet[string] {
 }
 
 const OPENAI_WIRE: WireProfile = {
-  tools: (allowedDomains) => ({
-    web_search: openai.tools.webSearch({
-      ...(allowedDomains.length > 0 && { filters: { allowedDomains } }),
-    }),
-  }),
+  tools: (plan) => {
+    const filters = openaiFilters(plan);
+    return {
+      web_search: openai.tools.webSearch({
+        ...(filters !== undefined && { filters }),
+      }),
+    };
+  },
   // A required choice makes the model search instead of answering from memory.
   toolChoice: 'required',
   // Every `url_citation` annotation is a source the answer text cites.
   isCitation: () => true,
+  singleDomainList: false,
 };
 
 // The Messages wire does not force the search: forced tool use is rejected
 // while thinking is enabled, which an operator's provider options may do. An
 // answer that skipped the search cites nothing and is `ungrounded` anyway.
 const ANTHROPIC_WIRE: WireProfile = {
-  tools: (allowedDomains) => ({
-    web_search: anthropicWebSearch(allowedDomains),
+  tools: (plan) => ({
+    web_search: anthropicWebSearch(plan),
   }),
   toolChoice: undefined,
   // The adapter also emits a source for every retrieved result; only a
   // `web_search_result_location` citation carries the text it supports.
   isCitation: (source) =>
     isString(source.providerMetadata?.anthropic?.citedText),
+  singleDomainList: true,
 };
 
 // The Codex backend is not documented to accept a bare `required` choice;
@@ -106,7 +153,10 @@ function hostedMessages(request: EngineRequest): Array<ModelMessage> {
     request.recency === undefined
       ? ''
       : `\n\nOnly use sources published within the last ${request.recency}.`;
-  return [{ role: 'user', content: `${request.query}${recency}` }];
+  // A goal line, never the query text: the model still searches the keywords.
+  const goal =
+    request.objective === undefined ? '' : `\n\nGoal: ${request.objective}`;
+  return [{ role: 'user', content: `${request.query}${recency}${goal}` }];
 }
 
 /**
@@ -128,12 +178,13 @@ function providerFailure(error: unknown): EngineFailure {
  */
 async function requestHostedAnswer(
   config: HostedConfig,
+  wire: WireProfile,
+  plan: DomainPlan,
   request: EngineRequest,
 ): Promise<HostedAnswer> {
   const { modelClients } = request;
   if (modelClients?.createClient === undefined)
     throw new EngineFailure('upstream_error');
-  const wire = WIRES[config.wire];
   // The AI SDK reports a provider failure through `onError`; the result's
   // `text` then rejects with a generic "no output" error that carries none of
   // it. The callback also replaces the SDK's default, which logs the raw error.
@@ -143,7 +194,7 @@ async function requestHostedAnswer(
       chat: { id: request.chatId, lane: 'search' },
       system: HOSTED_SEARCH_INSTRUCTIONS,
       messages: hostedMessages(request),
-      tools: wire.tools(splitSiteFilters(request.query).include),
+      tools: wire.tools(plan),
       toolChoice: wire.toolChoice,
       // One search step, then one tool-free answer step at most: a provider
       // turn that pauses before its deferred search result cannot loop.
@@ -169,10 +220,16 @@ async function requestHostedAnswer(
  */
 export function createModelHostedEngine(config: HostedConfig): Engine {
   return async (request) => {
-    const { text, sources } = await requestHostedAnswer(config, request);
-    const { isCitation } = WIRES[config.wire];
+    const wire = WIRES[config.wire];
+    const plan = domainPlan(wire, splitSiteFilters(request.query));
+    const { text, sources } = await requestHostedAnswer(
+      config,
+      wire,
+      plan,
+      request,
+    );
     const citations = sources.flatMap((source): Array<RawCitation> => {
-      if (source.sourceType !== 'url' || !isCitation(source)) return [];
+      if (source.sourceType !== 'url' || !wire.isCitation(source)) return [];
       return [
         {
           url: source.url,
@@ -182,6 +239,13 @@ export function createModelHostedEngine(config: HostedConfig): Engine {
     });
     if (text.trim().length === 0 || citations.length === 0)
       throw new EngineFailure('ungrounded');
-    return { kind: 'answer', answer: text, citations };
+    return {
+      kind: 'answer',
+      answer: text,
+      citations,
+      ...(plan.droppedExclusions && {
+        notes: ['model-hosted ignored the excluded domains'],
+      }),
+    };
   };
 }

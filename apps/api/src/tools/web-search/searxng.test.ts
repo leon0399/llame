@@ -5,6 +5,7 @@ import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test latest adapters',
+  objective: undefined,
   recency: 'week',
   limit: 1,
   signal: new AbortController().signal,
@@ -51,7 +52,7 @@ describe('SearXNG adapter', () => {
     const result = await createSearxngEngine(
       { baseUrl: 'http://localhost:8888/searxng' },
       { fetch: recorded.fetch },
-    )(request());
+    )(request({ limit: 4 }));
     const url = new URL(recorded.seen().url);
     expect(url.origin + url.pathname).toBe(
       'http://localhost:8888/searxng/search',
@@ -123,6 +124,33 @@ describe('SearXNG adapter', () => {
     await expect(engine(request())).resolves.toStrictEqual({
       kind: 'empty',
       notes: ['SearXNG mapped week recency to month.'],
+    });
+  });
+
+  it('cuts results to the limit and ignores the objective', async () => {
+    const engine = createSearxngEngine(
+      { baseUrl: 'http://localhost:8888/' },
+      {
+        fetch: captureFixture(
+          success([
+            { title: 'First', url: 'https://example.test/first' },
+            { title: 'Second', url: 'https://example.test/second' },
+          ]),
+        ).fetch,
+      },
+    );
+    await expect(
+      engine(
+        request({
+          query: 'plain',
+          recency: undefined,
+          limit: 1,
+          objective: 'compare pgvector benchmarks',
+        }),
+      ),
+    ).resolves.toStrictEqual({
+      kind: 'results',
+      results: [{ title: 'First', url: 'https://example.test/first' }],
     });
   });
 

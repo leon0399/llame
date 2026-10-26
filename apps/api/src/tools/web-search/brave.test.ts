@@ -4,6 +4,7 @@ import { type VendorFetch } from './http';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test "quoted"',
+  objective: undefined,
   recency: 'week',
   limit: 7,
   signal: new AbortController().signal,
@@ -98,6 +99,41 @@ it('returns empty when Brave has no results', async () => {
     { fetch: () => Promise.resolve(emptyResponse()) },
   );
   await expect(engine(request())).resolves.toEqual({ kind: 'empty' });
+});
+
+it('clamps the requested count to the brave maximum', async () => {
+  let seenUrl = '';
+  const fetch: VendorFetch = (input) => {
+    seenUrl = requestUrl(input);
+    return Promise.resolve(emptyResponse());
+  };
+  await createBraveEngine({ key: 'secret' }, { fetch })(request({ limit: 25 }));
+  expect(new URL(seenUrl).searchParams.get('count')).toBe('20');
+});
+
+it('ignores the objective without a note', async () => {
+  let seenUrl = '';
+  const fetch: VendorFetch = (input) => {
+    seenUrl = requestUrl(input);
+    return Promise.resolve(
+      response({
+        web: {
+          results: [{ title: 'A result', url: 'https://example.test/a' }],
+        },
+      }),
+    );
+  };
+  const output = await createBraveEngine(
+    { key: 'secret' },
+    { fetch },
+  )(request({ objective: 'compare pgvector benchmarks' }));
+  expect(new URL(seenUrl).searchParams.get('q')).toBe(
+    'site:example.test "quoted"',
+  );
+  expect(output).toStrictEqual({
+    kind: 'results',
+    results: [{ title: 'A result', url: 'https://example.test/a' }],
+  });
 });
 
 it('classifies a malformed successful payload as an upstream error', async () => {

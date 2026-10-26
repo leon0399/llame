@@ -5,6 +5,7 @@ import { type VendorFetch } from './http';
 import { requestUrl } from '../../testing/web-search-fetch';
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test cats',
+  objective: undefined,
   recency: 'week',
   limit: 7,
   signal: new AbortController().signal,
@@ -92,7 +93,7 @@ describe('DuckDuckGo HTML engine', () => {
     expect(form.has('df')).toBe(false);
   });
 
-  it('skips ads without applying the output limit', async () => {
+  it('skips ads, cuts results to the limit, and ignores the objective', async () => {
     const body = html(`
       ${firstResult}
       <div class="result result--ad">
@@ -103,7 +104,11 @@ describe('DuckDuckGo HTML engine', () => {
         <div class="result__snippet">Second snippet</div>
       </div>
     `);
-    const { output } = await runWith(body, { limit: 1 });
+    const { output, init } = await runWith(body, {
+      limit: 1,
+      objective: 'compare pgvector benchmarks',
+    });
+    expect(formFrom(init).get('q')).toBe('site:example.test cats');
     expect(output).toStrictEqual({
       kind: 'results',
       results: [
@@ -111,11 +116,6 @@ describe('DuckDuckGo HTML engine', () => {
           title: 'First result',
           url: 'https://example.test/first?x=1',
           snippet: 'First snippet',
-        },
-        {
-          title: 'Second',
-          url: 'https://example.test/second',
-          snippet: 'Second snippet',
         },
       ],
     });

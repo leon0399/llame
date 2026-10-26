@@ -14,9 +14,11 @@ import {
   type EngineRequest,
 } from './chain';
 import { normalizeOutput } from './output';
+import { ENGINE_LIMITS } from './limits';
 
 export const webSearchInputSchema = z.strictObject({
   query: z.string().min(1).max(1000),
+  objective: z.string().min(1).max(2000).optional(),
   recency: z.enum(['day', 'week', 'month', 'year']).optional(),
   limit: z.number().int().min(1).max(20).default(10),
 });
@@ -52,6 +54,7 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
       return {
         id,
         timeoutSeconds: childConfig.timeoutSeconds,
+        limits: ENGINE_LIMITS[childConfig.type],
         engine: engines.get(id)!,
       };
     });
@@ -87,6 +90,7 @@ export const webSearchTool: Tool<WebSearchArguments> = {
     const signal = context.abortSignal ?? new AbortController().signal;
     const request: EngineRequest = {
       query: input.query,
+      objective: input.objective,
       limit: input.limit,
       signal,
       recency: input.recency,

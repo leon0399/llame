@@ -70,7 +70,7 @@ export function createDuckDuckGoEngine(deps: {
     const { document } = parseHTML(htmlBody);
     if (document.querySelector('[class^="anomaly-modal"]') !== null)
       throw new EngineFailure('challenge');
-    const results = parseResults(document);
+    const results = parseResults(document).slice(0, request.limit);
     return results.length > 0
       ? { kind: 'results', results }
       : { kind: 'empty' };

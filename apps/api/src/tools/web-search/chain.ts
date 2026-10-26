@@ -10,6 +10,7 @@ import { createPerplexityEngine } from './perplexity';
 import { createSearxngEngine } from './searxng';
 import { createModelHostedEngine } from './model-hosted';
 import { canonicalUrl } from './output';
+import { ENGINE_LIMITS, acceptsQuery } from './limits';
 import { type VendorFetch } from './http';
 import { type ToolContext } from '../types';
 
@@ -19,6 +20,7 @@ export const WEB_SEARCH_FAILURE_CLASSES = [
   'challenge',
   'timeout',
   'ungrounded',
+  'unsupported',
   'upstream_error',
 ] as const;
 export type FailureClass = (typeof WEB_SEARCH_FAILURE_CLASSES)[number];
@@ -28,6 +30,7 @@ const FAILURE_MESSAGES: Record<FailureClass, string> = {
   challenge: 'The web search engine presented a challenge.',
   timeout: 'The web search engine timed out.',
   ungrounded: 'The web search engine returned an ungrounded answer.',
+  unsupported: 'The web search engine does not accept this query.',
   upstream_error: 'The web search engine failed upstream.',
 };
 
@@ -65,6 +68,8 @@ type EmptyOutcome = {
 export type EngineOutcome = ResultOutcome | AnswerOutcome | EmptyOutcome;
 export type EngineRequest = {
   readonly query: string;
+  /** The model's goal for this search; engines without the field ignore it. */
+  readonly objective: string | undefined;
   readonly recency: 'day' | 'week' | 'month' | 'year' | undefined;
   readonly limit: number;
   readonly signal: AbortSignal;
@@ -274,6 +279,11 @@ export async function executeSearchChain(
   for (const id of config.chain) {
     if (request.signal.aborted) throwAbort(request.signal);
     const entry = config.engines.find((candidate) => candidate.id === id)!;
+    // A local decision, not a vendor failure: the request is never sent.
+    if (!acceptsQuery(ENGINE_LIMITS[entry.type], request.query)) {
+      notes.push(`${id}: unsupported`);
+      continue;
+    }
     const decision = classifyOutcome(
       id,
       await runOne(

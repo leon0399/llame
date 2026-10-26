@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
 import { fetchVendorJson, type VendorFetch } from './http';
+import { ENGINE_LIMITS } from './limits';
 import { splitSiteFilters } from './query';
 
 export const EXA_SEARCH_URL = 'https://api.exa.ai/search';
@@ -41,9 +42,11 @@ function mapExaResult(value: unknown): Array<RawResult> {
 
 function requestBody(request: EngineRequest) {
   const filters = splitSiteFilters(request.query);
+  const query = filters.query || request.query;
   return {
-    query: filters.query || request.query,
-    numResults: request.limit,
+    query,
+    objective: request.objective ?? query,
+    numResults: Math.min(request.limit, ENGINE_LIMITS.exa.results),
     ...(filters.include.length > 0 && { includeDomains: filters.include }),
     ...(filters.exclude.length > 0 && { excludeDomains: filters.exclude }),
     ...(request.recency !== undefined && {
