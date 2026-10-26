@@ -60,6 +60,8 @@ type AnswerOutcome = {
   readonly kind: 'answer';
   readonly answer: string;
   readonly citations: ReadonlyArray<RawCitation>;
+  /** Engine notes that accompany a grounded answer, as for a result list. */
+  readonly notes?: ReadonlyArray<string>;
 };
 type EmptyOutcome = {
   readonly kind: 'empty';

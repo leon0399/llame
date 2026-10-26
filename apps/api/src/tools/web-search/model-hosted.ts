@@ -74,8 +74,8 @@ function domainPlan(wire: WireProfile, filters: SiteFilters): DomainPlan {
   };
 }
 
-/** The OpenAI `filters` object, absent when the query names no host. */
-function openaiFilters(plan: DomainPlan) {
+/** The provider's domain-list arguments, absent when the query names no host. */
+function domainLists(plan: DomainPlan) {
   if (plan.allowedDomains.length === 0 && plan.blockedDomains.length === 0)
     return undefined;
   return {
@@ -91,12 +91,7 @@ function openaiFilters(plan: DomainPlan) {
 function anthropicWebSearch(plan: DomainPlan): ToolSet[string] {
   const searchTool = anthropic.tools.webSearch_20250305({
     maxUses: ANTHROPIC_MAX_SEARCHES,
-    ...(plan.allowedDomains.length > 0 && {
-      allowedDomains: plan.allowedDomains,
-    }),
-    ...(plan.blockedDomains.length > 0 && {
-      blockedDomains: plan.blockedDomains,
-    }),
+    ...domainLists(plan),
   });
   // SAFETY: `@ai-sdk/anthropic` resolves its own copy of `@ai-sdk/provider-utils`, so the tool's schema type carries a different `unique symbol` than the `ToolSet` of `ai`. Both copies register the schema brand with `Symbol.for("vercel.ai.schema")`, so the value is the SDK's own, valid provider tool at runtime.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- type-only mismatch between two installed copies of one package; the value is not reshaped.
@@ -105,7 +100,7 @@ function anthropicWebSearch(plan: DomainPlan): ToolSet[string] {
 
 const OPENAI_WIRE: WireProfile = {
   tools: (plan) => {
-    const filters = openaiFilters(plan);
+    const filters = domainLists(plan);
     return {
       web_search: openai.tools.webSearch({
         ...(filters !== undefined && { filters }),
@@ -173,18 +168,19 @@ function providerFailure(error: unknown): EngineFailure {
 
 /**
  * One request to the referenced model with only the packaged instructions, the
- * query, and the provider's search tool: no history, no Run system prompt, no
- * effort, and no usage callback, so the Run never accounts for it.
+ * query, a recency phrase or `Goal:` line when set, and the provider's search
+ * tool: no history, no Run system prompt, no effort, and no usage callback, so
+ * the Run never accounts for it.
  */
 async function requestHostedAnswer(
   config: HostedConfig,
-  wire: WireProfile,
   plan: DomainPlan,
   request: EngineRequest,
 ): Promise<HostedAnswer> {
   const { modelClients } = request;
   if (modelClients?.createClient === undefined)
     throw new EngineFailure('upstream_error');
+  const wire = WIRES[config.wire];
   // The AI SDK reports a provider failure through `onError`; the result's
   // `text` then rejects with a generic "no output" error that carries none of
   // it. The callback also replaces the SDK's default, which logs the raw error.
@@ -222,12 +218,7 @@ export function createModelHostedEngine(config: HostedConfig): Engine {
   return async (request) => {
     const wire = WIRES[config.wire];
     const plan = domainPlan(wire, splitSiteFilters(request.query));
-    const { text, sources } = await requestHostedAnswer(
-      config,
-      wire,
-      plan,
-      request,
-    );
+    const { text, sources } = await requestHostedAnswer(config, plan, request);
     const citations = sources.flatMap((source): Array<RawCitation> => {
       if (source.sourceType !== 'url' || !wire.isCitation(source)) return [];
       return [

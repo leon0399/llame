@@ -174,6 +174,8 @@ export function createAggregateEngine(
 ): Engine {
   return async (request) => {
     if (request.signal.aborted) throwAbort(request.signal);
+    // A skipped child's run is a plain value, wrapped so every element the
+    // aggregator receives is a promise.
     const runs = await Promise.all(
       children.map((child) =>
         acceptsQuery(child.limits, request.query)
@@ -198,7 +200,8 @@ export function createAggregateEngine(
       return { kind: 'empty' as const, notes };
     }
     // An aggregate that skipped every child makes a local decision, not a
-    // vendor failure, so the chain reports `unsupported` rather than retrying.
+    // vendor failure; the chain records `unsupported` and advances like any
+    // other class.
     throw new EngineFailure(
       runs.every(
         (run) => run.kind === 'failure' && run.failureClass === 'unsupported',

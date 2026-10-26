@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
 import { fetchVendorJson, type VendorFetch } from './http';
-import { ENGINE_LIMITS } from './limits';
+import { vendorCount } from './limits';
 import { splitSiteFilters } from './query';
 
 export const PERPLEXITY_SEARCH_URL = 'https://api.perplexity.ai/search';
@@ -62,7 +62,7 @@ function domainPlan(query: string): DomainFilters {
 function requestBody(plan: DomainFilters, request: EngineRequest) {
   return {
     query: plan.query,
-    max_results: Math.min(request.limit, ENGINE_LIMITS.perplexity.results),
+    max_results: vendorCount('perplexity', request.limit),
     ...(request.recency !== undefined && {
       search_recency_filter: request.recency,
     }),

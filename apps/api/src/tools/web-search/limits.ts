@@ -2,16 +2,13 @@ import { type WebSearchEngineConfig } from '../../instance-config/llame-config';
 
 type EngineType = WebSearchEngineConfig['type'];
 
-/** A vendor query limit, in code points and, where the vendor has one, words. */
-type QueryLimit = {
-  readonly codePoints: number;
-  readonly words?: number;
-};
+/** An engine type whose vendor takes a result count. */
+type CountEngineType = 'brave' | 'exa' | 'perplexity';
 
 /** What one engine type accepts from the model's `query` and `limit`. */
 export type EngineLimits = {
   /** Absent when the vendor accepts every query the tool's own bound allows. */
-  readonly query?: QueryLimit;
+  readonly query?: { readonly codePoints: number; readonly words?: number };
   /** The vendor's maximum result count; absent when its API takes no count. */
   readonly results?: number;
 };
@@ -40,9 +37,14 @@ export const ENGINE_LIMITS = {
 export function acceptsQuery(limits: EngineLimits, query: string): boolean {
   const limit = limits.query;
   if (limit === undefined) return true;
-  if ((query.match(/[\s\S]/gu)?.length ?? 0) > limit.codePoints) return false;
+  if (Array.from(query).length > limit.codePoints) return false;
   return (
     limit.words === undefined ||
     (query.match(/\S+/gu)?.length ?? 0) <= limit.words
   );
+}
+
+/** The count to request: the call's `limit`, clamped to a vendor maximum. */
+export function vendorCount(type: CountEngineType, limit: number): number {
+  return Math.min(limit, ENGINE_LIMITS[type].results);
 }
