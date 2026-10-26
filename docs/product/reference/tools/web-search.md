@@ -37,7 +37,7 @@ Every result/citation URL is a canonical locator accepted as [`read`](read.md)'s
 https://en.wikipedia.org/wiki/Category%3ASearch_engines
 ```
 
-The operator's `read` permission group may refuse a returned URL; invalid locators and URLs over 2,048 characters are dropped.
+The operator's `read` group removes a returned URL that a reject clause matches (see [Result removal](#result-removal)); invalid locators and URLs over 2,048 characters are dropped.
 
 ## Result
 
@@ -80,6 +80,10 @@ The configured chain runs in order: the first engine returning at least one resu
 Engines request `min(limit, vendor maximum)` results and cut their normalized list to `limit` when the vendor API takes no count, so `limit` is an upper bound the call never exceeds.
 
 An engine in the chain may be an operator-configured aggregate. It runs its child engines together and merges their results by rank, so a URL that several children return ranks higher. `engine` is then the aggregate's id, and `notes` name each child that failed or returned nothing (`<child>: <class>` or `<child>: empty`), followed by the children's own notes. The aggregate is empty when no child returned results and at least one returned none; when every child fails, the aggregate counts as one failed engine with class `upstream_error`; when the query limit skips every child, it fails as `unsupported`.
+
+## Result removal
+
+In the `default` permission mode the call drops every result and citation whose URL a `read` reject clause matches, and every entry on a host that a `-site:` term of the query excludes, its subdomains included. A `read` group with no matching allow, a whole-tool `read` reject, and the `bypass` mode remove nothing. Removal happens before the chain decides and, inside an `aggregate`, before the merge and the `limit` cut; an engine with no entry left is empty and the chain advances, and an answer with no citation left fails as `ungrounded`. An answer keeps the text of a removed link and loses its target, and bare copies of removed URLs are deleted. One note, first among the notes, states the number of removed entries and never names a URL or host.
 
 ## Untrusted data
 

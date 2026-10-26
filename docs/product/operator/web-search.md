@@ -39,6 +39,14 @@ Both gates are required:
 
 Permission is decided before an engine request; rejection is the ordinary permission error and sends no query. See [tool-call permissions](tool-call-permissions.md) for matching/order. Allowlisting without `webSearch.chain` is a startup failure naming that path; configuring `webSearch` without the allowlist loads but does not advertise/expose the tool.
 
+## Result removal
+
+In the `default` mode a successful call drops each result and citation whose URL a reject clause of the `read` group matches, with the same decision a `read` of that URL gets. The clause filters the search output only: it never admits or refuses the call, and `read` still refuses that URL. Two cases keep the entry. A whole-tool `read` reject (`"reject": true`) disables `read` rather than naming a host. A `read` group with no matching allow names no host either. The `bypass` mode removes nothing.
+
+Each `-site:host` term of the query also removes the results and citations of that host and its subdomains, on every engine, including an engine that does not apply the operator itself.
+
+Removal happens before the chain decides, so an engine whose results are all removed counts as empty and the chain advances. An `aggregate` removes entries before the merge and the `limit` cut, so a removed entry never takes a result slot. An answer keeps the text of a link to a removed URL and loses its target, keeps no bare copy of the URL, and is `ungrounded` when no citation is left. The output carries one note with the number of removed entries, before the other notes; it never names a removed URL or host, so a removal reveals no rejected host to the model.
+
 ## Configure the chain
 
 Add optional top-level `webSearch`; `engines` contains operator-owned entries and `chain` names them in try order:
