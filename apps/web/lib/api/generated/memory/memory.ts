@@ -7,7 +7,7 @@
  */
 import type { MemoryResponse, UpdateMemoryDto } from "../models";
 
-export type getMemoryError = void;
+export type getMemoryError = void | void;
 
 export const getGetMemoryUrl = () => {
   return `/api/v1/me/memory`;
@@ -41,14 +41,14 @@ export const getMemory = async (
   return data;
 };
 
-export type updateMemoryError = void;
+export type updateMemoryError = void | void | void;
 
 export const getUpdateMemoryUrl = () => {
   return `/api/v1/me/memory`;
 };
 
 export const updateMemory = async (
-  updateMemoryDto: UpdateMemoryDto,
+  updateMemoryDto: UpdateMemoryDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<MemoryResponse> => {

@@ -11,7 +11,7 @@ import type {
   UpdateRunDto,
 } from "../models";
 
-export type getRunError = void | void;
+export type getRunError = void | void | void;
 
 export const getGetRunUrl = (id: string) => {
   return `/api/v1/runs/${id}`;
@@ -46,7 +46,7 @@ export const getRun = async (
   return data;
 };
 
-export type updateRunError = void | void | void;
+export type updateRunError = void | void | void | void | void;
 
 export const getUpdateRunUrl = (id: string) => {
   return `/api/v1/runs/${id}`;
@@ -86,7 +86,7 @@ export const updateRun = async (
   return data;
 };
 
-export type getRunContextReceiptError = void | void;
+export type getRunContextReceiptError = void | void | void;
 
 export const getGetRunContextReceiptUrl = (id: string) => {
   return `/api/v1/runs/${id}/context-receipt`;

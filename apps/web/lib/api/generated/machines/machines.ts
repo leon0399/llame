@@ -7,7 +7,7 @@
  */
 import type { MachineResponse } from "../models";
 
-export type listMachinesError = void | void;
+export type listMachinesError = void | void | void;
 
 export const getListMachinesUrl = () => {
   return `/api/v1/machines`;

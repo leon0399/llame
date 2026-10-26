@@ -19,6 +19,7 @@ export type registerCheckoutError =
   | RepositoryFailureResponse
   | RepositoryFailureResponse
   | RepositoryFailureResponse
+  | void
   | RepositoryFailureResponse
   | RepositoryFailureResponse
   | RepositoryFailureResponse;
@@ -123,6 +124,7 @@ export type updateCheckoutError =
   | void
   | void
   | RepositoryFailureResponse
+  | void
   | RepositoryFailureResponse;
 
 export const getUpdateCheckoutUrl = (id: string) => {

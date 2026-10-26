@@ -11,6 +11,7 @@ export interface UpdateOrgUnitDto {
   /**
    * @minLength 1
    * @maxLength 200
+   * @pattern \S
    */
   name?: string;
   /** Opaque node-scoped settings (SPEC §7.2); replaces the whole object. Interpretation is the config resolver’s job (#46). */

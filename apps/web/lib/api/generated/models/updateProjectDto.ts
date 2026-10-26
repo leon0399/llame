@@ -10,6 +10,7 @@ export interface UpdateProjectDto {
   /**
    * @minLength 1
    * @maxLength 200
+   * @pattern \S
    */
   name?: string;
   /**
@@ -24,6 +25,7 @@ export interface UpdateProjectDto {
    * Executor id a chat start on this project prefers. Pass null to clear it; omit to leave it unchanged.
    * @maxLength 200
    * @nullable
+   * @pattern \S
    */
   defaultExecutorId?: string | null;
 }

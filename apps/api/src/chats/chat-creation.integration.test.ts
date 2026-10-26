@@ -574,6 +574,13 @@ describe('chat creation over HTTP', () => {
     it('rejects a malformed body with 400 and stores nothing', async () => {
       await create({}).expect(400);
       await create({ id: 'not-a-uuid' }).expect(400);
+      // Only absence means "not given": an explicit null is malformed, never
+      // a field the create then reads as present.
+      const chatId = newChatId();
+      for (const field of ['worktree', 'message', 'checkoutId', 'executorId']) {
+        await create({ id: chatId, [field]: null }).expect(400);
+      }
+      await chatOf(chatId).expect(404);
     });
 
     it('rejects an unconfigured executor with 422 executor_unknown', async () => {

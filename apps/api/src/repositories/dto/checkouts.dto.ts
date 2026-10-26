@@ -12,11 +12,15 @@ import { type CheckoutSummary } from '../checkouts.service';
 
 const PATH_MAX = 4096;
 
+// An absolute local path, or a `machine://` locator (its scheme in any case).
+const ABSOLUTE_LOCATION = '^(?:/|[Mm][Aa][Cc][Hh][Ii][Nn][Ee]://)';
+
 // POST /api/v1/checkouts — one path, plus at most one selector. The path names
 // an absolute local path or a configured `machine://<name>/<abs>` locator.
 export class CreateCheckoutDto {
   @ApiProperty({
     maxLength: PATH_MAX,
+    pattern: ABSOLUTE_LOCATION,
     description: 'An absolute local path or a configured `machine://` locator.',
   })
   @IsString()
@@ -39,6 +43,7 @@ export class CreateCheckoutDto {
 
   @ApiPropertyOptional({
     type: String,
+
     maxLength: PATH_MAX,
     nullable: true,
     description:
@@ -61,6 +66,7 @@ export class ListCheckoutsQueryDto {
 export class UpdateCheckoutDto {
   @ApiProperty({
     maxLength: PATH_MAX,
+    pattern: ABSOLUTE_LOCATION,
     description:
       'The placement base of new worktrees: an absolute host path, or a machine:// locator of this checkout’s own Machine.',
   })

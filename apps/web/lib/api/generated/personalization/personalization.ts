@@ -10,7 +10,7 @@ import type {
   UpdatePersonalizationDto,
 } from "../models";
 
-export type getPersonalizationError = void;
+export type getPersonalizationError = void | void;
 
 export const getGetPersonalizationUrl = () => {
   return `/api/v1/me/personalization`;
@@ -48,14 +48,14 @@ export const getPersonalization = async (
   return data;
 };
 
-export type updatePersonalizationError = void;
+export type updatePersonalizationError = void | void | void;
 
 export const getUpdatePersonalizationUrl = () => {
   return `/api/v1/me/personalization`;
 };
 
 export const updatePersonalization = async (
-  updatePersonalizationDto: UpdatePersonalizationDto,
+  updatePersonalizationDto: UpdatePersonalizationDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<PersonalizationResponse> => {

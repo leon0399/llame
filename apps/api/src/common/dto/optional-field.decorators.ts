@@ -1,11 +1,11 @@
 import { applyDecorators } from '@nestjs/common';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsOptional,
   IsString,
   IsUUID,
   Matches,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 // Bound on an executor id: `tools.nativeExecutorId` or `machine:<name>`, both
@@ -13,8 +13,12 @@ import {
 // project default executor and the start-location triple.
 export const EXECUTOR_ID_MAX = 200;
 
+// Only absence skips validation: `IsOptional` would also wave an explicit
+// null through, which a resolver then reads as a present value.
+const unlessAbsent = () => ValidateIf((_object, value) => value !== undefined);
+
 /**
- * An optional uuid field: documented as one, and validated only when present.
+ * An optional uuid field: documented as one, and validated unless absent.
  *
  * A composed decorator rather than a base class, because both DTOs that take
  * the start-location triple declare it among their own fields
@@ -25,7 +29,7 @@ export const EXECUTOR_ID_MAX = 200;
 export function OptionalUuid(): PropertyDecorator {
   return applyDecorators(
     ApiPropertyOptional({ format: 'uuid' }),
-    IsOptional(),
+    unlessAbsent(),
     IsUUID(),
   );
 }
@@ -36,8 +40,8 @@ export function OptionalUuid(): PropertyDecorator {
  */
 export function OptionalExecutorId(): PropertyDecorator {
   return applyDecorators(
-    ApiPropertyOptional({ maxLength: EXECUTOR_ID_MAX }),
-    IsOptional(),
+    ApiPropertyOptional({ maxLength: EXECUTOR_ID_MAX, pattern: '\\S' }),
+    unlessAbsent(),
     IsString(),
     Matches(/\S/, { message: 'executorId must not be blank' }),
     MaxLength(EXECUTOR_ID_MAX),

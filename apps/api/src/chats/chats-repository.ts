@@ -437,7 +437,8 @@ export class ChatsRepository {
         row.snippet === null || row.snippet === undefined
           ? null
           : truncateSnippet(row.snippet),
-      updatedAt: row.updatedAt,
+      // `execute` returns timestamps as Postgres text despite the row type.
+      updatedAt: new Date(row.updatedAt),
       bestDocumentId: row.bestDocumentId,
     };
   }

@@ -10,6 +10,7 @@ export type GetProjectStartLocationParams = {
   repositoryId?: string;
   /**
    * @maxLength 200
+   * @pattern \S
    */
   executorId?: string;
   checkoutId?: string;

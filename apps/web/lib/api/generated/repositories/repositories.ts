@@ -16,7 +16,9 @@ import type {
 
 export type createRepositoryError =
   | void
+  | void
   | RepositoryFailureResponse
+  | void
   | RepositoryFailureResponse;
 
 export const getCreateRepositoryUrl = () => {
@@ -61,7 +63,7 @@ export const createRepository = async (
   return data;
 };
 
-export type listRepositoriesError = void;
+export type listRepositoriesError = void | void;
 
 export const getListRepositoriesUrl = () => {
   return `/api/v1/repositories`;
@@ -107,6 +109,7 @@ export type updateRepositoryError =
   | void
   | RepositoryFailureResponse
   | RepositoryFailureResponse
+  | void
   | RepositoryFailureResponse;
 
 export const getUpdateRepositoryUrl = (id: string) => {
@@ -118,7 +121,7 @@ export const getUpdateRepositoryUrl = (id: string) => {
  */
 export const updateRepository = async (
   id: string,
-  updateRepositoryDto: UpdateRepositoryDto,
+  updateRepositoryDto: UpdateRepositoryDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<RepositoryResponse> => {
@@ -203,6 +206,7 @@ export type declareRepositoryAliasError =
   | void
   | RepositoryFailureResponse
   | RepositoryFailureResponse
+  | void
   | RepositoryFailureResponse;
 
 export const getDeclareRepositoryAliasUrl = (id: string) => {

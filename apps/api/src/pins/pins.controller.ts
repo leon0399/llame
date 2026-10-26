@@ -13,6 +13,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiConflictResponse,
   ApiCookieAuth,
   ApiExtraModels,
   ApiNoContentResponse,
@@ -68,9 +69,9 @@ export class PinsController {
   @ApiOkResponse({
     schema: { type: 'array', items: PINNED_ITEM_RESPONSE_SCHEMA },
   })
-  @ApiBadRequestResponse({
-    description:
-      "Body is not exactly the caller's current pin set, or fails validation",
+  @ApiBadRequestResponse({ description: 'The body fails validation.' })
+  @ApiConflictResponse({
+    description: "The body is not exactly the caller's current pin set.",
   })
   @ApiUnauthorizedResponse()
   async reorderPins(

@@ -11,6 +11,7 @@ export interface CreateOrgUnitDto {
   /**
    * @minLength 1
    * @maxLength 200
+   * @pattern \S
    */
   name: string;
   type?: CreateOrgUnitDtoType;

@@ -10,6 +10,7 @@ export interface CreateCheckoutDto {
   /**
    * An absolute local path or a configured `machine://` locator.
    * @maxLength 4096
+   * @pattern ^(?:/|[Mm][Aa][Cc][Hh][Ii][Nn][Ee]://)
    */
   path: string;
   /**

@@ -2,6 +2,9 @@ import { ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import { SESSION_COOKIE_NAME } from './auth/constants';
+import { RejectNulCharactersPipe } from './common/reject-nul-characters.pipe';
+import { RequireObjectBodyPipe } from './common/require-object-body.pipe';
+import { completeContract } from './openapi-contract';
 
 const DEFAULT_DEV_WEB_ORIGIN = 'http://localhost:3000';
 
@@ -37,6 +40,8 @@ export function configureApp(
   });
 
   app.useGlobalPipes(
+    new RejectNulCharactersPipe(),
+    new RequireObjectBodyPipe(),
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
@@ -138,7 +143,7 @@ export function createOpenApiDocument(app: INestApplication): OpenAPIObject {
     )
     .build();
 
-  return SwaggerModule.createDocument(app, config);
+  return completeContract(SwaggerModule.createDocument(app, config));
 }
 
 export function setupOpenApi(app: INestApplication): OpenAPIObject {

@@ -2,6 +2,33 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-25
 
+- The API DAST jobs pass. ZAP's Medium findings are fixed: every response
+  carries a `Content-Security-Policy` that allows nothing (only the framing
+  ban under `/docs`), `X-Frame-Options: DENY`, and `X-Content-Type-Options:
+  nosniff`, and no `X-Powered-By`. Schemathesis findings are fixed in the API
+  and its contract:
+  - A request value holding U+0000 is a 400; it was a 500 from Postgres.
+  - A method a documented path does not declare is a 405 with `Allow`, not
+    a 404; a literal path such as `/chats/search` is judged by its own
+    methods.
+  - `openapi.json` documents 400 on every operation and 413 wherever there
+    is a body, closes request bodies with `additionalProperties: false`,
+    marks a body optional when it requires no field, and states the
+    not-blank, absolute-path, cursor, and Knowledge Space name rules as
+    patterns. The checkout selectors are typed strings, so the web client
+    no longer works around object types.
+  - A deadlock between org-unit writes is a 409 `CONCURRENT_TREE_CHANGE`,
+    not a 500, and a JSON body that is not an object is a 400 where the
+    handler declares a DTO.
+  - A pin reorder that does not list exactly the caller's pins is a 409, and
+    `type: null` on a new org unit or `isolation: null` on a new project link
+    is a 400 instead of being read as absent.
+
+  `scripts/dast/schemathesis.toml` names the remaining contract limits per
+  operation: exclusive query parameters, issued cursors, per-type part
+  counts, sniffed uploads, and the 503 for an unconfigured Machine. It also
+  expects 422 for valid data the domain refuses, and stops generating NUL.
+
 - Pull requests start from `.github/pull_request_template.md` (concern,
   issues and stack position, review budget, decisions, commands run, and a
   surface checklist). The `open-pull-request` agent skill covers choosing a

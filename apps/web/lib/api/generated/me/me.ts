@@ -7,7 +7,7 @@
  */
 import type { ActiveRunResponse, ListActiveRunsParams } from "../models";
 
-export type listActiveRunsError = void;
+export type listActiveRunsError = void | void;
 
 export const getListActiveRunsUrl = (params: ListActiveRunsParams) => {
   const normalizedParams = new URLSearchParams();

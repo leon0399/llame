@@ -13,7 +13,10 @@ export interface CreateChatRequest {
   id: string;
   projectId?: string;
   repositoryId?: string;
-  /** @maxLength 200 */
+  /**
+   * @maxLength 200
+   * @pattern \S
+   */
   executorId?: string;
   checkoutId?: string;
   worktree?: CreateChatWorktreeDto;

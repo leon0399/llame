@@ -2,7 +2,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsIn,
   IsObject,
-  IsOptional,
   IsString,
   IsUUID,
   Matches,
@@ -41,15 +40,17 @@ const GRANTABLE_ROLES = ORG_ROLES.filter((role) => role !== 'service_account');
 
 /** `POST /org-units` and `POST /org-units/:id/children` body. */
 export class CreateOrgUnitDto {
-  @ApiProperty({ minLength: 1, maxLength: 200 })
+  @ApiProperty({ minLength: 1, maxLength: 200, pattern: '\\S' })
   @IsString()
   @MinLength(1)
   @MaxLength(200)
   @Matches(/\S/, { message: 'name must not be blank' })
   name!: string;
 
+  // ValidateIf, not IsOptional: null is not a type, and an enum the schema
+  // marks nullable would have to list null among its values.
   @ApiPropertyOptional({ enum: ORG_UNIT_TYPES })
-  @IsOptional()
+  @ValidateIf((o: CreateOrgUnitDto) => o.type !== undefined)
   @IsIn(ORG_UNIT_TYPES)
   type?: OrgUnitType;
 }
@@ -59,7 +60,7 @@ export class CreateOrgUnitDto {
  * to every non-service_account role, `owner` included — see `GRANTABLE_ROLES`).
  */
 export class GrantMembershipDto {
-  @ApiProperty()
+  @ApiProperty({ minLength: 1 })
   @IsString()
   @MinLength(1)
   userId!: string;
@@ -88,7 +89,7 @@ export class ChangeMembershipRoleDto {
  * meaning here (unlike `parentId`).
  */
 export class UpdateOrgUnitDto {
-  @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
+  @ApiPropertyOptional({ minLength: 1, maxLength: 200, pattern: '\\S' })
   @ValidateIf((o: UpdateOrgUnitDto) => o.name !== undefined)
   @IsString()
   @MinLength(1)

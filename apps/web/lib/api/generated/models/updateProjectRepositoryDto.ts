@@ -11,6 +11,7 @@ export interface UpdateProjectRepositoryDto {
   /**
    * @minLength 1
    * @maxLength 200
+   * @pattern \S
    */
   alias?: string;
   /** True makes this the project primary link and clears the previous one; false clears this link. */

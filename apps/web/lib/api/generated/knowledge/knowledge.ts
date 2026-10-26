@@ -14,7 +14,7 @@ import type {
   UpdateKnowledgeSpaceDto,
 } from "../models";
 
-export type createKnowledgeSpaceError = void | void | KnowledgeSpaceUnavailableResponse;
+export type createKnowledgeSpaceError = void | void | void | KnowledgeSpaceUnavailableResponse;
 
 export const getCreateKnowledgeSpaceUrl = () => {
   return `/api/v1/knowledge-spaces`;
@@ -156,7 +156,7 @@ export const getKnowledgeSpace = async (
   return data;
 };
 
-export type renameKnowledgeSpaceError = void | void | void;
+export type renameKnowledgeSpaceError = void | void | void | void;
 
 export const getRenameKnowledgeSpaceUrl = (id: string) => {
   return `/api/v1/knowledge-spaces/${id}`;

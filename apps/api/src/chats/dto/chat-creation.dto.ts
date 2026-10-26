@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -39,6 +40,7 @@ export class CreateChatWorktreeDto {
   // `-`-prefixed name is refused by the create's own step-1 validation with
   // the 422 the request contract names, not silently dropped here.
   @ApiPropertyOptional({
+    maxLength: EXECUTOR_ID_MAX,
     description:
       'Worktree name; becomes the `llame/<name>` branch unless it carries a `/`.',
   })
@@ -48,6 +50,8 @@ export class CreateChatWorktreeDto {
   name?: string;
 
   @ApiPropertyOptional({
+    maxLength: EXECUTOR_ID_MAX,
+    pattern: '\\S',
     description: 'Commit, branch, or tag the new worktree branches from.',
   })
   @ValidateIf((o: CreateChatWorktreeDto) => o.baseRef !== undefined)
@@ -66,12 +70,16 @@ export class CreateChatMessageDto extends MessagePartsDto {
   @IsUUID()
   id!: string;
 
-  @ApiProperty({ description: 'Opaque llame model id selected for this turn.' })
+  @ApiProperty({
+    description: 'Opaque llame model id selected for this turn.',
+    pattern: '\\S',
+  })
   @IsString()
   @Matches(/\S/, { message: 'modelId must not be blank' })
   modelId!: string;
 
   @ApiPropertyOptional({
+    pattern: '\\S',
     description:
       "Reasoning effort for this turn. Must be one of the selected model's " +
       '`reasoning.effortLevels[].value`; omit to use its `defaultEffort`.',
@@ -113,8 +121,11 @@ export class CreateChatRequest {
   @OptionalUuid()
   checkoutId?: string;
 
+  // ValidateIf (not IsOptional): only absence skips validation, so an explicit
+  // null is refused here instead of reaching the create as a present field.
   @ApiPropertyOptional({ type: () => CreateChatWorktreeDto })
-  @IsOptional()
+  @ValidateIf((o: CreateChatRequest) => o.worktree !== undefined)
+  @IsObject()
   @ValidateNested()
   @Type(() => CreateChatWorktreeDto)
   worktree?: CreateChatWorktreeDto;
@@ -122,7 +133,8 @@ export class CreateChatRequest {
   // @IsDefined would make the message required; absence is the empty-chat
   // create, so only a present message is nested-validated.
   @ApiPropertyOptional({ type: () => CreateChatMessageDto })
-  @IsOptional()
+  @ValidateIf((o: CreateChatRequest) => o.message !== undefined)
+  @IsObject()
   @ValidateNested()
   @Type(() => CreateChatMessageDto)
   message?: CreateChatMessageDto;

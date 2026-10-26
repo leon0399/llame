@@ -13,9 +13,14 @@ export interface CreateProjectRepositoryDto {
    * The project's own label for the repository. Defaults to the repository display name.
    * @minLength 1
    * @maxLength 200
+   * @nullable
+   * @pattern \S
    */
-  alias?: string;
-  /** Make this the project primary link, clearing any previous one. */
-  isPrimary?: boolean;
+  alias?: string | null;
+  /**
+   * Make this the project primary link, clearing any previous one.
+   * @nullable
+   */
+  isPrimary?: boolean | null;
   isolation?: CreateProjectRepositoryDtoIsolation;
 }

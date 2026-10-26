@@ -7,7 +7,7 @@
  */
 import type { PermissionModesResponse } from "../models";
 
-export type listPermissionModesError = void;
+export type listPermissionModesError = void | void;
 
 export const getListPermissionModesUrl = () => {
   return `/api/v1/permission-modes`;

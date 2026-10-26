@@ -111,7 +111,7 @@ export const listMedia = async (
   return data;
 };
 
-export type getMediaError = void | void;
+export type getMediaError = void | void | void;
 
 export const getGetMediaUrl = (id: string) => {
   return `/api/v1/media/${id}`;
@@ -148,7 +148,7 @@ export const getMedia = async (
   return data;
 };
 
-export type getMediaOriginalError = void | void | void;
+export type getMediaOriginalError = void | void | void | void;
 
 export const getGetMediaOriginalUrl = (id: string) => {
   return `/api/v1/media/${id}/original`;
@@ -191,7 +191,7 @@ export const getMediaOriginal = async (
   return data;
 };
 
-export type getMediaModelError = void | void | void;
+export type getMediaModelError = void | void | void | void;
 
 export const getGetMediaModelUrl = (id: string) => {
   return `/api/v1/media/${id}/model`;

@@ -4,8 +4,6 @@ import {
   Delete,
   Get,
   HttpCode,
-  HttpException,
-  HttpStatus,
   Inject,
   Logger,
   NotFoundException,
@@ -40,25 +38,14 @@ import type { Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { ChatLoopService } from './chat-loop.service';
-import { ChatCreationService } from './chat-creation.service';
 import { ChatsService } from './chats.service';
-import {
-  ModelConfigurationError,
-  EffortNotAvailableError,
-  ModelNotAvailableError,
-  PermissionModeNotAvailableError,
-} from '../models/models.service';
-import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import {
   RunStreamBridgeService,
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
-import {
-  ChatCreationRecordResponse,
-  CreateChatRequest,
-  CreateChatResponse,
-} from './dto/chat-creation.dto';
+import { ModelDomainErrorResponse } from '../models/dto/models.dto';
+import { throwModelDomainError } from './model-domain-error';
 import {
   ChatListItemResponse,
   OwnerChatMessagesQueryDto,
@@ -106,12 +93,6 @@ export type ChatsControllerService = Pick<
   | 'forkChat'
 >;
 
-/** The create request and its record, as the controller uses them. */
-export type ChatCreationControllerService = Pick<
-  ChatCreationService,
-  'create' | 'getCreationRecord'
->;
-
 @ApiTags('chats')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
@@ -131,8 +112,6 @@ export class ChatsController {
     private readonly tenantDb: TenantRunner,
     @Inject(RunStreamBridgeService)
     private readonly bridge: RunStreamResponder,
-    @Inject(ChatCreationService)
-    private readonly chatCreation: ChatCreationControllerService,
   ) {}
 
   /**
@@ -276,14 +255,11 @@ export class ChatsController {
     return { messages: messages.map(toChatMessageResponse) };
   }
 
-  // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates
-  // the chat, then streams the reply — the single-call flow Claude.ai/ChatGPT use. This is a
-  // deliberate deviation from the purist REST form (PUT /chats/:id then POST a message); the
-  // "design the surface deliberately" rule in AGENTS.md sanctions it for the single-call win.
-  // Tenancy is preserved: the client `:id` is routing + idempotency only; the owner is always
-  // derived from the session (@CurrentUser), so id ≠ owner. Chats are created exclusively by
-  // their first message — there is no separate empty-chat endpoint. Model selection is validated
-  // first, so unavailable models create nothing.
+  // Create-or-append (#86): posting the first message to a not-yet-existing chat
+  // id creates the chat, then streams the reply. The client `:id` is routing and
+  // idempotency only; the owner always comes from the session (@CurrentUser).
+  // `POST /chats` creates a chat with its project and location instead. Model
+  // selection is validated first, so unavailable models create nothing.
   @Post(':id/messages')
   @ApiOperation({ operationId: 'createChatMessage' })
   @ApiTags('streaming')
@@ -354,98 +330,12 @@ export class ChatsController {
 
       await writeWebResponse(streamResponse, response, abort.signal);
     } catch (error) {
-      this.mapModelDomainError(error);
+      throwModelDomainError(error);
     } finally {
       abort.cleanup();
     }
   }
 
-  /**
-   * Same 422 envelope for `ModelNotAvailableError`, `EffortNotAvailableError`,
-   * and `PermissionModeNotAvailableError` — the `code` discriminates. Model
-   * resolution already ran first, so an effort failure here always names a
-   * model that IS available. Any other error rethrows unchanged.
-   */
-  private mapModelDomainError(error: unknown): never {
-    if (
-      error instanceof ModelNotAvailableError ||
-      error instanceof EffortNotAvailableError ||
-      error instanceof PermissionModeNotAvailableError
-    ) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-          error: 'Unprocessable Entity',
-          message: error.message,
-          code: error.code,
-        },
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
-    }
-    if (error instanceof ModelConfigurationError) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-          error: 'Service Unavailable',
-          message: error.message,
-          code: error.code,
-        },
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
-    }
-    throw error;
-  }
-
-  // One create request files the chat, resolves its Workspace location,
-  // authorizes the entry, creates an optional worktree, and starts the optional
-  // first Run — in that order (openspec `chat-start-location`, design D9). It is
-  // JSON, never a stream: the client resumes the Run from GET /chats/:id/stream.
-  @Post()
-  @ApiOperation({ operationId: 'createChat' })
-  @ApiBody({ type: CreateChatRequest })
-  @ApiExtraModels(CreateTextMessagePartDto, CreateFileMessagePartDto)
-  @ApiCreatedResponse({ type: CreateChatResponse })
-  @ApiBadRequestResponse({ description: 'Malformed request or body field' })
-  @ApiNotFoundResponse({
-    description: "A named project, repository, or checkout is not the caller's",
-  })
-  @ApiConflictResponse({
-    description: 'The Chat holds a message, a Run, or another project',
-  })
-  @ApiUnprocessableEntityResponse({
-    description: 'Unavailable model, mode, executor, or worktree argument',
-    type: ModelDomainErrorResponse,
-  })
-  @ApiUnauthorizedResponse()
-  async createChat(
-    @CurrentUser() userId: string,
-    @Body() input: CreateChatRequest,
-  ): Promise<CreateChatResponse> {
-    try {
-      return await this.chatCreation.create(userId, input);
-    } catch (error) {
-      this.mapModelDomainError(error);
-    }
-  }
-
-  // The owner-only record of every create and resend on this Chat: each
-  // attempt's path decisions with their policy provenance. Another owner gets
-  // 404 and learns no decision.
-  @Get(':id/creation-record')
-  @ApiOperation({ operationId: 'getChatCreationRecord' })
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOkResponse({ type: ChatCreationRecordResponse })
-  @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
-  @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
-  @ApiUnauthorizedResponse()
-  async getChatCreationRecord(
-    @CurrentUser() userId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<ChatCreationRecordResponse> {
-    return this.chatCreation.getCreationRecord(userId, id);
-  }
-
-  // PATCH (partial update) of a chat resource — RESTful, not an RPC-style verb endpoint.
   @Patch(':id')
   @ApiOperation({ operationId: 'updateChat' })
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -454,6 +344,10 @@ export class ChatsController {
   @ApiNotFoundResponse({
     description:
       'Chat not found/not owned, or (when filing) projectId not found/not owned',
+  })
+  @ApiConflictResponse({
+    description:
+      'The chat is archived and the update does more than archive or unarchive it.',
   })
   @ApiUnauthorizedResponse()
   async updateChat(

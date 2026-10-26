@@ -11,11 +11,13 @@ export interface CreateRepositoryDto {
    * One path segment, without "/" or a NUL byte.
    * @minLength 1
    * @maxLength 200
+   * @pattern ^[^/]*\S[^/]*$
    */
   displayName: string;
   /**
    * The origin remote. Stored normalized; omit for a repository whose clone has no origin.
    * @maxLength 2048
+   * @nullable
    */
-  remote?: string;
+  remote?: string | null;
 }

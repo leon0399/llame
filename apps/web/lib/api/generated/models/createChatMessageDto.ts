@@ -17,9 +17,15 @@ export interface CreateChatMessageDto {
    */
   parts: (CreateTextMessagePartDto | CreateFileMessagePartDto)[];
   id: string;
-  /** Opaque llame model id selected for this turn. */
+  /**
+   * Opaque llame model id selected for this turn.
+   * @pattern \S
+   */
   modelId: string;
-  /** Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`. */
+  /**
+   * Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`.
+   * @pattern \S
+   */
   effort?: string;
   /** Permission mode the Workspace step evaluates; omit for `default`. */
   permissionMode?: CreateChatMessageDtoPermissionMode;

@@ -234,6 +234,13 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     expect(g).toHaveProperty('bestDocumentId', null);
   });
 
+  it('returns updatedAt as a Date, so the API serializes it as ISO 8601', async () => {
+    // `db.execute` hands timestamps back as Postgres text; the route's
+    // `date-time` schema needs `2026-…T…Z`, not `2026-… …+00`.
+    const [hit] = await search(a, 'Groceries');
+    expect(hit?.updatedAt).toBeInstanceOf(Date);
+  });
+
   it('matches by user/assistant content with a highlighted snippet', async () => {
     const results = await search(a, 'zorptangle');
     const c = results.find((r) => r.title === 'TypeScript project');

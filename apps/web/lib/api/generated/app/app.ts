@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1
  */
 
+export type getHealthError = void;
+
 export const getGetHealthUrl = () => {
   return `/`;
 };
@@ -21,9 +23,9 @@ export const getHealth = async (
 
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
-    const err: globalThis.Error & { info?: any; status?: number } =
+    const err: globalThis.Error & { info?: getHealthError; status?: number } =
       new globalThis.Error(`GET ${getGetHealthUrl()} failed (${res.status})`);
-    const data = (() => {
+    const data: getHealthError = (() => {
       try {
         return body ? JSON.parse(body) : {};
       } catch {

@@ -13,6 +13,7 @@ import type {
   ChatSearchResponse,
   CreateChatRequest,
   CreateChatResponse,
+  ErrorResponse,
   ForkChatDto,
   GetChatMessagesParams,
   GetSharedChatParams,
@@ -72,7 +73,14 @@ export const listChats = async (
   return data;
 };
 
-export type createChatError = void | void | void | void | ModelDomainErrorResponse;
+export type createChatError =
+  | void
+  | void
+  | void
+  | void
+  | void
+  | ErrorResponse
+  | ModelDomainErrorResponse;
 
 export const getCreateChatUrl = () => {
   return `/api/v1/chats`;
@@ -193,7 +201,7 @@ export const getChat = async (
   return data;
 };
 
-export type updateChatError = void | void | void;
+export type updateChatError = void | void | void | void | void;
 
 export const getUpdateChatUrl = (id: string) => {
   return `/api/v1/chats/${id}`;
@@ -201,7 +209,7 @@ export const getUpdateChatUrl = (id: string) => {
 
 export const updateChat = async (
   id: string,
-  updateChatDto: UpdateChatDto,
+  updateChatDto: UpdateChatDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<ChatResponse> => {
@@ -325,6 +333,44 @@ export const getChatMessages = async (
   return data;
 };
 
+export type forkChatError = void | void | void | void;
+
+export const getForkChatUrl = (id: string) => {
+  return `/api/v1/chats/${id}/forks`;
+};
+
+export const forkChat = async (
+  id: string,
+  forkChatDto: ForkChatDto | undefined = undefined,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ChatResponse> => {
+  const res = await fetchFn(getForkChatUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(forkChatDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & { info?: forkChatError; status?: number } =
+      new globalThis.Error(`POST ${getForkChatUrl(id)} failed (${res.status})`);
+    const data: forkChatError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ChatResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
 export type getChatCreationRecordError = void | void | void;
 
 export const getGetChatCreationRecordUrl = (id: string) => {
@@ -364,45 +410,7 @@ export const getChatCreationRecord = async (
   return data;
 };
 
-export type forkChatError = void | void;
-
-export const getForkChatUrl = (id: string) => {
-  return `/api/v1/chats/${id}/forks`;
-};
-
-export const forkChat = async (
-  id: string,
-  forkChatDto: ForkChatDto,
-  options: RequestInit | undefined,
-  fetchFn: typeof globalThis.fetch,
-): Promise<ChatResponse> => {
-  const res = await fetchFn(getForkChatUrl(id), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(forkChatDto),
-  });
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-  if (!res.ok) {
-    const err: globalThis.Error & { info?: forkChatError; status?: number } =
-      new globalThis.Error(`POST ${getForkChatUrl(id)} failed (${res.status})`);
-    const data: forkChatError = (() => {
-      try {
-        return body ? JSON.parse(body) : {};
-      } catch {
-        return body;
-      }
-    })();
-    err.info = data;
-    err.status = res.status;
-    throw err;
-  }
-  const data: ChatResponse = body ? JSON.parse(body) : {};
-  return data;
-};
-
-export type getSharedChatError = void;
+export type getSharedChatError = void | void;
 
 export const getGetSharedChatUrl = (
   id: string,
@@ -457,7 +465,7 @@ export const getSharedChat = async (
   return data;
 };
 
-export type forkSharedChatError = void | void;
+export type forkSharedChatError = void | void | void;
 
 export const getForkSharedChatUrl = (id: string) => {
   return `/api/v1/shared/chats/${id}/forks`;

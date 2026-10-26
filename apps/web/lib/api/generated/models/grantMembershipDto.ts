@@ -8,6 +8,7 @@
 import type { GrantMembershipDtoRole } from "./grantMembershipDtoRole";
 
 export interface GrantMembershipDto {
+  /** @minLength 1 */
   userId: string;
   role: GrantMembershipDtoRole;
 }

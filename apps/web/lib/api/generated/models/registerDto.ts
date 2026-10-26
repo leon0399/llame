@@ -13,6 +13,9 @@ export interface RegisterDto {
    * @maxLength 72
    */
   password: string;
-  /** @maxLength 200 */
-  name?: string;
+  /**
+   * @maxLength 200
+   * @nullable
+   */
+  name?: string | null;
 }

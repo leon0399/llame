@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
@@ -160,7 +160,7 @@ describe('PinsService.pin — error mapping', () => {
 });
 
 describe('PinsService.reorderPins — error mapping', () => {
-  it('maps an exact-set mismatch to 400', async () => {
+  it('maps an exact-set mismatch to 409', async () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         PinsService,
@@ -177,7 +177,7 @@ describe('PinsService.reorderPins — error mapping', () => {
       moduleRef
         .get(PinsService)
         .reorderPins('u1', [{ itemType: 'chat', itemId: 'c1' }]),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });
 

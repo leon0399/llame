@@ -10,6 +10,7 @@ export interface CreateProjectDto {
   /**
    * @minLength 1
    * @maxLength 200
+   * @pattern \S
    */
   name: string;
   /**

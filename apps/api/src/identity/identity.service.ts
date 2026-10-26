@@ -58,9 +58,13 @@ function conflictBody(code: OrgUnitsErrorCode, message: string) {
  * itself close — typed as `ConcurrentTreeChangeError`, never matched by
  * message text). Both are conflicts, not server errors.
  */
+// A deadlock is one too: two structural writes on one tree (a delete and a
+// child creation under it) can each hold a lock the other needs.
 function isConcurrentTreeChange(err: unknown): boolean {
   return (
-    pgErrorCode(err) === '23514' || err instanceof ConcurrentTreeChangeError
+    pgErrorCode(err) === '23514' ||
+    pgErrorCode(err) === '40P01' ||
+    err instanceof ConcurrentTreeChangeError
   );
 }
 
@@ -121,6 +125,32 @@ function rethrowChildCreateError(error: unknown): never {
   if (pgErrorCode(error) === '42501') {
     throw new ForbiddenException(
       'Not permitted to create a child under this org unit',
+    );
+  }
+  throw error;
+}
+
+/** Maps a caught `deleteOrgUnit` failure to its HTTP contract. Always
+ * throws. */
+function rethrowOrgUnitDeleteError(error: unknown): never {
+  if (error instanceof HttpException) {
+    throw error;
+  }
+  if (isConcurrentTreeChange(error)) {
+    throw new ConflictException(
+      conflictBody(
+        ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+        'Org tree changed concurrently — retry the request',
+      ),
+    );
+  }
+  // FK RESTRICT on parent_id — the unit still has children.
+  if (pgErrorCode(error) === '23503') {
+    throw new ConflictException(
+      conflictBody(
+        ORG_UNITS_ERROR_CODES.hasChildren,
+        'Org unit has child units — delete them first',
+      ),
     );
   }
   throw error;
@@ -440,19 +470,7 @@ export class IdentityService {
         }
       });
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      // FK RESTRICT on parent_id — the unit still has children.
-      if (pgErrorCode(error) === '23503') {
-        throw new ConflictException(
-          conflictBody(
-            ORG_UNITS_ERROR_CODES.hasChildren,
-            'Org unit has child units — delete them first',
-          ),
-        );
-      }
-      throw error;
+      rethrowOrgUnitDeleteError(error);
     }
   }
 
