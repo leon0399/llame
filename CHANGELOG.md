@@ -5,12 +5,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - `web_search` removes the results and citations that a `read` reject clause
   matches and those on a `-site:` host of the query or its subdomains, before
   the chain decides and, inside an `aggregate`, before the merge and the
-  `limit` cut. The check reuses the `read` web-locator decision and goes
-  through `admitPermission`, so a missing `read` allow, a whole-tool `read`
-  reject, and the `bypass` mode keep every entry. An answer keeps the text of
-  a removed link and loses its target, bare copies of removed URLs are
-  deleted, and an answer with no citation left is `ungrounded`. One note,
-  placed first, counts the removed entries and names no URL or host.
+  `limit` cut, decided on the canonical URL the output shows. The check
+  reuses the `read` web-locator decision and goes through `admitPermission`,
+  so a missing `read` allow, a whole-tool `read` reject, and the `bypass` mode
+  keep every entry from that clause; `-site:` removal is the query's own
+  promise and holds in every mode. An answer keeps the text of a removed link
+  and loses its target, unless the text is that URL or its host, which goes
+  whole; bare copies of removed URLs are deleted and their punctuation stays,
+  and an answer with no citation left is `ungrounded`. One note, first in the
+  output, counts the removed results and citations of the call and names no
+  URL or host.
 
 - The chat sidebar's loading skeletons no longer cause a hydration mismatch:
   their widths come from `useId()` instead of `Math.random()`, so the server

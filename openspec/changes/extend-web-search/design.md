@@ -103,20 +103,20 @@ is exported for this) before the chain or an aggregate decides on it. The check 
 (a decision with `explicit_reject` and a clause reference). `no_allow` keeps the entry, so the
 canonical `native-file-tools` scenario where `web_search` returns results under a `read` group
 without a web allow stays true. A whole-tool `read` reject also keeps entries: it disables `read`,
-and emptying every search would make `web_search` useless on that deployment. The effective `bypass` mode removes nothing: the check goes through `admitPermission`, which returns an allow in `bypass` without evaluating clauses (`apps/api/src/tools/permissions/admit.ts:11`), exactly as every other call site does. Routing every check through one mode-aware entry point is [#1443](https://github.com/leon0399/llame/issues/1443).
+and emptying every search would make `web_search` useless on that deployment. In the effective `bypass` mode this half removes nothing: the check goes through `admitPermission`, which returns an allow in `bypass` without evaluating clauses (`apps/api/src/tools/permissions/admit.ts:11`), exactly as every other call site does. Routing every check through one mode-aware entry point is [#1443](https://github.com/leon0399/llame/issues/1443). The decision runs on the canonical URL the output shows, so a vendor spelling that `read` would refuse cannot pass the clause that matches the displayed URL.
 
 The same pass removes results and citations on hosts that a `-site:` operator excludes, including
-subdomains. Several engines ignore `-site:` (`exa-mcp`, and SearXNG upstreams vary), and this post-filter makes the announced operator hold everywhere (D11).
+subdomains, with the exclusion normalized through the URL parser so an IDN or a root dot names the same host. Several engines ignore `-site:` (`exa-mcp`, and SearXNG upstreams vary), and this post-filter makes the announced operator hold everywhere (D11). This half is the query's own promise, not a policy decision, so it holds in every mode, `bypass` included.
 
 Answer text is cleaned too: a Markdown link to a removed URL keeps its text and loses its target,
-and a bare copy of a removed URL is deleted. Otherwise the OpenAI hosted wires, which inline
-citation links, would still show a rejected host. An answer with no citation left is
-`ungrounded`.
+unless the text is itself that URL or its host, which is a bare copy of the entry and goes whole;
+a bare copy of a removed URL is deleted and the sentence punctuation around it stays. Otherwise
+the OpenAI hosted wires, which inline citation links whose text is the host, would still show a
+rejected host. An answer with no citation left is `ungrounded`.
 
 Filtering before the chain decision matters: a result list that filtering empties advances the
 chain, and an aggregate filters each child before its merge and its `limit` cut, so removed
-entries never take result slots. One note, placed first so the ten-note cap never drops it,
-counts removed entries without naming them. That note is a second channel through which the model learns of a `default`-mode policy decision (it never appears in `bypass`, so it does not reveal the mode), so `permission-modes` "The permission mode is not model-visible" is MODIFIED to name it. Two canonical sentences read against this behavior and sit inside requirements far over the 500-character limit that strict validation applies to MODIFIED prose (`native-file-tools` "Web locators are fetched by the native read tool", 6,991 characters, says `read` `path` clauses "do not restrict" `web_search`; `tool-call-permissions` "Recommended portable policy with explicit replacement" says native path rejects are not "search-result filtering"). Rewriting either whole in STE to change one sentence is out of proportion, so each capability gains one ADDED requirement that fixes the reading: `read` clauses never govern a `web_search` call but filter its output, and that filtering is not native path enforcement. No vendor request
+entries never take result slots. One note, placed first in the normalized output so neither the ten-note cap nor a truncation note can take its place, counts the removed results and citations of the whole call — including the entries of an engine that removal emptied — without naming one. A copy in answer text is not an entry and is not counted. For `read` removals that note is a second channel through which the model learns of a `default`-mode policy decision (it never appears for them in `bypass`, so it reveals no mode), so `permission-modes` "The permission mode is not model-visible" is MODIFIED to name it. Two canonical sentences read against this behavior and sit inside requirements far over the 500-character limit that strict validation applies to MODIFIED prose (`native-file-tools` "Web locators are fetched by the native read tool", 6,991 characters, says `read` `path` clauses "do not restrict" `web_search`; `tool-call-permissions` "Recommended portable policy with explicit replacement" says native path rejects are not "search-result filtering"). Rewriting either whole in STE to change one sentence is out of proportion, so each capability gains one ADDED requirement that fixes the reading: `read` clauses never govern a `web_search` call but filter its output, and that filtering is not native path enforcement. No vendor request
 changes; translating rejects into `-site:` exclusions is not attempted, because reject clauses are
 regular expressions, not host lists.
 
