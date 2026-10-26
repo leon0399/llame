@@ -66,7 +66,7 @@ Each engine type declares its vendor's query limit in code. llame checks the sub
 | `brave`        | 600 code points and 75 words | `count`, at most 20                |
 | `exa`          | the tool's 1,000 units       | `numResults`, at most 100          |
 | `perplexity`   | the tool's 1,000 units       | `max_results`, at most 20          |
-| `exa-mcp`      | the tool's 1,000 units       | cut to `limit` after normalization |
+| `exa-mcp`      | the tool's 1,000 units       | the hosted tool's `numResults`     |
 | `searxng`      | the tool's 1,000 units       | cut to `limit` after normalization |
 | `duckduckgo`   | the tool's 1,000 units       | cut to `limit` after normalization |
 | `model-hosted` | the tool's 1,000 units       | not applicable                     |
@@ -76,7 +76,7 @@ A word is a run of non-space characters; lengths are code points, so a character
 
 A query over an engine's limit skips that engine: it sends nothing, the call records `<id>: unsupported`, and a later engine answers. When every chain engine is skipped, the call fails with the fixed error and class `unsupported`. An aggregate runs only the children that accept the query, notes each skipped child as `unsupported`, and fails with `unsupported` when it skips every child.
 
-`limit` is 1-20 for the model and is clamped to the vendor maximum, so a vendor that caps fewer results never fails a call.
+`limit` is 1-20 for the model and is clamped to the vendor maximum, so a vendor that caps fewer results never fails a call. `searxng` and `duckduckgo` take no count, so their normalized results are cut to `limit` after URLs that fail validation are dropped.
 
 ## Objective
 
@@ -119,7 +119,8 @@ A `model-hosted` entry delegates a search to a configured model:
 The referenced model's provider MUST be `openai-responses`, `openai-codex`, or
 `anthropic-messages`; a `model-hosted` entry cannot be an `aggregate` child.
 Each call is a separate bounded sub-request carrying only packaged search
-instructions, the query, and a recency phrase (when set)—never chat history or
+instructions, the query, a recency phrase when `recency` is set, a `Goal:` line
+when `objective` is set, and the provider's search tool—never chat history or
 other Run context. A configured `{session:id}` header (by default
 `X-Session-Id`, except on Codex, which has no default) renders as
 `search:<chatId>`.
