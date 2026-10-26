@@ -61,7 +61,7 @@ boundary. If `deepseek-parallel` exceeds about 2,000 lines, move `parallel-mcp` 
 - [x] 1.6 Send `site:` hosts as allowed and `-site:` hosts as blocked domains on the OpenAI, Codex, and Anthropic hosted wires, dropping the exclusions with a note only on `anthropic-messages` when both exist; verify by model-hosted request tests for every scenario of "Hosted engines map site operators to domain filters"
 - [x] 1.7 Document `objective`, query limits, and `unsupported` in `docs/product/operator/web-search.md` (including that the objective is outbound text) and `docs/product/reference/tools/web-search.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 1.8 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR carries `Closes #1431`
-- [ ] 1.9 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
+- [x] 1.9 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
 - [ ] 1.10 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 2. `extend-web-search/result-filtering` — permission and exclusion filtering (design D2b)
