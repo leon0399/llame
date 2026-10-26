@@ -31,6 +31,10 @@ reject clauses, so the model sees and cites hosts the instance refuses to open.
   `read` reject clause matches are removed before the chain decides on an engine outcome, and
   inside an aggregate before the merge. Notes count removals without naming them. A fully
   filtered engine is empty; an answer with no allowed citation is `ungrounded`.
+- **Search operators.** The packaged description names `site:`, `-site:`, and quoted phrases as
+  supported and states that other operators can reach an engine as plain words. Hosted engines
+  send `-site:` hosts as blocked domains. Parsing date and filter operators is
+  [#1441](https://github.com/leon0399/llame/issues/1441).
 - **Result counts clamp.** A `limit` above an engine's vendor maximum is sent as that maximum;
   the call never fails for it.
 - **Engine selection.** `web_search` gains an optional `engines` list. When set, it replaces
@@ -74,6 +78,8 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
   `ori_question` left the top-10 order unchanged in 56 of 59 comparisons.
 - Parallel's `session_id` is the Chat id (Q10 A). Rerank preparation is out of scope (Q11 A).
 - A `limit` above a vendor maximum is clamped, never an error (Leo, after the grilling).
+- The description announces search operators in a drive-by, limited to the portable set after the
+  operator survey (Leo, after the grilling).
 - Results and citations that the `read` group rejects are removed (Leo, after the grilling, with
   a removed `grokipedia` host as the example).
 - Answer engines are allowed in aggregates with the `answers` shape (Q15 B); that work is its own
@@ -130,8 +136,8 @@ None.
   - MODIFIED "Aggregate engines fan out and merge by rank fusion" (runs only children that
     accept the query; fails with `unsupported` when every child is skipped).
   - ADDED "Engines skip queries over their query limit", "Engines clamp the result count to their vendor
-    maximum", "Results that the read permission group rejects are removed", "Removed entries can
-    empty an engine outcome", "Aggregate engines run only the
+    maximum", "Results that the read permission group rejects are removed", "Removed entries can empty an engine outcome", "The description names only the portable search
+    operators", "Hosted engines exclude the hosts of -site: operators", "Aggregate engines run only the
     children that accept the query", "Engines receive the objective where their vendor accepts
     one", "The model can select the engines for one call", "The web search description lists the
     configured engines", "Aggregate engines attach the answers of answer children", "Attached
@@ -182,6 +188,8 @@ and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
   ([#1433](https://github.com/leon0399/llame/issues/1433) to
   [#1436](https://github.com/leon0399/llame/issues/1436)).
 - Engine usage and cost accounting ([#1439](https://github.com/leon0399/llame/issues/1439)).
+- Parsing and translating `after:`, `before:`, `lang:`, `filetype:`, and similar operators, and a
+  relaxing post-filter ([#1441](https://github.com/leon0399/llame/issues/1441)).
 - DeepSeek's hosted Responses `web_search` tool.
 - Model-chosen depth, mode, location, or excerpt size; structured domain filters beyond the
   existing `site:` operators; per-engine permission groups; a gate on selectable engines.

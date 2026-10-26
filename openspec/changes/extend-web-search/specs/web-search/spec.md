@@ -273,6 +273,31 @@ The call MUST remove rejected entries from each engine outcome before the chain 
 - **WHEN** a `model-hosted` engine answers and the `read` group rejects each of its citations
 - **THEN** the engine fails with `ungrounded` and the chain advances
 
+### Requirement: The description names only the portable search operators
+
+The packaged `web_search` description MUST name `site:`, `-site:`, and quoted phrases as the supported search operators. It MUST state that an engine can search other operators as plain words. It MUST NOT name `after:`, `before:`, `lang:`, `filetype:`, `intitle:`, `inurl:`, or `OR` as supported.
+
+#### Scenario: The packaged description names the portable operators
+
+- **WHEN** a worker renders the packaged `web_search` description
+- **THEN** it names `site:`, `-site:`, and quoted phrases
+- **AND** it states that other operators can reach an engine as plain words
+
+### Requirement: Hosted engines exclude the hosts of -site: operators
+
+A `model-hosted` engine MUST send the hosts of `-site:` operators as the blocked domains of the hosted search tool. When the query also has `site:` hosts, the engine MUST send only the allowed domains and MUST note that it ignored the exclusions.
+
+#### Scenario: An excluded host becomes a blocked domain
+
+- **WHEN** a `model-hosted` engine receives the query `pgvector -site:reddit.com`
+- **THEN** the hosted search tool receives `reddit.com` as a blocked domain
+
+#### Scenario: Included hosts win over excluded hosts
+
+- **WHEN** the query is `pgvector site:github.com -site:gist.github.com`
+- **THEN** the hosted search tool receives only `github.com` as an allowed domain
+- **AND** the notes state that the engine ignored the exclusions
+
 ### Requirement: Engines receive the objective where their vendor accepts one
 
 `parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. When `objective` is absent, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points of `objective` as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine that answers MUST note `objective not applied by <id>`. An engine MUST NOT add `objective` to the query.

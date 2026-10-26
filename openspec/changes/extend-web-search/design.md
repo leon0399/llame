@@ -263,6 +263,32 @@ snippets and arbitrarily chooses between two answers.
 Latency: the aggregate already waits for every child up to the call deadline; a hosted child (10
 to 30 seconds) sets the aggregate's latency. The runbook states it.
 
+### D11: Announce only the portable search operators
+
+Models write Google-style operators whatever the tool says; the description only decides which ones
+llame vouches for. `site:`, `-site:`, and quoted phrases are native on Brave, DuckDuckGo, Exa,
+DeepSeek, and Yandex, reach hosted engines through a model that understands them, and are mapped
+to native filters for Exa, Perplexity, Parallel, and hosted engines. Every other operator is a
+coin flip: DeepSeek parses `after:`, `before:`, and `lang:`, Yandex parses `date:` and `mime:`, but
+Brave, DuckDuckGo, and SearXNG search `after:2026-01-01` as literal tokens, Perplexity documents
+no operators, and Parallel's REST guidance forbids operators in `search_queries`
+([operator guides](https://api-dashboard.search.brave.com/documentation/resources/search-operators),
+[DeepSeek](https://api-docs.deepseek.com/guides/search#query-operators),
+[Parallel best practices](https://docs.parallel.ai/search/best-practices)). The packaged
+description therefore names the portable three and states once that other operators can reach an
+engine as plain words, the honest framing Hermes uses.
+
+Two drive-by mappings close gaps the portable set exposes: hosted engines send `-site:` hosts as
+blocked domains (both `@ai-sdk/openai` and `@ai-sdk/anthropic` expose `blockedDomains`; today only
+`allowedDomains` is sent, `model-hosted.ts:57,67`), with the exclusions noted and dropped when
+`site:` hosts exist, because Anthropic accepts only one of the two lists; and Parallel moves
+`site:`/`-site:` to `source_policy` (D8). Prior art: oh-my-pi announces a full Google set and
+backs it with a parser, per-provider rewriting, and a relaxing post-filter
+(`packages/coding-agent/src/web/search/query.ts`); OpenClaw announces operators only for DeepSeek;
+OpenCode, Kilo, and Open WebUI announce none. Parsing and translating date and filter operators,
+and the post-filter that makes announcing them safe, is
+[#1441](https://github.com/leon0399/llame/issues/1441).
+
 ## Risks / Trade-offs
 
 - [The model escalates cost by choosing expensive engines (`yandex-gen` $41.64 per 1,000, Parallel
