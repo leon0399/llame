@@ -16,6 +16,7 @@ import {
 } from '../../mcp/mcp-test-fixture';
 import { webSearchInputSchema, webSearchTool } from './tool';
 import { type VendorFetch } from './http';
+import { requestUrl } from '../../testing/web-search-fetch';
 
 describe('web search tool declaration', () => {
   it('rejects an engine argument and defaults limit to ten', () => {
@@ -320,6 +321,55 @@ it('wires aggregate children and merges their results', async () => {
         { title: 'Third', url: 'https://example.test/u3' },
         { title: 'Second', url: 'https://example.test/u2' },
       ],
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('skips an over-long aggregate child and calls only the other engine', async () => {
+  const hosts: Array<string> = [];
+  const fetch = vi.fn<VendorFetch>((input) => {
+    hosts.push(new URL(requestUrl(input)).host);
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          results: [{ title: 'Result', url: 'https://example.test/a' }],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    );
+  });
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          { id: 'brave', type: 'brave', key: 'brave-key', timeoutSeconds: 60 },
+          { id: 'exa', type: 'exa', key: 'exa-key', timeoutSeconds: 60 },
+          { id: 'mix', type: 'aggregate', engines: ['brave', 'exa'] },
+        ],
+        chain: ['mix'],
+      },
+    };
+    const output = await webSearchTool.execute(context, {
+      query: 'x'.repeat(650),
+      limit: 10,
+    });
+    // The brave child's declared 600-code-point limit skips it before a
+    // request, so only the Exa host is called.
+    expect(hosts).toStrictEqual(['api.exa.ai']);
+    expect(output).toMatchObject({
+      status: 'success',
+      kind: 'results',
+      engine: 'mix',
+      results: [{ title: 'Result', url: 'https://example.test/a' }],
+      notes: ['brave: unsupported'],
     });
   } finally {
     vi.unstubAllGlobals();
