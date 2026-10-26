@@ -10,8 +10,10 @@ generated:
 sources:
   - id: deepseek-search
     url: https://api-docs.deepseek.com/api/search
+    observed: 2026-10-26
   - id: deepseek-responses
     url: https://api-docs.deepseek.com/guides/responses_api
+    observed: 2026-10-26
 ---
 
 # web_search objective and query lengths, and DeepSeek `ori_question` effect
@@ -80,8 +82,7 @@ DeepSeek Search, 59 comparisons against the no-`ori_question` baseline:
   barely moves GPT's. A 128-character cut applies to roughly one objective in
   five on the frontier models.
 - `ori_question` had almost no effect on DeepSeek Search results for these
-  queries, so whether a long objective is cut, omitted or sent whole has
-  little practical consequence for that engine.
+  queries, so cutting a long objective to 128 characters or omitting it made little difference to these results. The API caps `ori_question` at 128 characters, so sending a long objective whole is not possible and was not tested.
 - Short query limits (128, 200, 400) are unlikely to trigger for models that
   receive the keyword-query instruction.
 

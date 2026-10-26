@@ -163,7 +163,9 @@ None.
   - MODIFIED "The permission mode is not model-visible" (the `web_search` removal note is a second
     channel through which the model learns of a policy decision).
 - `native-file-tools`:
-  - ADDED "Read reject clauses filter web search results but never govern the search".
+  - ADDED "Read reject clauses filter web search output but never govern the search".
+- `tool-call-permissions`:
+  - ADDED "Web search result removal is not native path enforcement".
 - `tool-prompt-templates`:
   - MODIFIED "llame-owned descriptions are complete file templates" (`web-search` can append its
     engine catalog after the rendered template).

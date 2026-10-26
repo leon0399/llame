@@ -2,9 +2,9 @@
 
 ## ADDED Requirements
 
-### Requirement: Read reject clauses filter web search results but never govern the search
+### Requirement: Read reject clauses filter web search output but never govern the search
 
-The `read` group `path` clauses MUST NOT admit or refuse a `web_search` call. In the `default` mode, each `read` reject clause MUST remove the `web_search` results and citations that it matches, as `web-search` defines. An absent `read` allow MUST NOT remove a `web_search` result.
+The statement that `read` `path` clauses do not restrict `web_search` MUST mean that they never admit or refuse a `web_search` call. In the `default` mode, each `read` reject clause MUST remove the `web_search` results and citations that it matches, as `web-search` defines. An absent `read` allow MUST NOT remove a `web_search` result.
 
 #### Scenario: A read reject removes a search result
 

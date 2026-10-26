@@ -370,7 +370,7 @@ Each id in `engines` MUST name a configured engine. An unknown id MUST fail the 
 
 ### Requirement: The web search description lists the configured engines
 
-The declared `web_search` description MUST be the rendered description template followed by a generated engine catalog. The catalog MUST list each configured engine in order. Each entry MUST state the id, type, result kind, chain position, use of `objective` and `recency`, query limit, and the `description`. Ids and descriptions MUST be tag-neutralized. An `aggregate` MUST state the smallest limit of its children. The catalog MUST NOT contain keys, base URLs, folder ids, or model ids.
+The declared `web_search` description MUST be the rendered template followed by a generated engine catalog. The catalog MUST list each configured engine in order. Each entry MUST state the id, type, result kind, chain position, use of `objective` and `recency`, query limit, and set `description`, all tag-neutralized. An `aggregate` MUST state its smallest child limit as the length below which no child is skipped. The catalog MUST NOT contain keys, base URLs, folder ids, or model ids.
 
 #### Scenario: The catalog follows the configuration
 
@@ -416,12 +416,17 @@ An `aggregate` MUST attach the answer of each grounded `model-hosted` or `yandex
 
 ### Requirement: Attached answers fit the result cap after results
 
-Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20 citations. When the serialized output is over 15,000 units, the output MUST drop results from the end first. Then it MUST drop citations from the end of each answer, last answer first, and each answer MUST keep one. Then it MUST cut answer text, last answer first. Each step MUST add one note with its count.
+Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20 citations. When the serialized output is over 15,000 units, the output MUST drop results from the end first. Then it MUST drop citations from the end of each answer, last answer first, and each answer MUST keep one. Then it MUST cut answer text, last answer first. Then it MUST drop whole answers from the end. Each step MUST add one note with its count.
 
 #### Scenario: Results go before answers
 
 - **WHEN** an aggregate output with 20 results and one answer of 8,000 units is over the result cap
 - **THEN** results from the end go first, and the answer text stays complete when the output then fits
+
+#### Scenario: Whole answers go last
+
+- **WHEN** eight attached answers each keep one citation with a URL of 2,048 units
+- **THEN** the output drops whole answers from the end until it fits the result cap, with one note
 
 #### Scenario: Each answer keeps a citation
 
@@ -444,7 +449,7 @@ The web chat MUST render each `answers` entry of a `web_search` part after the r
 
 ### Requirement: DeepSeek engines call the DeepSeek search API
 
-A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search` with its key as a bearer token. It MUST send the query, and `limit` as `count`. It MUST add `recency` to the query as an `after:` date. When the date would put the query over its limit, the engine MUST omit the date and note that. The snippet MUST be `summary`, else `snippet`. HTTP 401 MUST map to `auth`, 429 to `rate_limited`, and 408 or 504 to `timeout`.
+A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search` with its key as a bearer token. It MUST send the query, and `limit` as `count`. It MUST add `recency` to the query as an `after:` date. When the date would put the query over its limit, the engine MUST omit the date and note that. The snippet MUST be `summary`, else `snippet`. HTTP 401 and 403 MUST map to `auth`, 429 to `rate_limited`, 408 and 504 to `timeout`, and others to `upstream_error`.
 
 #### Scenario: Recency becomes an after date
 
@@ -464,7 +469,7 @@ A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search` with
 
 ### Requirement: Parallel engines call the Parallel search API
 
-A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its key in `x-api-key`. It MUST send the query as the only `search_queries` entry, its configured `mode`, `limit` as `max_results`, and the Chat id as `session_id`. It MUST move `site:` hosts to included and `-site:` hosts to excluded domains, and note ignored exclusions. It MUST send `recency` as `after_date`. The snippet MUST be the first excerpt, without a copy of the title at its start.
+A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its key in `x-api-key`. It MUST send the query as the only `search_queries` entry, its `mode`, `limit` as `max_results`, and the Chat id as `session_id`. It MUST move `site:` hosts to included and `-site:` hosts to excluded domains, and note ignored exclusions. It MUST send `recency` as `after_date`. The snippet MUST be the first excerpt, without a title copy at its start. HTTP statuses MUST map as for `deepseek`.
 
 #### Scenario: Site operators become the source policy
 
@@ -517,7 +522,13 @@ A `yandex` engine MUST read the error code in the XML response before it reads r
 
 ### Requirement: Generative Yandex engines answer with the sources they used
 
-A `yandex-gen` engine MUST post one user message to `https://searchapi.api.cloud.yandex.net/v2/gen/search`. The message MUST contain the query, a recency phrase when `recency` is set, and a `Goal:` line when `objective` is set. The answer MUST be the response message text. The citations MUST be the sources that the response marks as used. A rejected answer, or one without a used source, MUST fail with `ungrounded`. HTTP status codes map as for `yandex`.
+A `yandex-gen` engine MUST post its `searchType`, `folderId`, and one user message to `https://searchapi.api.cloud.yandex.net/v2/gen/search`. The message MUST hold the query, a recency phrase, and a `Goal:` line, each when set. The first five `site:` hosts MUST go to the `site` option, and others MUST be noted. The answer is the message text. The citations MUST be the sources that it marks as used. A rejected or unsourced answer MUST fail with `ungrounded`. HTTP statuses map as for `yandex`.
+
+#### Scenario: Site hosts become the site option
+
+- **WHEN** the query has six `site:` hosts
+- **THEN** the request has the first five hosts in its `site` option
+- **AND** the notes state that `yandex-gen` ignored one host
 
 #### Scenario: Only used sources are citations
 

@@ -103,9 +103,7 @@ is exported for this) before the chain or an aggregate decides on it. The check 
 (a decision with `explicit_reject` and a clause reference). `no_allow` keeps the entry, so the
 canonical `native-file-tools` scenario where `web_search` returns results under a `read` group
 without a web allow stays true. A whole-tool `read` reject also keeps entries: it disables `read`,
-and emptying every search would make `web_search` useless on that deployment. The effective
-`bypass` mode removes nothing, as `admitPermission` takes no decision there
-(`apps/api/src/tools/permissions/admit.ts:11`).
+and emptying every search would make `web_search` useless on that deployment. The effective `bypass` mode removes nothing: the check goes through `admitPermission`, which returns an allow in `bypass` without evaluating clauses (`apps/api/src/tools/permissions/admit.ts:11`), exactly as every other call site does. Routing every check through one mode-aware entry point is [#1443](https://github.com/leon0399/llame/issues/1443).
 
 The same pass removes results and citations on hosts that a `-site:` operator excludes, including
 subdomains. Several engines ignore `-site:` (`exa-mcp`, `yandex-gen`, and SearXNG upstreams
@@ -119,10 +117,7 @@ citation links, would still show a rejected host. An answer with no citation lef
 Filtering before the chain decision matters: a result list that filtering empties advances the
 chain, and an aggregate filters each child before its merge and its `limit` cut, so removed
 entries never take result slots. One note, placed first so the ten-note cap never drops it,
-counts removed entries without naming them. That note is a second channel through which the model
-learns of a policy decision, so `permission-modes` "The permission mode is not model-visible" is
-MODIFIED to name it, and `native-file-tools` gains one ADDED requirement stating that `read`
-reject clauses filter search results but never admit or refuse a search. No vendor request
+counts removed entries without naming them. That note is a second channel through which the model learns of a `default`-mode policy decision (it never appears in `bypass`, so it does not reveal the mode), so `permission-modes` "The permission mode is not model-visible" is MODIFIED to name it. Two canonical sentences read against this behavior and sit inside requirements far over the 500-character limit that strict validation applies to MODIFIED prose (`native-file-tools` "Web locators are fetched by the native read tool", 6,991 characters, says `read` `path` clauses "do not restrict" `web_search`; `tool-call-permissions` "Recommended portable policy with explicit replacement" says native path rejects are not "search-result filtering"). Rewriting either whole in STE to change one sentence is out of proportion, so each capability gains one ADDED requirement that fixes the reading: `read` clauses never govern a `web_search` call but filter its output, and that filtering is not native path enforcement. No vendor request
 changes; translating rejects into `-site:` exclusions is not attempted, because reject clauses are
 regular expressions, not host lists.
 
