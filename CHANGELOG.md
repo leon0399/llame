@@ -22,7 +22,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   engine before any request and advances as the new `unsupported` failure
   class; an `aggregate` runs only the children that accept the query and fails
   `unsupported` when it skips every child. Result counts are clamped to the
-  vendor maximum, and `exa-mcp`, `searxng`, and `duckduckgo` cut their results
+  vendor maximum, and `searxng` and `duckduckgo` cut their results
   to `limit`.
 - The packaged `web_search` description names `site:`, `-site:`, and quoted
   phrases as the supported operators, states that other operators reach an
