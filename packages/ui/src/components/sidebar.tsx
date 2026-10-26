@@ -699,10 +699,16 @@ function SidebarMenuSkeleton({
   /** Whether to render a skeleton icon before the skeleton text. */
   showIcon?: boolean;
 }) {
-  // Random width between 50 to 90%.
-  const [width] = React.useState(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`;
-  });
+  // fork: upstream picks `Math.random()` in a `useState` initializer, which
+  // the server and the client roll separately, so every SSR'd skeleton is a
+  // hydration mismatch. A hash of `useId()` (identical on both sides) gives
+  // the same 50-89% spread deterministically. Re-apply on `shadcn add` upgrades.
+  const id = React.useId();
+  const hash = Array.from(id).reduce(
+    (acc, char) => Math.imul(acc, 31) + char.charCodeAt(0),
+    7,
+  );
+  const width = `${50 + ((hash >>> 0) % 40)}%`;
 
   return (
     <div

@@ -163,6 +163,10 @@ export default defineConfig({
         AUTH_RATE_LIMIT_PER_MINUTE: "1000",
         API_RATE_LIMIT_PER_MINUTE: "100000",
         OPENAI_BASE_URL: `http://localhost:${modelPort}/v1`,
+        // Blank, not absent: a developer's apps/api/.env.local DSN would
+        // otherwise report every e2e run to their Sentry project (dotenv never
+        // overrides a variable the process already has).
+        SENTRY_DSN: "",
         E2E_MCP_URL: `http://localhost:${mcpPort}/mcp`,
         // Operator settings (model ids) come from the instance config file —
         // bare env vars are not a config source (instance-config, #166).
@@ -183,6 +187,10 @@ export default defineConfig({
       env: webServerEnv({
         NODE_ENV: "production",
         NEXT_PUBLIC_API_URL: apiUrl,
+        // Blank for the same reason as the api's SENTRY_DSN: `next build`
+        // loads apps/web/.env.local, and a DSN there would send the browser's
+        // envelopes through the /monitoring tunnel to a real Sentry project.
+        NEXT_PUBLIC_SENTRY_DSN: "",
       }),
       url: `${webUrl}/login`,
       timeout: 120_000,

@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-27
+
+- The chat sidebar's loading skeletons no longer cause a hydration mismatch:
+  their widths come from `useId()` instead of `Math.random()`, so the server
+  and the browser draw the same rows. Opening a chat by client navigation no
+  longer logs React's "Encountered a script tag" warning; the pre-hydration
+  scroll pin renders only in server HTML and during hydration. E2E runs blank
+  `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN`, so a developer's `.env.local`
+  DSN no longer reports test traffic to their Sentry project.
+
 # 2026-10-25
 
 - The API DAST jobs pass. ZAP's Medium findings are fixed: every response
