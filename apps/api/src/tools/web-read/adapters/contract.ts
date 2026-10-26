@@ -22,6 +22,7 @@ import { createGithubAdapter } from './github/adapter';
 import { createHackernewsAdapter } from './hackernews/adapter';
 import { createHuggingfaceAdapter } from './huggingface/adapter';
 import { createLobstersAdapter } from './lobsters/adapter';
+import { createLinkedInAdapter } from './linkedin/adapter';
 import { createLumaAdapter } from './luma/adapter';
 import { createNpmAdapter } from './npm/adapter';
 import { createOsvAdapter } from './osv/adapter';
@@ -326,6 +327,22 @@ function createAdapter(config: WebAdapterConfig): WebAdapter {
   switch (config.use) {
     case 'github':
       return createGithubAdapter(config);
+    case 'discourse':
+      return createDiscourseAdapter(config);
+    case 'rewrite':
+      return createRewriteAdapter(config);
+    default:
+      return createFieldlessAdapter(config);
+  }
+}
+
+type FieldlessAdapterConfig = Exclude<
+  WebAdapterConfig,
+  { use: 'github' | 'discourse' | 'rewrite' }
+>;
+
+function createFieldlessAdapter(config: FieldlessAdapterConfig): WebAdapter {
+  switch (config.use) {
     case 'bluesky':
       return createBlueskyAdapter(config);
     case 'npm':
@@ -342,8 +359,6 @@ function createAdapter(config: WebAdapterConfig): WebAdapter {
       return createHackernewsAdapter(config);
     case 'doi':
       return createDoiAdapter(config);
-    case 'discourse':
-      return createDiscourseAdapter(config);
     case 'devto':
       return createDevtoAdapter(config);
     case 'substack':
@@ -358,7 +373,7 @@ function createAdapter(config: WebAdapterConfig): WebAdapter {
       return createLobstersAdapter(config);
     case 'luma':
       return createLumaAdapter(config);
-    case 'rewrite':
-      return createRewriteAdapter(config);
+    case 'linkedin':
+      return createLinkedInAdapter(config);
   }
 }

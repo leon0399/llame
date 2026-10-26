@@ -387,6 +387,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   page lists the Machines with their state and how many are online. See
   [remote Machines](docs/product/operator/machines.md).
 
+- The native `linkedin` web adapter reads public LinkedIn profiles
+  (`/in/{name}`) and posts (`/posts/…`, `/feed/update/urn:li:…`) as Markdown
+  from the JSON-LD LinkedIn serves logged-out visitors: a profile's name,
+  headline, location, current role, about, and the experience and education
+  lines that are not withheld, or a post's author, date, full text, hashtags,
+  media, and reaction and comment counts. An authwall (HTTP 999) or a page
+  without that public data falls through to the generic reader. Fields
+  LinkedIn masks with asterisks are omitted. What is public varies by profile
+  and by the network the request comes from.
+
 - The native `luma` web adapter reads `luma.com/{slug}` and `lu.ma/{slug}`
   event links, which the generic converter leaves as a script-heavy page, as
   Markdown: title, start and end in the event's timezone, place or online
