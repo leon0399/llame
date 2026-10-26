@@ -148,7 +148,7 @@ An `aggregate` MUST run each child that accepts the query concurrently and MUST 
 
 ### Requirement: API and keyless engines speak their vendor wire
 
-`brave`, `exa`, and `perplexity` (Search API) use a key. `searxng` uses its `baseUrl`. `exa-mcp` calls the hosted Exa MCP tool `web_search_exa` from llame code with an optional key. `duckduckgo` posts to the HTML endpoint. `deepseek`, `parallel`, `parallel-mcp`, `yandex`, and `yandex-gen` are also engine types. Each engine MUST map `recency` and `limit` where its vendor supports them. Each engine MUST refuse redirects and MUST send a key only to its own host.
+`brave`, `exa`, and `perplexity` (Search API) use a key. `searxng` uses its `baseUrl`. `exa-mcp` calls the hosted Exa MCP tool `web_search_exa` from llame code with an optional key. `duckduckgo` posts to the HTML endpoint. `deepseek`, `parallel`, `parallel-mcp`, and `yandex` are also engine types. Each engine MUST map `recency` and `limit` where its vendor supports them. Each engine MUST refuse redirects and MUST send a key only to its own host.
 
 #### Scenario: Keyless Exa MCP
 
@@ -329,7 +329,7 @@ A `model-hosted` engine MUST send `site:` hosts as the allowed domains and `-sit
 
 ### Requirement: Engines receive the objective where their vendor accepts one
 
-`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. Without `objective`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine MUST ignore `objective` without a note, and the call MUST NOT refuse it. An engine MUST NOT add `objective` to the query.
+`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. Without `objective`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points as `ori_question`, without a note. `model-hosted` MUST add a `Goal:` line. Each other engine MUST ignore `objective` without a note, and the call MUST NOT refuse it. An engine MUST NOT add `objective` to the query.
 
 #### Scenario: Parallel receives the objective
 
@@ -400,7 +400,7 @@ The declared `web_search` description MUST be the rendered template followed by 
 
 ### Requirement: Aggregate engines attach the answers of answer children
 
-An `aggregate` MUST attach the answer of each grounded `model-hosted` or `yandex-gen` child as an `answers` entry, in child order. Each entry MUST have `engine`, `answer`, and `citations`. The citations of each answer MUST also join the rank merge as results in citation order, with the citation title and no snippet. An ungrounded answer child MUST count as a failed child.
+An `aggregate` MUST attach the answer of each grounded `model-hosted` child as an `answers` entry, in child order. Each entry MUST have `engine`, `answer`, and `citations`. The citations of each answer MUST also join the rank merge as results in citation order, with the citation title and no snippet. An ungrounded answer child MUST count as a failed child.
 
 #### Scenario: A hosted child adds an answer and its citations
 
@@ -519,23 +519,3 @@ A `yandex` engine MUST read the error code in the XML response before it reads r
 
 - **WHEN** Yandex answers HTTP 200 with an XML error code 15
 - **THEN** the engine outcome is empty
-
-### Requirement: Generative Yandex engines answer with the sources they used
-
-A `yandex-gen` engine MUST post its `searchType`, `folderId`, and one user message to `https://searchapi.api.cloud.yandex.net/v2/gen/search`. The message MUST hold the query, a recency phrase, and a `Goal:` line, each when set. The first five `site:` hosts MUST go to the `site` option, and others MUST be noted. The answer is the message text. The citations MUST be the sources that it marks as used. A rejected or unsourced answer MUST fail with `ungrounded`. HTTP statuses map as for `yandex`.
-
-#### Scenario: Site hosts become the site option
-
-- **WHEN** the query has six `site:` hosts
-- **THEN** the request has the first five hosts in its `site` option
-- **AND** the notes state that `yandex-gen` ignored one host
-
-#### Scenario: Only used sources are citations
-
-- **WHEN** the response lists three sources and marks two as used
-- **THEN** the output citations are those two sources
-
-#### Scenario: A rejected answer is ungrounded
-
-- **WHEN** the response marks the answer as rejected
-- **THEN** the engine fails with `ungrounded` and the chain advances

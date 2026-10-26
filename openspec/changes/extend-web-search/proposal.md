@@ -50,9 +50,8 @@ reject clauses, so the model sees and cites hosts the instance refuses to open.
   never appear.
 - **New engine types.** `deepseek` (DeepSeek search API), `parallel` (Parallel search API with an
   operator `mode`, default `fast`), `parallel-mcp` (keyless hosted Parallel MCP), `yandex` (Yandex
-  web search, base64 XML), and `yandex-gen` (Yandex generative search, an answer engine).
-- **Answer engines inside aggregates.** `model-hosted` and `yandex-gen` can be `aggregate`
-  children. The aggregate output stays `kind: "results"` and gains optional
+  web search, base64 XML).
+- **Answer engines inside aggregates.** `model-hosted` engines can be `aggregate` children. The aggregate output stays `kind: "results"` and gains optional
   `answers: [{ engine, answer, citations }]`; cited URLs also join the rank merge. The output
   cap drops results before it shortens answers. The web renderer shows attached answers.
   **BREAKING** for consumers of the closed output union: `answers` is a new optional field.
@@ -107,8 +106,7 @@ Assumptions that follow from those decisions but were not asked:
   break the 128-character limit, the date is omitted with a note.
 - Yandex has no one-week or one-year period: `week` maps to two weeks with a note, and `year` is
   not applied.
-- `yandex` and `yandex-gen` require `searchType`. `folderId` is optional for `yandex`, because
-  service-account keys imply it, and required for `yandex-gen`, whose API requires it.
+- `yandex` requires `searchType`; `folderId` is optional, because service-account keys imply it.
 - A query limit counts the query the model submitted; a word is a run of non-space characters.
 
 ## Deviation from the grilling record
@@ -147,17 +145,15 @@ None.
     answers fit the result cap after results", "The chat renders attached answers", "DeepSeek
     engines call the DeepSeek search API", "Parallel engines call the Parallel search API",
     "Keyless Parallel engines call the hosted Parallel MCP tool", "Yandex engines call the Yandex
-    web search API", "Yandex engines classify errors from the response body", and "Generative
-    Yandex engines answer with the sources they used".
+    web search API", and "Yandex engines classify errors from the response body".
 - `instance-config`:
   - MODIFIED "Web search engine entries have fixed per-type shapes" (`duckduckgo` has no field for
     its type, so the shared `description` does not contradict it).
-  - MODIFIED "Web search references are validated at startup" (answer engines may be `aggregate`
-    children). Its scenario "Hosted engine inside an aggregate fails startup" keeps its heading
+  - MODIFIED "Web search references are validated at startup" (`model-hosted` engines may be `aggregate` children). Its scenario "Hosted engine inside an aggregate fails startup" keeps its heading
     but now covers a hosted child on an unsupported provider type, and the new scenario "Hosted
     engine inside an aggregate loads" records the reversal that Q15 decided.
-  - ADDED "New web search engine types have fixed shapes", "Yandex web search engines have fixed
-    shapes", and "Web search engine entries can carry a model-facing description".
+  - ADDED "New web search engine types have fixed shapes", "Yandex web search engines have a fixed
+    shape", and "Web search engine entries can carry a model-facing description".
 
 - `permission-modes`:
   - MODIFIED "The permission mode is not model-visible" (the `web_search` removal note is a second
@@ -180,8 +176,7 @@ and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
 - `apps/api/src/tools/web-search/`: `tool.ts` (schema, `engines` check, catalog), `chain.ts`
   (failure class, chain override), `aggregate.ts` (child skip, answer children, `answers`),
   `output.ts` (`answers` bounds and trim order), `exa.ts`, `exa-mcp.ts`, `model-hosted.ts`
-  (objective), and new `deepseek.ts`, `parallel.ts`, `parallel-mcp.ts`, `yandex.ts`,
-  `yandex-gen.ts`, each with tests.
+  (objective), and new `deepseek.ts`, `parallel.ts`, `parallel-mcp.ts`, `yandex.ts`, each with tests.
 - `apps/api/src/instance-config/`: `llame-config.ts`, `config-loader.ts`,
   `llame.config.schema.json`; tests that pin the old aggregate rule
   (`config-loader` and `web-search-config` tests for a hosted aggregate child).

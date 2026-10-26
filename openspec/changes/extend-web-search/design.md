@@ -106,8 +106,7 @@ without a web allow stays true. A whole-tool `read` reject also keeps entries: i
 and emptying every search would make `web_search` useless on that deployment. The effective `bypass` mode removes nothing: the check goes through `admitPermission`, which returns an allow in `bypass` without evaluating clauses (`apps/api/src/tools/permissions/admit.ts:11`), exactly as every other call site does. Routing every check through one mode-aware entry point is [#1443](https://github.com/leon0399/llame/issues/1443).
 
 The same pass removes results and citations on hosts that a `-site:` operator excludes, including
-subdomains. Several engines ignore `-site:` (`exa-mcp`, `yandex-gen`, and SearXNG upstreams
-vary), and this post-filter makes the announced operator hold everywhere (D11).
+subdomains. Several engines ignore `-site:` (`exa-mcp`, and SearXNG upstreams vary), and this post-filter makes the announced operator hold everywhere (D11).
 
 Answer text is cleaned too: a Markdown link to a removed URL keeps its text and loses its target,
 and a bare copy of a removed URL is deleted. Otherwise the OpenAI hosted wires, which inline
@@ -171,7 +170,7 @@ templates.
 | `parallel-mcp`                                           | `objective` (required by the tool)               | the query        |
 | `exa`, `exa-mcp`                                         | `objective` (Exa caps it at 4,096)               | the query        |
 | `deepseek`                                               | `ori_question`, first 128 code points, no note   | omitted          |
-| `model-hosted`, `yandex-gen`                             | one `Goal: <objective>` line in the user message | no line          |
+| `model-hosted`                                           | one `Goal: <objective>` line in the user message | no line          |
 | `brave`, `perplexity`, `searxng`, `duckduckgo`, `yandex` | none; ignored silently, never refused            | nothing          |
 
 The objective never enters the query: Brave and Yandex would break their limits, and lexical
@@ -223,9 +222,7 @@ model-provider header (Q10).
 
 ### D9: Yandex engines
 
-Host `https://searchapi.api.cloud.yandex.net`, `Authorization: Api-Key <key>`. `folderId` is
-optional for web search (a service-account key implies it) and required for generative search
-(`GenSearchRequest` marks it required), so `yandex-gen` requires it in configuration ([Search API concepts](https://aistudio.yandex.ru/en/docs/search-api/concepts/)).
+Host `https://searchapi.api.cloud.yandex.net`, `Authorization: Api-Key <key>`. `folderId` is optional because a service-account key implies it ([Search API concepts](https://aistudio.yandex.ru/en/docs/search-api/concepts/)).
 
 `yandex`: `POST /v2/web/search` with `query { searchType, queryText, familyMode:
 FAMILY_MODE_MODERATE }`, `groupSpec { GROUP_MODE_FLAT, groupsOnPage: limit, docsInGroup: 1 }`
@@ -237,15 +234,10 @@ Yandex reports search errors inside HTTP 200 as `<error code>`: 42 `auth`; 32 an
 concepts pages also show a `resultsWithin` spelling that the strict REST body rejects): `day` and
 `month` map directly, `week` maps to `PERIOD_2_WEEKS` with a note, and `year` has no period and
 is noted. HTTP 401 and 403 map to `auth`, 429 to `rate_limited`, and 5xx or an unparsable body to
-`upstream_error`, for both Yandex engines. Price: $4 per 1,000 requests; 10 requests per second.
+`upstream_error`. Price: $4 per 1,000 requests; 10 requests per second.
 
-`yandex-gen`: `POST /v2/gen/search` with one `ROLE_USER` message (the API has no system role)
-containing the query, an optional recency phrase, and an optional `Goal:` line; non-streaming.
-The proto declares a server-streaming RPC; the REST body is a JSON array of message objects (one
-without partial results), so the engine reads the last complete element and records its test
-fixture from a live response. The answer is `message.content`; citations are the `sources`
-marked `used`. A rejected answer or
-no used source is `ungrounded`. Price: $41.64 per 1,000 requests; 1 request per second.
+Yandex generative search (`/v2/gen/search`, an answer engine at $41.64 per 1,000 requests and
+1 request per second) is out of scope; `model-hosted` covers grounded answers.
 
 Yandex is Russia-hosted; its own documentation states that search requests leave the
 152-FZ-certified perimeter. Its [terms](https://yandex.ru/legal/cloud_terms_search_api) §3.2
@@ -255,7 +247,7 @@ Yandex's official MCP server wraps the same endpoints, so a native engine adds n
 
 ### D10: Answer engines inside aggregates
 
-`model-hosted` and `yandex-gen` can be `aggregate` children. Each grounded answer becomes an
+`model-hosted` engines can be `aggregate` children. Each grounded answer becomes an
 `answers` entry `{ engine, answer, citations }` in child order, and its citations join the rank
 merge as results at citation rank, with the citation title and no snippet. An ungrounded child
 counts as failed. The aggregate's existing empty and failure rules apply to the merged results.
@@ -291,9 +283,7 @@ Drive-by mappings close gaps the portable set exposes: hosted engines send `site
 allowed and `-site:` hosts as blocked domains (both `@ai-sdk/openai` and `@ai-sdk/anthropic`
 expose `blockedDomains`; today only `allowedDomains` is sent, `model-hosted.ts:57,67`); on
 `anthropic-messages` the exclusions are dropped with a note when `site:` hosts exist, because
-Anthropic accepts only one of the two lists, while OpenAI accepts both; Parallel moves
-`site:`/`-site:` to `source_policy` (D8); and `yandex-gen` sends up to five `site:` hosts in its
-`site` option. Prior art: oh-my-pi announces a full Google set and
+Anthropic accepts only one of the two lists, while OpenAI accepts both; and Parallel moves `site:`/`-site:` to `source_policy` (D8). Prior art: oh-my-pi announces a full Google set and
 backs it with a parser, per-provider rewriting, and a relaxing post-filter
 (`packages/coding-agent/src/web/search/query.ts`); OpenClaw announces operators only for DeepSeek;
 OpenCode, Kilo, and Open WebUI announce none. Parsing and translating date and filter operators,
@@ -302,8 +292,7 @@ and the post-filter that makes announcing them safe, is
 
 ## Risks / Trade-offs
 
-- [The model escalates cost by choosing expensive engines (`yandex-gen` $41.64 per 1,000, Parallel
-  `advanced` $5)] -> Engines are selectable only when the operator defines them; the operator
+- [The model escalates cost by choosing expensive engines (hosted model searches, Parallel `advanced` $5 per 1,000)] -> Engines are selectable only when the operator defines them; the operator
   `description` can state cost; usage accounting is [#1439](https://github.com/leon0399/llame/issues/1439).
 - [Yandex residency and the result-order clause] -> Runbook states both; the operator chooses
   whether to configure Yandex or aggregate it.

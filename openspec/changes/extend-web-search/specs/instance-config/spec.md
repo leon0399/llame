@@ -76,23 +76,18 @@ A `deepseek` entry MUST have a `key`. A `parallel` entry MUST have a `key` and c
 - **WHEN** a `parallel-mcp` engine sets `key`
 - **THEN** startup fails and names the `key` path of that entry
 
-### Requirement: Yandex web search engines have fixed shapes
+### Requirement: Yandex web search engines have a fixed shape
 
-A `yandex` or `yandex-gen` entry MUST have a `key` and a `searchType` with the value `ru`, `tr`, `com`, `kk`, `be`, or `uz`. A `yandex-gen` entry MUST have a `folderId`, and a `yandex` entry can have one. The `key` and the `folderId` MUST be interpolated secrets.
+A `yandex` entry MUST have a `key` and a `searchType` with the value `ru`, `tr`, `com`, `kk`, `be`, or `uz`. It can have a `folderId`. The `key` and the `folderId` MUST be interpolated secrets.
 
 #### Scenario: Missing search type fails startup
 
 - **WHEN** a `yandex` engine has no `searchType`
 - **THEN** startup fails and names the `searchType` path of that entry
 
-#### Scenario: Generative Yandex needs a folder id
-
-- **WHEN** a `yandex-gen` engine has no `folderId`
-- **THEN** startup fails and names the `folderId` path of that entry
-
 #### Scenario: Interpolated folder id is never disclosed
 
-- **WHEN** the `folderId` of a `yandex-gen` engine is `{env:YANDEX_FOLDER_ID}` and its requests fail with HTTP 403
+- **WHEN** the `folderId` of a `yandex` engine is `{env:YANDEX_FOLDER_ID}` and its requests fail with HTTP 403
 - **THEN** the value of the variable occurs in no startup error, tool output, Run event, or log
 
 ### Requirement: Web search engine entries can carry a model-facing description
