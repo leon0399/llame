@@ -234,6 +234,28 @@ it('fails unsupported when every child skips the query', async () => {
   expect(started).toBe(0);
 });
 
+it('stays an upstream failure when a skip mixes with a sent failure', async () => {
+  const engine = createAggregateEngine([
+    {
+      ...child('narrow', () => results(result('https://example.test/narrow'))),
+      limits: { query: { codePoints: 128 } },
+    },
+    {
+      ...child('auth', () => Promise.reject(new EngineFailure('auth'))),
+      limits: { query: { codePoints: 200 } },
+    },
+  ]);
+
+  // The narrow child never sent the query, but the wide child did and failed,
+  // so the aggregate is not a pure local decision.
+  await expect(
+    engine({ ...request(), query: 'x'.repeat(150) }),
+  ).rejects.toMatchObject({
+    name: 'EngineFailure',
+    failureClass: 'upstream_error',
+  });
+});
+
 it('notes a timed-out child while merging the others', async () => {
   const engine = createAggregateEngine([
     child(
