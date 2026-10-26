@@ -94,25 +94,37 @@ DeepSeek 50, Yandex 100 per page), so the clamp is a guard for future engines an
 The asymmetry with D2 is deliberate: a smaller result set answers the same search, while a
 truncated query is a different search. Leo's decision, 2026-10-26.
 
-### D2b: Results follow the `read` reject clauses
+### D2b: Results follow the `read` reject clauses and `-site:` exclusions
 
-Each engine outcome passes through the same reject decision that native `read` takes for a web
-locator (`apps/api/src/tools/web-read/admission.ts:131-136`, submitted and projected forms) before
-the chain or an aggregate decides on it. Only `explicit_reject` removes an entry. `no_allow` keeps
-it, so the canonical `native-file-tools` scenario where `web_search` returns results under a
-`read` group without a web allow stays true, and that requirement's sentence that the `read`
-group's `path` clauses "do not restrict" `web_search` still holds for the call: the clauses never
-admit or refuse a search, they only remove results the model could not open. `bypass` mode
-removes nothing, as `admitPermission` takes no decision there
-(`apps/api/src/tools/permissions/admit.ts:11`). Notes count removals without naming URLs, so a
-note never repeats a host the operator rejected.
+Each engine outcome passes through the reject decision that native `read` takes for a web locator
+(`apps/api/src/tools/web-read/admission.ts:120-140`, submitted and projected forms; the function
+is exported for this) before the chain or an aggregate decides on it. The check travels on
+`EngineRequest`, so aggregate children use it too. Only a matching reject clause removes an entry
+(a decision with `explicit_reject` and a clause reference). `no_allow` keeps the entry, so the
+canonical `native-file-tools` scenario where `web_search` returns results under a `read` group
+without a web allow stays true. A whole-tool `read` reject also keeps entries: it disables `read`,
+and emptying every search would make `web_search` useless on that deployment. The effective
+`bypass` mode removes nothing, as `admitPermission` takes no decision there
+(`apps/api/src/tools/permissions/admit.ts:11`).
+
+The same pass removes results and citations on hosts that a `-site:` operator excludes, including
+subdomains. Several engines ignore `-site:` (`exa-mcp`, `yandex-gen`, and SearXNG upstreams
+vary), and this post-filter makes the announced operator hold everywhere (D11).
+
+Answer text is cleaned too: a Markdown link to a removed URL keeps its text and loses its target,
+and a bare copy of a removed URL is deleted. Otherwise the OpenAI hosted wires, which inline
+citation links, would still show a rejected host. An answer with no citation left is
+`ungrounded`.
 
 Filtering before the chain decision matters: a result list that filtering empties advances the
-chain instead of returning nothing, and an aggregate filters each child before its merge and its
-`limit` cut, so rejected entries never take result slots. No vendor request changes; translating
-rejects into `-site:` exclusions is not attempted, because reject clauses are regular expressions,
-not host lists. Address-level admission (DNS resolution) does not apply, as no request is made to
-a result URL.
+chain, and an aggregate filters each child before its merge and its `limit` cut, so removed
+entries never take result slots. One note, placed first so the ten-note cap never drops it,
+counts removed entries without naming them. That note is a second channel through which the model
+learns of a policy decision, so `permission-modes` "The permission mode is not model-visible" is
+MODIFIED to name it, and `native-file-tools` gains one ADDED requirement stating that `read`
+reject clauses filter search results but never admit or refuse a search. No vendor request
+changes; translating rejects into `-site:` exclusions is not attempted, because reject clauses are
+regular expressions, not host lists.
 
 Alternative rejected: filtering on the full `read` decision, which would empty every search on a
 deployment that grants `web_search` but not web `read`.
@@ -236,7 +248,10 @@ is noted. HTTP 401 and 403 map to `auth`, 429 to `rate_limited`, and 5xx or an u
 
 `yandex-gen`: `POST /v2/gen/search` with one `ROLE_USER` message (the API has no system role)
 containing the query, an optional recency phrase, and an optional `Goal:` line; non-streaming.
-The answer is `message.content`; citations are the `sources` marked `used`. A rejected answer or
+The proto declares a server-streaming RPC; the REST body is a JSON array of message objects (one
+without partial results), so the engine reads the last complete element and records its test
+fixture from a live response. The answer is `message.content`; citations are the `sources`
+marked `used`. A rejected answer or
 no used source is `ungrounded`. Price: $41.64 per 1,000 requests; 1 request per second.
 
 Yandex is Russia-hosted; its own documentation states that search requests leave the
@@ -266,8 +281,9 @@ to 30 seconds) sets the aggregate's latency. The runbook states it.
 ### D11: Announce only the portable search operators
 
 Models write Google-style operators whatever the tool says; the description only decides which ones
-llame vouches for. `site:`, `-site:`, and quoted phrases are native on Brave, DuckDuckGo, Exa,
-DeepSeek, and Yandex, reach hosted engines through a model that understands them, and are mapped
+llame vouches for. `site:` and quoted phrases are native on Brave, DuckDuckGo, Exa, DeepSeek, and
+Yandex; `-site:` is native on Brave, DuckDuckGo, and DeepSeek and undocumented on Yandex and Exa,
+and the D2b post-filter enforces it on every engine. All three reach hosted engines through a model that understands them, and are mapped
 to native filters for Exa, Perplexity, Parallel, and hosted engines. Every other operator is a
 coin flip: DeepSeek parses `after:`, `before:`, and `lang:`, Yandex parses `date:` and `mime:`, but
 Brave, DuckDuckGo, and SearXNG search `after:2026-01-01` as literal tokens, Perplexity documents
@@ -278,11 +294,13 @@ no operators, and Parallel's REST guidance forbids operators in `search_queries`
 description therefore names the portable three and states once that other operators can reach an
 engine as plain words, the honest framing Hermes uses.
 
-Two drive-by mappings close gaps the portable set exposes: hosted engines send `-site:` hosts as
-blocked domains (both `@ai-sdk/openai` and `@ai-sdk/anthropic` expose `blockedDomains`; today only
-`allowedDomains` is sent, `model-hosted.ts:57,67`), with the exclusions noted and dropped when
-`site:` hosts exist, because Anthropic accepts only one of the two lists; and Parallel moves
-`site:`/`-site:` to `source_policy` (D8). Prior art: oh-my-pi announces a full Google set and
+Drive-by mappings close gaps the portable set exposes: hosted engines send `site:` hosts as
+allowed and `-site:` hosts as blocked domains (both `@ai-sdk/openai` and `@ai-sdk/anthropic`
+expose `blockedDomains`; today only `allowedDomains` is sent, `model-hosted.ts:57,67`); on
+`anthropic-messages` the exclusions are dropped with a note when `site:` hosts exist, because
+Anthropic accepts only one of the two lists, while OpenAI accepts both; Parallel moves
+`site:`/`-site:` to `source_policy` (D8); and `yandex-gen` sends up to five `site:` hosts in its
+`site` option. Prior art: oh-my-pi announces a full Google set and
 backs it with a parser, per-provider rewriting, and a relaxing post-filter
 (`packages/coding-agent/src/web/search/query.ts`); OpenClaw announces operators only for DeepSeek;
 OpenCode, Kilo, and Open WebUI announce none. Parsing and translating date and filter operators,

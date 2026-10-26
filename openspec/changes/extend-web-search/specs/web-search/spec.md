@@ -13,7 +13,7 @@ The code-owned inventory MUST include `web_search` as `read_only`. It MUST be el
 
 #### Scenario: Default limit
 
-- **WHEN** the model calls `web_search` with only a query and the answering engine returns 15 results
+- **WHEN** the model calls `web_search` with only a query and the engine that answers returns 15 results
 - **THEN** the output contains a maximum of 10 results
 
 #### Scenario: Permission rejection sends nothing
@@ -38,7 +38,7 @@ A successful call MUST return `kind: "results"` or `kind: "answer"`. A results o
 
 #### Scenario: Ignored option is noted
 
-- **WHEN** the call sets `recency` and the answering engine cannot apply it
+- **WHEN** the call sets `recency` and the engine that answers cannot apply it
 - **THEN** the `notes` of the output state that the engine did not apply `recency`
 
 #### Scenario: Aggregate output can carry answers
@@ -124,7 +124,7 @@ An `aggregate` MUST run each child that accepts the query concurrently and MUST 
 #### Scenario: Partial failure still answers
 
 - **WHEN** one child fails with `rate_limited` and another returns results
-- **THEN** the aggregate returns the successful child's results with a note naming the failed child
+- **THEN** the aggregate returns the results of the successful child with a note that names the failed child
 
 #### Scenario: A failed and an empty child are empty
 
@@ -138,7 +138,7 @@ An `aggregate` MUST run each child that accepts the query concurrently and MUST 
 
 #### Scenario: Cancellation aborts every child
 
-- **WHEN** the Run is cancelled while two aggregate children are in flight
+- **WHEN** the owner cancels the Run while two aggregate children are in flight
 - **THEN** llame aborts both requests
 
 #### Scenario: Every skipped child fails as unsupported
@@ -148,7 +148,7 @@ An `aggregate` MUST run each child that accepts the query concurrently and MUST 
 
 ### Requirement: API and keyless engines speak their vendor wire
 
-The engine types are `brave`, `exa`, and `perplexity` (Search API) with a key; `searxng` with its `baseUrl`; `exa-mcp`, which calls the hosted Exa MCP tool `web_search_exa` from llame code with an optional key; `duckduckgo`, which posts to the HTML endpoint; and `deepseek`, `parallel`, `parallel-mcp`, `yandex`, and `yandex-gen`. Each engine MUST map `recency` and `limit` where its vendor supports them. Each engine MUST refuse redirects and MUST send a key only to its own host.
+`brave`, `exa`, and `perplexity` (Search API) use a key. `searxng` uses its `baseUrl`. `exa-mcp` calls the hosted Exa MCP tool `web_search_exa` from llame code with an optional key. `duckduckgo` posts to the HTML endpoint. `deepseek`, `parallel`, `parallel-mcp`, `yandex`, and `yandex-gen` are also engine types. Each engine MUST map `recency` and `limit` where its vendor supports them. Each engine MUST refuse redirects and MUST send a key only to its own host.
 
 #### Scenario: Keyless Exa MCP
 
@@ -229,38 +229,52 @@ An `aggregate` engine MUST NOT run a child when the query is over the query limi
 
 #### Scenario: The aggregate skips one child
 
-- **WHEN** an `aggregate` has the children `deepseek` and `exa` and the query has 150 characters
+- **WHEN** an `aggregate` has the children `brave` and `exa` and the query has 650 characters
 - **THEN** only `exa` sends a request
-- **AND** the notes name `deepseek` with `unsupported`
+- **AND** the notes name `brave` with `unsupported`
 
 #### Scenario: The aggregate skips every child
 
-- **WHEN** an `aggregate` has the children `deepseek` and `parallel` and the query has 300 characters
+- **WHEN** an `aggregate` has the `brave` children `brave-a` and `brave-b` and the query has 650 characters
 - **THEN** no child sends a request and the aggregate fails with `unsupported`
 
-### Requirement: Results that the read permission group rejects are removed
+### Requirement: The call removes the results that the read permission group rejects
 
-In the `default` permission mode, the call MUST remove each result and citation whose URL a reject clause of the `read` permission group matches. The match MUST be the reject decision that `read` takes for that URL. An absent `read` allow MUST NOT remove an entry. In the `bypass` mode, the call MUST NOT remove entries. The notes MUST state the number of removed entries and MUST NOT name them. These clauses MUST NOT admit or refuse the call.
+The effective permission mode is `default` here. The call MUST remove each result and citation whose URL a `read` reject clause matches, as `read` decides for that URL. A whole-tool `read` reject or an absent `read` allow MUST NOT remove an entry. The `bypass` mode MUST NOT remove entries. These clauses MUST NOT admit or refuse the call.
 
-#### Scenario: A rejected host is removed
+#### Scenario: The call removes a rejected host
 
 - **WHEN** the `read` group rejects `^https://grokipedia\.com/` and an engine returns a `grokipedia.com` result and two other results
 - **THEN** the output contains only the two other results
-- **AND** a note states that one entry was removed and does not contain `grokipedia`
+- **AND** a note states that the call removed one entry and does not contain `grokipedia`
 
 #### Scenario: No read allow keeps the results
 
 - **WHEN** the `read` group has no allow for `^https://` and no reject that matches the results
 - **THEN** the output keeps every result
 
+#### Scenario: A whole-tool read reject keeps the results
+
+- **WHEN** the `read` group sets `reject: true` for the whole tool
+- **THEN** the output keeps every result
+
 #### Scenario: Bypass keeps the results
 
-- **WHEN** the attempt runs in the `bypass` permission mode and the `read` group rejects a result host
+- **WHEN** the effective permission mode of the attempt is `bypass` and the `read` group rejects a result host
 - **THEN** the output keeps that result
+
+### Requirement: The call removes the results of excluded hosts
+
+The call MUST remove each result and citation whose host is a `-site:` host of the query, or a subdomain of it. This rule MUST apply to each engine, also an engine that does not apply `-site:` itself.
+
+#### Scenario: An engine that ignores -site: still loses the host
+
+- **WHEN** the query is `pgvector -site:reddit.com` and an engine returns a result from `old.reddit.com`
+- **THEN** the output does not contain that result
 
 ### Requirement: Removed entries can empty an engine outcome
 
-The call MUST remove rejected entries from each engine outcome before the chain decides on it. An engine whose results are all removed MUST count as empty, and the chain advances. An answer whose citations are all removed MUST count as `ungrounded`. An `aggregate` MUST remove rejected entries from each child before it merges them and cuts them to `limit`.
+The call MUST remove entries from each engine outcome before the chain decides on it. An `aggregate` MUST remove them before the merge and the `limit` cut. An engine with no result left is empty, and the chain advances. An answer with no citation left MUST fail with `ungrounded`. Answer text MUST keep the text of a link to a removed URL and MUST drop its target and each bare copy.
 
 #### Scenario: A fully removed result list advances the chain
 
@@ -273,6 +287,20 @@ The call MUST remove rejected entries from each engine outcome before the chain 
 - **WHEN** a `model-hosted` engine answers and the `read` group rejects each of its citations
 - **THEN** the engine fails with `ungrounded` and the chain advances
 
+#### Scenario: Answer text loses a rejected link
+
+- **WHEN** a hosted answer contains `[Grokipedia](https://grokipedia.com/x)` and an allowed citation, and the `read` group rejects `grokipedia.com`
+- **THEN** the answer contains `Grokipedia` without that URL and keeps the allowed citation
+
+### Requirement: One note counts the removed entries
+
+When the call removes entries from the output it returns, the output MUST carry one note with their number. That note MUST come before the other notes, and it MUST NOT name a removed URL or host.
+
+#### Scenario: The count note comes first
+
+- **WHEN** an aggregate output loses three entries to removal and has two engine notes
+- **THEN** the first note states that the call removed three entries
+
 ### Requirement: The description names only the portable search operators
 
 The packaged `web_search` description MUST name `site:`, `-site:`, and quoted phrases as the supported search operators. It MUST state that an engine can search other operators as plain words. It MUST NOT name `after:`, `before:`, `lang:`, `filetype:`, `intitle:`, `inurl:`, or `OR` as supported.
@@ -282,25 +310,26 @@ The packaged `web_search` description MUST name `site:`, `-site:`, and quoted ph
 - **WHEN** a worker renders the packaged `web_search` description
 - **THEN** it names `site:`, `-site:`, and quoted phrases
 - **AND** it states that other operators can reach an engine as plain words
+- **AND** it does not name `after:`, `before:`, `lang:`, `filetype:`, `intitle:`, `inurl:`, or `OR` as supported
 
-### Requirement: Hosted engines exclude the hosts of -site: operators
+### Requirement: Hosted engines map site operators to domain filters
 
-A `model-hosted` engine MUST send the hosts of `-site:` operators as the blocked domains of the hosted search tool. When the query also has `site:` hosts, the engine MUST send only the allowed domains and MUST note that it ignored the exclusions.
+A `model-hosted` engine MUST send `site:` hosts as the allowed domains and `-site:` hosts as the blocked domains of the hosted search tool. On `anthropic-messages`, when both exist, the engine MUST send only the allowed domains and MUST note that it ignored the exclusions.
 
 #### Scenario: An excluded host becomes a blocked domain
 
 - **WHEN** a `model-hosted` engine receives the query `pgvector -site:reddit.com`
 - **THEN** the hosted search tool receives `reddit.com` as a blocked domain
 
-#### Scenario: Included hosts win over excluded hosts
+#### Scenario: Included hosts win over excluded hosts on Anthropic
 
-- **WHEN** the query is `pgvector site:github.com -site:gist.github.com`
+- **WHEN** an `anthropic-messages` hosted engine receives `pgvector site:github.com -site:gist.github.com`
 - **THEN** the hosted search tool receives only `github.com` as an allowed domain
 - **AND** the notes state that the engine ignored the exclusions
 
 ### Requirement: Engines receive the objective where their vendor accepts one
 
-`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. When `objective` is absent, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points of `objective` as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine that answers MUST note `objective not applied by <id>`. An engine MUST NOT add `objective` to the query.
+`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. Without `objective`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine that returns results MUST note `objective not applied by <id>`. An `aggregate` MUST NOT note itself. An engine MUST NOT add `objective` to the query.
 
 #### Scenario: Parallel receives the objective
 
@@ -449,9 +478,9 @@ A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its ke
 
 ### Requirement: Keyless Parallel engines call the hosted Parallel MCP tool
 
-A `parallel-mcp` engine MUST call the `web_search` tool of the hosted Parallel MCP endpoint from llame code, without a key. It MUST send `objective` and the query as the only `search_queries` entry. A tool result that reports an error MUST map to `upstream_error`, and its text MUST NOT occur in the output. The model MUST NOT receive a declaration of a tool from that endpoint.
+A `parallel-mcp` engine MUST call the `web_search` tool of the hosted Parallel MCP endpoint from llame code, without a key. It MUST send `objective`, the query as the only `search_queries` entry, and the Chat id as `session_id`. A tool result that reports an error MUST map to `upstream_error`, and its text MUST NOT occur in the output. The model MUST NOT receive a declaration of a tool from that endpoint.
 
-#### Scenario: A tool error is not disclosed
+#### Scenario: The engine discloses no tool error
 
 - **WHEN** the hosted tool returns a result with `isError` and a vendor message
 - **THEN** the engine fails with `upstream_error`
@@ -461,10 +490,10 @@ A `parallel-mcp` engine MUST call the `web_search` tool of the hosted Parallel M
 
 A `yandex` engine MUST post to `https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key` authorization. It MUST send its `searchType` and its `folderId` when set. It MUST request flat groups with one document in each group, so that `limit` counts results. It MUST decode the base64 XML response. `day` MUST map to one day and `month` to one month. `week` MUST map to two weeks, with a note. `year` MUST NOT set a period, and the engine MUST note that.
 
-#### Scenario: Flat grouping keeps the limit
+#### Scenario: Flat groups keep the limit
 
-- **WHEN** the call sets `limit: 5` and two results come from one host
-- **THEN** the output can contain both results from that host
+- **WHEN** the call sets `limit: 5` and Yandex finds two results on one host
+- **THEN** the request has flat groups with one document each, and the output contains both results
 
 #### Scenario: Week recency becomes two weeks with a note
 

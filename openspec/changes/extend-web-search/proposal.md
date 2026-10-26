@@ -27,13 +27,15 @@ reject clauses, so the model sees and cites hosts the instance refuses to open.
   over-long query makes no vendor request and fails that engine with the new failure class
   `unsupported`, so the chain advances. An `aggregate` skips only the children whose limit the
   query exceeds. **BREAKING** for consumers that enumerate failure classes: `unsupported` is new.
-- **Permission filtering.** In `default` permission mode, results and citations whose URL a
-  `read` reject clause matches are removed before the chain decides on an engine outcome, and
-  inside an aggregate before the merge. Notes count removals without naming them. A fully
-  filtered engine is empty; an answer with no allowed citation is `ungrounded`.
+- **Result filtering.** In the effective `default` permission mode, results and citations whose
+  URL a `read` reject clause matches are removed, and so are results on hosts that a `-site:`
+  operator excludes, on every engine. Removal happens before the chain decides on an engine
+  outcome and, inside an aggregate, before the merge. Answer text loses links to removed URLs.
+  One note, placed first, counts removals without naming them. A fully filtered engine is empty;
+  an answer with no citation left is `ungrounded`.
 - **Search operators.** The packaged description names `site:`, `-site:`, and quoted phrases as
   supported and states that other operators can reach an engine as plain words. Hosted engines
-  send `-site:` hosts as blocked domains. Parsing date and filter operators is
+  send `site:` hosts as allowed and `-site:` hosts as blocked domains. Parsing date and filter operators is
   [#1441](https://github.com/leon0399/llame/issues/1441).
 - **Result counts clamp.** A `limit` above an engine's vendor maximum is sent as that maximum;
   the call never fails for it.
@@ -91,9 +93,11 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
 
 Assumptions that follow from those decisions but were not asked:
 
-- Only a matching `read` reject removes an entry; an absent `read` allow removes nothing, so the
-  canonical scenario where search works without a web `read` allow stays true. `bypass` mode
-  removes nothing, as `read` takes no permission decision there. Notes give a count only.
+- Only a matching `read` reject clause removes an entry. An absent `read` allow and a whole-tool
+  `read` reject remove nothing, so search keeps working where web `read` is not granted. The
+  effective `bypass` mode removes nothing. One note gives a count only.
+- `-site:` hosts are also removed by llame, so the announced operator holds on engines that
+  ignore it.
 - `engines` holds 1 to 20 unique ids of 1 to 64 characters, matching engine id rules.
 - An operator `description` is literal text of 1 to 200 characters on one line; it is not
   interpolated and not secret.
@@ -136,8 +140,7 @@ None.
   - MODIFIED "Aggregate engines fan out and merge by rank fusion" (runs only children that
     accept the query; fails with `unsupported` when every child is skipped).
   - ADDED "Engines skip queries over their query limit", "Engines clamp the result count to their vendor
-    maximum", "Results that the read permission group rejects are removed", "Removed entries can empty an engine outcome", "The description names only the portable search
-    operators", "Hosted engines exclude the hosts of -site: operators", "Aggregate engines run only the
+    maximum", "The call removes the results that the read permission group rejects", "The call removes the results of excluded hosts", "Removed entries can empty an engine outcome", "One note counts the removed entries", "The description names only the portable search operators", "Hosted engines map site operators to domain filters", "Aggregate engines run only the
     children that accept the query", "Engines receive the objective where their vendor accepts
     one", "The model can select the engines for one call", "The web search description lists the
     configured engines", "Aggregate engines attach the answers of answer children", "Attached
@@ -156,12 +159,17 @@ None.
   - ADDED "New web search engine types have fixed shapes", "Yandex web search engines have fixed
     shapes", and "Web search engine entries can carry a model-facing description".
 
+- `permission-modes`:
+  - MODIFIED "The permission mode is not model-visible" (the `web_search` removal note is a second
+    channel through which the model learns of a policy decision).
+- `native-file-tools`:
+  - ADDED "Read reject clauses filter web search results but never govern the search".
 - `tool-prompt-templates`:
   - MODIFIED "llame-owned descriptions are complete file templates" (`web-search` can append its
     engine catalog after the rendered template).
 
 Deliberately unchanged: `tool-calling` (the declaration still carries the `web-search` input
-schema), `model-system-prompts` (template variables are untouched), `native-file-tools`, `provider-request-headers`,
+schema), `model-system-prompts` (template variables are untouched), `provider-request-headers`,
 and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
 [#1439](https://github.com/leon0399/llame/issues/1439)).
 
@@ -198,8 +206,9 @@ and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
 
 - A call with `objective` sends it in the native field of Parallel, Exa, and DeepSeek, as a
   `Goal:` line to hosted engines, and as a note elsewhere; the query text never contains it.
-- A `read` reject for a host removes its results and citations from the output without naming
-  them; an absent `read` allow and `bypass` mode remove nothing.
+- A `read` reject clause for a host removes its results, citations, and answer-text links from
+  the output without naming them; an absent `read` allow, a whole-tool `read` reject, and the
+  `bypass` mode remove nothing. `-site:` hosts never appear in the output.
 - A query over an engine's limit sends nothing to that engine and records `unsupported`; an
   aggregate skips only the exceeded children.
 - `engines: ["a", "b"]` runs only `a`, then `b`; an unknown id fails with the configured ids and

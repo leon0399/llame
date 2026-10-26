@@ -4,7 +4,7 @@
 
 ### Requirement: llame-owned descriptions are complete file templates
 
-Each llame-owned tool MUST have a complete packaged Markdown description. System and description templates MUST share one language, variable set, neutralization, omission, bounded iteration, and single-pass render. Selection MUST follow `instance-config` precedence. A template MUST change only description text, never tool identity, schemas, parameter descriptions, classification, permissions, or results. `web-search` can append its engine catalog. MCP descriptions MUST stay opaque text.
+Each registered llame-owned tool MUST have a complete packaged description. Both template kinds MUST share one language, the allowed variables, neutralization, omission, bounded iteration, and one-pass render. Selection MUST follow `instance-config` precedence. A template MUST change only description text, never identity, schemas, parameter descriptions, classification, permissions, or results. `web-search` can append its engine catalog. MCP descriptions MUST stay opaque source-authored text.
 
 #### Scenario: Packaged descriptions cover the registry
 
@@ -16,7 +16,7 @@ Each llame-owned tool MUST have a complete packaged Markdown description. System
 
 - **WHEN** the system prompt and an admitted description reference the same allowed path
 - **THEN** they receive the same resolved value and neutralization for that attempt
-- **AND** substituted template-looking owner text is never evaluated again
+- **AND** the worker does not evaluate substituted owner text again
 
 #### Scenario: MCP text is not a template
 
