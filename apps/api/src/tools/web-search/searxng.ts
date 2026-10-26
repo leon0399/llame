@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   EngineFailure,
+  canonicalizeResults,
   type Engine,
   type EngineRequest,
   type RawResult,
@@ -73,9 +74,11 @@ export function createSearxngEngine(
       },
       SearxngPayloadSchema,
     );
-    const results = payload.results
-      .flatMap(mapSearxngResult)
-      .slice(0, request.limit);
+    // Canonicalize before cutting, so a URL that fails validation never takes
+    // a result slot from a valid one below it.
+    const results = canonicalizeResults(
+      payload.results.flatMap(mapSearxngResult),
+    ).slice(0, request.limit);
     return results.length > 0
       ? { kind: 'results', results, ...extra }
       : { kind: 'empty', ...extra };

@@ -197,7 +197,7 @@ describe('Exa MCP engine', () => {
     ).toBe(true);
   });
 
-  it('sends the objective and cuts results to the limit', async () => {
+  it('sends the objective outside the query', async () => {
     activeFixture = await createMcpTestFixture(
       fixtureScripts([
         rpcResult(
@@ -213,11 +213,16 @@ describe('Exa MCP engine', () => {
       { fetch: routedFetch(currentFixture(), []) },
     );
 
+    // The hosted tool's own `numResults` carries the count, so both blocks the
+    // fixture returns come back as they are.
     await expect(
       engine(request({ limit: 1, objective: 'compare pgvector benchmarks' })),
     ).resolves.toStrictEqual({
       kind: 'results',
-      results: [{ title: 'First', url: 'https://example.test/first' }],
+      results: [
+        { title: 'First', url: 'https://example.test/first' },
+        { title: 'Second', url: 'https://example.test/second' },
+      ],
     });
     expect(
       currentFixture().requestMatches(
@@ -227,6 +232,7 @@ describe('Exa MCP engine', () => {
             .object({
               params: z.object({
                 arguments: z.object({
+                  query: z.literal('latest llame release'),
                   objective: z.literal('compare pgvector benchmarks'),
                 }),
               }),

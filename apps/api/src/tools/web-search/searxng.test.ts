@@ -127,17 +127,16 @@ describe('SearXNG adapter', () => {
     });
   });
 
-  it('cuts results to the limit and ignores the objective', async () => {
+  it('drops an invalid URL before the limit cut and ignores the objective', async () => {
+    const recorded = captureFixture(
+      success([
+        { title: 'Invalid', url: 'javascript:alert(1)' },
+        { title: 'Valid', url: 'https://example.test/valid' },
+      ]),
+    );
     const engine = createSearxngEngine(
       { baseUrl: 'http://localhost:8888/' },
-      {
-        fetch: captureFixture(
-          success([
-            { title: 'First', url: 'https://example.test/first' },
-            { title: 'Second', url: 'https://example.test/second' },
-          ]),
-        ).fetch,
-      },
+      { fetch: recorded.fetch },
     );
     await expect(
       engine(
@@ -150,8 +149,9 @@ describe('SearXNG adapter', () => {
       ),
     ).resolves.toStrictEqual({
       kind: 'results',
-      results: [{ title: 'First', url: 'https://example.test/first' }],
+      results: [{ title: 'Valid', url: 'https://example.test/valid' }],
     });
+    expect(new URL(recorded.seen().url).searchParams.get('q')).toBe('plain');
   });
 
   it('rejects a malformed envelope and skips malformed entries', async () => {

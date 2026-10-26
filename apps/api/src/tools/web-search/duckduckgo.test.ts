@@ -93,7 +93,7 @@ describe('DuckDuckGo HTML engine', () => {
     expect(form.has('df')).toBe(false);
   });
 
-  it('skips ads, cuts results to the limit, and ignores the objective', async () => {
+  it('skips ads and ignores the objective', async () => {
     const body = html(`
       ${firstResult}
       <div class="result result--ad">
@@ -105,7 +105,7 @@ describe('DuckDuckGo HTML engine', () => {
       </div>
     `);
     const { output, init } = await runWith(body, {
-      limit: 1,
+      limit: 2,
       objective: 'compare pgvector benchmarks',
     });
     expect(formFrom(init).get('q')).toBe('site:example.test cats');
@@ -117,7 +117,28 @@ describe('DuckDuckGo HTML engine', () => {
           url: 'https://example.test/first?x=1',
           snippet: 'First snippet',
         },
+        {
+          title: 'Second',
+          url: 'https://example.test/second',
+          snippet: 'Second snippet',
+        },
       ],
+    });
+  });
+
+  it('drops an invalid URL before the limit cut', async () => {
+    const body = html(`
+      <div class="result">
+        <a class="result__a" href="javascript:alert(1)">Invalid</a>
+      </div>
+      <div class="result">
+        <a class="result__a" href="https://example.test/valid">Valid</a>
+      </div>
+    `);
+    const { output } = await runWith(body, { recency: undefined, limit: 1 });
+    expect(output).toStrictEqual({
+      kind: 'results',
+      results: [{ title: 'Valid', url: 'https://example.test/valid' }],
     });
   });
 

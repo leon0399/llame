@@ -111,10 +111,7 @@ async function waitForSession(
   }
 }
 
-function parseCallResult(
-  value: McpCallResult,
-  limit: number,
-): EngineOutcome | undefined {
+function parseCallResult(value: McpCallResult): EngineOutcome | undefined {
   const parts = textParts(value);
   if (parts.length === 0) return undefined;
   const text = parts.join('\n');
@@ -132,9 +129,7 @@ function parseCallResult(
       return result === undefined ? [] : [result];
     }),
   );
-  return results.length === 0
-    ? undefined
-    : { kind: 'results', results: results.slice(0, limit) };
+  return results.length === 0 ? undefined : { kind: 'results', results };
 }
 
 function toolFromSet(value: ExaToolSet): ExaTool {
@@ -247,7 +242,7 @@ export function createExaMcpEngine(
       discard(session);
       throw new EngineFailure(classifyError(error));
     }
-    const outcome = parseCallResult(result, request.limit);
+    const outcome = parseCallResult(result);
     if (outcome === undefined) {
       discard(session);
       throw new EngineFailure('upstream_error');
