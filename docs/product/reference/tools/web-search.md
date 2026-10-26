@@ -21,9 +21,13 @@ The tool accepts this strict object (unknown arguments are refused):
 ```json
 { "query": "deployment decision" }
 { "query": "release notes", "recency": "month", "limit": 5 }
+{
+  "query": "pgvector benchmarks",
+  "objective": "compare HNSW and IVFFlat recall"
+}
 ```
 
-`query` is required, a 1-1,000 JavaScript UTF-16-code-unit string. Optional `recency` is `day`, `week`, `month`, or `year`; `limit` is an integer 1-20, default 10. Search operators such as `site:` and `-site:` remain query text; the model cannot name an engine.
+`query` is required, a 1-1,000 JavaScript UTF-16-code-unit string. Optional `objective` is a 1-2,000-unit statement of the goal the search serves; it never joins `query`, and only an engine whose vendor API has the field receives it. Optional `recency` is `day`, `week`, `month`, or `year`; `limit` is an integer 1-20, default 10. Search operators such as `site:`, `-site:`, and quoted phrases remain query text; the model cannot name an engine.
 
 ## Locators
 
@@ -72,7 +76,8 @@ A successful call returns exactly one of these closed shapes:
 
 ## Behavior
 
-The configured chain runs in order: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
+The configured chain runs in order: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. An engine whose vendor query limit the query exceeds sends nothing and advances as `unsupported`; an `aggregate` runs only the children that accept the query. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
+Engines request `min(limit, vendor maximum)` results and cut their normalized list to `limit` when the vendor API takes no count, so `limit` is an upper bound the call never exceeds.
 
 An engine in the chain may be an operator-configured aggregate. It runs its child engines together and merges their results by rank, so a URL that several children return ranks higher. `engine` is then the aggregate's id, and `notes` name each child that failed or returned nothing (`<child>: <class>` or `<child>: empty`), followed by the children's own notes. The aggregate is empty when no child returned results and at least one returned none; when every child fails, the aggregate counts as one failed engine with class `upstream_error`.
 
@@ -82,8 +87,8 @@ Titles, snippets, answers, notes, and citations may be stale or contain prompt-i
 
 ## Bounds
 
-Lengths are JavaScript UTF-16 code units, cut only at code-point boundaries: `query` 1-1,000; result/citation titles 200 each; snippets 300 each; `answer` 8,000; URLs 2,048 each; at most 20 citations (deduplicated by URL); at most 10 notes of 200 each (the tenth records any remainder); serialized output at most 15,000 UTF-16 units.
-Requested `limit` remains 1-20. `published` is kept only for an ISO 8601 date. If serialization exceeds its bound, trailing results/citations are dropped with a note (URLs are never cut); an answer keeps its first citation and its text is cut further if needed.
+Lengths are JavaScript UTF-16 code units, cut only at code-point boundaries: `query` 1-1,000; `objective` 1-2,000; result/citation titles 200 each; snippets 300 each; `answer` 8,000; URLs 2,048 each; at most 20 citations (deduplicated by URL); at most 10 notes of 200 each (the tenth records any remainder); serialized output at most 15,000 UTF-16 units.
+Requested `limit` remains 1-20. An engine's vendor query limit is shorter for some types (600 code points and 75 words on `brave`), and a longer query skips that engine as `unsupported`. `published` is kept only for an ISO 8601 date. If serialization exceeds its bound, trailing results/citations are dropped with a note (URLs are never cut); an answer keeps its first citation and its text is cut further if needed.
 
 ## Errors
 
@@ -97,7 +102,7 @@ When every attempted engine fails, the fixed shape is:
 }
 ```
 
-The message names each attempted engine id and one class, with entries joined by a semicolon plus one space: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), or `upstream_error` (other transport, protocol, status, or parse failure).
+The message names each attempted engine id and one class, with entries joined by a semicolon plus one space: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), `unsupported` (the query is over that engine's vendor limit, so nothing was sent), or `upstream_error` (other transport, protocol, status, or parse failure).
 Engine messages are fixed and non-disclosing: upstream status text/bodies, request headers, configured keys/URLs never appear in output, errors, events, or logs. Schema, permission, cancellation, and whole-call-timeout outcomes use the runtime's corresponding tool outcomes, not this engine-failure shape.
 
 ## Configured by

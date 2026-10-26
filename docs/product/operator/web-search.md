@@ -57,6 +57,31 @@ Add optional top-level `webSearch`; `engines` contains operator-owned entries an
 Engine ids are unique strings of 1-64 characters; every chain id must exist, the chain is non-empty and has no repeats. There is no built-in engine/chain; omit `webSearch` to leave search unconfigured.
 Each non-aggregate engine's positive-integer `timeoutSeconds` defaults to 60 seconds. The whole call (all chain steps) uses existing `tools.callTimeoutSeconds`, default 120 seconds; do not add another web-search call timeout. Engine timeouts are `timeout` and advance; other failures and empty results also advance. The first non-empty result/grounded answer ends the call. If all attempts fail, the fixed error names engine ids/classes, never an upstream response or credential.
 
+## Query limits and result counts
+
+Each engine type declares its vendor's query limit in code. llame checks the submitted query before any request and never truncates it:
+
+| Type           | Query limit                  | Result count                       |
+| -------------- | ---------------------------- | ---------------------------------- |
+| `brave`        | 600 code points and 75 words | `count`, at most 20                |
+| `exa`          | the tool's 1,000 units       | `numResults`, at most 100          |
+| `perplexity`   | the tool's 1,000 units       | `max_results`, at most 20          |
+| `exa-mcp`      | the tool's 1,000 units       | cut to `limit` after normalization |
+| `searxng`      | the tool's 1,000 units       | cut to `limit` after normalization |
+| `duckduckgo`   | the tool's 1,000 units       | cut to `limit` after normalization |
+| `model-hosted` | the tool's 1,000 units       | not applicable                     |
+| `aggregate`    | each child's own limit       | merged, then cut to `limit`        |
+
+A word is a run of non-space characters; lengths are code points, so a character outside the Basic Multilingual Plane counts once. The check covers the query the model submitted, before an engine moves `site:` hosts to filters or appends a date, so the model can predict it from the description.
+
+A query over an engine's limit skips that engine: it sends nothing, the call records `<id>: unsupported`, and a later engine answers. When every chain engine is skipped, the call fails with the fixed error and class `unsupported`. An aggregate runs only the children that accept the query, notes each skipped child as `unsupported`, and fails with `unsupported` when it skips every child.
+
+`limit` is 1-20 for the model and is clamped to the vendor maximum, so a vendor that caps fewer results never fails a call.
+
+## Objective
+
+`objective` is an optional 1-2,000-unit statement of the goal the search serves, for example which sources should rank first. It is outbound text to every engine that accepts the field: `exa` and `exa-mcp` send it as Exa's `objective` (the query when absent), and a `model-hosted` engine adds one `Goal:` line to its sub-request. Every other engine ignores it without a note, and no engine joins it to the query. Because it leaves the instance, add an `objective` clause to `tools.permissions.web_search` when it can carry text the instance must not send.
+
 ## Aggregate
 
 An aggregate fans out across two or more distinct configured result-engine ids:
@@ -103,7 +128,9 @@ OpenAI Responses and Codex use the provider's hosted web search and force it
 (Responses with a required tool choice, Codex by naming the hosted tool);
 Anthropic uses `web_search_20250305` with `maxUses: 5` without forcing it. Each
 call makes at most one search step and one answer step. `site:host` terms
-become allowed domains. The answer's citations are only URLs that its text
+become allowed domains and `-site:host` terms become blocked domains; Anthropic
+accepts one list, so inclusions win there and the dropped exclusions are noted.
+The answer's citations are only URLs that its text
 cites; empty or uncited answers are `ungrounded`, so the chain advances. No
 reasoning effort is sent: set it through the referenced model's
 `providerOptions` if needed. The Codex backend's support for hosted search
@@ -220,8 +247,8 @@ risk. SearXNG is the dependable keyless option.
 
 ## Query exfiltration
 
-Every query leaves the instance for the configured provider and may contain model-copied conversation, file, or tool text. `read` path permissions do not restrict this, and `read_only` does not make it private.
-The only query-exfiltration control is a `query` reject clause in `tools.permissions.web_search`; use literal or anchored regex markers/patterns. Matching is textual—a guard against submitted query text, not a DLP scanner.
+Every query leaves the instance for the configured provider and may contain model-copied conversation, file, or tool text. `read` path permissions do not restrict this, and `read_only` does not make it private. `objective` is outbound text in the same way, for the engines that accept it.
+The only query-exfiltration control is a `query` or `objective` reject clause in `tools.permissions.web_search`; use literal or anchored regex markers/patterns. Matching is textual—a guard against submitted query text, not a DLP scanner.
 
 ## Storage and provider terms
 
