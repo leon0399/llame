@@ -329,7 +329,7 @@ A `model-hosted` engine MUST send `site:` hosts as the allowed domains and `-sit
 
 ### Requirement: Engines receive the objective where their vendor accepts one
 
-`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. Without `objective`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine that returns results MUST note `objective not applied by <id>`. An `aggregate` MUST NOT note itself. An engine MUST NOT add `objective` to the query.
+`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. Without `objective`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine MUST ignore `objective` without a note, and the call MUST NOT refuse it. An engine MUST NOT add `objective` to the query.
 
 #### Scenario: Parallel receives the objective
 
@@ -342,10 +342,10 @@ A `model-hosted` engine MUST send `site:` hosts as the allowed domains and `-sit
 - **THEN** `ori_question` is the first 128 code points of `objective`
 - **AND** the output has no note about the objective
 
-#### Scenario: An engine without an objective field notes it
+#### Scenario: An engine without an objective field ignores it silently
 
 - **WHEN** the call sets `objective` and `brave` answers
-- **THEN** the notes contain `objective not applied by brave`
+- **THEN** the call succeeds, the notes contain no note about the objective
 - **AND** the query that `brave` receives does not contain the objective
 
 #### Scenario: Exa falls back to the query
@@ -370,7 +370,7 @@ Each id in `engines` MUST name a configured engine. An unknown id MUST fail the 
 
 ### Requirement: The web search description lists the configured engines
 
-The declared `web_search` description MUST be the rendered template followed by a generated engine catalog. The catalog MUST list each configured engine in order. Each entry MUST state the id, type, result kind, chain position, use of `objective` and `recency`, query limit, and set `description`, all tag-neutralized. An `aggregate` MUST state its smallest child limit as the length below which no child is skipped. The catalog MUST NOT contain keys, base URLs, folder ids, or model ids.
+The declared `web_search` description MUST be the rendered template followed by a generated engine catalog. The catalog MUST list each configured engine. Each entry MUST state the id, type, result kind, chain position, `recency` use, query limit, `objective` use if any, and set `description`. Each value is tag-neutralized. An `aggregate` MUST state its smallest child limit as the length below which no child is skipped. The catalog MUST NOT contain keys, base URLs, folder ids, or model ids.
 
 #### Scenario: The catalog follows the configuration
 

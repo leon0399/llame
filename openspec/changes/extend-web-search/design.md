@@ -147,8 +147,7 @@ registry's build-time invariant.
 The declared description is the rendered template (packaged or `tools.promptFiles` override)
 followed by a generated `Engines` section. Per engine: id, type, result kind (`results`,
 `answer`, or `results with answers` for an aggregate with answer children), chain position or
-"not in the default chain", objective use (`objective`, first 128 characters, `Goal:` line, or
-ignored), recency use (applied, mapped, or ignored), query limit, and the operator `description`
+"not in the default chain", objective use (`objective`, first 128 characters, or `Goal:` line; omitted for engines that ignore it), recency use (applied, mapped, or ignored), query limit, and the operator `description`
 after tag neutralization. Engine ids are tag-neutralized like the descriptions, since ids are operator text bounded only by
 length. Keys, base URLs, folder ids, and model ids never appear. The empty-render check runs on
 the rendered template before the catalog is appended, so an override that renders empty still
@@ -173,11 +172,10 @@ templates.
 | `exa`, `exa-mcp`                                         | `objective` (Exa caps it at 4,096)               | the query        |
 | `deepseek`                                               | `ori_question`, first 128 code points, no note   | omitted          |
 | `model-hosted`, `yandex-gen`                             | one `Goal: <objective>` line in the user message | no line          |
-| `brave`, `perplexity`, `searxng`, `duckduckgo`, `yandex` | none; note `objective not applied by <id>`       | no note          |
+| `brave`, `perplexity`, `searxng`, `duckduckgo`, `yandex` | none; ignored silently, never refused            | nothing          |
 
 The objective never enters the query: Brave and Yandex would break their limits, and lexical
-engines would match goal words instead of keywords. Q16 chose the silent DeepSeek cut on spike
-data: `ori_question` changed the top-10 order in 3 of 59 comparisons, so a per-call note would
+engines would match goal words instead of keywords. Engines without an objective field ignore it silently: the field exists now for the engines that use it and for the future rerank stage (#1433), so a per-call note would only be noise. Q16 chose the silent DeepSeek cut on spike data: `ori_question` changed the top-10 order in 3 of 59 comparisons, so a per-call note would
 push the model to shorten objectives that Parallel and Exa use in full. A future rerank stage uses
 the full objective.
 

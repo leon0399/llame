@@ -20,7 +20,7 @@ reject clauses, so the model sees and cites hosts the instance refuses to open.
   behind the search in plain language. Parallel and Exa receive it as their `objective`
   (`parallel-mcp`, `exa`, and `exa-mcp` fall back to the query, which removes today's duplicated
   `exa-mcp` objective). DeepSeek receives its first 128 code points as `ori_question`, silently.
-  Hosted engines receive one `Goal:` line. Every other engine ignores it with a note. The
+  Hosted engines receive one `Goal:` line. Every other engine ignores it silently; it is never refused or noted, and the future rerank stage uses it. The
   objective never enters the query text.
 - **Query limits.** Each engine type declares the query limit its vendor enforces (DeepSeek 128,
   Parallel 200, Yandex 400 characters and 40 words, Brave 600 characters and 75 words). An
@@ -72,7 +72,7 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
 - The input schema stays static; ids are checked at execution (Q5 A).
 - The catalog shows generated facts plus an optional sanitized operator `description` (Q6 B).
 - The field is named `objective`, capped at 2,000 units, and the description asks for a concise
-  value (Q7 A). Hosted engines receive it as a `Goal:` line (Q8 A).
+  value (Q7 A). Hosted engines receive it as a `Goal:` line (Q8 A). Engines without an objective field ignore it with no note (Leo, after the grilling).
 - All five engine types ship (Q9). DeepSeek's `ori_question` takes the objective cut silently to
   128 code points (Q16 B), on evidence from the
   [objective spike](../../../docs/research/tool-harness/2026-10-26-web-search-objective-spike/report.md):
@@ -207,7 +207,7 @@ and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
 ## Acceptance
 
 - A call with `objective` sends it in the native field of Parallel, Exa, and DeepSeek, as a
-  `Goal:` line to hosted engines, and as a note elsewhere; the query text never contains it.
+  `Goal:` line to hosted engines, and is silently ignored elsewhere; the query text never contains it.
 - A `read` reject clause for a host removes its results, citations, and answer-text links from
   the output without naming them; an absent `read` allow, a whole-tool `read` reject, and the
   `bypass` mode remove nothing. `-site:` hosts never appear in the output.
