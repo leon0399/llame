@@ -10,7 +10,9 @@ their own length limits, which today surfaces as an opaque `upstream_error`
 [#1431](https://github.com/leon0399/llame/issues/1431),
 [#1432](https://github.com/leon0399/llame/issues/1432),
 [#1437](https://github.com/leon0399/llame/issues/1437),
-[#1438](https://github.com/leon0399/llame/issues/1438)).
+[#1438](https://github.com/leon0399/llame/issues/1438),
+[#1440](https://github.com/leon0399/llame/issues/1440)). Results also ignore the operator's `read`
+reject clauses, so the model sees and cites hosts the instance refuses to open.
 
 ## What Changes
 
@@ -25,6 +27,10 @@ their own length limits, which today surfaces as an opaque `upstream_error`
   over-long query makes no vendor request and fails that engine with the new failure class
   `unsupported`, so the chain advances. An `aggregate` skips only the children whose limit the
   query exceeds. **BREAKING** for consumers that enumerate failure classes: `unsupported` is new.
+- **Permission filtering.** In `default` permission mode, results and citations whose URL a
+  `read` reject clause matches are removed before the chain decides on an engine outcome, and
+  inside an aggregate before the merge. Notes count removals without naming them. A fully
+  filtered engine is empty; an answer with no allowed citation is `ungrounded`.
 - **Result counts clamp.** A `limit` above an engine's vendor maximum is sent as that maximum;
   the call never fails for it.
 - **Engine selection.** `web_search` gains an optional `engines` list. When set, it replaces
@@ -68,6 +74,8 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
   `ori_question` left the top-10 order unchanged in 56 of 59 comparisons.
 - Parallel's `session_id` is the Chat id (Q10 A). Rerank preparation is out of scope (Q11 A).
 - A `limit` above a vendor maximum is clamped, never an error (Leo, after the grilling).
+- Results and citations that the `read` group rejects are removed (Leo, after the grilling, with
+  a removed `grokipedia` host as the example).
 - Answer engines are allowed in aggregates with the `answers` shape (Q15 B); that work is its own
   issue (Q17 C).
 - DeepSeek's hosted search through the Responses API is out of scope; `model-hosted` validation is
@@ -77,6 +85,9 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
 
 Assumptions that follow from those decisions but were not asked:
 
+- Only a matching `read` reject removes an entry; an absent `read` allow removes nothing, so the
+  canonical scenario where search works without a web `read` allow stays true. `bypass` mode
+  removes nothing, as `read` takes no permission decision there. Notes give a count only.
 - `engines` holds 1 to 20 unique ids of 1 to 64 characters, matching engine id rules.
 - An operator `description` is literal text of 1 to 200 characters on one line; it is not
   interpolated and not secret.
@@ -86,8 +97,9 @@ Assumptions that follow from those decisions but were not asked:
   break the 128-character limit, the date is omitted with a note.
 - Yandex has no one-week or one-year period: `week` maps to two weeks with a note, and `year` is
   not applied.
-- `yandex` and `yandex-gen` require `searchType`; `folderId` is optional because service-account
-  keys omit it.
+- `yandex` and `yandex-gen` require `searchType`. `folderId` is optional for `yandex`, because
+  service-account keys imply it, and required for `yandex-gen`, whose API requires it.
+- A query limit counts the query the model submitted; a word is a run of non-space characters.
 
 ## Deviation from the grilling record
 
@@ -95,9 +107,7 @@ Assumptions that follow from those decisions but were not asked:
   `skills.entries`". The repository forces a different mechanism: `tool-prompt-templates`
   requires system and description templates to share one variable set, and that set is enumerated
   in the `model-system-prompts` requirement "Each model resolves one complete effective system
-  prompt". A template collection would rewrite that requirement and expose engines to system
-  prompts. This proposal instead appends a code-generated catalog after the rendered `web_search`
-  description, packaged or overridden. The content Q6 settled is unchanged; only the delivery
+  prompt". A template collection would rewrite that requirement and expose engines to system prompts. This proposal instead appends a code-generated catalog after the rendered `web_search` description, packaged or overridden, and adds one sentence to `tool-prompt-templates` that allows it. The content Q6 settled is unchanged; only the delivery
   differs. **Leo: please confirm.**
 
 ## Capabilities
@@ -117,8 +127,11 @@ None.
   - MODIFIED "Total failure is a fixed, non-disclosing error" (adds `unsupported`).
   - MODIFIED "API and keyless engines speak their vendor wire" (new engine types).
   - MODIFIED "Model-hosted engines run a bounded grounded sub-request" (`Goal:` line).
+  - MODIFIED "Aggregate engines fan out and merge by rank fusion" (runs only children that
+    accept the query; fails with `unsupported` when every child is skipped).
   - ADDED "Engines skip queries over their query limit", "Engines clamp the result count to their vendor
-    maximum", "Aggregate engines run only the
+    maximum", "Results that the read permission group rejects are removed", "Removed entries can
+    empty an engine outcome", "Aggregate engines run only the
     children that accept the query", "Engines receive the objective where their vendor accepts
     one", "The model can select the engines for one call", "The web search description lists the
     configured engines", "Aggregate engines attach the answers of answer children", "Attached
@@ -137,9 +150,12 @@ None.
   - ADDED "New web search engine types have fixed shapes", "Yandex web search engines have fixed
     shapes", and "Web search engine entries can carry a model-facing description".
 
+- `tool-prompt-templates`:
+  - MODIFIED "llame-owned descriptions are complete file templates" (`web-search` can append its
+    engine catalog after the rendered template).
+
 Deliberately unchanged: `tool-calling` (the declaration still carries the `web-search` input
-schema), `tool-prompt-templates` and `model-system-prompts` (templates and their variables are
-untouched; the catalog is appended outside them), `native-file-tools`, `provider-request-headers`,
+schema), `model-system-prompts` (template variables are untouched), `native-file-tools`, `provider-request-headers`,
 and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
 [#1439](https://github.com/leon0399/llame/issues/1439)).
 
@@ -174,6 +190,8 @@ and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
 
 - A call with `objective` sends it in the native field of Parallel, Exa, and DeepSeek, as a
   `Goal:` line to hosted engines, and as a note elsewhere; the query text never contains it.
+- A `read` reject for a host removes its results and citations from the output without naming
+  them; an absent `read` allow and `bypass` mode remove nothing.
 - A query over an engine's limit sends nothing to that engine and records `unsupported`; an
   aggregate skips only the exceeded children.
 - `engines: ["a", "b"]` runs only `a`, then `b`; an unknown id fails with the configured ids and

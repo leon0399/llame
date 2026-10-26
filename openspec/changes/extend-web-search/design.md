@@ -71,9 +71,14 @@ steering, which would edit each new adapter twice.
 
 Each engine type declares its vendor query limit in code points, plus a word limit where the
 vendor has one: `deepseek` 128, `parallel` and `parallel-mcp` 200 (per `search_queries` entry),
-`yandex` 400 and 40 words, `brave` 600 and 75 words. The chain checks the limit before the
-request; an over-long query records `unsupported` and advances. An `aggregate` checks each child
-and advertises the smallest child limit in the catalog.
+`yandex` 400 and 40 words, `brave` 600 and 75 words. A word is a run of non-space characters.
+The limit counts the query the model submitted, before an engine moves `site:` operators to
+native filters or appends a date, so the model can predict it from the catalog; DeepSeek appends
+its `after:` date only when the sent query still fits. The check runs before the request; an
+over-long query records `unsupported` and advances. An `aggregate` has no limit of its own: it
+checks each child (`AggregateChild` gains the child's limit), advertises the smallest child limit
+in the catalog, and fails with `unsupported` only when every child was skipped, which the
+MODIFIED aggregate requirement states.
 
 Alternatives rejected: reuse `upstream_error`, which reports a local decision as a vendor failure
 and leads the model to retry the same query; truncate the query, which silently searches for
@@ -88,6 +93,29 @@ its results to `limit`, as the output bounds already do. Today every vendor maxi
 DeepSeek 50, Yandex 100 per page), so the clamp is a guard for future engines and vendor changes.
 The asymmetry with D2 is deliberate: a smaller result set answers the same search, while a
 truncated query is a different search. Leo's decision, 2026-10-26.
+
+### D2b: Results follow the `read` reject clauses
+
+Each engine outcome passes through the same reject decision that native `read` takes for a web
+locator (`apps/api/src/tools/web-read/admission.ts:131-136`, submitted and projected forms) before
+the chain or an aggregate decides on it. Only `explicit_reject` removes an entry. `no_allow` keeps
+it, so the canonical `native-file-tools` scenario where `web_search` returns results under a
+`read` group without a web allow stays true, and that requirement's sentence that the `read`
+group's `path` clauses "do not restrict" `web_search` still holds for the call: the clauses never
+admit or refuse a search, they only remove results the model could not open. `bypass` mode
+removes nothing, as `admitPermission` takes no decision there
+(`apps/api/src/tools/permissions/admit.ts:11`). Notes count removals without naming URLs, so a
+note never repeats a host the operator rejected.
+
+Filtering before the chain decision matters: a result list that filtering empties advances the
+chain instead of returning nothing, and an aggregate filters each child before its merge and its
+`limit` cut, so rejected entries never take result slots. No vendor request changes; translating
+rejects into `-site:` exclusions is not attempted, because reject clauses are regular expressions,
+not host lists. Address-level admission (DNS resolution) does not apply, as no request is made to
+a result URL.
+
+Alternative rejected: filtering on the full `read` decision, which would empty every search on a
+deployment that grants `web_search` but not web `read`.
 
 ### D3: `engines` replaces the chain for one call
 
@@ -114,11 +142,15 @@ followed by a generated `Engines` section. Per engine: id, type, result kind (`r
 `answer`, or `results with answers` for an aggregate with answer children), chain position or
 "not in the default chain", objective use (`objective`, first 128 characters, `Goal:` line, or
 ignored), recency use (applied, mapped, or ignored), query limit, and the operator `description`
-after tag neutralization. Keys, base URLs, folder ids, and model ids never appear. The section is
+after tag neutralization. Engine ids are tag-neutralized like the descriptions, since ids are operator text bounded only by
+length. Keys, base URLs, folder ids, and model ids never appear. The empty-render check runs on
+the rendered template before the catalog is appended, so an override that renders empty still
+fails the attempt (`apps/api/src/tools/turn-tool-catalog.ts:420-432`). The section is
 built once per worker from the resolved configuration, so the provider prompt cache changes only
 when the operator edits engines.
 
-This deviates from the grilling record's "template collection" (proposal.md). Alternatives
+This deviates from the grilling record's "template collection" (proposal.md). `tool-prompt-templates` gets one MODIFIED sentence allowing `web-search` to append the catalog,
+so its "complete packaged description" rule stays true for the template file. Alternatives
 rejected: a `webSearch.engines` template collection, which `tool-prompt-templates` would expose to
 system prompts too and which requires rewriting the `model-system-prompts` vocabulary
 requirement; the `engines` parameter's JSON-schema description, which would make the declared
@@ -151,8 +183,9 @@ the full objective.
 `recency` becomes an `after:YYYY-MM-DD` operator appended to the query when it fits the limit;
 otherwise the date is omitted with a note. Results map `summary ?? snippet` to the snippet
 (`summary` is the 600 to 800 character model-oriented field; `output.ts` cuts it to 300) and
-`date` to `published`. Status mapping: 401 `auth`, 429 `rate_limited`, 408 or 504 `timeout`, else
-`upstream_error`. A live probe returned 401 bodies that echo the key's last four characters, so
+`date` to `published`. Status mapping: 401 `auth`, 429 `rate_limited`, 408 or 504 `timeout`, else `upstream_error`; 402
+(insufficient balance) stays `upstream_error` because no billing class exists, and the runbook
+names it as an unfunded account. A live probe returned 401 bodies that echo the key's last four characters, so
 the fixed-class rule is load-bearing here. Price: $0.75 per 1,000 requests; empty results are not
 billed. Retention and training use of search queries are undocumented.
 
@@ -161,12 +194,12 @@ billed. Retention and training use of search queries are undocumented.
 `parallel`: `POST https://api.parallel.ai/v1/search` with `x-api-key`; body
 `{ search_queries: [query], objective?, mode, session_id: chatId, advanced_settings: {
 max_results: limit, source_policy: { include_domains | exclude_domains, after_date },
-excerpt_settings } }` ([API reference](https://docs.parallel.ai/api-reference/search/search.md)).
+excerpt_settings: { max_chars_per_result } } }` ([API reference](https://docs.parallel.ai/api-reference/search/search.md)).
 `site:` hosts become `include_domains`, `-site:` hosts `exclude_domains` (the vendor ignores
 exclusions when inclusions exist; the engine notes that case). `recency` becomes `after_date`.
 Results map `excerpts[0]`, minus a leading copy of the title, to the snippet and `publish_date` to
-`published`. Status mapping: 401 or 403 `auth`, 429 `rate_limited`, 408 `timeout`, else
-`upstream_error`. Modes ([modes](https://docs.parallel.ai/search/modes.md)): `turbo` (about
+`published`. Status mapping: 401 or 403 `auth`, 429 `rate_limited`, 408 `timeout`, else `upstream_error`;
+402 (insufficient credit) stays `upstream_error`, named in the runbook. Modes ([modes](https://docs.parallel.ai/search/modes.md)): `turbo` (about
 200 ms, $1 per 1,000, English and Japanese only), `fast` (about 700 ms, $1), `basic` (about 1 s,
 $5), `advanced` (about 3 s, $5, the vendor default). The default here is `fast`, which the vendor
 recommends for agents. Results beyond ten add $1 per 1,000. Processing is in the US; zero data
@@ -185,8 +218,9 @@ model-provider header (Q10).
 
 ### D9: Yandex engines
 
-Host `https://searchapi.api.cloud.yandex.net`, `Authorization: Api-Key <key>`, `folderId` in the
-body when set ([Search API concepts](https://aistudio.yandex.ru/en/docs/search-api/concepts/)).
+Host `https://searchapi.api.cloud.yandex.net`, `Authorization: Api-Key <key>`. `folderId` is
+optional for web search (a service-account key implies it) and required for generative search
+(`GenSearchRequest` marks it required), so `yandex-gen` requires it in configuration ([Search API concepts](https://aistudio.yandex.ru/en/docs/search-api/concepts/)).
 
 `yandex`: `POST /v2/web/search` with `query { searchType, queryText, familyMode:
 FAMILY_MODE_MODERATE }`, `groupSpec { GROUP_MODE_FLAT, groupsOnPage: limit, docsInGroup: 1 }`
@@ -194,9 +228,11 @@ FAMILY_MODE_MODERATE }`, `groupSpec { GROUP_MODE_FLAT, groupsOnPage: limit, docs
 results), `maxPassages`, and `responseFormat: FORMAT_XML`. The response's `rawData` is base64 XML;
 the engine parses it with `linkedom`, already a dependency, and strips `<hlword>` highlights.
 Yandex reports search errors inside HTTP 200 as `<error code>`: 42 `auth`; 32 and 55
-`rate_limited`; 100 `challenge`; 2 and 15 empty; others `upstream_error`. Recency: `day` and
-`month` map to their periods; `week` maps to the two-week period with a note; `year` has no
-period and is noted. Price: $4 per 1,000 requests; 10 requests per second.
+`rate_limited`; 100 `challenge`; 2 and 15 empty; others `upstream_error`. Recency uses the request field `period` (`PERIOD_DAY`, `PERIOD_2_WEEKS`, `PERIOD_MONTH`; the
+concepts pages also show a `resultsWithin` spelling that the strict REST body rejects): `day` and
+`month` map directly, `week` maps to `PERIOD_2_WEEKS` with a note, and `year` has no period and
+is noted. HTTP 401 and 403 map to `auth`, 429 to `rate_limited`, and 5xx or an unparsable body to
+`upstream_error`, for both Yandex engines. Price: $4 per 1,000 requests; 10 requests per second.
 
 `yandex-gen`: `POST /v2/gen/search` with one `ROLE_USER` message (the API has no system role)
 containing the query, an optional recency phrase, and an optional `Goal:` line; non-streaming.

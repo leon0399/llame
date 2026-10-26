@@ -78,12 +78,17 @@ A `deepseek` entry MUST have a `key`. A `parallel` entry MUST have a `key` and c
 
 ### Requirement: Yandex web search engines have fixed shapes
 
-A `yandex` or `yandex-gen` entry MUST have a `key` and a `searchType` with the value `ru`, `tr`, `com`, `kk`, `be`, or `uz`. It can have a `folderId`. The `key` and the `folderId` MUST be interpolated secrets.
+A `yandex` or `yandex-gen` entry MUST have a `key` and a `searchType` with the value `ru`, `tr`, `com`, `kk`, `be`, or `uz`. A `yandex-gen` entry MUST have a `folderId`, and a `yandex` entry can have one. The `key` and the `folderId` MUST be interpolated secrets.
 
 #### Scenario: Missing search type fails startup
 
 - **WHEN** a `yandex` engine has no `searchType`
 - **THEN** startup fails and names the `searchType` path of that entry
+
+#### Scenario: Generative Yandex needs a folder id
+
+- **WHEN** a `yandex-gen` engine has no `folderId`
+- **THEN** startup fails and names the `folderId` path of that entry
 
 #### Scenario: Interpolated folder id is never disclosed
 
@@ -92,7 +97,7 @@ A `yandex` or `yandex-gen` entry MUST have a `key` and a `searchType` with the v
 
 ### Requirement: Web search engine entries can carry a model-facing description
 
-Each `webSearch.engines` entry, also an `aggregate`, can have a `description` of 1 to 200 characters on one line. The value MUST be literal text. An interpolation token or a line break MUST fail startup and name the `description` path. The value is not a secret, and the model can read it.
+Each `webSearch.engines` entry, also an `aggregate`, can have a `description` of 1 to 200 characters on one line. The value MUST be literal text. An interpolation token or a line break MUST fail startup and name the `description` path. The model reads the value, so it MUST NOT hold a secret.
 
 #### Scenario: A description loads
 

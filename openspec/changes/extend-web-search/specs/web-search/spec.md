@@ -4,7 +4,7 @@
 
 ### Requirement: The web search tool has one stable model-facing contract
 
-The code-owned inventory MUST include `web_search` with the `read_only` classification. It needs its exact `tools.allowed` entry, and `tools.permissions.web_search` MUST authorize each call. The input MUST be a strict object with a required `query` of 1 to 1,000 UTF-16 units. Optional `objective` has 1 to 2,000 units. Optional `engines` has 1 to 20 unique ids of 1 to 64 characters. Optional `recency` is `day`, `week`, `month`, or `year`. Optional `limit` is an integer from 1 to 20, default 10.
+The code-owned inventory MUST include `web_search` as `read_only`. It MUST be eligible only through its exact `tools.allowed` entry, and `tools.permissions.web_search` MUST authorize each call. The input MUST be a strict object with a required `query` of 1 to 1,000 UTF-16 units. Optional `objective` has 1 to 2,000 units. Optional `engines` has 1 to 20 unique ids of 1 to 64 units. Optional `recency` is `day`, `week`, `month`, or `year`. Optional `limit` is an integer from 1 to 20, default 10.
 
 #### Scenario: Unknown argument is refused
 
@@ -22,14 +22,14 @@ The code-owned inventory MUST include `web_search` with the `read_only` classifi
 - **THEN** the call returns the permission rejection observation
 - **AND** no engine sends an outbound request
 
-#### Scenario: Duplicate engine ids are refused
+#### Scenario: Duplicate engine ids fail validation
 
 - **WHEN** the model calls `web_search` with `{ "query": "x", "engines": ["brave", "brave"] }`
 - **THEN** the call fails schema validation and no engine sends a request
 
 ### Requirement: Output is a closed, normalized union
 
-A successful call MUST return `kind: "results"` or `kind: "answer"`. A results output has `results` entries with `title`, `url`, and optional `snippet` and `published`, and an `aggregate` can add `answers`. An answer output has `answer` text and one or more citations with `url` and optional `title`. Each output has `engine`, `query`, and optional `notes`. `engine` is the id of the engine that answered, or of the last empty engine. Other vendor fields MUST NOT occur.
+A successful call MUST return `kind: "results"` or `kind: "answer"`. A results output has `results` entries with `title`, `url`, and optional `snippet` and `published`, and an `aggregate` can add `answers`. An answer output has `answer` text and one or more citations with `url` and optional `title`. Each output has `engine`, `query`, and optional `notes`. `engine` is the operator id of the engine that answered, or of the last empty engine when none answers. Other vendor fields MUST NOT occur.
 
 #### Scenario: Results output from a result engine
 
@@ -48,7 +48,7 @@ A successful call MUST return `kind: "results"` or `kind: "answer"`. A results o
 
 ### Requirement: The chain tries engines in order and advances on failure or emptiness
 
-The call MUST run the engines of `webSearch.chain` in order, or the listed `engines` in their order when the call sets them. A call with `engines` MUST NOT run other engines. The call MUST return the first outcome with results or a grounded answer. A failed or empty engine MUST advance to the next engine. The notes MUST name each other attempted engine that failed, with its class, or was empty. When no engine succeeds and one was empty, the call MUST succeed with zero results.
+The call MUST run the engines of `webSearch.chain` in order, or the listed `engines` in their order when the call sets them. A call with `engines` MUST NOT run other engines. The call MUST return the first outcome with results or a grounded answer. A failed or empty engine MUST advance to the next engine. The notes MUST name each other attempted engine that failed, with its class, or was empty. When no engine succeeds and an engine was empty, the call MUST succeed with zero results.
 
 #### Scenario: Failure falls through
 
@@ -88,7 +88,7 @@ The call MUST run the engines of `webSearch.chain` in order, or the listed `engi
 
 ### Requirement: Total failure is a fixed, non-disclosing error
 
-When each attempted engine fails, the call MUST return a tool error. The error MUST name each attempted engine id with one class: `auth`, `rate_limited`, `challenge`, `timeout`, `ungrounded`, `unsupported`, or `upstream_error`. Engine errors, notes, logs, and Run events MUST NOT contain upstream status text or bodies, request headers, configured keys, or configured base URLs.
+When each attempted engine fails, the call MUST return a tool error. The error MUST name each attempted engine id with one class: `auth`, `rate_limited`, `challenge`, `timeout`, `ungrounded`, `unsupported`, or `upstream_error`. Engine errors, notes, logs, and Run events MUST NOT contain upstream status text or bodies, request headers, configured keys, folder ids, or base URLs.
 
 #### Scenario: Authorization failure
 
@@ -107,9 +107,48 @@ When each attempted engine fails, the call MUST return a tool error. The error M
 - **THEN** the tool error names `brave` with class `unsupported`
 - **AND** `brave` sends no request
 
+### Requirement: Aggregate engines fan out and merge by rank fusion
+
+An `aggregate` MUST run each child that accepts the query concurrently and MUST wait until each settles. It MUST group results by canonical URL, without `www.` at the host start and `/` at the path end. It MUST score each URL by `Σ 1/(60 + rank)` over the children that return it, and order by score. A group MUST use its best-ranked URL and the longest snippet. The aggregate MUST cut the merged list to `limit`. Without results, it is empty when a child was empty, else it MUST fail.
+
+#### Scenario: Shared result ranks first
+
+- **WHEN** child A returns `[u1, u2]` and child B returns `[u3, u1]`
+- **THEN** the merged order starts with `u1`
+
+#### Scenario: A grouped result keeps a real spelling
+
+- **WHEN** child A returns `https://www.example.com/docs/` first and child B returns `https://example.com/docs` second
+- **THEN** the aggregate emits one merged entry with the URL `https://www.example.com/docs/`
+
+#### Scenario: Partial failure still answers
+
+- **WHEN** one child fails with `rate_limited` and another returns results
+- **THEN** the aggregate returns the successful child's results with a note naming the failed child
+
+#### Scenario: A failed and an empty child are empty
+
+- **WHEN** one child fails with `auth` and the other returns no results
+- **THEN** the aggregate outcome is empty and the chain advances
+
+#### Scenario: Every child fails
+
+- **WHEN** every child of an aggregate fails
+- **THEN** the aggregate outcome is `upstream_error` and the chain advances
+
+#### Scenario: Cancellation aborts every child
+
+- **WHEN** the Run is cancelled while two aggregate children are in flight
+- **THEN** llame aborts both requests
+
+#### Scenario: Every skipped child fails as unsupported
+
+- **WHEN** the query limit skips each child of an aggregate
+- **THEN** the aggregate outcome is `unsupported` and the chain advances
+
 ### Requirement: API and keyless engines speak their vendor wire
 
-The engine types are `brave`, `exa`, and `perplexity` (Search API) with a key; `searxng` with its `baseUrl`; `exa-mcp`, which calls the hosted Exa MCP tool `web_search_exa` from llame code; `duckduckgo`, which posts to the HTML endpoint; and `deepseek`, `parallel`, `parallel-mcp`, `yandex`, and `yandex-gen`. Each engine MUST map `recency` and `limit` where its vendor supports them. Each engine MUST refuse redirects and MUST send a key only to its own host.
+The engine types are `brave`, `exa`, and `perplexity` (Search API) with a key; `searxng` with its `baseUrl`; `exa-mcp`, which calls the hosted Exa MCP tool `web_search_exa` from llame code with an optional key; `duckduckgo`, which posts to the HTML endpoint; and `deepseek`, `parallel`, `parallel-mcp`, `yandex`, and `yandex-gen`. Each engine MUST map `recency` and `limit` where its vendor supports them. Each engine MUST refuse redirects and MUST send a key only to its own host.
 
 #### Scenario: Keyless Exa MCP
 
@@ -130,7 +169,7 @@ The engine types are `brave`, `exa`, and `perplexity` (Search API) with a key; `
 
 ### Requirement: Model-hosted engines run a bounded grounded sub-request
 
-A `model-hosted` engine MUST send one request with the hosted web search of the provider to its configured model. The request MUST use the credentials and headers of that model on the `search` session lane, never those of the Run. It MUST send no reasoning effort, as title generation does. It MUST contain only packaged instructions, the query, a recency phrase for `recency`, and a `Goal:` line for `objective`. The answer is the final text, and the citations MUST be the URLs that the text cites.
+A `model-hosted` engine MUST send one request with the hosted web search of the provider to its configured model. The request MUST use the credentials and headers of that model on the `search` session lane, never those of the Run. It MUST send no reasoning effort. It MUST contain only packaged instructions, the query, a recency phrase when `recency` is set, and a `Goal:` line when `objective` is set. The answer is the final text, and the citations MUST be the URLs that the text cites.
 
 #### Scenario: Different Run model
 
@@ -157,7 +196,7 @@ A `model-hosted` engine MUST send one request with the hosted web search of the 
 
 ### Requirement: Engines skip queries over their query limit
 
-An engine MUST NOT send a request when the query is over its query limit. It MUST fail with `unsupported`, and the chain advances. The limits count Unicode code points: `deepseek` 128, `parallel` and `parallel-mcp` 200, `yandex` 400 and 40 words, and `brave` 600 and 75 words. Other engine types have no limit below the 1,000 units of the input schema.
+A result or answer engine MUST NOT send a request when the submitted query is over its query limit. It MUST fail with `unsupported`. Limits count code points: `deepseek` 128, `parallel` and `parallel-mcp` 200, `yandex` 400 and 40 words, `brave` 600 and 75 words. A word is a run of non-space characters. Other types have no limit below 1,000 units. An `aggregate` has no limit of its own.
 
 #### Scenario: An over-long query skips the engine
 
@@ -172,9 +211,9 @@ An engine MUST NOT send a request when the query is over its query limit. It MUS
 
 ### Requirement: Engines clamp the result count to their vendor maximum
 
-When `limit` is above the maximum result count of the vendor, the engine MUST send that maximum. The call MUST NOT fail for that reason. An engine without a count parameter MUST cut its results to `limit`. The output can then contain fewer results than `limit`.
+When `limit` is above the maximum result count of the vendor, the engine MUST send that maximum. The call MUST NOT fail for that reason. An engine without a count parameter MUST cut its results to `limit`.
 
-#### Scenario: A large limit is clamped
+#### Scenario: The engine clamps a large limit
 
 - **WHEN** an engine with a vendor maximum of 10 receives `limit: 20`
 - **THEN** the engine requests 10 results and the call succeeds
@@ -188,27 +227,62 @@ When `limit` is above the maximum result count of the vendor, the engine MUST se
 
 An `aggregate` engine MUST NOT run a child when the query is over the query limit of that child. The aggregate MUST note that child with `unsupported` and MUST run its other children. When the query limit skips all children, the aggregate MUST fail with `unsupported`.
 
-#### Scenario: One child is skipped
+#### Scenario: The aggregate skips one child
 
 - **WHEN** an `aggregate` has the children `deepseek` and `exa` and the query has 150 characters
 - **THEN** only `exa` sends a request
 - **AND** the notes name `deepseek` with `unsupported`
 
-#### Scenario: All children are skipped
+#### Scenario: The aggregate skips every child
 
 - **WHEN** an `aggregate` has the children `deepseek` and `parallel` and the query has 300 characters
 - **THEN** no child sends a request and the aggregate fails with `unsupported`
 
+### Requirement: Results that the read permission group rejects are removed
+
+In the `default` permission mode, the call MUST remove each result and citation whose URL a reject clause of the `read` permission group matches. The match MUST be the reject decision that `read` takes for that URL. An absent `read` allow MUST NOT remove an entry. In the `bypass` mode, the call MUST NOT remove entries. The notes MUST state the number of removed entries and MUST NOT name them. These clauses MUST NOT admit or refuse the call.
+
+#### Scenario: A rejected host is removed
+
+- **WHEN** the `read` group rejects `^https://grokipedia\.com/` and an engine returns a `grokipedia.com` result and two other results
+- **THEN** the output contains only the two other results
+- **AND** a note states that one entry was removed and does not contain `grokipedia`
+
+#### Scenario: No read allow keeps the results
+
+- **WHEN** the `read` group has no allow for `^https://` and no reject that matches the results
+- **THEN** the output keeps every result
+
+#### Scenario: Bypass keeps the results
+
+- **WHEN** the attempt runs in the `bypass` permission mode and the `read` group rejects a result host
+- **THEN** the output keeps that result
+
+### Requirement: Removed entries can empty an engine outcome
+
+The call MUST remove rejected entries from each engine outcome before the chain decides on it. An engine whose results are all removed MUST count as empty, and the chain advances. An answer whose citations are all removed MUST count as `ungrounded`. An `aggregate` MUST remove rejected entries from each child before it merges them and cuts them to `limit`.
+
+#### Scenario: A fully removed result list advances the chain
+
+- **WHEN** the chain is `["brave", "exa"]`, the `read` group rejects every result of `brave`, and `exa` returns allowed results
+- **THEN** the output has the results of `exa`
+- **AND** its notes name `brave` as empty
+
+#### Scenario: An answer without allowed citations is ungrounded
+
+- **WHEN** a `model-hosted` engine answers and the `read` group rejects each of its citations
+- **THEN** the engine fails with `ungrounded` and the chain advances
+
 ### Requirement: Engines receive the objective where their vendor accepts one
 
-`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. When `objective` is absent, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points of `objective` as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine MUST note `objective not applied by <id>`. An engine MUST NOT add `objective` to the query.
+`parallel`, `parallel-mcp`, `exa`, and `exa-mcp` MUST send `objective` as the vendor `objective`. When `objective` is absent, `parallel-mcp`, `exa`, and `exa-mcp` MUST send the query there. `deepseek` MUST send the first 128 code points of `objective` as `ori_question`, without a note. `model-hosted` and `yandex-gen` MUST add a `Goal:` line. Each other engine that answers MUST note `objective not applied by <id>`. An engine MUST NOT add `objective` to the query.
 
 #### Scenario: Parallel receives the objective
 
 - **WHEN** the call sets `objective` and the engine is `parallel`
 - **THEN** the request body has that text as `objective` and the query as the only `search_queries` entry
 
-#### Scenario: A long objective is cut for DeepSeek without a note
+#### Scenario: DeepSeek receives a cut objective without a note
 
 - **WHEN** the call sets an `objective` of 300 characters and the engine is `deepseek`
 - **THEN** `ori_question` is the first 128 code points of `objective`
@@ -235,14 +309,14 @@ Each id in `engines` MUST name a configured engine. An unknown id MUST fail the 
 - **THEN** the call returns a tool error that lists `brave` and `exa`
 - **AND** no engine sends a request
 
-#### Scenario: An aggregate child is selectable
+#### Scenario: The model selects an aggregate child
 
 - **WHEN** `mix` is an `aggregate` of `brave` and `exa` and the call sets `engines: ["exa"]`
 - **THEN** only `exa` runs and the output has `engine: "exa"`
 
 ### Requirement: The web search description lists the configured engines
 
-The declared `web_search` description MUST be the rendered description template followed by a generated engine catalog. The catalog MUST list each configured engine in configuration order. Each entry MUST state the id, type, result kind, chain position, use of `objective`, use of `recency`, query limit, and the operator `description` when set. An `aggregate` MUST state the smallest query limit of its children. The catalog MUST NOT contain keys, base URLs, folder ids, or model ids.
+The declared `web_search` description MUST be the rendered description template followed by a generated engine catalog. The catalog MUST list each configured engine in order. Each entry MUST state the id, type, result kind, chain position, use of `objective` and `recency`, query limit, and the `description`. Ids and descriptions MUST be tag-neutralized. An `aggregate` MUST state the smallest limit of its children. The catalog MUST NOT contain keys, base URLs, folder ids, or model ids.
 
 #### Scenario: The catalog follows the configuration
 
@@ -254,6 +328,11 @@ The declared `web_search` description MUST be the rendered description template 
 
 - **WHEN** `tools.promptFiles.web_search` replaces the packaged description
 - **THEN** the declared description is the rendered override followed by the engine catalog
+
+#### Scenario: An empty rendered template still fails
+
+- **WHEN** a `web_search` description override renders empty text for an attempt
+- **THEN** the attempt fails as an empty render, and the catalog does not replace the description
 
 #### Scenario: The catalog discloses no secret
 
@@ -283,7 +362,7 @@ An `aggregate` MUST attach the answer of each grounded `model-hosted` or `yandex
 
 ### Requirement: Attached answers fit the result cap after results
 
-Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20 citations. When the serialized output is over 15,000 units, the output MUST drop results from the end first. Then it MUST drop citations from the end of the last answer, but each answer MUST keep its first citation. Then it MUST cut the text of the last answer, and then the earlier answers. Each removal MUST add a note.
+Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20 citations. When the serialized output is over 15,000 units, the output MUST drop results from the end first. Then it MUST drop citations from the end of each answer, last answer first, and each answer MUST keep one. Then it MUST cut answer text, last answer first. Each step MUST add one note with its count.
 
 #### Scenario: Results go before answers
 
@@ -331,7 +410,7 @@ A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search` with
 
 ### Requirement: Parallel engines call the Parallel search API
 
-A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its key in `x-api-key`. It MUST send the query as the only `search_queries` entry, its configured `mode`, `limit` as `max_results`, and the Chat id as `session_id`. It MUST send `site:` hosts as included domains and `-site:` hosts as excluded domains. It MUST send `recency` as `after_date`. The snippet MUST be the first excerpt, without a copy of the title at its start.
+A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its key in `x-api-key`. It MUST send the query as the only `search_queries` entry, its configured `mode`, `limit` as `max_results`, and the Chat id as `session_id`. It MUST move `site:` hosts to included and `-site:` hosts to excluded domains, and note ignored exclusions. It MUST send `recency` as `after_date`. The snippet MUST be the first excerpt, without a copy of the title at its start.
 
 #### Scenario: Site operators become the source policy
 
@@ -355,14 +434,14 @@ A `parallel-mcp` engine MUST call the `web_search` tool of the hosted Parallel M
 
 ### Requirement: Yandex engines call the Yandex web search API
 
-A `yandex` engine MUST post to `https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key` authorization. It MUST send its `searchType` and its `folderId` when set. It MUST request flat groups with one document in each group, so that `limit` counts results. It MUST decode the base64 XML response. `day` MUST map to one day and `month` to one month. `week` MUST map to two weeks, with a note. `year` is not applied, with a note.
+A `yandex` engine MUST post to `https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key` authorization. It MUST send its `searchType` and its `folderId` when set. It MUST request flat groups with one document in each group, so that `limit` counts results. It MUST decode the base64 XML response. `day` MUST map to one day and `month` to one month. `week` MUST map to two weeks, with a note. `year` MUST NOT set a period, and the engine MUST note that.
 
 #### Scenario: Flat grouping keeps the limit
 
 - **WHEN** the call sets `limit: 5` and two results come from one host
 - **THEN** the output can contain both results from that host
 
-#### Scenario: Week recency is widened with a note
+#### Scenario: Week recency becomes two weeks with a note
 
 - **WHEN** the call sets `recency: "week"`
 - **THEN** the request uses the two-week period
@@ -370,7 +449,7 @@ A `yandex` engine MUST post to `https://searchapi.api.cloud.yandex.net/v2/web/se
 
 ### Requirement: Yandex engines classify errors from the response body
 
-A `yandex` engine MUST read the error code in the XML response before it reads results, also after HTTP 200. Code 42 MUST map to `auth`, codes 32 and 55 to `rate_limited`, and code 100 to `challenge`. Codes 2 and 15 MUST give an empty outcome. Each other code MUST map to `upstream_error`. The error text MUST NOT occur in the output.
+A `yandex` engine MUST read the error code in the XML response before it reads results, also after HTTP 200. Code 42 MUST map to `auth`, codes 32 and 55 to `rate_limited`, and code 100 to `challenge`. Codes 2 and 15 MUST give an empty outcome. Other codes, HTTP 5xx, and invalid bodies MUST map to `upstream_error`. HTTP 401 and 403 MUST map to `auth`, and 429 to `rate_limited`. The error text MUST NOT occur in the output.
 
 #### Scenario: An in-body error after HTTP 200
 
@@ -384,7 +463,7 @@ A `yandex` engine MUST read the error code in the XML response before it reads r
 
 ### Requirement: Generative Yandex engines answer with the sources they used
 
-A `yandex-gen` engine MUST post one user message to `https://searchapi.api.cloud.yandex.net/v2/gen/search`. The message MUST contain the query, a recency phrase when `recency` is set, and a `Goal:` line when `objective` is set. The answer MUST be the response message text. The citations MUST be the sources that the response marks as used. A rejected answer, or an answer without a used source, MUST fail with `ungrounded`.
+A `yandex-gen` engine MUST post one user message to `https://searchapi.api.cloud.yandex.net/v2/gen/search`. The message MUST contain the query, a recency phrase when `recency` is set, and a `Goal:` line when `objective` is set. The answer MUST be the response message text. The citations MUST be the sources that the response marks as used. A rejected answer, or one without a used source, MUST fail with `ungrounded`. HTTP status codes map as for `yandex`.
 
 #### Scenario: Only used sources are citations
 
