@@ -18,3 +18,4 @@ question-directed reads, permission classification, prompt caching and decision 
 - [Question-directed reads](./2026-09-23-question-directed-read/index.md) - Issue #849: Apple LensVLM, interchangeable local and hosted reader models, and explicitly scoped read-only investigation.
 - [Permission classifier cascade](./2026-09-24-permission-classifier-cascade/index.md) - Live Jev experiments across ten llame application families, plus Claude Code, Codex Guardian and eve permission-classifier comparisons for #778.
 - [Semantic find and JUDGE](./2026-09-24-semantic-find-judge/index.md) - OMP's semantic find cascade and jegrep, with failure, coverage and benchmark limits.
+- [web_search objective spike](./2026-10-26-web-search-objective-spike/index.md) - Query and objective lengths written by three models for a drafted `web_search` tool, and the measured effect of DeepSeek Search's `ori_question`.
