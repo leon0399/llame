@@ -170,17 +170,20 @@ function canonicalizeOutcome(
 }
 
 /**
- * A Markdown inline link: its text, and the target it points at. Both
- * quantifiers are a single character class, so a hostile line cannot make the
- * engine backtrack.
+ * A Markdown inline link: its text, and the target it points at. A target can
+ * hold balanced parentheses one level deep (`/wiki/Foo_(bar)`). Each repeated
+ * alternative starts with a different character, so a hostile line cannot make
+ * the engine backtrack.
  */
-const MARKDOWN_LINK = /\[([^[\]\n]*)\]\(([^()\s]*)\)/gu;
+const MARKDOWN_LINK = /\[([^[\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/gu;
 /**
- * A URL written as itself rather than as a Markdown link target. The last
- * character cannot be sentence punctuation or Markdown emphasis, so deleting a
- * copy keeps the text around it intact.
+ * A URL written as itself rather than as a Markdown link target, with balanced
+ * parentheses one level deep. The last character cannot be sentence
+ * punctuation or Markdown emphasis, so deleting a copy keeps the text around it
+ * intact.
  */
-const BARE_URL = /\bhttps?:\/\/[^\s<>()[\]"'`]*[^\s<>()[\]"'`.,;:!?*_]/giu;
+const BARE_URL =
+  /\bhttps?:\/\/(?:[^\s<>()[\]"'`]|\([^\s<>()[\]"'`]*\))*(?:[^\s<>()[\]"'`.,;:!?*_]|\([^\s<>()[\]"'`]*\))/giu;
 
 /**
  * Removes the entries the call excludes from one engine outcome, before the

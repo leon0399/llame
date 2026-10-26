@@ -842,7 +842,34 @@ it('deletes a bare copy of a removed URL and keeps the punctuation around it', a
   });
   expect(output).not.toHaveProperty('removed');
 });
-it('cleans a pathological answer without backtracking', async () => {
+it('removes link targets and bare copies that hold balanced parentheses', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'See [source](https://grokipedia.com/wiki/Foo_(bar)) and [the docs](https://example.test/docs). Also https://grokipedia.com/wiki/Baz_(qux), done.',
+          citations: [
+            { url: 'https://grokipedia.com/wiki/Foo_(bar)' },
+            { url: 'https://example.test/docs' },
+          ],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer:
+      'See source and [the docs](https://example.test/docs). Also , done.',
+    removed: 1,
+  });
+});
+it.each([
+  `${'['.repeat(4000)}${']('.repeat(2000)}`,
+  `[x](${'(a'.repeat(4000)} https://a.test/${'(b'.repeat(4000)}`,
+])('cleans a pathological answer without backtracking', async (answer) => {
   const started = performance.now();
   const output = await executeSearchChain(
     config(['answer']),
@@ -851,7 +878,7 @@ it('cleans a pathological answer without backtracking', async () => {
       answer: () =>
         Promise.resolve({
           kind: 'answer',
-          answer: `${'['.repeat(4000)}${']('.repeat(2000)}`,
+          answer,
           citations: [{ url: 'https://example.test/docs' }],
         }),
     }),
