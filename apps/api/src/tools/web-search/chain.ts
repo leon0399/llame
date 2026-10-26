@@ -11,6 +11,7 @@ import { createSearxngEngine } from './searxng';
 import { createModelHostedEngine } from './model-hosted';
 import { canonicalUrl } from './output';
 import { ENGINE_LIMITS, acceptsQuery } from './limits';
+import { type ResultRemoval } from './removal';
 import { type VendorFetch } from './http';
 import { type ToolContext } from '../types';
 
@@ -78,6 +79,11 @@ export type EngineRequest = {
   readonly userAgent: string | undefined;
   readonly chatId: string;
   /**
+   * Removes the entries the call excludes — a `read` reject clause, or a
+   * `-site:` host of the query — before the chain or an aggregate decides.
+   */
+  readonly removal: ResultRemoval;
+  /**
    * Trusted model-client factory for model-hosted engines; absent leaves them
    * failing closed.
    */
@@ -132,6 +138,18 @@ function withChainNotes(
   return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
 
+/**
+ * The one note that counts the entries the call removed, or nothing when it
+ * removed none. It comes before every other note so the cap cannot drop it,
+ * and it names no URL or host: the model learns that something was removed,
+ * not what.
+ */
+function removalNotes(removal: ResultRemoval): Array<string> {
+  const removed = removal.removedCount();
+  if (removed === 0) return [];
+  return [`removed ${removed} ${removed === 1 ? 'entry' : 'entries'}`];
+}
+
 export function canonicalizeResults(
   results: ReadonlyArray<RawResult>,
 ): Array<RawResult> {
@@ -161,6 +179,47 @@ function canonicalizeOutcome(
     : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
 }
 
+/** A Markdown inline link: its text, and the target it points at. */
+const MARKDOWN_LINK = /\[([^\]\n]*)\]\(([^()\s]+)\)/gu;
+/** A URL written as itself rather than as a Markdown link target. */
+const BARE_URL = /\bhttps?:\/\/[^\s<>()[\]"'`]+/gu;
+
+/**
+ * Removes the entries the call excludes from one engine outcome, before the
+ * chain decides on it and before an aggregate merges and cuts it. An answer
+ * keeps the text of a link it loses and the text loses its target, so a
+ * removed URL survives nowhere; an answer whose citations are all removed has
+ * none left, which the chain reports as `ungrounded`.
+ */
+function removeEntries(
+  outcome: EngineOutcome,
+  removal: ResultRemoval,
+): EngineOutcome {
+  if (outcome.kind === 'results') {
+    const results = outcome.results.filter(
+      (result) => !removal.removes(result.url),
+    );
+    return results.length === outcome.results.length
+      ? outcome
+      : { ...outcome, results };
+  }
+  if (outcome.kind === 'answer') {
+    const citations = outcome.citations.filter(
+      (citation) => !removal.removes(citation.url),
+    );
+    const answer = outcome.answer
+      .replace(MARKDOWN_LINK, (link, text: string, target: string) =>
+        removal.removes(target) ? text : link,
+      )
+      .replace(BARE_URL, (url) => (removal.removes(url) ? '' : url));
+    return citations.length === outcome.citations.length &&
+      answer === outcome.answer
+      ? outcome
+      : { ...outcome, answer, citations };
+  }
+  return outcome;
+}
+
 export async function runOne(
   engine: Engine,
   timeoutSeconds: number | undefined,
@@ -177,7 +236,8 @@ export async function runOne(
   try {
     const outcome = await engine({ ...request, signal });
     if (request.signal.aborted) throwAbort(request.signal);
-    return deadline?.aborted === true ? 'timeout' : outcome;
+    if (deadline?.aborted === true) return 'timeout';
+    return removeEntries(outcome, request.removal);
   } catch (error) {
     if (request.signal.aborted) throwAbort(request.signal);
     return deadline?.aborted === true
@@ -298,7 +358,7 @@ export async function executeSearchChain(
     if (decision.kind === 'success')
       return withChainNotes(
         { ...decision.success, engine: id, query: request.query },
-        notes,
+        [...removalNotes(request.removal), ...notes],
       );
     if (decision.lastEmpty !== undefined) lastEmpty = decision.lastEmpty;
   }
@@ -307,7 +367,7 @@ export async function executeSearchChain(
   return emptyResult(
     request.query,
     lastEmpty.engine,
-    finalNotes,
+    [...removalNotes(request.removal), ...finalNotes],
     lastEmpty.notes,
   );
 }

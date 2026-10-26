@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createDuckDuckGoEngine, DUCKDUCKGO_SEARCH_URL } from './duckduckgo';
+
 import { type EngineOutcome, type EngineRequest } from './chain';
+import { NO_REMOVAL } from '../../testing/web-search-removal';
 import { type VendorFetch } from './http';
 import { requestUrl } from '../../testing/web-search-fetch';
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
@@ -11,6 +13,7 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   signal: new AbortController().signal,
   userAgent: 'llame/test',
   chatId: 'chat',
+  removal: NO_REMOVAL,
   ...overrides,
 });
 const response = (

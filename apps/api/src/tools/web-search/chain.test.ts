@@ -6,6 +6,7 @@ import {
   type EngineOutcome,
   type EngineRequest,
 } from './chain';
+import { NO_REMOVAL, removalFor } from '../../testing/web-search-removal';
 import { createAggregateEngine } from './aggregate';
 import {
   type WebSearchConfig,
@@ -22,6 +23,7 @@ import {
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
+  overrides: Partial<EngineRequest> = {},
 ): EngineRequest => ({
   query: 'llame',
   objective: undefined,
@@ -30,6 +32,8 @@ const request = (
   recency: undefined,
   userAgent: undefined,
   chatId: 'chat',
+  removal: NO_REMOVAL,
+  ...overrides,
 });
 const config = (
   ids: ReadonlyArray<string>,
@@ -712,5 +716,101 @@ it('checks call cancellation before starting a later engine', async () => {
   await expect(promise).rejects.toMatchObject({
     name: 'AbortError',
     message: 'The web search was aborted.',
+  });
+});
+
+/** The `read` group of the canonical rejected-host scenarios. */
+const rejectsGrokipedia = {
+  allow: [{ field: 'path', regex: '^https://' }],
+  reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
+};
+it('advances the chain when a read reject removes every result', async () => {
+  const output = await executeSearchChain(
+    config(['rejected', 'backup']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      rejected: () =>
+        Promise.resolve({
+          kind: 'results',
+          results: [
+            { title: 'One', url: 'https://grokipedia.com/one' },
+            { title: 'Two', url: 'https://grokipedia.com/two' },
+          ],
+        }),
+      backup: result,
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'backup',
+    results: [{ title: 'Result', url: 'https://example.test/a' }],
+    notes: ['removed 2 entries', 'rejected: empty'],
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('advances the chain from an answer whose citations are all removed', async () => {
+  const output = await executeSearchChain(
+    config(['answer', 'backup']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer: 'See [Grokipedia](https://grokipedia.com/one).',
+          citations: [{ url: 'https://grokipedia.com/one' }],
+        }),
+      backup: result,
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'backup',
+    notes: ['removed 1 entry', 'answer: ungrounded'],
+  });
+});
+it('keeps the text of a link to a removed URL and drops its target', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'Grokipedia says [so](https://grokipedia.com/one) and [the docs](https://example.test/docs) agree, see [local](/docs).',
+          citations: [
+            { url: 'https://grokipedia.com/one' },
+            { url: 'https://example.test/docs' },
+          ],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer:
+      'Grokipedia says so and [the docs](https://example.test/docs) agree, see [local](/docs).',
+    citations: [{ url: 'https://example.test/docs' }],
+    notes: ['removed 1 entry'],
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('deletes a bare copy of a removed URL from an answer', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'Details at https://grokipedia.com/one and [the docs](https://example.test/docs).',
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer: 'Details at  and [the docs](https://example.test/docs).',
+    notes: ['removed 1 entry'],
   });
 });

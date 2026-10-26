@@ -5,11 +5,13 @@ import {
   type EngineRequest,
   type RawResult,
 } from './chain';
+import { NO_REMOVAL, removalFor } from '../../testing/web-search-removal';
 import { createAggregateEngine, type AggregateChild } from './aggregate';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
   limit = 10,
+  overrides: Partial<EngineRequest> = {},
 ): EngineRequest => ({
   query: 'query',
   objective: undefined,
@@ -18,6 +20,8 @@ const request = (
   signal,
   userAgent: undefined,
   chatId: 'chat',
+  removal: NO_REMOVAL,
+  ...overrides,
 });
 
 const result = (
@@ -467,4 +471,35 @@ it('rejects an already-cancelled call without starting children', async () => {
     message: 'The web search was aborted.',
   });
   expect(started).toBe(false);
+});
+
+it('removes excluded entries before the merge and the limit cut', async () => {
+  const engine = createAggregateEngine([
+    child('a', () =>
+      results(
+        result('https://old.reddit.com/r/one'),
+        result('https://example.test/u1'),
+      ),
+    ),
+    child('b', () =>
+      results(
+        result('https://reddit.com/r/two'),
+        result('https://example.test/u2'),
+      ),
+    ),
+  ]);
+
+  const outcome = await engine(
+    request(undefined, 2, { removal: removalFor(undefined, ['reddit.com']) }),
+  );
+
+  // The removed entries never take a result slot, so the cut keeps both
+  // allowed entries instead of the two excluded ones.
+  expect(outcome).toStrictEqual({
+    kind: 'results',
+    results: [
+      result('https://example.test/u1'),
+      result('https://example.test/u2'),
+    ],
+  });
 });

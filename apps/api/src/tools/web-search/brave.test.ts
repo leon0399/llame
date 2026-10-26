@@ -1,5 +1,7 @@
 import { BRAVE_SEARCH_URL, createBraveEngine } from './brave';
+
 import { type EngineRequest } from './chain';
+import { NO_REMOVAL } from '../../testing/web-search-removal';
 import { type VendorFetch } from './http';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
@@ -10,6 +12,7 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   signal: new AbortController().signal,
   userAgent: 'llame/test',
   chatId: 'chat',
+  removal: NO_REMOVAL,
   ...overrides,
 });
 const requestUrl = (input: RequestInfo | URL): string => {

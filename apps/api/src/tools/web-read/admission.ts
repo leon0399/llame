@@ -137,6 +137,21 @@ function evaluateLocatorPermission(
 }
 
 /**
+ * What the `read` policy decides for a web locator that no `read` call submits
+ * — the same submitted-then-projected reject precedence a submitted call gets,
+ * used by `web_search` to drop the results its own `read` group rejects.
+ * `undefined` means no compiled policy, as for every other admission.
+ */
+export function evaluateWebLocatorRead(
+  context: ToolContext,
+  url: string,
+): PermissionDecision | undefined {
+  return admitPermission(context, (policy) =>
+    evaluateLocatorPermission(policy, url, PROJECT_DERIVED_LOCATOR),
+  );
+}
+
+/**
  * The fail-closed decision for a context with no compiled policy — a code
  * error, not a caller choice. No derived locator is admitted, and there is no
  * policy instance to attribute the refusal to, so the id is empty rather than

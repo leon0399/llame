@@ -17,6 +17,12 @@ import {
 import { webSearchInputSchema, webSearchTool } from './tool';
 import { type VendorFetch } from './http';
 import { requestUrl } from '../../testing/web-search-fetch';
+import { compileToolPermissionMap } from '../permissions/compile-permissions';
+import { evaluatePermission } from '../permissions/evaluator';
+import {
+  type CompiledPolicy,
+  type ToolPermissionMap,
+} from '../permissions/types';
 
 describe('web search tool declaration', () => {
   it('rejects an engine argument and defaults limit to ten', () => {
@@ -475,5 +481,292 @@ it('reuses one Exa MCP client across tool executions', async () => {
   } finally {
     vi.unstubAllGlobals();
     await fixture.close();
+  }
+});
+
+/** A fresh config per call: the tool caches one engine lookup per config. */
+const braveSearch = (): WebSearchConfig => ({
+  engines: [
+    { id: 'brave', type: 'brave', key: 'test-key', timeoutSeconds: 60 },
+  ],
+  chain: ['brave'],
+});
+/** The `read` group of the canonical rejected-host scenarios. */
+const REJECTING_READ: ToolPermissionMap = {
+  read: {
+    allow: [{ field: 'path', regex: '^https://' }],
+    reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
+  },
+};
+function braveResults(
+  results: ReadonlyArray<{ title: string; url: string }>,
+): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<VendorFetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ web: { results } }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    ),
+  );
+}
+function searchContext(
+  permissionPolicy: CompiledPolicy,
+  options: {
+    mode?: ToolContext['permissionMode'];
+    webSearch?: WebSearchConfig;
+  } = {},
+): ToolContext {
+  return {
+    userId: 'user',
+    chatId: 'chat',
+    tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
+    permissionPolicy,
+    webSearch: options.webSearch ?? braveSearch(),
+    ...(options.mode !== undefined && { permissionMode: options.mode }),
+  };
+}
+
+it('removes the results a read reject clause matches and counts them in the first note', async () => {
+  braveResults([
+    { title: 'Rejected', url: 'https://grokipedia.com/page' },
+    { title: 'Kept one', url: 'https://example.test/a' },
+    { title: 'Kept two', url: 'https://example.test/b' },
+  ]);
+  try {
+    const policy = compileToolPermissionMap(REJECTING_READ, 'test-policy');
+    const output = await webSearchTool.execute(searchContext(policy), {
+      query: 'llame',
+      limit: 10,
+    });
+    expect(output).toMatchObject({
+      status: 'success',
+      kind: 'results',
+      engine: 'brave',
+      results: [
+        { url: 'https://example.test/a' },
+        { url: 'https://example.test/b' },
+      ],
+      notes: ['removed 1 entry'],
+    });
+    expect(JSON.stringify(output)).not.toContain('grokipedia');
+    // The removal filters this call only: `read` still refuses the URL.
+    expect(
+      evaluatePermission(policy, {
+        toolId: 'read',
+        args: { path: 'https://grokipedia.com/page' },
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('keeps every result when the read group has no allow for the results', async () => {
+  braveResults([
+    { title: 'First', url: 'https://grokipedia.com/page' },
+    { title: 'Second', url: 'https://example.test/a' },
+  ]);
+  try {
+    const policy = compileToolPermissionMap(
+      { read: { allow: [{ field: 'path', regex: '^/' }] } },
+      'test-policy',
+    );
+    const output = await webSearchTool.execute(searchContext(policy), {
+      query: 'llame',
+      limit: 10,
+    });
+    expect(output).toMatchObject({
+      status: 'success',
+      results: [
+        { url: 'https://grokipedia.com/page' },
+        { url: 'https://example.test/a' },
+      ],
+    });
+    expect(output).not.toHaveProperty('notes');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('keeps every result when the read group rejects the whole tool', async () => {
+  braveResults([
+    { title: 'First', url: 'https://grokipedia.com/page' },
+    { title: 'Second', url: 'https://example.test/a' },
+  ]);
+  try {
+    const policy = compileToolPermissionMap(
+      { read: { reject: true } },
+      'test-policy',
+    );
+    const output = await webSearchTool.execute(searchContext(policy), {
+      query: 'llame',
+      limit: 10,
+    });
+    expect(output).toMatchObject({
+      status: 'success',
+      results: [
+        { url: 'https://grokipedia.com/page' },
+        { url: 'https://example.test/a' },
+      ],
+    });
+    expect(output).not.toHaveProperty('notes');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('keeps a rejected host in the bypass mode and discloses no note', async () => {
+  braveResults([
+    { title: 'First', url: 'https://grokipedia.com/page' },
+    { title: 'Second', url: 'https://example.test/a' },
+  ]);
+  try {
+    const policy = compileToolPermissionMap(REJECTING_READ, 'test-policy');
+    const output = await webSearchTool.execute(
+      searchContext(policy, { mode: 'bypass' }),
+      { query: 'llame', limit: 10 },
+    );
+    expect(output).toMatchObject({
+      status: 'success',
+      results: [
+        { url: 'https://grokipedia.com/page' },
+        { url: 'https://example.test/a' },
+      ],
+    });
+    expect(output).not.toHaveProperty('notes');
+    expect(JSON.stringify(output)).not.toContain('bypass');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('removes an excluded -site: host and its subdomains on every engine', async () => {
+  braveResults([
+    { title: 'Subdomain', url: 'https://old.reddit.com/r/one' },
+    { title: 'Host', url: 'https://reddit.com/r/two' },
+    { title: 'Kept', url: 'https://example.test/a' },
+  ]);
+  try {
+    const policy = compileToolPermissionMap(
+      { read: { allow: true } },
+      'test-policy',
+    );
+    const output = await webSearchTool.execute(searchContext(policy), {
+      query: 'pgvector -site:Reddit.com',
+      limit: 10,
+    });
+    expect(output).toMatchObject({
+      status: 'success',
+      results: [{ url: 'https://example.test/a' }],
+      notes: ['removed 2 entries'],
+    });
+    expect(JSON.stringify(output)).not.toContain('reddit.com/r');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('puts one count note before the engine notes of an aggregate', async () => {
+  type Entry = { readonly title: string; readonly url: string };
+  const entriesOf = (key: string | null): ReadonlyArray<Entry> =>
+    key === 'first-key'
+      ? [
+          { title: 'Rejected one', url: 'https://reddit.com/r/one' },
+          { title: 'Rejected two', url: 'https://old.reddit.com/r/two' },
+          { title: 'Kept one', url: 'https://example.test/u1' },
+        ]
+      : key === 'second-key'
+        ? [
+            { title: 'Rejected three', url: 'https://www.reddit.com/r/three' },
+            { title: 'Kept two', url: 'https://example.test/u2' },
+          ]
+        : [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<VendorFetch>((_input, init) => {
+      const key = new Headers(init?.headers).get('X-Subscription-Token');
+      return Promise.resolve(
+        new Response(JSON.stringify({ web: { results: entriesOf(key) } }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    }),
+  );
+  try {
+    const policy = compileToolPermissionMap(
+      { read: { allow: true } },
+      'test-policy',
+    );
+    const output = await webSearchTool.execute(
+      searchContext(policy, {
+        webSearch: {
+          engines: [
+            {
+              id: 'first',
+              type: 'brave',
+              key: 'first-key',
+              timeoutSeconds: 60,
+            },
+            {
+              id: 'second',
+              type: 'brave',
+              key: 'second-key',
+              timeoutSeconds: 60,
+            },
+            {
+              id: 'third',
+              type: 'brave',
+              key: 'third-key',
+              timeoutSeconds: 60,
+            },
+            {
+              id: 'mix',
+              type: 'aggregate',
+              engines: ['first', 'second', 'third'],
+            },
+          ],
+          chain: ['mix'],
+        },
+      }),
+      { query: 'pgvector -site:reddit.com', limit: 10 },
+    );
+    expect(output).toMatchObject({
+      status: 'success',
+      kind: 'results',
+      engine: 'mix',
+      results: [
+        { url: 'https://example.test/u1' },
+        { url: 'https://example.test/u2' },
+      ],
+      notes: ['removed 3 entries', 'third: empty'],
+    });
+    expect(JSON.stringify(output)).toContain('removed 3 entries');
+    expect(JSON.stringify(output)).not.toContain('reddit.com/r');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('keeps a result that only a read allow clause matches', async () => {
+  braveResults([{ title: 'Allowed', url: 'https://example.test/a' }]);
+  try {
+    const policy = compileToolPermissionMap(
+      { read: { allow: [{ field: 'path', regex: '^https://' }] } },
+      'test-policy',
+    );
+    const output = await webSearchTool.execute(searchContext(policy), {
+      query: 'llame',
+      limit: 10,
+    });
+    expect(output).toMatchObject({
+      status: 'success',
+      results: [{ url: 'https://example.test/a' }],
+    });
+    expect(output).not.toHaveProperty('notes');
+  } finally {
+    vi.unstubAllGlobals();
   }
 });

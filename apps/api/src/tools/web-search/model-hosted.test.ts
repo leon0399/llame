@@ -19,12 +19,14 @@ import {
   type HostedStreamScript,
   type SourcePart,
 } from '../../testing/hosted-search-client';
+
 import {
   EngineFailure,
   executeSearchChain,
   type Engine,
   type EngineRequest,
 } from './chain';
+import { NO_REMOVAL } from '../../testing/web-search-removal';
 import {
   buildClient,
   buildHarness,
@@ -57,6 +59,7 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   signal: new AbortController().signal,
   userAgent: 'llame/test',
   chatId: 'chat-1',
+  removal: NO_REMOVAL,
   ...overrides,
 });
 
