@@ -182,7 +182,7 @@ describeIfDb('follow-up admission', () => {
    */
   async function seedTurn(options: {
     ownerUserId?: string;
-    status: TerminalRunStatus | 'running_model';
+    status: TerminalRunStatus | 'queued' | 'running_model';
     modelId?: string;
     effort?: string | null;
     permissionMode?: PermissionMode;
@@ -242,7 +242,11 @@ describeIfDb('follow-up admission', () => {
             workerId: 'worker-1',
           })) ?? created;
       }
-      if (options.status !== 'running_model' && options.status !== run.status) {
+      if (
+        options.status !== 'running_model' &&
+        options.status !== 'queued' &&
+        options.status !== run.status
+      ) {
         run =
           (await runsRepo.markFinished(
             created.id,
@@ -488,6 +492,31 @@ describeIfDb('follow-up admission', () => {
         sourceRunId: fixture.runId,
         status: 'queued',
       });
+    });
+
+    it('keeps the stuck Run expired when the Continue check refuses', async () => {
+      // A Run that never dispatched left no reply, so the Continue check
+      // refuses after admission has already expired it (design D1).
+      const fixture = await seedTurn({
+        status: 'queued',
+        reply: false,
+        ageMs: STUCK_AGE_MS,
+      });
+      api.jobState.mockResolvedValue('absent');
+
+      await expect(
+        admit(fixture, { action: 'continue' }),
+      ).rejects.toMatchObject({
+        constructor: ConflictException,
+        message: 'The Run that can be continued left no reply',
+      });
+
+      // The refusal created nothing, but the expiry it found is committed.
+      expect((await runById(fixture.runId))?.status).toBe('expired');
+      expect(
+        (await eventsOfRun(fixture.runId)).map((event) => event.eventType),
+      ).toEqual(['run.expired']);
+      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
     });
 
     it("reveals nothing about another owner's Chat and reads no job state", async () => {

@@ -20,7 +20,10 @@ import {
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
-import { type ModelSelectionValidator } from '../models/models.service';
+import {
+  ModelNotAvailableError,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { asDouble } from '../testing/support';
@@ -162,11 +165,22 @@ function makeService() {
   const tenantDb: TenantRunner = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
+  // Each admission closes with a record of whether its transaction callback
+  // threw: a refusal that keeps a committed stuck-Run expiry must not.
+  const transactions: Array<{ rejected: boolean }> = [];
   const runAs = vi
     .spyOn(tenantDb, 'runAs')
     .mockImplementation(
-      async <T>(_userId: string, callback: (db: Db) => Promise<T>) =>
-        callback(tx),
+      async <T>(_userId: string, callback: (db: Db) => Promise<T>) => {
+        const record = { rejected: false };
+        transactions.push(record);
+        try {
+          return await callback(tx);
+        } catch (error) {
+          record.rejected = true;
+          throw error;
+        }
+      },
     );
 
   const validateModelSelection = vi.fn(() => model);
@@ -211,6 +225,12 @@ function makeService() {
   const findActiveByChatId = vi
     .spyOn(RunsRepository.prototype, 'findActiveByChatId')
     .mockResolvedValue(undefined);
+  const markFinished = vi
+    .spyOn(RunsRepository.prototype, 'markFinished')
+    .mockResolvedValue(undefined);
+  const listByRunId = vi
+    .spyOn(RunEventsRepository.prototype, 'listByRunId')
+    .mockResolvedValue([]);
   const cancelActiveRunsForMessage = vi
     .spyOn(RunsRepository.prototype, 'cancelActiveRunsForMessage')
     .mockResolvedValue([]);
@@ -247,6 +267,7 @@ function makeService() {
   return {
     service,
     runAs,
+    transactions,
     findById,
     touch,
     findTurnState,
@@ -254,6 +275,8 @@ function makeService() {
     findReply,
     findLatestByChatId,
     findActiveByChatId,
+    markFinished,
+    listByRunId,
     cancelActiveRunsForMessage,
     createRun,
     append,
@@ -463,6 +486,84 @@ describe('FollowUpAdmissionService', () => {
       });
     },
   );
+
+  describe('a stuck-Run expiry and a refusal in one transaction', () => {
+    /** A non-terminal Run the queue can no longer execute. */
+    const stuckRun: Run = {
+      ...sourceRun,
+      id: 'run-stuck',
+      status: 'queued',
+      createdAt: new Date(now.getTime() - 60_000),
+    };
+
+    /** The Run that expiry writes, as the expiry reports it. */
+    const expiredRun: Run = {
+      ...stuckRun,
+      status: 'expired',
+      finishedAt: now,
+    };
+
+    function stuckAdmission() {
+      const api = makeService();
+      api.findActiveByChatId.mockResolvedValue(stuckRun);
+      api.jobState.mockResolvedValue('absent');
+      api.markFinished.mockResolvedValue(expiredRun);
+      // The Continue check refuses: the expired Run left no reply.
+      api.findLatestByChatId.mockResolvedValue(expiredRun);
+      api.findReply.mockResolvedValue(undefined);
+      return api;
+    }
+
+    it('keeps the expiry when the Continue check then refuses', async () => {
+      const api = stuckAdmission();
+
+      await expect(admit(api.service)).rejects.toMatchObject({
+        constructor: ConflictException,
+        message: 'The Run that can be continued left no reply',
+      });
+
+      expect(api.markFinished).toHaveBeenCalledWith(
+        stuckRun.id,
+        chat.ownerUserId,
+        'expired',
+        expect.anything(),
+      );
+      expect(api.append).toHaveBeenCalledWith(
+        stuckRun.id,
+        'run.expired',
+        expect.anything(),
+      );
+      // The refusal is answered after the commit: the callback never threw, so
+      // the expiry, its reply finalization, and run.expired survived.
+      expect(api.transactions).toEqual([{ rejected: false }]);
+    });
+
+    it('rolls the expiry back when execution — not the request — fails', async () => {
+      const api = stuckAdmission();
+      const failure = new Error('reply read failed');
+      api.findReply.mockRejectedValue(failure);
+
+      await expect(admit(api.service)).rejects.toBe(failure);
+
+      expect(api.transactions).toEqual([{ rejected: true }]);
+    });
+
+    it('keeps the expiry when the model check refuses', async () => {
+      const api = stuckAdmission();
+      api.findReply.mockResolvedValue(
+        replyWith({ status: 'error', runId: expiredRun.id, modelId: model.id }),
+      );
+      api.validateModelSelection.mockImplementation(() => {
+        throw new ModelNotAvailableError(model.id);
+      });
+
+      await expect(admit(api.service)).rejects.toBeInstanceOf(
+        ModelNotAvailableError,
+      );
+
+      expect(api.transactions).toEqual([{ rejected: false }]);
+    });
+  });
 
   it('re-resolves the stored effort through the model validator', async () => {
     const { service, findLatestByChatId, validateModelSelection } =

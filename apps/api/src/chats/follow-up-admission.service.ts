@@ -13,6 +13,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
@@ -33,6 +34,8 @@ import {
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
 import {
+  EffortNotAvailableError,
+  ModelNotAvailableError,
   ModelsService,
   resolvePermissionMode,
   type ModelSelectionValidator,
@@ -71,6 +74,32 @@ const CONTINUABLE_RUN_STATUSES: ReadonlyArray<RunStatus> = [
   'expired',
 ];
 
+/**
+ * What one admission transaction returns. A refusal is a VALUE, not a throw:
+ * the transaction may already have expired a stuck Run, and design D1 keeps
+ * that expiry even when the follow-up is then refused. The caller throws the
+ * refusal after the commit, so the refusal itself still writes nothing.
+ */
+type AdmissionOutcome = AcceptedRun | { refusal: Error };
+
+/** What the Continue check settles before the Run row exists. */
+type ContinueDecision =
+  | { latestRun: Run; source: Message; effort: string | undefined }
+  | { refusal: Error };
+
+/**
+ * Whether an error is the admission refusing this request, rather than a
+ * failure to execute it. Only a refusal keeps the committed expiry; a
+ * datastore or provider failure still rolls the transaction back.
+ */
+function isFollowUpRefusal(error: unknown): error is Error {
+  return (
+    error instanceof HttpException ||
+    error instanceof ModelNotAvailableError ||
+    error instanceof EffortNotAvailableError
+  );
+}
+
 @Injectable()
 export class FollowUpAdmissionService {
   constructor(
@@ -94,44 +123,62 @@ export class FollowUpAdmissionService {
     userMessageId: string;
     request: FollowUpRequestInput;
   }): Promise<AcceptedRun> {
-    // The checks that need no stored state, before the transaction: `continue`
-    // is the only action this layer can execute, and a model or an effort it
-    // names would be silently ignored.
-    if (input.request.action !== 'continue') {
+    // A refused request costs no transaction and writes nothing.
+    const permissionMode = this.admissionPermissionMode(input.request);
+
+    const outcome = await this.tenantDb.runAs(
+      input.userId,
+      async (tx): Promise<AdmissionOutcome> => {
+        const userMessage = await this.lockLatestTurn(
+          new ChatsRepository(tx),
+          new MessagesRepository(tx),
+          input,
+        );
+
+        // A chat send's own single-flight admission: a live Run answers 409, and
+        // a stuck Run is expired here so the Continue check reads its outcome.
+        await clearActiveRunSlot({
+          tx,
+          chatId: input.chatId,
+          userId: input.userId,
+          dispatch: this.dispatch,
+          instanceConfig: this.instanceConfig,
+        });
+
+        return this.continueRun(tx, input, userMessage, permissionMode);
+      },
+    );
+
+    // The expiry committed above; the refusal is answered from here, after it.
+    if ('refusal' in outcome) {
+      throw outcome.refusal;
+    }
+    return outcome;
+  }
+
+  /**
+   * The checks that need no stored state: `continue` is the only action this
+   * layer can execute, a model or an effort it names would be silently
+   * ignored, and the mode must be one the operator enabled.
+   */
+  private admissionPermissionMode(
+    request: FollowUpRequestInput,
+  ): PermissionMode {
+    if (request.action !== 'continue') {
       throw new BadRequestException('action must be continue');
     }
-    if (input.request.modelId !== undefined) {
+    if (request.modelId !== undefined) {
       throw new BadRequestException('A continue request does not name a model');
     }
-    if (input.request.effort !== undefined) {
+    if (request.effort !== undefined) {
       throw new BadRequestException(
         'A continue request does not name an effort',
       );
     }
-    const permissionMode = resolvePermissionMode(
-      input.request.permissionMode,
+    return resolvePermissionMode(
+      request.permissionMode,
       this.instanceConfig.config.tools.permissionModes,
     );
-
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      const userMessage = await this.lockLatestTurn(
-        new ChatsRepository(tx),
-        new MessagesRepository(tx),
-        input,
-      );
-
-      // A chat send's own single-flight admission: a live Run answers 409, and
-      // a stuck Run is expired here so the Continue check reads its outcome.
-      await clearActiveRunSlot({
-        tx,
-        chatId: input.chatId,
-        userId: input.userId,
-        dispatch: this.dispatch,
-        instanceConfig: this.instanceConfig,
-      });
-
-      return this.continueRun(tx, input, userMessage, permissionMode);
-    });
   }
 
   /**
@@ -188,13 +235,12 @@ export class FollowUpAdmissionService {
     input: { chatId: string; userId: string },
     userMessage: Message,
     permissionMode: PermissionMode,
-  ): Promise<AcceptedRun> {
-    const { latestRun, source } = await this.continueSource(
-      tx,
-      input,
-      userMessage,
-    );
-    const effort = this.storedEffort(latestRun);
+  ): Promise<AdmissionOutcome> {
+    const decision = await this.continueDecision(tx, input, userMessage);
+    if ('refusal' in decision) {
+      return decision;
+    }
+    const { latestRun, source, effort } = decision;
 
     const { run, supersededRunIds } = await createRunForMessage(
       tx,
@@ -223,6 +269,28 @@ export class FollowUpAdmissionService {
       userId: input.userId,
       modelId: latestRun.modelId,
     };
+  }
+
+  /**
+   * Everything the Continue check decides, as a value: a refusal is returned
+   * so the transaction can commit the stuck-Run expiry it already performed.
+   */
+  private async continueDecision(
+    tx: Db,
+    input: { chatId: string; userId: string },
+    userMessage: Message,
+  ): Promise<ContinueDecision> {
+    try {
+      const { latestRun, source } = await this.continueSource(
+        tx,
+        input,
+        userMessage,
+      );
+      return { latestRun, source, effort: this.storedEffort(latestRun) };
+    } catch (error) {
+      if (!isFollowUpRefusal(error)) throw error;
+      return { refusal: error };
+    }
   }
 
   /**
