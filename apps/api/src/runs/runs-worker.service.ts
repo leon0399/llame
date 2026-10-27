@@ -161,7 +161,11 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         return { skip: true as const, settleCancellation: false as const };
       }
       if (run.cancelRequestedAt === null) {
-        return { skip: false as const, modelId: run.modelId };
+        return {
+          skip: false as const,
+          modelId: run.modelId,
+          followUpAction: run.followUpAction,
+        };
       }
       return { skip: true as const, settleCancellation: true as const };
     });
@@ -249,6 +253,9 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         userMessage: job.userMessage,
         client,
         abortSignal: abort.signal,
+        // The worker already read the Run row; a Continue Run is the only one
+        // that resumes kept parts.
+        followUpAction: pickup.followUpAction,
       });
 
       // Drain the stream — executeRun's callbacks persist the assistant turn,

@@ -183,8 +183,9 @@ function isToolActivityPart(part: unknown): part is StoredToolPart {
   );
 }
 
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(value) || !isRecord(value.llame)` below -- two type-guard calls combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
-function isCancelledMetadata(value: unknown): boolean {
+/** Whether a stored result's metadata marks it as terminated, not failed. */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- stored result metadata is untyped jsonb, and the two `isRecord` guards inside parse each level before it is read.
+export function isCancelledMetadata(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.llame)) return false;
   return value.llame.cancelled === true;
 }
@@ -206,7 +207,8 @@ function serializePayload(value: unknown, native: boolean): string {
   return JSON.stringify(value ?? null) ?? 'null';
 }
 
-function isNativeToolName(toolName: string): boolean {
+/** The tools whose model output is their own serialization, not JSON. */
+export function isNativeToolName(toolName: string): boolean {
   return toolName === 'read' || toolName === 'edit' || toolName === 'write';
 }
 

@@ -239,10 +239,26 @@ export function userPartsToModelContent(
  * distinction the persisted `ReasoningPart` crosses at replay: the stored
  * `providerMetadata` becomes this part's `providerOptions`, unreshaped.
  */
-type PromptReasoningPart = Extract<
+export type PromptReasoningPart = Extract<
   Extract<AssistantContent, ReadonlyArray<unknown>>[number],
   { type: 'reasoning' }
 >;
+
+/**
+ * One stored reasoning part as the prompt-side part it replays as: the text
+ * byte-identical, with the part's opaque provider metadata riding along as
+ * `providerOptions`.
+ */
+export function toPromptReasoningPart(
+  part: ReasoningPart,
+): PromptReasoningPart {
+  const providerOptions: ProviderMetadata | undefined = part.providerMetadata;
+  return {
+    type: 'reasoning',
+    text: part.text,
+    ...(providerOptions !== undefined && { providerOptions }),
+  };
+}
 
 /**
  * Batches consecutive text parts into one assistant message and inserts the
@@ -378,14 +394,8 @@ function pushAssistantHistory(
       if (requestKind === 'continuation') {
         emitter.flushPendingText();
         // The part's opaque provider metadata (D15) crosses unchanged as the
-        // prompt part's `providerOptions`; llame reads no key inside it. A
-        // part without metadata emits the bare part — no undefined key.
-        const providerOptions = part.providerMetadata;
-        emitter.appendReasoning({
-          type: 'reasoning',
-          text: part.text,
-          ...(providerOptions !== undefined && { providerOptions }),
-        });
+        // prompt part's `providerOptions`; llame reads no key inside it.
+        emitter.appendReasoning(toPromptReasoningPart(part));
       }
       continue;
     }

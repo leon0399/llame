@@ -34,7 +34,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
-import { ChatLoopService } from './chat-loop.service';
+import { ChatLoopService, type ChatMessageStream } from './chat-loop.service';
 import { FollowUpAdmissionService } from './follow-up-admission.service';
 import { ChatsService } from './chats.service';
 import {
@@ -347,9 +347,8 @@ export class ChatsController {
   })
   @ApiBadRequestResponse({
     description:
-      'Malformed chat or message id, an unknown action, a model or an ' +
-      'effort on a continue request, or a permission mode the instance does ' +
-      'not enable',
+      'Malformed chat or message id, an unknown action, or a model or an ' +
+      'effort on a continue request',
   })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({
@@ -406,11 +405,7 @@ export class ChatsController {
   private async answerWithRunStream(
     response: ChatStreamResponse,
     abortSignal: AbortSignal,
-    result: {
-      toUIMessageStreamResponse: (options: {
-        onError: (error: unknown) => string;
-      }) => Response;
-    },
+    result: ChatMessageStream,
   ): Promise<void> {
     const streamResponse = result.toUIMessageStreamResponse({
       onError: (error: unknown) => {

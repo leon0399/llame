@@ -764,7 +764,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       const tenant = new TenantDbService(db);
       const owned = await tenant.runAs(userAId, async (tx) => ({
         history: await new MessagesRepository(tx).findByChatId(chatId, userAId),
-        stored: await new PromptImportPartsRepository(tx).findForRun({
+        stored: await new PromptImportPartsRepository(tx).find({
           id: messageId,
           chatId,
           runId: IMPORT_RUN_ID,
@@ -785,7 +785,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       expect(rows).toHaveLength(0);
       const denied = await tenant.runAs(userBId, async (tx) => ({
         history: await new MessagesRepository(tx).findByChatId(chatId, userBId),
-        stored: await new PromptImportPartsRepository(tx).findForRun({
+        stored: await new PromptImportPartsRepository(tx).find({
           id: messageId,
           chatId,
           runId: IMPORT_RUN_ID,

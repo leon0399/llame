@@ -414,6 +414,7 @@ describeIfDb('follow-up admission', () => {
         // The source Run recorded no step number, so the projection takes its
         // consecutive-call fallback (turn-actions D6).
         steps: {},
+        results: {},
       });
     });
 
@@ -438,6 +439,7 @@ describeIfDb('follow-up admission', () => {
         sourceRunId: fixture.runId,
         parts: settledCall('call-1'),
         steps: { 'call-1': 2 },
+        results: {},
       });
     });
 

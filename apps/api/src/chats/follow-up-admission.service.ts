@@ -51,7 +51,11 @@ import { type AcceptedRun } from './chat-loop.service';
 import { toRunUserMessage } from './chat-message-parts';
 import { continueKeptParts } from './continue-kept-parts';
 import { type MessagePart } from './context-builder';
-import { keptStepNumbers, type KeptStepNumbers } from './continue-projection';
+import {
+  continuedRecords,
+  continueStateFromEvents,
+  type ContinuedRecords,
+} from './continue-projection';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { createRunForMessage, type FollowUpRunInput } from './run-creation';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -312,39 +316,54 @@ export class FollowUpAdmissionService {
     source: Message,
   ): Promise<FollowUpRunInput> {
     const keptParts = continueKeptParts(source.parts);
+    const records = await this.continueRecords(
+      tx,
+      userId,
+      sourceRunId,
+      keptParts,
+    );
     return {
       action: 'continue',
       sourceRunId,
       keptParts,
-      keptStepNumbers: await this.keptStepNumbers(
-        tx,
-        userId,
-        sourceRunId,
-        keptParts,
-      ),
+      keptStepNumbers: records.steps,
+      keptResults: records.results,
       replacesUsage: source.usage !== null,
     };
   }
 
   /**
-   * The step each kept call belongs to, from the source Run's own events, so
-   * two sequential steps with no text between them stay two steps for the
-   * Continue projection (turn-actions D6).
+   * What the Continue Run records about its kept calls: the step each belongs
+   * to — the source Run's own steps follow the ones it continued, so a chain
+   * never merges two responses — and the result the source Run sent the model
+   * (turn-actions D6).
    */
-  private async keptStepNumbers(
+  private async continueRecords(
     tx: Db,
     userId: string,
     sourceRunId: string,
     keptParts: ReadonlyArray<unknown>,
-  ): Promise<KeptStepNumbers> {
-    const events = await new RunEventsRepository(tx).listByRunId(
-      sourceRunId,
-      userId,
-    );
+  ): Promise<ContinuedRecords> {
+    const events = new RunEventsRepository(tx);
     // SAFETY: the kept parts are the reply's own stored UI parts, and the
     // projection re-validates every part it reads.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
-    return keptStepNumbers(events, keptParts as ReadonlyArray<MessagePart>);
+    const parts = keptParts as ReadonlyArray<MessagePart>;
+    const sourceEvents = await events.listByRunId(sourceRunId, userId, {
+      eventTypes: ['tool.requested', 'tool.completed'],
+    });
+    const sourceContinued = await events.findFirstByType(
+      sourceRunId,
+      userId,
+      'run.continued',
+    );
+    return continuedRecords({
+      keptParts: parts,
+      ...(sourceContinued !== undefined && {
+        sourceContinued: continueStateFromEvents([sourceContinued]),
+      }),
+      sourceEvents,
+    });
   }
 
   /**

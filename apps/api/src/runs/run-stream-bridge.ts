@@ -1,4 +1,4 @@
-import { replayKeptParts, type KeptPartStream } from './kept-parts-replay';
+import { keptPartEvents } from './kept-parts-events';
 import { toolTerminationMessage } from './tool-settlement';
 /**
  * Run-event → AI SDK UI-message stream bridge (#50, SPEC §9.4/§9.5).
@@ -167,32 +167,20 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   }
 
   /**
-   * The kept parts of a Continue Run (turn-actions D5), replayed as the UI
-   * chunks the source Run streamed, through the same part counters and
-   * open-part state every other chunk uses.
+   * The kept parts of a Continue Run (turn-actions D5), replayed through the
+   * same handlers and counters every other chunk uses: the parts are decoded
+   * into the events that produced them, so the kept text, reasoning, and tool
+   * chunks cannot drift from the live ones. A kept item has no chunk of its
+   * own — the client sees it when it adopts the finalized history.
    */
   private onRunContinued(event: RunEventLike): Array<UiChunk> {
     const parts = payloadField(event.payload, 'parts');
-    return Array.isArray(parts)
-      ? [...this.prelude(), ...replayKeptParts(parts, this.keptPartStream())]
-      : this.prelude();
-  }
-
-  private keptPartStream(): KeptPartStream {
-    return {
-      closeText: () => this.closeText(),
-      closeReasoning: () => this.closeReasoning(),
-      currentTextId: () => this.openTextId,
-      startText: () => {
-        this.textPartCount += 1;
-        this.openTextId = `text-${this.textPartCount}`;
-        return this.openTextId;
-      },
-      startReasoning: () => {
-        this.reasoningPartCount += 1;
-        return `reasoning-${this.reasoningPartCount}`;
-      },
-    };
+    if (!Array.isArray(parts)) return [];
+    const chunks = this.prelude();
+    for (const kept of keptPartEvents(parts)) {
+      chunks.push(...this.translate(kept));
+    }
+    return chunks;
   }
 
   private onModelDelta(event: RunEventLike): Array<UiChunk> {

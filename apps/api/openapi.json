@@ -919,7 +919,7 @@
             }
           },
           "400": {
-            "description": "Malformed chat or message id, an unknown action, a model or an effort on a continue request, or a permission mode the instance does not enable"
+            "description": "Malformed chat or message id, an unknown action, or a model or an effort on a continue request"
           },
           "401": {
             "description": ""

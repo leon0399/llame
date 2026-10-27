@@ -722,7 +722,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
   });
 });
 
-describe('ActivationPartsRepository.resolvedSkillsForRun', () => {
+describe('ActivationPartsRepository.resolvedSkills', () => {
   const activation = (skill: string, kind: 'activation' | 'failure') =>
     createContextItemPart({
       producer: 'skill-activation',
@@ -747,9 +747,7 @@ describe('ActivationPartsRepository.resolvedSkillsForRun', () => {
       }),
     ]);
 
-    const resolved = await new ActivationPartsRepository(
-      db,
-    ).resolvedSkillsForRun({
+    const resolved = await new ActivationPartsRepository(db).resolvedSkills({
       id: MESSAGE_ID,
       chatId: CHAT_ID,
       runId: RUN_ID,
@@ -761,7 +759,7 @@ describe('ActivationPartsRepository.resolvedSkillsForRun', () => {
   const resolve = (parts: ReadonlyArray<unknown>, selected?: QueryValue) =>
     new ActivationPartsRepository(
       fakeDb(parts, selected === undefined ? {} : { selected }).db,
-    ).resolvedSkillsForRun({
+    ).resolvedSkills({
       id: MESSAGE_ID,
       chatId: CHAT_ID,
       runId: RUN_ID,

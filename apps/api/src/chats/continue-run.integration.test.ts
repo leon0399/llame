@@ -15,6 +15,11 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { eq } from 'drizzle-orm';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
@@ -25,6 +30,10 @@ import { createTemporalItem } from '../chats/context-item-producers';
 import { type MessagePart } from '../chats/context-builder';
 import { RecencyDigestService } from '../chats/recency-digest.service';
 import { createRunForMessage } from '../chats/run-creation';
+import {
+  continuedRecords,
+  type ContinuedEvent,
+} from '../chats/continue-projection';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { type CompactionCapability } from '../compaction/compaction.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -128,15 +137,23 @@ function scriptedModel(
   });
 }
 
+/**
+ * A client over a scripted model, recording every request the Run sends so a
+ * test can read what reached the model.
+ */
 function scriptedClient(
   model: MockLanguageModelV3,
-  contextWindowTokens = 128_000,
+  options: {
+    requests?: Array<Parameters<ModelClient['streamText']>[0]>;
+    contextWindowTokens?: number;
+  } = {},
 ): ModelClient {
   return {
     model: MODEL_ID,
     provider: 'mock',
-    contextWindowTokens,
+    contextWindowTokens: options.contextWindowTokens ?? 128_000,
     streamText(input) {
+      options.requests?.push(input);
       return streamText({
         model,
         system: input.system,
@@ -154,22 +171,6 @@ function scriptedClient(
             stepCount: event.steps.length,
           }),
       });
-    },
-  };
-}
-
-/** A recording wrapper over a scripted client: the requests a Run sent. */
-function recordingClient(
-  model: MockLanguageModelV3,
-  requests: Array<Parameters<ModelClient['streamText']>[0]>,
-  contextWindowTokens = 128_000,
-): ModelClient {
-  const delegate = scriptedClient(model, contextWindowTokens);
-  return {
-    ...delegate,
-    streamText(input) {
-      requests.push(input);
-      return delegate.streamText(input);
     },
   };
 }
@@ -266,6 +267,12 @@ describeIfDb('a Continue Run', () => {
     previousReplyModelId?: string;
     temporalItem?: boolean;
     promptImportsItem?: boolean;
+    /** One skill an earlier Run already activated on this turn. */
+    skillActivationItem?: string;
+    /** Whether the source Run was itself a Continue Run. */
+    sourceContinued?: boolean;
+    /** Whether the source Run made a second read of its own. */
+    chainedOwnCall?: boolean;
   }): Promise<ContinuedTurn> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -338,12 +345,28 @@ describeIfDb('a Continue Run', () => {
           },
         });
       }
+      if (options?.skillActivationItem !== undefined) {
+        storedItems.push({
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'skill-activation',
+            runId: sourceRunId,
+            payload: { kind: 'activation', skill: options.skillActivationItem },
+            text: `$${options.skillActivationItem}`,
+          },
+        });
+      }
+      const text =
+        options?.skillActivationItem === undefined
+          ? USER_TEXT
+          : `${USER_TEXT} $${options.skillActivationItem}`;
       const trigger = await messagesRepo.create({
         id: messageId,
         chatId,
         role: 'user',
         senderUserId: userId,
-        parts: [{ type: 'text', text: USER_TEXT }, ...storedItems],
+        parts: [{ type: 'text', text }, ...storedItems],
       });
       const sourceRun = await runsRepo.create({
         id: sourceRunId,
@@ -374,6 +397,56 @@ describeIfDb('a Continue Run', () => {
           attemptId: crypto.randomUUID(),
         },
       });
+      // The source Run's own log: the results it sent, and — when it was
+      // itself continued — the steps its admission recorded.
+      const sourceEvents = new RunEventsRepository(tx);
+      const sourceRecorded: Array<ContinuedEvent> = [];
+      for (const part of sourceParts) {
+        const record = keptResultOf(part);
+        if (record === undefined) continue;
+        const payload = {
+          toolCallId: record.toolCallId,
+          toolName: 'read',
+          status: 'success',
+          output: record.output,
+        };
+        await sourceEvents.append(sourceRun.id, 'tool.completed', payload);
+        sourceRecorded.push({ eventType: 'tool.completed', payload });
+      }
+      if (options?.sourceContinued === true) {
+        const payload = {
+          sourceRunId: crypto.randomUUID(),
+          parts: [],
+          steps: { [CALL_ID]: 0 },
+          results: {},
+        };
+        await sourceEvents.append(sourceRun.id, 'run.continued', payload);
+      }
+      if (options?.chainedOwnCall === true) {
+        const payload = {
+          toolCallId: 'call-own',
+          toolName: 'read',
+          input: { path: '/tmp/second.txt' },
+          stepNumber: 0,
+        };
+        await sourceEvents.append(sourceRun.id, 'tool.requested', payload);
+        sourceRecorded.push({ eventType: 'tool.requested', payload });
+      }
+      // SAFETY: the seeded reply parts are stored UI parts, and the projection
+      // re-validates every part it reads.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      const keptForRecords = sourceParts as ReadonlyArray<MessagePart>;
+      const records = continuedRecords({
+        keptParts: keptForRecords,
+        ...(options?.sourceContinued === true && {
+          sourceContinued: {
+            parts: [],
+            stepNumbers: new Map([[CALL_ID, 0]]),
+            results: new Map(),
+          },
+        }),
+        sourceEvents: sourceRecorded,
+      });
       const { run } = await createRunForMessage(
         tx,
         {
@@ -387,7 +460,8 @@ describeIfDb('a Continue Run', () => {
             action: 'continue',
             sourceRunId: sourceRun.id,
             keptParts: sourceParts,
-            keptStepNumbers: { [CALL_ID]: 0 },
+            keptStepNumbers: records.steps,
+            keptResults: records.results,
             replacesUsage: true,
           },
         },
@@ -415,6 +489,7 @@ describeIfDb('a Continue Run', () => {
       userId,
       userMessage: userMessageOf(turn),
       client,
+      followUpAction: 'continue',
     });
     await (result.consumeStream?.() ?? result.text);
   }
@@ -455,12 +530,20 @@ describeIfDb('a Continue Run', () => {
 
     await execute(
       turn,
-      recordingClient(scriptedModel(answerChunks('done')), requests),
+      scriptedClient(scriptedModel(answerChunks('done')), { requests }),
     );
 
     // One request: the history through the trigger, then the kept step.
     expect(requests).toHaveLength(1);
     const sent = requests[0]?.messages ?? [];
+    // The trigger appears once, and the kept step follows it directly.
+    const userMessages = sent.filter(({ role }) => role === 'user');
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]?.content).toContainEqual({
+      type: 'text',
+      text: USER_TEXT,
+    });
+    expect(sent.at(-3)).toBe(userMessages[0]);
     // The request ends with the kept step: one assistant turn with its
     // reasoning, its text, and its call, then one turn with its result.
     expect(sent.slice(-2).map(({ role }) => role)).toEqual([
@@ -535,7 +618,10 @@ describeIfDb('a Continue Run', () => {
     await expect(
       execute(
         turn,
-        recordingClient(scriptedModel(answerChunks('done')), requests, 8),
+        scriptedClient(scriptedModel(answerChunks('done')), {
+          requests,
+          contextWindowTokens: 8,
+        }),
       ),
     ).rejects.toThrow(/context window/u);
 
@@ -565,12 +651,6 @@ describeIfDb('a Continue Run', () => {
     await execute(turn, scriptedClient(scriptedModel(answerChunks('done'))));
 
     const items = await contextItemsOf(turn);
-    console.error(
-      'AVAIL',
-      JSON.stringify((await runOf(turn.runId))?.turnToolAvailability),
-      'P',
-      JSON.stringify(items.map((i) => i.data.producer)),
-    );
     expect(
       items.filter((item) => item.data.producer === 'temporal'),
     ).toHaveLength(1);
@@ -588,18 +668,147 @@ describeIfDb('a Continue Run', () => {
     expect(availability[0]?.data.runId).toBe(turn.runId);
   });
 
+  it('reuses the stored skill activation and stores no second one', async () => {
+    // The turn named a skill an earlier Run already activated; the Continue
+    // Run carries that item and authors no second one (turn-actions D8).
+    const turn = await seedContinuedTurn({ skillActivationItem: 'demo' });
+
+    await execute(turn, scriptedClient(scriptedModel(answerChunks('done'))));
+
+    const items = await contextItemsOf(turn);
+    expect(
+      items.filter((item) => item.data.producer === 'skill-activation'),
+    ).toHaveLength(1);
+    expect(
+      (await eventsOfRun(turn.runId)).filter(
+        ({ eventType }) => eventType === 'tool.requested',
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps a chained Continue's earlier steps separate from its own", async () => {
+    // The source Run was itself continued: it kept one step of its own source
+    // (its own events number its step 0, and so does the kept one) and made a
+    // second. The new Continue must send both as separate steps.
+    const turn = await seedContinuedTurn({
+      sourceContinued: true,
+      chainedOwnCall: true,
+      replyParts: [
+        keptParts[0],
+        keptParts[1],
+        keptParts[2],
+        {
+          type: 'tool-read',
+          toolCallId: 'call-own',
+          state: 'output-available',
+          input: { path: '/tmp/second.txt' },
+          output: { status: 'success', text: 'second file' },
+          outcome: 'success',
+        },
+      ],
+    });
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), { requests }),
+    );
+
+    const sent = requests[0]?.messages ?? [];
+    expect(sent.slice(-4).map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+    ]);
+    // Both kept calls arrive, each in its own assistant turn.
+    const callIds = sent.flatMap(({ role, content }) =>
+      role === 'assistant' && Array.isArray(content)
+        ? content.flatMap((part) =>
+            part.type === 'tool-call' ? [part.toolCallId] : [],
+          )
+        : [],
+    );
+    expect(callIds).toEqual([CALL_ID, 'call-own']);
+  });
+
+  it('reads the previous completed Run the reply names, not the newest one', async () => {
+    // Two completed Runs answer one turn; the reply names the older, which is
+    // the Run whose answer and receipts a later summary must reproduce.
+    const chatId = crypto.randomUUID();
+    const seeded = await tenantDb.runAs(userId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      const runsRepo = new RunsRepository(tx);
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Previous completed Run',
+      });
+      const trigger = await messagesRepo.create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: USER_TEXT }],
+      });
+      const older = await runsRepo.markFinished(
+        (
+          await runsRepo.create({
+            chatId,
+            messageId: trigger.id,
+            userId,
+            modelId: MODEL_ID,
+          })
+        ).id,
+        userId,
+        'completed',
+      );
+      await messagesRepo.createAssistantReplyIfAbsent({
+        chatId,
+        inReplyTo: trigger.id,
+        parts: [{ type: 'text', text: 'the older answer' }],
+        usage: { status: 'completed', complete: true, runId: older!.id },
+      });
+      await runsRepo.markFinished(
+        (
+          await runsRepo.create({
+            chatId,
+            messageId: trigger.id,
+            userId,
+            modelId: MODEL_ID,
+          })
+        ).id,
+        userId,
+        'completed',
+      );
+      return { seq: trigger.seq, olderId: older!.id };
+    });
+
+    // Nothing precedes the trigger, so no reply is answerable yet.
+    await expect(
+      tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findCompletedReplyRunBefore(chatId, userId, {
+          beforeSeq: seeded.seq,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+    // The newest completed Run answers this turn too, so only the reply's
+    // usage can name the one that produced the answer the model read.
+    await expect(
+      tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findCompletedReplyRunBefore(chatId, userId, {
+          // Any sequence after this turn's reply stands for a later turn.
+          beforeSeq: seeded.seq + 10,
+        }),
+      ),
+    ).resolves.toMatchObject({ run: { id: seeded.olderId } });
+  });
+
   it('reuses the stored prompt-imports item and stores no second one', async () => {
     const turn = await seedContinuedTurn({ promptImportsItem: true });
 
     await execute(turn, scriptedClient(scriptedModel(answerChunks('done'))));
 
     const items = await contextItemsOf(turn);
-    console.error(
-      'AVAIL',
-      JSON.stringify((await runOf(turn.runId))?.turnToolAvailability),
-      'P',
-      JSON.stringify(items.map((i) => i.data.producer)),
-    );
     expect(
       items.filter((item) => item.data.producer === 'prompt-imports'),
     ).toHaveLength(1);
@@ -673,28 +882,30 @@ describeIfDb('a Continue Run', () => {
     });
 
     const reply = await replyOf(turn);
-    const parts = reply?.parts ?? [];
-    // Each kept part, kept item included, appears once; the attempt's own item
-    // appears once as well, and nothing duplicates a kept copy.
-    expect(parts.filter((part) => isSameItem(part, keptItem))).toHaveLength(1);
-    expect(parts.filter((part) => isSameItem(part, ownItem))).toHaveLength(1);
-    // The kept parts come first, once, then the attempt's own item — no
-    // rebuilt part holds a kept call id, so it goes at the start of the
-    // rebuilt reply — then the attempt's output.
-    expect(parts.slice(0, keptParts.length + 2)).toEqual([
+    // The kept parts come first, once (the kept item they carried included),
+    // then the attempt's own item — no rebuilt part holds a kept call id, so it
+    // goes at the start of the rebuilt reply — then the attempt's output.
+    expect(reply?.parts).toEqual([
       ...keptParts,
       keptItem,
       ownItem,
+      { type: 'text', text: 'half' },
     ]);
-    expect(parts.at(-1)).toEqual({ type: 'text', text: 'half' });
   });
 });
 
-/** Whether a stored part is the rail item `right` describes. */
-function isSameItem(
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the stored part is the reply's untyped jsonb; `isContextItemPart` parses it before anything is read.
-  left: unknown,
-  right: { data: { text?: string } },
-): boolean {
-  return isContextItemPart(left) && left.data.text === right.data.text;
+/** The recorded result of one kept part, when it is a settled `read` call. */
+function keptResultOf(
+  part: unknown,
+):
+  | { toolCallId: string; output: { status: 'success' } & UnknownRecord }
+  | undefined {
+  if (!isRecord(part)) return undefined;
+  const toolCallId = part['toolCallId'];
+  const output = part['output'];
+  return isString(toolCallId) &&
+    isRecord(output) &&
+    output['status'] === 'success'
+    ? { toolCallId, output: { ...output, status: 'success' } }
+    : undefined;
 }

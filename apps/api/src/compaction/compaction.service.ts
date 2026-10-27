@@ -251,9 +251,10 @@ export class CompactionService {
     previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary> {
     const source = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const found = await new RunsRepository(
-        tx,
-      ).findMostRecentCompletedByChatMessageSequence(
+      // The Run the previous reply's usage names, so a reply a later Run
+      // replaced is summarized by the model that produced the answer the model
+      // read, not by the Run that replaced it (model-system-prompts).
+      const found = await new RunsRepository(tx).findCompletedReplyRunBefore(
         input.chatId,
         input.userId,
         { beforeSeq: input.triggeringUserSeq },

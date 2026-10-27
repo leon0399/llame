@@ -85,11 +85,6 @@ export type BillingCatalog = ReadonlyArray<{
 export type RunReplyFinalization = {
   /** The Run row as its terminal transition returned it. */
   readonly run: Run;
-  /**
-   * The kept parts of a Continue Run; read from the log when absent, and
-   * overridable by a caller that already holds them.
-   */
-  readonly continued?: ContinueState;
   readonly status: TerminalRunStatus;
   /** The settling attempt; absent for a settler outside any attempt. */
   readonly attemptId?: string;
@@ -317,7 +312,7 @@ function rebuiltReplyWrite(
   log: Array<RunEvent>,
   settled: Array<RunEvent>,
 ): ReplyWrite | undefined {
-  const continued = input.continued ?? continueStateFromEvents(log);
+  const continued = continueStateFromEvents(log);
   if (reply !== undefined) {
     const running = reply.usage;
     if (!isRunningUsage(running)) return undefined;

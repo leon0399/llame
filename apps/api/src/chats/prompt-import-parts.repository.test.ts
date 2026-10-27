@@ -212,9 +212,9 @@ describe('PromptImportPartsRepository.appendForRun', () => {
   });
 });
 
-describe('PromptImportPartsRepository.findForRun', () => {
+describe('PromptImportPartsRepository.find', () => {
   const find = (parts: ReadonlyArray<unknown>) =>
-    new PromptImportPartsRepository(fakeDb(parts).db).findForRun({
+    new PromptImportPartsRepository(fakeDb(parts).db).find({
       id: MESSAGE_ID,
       chatId: CHAT_ID,
       runId: RUN_ID,
@@ -271,7 +271,7 @@ describe('PromptImportPartsRepository.findForRun', () => {
     const { db } = fakeDb([], { selected: [] });
 
     expect(
-      await new PromptImportPartsRepository(db).findForRun({
+      await new PromptImportPartsRepository(db).find({
         id: MESSAGE_ID,
         chatId: CHAT_ID,
         runId: RUN_ID,
@@ -297,12 +297,10 @@ describe('PromptImportPartsRepository owner scoping', () => {
 
   const input = { id: MESSAGE_ID, chatId: CHAT_ID, runId: RUN_ID };
 
-  it('findForRun scopes by message, chat, and the user role', async () => {
+  it('find scopes by message, chat, and the user role', async () => {
     const { db, queries } = loggingDb();
 
-    await new PromptImportPartsRepository(db)
-      .findForRun(input)
-      .catch(() => null);
+    await new PromptImportPartsRepository(db).find(input).catch(() => null);
 
     expect(queries).toHaveLength(1);
     expect(queries[0].sql).toContain('"messages"."id" = $');

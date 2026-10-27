@@ -695,10 +695,7 @@ function mockNormalExecutionRepositories() {
   // The measurement source: absent unless a case installs a completed
   // predecessor, so the whole request is estimated instead.
   const findCompleted = vi
-    .spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    )
+    .spyOn(RunsRepository.prototype, 'findCompletedReplyRunBefore')
     .mockResolvedValue(undefined);
   // The epoch and availability baseline: absent unless a case installs a
   // dispatched predecessor.
@@ -711,10 +708,9 @@ function mockNormalExecutionRepositories() {
   const hasMutation = vi
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
-  vi.spyOn(
-    PromptImportPartsRepository.prototype,
-    'findForRun',
-  ).mockResolvedValue(undefined);
+  vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue(
+    undefined,
+  );
   vi.spyOn(
     PromptImportPartsRepository.prototype,
     'appendForRun',
@@ -2030,7 +2026,7 @@ describe('RunExecutionService executeRun', () => {
         .mockResolvedValue(undefined);
       vi.spyOn(
         ActivationPartsRepository.prototype,
-        'resolvedSkillsForRun',
+        'resolvedSkills',
       ).mockResolvedValue(new Set());
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2081,7 +2077,7 @@ describe('RunExecutionService executeRun', () => {
       mockNormalExecutionRepositories();
       vi.spyOn(
         ActivationPartsRepository.prototype,
-        'resolvedSkillsForRun',
+        'resolvedSkills',
       ).mockResolvedValue(new Set());
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2173,7 +2169,7 @@ describe('RunExecutionService executeRun', () => {
           sourceRunId: null,
         });
         const resolved = vi
-          .spyOn(ActivationPartsRepository.prototype, 'resolvedSkillsForRun')
+          .spyOn(ActivationPartsRepository.prototype, 'resolvedSkills')
           .mockResolvedValue(new Set());
         const appendActivation = vi
           .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2222,7 +2218,7 @@ describe('RunExecutionService executeRun', () => {
     mockNormalExecutionRepositories();
     vi.spyOn(
       ActivationPartsRepository.prototype,
-      'resolvedSkillsForRun',
+      'resolvedSkills',
     ).mockResolvedValue(new Set());
     const appendActivation = vi
       .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2276,7 +2272,7 @@ describe('RunExecutionService executeRun', () => {
       });
       vi.spyOn(
         ActivationPartsRepository.prototype,
-        'resolvedSkillsForRun',
+        'resolvedSkills',
       ).mockResolvedValue(new Set());
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -5874,6 +5870,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolCallId: 'call-1',
       toolName: toolDeclaration.id,
       input: { q: 'llame' },
+      stepNumber: 0,
       permission: allowDecision(toolDeclaration.id),
     });
     expect(appended[4]?.payload).toStrictEqual({
@@ -6253,6 +6250,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolCallId: 'call-1',
       toolName: toolDeclaration.id,
       input: { q: 'llame' },
+      stepNumber: 0,
       permission: {
         policyId: 'restarted-policy',
         decision: 'reject',
@@ -12006,7 +12004,7 @@ describe('RunExecutionService instruction files', () => {
       const repositories = mockNormalExecutionRepositories();
       const append = vi.spyOn(RunEventsRepository.prototype, 'append');
       const findPromptImports = vi
-        .spyOn(PromptImportPartsRepository.prototype, 'findForRun')
+        .spyOn(PromptImportPartsRepository.prototype, 'find')
         .mockResolvedValue(undefined);
       const { client } = readThenAnswerClient(touch);
       const execution = makeExecutionService(client, undefined, undefined, {
@@ -12950,10 +12948,7 @@ describe('RunExecutionService instruction files', () => {
     if (!isPromptImportsPayload(payload)) {
       throw new Error('the stored item must carry a valid payload');
     }
-    vi.spyOn(
-      PromptImportPartsRepository.prototype,
-      'findForRun',
-    ).mockResolvedValue({
+    vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue({
       ...item,
       data: {
         ...item.data,
@@ -13241,7 +13236,7 @@ describe('RunExecutionService prompt imports', () => {
       undefined,
     );
     const find = vi
-      .spyOn(PromptImportPartsRepository.prototype, 'findForRun')
+      .spyOn(PromptImportPartsRepository.prototype, 'find')
       .mockResolvedValue(undefined);
     const append = vi
       .spyOn(PromptImportPartsRepository.prototype, 'appendForRun')
