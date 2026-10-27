@@ -130,8 +130,9 @@ concurrently, and the aggregate waits for every child up to
 `tools.callTimeoutSeconds`; each child is bounded by its own `timeoutSeconds`.
 Results use Reciprocal Rank Fusion (`k=60`), grouped by canonical URL while
 ignoring a leading `www.` and trailing `/`. The emitted URL is the
-best-ranked member's spelling. It is empty only when no child has results and
-at least one child was empty; notes name failed and empty children. Cost
+best-ranked member's spelling. It is empty only when no child has results or a
+grounded answer and at least one child was empty; notes name failed and empty
+children. Cost
 multiplies by child count, while latency is the slowest child within those
 deadlines, so a hosted child's 10 to 30 seconds sets the aggregate's latency.
 The output bounds each attached answer at 8,000 units and 20 citations; when

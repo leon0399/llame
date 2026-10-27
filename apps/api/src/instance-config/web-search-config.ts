@@ -131,7 +131,10 @@ export type WebSearchEngineConfig =
   | {
       id: string;
       type: 'aggregate';
-      /** Two or more distinct result-engine ids run concurrently and merged. */
+      /**
+       * Two or more distinct engine ids run concurrently and merged; a
+       * `model-hosted` child also contributes its grounded answer.
+       */
       engines: ReadonlyArray<string>;
     };
 
