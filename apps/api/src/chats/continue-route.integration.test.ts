@@ -259,7 +259,7 @@ d('the follow-up route', () => {
     expect(models.client.turns).toHaveLength(0);
   });
 
-  it('refuses a body the continue variant does not describe', async () => {
+  it('refuses a body no variant describes', async () => {
     const turn = await seedFailedTurn();
 
     // The schema has no model or effort on `continue`, so the request is not
@@ -271,10 +271,18 @@ d('the follow-up route', () => {
     });
     expect(named.status).toBe(400);
 
-    // `regenerate` is a variant a later action adds; until then it is not one
-    // this route describes either.
-    const regenerate = await followUp(turn, { action: 'regenerate' });
-    expect(regenerate.status).toBe(400);
+    // The regenerate variant requires its model, so a body without one is not
+    // that variant either.
+    const modelless = await followUp(turn, { action: 'regenerate' });
+    expect(modelless.status).toBe(400);
+
+    // A field neither variant declares is an unknown property.
+    const unknown = await followUp(turn, {
+      action: 'regenerate',
+      modelId: MODEL_ID,
+      unknownField: true,
+    });
+    expect(unknown.status).toBe(400);
 
     expect(await runsOf(turn.chatId)).toHaveLength(1);
   });
@@ -307,6 +315,35 @@ d('the follow-up route', () => {
     expect(unknown.status).toBe(400);
 
     expect(await runsOf(turn.chatId)).toHaveLength(1);
+  });
+
+  it('starts a Regenerate Run whose id is the stream start frame', async () => {
+    const turn = await seedFailedTurn({ status: 'completed' });
+
+    const stream = await followUp(turn, {
+      action: 'regenerate',
+      modelId: MODEL_ID,
+    });
+
+    expect(stream.status).toBe(200);
+    const first = await stream.nextFrame('the first frame');
+    expect(first.type).toBe('start');
+
+    const runs = await runsOf(turn.chatId);
+    expect(runs).toHaveLength(2);
+    const regenerated = runs.find((run) => run.id !== turn.runId);
+    expect(regenerated).toMatchObject({
+      messageId: turn.messageId,
+      followUpAction: 'regenerate',
+      sourceRunId: turn.runId,
+      modelId: MODEL_ID,
+      status: 'queued',
+    });
+    expect(first.messageId).toBe(regenerated?.id);
+    // A Regenerate continues nothing: its log holds no kept parts.
+    const events = await eventsOf(regenerated!.id);
+    expect(events.map(({ eventType }) => eventType)).toEqual(['run.created']);
+    expect(models.client.turns).toHaveLength(0);
   });
 
   it('refuses a follow-up on an older turn', async () => {

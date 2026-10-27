@@ -61,6 +61,7 @@ function successToolPart(toolCallId: string): ToolActivityPart {
     input: { query: 'needle' },
     output: { status: 'success', value: 'found' },
     outcome: 'success',
+    classification: null,
   };
 }
 
@@ -76,6 +77,7 @@ function errorToolPart(
     input: { query: 'needle' },
     errorText,
     outcome,
+    classification: null,
   };
 }
 
@@ -345,6 +347,7 @@ describe('toolActivityPart', () => {
         toolName: 'search',
         input: { query: 'q' },
         result,
+        classification: 'read_only',
       }),
     ).toEqual({
       type: 'tool-search',
@@ -353,7 +356,21 @@ describe('toolActivityPart', () => {
       input: { query: 'q' },
       output: result,
       outcome: 'success',
+      classification: 'read_only',
     });
+    // No decision was made, so the part carries no `permission` key at all —
+    // not even one holding `undefined`.
+    expect(
+      Object.keys(
+        toolActivityPart({
+          toolCallId: 'call-1',
+          toolName: 'search',
+          input: { query: 'q' },
+          result,
+          classification: 'read_only',
+        }),
+      ),
+    ).not.toContain('permission');
   });
 
   it('omits an empty derived-decision list', () => {
@@ -363,6 +380,7 @@ describe('toolActivityPart', () => {
       input: { query: 'q' },
       result: { status: 'success', value: 'ok' },
       derivedDecisions: [],
+      classification: 'read_only',
     });
 
     expect(part).not.toHaveProperty('derivedDecisions');
@@ -388,6 +406,7 @@ describe('toolActivityPart', () => {
         toolName: 'search',
         input: { query: 'q' },
         result,
+        classification: 'read_only',
       });
 
       expect(part).toMatchObject({
@@ -420,6 +439,7 @@ describe('toolActivityPart', () => {
         message: REJECTED_HOP_MESSAGE,
         rejectedUrl: refusedUrl,
       },
+      classification: 'read_only',
     });
 
     expect(part).toEqual({
@@ -430,6 +450,7 @@ describe('toolActivityPart', () => {
       errorText: REJECTED_HOP_MESSAGE,
       outcome: 'permission_denied',
       errorRejectedUrl: refusedUrl,
+      classification: 'read_only',
     });
     // The locator rides beside the fixed message, never inside it.
     expect(part.errorText).not.toContain('blocked.example.test');
@@ -446,6 +467,7 @@ describe('toolActivityPart', () => {
         message: 'failed',
         rejectedUrl: 'https://blocked.example.test/page',
       },
+      classification: 'read_only',
     });
 
     expect(part).not.toHaveProperty('errorRejectedUrl');
@@ -462,6 +484,7 @@ describe('toolActivityPart', () => {
         message: 'rejected',
         rejectedUrl: 'https://blocked.example.test/page',
       },
+      classification: 'read_only',
     });
 
     expect(part).not.toHaveProperty('errorRejectedUrl');
@@ -630,6 +653,7 @@ describe('reconstructDurableAssistant', () => {
         errorText: 'stopped',
         outcome: 'cancelled',
         resultProviderMetadata: { llame: { cancelled: true } },
+        classification: null,
       },
       {
         type: 'tool-lookup',
@@ -638,6 +662,7 @@ describe('reconstructDurableAssistant', () => {
         input: { query: 'second' },
         output: { status: 'success', value: 'two' },
         outcome: 'success',
+        classification: null,
       },
     ]);
     expect(result.openToolCalls).toEqual(new Map());
@@ -676,6 +701,7 @@ describe('reconstructDurableAssistant', () => {
         errorText: 'rejected',
         outcome: 'permission_denied',
         permission,
+        classification: null,
       },
     ]);
   });
@@ -711,6 +737,7 @@ describe('reconstructDurableAssistant', () => {
         output: { status: 'success', value: 'ok' },
         outcome: 'success',
         permission,
+        classification: null,
       },
     ]);
   });
@@ -732,6 +759,7 @@ describe('reconstructDurableAssistant', () => {
         output: { status: 'success', value: 'ok' },
         outcome: 'success',
         permission,
+        classification: null,
       },
     ]);
   });
@@ -752,6 +780,7 @@ describe('reconstructDurableAssistant', () => {
         input: { query: 'needle' },
         output: { status: 'success', value: 'ok' },
         outcome: 'success',
+        classification: null,
       },
     ]);
   });
@@ -772,6 +801,7 @@ describe('reconstructDurableAssistant', () => {
         input: { query: 'needle' },
         output: { status: 'success', value: 'ok' },
         outcome: 'success',
+        classification: null,
       },
     ]);
   });
@@ -793,6 +823,7 @@ describe('reconstructDurableAssistant', () => {
         output: { status: 'success', value: 'ok' },
         outcome: 'success',
         permission,
+        classification: null,
       },
     ]);
   });
@@ -844,6 +875,7 @@ describe('reconstructDurableAssistant', () => {
         outcome: 'success',
         permission,
         derivedDecisions,
+        classification: null,
       },
     ]);
   });
@@ -1146,6 +1178,7 @@ describe('reconstructDurableAssistant', () => {
         errorText: REJECTED_HOP_MESSAGE,
         outcome: 'permission_denied',
         errorRejectedUrl: refusedUrl,
+        classification: null,
       },
     ]);
     // The next turn replays the part: the model reads the fixed message plus
@@ -1344,6 +1377,7 @@ describe('reconstructDurableAssistant', () => {
         input: undefined,
         output: { status: 'success', value: 'done' },
         outcome: 'success',
+        classification: null,
       },
       { type: 'data-cap-notice', data: { stepsUsed: 4, maxSteps: 4 } },
     ]);
@@ -1499,5 +1533,91 @@ describe('system-origin tool activity', () => {
     expect(result.collector.parts()).toEqual([
       expect.objectContaining({ toolCallId: 'other-1' }),
     ]);
+  });
+});
+
+describe('stored tool-part classification (turn-actions D10)', () => {
+  const reconstruct = (events: Array<RunEvent>) =>
+    reconstructDurableAssistant(events).collector.parts();
+
+  /** requested -> started (with `started`) -> completed, one `bash` call. */
+  const bashCall = (started: { classification?: string } | undefined) => [
+    event('tool.requested', {
+      toolCallId: 'call-1',
+      toolName: 'bash',
+      input: { command: 'make' },
+    }),
+    ...(started === undefined
+      ? []
+      : [
+          event('tool.started', {
+            toolCallId: 'call-1',
+            toolName: 'bash',
+            ...started,
+          }),
+        ]),
+    event('tool.completed', {
+      toolCallId: 'call-1',
+      output: { status: 'success', value: 'built' },
+    }),
+  ];
+
+  it.each([
+    ['a started call', { classification: 'execute_code' }, 'execute_code'],
+    ['an MCP call', { classification: 'unverified' }, 'unverified'],
+    ['a call whose started event recorded no classification', {}, undefined],
+    [
+      'a malformed recorded classification',
+      { classification: 'not-a-classification' },
+      undefined,
+    ],
+  ])('records %s as %s', (_name, started, expected: string | undefined) => {
+    const [part] = reconstruct(bashCall(started));
+
+    // An absent field is the legacy fallback, not "never started": only a
+    // call with no `tool.started` records `null`.
+    expect(part).toEqual(
+      expect.objectContaining(
+        expected === undefined ? {} : { classification: expected },
+      ),
+    );
+    if (expected === undefined) {
+      expect(part).not.toHaveProperty('classification');
+    }
+  });
+
+  it('records no classification for a call that never started', () => {
+    // A gate-rejected or permission-denied call emits requested then
+    // completed, with no `tool.started`: nothing ran, so the part says so.
+    const parts = reconstruct(bashCall(undefined));
+
+    expect(parts).toEqual([
+      expect.objectContaining({
+        state: 'output-available',
+        classification: null,
+      }),
+    ]);
+  });
+
+  it('keeps the classification out of the model-facing replay', () => {
+    const parts = reconstruct([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        input: { command: 'make' },
+      }),
+      event('tool.started', {
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        classification: 'execute_code',
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success', value: 'built' },
+      }),
+    ]);
+
+    const projection = projectToolObservations(parts);
+    expect(JSON.stringify(projection)).not.toContain('execute_code');
   });
 });

@@ -501,6 +501,7 @@ describe('surfaces without model identity carry no effort', () => {
       usage: { modelId: 'm', effort: 'high' },
       inReplyTo: null,
       createdAt: new Date('2026-08-24T00:00:00.000Z'),
+      revisedAt: null,
     };
 
     const dto = toSharedChatResponse({ id: 'chat-1', title: 'T' }, [message]);
@@ -556,6 +557,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
       usage: { modelId: 'PRIVATE_MODEL', providerMetadata: 'PRIVATE_META' },
       inReplyTo: null,
       createdAt: new Date('2026-08-25T00:00:00.000Z'),
+      revisedAt: null,
     };
 
     expect(toChatMessageResponse(message).parts).toEqual(parts);
@@ -580,6 +582,7 @@ it('adds checkpoint boundary, payload summary, count, and usage stats to owner r
     },
     inReplyTo: null,
     createdAt: new Date('2026-08-25T00:00:00.000Z'),
+    revisedAt: null,
     absorbedMessageCount: 3,
   };
 
@@ -615,6 +618,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       parts: [],
       attachments: [],
       usage: null,
+      revisedAt: null,
       inReplyTo: null,
       createdAt: new Date('2026-07-11T00:00:00.000Z'),
       ...overrides,

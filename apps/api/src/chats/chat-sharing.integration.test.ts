@@ -193,6 +193,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
           attemptId: '77777777-7777-4777-8777-777777777777',
           modelId: 'model-a',
         },
+        followUpAction: null,
       });
       expect(reply).toBeDefined();
       await replies.updateRunningReplyParts({

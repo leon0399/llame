@@ -158,6 +158,7 @@ function activeCheckpoint(): CheckpointMessage {
     usage: null,
     inReplyTo: null,
     createdAt: new Date('2026-08-11T08:00:03.000Z'),
+    revisedAt: null,
   };
 }
 
@@ -247,6 +248,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         usage: null,
         inReplyTo: null,
         createdAt: new Date(),
+        revisedAt: null,
       },
     };
 
@@ -346,6 +348,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         usage,
         inReplyTo,
         createdAt: new Date(),
+        revisedAt: null,
       }),
     );
     vi.spyOn(

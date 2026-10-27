@@ -197,15 +197,25 @@ export interface ToolContext {
 /** SPEC §13.5 classification. Code-owned non-read-only execution requires an
  * exact host capability; MCP executors use `unverified` because llame makes no
  * claim about their effects. */
-export type ToolClassification =
-  | 'read_only'
-  | 'write_low_risk'
-  | 'write_high_risk'
-  | 'execute_code'
-  | 'external_send'
-  | 'financial_or_sensitive'
-  | 'admin'
-  | 'unverified';
+export const TOOL_CLASSIFICATIONS = [
+  'read_only',
+  'write_low_risk',
+  'write_high_risk',
+  'execute_code',
+  'external_send',
+  'financial_or_sensitive',
+  'admin',
+  'unverified',
+] as const;
+
+export type ToolClassification = (typeof TOOL_CLASSIFICATIONS)[number];
+
+/** Whether a stored value names one of the classifications above. */
+export function isToolClassification(
+  value: unknown,
+): value is ToolClassification {
+  return TOOL_CLASSIFICATIONS.some((known) => known === value);
+}
 
 /**
  * Structured tool observation — never a raw blob; small and typed. The

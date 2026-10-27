@@ -42,6 +42,8 @@ export interface ChunkerMessage {
   role: string;
   parts: Array<unknown>;
   usage?: unknown;
+  /** `messages.revised_at`; a revised reply is never indexed (search-projection). */
+  revisedAt?: Date | null;
   createdAt: Date;
 }
 

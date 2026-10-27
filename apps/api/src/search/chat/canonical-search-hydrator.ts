@@ -28,6 +28,7 @@ export type CanonicalHydrationRow = {
   message_role: string;
   message_parts: unknown;
   message_usage: unknown;
+  message_revised_at: unknown;
   message_created_at: Date | string;
   first_message_id: string;
   last_message_id: string;
@@ -142,8 +143,7 @@ function decodeCanonicalMessage(
   }
 
   // A checkpoint carries model-facing presentation text, never canonical
-  // source evidence. Keep it in the sequence walk so interior checkpoints
-  // preserve monotonic source coordinates, but never use it as a boundary.
+  // source evidence. It stays in the walk, but is never a boundary.
   const { message_role: role } = row;
   if (role === 'checkpoint' || role === 'system' || role === 'tool') {
     return nonSourceMessage(messageSeq, 'presentation');
@@ -154,18 +154,17 @@ function decodeCanonicalMessage(
     !isImmutableEvidenceMessage({
       role,
       usage: row.message_usage,
+      revisedAt: row.message_revised_at,
     }) ||
     !Array.isArray(row.message_parts)
   ) {
     return nonSourceMessage(messageSeq, 'invalid');
   }
-
-  const timestamp = parseTimestamp(row.message_created_at);
   return {
     messageSeq,
     kind: 'source',
     role,
-    timestamp,
+    timestamp: parseTimestamp(row.message_created_at),
     visibleText: visibleMessageText(row.message_parts),
   };
 }
@@ -400,6 +399,7 @@ function messagesInBoundarySelect(ownerUserId: string, chatId: string) {
       message.role AS message_role,
       message.parts AS message_parts,
       message.usage AS message_usage,
+      message.revised_at AS message_revised_at,
       message.created_at AS message_created_at,
       boundaries.first_message_id,
       boundaries.last_message_id,

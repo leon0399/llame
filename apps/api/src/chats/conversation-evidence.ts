@@ -30,13 +30,19 @@ export function visibleMessageText(parts: ReadonlyArray<unknown>): string {
 /**
  * Identifies rows whose visible text can be used as immutable conversation
  * evidence. Legacy assistant rows with no completion status remain eligible;
- * the existing completion classifier defines that compatibility behavior.
+ * the existing completion classifier defines that compatibility behavior. A
+ * row a Regenerate revised is never evidence again, whatever its usage says.
  */
 export function isImmutableEvidenceMessage(message: {
   role: string;
   usage?: unknown;
+  /** `messages.revised_at`, read raw: any recorded value marks a revised row. */
+  revisedAt?: unknown;
 }): boolean {
-  return message.role === 'user'
-    ? true
-    : message.role === 'assistant' && isCompletedAssistantTurn(message);
+  if (message.role === 'user') return true;
+  return (
+    message.role === 'assistant' &&
+    (message.revisedAt === null || message.revisedAt === undefined) &&
+    isCompletedAssistantTurn(message)
+  );
 }

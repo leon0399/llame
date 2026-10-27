@@ -4,16 +4,17 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 
 import * as schema from '../db/schema';
-import type { Chat, Message } from '../db/schema';
+import type { Chat, FollowUpAction, Message } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 import { MessagesRepository } from './messages-repository';
 import { RunningReplyRepository } from './running-reply-repository';
+import type { RunningReplyUsage } from '../runs/run-reply-finalizer';
 
 type QueryValue = ReadonlyArray<unknown>;
 type MessageInsert = typeof schema.messages.$inferInsert;
 
-const RUNNING_USAGE = {
+const RUNNING_USAGE: RunningReplyUsage = {
   status: 'running',
   complete: false,
   runId: 'run-1',
@@ -129,6 +130,7 @@ const message = (
   usage: null,
   inReplyTo: null,
   createdAt: new Date(seq * 1000),
+  revisedAt: null,
 });
 
 describe('MessagesRepository query windows and conversation reads', () => {
@@ -1056,7 +1058,10 @@ describe('MessagesRepository checkpoint query shapes', () => {
  * driver after the sequence read answers 1, and what it returns when the
  * upsert yields `returned`.
  */
-async function renderedUpsert(returned: QueryValue) {
+async function renderedUpsert(
+  returned: QueryValue,
+  followUpAction: FollowUpAction | null = null,
+) {
   const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
   const db: Db = drizzle.mock({ schema });
   vi.spyOn(db, 'transaction').mockImplementation(async (callback) =>
@@ -1088,6 +1093,7 @@ async function renderedUpsert(returned: QueryValue) {
     chatId: chat.id,
     inReplyTo: 'user-message',
     usage: RUNNING_USAGE,
+    followUpAction,
   });
   return { statements, result };
 }
@@ -1111,6 +1117,42 @@ describe('Running replies', () => {
       'user-message',
       '[]',
     ]);
+  });
+
+  it('replaces a completed reply of another Run for a Regenerate, and marks it revised', async () => {
+    const { statements } = await renderedUpsert([], 'regenerate');
+
+    expect(statements).toHaveLength(1);
+    // The guard admits the non-completed reply it always did, and a completed
+    // reply whose usage names a different Run (turn-actions D7).
+    expect(statements[0]?.sql).toContain(
+      `where (${REPLACEABLE_SQL}) or (("messages"."usage" ->> 'status') = 'completed' and ("messages"."usage" ->> 'runId') is not null and ("messages"."usage" ->> 'runId') <> $10)`,
+    );
+    // The same statement marks the row it replaced, so no reader treats that
+    // answer as evidence again; every other reset keeps the stored value.
+    expect(statements[0]?.sql).toContain(
+      `"revised_at" = case when ("messages"."usage" ->> 'status') = 'completed' then now() else "messages"."revised_at" end`,
+    );
+    expect(statements[0]?.params).toEqual([
+      chat.id,
+      2,
+      'assistant',
+      null,
+      '[]',
+      '[]',
+      JSON.stringify(RUNNING_USAGE),
+      'user-message',
+      '[]',
+      RUNNING_USAGE.runId,
+    ]);
+  });
+
+  it('leaves a completed reply untouched for any other Run, and marks nothing', async () => {
+    const { statements } = await renderedUpsert([], 'continue');
+
+    expect(statements[0]?.sql).toContain(`where ${REPLACEABLE_SQL} returning`);
+    // The reset writes no mark, so the column never appears in the SET list.
+    expect(statements[0]?.sql).not.toContain('"revised_at" =');
   });
 
   it('returns the upserted reply, or nothing when a completed reply refused the reset', async () => {

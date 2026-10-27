@@ -329,6 +329,7 @@ describeIfDb(
             effort: undefined,
             permissionMode: 'default',
           }),
+          followUpAction: null,
         });
         if (!reply) throw new Error('Attempt A did not create its reply.');
         await events.append(turn.runId, 'model.delta', { text: 'A partial. ' });

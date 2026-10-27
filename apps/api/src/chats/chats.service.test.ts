@@ -94,6 +94,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       absorbedThroughSeq: null,
       inReplyTo: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
+      revisedAt: null,
       ...overrides,
     };
   }
@@ -255,6 +256,7 @@ describe('ChatsService message windows, updates and forks', () => {
       absorbedThroughSeq: null,
       inReplyTo: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
+      revisedAt: null,
       ...overrides,
     };
   }

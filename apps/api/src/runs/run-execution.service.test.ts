@@ -295,6 +295,7 @@ const userMessage: Message = {
   absorbedThroughSeq: null,
   inReplyTo: null,
   createdAt: now,
+  revisedAt: null,
 };
 
 const run: Run = {
@@ -815,6 +816,7 @@ function serveCheckpointPublication(id = publishedCheckpointId) {
         inReplyTo: null,
         usage: input.usage ?? null,
         createdAt: now,
+        revisedAt: null,
       }),
     );
   const setTold = vi
@@ -2396,6 +2398,7 @@ describe('RunExecutionService executeRun', () => {
         }),
       ],
       placement: 'rank',
+      removeModelSwitch: false,
     });
     expect(stagedPartsOf(repositorySpies.storeAtDispatch)).toEqual([
       expect.objectContaining({
@@ -4164,6 +4167,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
         modelId: 'fake-model',
         effort: 'high',
       },
+      followUpAction: null,
     });
     const completedUsage: unknown = expect.objectContaining({
       effort: 'high',
@@ -5751,6 +5755,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             input,
             output: nativeResult,
             outcome: 'success',
+            classification: 'read_only',
             permission: allowDecision('read'),
           },
           { type: 'text', text: 'answer' },
@@ -5876,6 +5881,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(appended[4]?.payload).toStrictEqual({
       toolCallId: 'call-1',
       toolName: toolDeclaration.id,
+      classification: 'unverified',
     });
     expect(appended[5]?.payload).toStrictEqual({
       toolCallId: 'call-1',
@@ -5906,6 +5912,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             input: { q: 'llame' },
             output: { status: 'success', hits: 2 },
             outcome: 'success',
+            classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
           },
           { type: 'text', text: 'answer' },
@@ -6010,6 +6017,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             input: { q: 'llame' },
             output: { status: 'success', hits: 2 },
             outcome: 'success',
+            classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
             derivedDecisions: expected,
           },
@@ -6196,7 +6204,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
   });
 
   it('applies a restarted process policy to a queued call and continues the run', async () => {
-    mockNormalExecutionRepositories();
+    const spies = mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
@@ -6263,6 +6271,20 @@ describe('RunExecutionService executeRun — tool loop', () => {
       },
     });
     expect(appended.map((entry) => entry.type)).toContain('run.completed');
+    // The rejected call never started, so its part records no classification —
+    // even though the executor declares one (turn-actions D10).
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          expect.objectContaining({
+            toolCallId: 'call-1',
+            state: 'output-error',
+            classification: null,
+          }),
+          { type: 'text', text: 'continued' },
+        ],
+      }),
+    );
   });
 
   it('records the step cap as an event and a persisted cap notice', async () => {
@@ -6380,6 +6402,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             input: { q: 'x' },
             errorText: 'Tool "ghost_tool" is not available.',
             outcome: 'not_available',
+            classification: null,
           },
           { type: 'text', text: 'sorry' },
         ],
@@ -6502,6 +6525,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             errorText: 'The run was cancelled before this tool finished.',
             outcome: 'cancelled',
             resultProviderMetadata: { llame: { cancelled: true } },
+            classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
           },
         ],
@@ -6848,6 +6872,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             errorText: 'The run failed before this tool finished.',
             outcome: 'cancelled',
             resultProviderMetadata: { llame: { cancelled: true } },
+            classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
           },
           { type: 'text', text: 'gave up' },
@@ -7874,9 +7899,13 @@ describe('RunExecutionService executeRun — a Continue Run', () => {
   });
 
   it('finalizes its own usage as incomplete when it replaced recorded usage', async () => {
+    // The model reported its usage, so only the replaced-usage flag can make
+    // the reply's own usage incomplete (turn-actions D11).
     const { spies, capturing } = await executeContinue({
       replacesUsage: true,
+      receipts: [],
     });
+    capturing.streamOptions().onRequestUsage?.(ZERO_USAGE, 1);
     await capturing.streamOptions().onFinish?.({
       text: 'answer',
       usage: ZERO_USAGE,
@@ -9369,6 +9398,7 @@ describe('RunExecutionService settleTerminalRun', () => {
           errorText: 'The run failed before this tool finished.',
           outcome: 'cancelled',
           resultProviderMetadata: { llame: { cancelled: true } },
+          classification: null,
         },
       ],
       // Terminal usage even with nothing measured: the Run's own identity.
@@ -10452,6 +10482,7 @@ function activeCheckpoint(input: {
     inReplyTo: null,
     usage: null,
     createdAt: input.createdAt,
+    revisedAt: null,
   };
 }
 
@@ -11022,6 +11053,159 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(
       stagedItemsOf(repositories.storeAtDispatch, 'effective-context-change'),
     ).toEqual([]);
+  });
+
+  /**
+   * A Regenerate attempt over a turn whose earlier Run dispatched and stored a
+   * model switch and a notice: `turnToolAvailability` is `null` for this Run's
+   * first dispatch and `[]` once it has dispatched.
+   */
+  async function executeRegenerate(
+    turnToolAvailability: Run['turnToolAvailability'],
+    options: {
+      /** The trigger row's stored parts, when a case needs them. */
+      triggerParts?: Array<unknown>;
+      /** A client that captures the request; the default answers 'answer'. */
+      client?: ModelClient;
+      /** The `run.created` payload admission recorded. */
+      created?: { chatId: string; messageId: string; notice?: true };
+    } = {},
+  ) {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(1, 'other-model'),
+    );
+    repositories.findById.mockResolvedValue({
+      ...run,
+      followUpAction: 'regenerate',
+      turnToolAvailability,
+    });
+    // The earlier Run of this same turn dispatched, which is the baseline a
+    // follow-up Run compares against.
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue({
+      run: { ...run, status: 'completed' },
+      triggeringUserSeq: 1,
+    });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _userId, eventType) =>
+      Promise.resolve(
+        eventType === 'run.created'
+          ? {
+              ...event,
+              eventType: 'run.created',
+              payload: options.created ?? { chatId, messageId, notice: true },
+            }
+          : undefined,
+      ),
+    );
+    if (options.triggerParts !== undefined) {
+      const trigger: Message = { ...userMessage, parts: options.triggerParts };
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        trigger,
+      ]);
+      vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue(
+        {
+          userMessage: trigger,
+          assistantMessage: undefined,
+        },
+      );
+    }
+    const execution = makeExecutionService(
+      options.client ?? createFakeModelClient(['answer']),
+    );
+
+    const result = await execution.service.executeRun({
+      ...executionInput(execution.client),
+      followUpAction: 'regenerate',
+    });
+    if (options.client === undefined) {
+      await expect(result.text).resolves.toBe('answer');
+    }
+    return repositories;
+  }
+
+  it("replaces the stored model-switch item on a Regenerate's first dispatch", async () => {
+    // A Regenerate Run that has not dispatched yet: the earlier Run of its own
+    // turn stored the switch item this attempt replaces (turn-actions D8).
+    const repositories = await executeRegenerate(null);
+
+    // The new comparison is authored even though an earlier Run dispatched.
+    const [modelChange] = stagedItemsOf(
+      repositories.storeAtDispatch,
+      'effective-context-change',
+    );
+    expect(modelChange?.data.payload).toMatchObject({
+      cause: 'model',
+      fromModelId: 'other-model',
+      toModelId: 'fake-model',
+    });
+    // The notice its admission recorded follows the switch item.
+    const notices = stagedItemsOf(repositories.storeAtDispatch, 'regenerate');
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.data).toMatchObject({
+      form: 'notice',
+      payload: { reason: 'non_read_only_calls' },
+    });
+    expect(repositories.storeAtDispatch.mock.calls.at(-1)?.[0]).toMatchObject({
+      placement: 'append',
+      removeModelSwitch: true,
+    });
+  });
+
+  it("keeps a retry's stored switch item and notice on a Regenerate", async () => {
+    // This Run already dispatched once, so its stored items stay in place and
+    // its first dispatch's switch item is not replaced again.
+    const repositories = await executeRegenerate([]);
+
+    expect(
+      stagedItemsOf(repositories.storeAtDispatch, 'effective-context-change'),
+    ).toEqual([]);
+    expect(stagedItemsOf(repositories.storeAtDispatch, 'regenerate')).toEqual(
+      [],
+    );
+    expect(repositories.storeAtDispatch.mock.calls.at(-1)?.[0]).toMatchObject({
+      removeModelSwitch: false,
+    });
+  });
+
+  it("drops the stored model-switch item from a Regenerate's request", async () => {
+    // The turn stored a switch from `older-model` to `other-model`; this
+    // Regenerate compares against `other-model` and asks for `fake-model`, so
+    // the request must carry the new item and not the stored one.
+    const storedSwitch = createModelChangeItem({
+      oldModel: { id: 'older-model' },
+      newModel: { id: 'other-model' },
+      runId,
+    });
+    const capturing = makeCapturingClient();
+    await executeRegenerate(null, {
+      client: capturing.client,
+      triggerParts: [{ type: 'text', text: 'hello' }, storedSwitch],
+    });
+
+    const sent = JSON.stringify(capturing.streamOptions().messages);
+    // The user's own text survives the filter.
+    expect(sent).toContain('hello');
+    // The stored item names a model the request no longer announces.
+    expect(sent).not.toContain('older-model');
+    // The new comparison is there instead.
+    expect(sent).toContain('other-model');
+    expect(sent).toContain('fake-model');
+  });
+
+  it('stages no notice when admission recorded none', async () => {
+    const repositories = await executeRegenerate(null, {
+      created: { chatId, messageId },
+    });
+
+    expect(stagedItemsOf(repositories.storeAtDispatch, 'regenerate')).toEqual(
+      [],
+    );
   });
 
   it("narrates an owner's copied Workspace root on the first accepted turn", async () => {

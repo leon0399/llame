@@ -82,6 +82,7 @@ function row(
     inReplyTo: null,
     createdAt: new Date('2024-01-01T00:00:00Z'),
     absorbedThroughSeq: null,
+    revisedAt: null,
     ...overrides,
   };
 }

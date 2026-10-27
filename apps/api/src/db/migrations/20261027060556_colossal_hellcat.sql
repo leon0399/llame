@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "revised_at" timestamp with time zone;

@@ -81,6 +81,7 @@ const userMessage: Message = {
   usage: null,
   inReplyTo: null,
   createdAt: now,
+  revisedAt: null,
 };
 
 const run: Run = {

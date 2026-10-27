@@ -37,6 +37,12 @@ import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { ChatLoopService, type ChatMessageStream } from './chat-loop.service';
 import { FollowUpAdmissionService } from './follow-up-admission.service';
+import { FollowUpRunBodyPipe } from './follow-up-run-body.pipe';
+import {
+  ContinueFollowUpRunDto,
+  type CreateFollowUpRunDto,
+  RegenerateFollowUpRunDto,
+} from './dto/follow-up-run.dto';
 import { ChatsService } from './chats.service';
 import {
   RunStreamBridgeService,
@@ -52,7 +58,6 @@ import {
   ChatResponse,
   ChatSearchQueryDto,
   ChatSearchResponse,
-  ContinueFollowUpRunDto,
   CreateMessageDto,
   ForkChatDto,
   ListChatsQueryDto,
@@ -75,15 +80,22 @@ import {
 /**
  * The follow-up request body as a discriminated union on `action`: each variant
  * declares only the fields its action accepts, so a schema-valid `continue`
- * never carries a model or an effort. A second action adds its variant to the
- * same `oneOf` and its own `mapping` entry.
+ * never carries a model or an effort, and a schema-valid `regenerate` always
+ * names its model. A further action adds its variant to the same `oneOf` and
+ * its own `mapping` entry.
  */
 function followUpRunBodySchema() {
   return {
-    oneOf: [{ $ref: getSchemaPath(ContinueFollowUpRunDto) }],
+    oneOf: [
+      { $ref: getSchemaPath(ContinueFollowUpRunDto) },
+      { $ref: getSchemaPath(RegenerateFollowUpRunDto) },
+    ],
     discriminator: {
       propertyName: 'action',
-      mapping: { continue: getSchemaPath(ContinueFollowUpRunDto) },
+      mapping: {
+        continue: getSchemaPath(ContinueFollowUpRunDto),
+        regenerate: getSchemaPath(RegenerateFollowUpRunDto),
+      },
     },
   };
 }
@@ -353,7 +365,7 @@ export class ChatsController {
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiParam({ name: 'userMessageId', format: 'uuid' })
-  @ApiExtraModels(ContinueFollowUpRunDto)
+  @ApiExtraModels(ContinueFollowUpRunDto, RegenerateFollowUpRunDto)
   @ApiBody({ schema: followUpRunBodySchema() })
   @ApiOkResponse({
     description: 'AI SDK v5 UI-message stream (SSE)',
@@ -366,7 +378,8 @@ export class ChatsController {
   @ApiBadRequestResponse({
     description:
       'Malformed chat or message id, a missing body or action, an unknown ' +
-      'action, or a model or an effort on a continue request',
+      'action, a model or an effort on a continue request, or a regenerate ' +
+      'request without a model',
   })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({
@@ -392,12 +405,13 @@ export class ChatsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) chatId: string,
     @Param('userMessageId', ParseUUIDPipe) userMessageId: string,
-    // The parameter names the value class, so the global validation pipe runs
-    // the DTO's rules and rejects an unknown property or an invalid mode. A
-    // request with no body still reaches the handler as `undefined`: the body
-    // is required, so it is answered as the empty request it is, and the
-    // action check refuses it as a 400.
-    @Body() input: ContinueFollowUpRunDto,
+    // The body is a union of one variant per action, which erases the metatype
+    // the global validation pipe reads, so the route-scoped pipe validates it
+    // against the variant its `action` names and rejects an unknown property or
+    // an invalid mode. A request with no body still reaches the handler as
+    // `undefined`: the body is required, so it is answered as the empty request
+    // it is, and the pipe refuses it as a 400.
+    @Body(FollowUpRunBodyPipe) input: CreateFollowUpRunDto | undefined,
     @Res() response: ChatStreamResponse,
   ): Promise<void> {
     const abort = requestAbortSignal(response);
