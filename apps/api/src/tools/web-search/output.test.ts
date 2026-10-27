@@ -226,6 +226,40 @@ it('cuts a long answer and records the truncation', () => {
   expect(JSON.stringify(output)).toContain('answer truncated');
   expect(JSON.stringify(output)).not.toContain('answer cut to fit');
 });
+it('puts the removal count before the answer truncation note', () => {
+  const output = normalizeSearchOutput(
+    {
+      ...answerSource('a'.repeat(12_000), [{ url: 'https://example.test/a' }]),
+      removed: 2,
+    },
+    10,
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    notes: ['removed 2 entries', 'answer truncated to 8000 characters'],
+  });
+});
+
+it('puts the removal count before the results dropped note', () => {
+  const output = normalizeSearchOutput(
+    {
+      ...resultsSource(
+        Array.from({ length: 20 }, (_, index) => ({
+          title: 't'.repeat(200),
+          url: `https://example.test/${'u'.repeat(1950)}${index}`,
+          snippet: 's'.repeat(300),
+        })),
+      ),
+      removed: 1,
+    },
+    20,
+  );
+  expect(output.notes?.[0]).toBe('removed 1 entry');
+  expect(output.notes?.some((note) => /^\d+ results dropped/u.test(note))).toBe(
+    true,
+  );
+});
+
 it('does not note answers that are already within the answer cap', () => {
   for (const answer of ['short', 'a'.repeat(8000)]) {
     const output = normalizeSearchOutput(

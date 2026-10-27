@@ -406,6 +406,17 @@ const ALLOW_SEARCH_AND_READ = compileToolPermissionMap(
   },
   'web-search-test-policy',
 );
+/** The fixture's only result host, as a `read` group the results cannot pass. */
+const REJECTING_RESULT_READ = compileToolPermissionMap(
+  {
+    web_search: { allow: true },
+    read: {
+      allow: [{ field: 'path', regex: '^https://' }],
+      reject: [{ field: 'path', regex: '^https://example\\.test/' }],
+    },
+  },
+  'web-search-test-policy',
+);
 const HOSTED_QUERY = 'latest fixture release';
 const HOSTED_ANSWER = 'Fixture 2.0 shipped on 2026-10-01.';
 const HOSTED_CITATION_TITLE = 'Fixture 2.0 release notes';
@@ -979,6 +990,52 @@ describeIfDb('web search through the real tool loop', () => {
     expect(
       partOf(await assistantParts(seeded.chatId), 'tool-read'),
     ).toMatchObject({ state: 'output-error', outcome: 'permission_denied' });
+  });
+  it('removes a result its read group rejects and names it nowhere', async () => {
+    fixture.configure('success');
+    const seeded = await seedRun('removed-result');
+    const logs = captureLogs();
+    try {
+      const model = modelFor((turn) =>
+        turn === 1
+          ? toolResponse('removed-result-call', 'web_search', {
+              query: FIXTURE_QUERY,
+            })
+          : textResponse('The removal was non-fatal.'),
+      );
+      await execute(
+        seeded,
+        service({
+          allowed: ['web_search'],
+          permissionPolicy: REJECTING_RESULT_READ,
+        }),
+        model,
+      );
+      await waitStatus(seeded.run.id, 'completed');
+      expect(fixture.requests).toHaveLength(1);
+      const part = partOf(
+        await assistantParts(seeded.chatId),
+        'tool-web_search',
+      );
+      expect(part).toMatchObject({
+        toolCallId: 'removed-result-call',
+        state: 'output-available',
+        outcome: 'success',
+      });
+      expect(resultSchema.parse(part?.['output'])).toMatchObject({
+        kind: 'results',
+        engine: 'brave',
+        query: FIXTURE_QUERY,
+        results: [],
+      });
+      expect(part?.['output']).toMatchObject({ notes: ['removed 1 entry'] });
+      const events = await eventsFor(seeded.run.id);
+      expect(JSON.stringify(part)).not.toContain('example.test');
+      expect(JSON.stringify(events)).not.toContain('example.test');
+      expect(logs.text()).not.toContain('example.test');
+    } finally {
+      logs.restore();
+    }
   });
   it('answers from a hosted engine on another model and leaves the Run usage untouched', async () => {
     fixture.configure('success');

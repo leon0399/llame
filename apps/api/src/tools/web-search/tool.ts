@@ -14,6 +14,8 @@ import {
   type EngineRequest,
 } from './chain';
 import { normalizeOutput } from './output';
+import { splitSiteFilters } from './query';
+import { createResultRemoval } from './removal';
 import { ENGINE_LIMITS } from './limits';
 
 export const webSearchInputSchema = z.strictObject({
@@ -96,6 +98,10 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       recency: input.recency,
       userAgent: context.productUserAgent,
       chatId: context.chatId,
+      removal: createResultRemoval(
+        context,
+        splitSiteFilters(input.query).exclude,
+      ),
       modelClients: context.modelClients,
     };
     const result = await executeSearchChain(

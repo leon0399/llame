@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { EXA_SEARCH_URL, createExaEngine } from './exa';
+
 import { type EngineRequest } from './chain';
+import { removalFor } from '../../testing/web-search-removal';
 import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
@@ -12,6 +14,7 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   signal: new AbortController().signal,
   userAgent: 'llame/test',
   chatId: 'chat',
+  removal: removalFor(undefined),
   ...overrides,
 });
 type FixtureResult = {

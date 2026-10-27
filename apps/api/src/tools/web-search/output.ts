@@ -134,15 +134,31 @@ function capFields(
   };
 }
 
+/** The notes of one normalized output, before they are bounded. */
+type NoteInputs = {
+  readonly notes: ReadonlyArray<string>;
+  /** The budget note of the current trim, or empty before a trim. */
+  readonly budgetNote: string;
+  /** Whether the answer was cut further to fit beside one citation. */
+  readonly answerCut: boolean;
+  /** Entries the call removed, for the note that comes before the others. */
+  readonly removed: number | undefined;
+};
+
 function withNotes(
   value: WebSearchSuccess,
-  notes: ReadonlyArray<string>,
-  budgetNote: string,
-  answerCut: boolean,
+  { notes, budgetNote, answerCut, removed }: NoteInputs,
 ): WebSearchSuccess {
   const visible = [...notes];
   if (budgetNote !== '') visible.unshift(budgetNote);
   if (answerCut) visible.unshift('answer cut to fit the output limit');
+  // The count note goes before every other note, including the truncation ones
+  // above, so neither the cap nor a cut can take its place. It names no URL or
+  // host: the model learns that something was removed, not what.
+  if (removed !== undefined && removed > 0)
+    visible.unshift(
+      `removed ${removed} ${removed === 1 ? 'entry' : 'entries'}`,
+    );
   const bounded = capNotes(visible);
   return bounded.length === 0 ? value : { ...value, notes: bounded };
 }
@@ -151,6 +167,7 @@ function cutAnswer(
   output: AnswerOutput,
   notes: ReadonlyArray<string>,
   budgetNote: string,
+  removed: number | undefined,
 ): WebSearchSuccess {
   let low = 0,
     high = output.answer.length;
@@ -160,7 +177,10 @@ function cutAnswer(
       candidate = capText(output.answer, middle);
     if (
       JSON.stringify(
-        withNotes({ ...output, answer: candidate }, notes, budgetNote, true),
+        withNotes(
+          { ...output, answer: candidate },
+          { notes, budgetNote, answerCut: true, removed },
+        ),
       ).length <= WEB_SEARCH_OUTPUT_MAX_CODE_UNITS
     ) {
       fitting = candidate;
@@ -169,9 +189,7 @@ function cutAnswer(
   }
   return withNotes(
     { ...output, answer: fitting ?? '' },
-    notes,
-    budgetNote,
-    true,
+    { notes, budgetNote, answerCut: true, removed },
   );
 }
 
@@ -185,7 +203,13 @@ function fitBudget(
     source.answer.length > WEB_SEARCH_ANSWER_MAX_CODE_UNITS
   )
     notes.unshift('answer truncated to 8000 characters');
-  let output = withNotes(initial, notes, '', false),
+  const inputs = {
+    notes,
+    budgetNote: '',
+    answerCut: false,
+    removed: source.removed,
+  };
+  let output = withNotes(initial, inputs),
     budgetNote = '',
     dropped = 0;
   while (JSON.stringify(output).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS) {
@@ -200,11 +224,11 @@ function fitBudget(
       });
       budgetNote = `${++dropped} citations dropped to fit the output limit`;
     }
-    output = withNotes(output, notes, budgetNote, false);
+    output = withNotes(output, { ...inputs, budgetNote });
   }
   return output.kind === 'answer' &&
     JSON.stringify(output).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS
-    ? cutAnswer(output, notes, budgetNote)
+    ? cutAnswer(output, notes, budgetNote, source.removed)
     : output;
 }
 

@@ -1,3 +1,4 @@
+import { parseHTML } from 'linkedom';
 import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
@@ -11,6 +12,7 @@ import { createSearxngEngine } from './searxng';
 import { createModelHostedEngine } from './model-hosted';
 import { canonicalUrl } from './output';
 import { ENGINE_LIMITS, acceptsQuery } from './limits';
+import { type ResultRemoval } from './removal';
 import { type VendorFetch } from './http';
 import { type ToolContext } from '../types';
 
@@ -78,6 +80,11 @@ export type EngineRequest = {
   readonly userAgent: string | undefined;
   readonly chatId: string;
   /**
+   * Removes the entries the call excludes — a `read` reject clause, or a
+   * `-site:` host of the query — before the chain or an aggregate decides.
+   */
+  readonly removal: ResultRemoval;
+  /**
    * Trusted model-client factory for model-hosted engines; absent leaves them
    * failing closed.
    */
@@ -89,6 +96,8 @@ type ChainBase = {
   readonly engine: string;
   readonly query: string;
   readonly notes?: ReadonlyArray<string>;
+  /** Entries this call removed, for the output layer's one count note. */
+  readonly removed?: number;
 };
 export type SearchChainSuccess =
   | (ChainBase & ResultOutcome)
@@ -161,6 +170,174 @@ function canonicalizeOutcome(
     : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
 }
 
+/**
+ * A Markdown inline link: its text and the destination it points at, in either
+ * CommonMark form. A bare destination can hold balanced parentheses one level
+ * deep (`/wiki/Foo_(bar)`) and an escaped character; a pointy destination is
+ * wrapped in `<` and `>`. An optional title follows after whitespace, delimited
+ * by `"`, `'`, or `(`. Each repeated alternative starts with a different
+ * character, so a hostile line cannot make the engine backtrack.
+ */
+const MARKDOWN_LINK =
+  /\[([^[\]\n]*)\]\([ \t\n]*(?:<([^<>\n]*)>|((?:[^()\s\\]|\\[!-/:-@[-`{-~]|\([^()\s]*\))*))(?:[ \t\n]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t\n]*\)/gu;
+/**
+ * A URL written as itself rather than as a Markdown link target, with balanced
+ * parentheses one level deep. The last character cannot be sentence
+ * punctuation or Markdown emphasis, so deleting a copy keeps the text around it
+ * intact.
+ */
+const BARE_URL =
+  /\bhttps?:\/\/(?:[^\s<>()[\]"'`]|\([^\s<>()[\]"'`]*\))*(?:[^\s<>()[\]"'`.,;:!?*_]|\([^\s<>()[\]"'`]*\))/giu;
+/**
+ * A CommonMark backslash escape: a backslash before one ASCII punctuation
+ * character stands for that character alone.
+ */
+const MARKDOWN_ESCAPE = /\\([!-/:-@[-`{-~])/gu;
+/**
+ * A raw HTML anchor opening tag in answer text, whose quoted attribute values
+ * may hold a `>` or a `<`. Each repeated alternative starts with a different
+ * character, so a hostile answer cannot make the engine backtrack.
+ */
+const HTML_ANCHOR = /<a\b((?:[^<>"']|"[^"]*"|'[^']*')*)>/giu;
+/**
+ * The `href` of one anchor's attributes, which must start the list or follow
+ * whitespace so `data-href` is not one. An unquoted value ends at a space.
+ */
+const HTML_HREF = /(?:^|\s)href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))/iu;
+/**
+ * A link reference definition: its label and the destination that a reference
+ * elsewhere in the answer resolves to. The renderer builds that link's `href`
+ * from the destination, so it is a target like an inline one.
+ */
+const LINK_DEFINITION =
+  /^ {0,3}\[[^[\]\n]+\]:[ \t]*(?:<([^<>\n]*)>|(\S+))[^\n]*$/gmu;
+
+/** A detached body element that decodes the HTML set into it when read back. */
+type ReferenceBody = { innerHTML: string; readonly textContent: string | null };
+
+/**
+ * The body `decodeCharacterReferences` parses into, created on first use:
+ * removal only decodes a target that carries a reference or an escape, and a
+ * document parse per such link would cost more than the search.
+ */
+let referenceBody: ReferenceBody | undefined;
+
+/**
+ * Decodes HTML character references a target can carry (`&colon;`, `&#58;`,
+ * `&#x3a;`) the way the renderer does before it builds a link's `href`.
+ */
+function decodeCharacterReferences(text: string): string {
+  referenceBody ??= parseHTML('<!doctype html><html><body></body></html>')
+    .document.body;
+  // safe-html: never rendered — linkedom decodes a link target's character references so removal can read the result back as text
+  referenceBody.innerHTML = text;
+  return String(referenceBody.textContent);
+}
+
+/**
+ * A Markdown link target as the renderer reads it: CommonMark decodes a
+ * backslash escape and a character reference before the renderer builds the
+ * `href`. Removal decides on the decoded target, because `https&#58;//host/`
+ * and `https\://host/` are not URLs on their own but render as live links to
+ * `https://host/`.
+ */
+function decodeMarkdownTarget(target: string): string {
+  const unescaped = target.includes('\\')
+    ? target.replace(MARKDOWN_ESCAPE, '$1')
+    : target;
+  return unescaped.includes('&')
+    ? decodeCharacterReferences(unescaped)
+    : unescaped;
+}
+
+/**
+ * The steps one answer's text goes through before the chain sees it: a raw
+ * anchor whose `href` the renderer decodes, a Markdown link target, a link
+ * reference definition's destination, and a bare copy of a URL. Each step
+ * decides on what the renderer decodes, so an encoded spelling of a removed
+ * URL cannot survive as a live link.
+ */
+function withoutRemovedTargets(answer: string, removal: ResultRemoval): string {
+  return answer
+    .replace(HTML_ANCHOR, (tag: string, attributes: string) => {
+      const href = HTML_HREF.exec(attributes);
+      const target = href?.[1] ?? href?.[2] ?? href?.[3];
+      if (target === undefined) return tag;
+      // HTML decodes character references in an attribute and leaves a
+      // backslash alone.
+      const value = target.includes('&')
+        ? decodeCharacterReferences(target)
+        : target;
+      // The anchor loses its tag and keeps its text; the closing tag left
+      // behind cannot start a link, so the HTML5 parser drops it.
+      return removal.removes(value) ? '' : tag;
+    })
+    .replace(
+      MARKDOWN_LINK,
+      (
+        link,
+        text: string,
+        angled: string | undefined,
+        bare: string | undefined,
+      ) => {
+        const target = angled ?? bare ?? '';
+        const decoded = decodeMarkdownTarget(target);
+        if (!removal.removes(decoded) && !removal.removes(target)) return link;
+        const label = text.trim().toLowerCase();
+        const shown = (canonicalUrl(decoded) ?? decoded).toLowerCase();
+        // A label that spells the removed target or its host is a bare copy of
+        // the entry, not text worth keeping.
+        return [shown, URL.parse(shown)?.hostname].includes(label) ? '' : text;
+      },
+    )
+    .replace(
+      LINK_DEFINITION,
+      (line: string, angled: string | undefined, bare: string | undefined) => {
+        const target = angled ?? bare;
+        return target !== undefined &&
+          removal.removes(decodeMarkdownTarget(target))
+          ? ''
+          : line;
+      },
+    )
+    .replace(BARE_URL, (url) => (removal.removes(url) ? '' : url));
+}
+
+/**
+ * Removes the entries the call excludes from one engine outcome, before the
+ * chain decides on it and before an aggregate merges and cuts it. An answer
+ * keeps the text of a link it loses and the text loses its target; a link whose
+ * text is itself the removed URL or its host is a bare copy and goes whole, so
+ * a removed URL survives nowhere. An answer whose citations are all removed has
+ * none left, which the chain reports as `ungrounded`.
+ */
+function removeEntries(
+  outcome: EngineOutcome,
+  removal: ResultRemoval,
+): EngineOutcome {
+  if (outcome.kind === 'results') {
+    const results = outcome.results.filter((result) => {
+      if (!removal.removes(result.url)) return true;
+      removal.count(result.url);
+      return false;
+    });
+    return { ...outcome, results };
+  }
+  if (outcome.kind === 'answer') {
+    const citations = outcome.citations.filter((citation) => {
+      if (!removal.removes(citation.url)) return true;
+      removal.count(citation.url);
+      return false;
+    });
+    return {
+      ...outcome,
+      answer: withoutRemovedTargets(outcome.answer, removal),
+      citations,
+    };
+  }
+  return outcome;
+}
+
 export async function runOne(
   engine: Engine,
   timeoutSeconds: number | undefined,
@@ -177,7 +354,8 @@ export async function runOne(
   try {
     const outcome = await engine({ ...request, signal });
     if (request.signal.aborted) throwAbort(request.signal);
-    return deadline?.aborted === true ? 'timeout' : outcome;
+    if (deadline?.aborted === true) return 'timeout';
+    return removeEntries(outcome, request.removal);
   } catch (error) {
     if (request.signal.aborted) throwAbort(request.signal);
     return deadline?.aborted === true
@@ -262,6 +440,18 @@ function classifyOutcome(
   return { kind: 'success', success };
 }
 
+/**
+ * Attaches the call's removed-entry count, which the output layer turns into
+ * the one note that comes before every other note.
+ */
+function withRemoved(
+  result: SearchChainSuccess,
+  removal: ResultRemoval,
+): SearchChainSuccess {
+  const removed = removal.removedCount();
+  return removed === 0 ? result : { ...result, removed };
+}
+
 function totalFailure(notes: ReadonlyArray<string>): SearchChainError {
   return {
     status: 'error',
@@ -296,18 +486,19 @@ export async function executeSearchChain(
       notes,
     );
     if (decision.kind === 'success')
-      return withChainNotes(
-        { ...decision.success, engine: id, query: request.query },
-        notes,
+      return withRemoved(
+        withChainNotes(
+          { ...decision.success, engine: id, query: request.query },
+          notes,
+        ),
+        request.removal,
       );
     if (decision.lastEmpty !== undefined) lastEmpty = decision.lastEmpty;
   }
   if (lastEmpty === undefined) return totalFailure(notes);
   const finalNotes = withoutNote(notes, lastEmpty.noteIndex);
-  return emptyResult(
-    request.query,
-    lastEmpty.engine,
-    finalNotes,
-    lastEmpty.notes,
+  return withRemoved(
+    emptyResult(request.query, lastEmpty.engine, finalNotes, lastEmpty.notes),
+    request.removal,
   );
 }

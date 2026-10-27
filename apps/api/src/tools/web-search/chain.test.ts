@@ -6,6 +6,7 @@ import {
   type EngineOutcome,
   type EngineRequest,
 } from './chain';
+import { removalFor } from '../../testing/web-search-removal';
 import { createAggregateEngine } from './aggregate';
 import {
   type WebSearchConfig,
@@ -22,6 +23,7 @@ import {
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
+  overrides: Partial<EngineRequest> = {},
 ): EngineRequest => ({
   query: 'llame',
   objective: undefined,
@@ -30,6 +32,8 @@ const request = (
   recency: undefined,
   userAgent: undefined,
   chatId: 'chat',
+  removal: removalFor(undefined),
+  ...overrides,
 });
 const config = (
   ids: ReadonlyArray<string>,
@@ -713,4 +717,343 @@ it('checks call cancellation before starting a later engine', async () => {
     name: 'AbortError',
     message: 'The web search was aborted.',
   });
+});
+
+/** The `read` group of the canonical rejected-host scenarios. */
+const rejectsGrokipedia = {
+  allow: [{ field: 'path', regex: '^https://' }],
+  reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
+};
+it('advances the chain when a read reject removes every result', async () => {
+  const output = await executeSearchChain(
+    config(['rejected', 'backup']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      rejected: () =>
+        Promise.resolve({
+          kind: 'results',
+          results: [
+            { title: 'One', url: 'https://grokipedia.com/one' },
+            { title: 'Two', url: 'https://grokipedia.com/two' },
+          ],
+        }),
+      backup: result,
+    }),
+  );
+  // The count covers the entries the emptied engine lost, not the answers.
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'backup',
+    results: [{ title: 'Result', url: 'https://example.test/a' }],
+    notes: ['rejected: empty'],
+    removed: 2,
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('advances the chain from an answer whose citations are all removed', async () => {
+  const output = await executeSearchChain(
+    config(['answer', 'backup']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer: 'See [Grokipedia](https://grokipedia.com/one).',
+          citations: [{ url: 'https://grokipedia.com/one' }],
+        }),
+      backup: result,
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'backup',
+    notes: ['answer: ungrounded'],
+    removed: 1,
+  });
+});
+it('keeps the text of a link to a removed URL and drops its target', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'Grokipedia says [so](https://grokipedia.com/one) and [the docs](https://example.test/docs) agree, see [local](/docs).',
+          citations: [
+            { url: 'https://grokipedia.com/one' },
+            { url: 'https://example.test/docs' },
+          ],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer:
+      'Grokipedia says so and [the docs](https://example.test/docs) agree, see [local](/docs).',
+    citations: [{ url: 'https://example.test/docs' }],
+    removed: 1,
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('drops a link whose text is the removed URL or its host', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'See [grokipedia.com](https://grokipedia.com/one) and [https://grokipedia.com/two](https://grokipedia.com/two) and [the docs](https://example.test/docs).',
+          citations: [
+            { url: 'https://grokipedia.com/one' },
+            { url: 'https://example.test/docs' },
+          ],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer: 'See  and  and [the docs](https://example.test/docs).',
+    removed: 1,
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('deletes a bare copy of a removed URL and keeps the punctuation around it', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'Sources: https://example.test/docs. Also HTTPS://GROKIPEDIA.com/two, done.',
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  // A copy in the text is not an entry, so the count stays empty.
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer: 'Sources: https://example.test/docs. Also , done.',
+  });
+  expect(output).not.toHaveProperty('removed');
+});
+it('removes link targets and bare copies that hold balanced parentheses', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'See [source](https://grokipedia.com/wiki/Foo_(bar)) and [the docs](https://example.test/docs). Also https://grokipedia.com/wiki/Baz_(qux), done.',
+          citations: [
+            { url: 'https://grokipedia.com/wiki/Foo_(bar)' },
+            { url: 'https://example.test/docs' },
+          ],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer:
+      'See source and [the docs](https://example.test/docs). Also , done.',
+    removed: 1,
+  });
+});
+it.each([
+  ['a decimal character reference', '[Docs](https&#58;//grokipedia.com/a)'],
+  [
+    'a hexadecimal character reference',
+    '[Docs](https&#x3a;//grokipedia.com/a)',
+  ],
+  ['a named character reference', '[Docs](https&colon;//grokipedia.com/a)'],
+  ['a backslash escape', String.raw`[Docs](https\://grokipedia.com/a)`],
+  ['a pointy-bracket destination', '[Docs](<https&#58;//grokipedia.com/a>)'],
+  [
+    'a double-quoted title',
+    '[Docs](https&#58;//grokipedia.com/a "the source")',
+  ],
+  [
+    'a single-quoted title',
+    "[Docs](https&#58;//grokipedia.com/a 'the source')",
+  ],
+  [
+    'a parenthesized title',
+    '[Docs](https&#58;//grokipedia.com/a (the source))',
+  ],
+  [
+    'a pointy-bracket destination with a title',
+    '[Docs](<https&#58;//grokipedia.com/a> "the source")',
+  ],
+])(
+  'removes a link target the renderer decodes, spelled with %s',
+  async (_name, link) => {
+    const output = await executeSearchChain(
+      config(['answer']),
+      request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+      lookup({
+        answer: () =>
+          Promise.resolve({
+            kind: 'answer',
+            answer: `Says ${link} and [the docs](https://example.test/docs).`,
+            citations: [
+              { url: 'https://grokipedia.com/a' },
+              { url: 'https://example.test/docs' },
+            ],
+          }),
+      }),
+    );
+    expect(output).toMatchObject({
+      kind: 'answer',
+      answer: 'Says Docs and [the docs](https://example.test/docs).',
+      citations: [{ url: 'https://example.test/docs' }],
+      removed: 1,
+    });
+    expect(JSON.stringify(output)).not.toContain('grokipedia');
+  },
+);
+it('drops a link whose label is the decoded host of its removed target', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'See [grokipedia.com](https&#58;//grokipedia.com/a) and [the docs](https://example.test/docs).',
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer: 'See  and [the docs](https://example.test/docs).',
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it.each([
+  ['a quoted href', '<a href="https&#x3a;//grokipedia.com/a">the source</a>'],
+  [
+    'a single-quoted href',
+    "<a href='https&#58;//grokipedia.com/a'>the source</a>",
+  ],
+  ['an unquoted href', '<a HREF=https&colon;//grokipedia.com/a>the source</a>'],
+])(
+  'strips a raw anchor whose decoded href is a removed URL, spelled with %s',
+  async (_name, anchor) => {
+    const output = await executeSearchChain(
+      config(['answer']),
+      request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+      lookup({
+        answer: () =>
+          Promise.resolve({
+            kind: 'answer',
+            answer: `See ${anchor} and <a href="https&#58;//example.test/docs">the docs</a>.`,
+            citations: [
+              { url: 'https://grokipedia.com/a' },
+              { url: 'https://example.test/docs' },
+            ],
+          }),
+      }),
+    );
+    expect(output).toMatchObject({
+      kind: 'answer',
+      answer:
+        'See the source</a> and <a href="https&#58;//example.test/docs">the docs</a>.',
+      removed: 1,
+    });
+    expect(JSON.stringify(output)).not.toContain('grokipedia');
+  },
+);
+it('drops a link definition whose decoded destination is a removed URL', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'Read [the source][removed].\n\n[removed]: https&#58;//grokipedia.com/a\n[kept]: <https&colon;//example.test/docs>',
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  // The allowed definition keeps its decoded destination whole.
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer:
+      'Read [the source][removed].\n\n\n[kept]: <https&colon;//example.test/docs>',
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('reads href from the attribute list, not from a data-href', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'See <a data-href="https://grokipedia.com/a" href="https://example.test/docs">the docs</a>.',
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  // The tag keeps its place: its `href` is allowed and a `data-href` is not an
+  // `href`, so only the bare copy of the removed URL inside it goes.
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer:
+      'See <a data-href="" href="https://example.test/docs">the docs</a>.',
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('keeps an allowed link in every form, encoded or not', async () => {
+  const answer =
+    'See [the docs](https&#58;//example.test/docs), [more](https&colon;//example.test/more "more"), [plain](https://example.test/plain), [pointy](<https&#58;//example.test/plain>) and <a data-href="https&#58;//example.test/data" href="https://example.test/plain">that</a>.';
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer,
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({ kind: 'answer', answer });
+  expect(output).not.toHaveProperty('removed');
+});
+it.each([
+  `${'['.repeat(4000)}${']('.repeat(2000)}`,
+  `[x](${'(a'.repeat(4000)} https://a.test/${'(b'.repeat(4000)}`,
+  `${'[x](u (t'.repeat(4000)}${'[x](<u'.repeat(4000)}`,
+  `${'<a "'.repeat(4000)}${'<a href="&#58;'.repeat(4000)}`,
+])('cleans a pathological answer without backtracking', async (answer) => {
+  const started = performance.now();
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer,
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  expect(output).toMatchObject({ kind: 'answer' });
+  expect(performance.now() - started).toBeLessThan(1000);
 });
