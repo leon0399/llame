@@ -126,7 +126,7 @@ budget at its own boundary.
 - [x] 7.3 Build the `webSearch.engines` template collection once per worker from the resolved configuration (fields `id`, `type`, `kind`, `position`, `recency`, `queryLimit`, `objective`, `description`; tag-neutralized, `engines` tags included; no keys, base URLs, folder ids, or model ids), admit it to both template kinds under the bounded-iteration rules, and render the engine list from `prompts/tools/web_search.md`; delete the code-appended catalog and its special empty-render check; verify by unit tests for every scenario of "The web search description lists the configured engines" and "Templates can iterate the configured web search engines"
 - [x] 7.4 Update `prompts/tools/web_search.md` to describe `engines`; document selection, the catalog, and `description` in the runbook and reference page, including that every configured engine is selectable and that `engines` values match only all-field permission clauses; update `SPEC.md` if it states that engine choice is operator-only; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 7.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites; this layer's PR carries `Closes #1432`
-- [ ] 7.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 7.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 7.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 8. `extend-web-search/finalize` — spec sync and archive
