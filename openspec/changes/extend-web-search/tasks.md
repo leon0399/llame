@@ -126,7 +126,7 @@ budget at its own boundary.
 - [x] 7.3 Generate the engine catalog once per worker and append it after the rendered `web_search` description, packaged or overridden, with tag-neutralized ids and operator descriptions and no keys, base URLs, folder ids, or model ids, running the empty-render check before the append; verify by unit tests for every scenario of "The web search description lists the configured engines" and the "Web search appends its engine catalog" scenario of `tool-prompt-templates` and an integration test that an attempt's declared description ends with the catalog
 - [x] 7.4 Update `prompts/tools/web_search.md` to describe `engines`; document selection, the catalog, and `description` in the runbook and reference page, including that every configured engine is selectable and that `engines` values match only all-field permission clauses; update `SPEC.md` if it states that engine choice is operator-only; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 7.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites; this layer's PR carries `Closes #1432`
-- [ ] 7.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 7.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 7.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 8. `extend-web-search/finalize` — spec sync and archive
