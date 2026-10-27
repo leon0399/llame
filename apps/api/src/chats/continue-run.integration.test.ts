@@ -22,7 +22,7 @@ import {
 } from '@workspace/runtime-safety';
 
 import * as schema from '../db/schema';
-import { type Message } from '../db/schema';
+import { type Message, type Run } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { isContextItemPart } from '../chats/context-item';
@@ -498,6 +498,26 @@ describeIfDb('a Continue Run', () => {
     });
   }
 
+  /** A Run of this turn that ran an attempt and completed with its answer. */
+  async function completedRun(
+    runsRepo: RunsRepository,
+    turn: { chatId: string; messageId: string },
+  ): Promise<Run | undefined> {
+    const created = await runsRepo.create({
+      chatId: turn.chatId,
+      messageId: turn.messageId,
+      userId,
+      modelId: MODEL_ID,
+    });
+    const started = await runsRepo.markStarted(created.id, userId);
+    return runsRepo.markFinished(created.id, userId, 'completed', {
+      ...(started?.activeAttemptId !== null &&
+        started?.activeAttemptId !== undefined && {
+          attemptId: started.activeAttemptId,
+        }),
+    });
+  }
+
   function userMessageOf(turn: ContinuedTurn) {
     return {
       id: turn.messageId,
@@ -799,36 +819,19 @@ describeIfDb('a Continue Run', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: USER_TEXT }],
       });
-      const older = await runsRepo.markFinished(
-        (
-          await runsRepo.create({
-            chatId,
-            messageId: trigger.id,
-            userId,
-            modelId: MODEL_ID,
-          })
-        ).id,
-        userId,
-        'completed',
-      );
+      // A completed Run records the attempt that produced its answer, which is
+      // the link the previous-completed-Run lookup requires.
+      const older = await completedRun(runsRepo, {
+        chatId,
+        messageId: trigger.id,
+      });
       await messagesRepo.createAssistantReplyIfAbsent({
         chatId,
         inReplyTo: trigger.id,
         parts: [{ type: 'text', text: 'the older answer' }],
         usage: { status: 'completed', complete: true, runId: older!.id },
       });
-      await runsRepo.markFinished(
-        (
-          await runsRepo.create({
-            chatId,
-            messageId: trigger.id,
-            userId,
-            modelId: MODEL_ID,
-          })
-        ).id,
-        userId,
-        'completed',
-      );
+      await completedRun(runsRepo, { chatId, messageId: trigger.id });
       return { seq: trigger.seq, olderId: older!.id };
     });
 
