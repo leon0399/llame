@@ -143,6 +143,14 @@ and cache-read usage are not regressed.
 an out-of-enum type until it is re-declared as `openai-responses` or
 `openai-completions`; there is no shim and no migration.
 
+Every text llame sends to a model is built from a Handlebars template file:
+system prompts, tool descriptions, context items, and compaction, title, and
+sub-request instructions. Code supplies only values (data, identifiers, and
+short derived facts) through the template context. Never write framing,
+headings, instructions, or a list layout in TypeScript, and never concatenate
+text onto a rendered template; add a variable or a collection and let the
+template own the words.
+
 Packaged prompt templates are the model-facing bodies llame authors and ships,
 and no operator can replace one. They live at
 `apps/api/src/<module>/prompts/<surface-name>.md`, one file per distinct body,

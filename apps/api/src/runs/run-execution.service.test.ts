@@ -182,6 +182,7 @@ import {
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { SshConfig } from '../instance-config/ssh-settings';
+import type { WebSearchConfig } from '../instance-config/web-search-config';
 import type { SshClient, SshClientFactory } from '../ssh/ssh-client';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import {
@@ -436,6 +437,8 @@ type ExecutionServiceOptions = {
   ssh?: SshConfig;
   /** The seam that builds the `ssh://` transport from that section. */
   sshClientFactory?: SshClientFactory;
+  /** The resolved `webSearch` section the declared description renders from. */
+  webSearch?: WebSearchConfig;
 };
 
 function makeExecutionService(
@@ -481,6 +484,9 @@ function makeExecutionService(
           ? BUILT_IN_DEFAULTS.knowledge
           : { root: options.knowledgeRoot },
       ...(options.ssh !== undefined && { ssh: options.ssh }),
+      ...(options.webSearch !== undefined && {
+        webSearch: options.webSearch,
+      }),
     },
   };
   // Held separately so tests can rescript it with its inferred Mock type
@@ -7505,6 +7511,164 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(
       capturing.streamOptions().tools?.['bash']?.description ?? '',
     ).not.toContain('{{');
+  });
+
+  const webSearch: WebSearchConfig = {
+    engines: [
+      { id: 'brave', type: 'brave', key: 'test-key', timeoutSeconds: 60 },
+      { id: 'exa', type: 'exa', key: 'test-key', timeoutSeconds: 60 },
+    ],
+    chain: ['brave'],
+  };
+
+  it('declares the engine list the packaged template renders', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { allowed: ['web_search'], webSearch },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    const description =
+      capturing.streamOptions().tools?.['web_search']?.description ?? '';
+    expect(description).toContain('<engines>\n');
+    expect(description).toContain(
+      '- brave [brave]: results; position 1 in the default chain;',
+    );
+    expect(description).toContain(
+      '- exa [exa]: results; not in the default chain;',
+    );
+    expect(description.endsWith('</engines>')).toBe(true);
+    // The declared list carries no credential.
+    expect(description).not.toContain('test-key');
+  });
+
+  it('declares no engine list when the override does not iterate it', async () => {
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'web-search-list-'));
+    writeFileSync(
+      path.join(tmpDir, 'web-search-override.md'),
+      'Search the web, briefly.',
+    );
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['web_search'],
+        configPath: path.join(tmpDir, 'llame.config.json'),
+        toolPromptFiles: { web_search: 'web-search-override.md' },
+        webSearch,
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    // The override owns the whole description, so no framing appears that the
+    // template did not write.
+    expect(capturing.streamOptions().tools?.['web_search']?.description).toBe(
+      'Search the web, briefly.',
+    );
+  });
+
+  it('renders the engine list in the system prompt from the same collection', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        model: {
+          ...testModelEntry,
+          systemPromptTemplate:
+            'Engines:{{#each webSearch.engines}} {{id}}{{/each}}',
+        },
+        webSearch,
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    // Both template kinds read one boot-resolved collection.
+    expect(capturing.streamOptions().system).toBe('Engines: brave exa');
+  });
+
+  it('renders the engine list in the system prompt from the same collection', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        model: {
+          ...testModelEntry,
+          systemPromptTemplate:
+            'Engines:{{#each webSearch.engines}} {{id}}{{/each}}',
+        },
+        webSearch,
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    // Both template kinds read one boot-resolved collection.
+    expect(capturing.streamOptions().system).toBe('Engines: brave exa');
+  });
+
+  it('declares no engine list on another llame-owned tool', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      { allowed: ['bash'], webSearch },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    // Another admitted llame-owned tool renders its template alone: the list
+    // belongs to `web_search` and to no other description.
+    const description =
+      capturing.streamOptions().tools?.['bash']?.description ?? '';
+    expect(description.length).toBeGreaterThan(0);
+    expect(description).not.toContain('<engines>');
+    expect(description).not.toContain('Configured web search engines.');
+  });
+
+  it('fails a web_search template that renders only whitespace', async () => {
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'web-search-catalog-'));
+    // The loader trims trailing whitespace and refuses an empty file, so the
+    // leading space left by the unadmitted gate is what survives to the
+    // render: a whitespace-only description is still an empty render.
+    writeFileSync(
+      path.join(tmpDir, 'web-search-space.md'),
+      '  {{#if tools.edit}}Use edit for the fetched page.{{/if}}',
+    );
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['web_search'],
+        configPath: path.join(tmpDir, 'llame.config.json'),
+        toolPromptFiles: { web_search: 'web-search-space.md' },
+        webSearch,
+      },
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow('Tool "web_search" description rendered empty.');
   });
 });
 

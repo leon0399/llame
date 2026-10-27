@@ -86,6 +86,11 @@ export type EngineRequest = {
   readonly query: string;
   /** The model's goal for this search; engines without the field ignore it. */
   readonly objective: string | undefined;
+  /**
+   * The engines this call runs, in order, instead of the configured chain. The
+   * tool has already checked each id against the configured engines.
+   */
+  readonly engines?: ReadonlyArray<string>;
   readonly recency: 'day' | 'week' | 'month' | 'year' | undefined;
   readonly limit: number;
   readonly signal: AbortSignal;
@@ -508,7 +513,11 @@ function totalFailure(notes: ReadonlyArray<string>): SearchChainError {
   };
 }
 
-/** Execute a configured fallback chain, preserving only fixed failure classes. */
+/**
+ * Execute a configured fallback chain, preserving only fixed failure classes.
+ * A call that lists `engines` runs those ids in their order instead, with the
+ * same fallback among them and no other engine.
+ */
 export async function executeSearchChain(
   config: WebSearchConfig,
   request: EngineRequest,
@@ -516,7 +525,7 @@ export async function executeSearchChain(
 ): Promise<SearchChainResult> {
   const notes: Notes = [];
   let lastEmpty: LastEmpty | undefined;
-  for (const id of config.chain) {
+  for (const id of request.engines ?? config.chain) {
     if (request.signal.aborted) throwAbort(request.signal);
     const entry = config.engines.find((candidate) => candidate.id === id)!;
     // A local decision, not a vendor failure: the request is never sent.

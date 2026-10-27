@@ -1,31 +1,24 @@
 # Spec Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: llame-owned descriptions are complete file templates
+### Requirement: Templates can iterate the configured web search engines
 
-Each registered llame-owned tool MUST have a complete packaged description. Both template kinds MUST share one language, the allowed variables, neutralization, omission, bounded iteration, and one-pass render. Selection MUST follow `instance-config` precedence. A template MUST change only description text, never identity, schemas, parameter descriptions, classification, permissions, or results. `web-search` can append its engine catalog. MCP descriptions MUST stay opaque source-authored text.
+Both template kinds MUST accept `webSearch.engines` as an `each` collection. Its items MUST be the configured web search engines in configuration order. Each item MUST declare only the fields `id`, `type`, `kind`, `position`, `recency`, `queryLimit`, `objective`, and `description`. The worker MUST resolve the collection once at boot, and MUST tag-neutralize each value. `webSearch` MUST be absent when the configuration has no `webSearch` section.
 
-#### Scenario: Packaged descriptions cover the registry
+#### Scenario: A template lists the engines
 
-- **WHEN** a worker starts without overrides
-- **THEN** it loads a complete packaged description for every llame-owned tool
-- **AND** its compiled runtime can load those files independently of the source tree
+- **WHEN** a template wraps an `each` block over `webSearch.engines` and references `id` and `description` inside it
+- **THEN** the block renders once for each configured engine in configuration order
+- **AND** startup succeeds
 
-#### Scenario: Both prompt surfaces share variables
+#### Scenario: An undeclared engine field fails startup
 
-- **WHEN** the system prompt and an admitted description reference the same allowed path
-- **THEN** they receive the same resolved value and neutralization for that attempt
-- **AND** the worker does not evaluate substituted owner text again
+- **WHEN** a template references `key` inside an `each` body over `webSearch.engines`
+- **THEN** startup fails and names the offending construct
+- **AND** no engine key gets into a prompt
 
-#### Scenario: MCP text is not a template
+#### Scenario: A template without web search configuration
 
-- **WHEN** an MCP description contains `{{user.email}}`
-- **THEN** it stays literal text
-- **AND** the worker does not substitute owner data into it
-
-#### Scenario: Web search appends its engine catalog
-
-- **WHEN** an attempt declares `web_search` with a packaged or overridden description
-- **THEN** the declared description is the rendered template followed by the engine catalog that `web-search` defines
-- **AND** the template file stays complete without the catalog
+- **WHEN** the configuration has no `webSearch` section and a template wraps a region in `{{#if webSearch}}`
+- **THEN** the region renders empty

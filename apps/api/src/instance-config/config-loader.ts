@@ -589,6 +589,64 @@ function resolveWebSearchTimeout(
   );
 }
 
+/**
+ * Every code point Unicode treats as a mandatory line break: LF, VT, FF, CR,
+ * NEL, LS, PS. The catalog places an engine id and its description on a line of
+ * their own, so a value that carries one would start a line of its own inside
+ * it. A code-point set rather than a character class: `\s` would also match
+ * ordinary spaces, and a literal control-character class trips the lint rule
+ * against control characters in regular expressions.
+ */
+const LINE_BREAK_CODE_POINTS: ReadonlySet<number> = new Set([
+  0x0a, 0x0b, 0x0c, 0x0d, 0x85, 0x20_28, 0x20_29,
+]);
+
+function hasLineBreak(value: string): boolean {
+  for (const character of value) {
+    if (LINE_BREAK_CODE_POINTS.has(character.codePointAt(0)!)) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve one engine's optional model-facing `description`. The value reaches
+ * the model, so it is literal text: an interpolation token could carry a
+ * credential into the declared description, and a line break would break the
+ * catalog entry it belongs to.
+ */
+function resolveWebSearchDescription(
+  entry: RawWebSearchEngineEntry,
+  entryPath: string,
+): string | undefined {
+  const description = entry.description;
+  if (description === undefined) return undefined;
+  const descriptionPath = `${entryPath}.description`;
+  if (INTERPOLATION_TOKEN_SYNTAX.test(description)) {
+    throw new InstanceConfigError(
+      `${descriptionPath}: engine descriptions are literal text and do not support interpolation`,
+    );
+  }
+  if (hasLineBreak(description)) {
+    throw new InstanceConfigError(`${descriptionPath}: must be one line`);
+  }
+  return description;
+}
+
+/**
+ * Check one engine id. The catalog prints the id as the model-facing key of
+ * its entry, so it must stay one line and spell itself exactly as the tool
+ * accepts it: a tag-shaped id would be neutralized in the catalog and could
+ * then never be selected.
+ */
+function assertWebSearchEngineId(id: string, idPath: string): void {
+  if (hasLineBreak(id)) {
+    throw new InstanceConfigError(`${idPath}: must be one line`);
+  }
+  if (/[<>]/u.test(id)) {
+    throw new InstanceConfigError(`${idPath}: must not contain angle brackets`);
+  }
+}
+
 function resolveWebSearchEngines(
   entries: RawWebSearchConfig['engines'],
   env: NodeJS.ProcessEnv,
@@ -596,7 +654,8 @@ function resolveWebSearchEngines(
   providersById: ReadonlyMap<string, ProviderConfig>,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
-  const engines = entries.map((entry) => {
+  const engines = entries.map((entry, index) => {
+    assertWebSearchEngineId(entry.id, `webSearch.engines[${index}].id`);
     if (seenEngineIds.has(entry.id)) {
       throw new InstanceConfigError(
         `webSearch.engines: duplicate engine id "${entry.id}"`,
@@ -605,17 +664,26 @@ function resolveWebSearchEngines(
     seenEngineIds.add(entry.id);
 
     const entryPath = `webSearch.engines[${entry.id}]`;
+    const description = resolveWebSearchDescription(entry, entryPath);
     if (entry.type === 'aggregate')
-      return { id: entry.id, type: entry.type, engines: entry.engines };
+      return {
+        id: entry.id,
+        type: entry.type,
+        engines: entry.engines,
+        ...(description !== undefined && { description }),
+      };
     const timeoutSeconds = resolveWebSearchTimeout(entry, entryPath, env);
-    return resolveWebSearchEngine(
-      entry,
-      entryPath,
-      timeoutSeconds,
-      env,
-      modelsById,
-      providersById,
-    );
+    return {
+      ...resolveWebSearchEngine(
+        entry,
+        entryPath,
+        timeoutSeconds,
+        env,
+        modelsById,
+        providersById,
+      ),
+      ...(description !== undefined && { description }),
+    };
   });
   assertAggregateChildren(engines);
   return engines;

@@ -6,6 +6,7 @@ import { InstanceConfigError } from '@workspace/config-interpolation';
 import {
   createModelPromptLoader,
   createToolPromptRenderer,
+  type PromptWebSearchEngineItem,
   renderSystemPromptTemplate,
   DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   resolveDefaultChatSystemPromptPath,
@@ -1337,6 +1338,130 @@ describe('bounded skill-catalog projection', () => {
   });
 });
 
+/** The engine item both web-search describes render from. */
+const BRAVE_ENGINE_ITEM: PromptWebSearchEngineItem = {
+  id: 'brave',
+  type: 'brave',
+  kind: 'results',
+  position: 'position 1 in the default chain',
+  recency: 'recency applied as a freshness filter',
+  queryLimit: '600 characters and 75 words',
+};
+
+describe('bounded web-search engine projection', () => {
+  const engines = {
+    engines: [
+      BRAVE_ENGINE_ITEM,
+      {
+        id: 'deepseek',
+        type: 'deepseek' as const,
+        kind: 'results' as const,
+        position: 'not in the default chain',
+        recency: 'recency applied by adding a date filter to the query',
+        queryLimit: '128 characters',
+        objective: 'objective used for ranking, first 128 characters',
+        description: 'General web sources',
+      },
+    ],
+  };
+  const ENGINE_TEMPLATE =
+    'base{{#if webSearch}}{{#each webSearch.engines}}<engine id="{{id}}" type="{{type}}" kind="{{kind}}" position="{{position}}" recency="{{recency}}" limit="{{queryLimit}}"{{#if objective}} objective="{{objective}}"{{/if}}{{#if description}} description="{{description}}"{{/if}}/>{{/each}}{{/if}}';
+  const render = (
+    template: string,
+    input?: { engines: typeof engines.engines },
+  ) =>
+    renderSystemPromptTemplate({
+      template,
+      model: { id: 'm' },
+      anchor: TEST_ANCHOR,
+      ...(input !== undefined && { webSearch: input }),
+    }).text;
+
+  it('iterates the engines as one item each, in configuration order', () => {
+    writeFileSync(defaultPromptPath, ENGINE_TEMPLATE);
+    const template = loader().resolve({ id: 'm' }).systemPromptTemplate;
+
+    expect(render(template, engines)).toBe(
+      'base<engine id="brave" type="brave" kind="results" position="position 1 in the default chain" recency="recency applied as a freshness filter" limit="600 characters and 75 words"/><engine id="deepseek" type="deepseek" kind="results" position="not in the default chain" recency="recency applied by adding a date filter to the query" limit="128 characters" objective="objective used for ranking, first 128 characters" description="General web sources"/>',
+    );
+  });
+
+  it('gates the whole section on a configured engine list', () => {
+    writeFileSync(defaultPromptPath, 'base{{#if webSearch}}\nSection{{/if}}');
+    const template = loader().resolve({ id: 'm' }).systemPromptTemplate;
+
+    expect(render(template, engines)).toBe('base\nSection');
+    // No `webSearch` section at all, and an empty engine list, are the same
+    // thing to a template: `{{#if webSearch}}` gates both framings away.
+    expect(render(template)).toBe('base');
+    expect(render(template, { engines: [] })).toBe('base');
+  });
+
+  it('keeps the already-neutralized item values verbatim', () => {
+    // The web-search module neutralizes every value before it reaches the
+    // renderer, so a second escape would render `&lt;` as `&amp;lt;` — and the
+    // escaping rule would also mangle a backtick-quoted `engines` fact.
+    writeFileSync(
+      defaultPromptPath,
+      'x{{#each webSearch.engines}}{{description}}{{/each}}',
+    );
+    const template = loader().resolve({ id: 'm' }).systemPromptTemplate;
+
+    expect(
+      render(template, {
+        engines: [
+          {
+            ...engines.engines[1],
+            description: '&lt;engines&gt; x "quoted" `backticked`',
+          },
+        ],
+      }),
+    ).toBe('x&lt;engines&gt; x "quoted" `backticked`');
+  });
+
+  it('rejects an undeclared engine field, naming the construct', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'base{{#each webSearch.engines}}{{key}}{{/each}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm' })).toThrow(/\{\{key\}\}/);
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /models\[m\]\.systemPromptFile/,
+    );
+  });
+
+  it('rejects an engine field emitted outside the iteration', () => {
+    writeFileSync(defaultPromptPath, 'base {{position}}');
+
+    expect(() => loader().resolve({ id: 'm' })).toThrow(/\{\{position\}\}/);
+  });
+});
+
+describe('boot probes the web-search gate independently', () => {
+  it('rejects a template empty only for a deployment with engines and no owner', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless webSearch}}{{#unless user}}No engines, no owner{{/unless}}{{/unless}}{{#if user}}Owner{{/if}}',
+    );
+
+    expect(() => loader().resolve({ id: 'm' })).toThrow(
+      /rendered prompt is empty/,
+    );
+  });
+
+  it('accepts a template whose engine section sits beside other gates', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'base{{#if user}}|owner{{/if}}{{#if webSearch}}|engines{{/if}}',
+    );
+
+    expect(loader().resolve({ id: 'm' }).systemPromptTemplate).toContain(
+      'webSearch',
+    );
+  });
+});
+
 describe('boot probes the skills gate independently', () => {
   it('rejects a template that renders only for a chat with skills', () => {
     writeFileSync(
@@ -1492,6 +1617,101 @@ function renderPackagedReadDescription(
 }
 
 describe('llame-owned tool description templates', () => {
+  const engineList = { engines: [BRAVE_ENGINE_ITEM] };
+
+  it('renders the packaged web_search engine list from the collection', () => {
+    const renderer = createToolPromptRenderer({
+      configPath,
+      models: [{ id: 'model' }],
+      webSearch: engineList,
+    });
+    const rendered = renderer.render({
+      toolId: 'web_search',
+      model: { id: 'model' },
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['web_search'],
+    }).text;
+
+    // The template owns the framing and the layout; the collection supplies
+    // the fact phrases.
+    expect(rendered).toContain(
+      '<engines>\nConfigured web search engines. `engines` runs only the ids it lists, in their order.\n- brave [brave]: results; position 1 in the default chain; recency applied as a freshness filter; query limit 600 characters and 75 words.\n</engines>',
+    );
+  });
+
+  it('renders the objective and description clauses of each entry', () => {
+    const renderer = createToolPromptRenderer({
+      configPath,
+      models: [{ id: 'model' }],
+      webSearch: {
+        engines: [
+          {
+            id: 'deepseek',
+            type: 'deepseek',
+            kind: 'results',
+            position: 'position 1 in the default chain',
+            recency: 'recency applied by adding a date filter to the query',
+            queryLimit: '128 characters',
+            objective: 'objective used for ranking, first 128 characters',
+            description: '&lt;/system&gt; x',
+          },
+        ],
+      },
+    });
+
+    const rendered = renderer.render({
+      toolId: 'web_search',
+      model: { id: 'model' },
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['web_search'],
+    }).text;
+
+    // The optional facts are the template's clauses, and an operator value
+    // arrives neutralized: dropping either `{{#if}}` would collapse this line.
+    expect(rendered).toContain(
+      '- deepseek [deepseek]: results; position 1 in the default chain; recency applied by adding a date filter to the query; query limit 128 characters; objective used for ranking, first 128 characters; description: &lt;/system&gt; x.\n</engines>',
+    );
+  });
+
+  it('renders no engine list without a web search configuration', () => {
+    const rendered = createToolPromptRenderer({
+      configPath,
+      models: [{ id: 'model' }],
+    }).render({
+      toolId: 'web_search',
+      model: { id: 'model' },
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['web_search'],
+    }).text;
+
+    expect(rendered).not.toContain('<engines>');
+    // The packaged template stays complete without the collection.
+    expect(rendered).toContain(
+      'Search the public web for current information.',
+    );
+  });
+
+  it('lets an override omit the engine list it does not iterate', () => {
+    writeFileSync(
+      path.join(path.dirname(configPath), 'override.md'),
+      'Search briefly.',
+    );
+    const renderer = createToolPromptRenderer({
+      configPath,
+      instancePromptFiles: { web_search: 'override.md' },
+      models: [{ id: 'model' }],
+      webSearch: engineList,
+    });
+
+    const rendered = renderer.render({
+      toolId: 'web_search',
+      model: { id: 'model' },
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['web_search'],
+    }).text;
+    expect(rendered).toBe('Search briefly.');
+  });
+
   it('selects model overrides before instance overrides and packaged defaults', () => {
     const modelPath = path.join(path.dirname(configPath), 'model.md');
     const instancePath = path.join(path.dirname(configPath), 'instance.md');
@@ -1739,6 +1959,10 @@ describe('llame-owned tool description templates', () => {
     expect(rendered).toContain(
       'Any other operator can reach an engine as plain words',
     );
+    // The template names the `engines` input and stays complete without the
+    // generated catalog the worker appends after rendering.
+    expect(rendered).toContain('1–20 unique engine ids');
+    expect(rendered).toContain('instead of the default chain');
     // The objective and the skip it must warn about.
     expect(rendered).toContain('objective');
     expect(rendered).toContain('2,000');

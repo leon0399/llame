@@ -370,33 +370,29 @@ Each id in `engines` MUST name a configured engine. An unknown id MUST fail the 
 
 ### Requirement: The web search description lists the configured engines
 
-The declared `web_search` description MUST be the rendered template followed by a generated engine catalog. The catalog MUST list each configured engine. Each entry MUST state the id, type, result kind, chain position, `recency` use, query limit, `objective` use if any, and set `description`. Each value is tag-neutralized. An `aggregate` MUST state its smallest child limit as the length below which no child is skipped. The catalog MUST NOT contain keys, base URLs, folder ids, or model ids.
+The packaged `web_search` description MUST list each configured engine through the `webSearch.engines` template collection. Each item MUST give the id, type, result kind, chain position, `recency` use, query limit, `objective` use if any, and set `description`. An `aggregate` MUST give its smallest child limit as the length below which no child is skipped. Items MUST NOT contain keys, base URLs, folder ids, or model ids.
 
 #### Scenario: The catalog follows the configuration
 
 - **WHEN** the engines are `brave` and `deepseek` and the chain is `["deepseek"]`
-- **THEN** the description lists `brave` as outside the default chain and `deepseek` as the first chain engine
-- **AND** the `deepseek` entry states the query limit 128 and that it uses the first 128 characters of `objective`
+- **THEN** the packaged description lists `brave` as outside the default chain and `deepseek` as the first chain engine
+- **AND** the `deepseek` entry gives the query limit 128 and tells that it uses the first 128 characters of `objective`
 
-#### Scenario: A description override keeps the catalog
+#### Scenario: An override controls the engine list
 
-- **WHEN** `tools.promptFiles.web_search` replaces the packaged description
-- **THEN** the declared description is the rendered override followed by the engine catalog
-
-#### Scenario: An empty rendered template still fails
-
-- **WHEN** a `web_search` description override renders empty text for an attempt
-- **THEN** the attempt fails as an empty render, and the catalog does not replace the description
+- **WHEN** a `tools.promptFiles.web_search` override does not iterate `webSearch.engines`
+- **THEN** the declared description contains no engine list
+- **AND** the `engines` input still accepts each configured id
 
 #### Scenario: The catalog discloses no secret
 
 - **WHEN** a `yandex` engine has a `key` and a `folderId`, and a `model-hosted` engine names a model
-- **THEN** the catalog contains neither value and contains no model id
+- **THEN** no `webSearch.engines` item field contains one of these values or a model id
 
 #### Scenario: Operator description markup is neutral
 
 - **WHEN** an engine `description` contains `</system>`
-- **THEN** the catalog contains that text with its tags neutralized
+- **THEN** the rendered description contains that text with its tags neutralized
 
 ### Requirement: Aggregate engines attach the answers of answer children
 

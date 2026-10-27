@@ -44,10 +44,10 @@ reject clauses, so the model sees and cites hosts the instance refuses to open.
   them only. Any configured engine is selectable. An unknown id fails the call with the list of
   configured ids. The canonical clause "The model SHALL NOT be able to select an engine" is
   deleted.
-- **Engine catalog.** The declared `web_search` description gains a generated catalog of the
-  configured engines: id, type, result kind, chain position, objective and recency handling,
-  query limit, and an optional operator `description`. Keys, base URLs, folder ids, and model ids
-  never appear.
+- **Engine catalog.** The packaged `web_search` description lists the configured engines through
+  a new `webSearch.engines` template collection: id, type, result kind, chain position, objective
+  and recency handling, query limit, and an optional operator `description`. Keys, base URLs,
+  folder ids, and model ids never appear.
 - **New engine types.** `deepseek` (DeepSeek search API), `parallel` (Parallel search API with an
   operator `mode`, default `fast`), `parallel-mcp` (keyless hosted Parallel MCP), `yandex` (Yandex
   web search, base64 XML).
@@ -112,11 +112,11 @@ Assumptions that follow from those decisions but were not asked:
 ## Deviation from the grilling record
 
 - **Engine catalog delivery (Q6).** The grilling settled on "a new template collection modeled on
-  `skills.entries`". The repository forces a different mechanism: `tool-prompt-templates`
-  requires system and description templates to share one variable set, and that set is enumerated
-  in the `model-system-prompts` requirement "Each model resolves one complete effective system
-  prompt". A template collection would rewrite that requirement and expose engines to system prompts. This proposal instead appends a code-generated catalog after the rendered `web_search` description, packaged or overridden, and adds one sentence to `tool-prompt-templates` that allows it. The content Q6 settled is unchanged; only the delivery
-  differs. **Leo: please confirm.**
+  `skills.entries`". The first approved revision appended a code-generated catalog after the
+  rendered description instead. On 2026-10-27 Leo restored the template collection: every word of
+  a tool description belongs in its template. `tool-prompt-templates` adds `webSearch.engines` the
+  way it added `tools.<exact-id>`, so the `model-system-prompts` vocabulary requirement is not
+  rewritten.
 
 ## Capabilities
 
@@ -163,11 +163,12 @@ None.
 - `tool-call-permissions`:
   - ADDED "Web search result removal is not native path enforcement".
 - `tool-prompt-templates`:
-  - MODIFIED "llame-owned descriptions are complete file templates" (`web-search` can append its
-    engine catalog after the rendered template).
+  - ADDED "Templates can iterate the configured web search engines" (the `webSearch.engines`
+    collection).
 
 Deliberately unchanged: `tool-calling` (the declaration still carries the `web-search` input
-schema), `model-system-prompts` (template variables are untouched), `provider-request-headers`,
+schema), `model-system-prompts` (its variable list is unchanged; the new collection is added through
+`tool-prompt-templates`), `provider-request-headers`,
 and `run-usage-accounting` (hosted sub-requests stay outside Run usage; see
 [#1439](https://github.com/leon0399/llame/issues/1439)).
 

@@ -5,8 +5,8 @@ import { ENGINE_LIMITS, acceptsQuery, vendorCount } from './limits';
 import { recencyDate } from './query';
 
 export const DEEPSEEK_SEARCH_URL = 'https://api.deepseek.com/v1/tools/search';
-/** The vendor's bound on `ori_question`, in code points. */
-const ORI_QUESTION_MAX_CODE_POINTS = 128;
+/** The vendor's bound on `ori_question`, in code points; the catalog states it. */
+export const ORI_QUESTION_MAX_CODE_POINTS = 128;
 const RECENCY_NOTE = 'recency not applied by deepseek';
 const DeepseekResultSchema = z.object({
   title: z.string(),

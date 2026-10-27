@@ -87,6 +87,10 @@ never be emitted as a value:
 - `user.personalization` — true when any authored field would render.
 - `chats`, `chats.pinned`, `chats.recent` — true when that digest content is
   present.
+- `skills` — true when the chat's frozen skill catalog admits at least one
+  skill. System-prompt templates only: a tool description never receives the
+  catalog, so `{{#if skills}}` is always false there.
+- `webSearch` — true when the instance configures a `webSearch` section.
 - `tools.<exact-id>` — tool membership for this attempt.
 
 `{{#if tools.read}}` is true exactly when that exact tool id is advertised on
@@ -111,7 +115,53 @@ attempts, owners, or chats.
 `{{#each chats.pinned}}` and `{{#each chats.recent}}` iterate digest entries.
 An entry exposes `{{title}}`, `{{date}}`, `{{messageCount}}`, and `{{excerpt}}`
 and nothing else. A loop's `{{else}}` arm renders when the collection is absent.
-No other collection is iterable, and iteration does not nest.
+Iteration does not nest.
+
+A system-prompt template can also iterate `{{#each skills.entries}}`: the
+chat's frozen skill catalog, in catalog order, where an entry exposes `{{name}}`
+and `{{description}}` and nothing else, and `{{#if skills.omitted}}` gates an
+overflow count. Tool descriptions never receive that collection.
+
+`{{#each webSearch.engines}}` iterates the configured web-search engines, in
+configuration order. An entry exposes only the fact phrases below; an
+undeclared field such as `{{key}}` fails validation rather than rendering.
+
+| Field             | Contents                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `{{id}}`          | The engine id `engines` accepts                                                           |
+| `{{type}}`        | The engine type, such as `brave` or `aggregate`                                           |
+| `{{kind}}`        | `results`, `answer`, or `results with answers` for an aggregate with a hosted child       |
+| `{{position}}`    | The chain position, the chain aggregate already running it, or that it is outside `chain` |
+| `{{recency}}`     | How the engine uses `recency`                                                             |
+| `{{queryLimit}}`  | Its query bound; an `aggregate` states the bounds below which no child is skipped         |
+| `{{objective}}`   | How it uses `objective`, absent for an engine that ignores it                             |
+| `{{description}}` | The operator's `description` without its one trailing period, absent when it sets none    |
+
+Every value arrives already neutralized, so it renders verbatim; the fields
+carry no key, base URL, folder id, or model id. `{{description}}` loses one
+trailing `.` because the packaged template ends each entry line with its own
+period; a template that ends the line differently keeps the operator's text
+without that period.
+
+The packaged
+[`web_search` description](../../../apps/api/src/prompts/tools/web_search.md)
+is the reference use; paste this verbatim, since Handlebars keeps the
+whitespace exactly as written:
+
+<!-- prettier-ignore -->
+```text
+{{#if webSearch}}
+
+<engines>
+Configured web search engines. `engines` runs only the ids it lists, in their order.
+{{#each webSearch.engines}}- {{id}} [{{type}}]: {{kind}}; {{position}}; {{recency}}; query limit {{queryLimit}}{{#if objective}}; {{objective}}{{/if}}{{#if description}}; description: {{description}}{{/if}}.
+{{/each}}</engines>{{/if}}
+```
+
+An override that does not iterate the collection declares no engine list; the
+`engines` input still accepts every configured id. `{{#if webSearch}}` is false
+when the instance has no `webSearch` section, so the whole region renders
+empty.
 
 ### Restrictions
 
@@ -139,9 +189,11 @@ to the packaged text:
 - an unsupported construct, named in the error with its configuration path;
 - a file that can render empty, named in the error with its configuration path.
   Each file is rendered once per configured model, with every combination of the
-  independent `user`, `chats`, and `skills` gates, and with no tools admitted and
-  with every tool the template names. Text hidden behind a gate an ordinary
-  attempt can fail (`{{#if user.personalization}}…{{/if}}`) fails startup;
+  independent `user`, `chats`, `skills`, and `webSearch` gates, and with no
+  tools admitted and with every tool the template names. Text hidden behind a
+  gate an ordinary attempt can fail (`{{#if user.personalization}}…{{/if}}`)
+  fails startup, and so does text that only a deployment with configured
+  engines would render (`{{#if webSearch}}…{{/if}}` with nothing outside it);
   guidance gated on a tool that can be absent from an attempt
   (`{{#if tools.edit}}…{{/if}}`) does not, because another attempt renders it.
 

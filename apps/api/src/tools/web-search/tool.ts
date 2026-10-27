@@ -16,11 +16,33 @@ import {
 import { normalizeOutput } from './output';
 import { splitSiteFilters } from './query';
 import { createResultRemoval } from './removal';
-import { ENGINE_LIMITS } from './limits';
+import { ENGINE_LIMITS, TOOL_QUERY_MAX } from './limits';
 
 export const webSearchInputSchema = z.strictObject({
-  query: z.string().min(1).max(1000),
+  query: z.string().min(1).max(TOOL_QUERY_MAX),
   objective: z.string().min(1).max(2000).optional(),
+  /**
+   * The engines to run for this call, in order, in place of the configured
+   * chain. Ids are plain strings, so the schema stays static; the tool checks
+   * them against the configured engines before any request. A length counts
+   * code points, the unit the configuration's own bound uses, so every
+   * configured id is selectable.
+   */
+  engines: z
+    .array(
+      z
+        .string()
+        .min(1)
+        .refine((id) => Array.from(id).length <= 64, {
+          message: 'An engine id is at most 64 characters.',
+        }),
+    )
+    .min(1)
+    .max(20)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'Engine ids must be unique.',
+    })
+    .optional(),
   recency: z.enum(['day', 'week', 'month', 'year']).optional(),
   limit: z.number().int().min(1).max(20).default(10),
 });
@@ -73,6 +95,29 @@ function engineLookupFor(config: WebSearchConfig): EngineLookup {
   return lookup;
 }
 
+/**
+ * The tool error for a selected engine id the operator did not configure, or
+ * `undefined` when every id is configured. A local decision before any engine
+ * runs: the ids are the model's own text, and the configured ids carry no
+ * credential, base URL, or folder id.
+ */
+function unknownEngineFailure(
+  config: WebSearchConfig,
+  engines: ReadonlyArray<string> | undefined,
+): ToolResult | undefined {
+  const unknown = engines?.find(
+    (id) => !config.engines.some((entry) => entry.id === id),
+  );
+  if (unknown === undefined) return undefined;
+  return {
+    status: 'error',
+    type: 'web_search_failed',
+    message: `Unknown web search engine "${unknown}". Configured engines: ${config.engines
+      .map((entry) => entry.id)
+      .join(', ')}.`,
+  };
+}
+
 export const webSearchTool: Tool<WebSearchArguments> = {
   id: 'web_search',
   description: loadPackagedToolDescription('web_search'),
@@ -89,10 +134,13 @@ export const webSearchTool: Tool<WebSearchArguments> = {
         type: 'web_search_failed',
         message: WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
       };
+    const unknownEngine = unknownEngineFailure(config, input.engines);
+    if (unknownEngine !== undefined) return unknownEngine;
     const signal = context.abortSignal ?? new AbortController().signal;
     const request: EngineRequest = {
       query: input.query,
       objective: input.objective,
+      engines: input.engines,
       limit: input.limit,
       signal,
       recency: input.recency,

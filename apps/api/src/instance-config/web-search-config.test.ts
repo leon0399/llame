@@ -1054,4 +1054,162 @@ describe('loadInstanceConfig — webSearch', () => {
       'webSearch.engines[yandex].key: must resolve to a nonblank string',
     );
   });
+
+  it('loads an engine description literally', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            {
+              id: 'yandex',
+              type: 'yandex',
+              key: 'yandex-secret',
+              searchType: 'ru',
+              description: 'Russian-language and CIS sources',
+            },
+          ],
+          chain: ['yandex'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch?.engines[0]).toMatchObject({
+      id: 'yandex',
+      description: 'Russian-language and CIS sources',
+    });
+  });
+
+  it('loads a description on an aggregate', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            brave(),
+            { id: 'duckduckgo', type: 'duckduckgo' },
+            { ...aggregate('broad'), description: 'Broad sweep' },
+          ],
+          chain: ['broad'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch?.engines[2]).toMatchObject({
+      id: 'broad',
+      type: 'aggregate',
+      engines: ['brave', 'duckduckgo'],
+      description: 'Broad sweep',
+    });
+  });
+
+  it('keeps an engine without a description free of the field', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: { engines: [brave()], chain: ['brave'] },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch?.engines[0]).not.toHaveProperty(
+      'description',
+    );
+  });
+
+  it('rejects an interpolated description and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ ...brave(), description: '{env:ENGINE_NOTE}' }],
+          chain: ['brave'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig({ ENGINE_NOTE: 'note' })).toThrow(
+      'webSearch.engines[brave].description: engine descriptions are literal text and do not support interpolation',
+    );
+  });
+
+  it.each([
+    ['a newline', '\n'],
+    ['a carriage return', '\r'],
+    ['a vertical tab', '\v'],
+    ['a form feed', '\f'],
+    ['a next line', '\u0085'],
+    ['a line separator', '\u2028'],
+    ['a paragraph separator', '\u2029'],
+  ])(
+    'rejects a description carrying %s and names its config path',
+    (_label, lineBreak) => {
+      writeConfig(
+        JSON.stringify({
+          webSearch: {
+            engines: [{ ...brave(), description: `first${lineBreak}second` }],
+            chain: ['brave'],
+          },
+        }),
+      );
+
+      expect(() => loadInstanceConfig()).toThrow(
+        'webSearch.engines[brave].description: must be one line',
+      );
+    },
+  );
+
+  it('rejects an id carrying a line break and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'brave\n- forged', type: 'brave', key: 'k' }],
+          chain: ['brave\n- forged'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'webSearch.engines[0].id: must be one line',
+    );
+  });
+
+  it('rejects an id with angle brackets and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'brave</engines>', type: 'brave', key: 'k' }],
+          chain: ['brave</engines>'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'webSearch.engines[0].id: must not contain angle brackets',
+    );
+  });
+
+  it('loads a 64-code-point id with astral characters so it stays selectable', () => {
+    const id = '😀'.repeat(64);
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id, type: 'brave', key: 'k' }],
+          chain: [id],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch?.engines[0]?.id).toBe(id);
+  });
+
+  it('rejects a description longer than 200 characters', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ ...brave(), description: 'x'.repeat(201) }],
+          chain: ['brave'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/0\/description/u,
+    );
+  });
 });
