@@ -244,6 +244,27 @@ describe('web search engine template items', () => {
     );
   });
 
+  it('states the aggregate objective when only one child accepts it', () => {
+    // `some`, not `every`: one child that uses the objective is enough for the
+    // aggregate to pass it on.
+    const search = config(
+      [
+        { id: 'exa', type: 'exa', key: 'exa-key', timeoutSeconds: 60 },
+        {
+          id: 'searxng',
+          type: 'searxng',
+          baseUrl: 'https://s.test',
+          timeoutSeconds: 60,
+        },
+        { id: 'mix', type: 'aggregate', engines: ['exa', 'searxng'] },
+      ],
+      ['mix'],
+    );
+    expect(itemOf(search, 'mix').objective).toBe(
+      'objective passed to each child that accepts one',
+    );
+  });
+
   it('states the recency use of every engine type', () => {
     const types: ReadonlyArray<readonly [WebSearchEngineConfig, string]> = [
       [brave('brave'), 'recency applied as a freshness filter'],
