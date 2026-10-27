@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
 import { fetchVendorJson, type VendorFetch } from './http';
+import { vendorCount } from './limits';
 import { splitSiteFilters } from './query';
 
 export const PERPLEXITY_SEARCH_URL = 'https://api.perplexity.ai/search';
@@ -31,7 +32,13 @@ function mapPerplexityResult(value: unknown): Array<RawResult> {
   ];
 }
 
-function domainPlan(query: string) {
+type DomainFilters = {
+  readonly query: string;
+  readonly domains: Array<string>;
+  readonly stayedInQuery: boolean;
+};
+
+function domainPlan(query: string): DomainFilters {
   const filters = splitSiteFilters(query);
   const allow = filters.include.length > 0;
   const hosts = allow ? filters.include : filters.exclude;
@@ -52,6 +59,17 @@ function domainPlan(query: string) {
   };
 }
 
+function requestBody(plan: DomainFilters, request: EngineRequest) {
+  return {
+    query: plan.query,
+    max_results: vendorCount('perplexity', request.limit),
+    ...(request.recency !== undefined && {
+      search_recency_filter: request.recency,
+    }),
+    ...(plan.domains.length > 0 && { search_domain_filter: plan.domains }),
+  };
+}
+
 /** Create a Perplexity Search API adapter for one resolved operator engine. */
 export function createPerplexityEngine(
   config: { readonly key: string },
@@ -69,16 +87,7 @@ export function createPerplexityEngine(
           Authorization: `Bearer ${config.key}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          query: plan.query,
-          max_results: request.limit,
-          ...(request.recency !== undefined && {
-            search_recency_filter: request.recency,
-          }),
-          ...(plan.domains.length > 0 && {
-            search_domain_filter: plan.domains,
-          }),
-        }),
+        body: JSON.stringify(requestBody(plan, request)),
       },
       {
         signal: request.signal,

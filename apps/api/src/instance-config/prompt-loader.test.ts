@@ -1718,6 +1718,44 @@ describe('llame-owned tool description templates', () => {
     }
   });
 
+  it('renders the web_search objective, limits, and portable operators', () => {
+    // The packaged description is the only place llame vouches for a search
+    // operator: the three it names hold on every engine or are enforced after
+    // the response, and every other operator is a plain word somewhere.
+    const model = { id: 'model' };
+    const rendered = createToolPromptRenderer({
+      configPath,
+      models: [model],
+    }).render({
+      toolId: 'web_search',
+      model,
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['web_search'],
+    }).text;
+
+    expect(rendered).toContain('`site:`');
+    expect(rendered).toContain('`-site:`');
+    expect(rendered).toContain('quoted phrases');
+    expect(rendered).toContain(
+      'Any other operator can reach an engine as plain words',
+    );
+    // The objective and the skip it must warn about.
+    expect(rendered).toContain('objective');
+    expect(rendered).toContain('2,000');
+    expect(rendered).toContain("over an engine's own limit skips that engine");
+    for (const unsupported of [
+      'after:',
+      'before:',
+      'lang:',
+      'filetype:',
+      'intitle:',
+      'inurl:',
+    ]) {
+      expect(rendered).not.toContain(unsupported);
+    }
+    expect(rendered).not.toMatch(/\bOR\b/u);
+  });
+
   it('renders the packaged web guidance for read with or without knowledge_search', () => {
     // The web bullet carries no `{{#if}}` gate, so both catalogs see it, while
     // the `kb://` bullet is gated on `knowledge_search` and only the second

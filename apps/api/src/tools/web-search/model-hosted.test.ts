@@ -51,6 +51,7 @@ const hostedConfig = (wire: Wire): HostedConfig => ({
 });
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: QUERY,
+  objective: undefined,
   recency: undefined,
   limit: 10,
   signal: new AbortController().signal,
@@ -177,6 +178,39 @@ describe('the hosted request', () => {
     },
   );
 
+  it('appends the objective as a Goal line', async () => {
+    const { engine, inputs } = hostedEngine('openai-responses', GROUNDED);
+
+    await engine(request({ objective: 'compare pgvector benchmarks' }));
+
+    expect(inputs[0].messages).toStrictEqual([
+      {
+        role: 'user',
+        content: `${QUERY}\n\nGoal: compare pgvector benchmarks`,
+      },
+    ]);
+  });
+
+  it('sends template-looking text literally, recency before the goal', async () => {
+    const { engine, inputs } = hostedEngine('openai-responses', GROUNDED);
+
+    await engine(
+      request({
+        query: 'pg {{user.email}} & <b>',
+        recency: 'week',
+        objective: 'rank {{#if x}}docs{{/if}} & <i>',
+      }),
+    );
+
+    expect(inputs[0].messages).toStrictEqual([
+      {
+        role: 'user',
+        content:
+          'pg {{user.email}} & <b>\n\nOnly use sources published within the last week.\n\nGoal: rank {{#if x}}docs{{/if}} & <i>',
+      },
+    ]);
+  });
+
   it('packages the hosted search instructions', () => {
     expect(HOSTED_SEARCH_INSTRUCTIONS).toBe(
       [
@@ -257,6 +291,55 @@ describe('the provider search tool', () => {
       ]);
     },
   );
+
+  it.each(['openai-responses', 'openai-codex'] as const)(
+    'maps -site: hosts to the %s blocked domains',
+    async (wire) => {
+      const { engine, inputs } = hostedEngine(wire, GROUNDED);
+
+      await engine(request({ query: 'pgvector -site:reddit.com' }));
+
+      expect(inputs[0].tools?.web_search).toHaveProperty('args.filters', {
+        blockedDomains: ['reddit.com'],
+      });
+    },
+  );
+
+  it('blocks Anthropic exclusions when the query names no allowed host', async () => {
+    const { engine, inputs } = hostedEngine('anthropic-messages', GROUNDED);
+
+    await engine(request({ query: 'pgvector -site:reddit.com' }));
+
+    expect(inputs[0].tools?.web_search).toHaveProperty('args.blockedDomains', [
+      'reddit.com',
+    ]);
+  });
+
+  it('keeps both Anthropic lists apart and notes the dropped exclusions', async () => {
+    const query = 'pgvector site:github.com -site:gist.github.com';
+    const openai = hostedEngine('openai-responses', GROUNDED);
+    const anthropic = hostedEngine('anthropic-messages', GROUNDED);
+
+    await expect(openai.engine(request({ query }))).resolves.not.toHaveProperty(
+      'notes',
+    );
+    expect(openai.inputs[0].tools?.web_search).toHaveProperty('args.filters', {
+      allowedDomains: ['github.com'],
+      blockedDomains: ['gist.github.com'],
+    });
+
+    await expect(anthropic.engine(request({ query }))).resolves.toMatchObject({
+      notes: ['model-hosted ignored the excluded domains'],
+    });
+    // Anthropic accepts one domain list, so the inclusions win.
+    expect(anthropic.inputs[0].tools?.web_search).toHaveProperty(
+      'args.allowedDomains',
+      ['github.com'],
+    );
+    expect(anthropic.inputs[0].tools?.web_search).not.toHaveProperty(
+      'args.blockedDomains',
+    );
+  });
 });
 
 describe('citations', () => {

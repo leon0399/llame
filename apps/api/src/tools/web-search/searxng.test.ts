@@ -5,6 +5,7 @@ import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test latest adapters',
+  objective: undefined,
   recency: 'week',
   limit: 1,
   signal: new AbortController().signal,
@@ -51,7 +52,7 @@ describe('SearXNG adapter', () => {
     const result = await createSearxngEngine(
       { baseUrl: 'http://localhost:8888/searxng' },
       { fetch: recorded.fetch },
-    )(request());
+    )(request({ limit: 4 }));
     const url = new URL(recorded.seen().url);
     expect(url.origin + url.pathname).toBe(
       'http://localhost:8888/searxng/search',
@@ -124,6 +125,33 @@ describe('SearXNG adapter', () => {
       kind: 'empty',
       notes: ['SearXNG mapped week recency to month.'],
     });
+  });
+
+  it('drops an invalid URL before the limit cut and ignores the objective', async () => {
+    const recorded = captureFixture(
+      success([
+        { title: 'Invalid', url: 'javascript:alert(1)' },
+        { title: 'Valid', url: 'https://example.test/valid' },
+      ]),
+    );
+    const engine = createSearxngEngine(
+      { baseUrl: 'http://localhost:8888/' },
+      { fetch: recorded.fetch },
+    );
+    await expect(
+      engine(
+        request({
+          query: 'plain',
+          recency: undefined,
+          limit: 1,
+          objective: 'compare pgvector benchmarks',
+        }),
+      ),
+    ).resolves.toStrictEqual({
+      kind: 'results',
+      results: [{ title: 'Valid', url: 'https://example.test/valid' }],
+    });
+    expect(new URL(recorded.seen().url).searchParams.get('q')).toBe('plain');
   });
 
   it('rejects a malformed envelope and skips malformed entries', async () => {

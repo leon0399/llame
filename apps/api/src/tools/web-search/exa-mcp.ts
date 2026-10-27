@@ -198,7 +198,7 @@ async function executeSearchTool(
     {
       query: request.query,
       numResults: request.limit,
-      objective: request.query,
+      objective: request.objective ?? request.query,
     },
     {
       toolCallId: EXA_MCP_TOOL_NAME,

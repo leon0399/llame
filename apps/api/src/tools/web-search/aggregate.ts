@@ -10,10 +10,12 @@ import {
   type FailureClass,
   type RawResult,
 } from './chain';
+import { acceptsQuery, type EngineLimits } from './limits';
 
 export type AggregateChild = {
   readonly id: string;
   readonly timeoutSeconds: number;
+  readonly limits: EngineLimits;
   readonly engine: Engine;
 };
 
@@ -172,8 +174,18 @@ export function createAggregateEngine(
 ): Engine {
   return async (request) => {
     if (request.signal.aborted) throwAbort(request.signal);
+    // A skipped child's run is a plain value, wrapped so every element the
+    // aggregator receives is a promise.
     const runs = await Promise.all(
-      children.map((child) => runChild(child, request)),
+      children.map((child) =>
+        acceptsQuery(child.limits, request.query)
+          ? runChild(child, request)
+          : Promise.resolve({
+              child,
+              kind: 'failure' as const,
+              failureClass: 'unsupported' as const,
+            }),
+      ),
     );
     if (request.signal.aborted) throwAbort(request.signal);
     const notes = [...outcomeNotes(runs), ...childNotes(runs)];
@@ -187,6 +199,15 @@ export function createAggregateEngine(
     if (runs.some((run) => run.kind === 'empty')) {
       return { kind: 'empty' as const, notes };
     }
-    throw new EngineFailure('upstream_error');
+    // An aggregate that skipped every child makes a local decision, not a
+    // vendor failure; the chain records `unsupported` and advances like any
+    // other class.
+    throw new EngineFailure(
+      runs.every(
+        (run) => run.kind === 'failure' && run.failureClass === 'unsupported',
+      )
+        ? 'unsupported'
+        : 'upstream_error',
+    );
   };
 }

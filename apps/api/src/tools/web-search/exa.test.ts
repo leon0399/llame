@@ -6,6 +6,7 @@ import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test -site:spam.test latest',
+  objective: undefined,
   recency: 'week',
   limit: 7,
   signal: new AbortController().signal,
@@ -25,6 +26,7 @@ type FixtureBody =
   | { readonly results: string };
 const ExaRequestSchema = z.object({
   query: z.string(),
+  objective: z.string(),
   numResults: z.number(),
   includeDomains: z.array(z.string()).optional(),
   excludeDomains: z.array(z.string()).optional(),
@@ -74,6 +76,7 @@ describe('Exa adapter', () => {
     expect(headers.get('x-api-key')).toBe('secret');
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: 'latest',
+      objective: 'latest',
       numResults: 7,
       includeDomains: ['example.test'],
       excludeDomains: ['spam.test'],
@@ -118,6 +121,7 @@ describe('Exa adapter', () => {
     )(request({ query: 'site:example.test', recency: undefined }));
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: 'site:example.test',
+      objective: 'site:example.test',
       numResults: 7,
       includeDomains: ['example.test'],
       contents: { highlights: true },
@@ -136,6 +140,7 @@ describe('Exa adapter', () => {
     );
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: '"rust site:docs.rs" async',
+      objective: '"rust site:docs.rs" async',
       numResults: 7,
       contents: { highlights: true },
     });
@@ -149,8 +154,28 @@ describe('Exa adapter', () => {
     )(request({ query: 'plain', recency: undefined }));
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: 'plain',
+      objective: 'plain',
       numResults: 7,
       contents: { highlights: true },
+    });
+  });
+
+  it('sends the objective and clamps the count to the Exa maximum', async () => {
+    const recorded = captureFixture({ results: [] });
+    await createExaEngine(
+      { key: 'secret' },
+      { fetch: recorded.fetch },
+    )(
+      request({
+        query: 'plain',
+        objective: 'compare pgvector benchmarks',
+        limit: 500,
+      }),
+    );
+    expect(await parseBody(recorded.seen().init)).toMatchObject({
+      query: 'plain',
+      objective: 'compare pgvector benchmarks',
+      numResults: 100,
     });
   });
 

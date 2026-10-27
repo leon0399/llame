@@ -2,6 +2,7 @@ import { parseHTML } from 'linkedom';
 import { z } from 'zod';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
 import { fetchVendorJson, type VendorFetch } from './http';
+import { vendorCount } from './limits';
 
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';
 const FRESHNESS_BY_RECENCY: Readonly<
@@ -58,7 +59,7 @@ export function createBraveEngine(
   return async (request: EngineRequest) => {
     const url = new URL(BRAVE_SEARCH_URL);
     url.searchParams.set('q', request.query);
-    url.searchParams.set('count', String(request.limit));
+    url.searchParams.set('count', String(vendorCount('brave', request.limit)));
     if (request.recency !== undefined)
       url.searchParams.set('freshness', FRESHNESS_BY_RECENCY[request.recency]);
     const payload = await fetchVendorJson(

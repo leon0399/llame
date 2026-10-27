@@ -6,6 +6,7 @@ import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test -site:spam.test latest',
+  objective: undefined,
   recency: 'week',
   limit: 7,
   signal: new AbortController().signal,
@@ -219,6 +220,26 @@ describe('Perplexity adapter', () => {
       query: 'plain',
       max_results: 7,
     });
+  });
+
+  it('clamps the count and ignores the objective without a note', async () => {
+    const recorded = captureFixture(success());
+    const result = await createPerplexityEngine(
+      { key: 'secret' },
+      { fetch: recorded.fetch },
+    )(
+      request({
+        query: 'plain',
+        recency: undefined,
+        limit: 25,
+        objective: 'compare pgvector benchmarks',
+      }),
+    );
+    expect(await parseBody(recorded.seen().init)).toStrictEqual({
+      query: 'plain',
+      max_results: 20,
+    });
+    expect(result).toStrictEqual({ kind: 'empty' });
   });
 
   it('reports stayed domain filters on an empty response', async () => {

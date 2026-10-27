@@ -1,9 +1,11 @@
 Search the public web for current information.
 
 <instruction>
-- query: the search text, 1–1,000 characters. Keep search operators in the query text, including `site:`, `-site:`, and quoted phrases.
+- query: the search text, 1–1,000 characters. Keep it short and keyword-like: a query over an engine's own limit skips that engine, and only the notes name it.
+- objective: optionally, the goal this search serves, 1–2,000 characters. State which sources should rank first and which facts matter, and keep it concise. It never joins `query`.
 - recency: optionally limit results to day, week, month, or year.
 - limit: optionally request 1–20 results; the default is 10.
+- Supported operators in `query`: `site:`, `-site:`, and quoted phrases. Any other operator can reach an engine as plain words, so do not rely on it.
 </instruction>
 
 <output>

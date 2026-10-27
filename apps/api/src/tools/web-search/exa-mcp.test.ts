@@ -31,6 +31,7 @@ const exaTool = {
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'latest llame release',
+  objective: undefined,
   recency: undefined,
   limit: 4,
   signal: new AbortController().signal,
@@ -192,6 +193,51 @@ describe('Exa MCP engine', () => {
         ({ rpcMethod }) => rpcMethod === 'initialize',
         'x-api-key',
         'exa-secret',
+      ),
+    ).toBe(true);
+  });
+
+  it('sends the objective outside the query', async () => {
+    activeFixture = await createMcpTestFixture(
+      fixtureScripts([
+        rpcResult(
+          2,
+          toolResult(
+            'Title: First\nURL: https://example.test/first\n---\nTitle: Second\nURL: https://example.test/second',
+          ),
+        ),
+      ]),
+    );
+    const engine = createExaMcpEngine(
+      { key: undefined },
+      { fetch: routedFetch(currentFixture(), []) },
+    );
+
+    // The hosted tool's own `numResults` carries the count, so both blocks the
+    // fixture returns come back as they are.
+    await expect(
+      engine(request({ limit: 1, objective: 'compare pgvector benchmarks' })),
+    ).resolves.toStrictEqual({
+      kind: 'results',
+      results: [
+        { title: 'First', url: 'https://example.test/first' },
+        { title: 'Second', url: 'https://example.test/second' },
+      ],
+    });
+    expect(
+      currentFixture().requestMatches(
+        callRequestIndex(currentFixture()),
+        (body) =>
+          z
+            .object({
+              params: z.object({
+                arguments: z.object({
+                  query: z.literal('latest llame release'),
+                  objective: z.literal('compare pgvector benchmarks'),
+                }),
+              }),
+            })
+            .safeParse(body).success,
       ),
     ).toBe(true);
   });

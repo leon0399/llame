@@ -10,6 +10,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN`, so a developer's `.env.local`
   DSN no longer reports test traffic to their Sentry project.
 
+# 2026-10-26
+
+- `web_search` takes an optional `objective` of 1-2,000 units, the goal a
+  search serves. `exa` and `exa-mcp` send it as Exa's `objective` (the query
+  when it is absent), a `model-hosted` engine adds one `Goal:` line to its
+  sub-request, and every other engine ignores it without a note. It never
+  joins the query.
+- Each engine type declares its vendor query limit in code: `brave` accepts
+  600 code points and 75 words. A query over an engine's limit skips that
+  engine before any request and advances as the new `unsupported` failure
+  class; an `aggregate` runs only the children that accept the query and fails
+  `unsupported` when it skips every child. Result counts are clamped to the
+  vendor maximum, and `searxng` and `duckduckgo` cut their results
+  to `limit`.
+- The packaged `web_search` description names `site:`, `-site:`, and quoted
+  phrases as the supported operators, states that other operators reach an
+  engine as plain words, and asks for a short keyword query and a concise
+  objective. Hosted engines send `-site:` hosts as blocked domains; on
+  `anthropic-messages`, which accepts one list, included hosts win and the
+  dropped exclusions are noted.
+
 # 2026-10-25
 
 - The API DAST jobs pass. ZAP's Medium findings are fixed: every response

@@ -16,6 +16,7 @@ import {
 } from '../../mcp/mcp-test-fixture';
 import { webSearchInputSchema, webSearchTool } from './tool';
 import { type VendorFetch } from './http';
+import { requestUrl } from '../../testing/web-search-fetch';
 
 describe('web search tool declaration', () => {
   it('rejects an engine argument and defaults limit to ten', () => {
@@ -27,6 +28,34 @@ describe('web search tool declaration', () => {
       query: 'llame',
       limit: 10,
     });
+  });
+
+  it('accepts a bounded objective and refuses an empty or over-long one', () => {
+    expect(
+      webSearchInputSchema.parse({
+        query: 'llame',
+        objective: 'compare pgvector benchmarks',
+      }),
+    ).toEqual({
+      query: 'llame',
+      objective: 'compare pgvector benchmarks',
+      limit: 10,
+    });
+    expect(
+      webSearchInputSchema.safeParse({ query: 'llame', objective: '' }).success,
+    ).toBe(false);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        objective: 'x'.repeat(2000),
+      }).success,
+    ).toBe(true);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        objective: 'x'.repeat(2001),
+      }).success,
+    ).toBe(false);
   });
 
   it('uses the stable read-only declaration and fixed unconfigured error', async () => {
@@ -183,6 +212,52 @@ it('forwards recency and the product user agent to the configured engine', async
   }
 });
 
+it('forwards the objective to an engine that accepts one', async () => {
+  const fetch = vi.fn<VendorFetch>(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          results: [{ title: 'Result', url: 'https://example.test/a' }],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          { id: 'exa', type: 'exa', key: 'test-key', timeoutSeconds: 60 },
+        ],
+        chain: ['exa'],
+      },
+    };
+    await expect(
+      webSearchTool.execute(context, {
+        query: 'llame',
+        objective: 'compare pgvector benchmarks',
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({ status: 'success', kind: 'results' });
+    const text = await new Response(
+      fetch.mock.calls[0]?.[1]?.body ?? null,
+    ).text();
+    const body: unknown = JSON.parse(text);
+    expect(body).toMatchObject({
+      query: 'llame',
+      objective: 'compare pgvector benchmarks',
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it('wires aggregate children and merges their results', async () => {
   const fetch = vi.fn<VendorFetch>((_input, init) => {
     const key = new Headers(init?.headers).get('X-Subscription-Token');
@@ -246,6 +321,55 @@ it('wires aggregate children and merges their results', async () => {
         { title: 'Third', url: 'https://example.test/u3' },
         { title: 'Second', url: 'https://example.test/u2' },
       ],
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('skips an over-long aggregate child and calls only the other engine', async () => {
+  const hosts: Array<string> = [];
+  const fetch = vi.fn<VendorFetch>((input) => {
+    hosts.push(new URL(requestUrl(input)).host);
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          results: [{ title: 'Result', url: 'https://example.test/a' }],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    );
+  });
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          { id: 'brave', type: 'brave', key: 'brave-key', timeoutSeconds: 60 },
+          { id: 'exa', type: 'exa', key: 'exa-key', timeoutSeconds: 60 },
+          { id: 'mix', type: 'aggregate', engines: ['brave', 'exa'] },
+        ],
+        chain: ['mix'],
+      },
+    };
+    const output = await webSearchTool.execute(context, {
+      query: 'x'.repeat(650),
+      limit: 10,
+    });
+    // The brave child's declared 600-code-point limit skips it before a
+    // request, so only the Exa host is called.
+    expect(hosts).toStrictEqual(['api.exa.ai']);
+    expect(output).toMatchObject({
+      status: 'success',
+      kind: 'results',
+      engine: 'mix',
+      results: [{ title: 'Result', url: 'https://example.test/a' }],
+      notes: ['brave: unsupported'],
     });
   } finally {
     vi.unstubAllGlobals();

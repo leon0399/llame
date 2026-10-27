@@ -1,6 +1,7 @@
 import { parseHTML } from 'linkedom';
 import {
   EngineFailure,
+  canonicalizeResults,
   type Engine,
   type EngineRequest,
   type RawResult,
@@ -70,7 +71,12 @@ export function createDuckDuckGoEngine(deps: {
     const { document } = parseHTML(htmlBody);
     if (document.querySelector('[class^="anomaly-modal"]') !== null)
       throw new EngineFailure('challenge');
-    const results = parseResults(document);
+    // Canonicalize before cutting, so a URL that fails validation never takes
+    // a result slot from a valid one below it.
+    const results = canonicalizeResults(parseResults(document)).slice(
+      0,
+      request.limit,
+    );
     return results.length > 0
       ? { kind: 'results', results }
       : { kind: 'empty' };

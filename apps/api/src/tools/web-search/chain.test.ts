@@ -24,6 +24,7 @@ const request = (
   signal: AbortSignal = new AbortController().signal,
 ): EngineRequest => ({
   query: 'llame',
+  objective: undefined,
   limit: 10,
   signal,
   recency: undefined,
@@ -370,6 +371,69 @@ it('keeps notes from a final empty engine', async () => {
   });
 });
 
+const limitChain: WebSearchConfig = {
+  engines: [
+    { id: 'brave', type: 'brave', key: 'test-key', timeoutSeconds: 60 },
+    { id: 'exa', type: 'exa', key: 'test-key', timeoutSeconds: 60 },
+  ],
+  chain: ['brave', 'exa'],
+};
+
+it.each([
+  ['a query over the code-point limit', 'x'.repeat(650)],
+  [
+    'a query over the word limit',
+    Array.from({ length: 76 }, () => 'word').join(' '),
+  ],
+])('skips brave for %s and answers from exa', async (_case, query) => {
+  let braveStarted = false;
+  const output = await executeSearchChain(
+    limitChain,
+    { ...request(), query },
+    lookup({
+      brave: () => {
+        braveStarted = true;
+        return result();
+      },
+      exa: result,
+    }),
+  );
+  expect(braveStarted).toBe(false);
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'exa',
+    results: [{ title: 'Result', url: 'https://example.test/a' }],
+    notes: ['brave: unsupported'],
+  });
+});
+
+it('fails an over-long query as unsupported without sending a request', async () => {
+  const seen: Array<string> = [];
+  const entry = {
+    id: 'brave',
+    type: 'brave',
+    key: 'test-key',
+    timeoutSeconds: 60,
+  } as const;
+  const engine = createEngine(entry, {
+    fetch: (input) => {
+      seen.push(requestUrl(input));
+      return Promise.reject(new Error('must not run'));
+    },
+  });
+  const output = await executeSearchChain(
+    { engines: [entry], chain: ['brave'] },
+    { ...request(), query: 'x'.repeat(700) },
+    lookup({ brave: engine }),
+  );
+  expect(seen).toStrictEqual([]);
+  expect(output).toStrictEqual({
+    status: 'error',
+    type: 'web_search_failed',
+    message: 'All web search engines failed: brave: unsupported',
+  });
+});
+
 it('names every failed engine in a total failure', async () => {
   const output = await executeSearchChain(
     config(['brave', 'backup']),
@@ -462,6 +526,7 @@ it('lets an aggregate merge a fast child past equal child deadlines', async () =
     {
       id: 'slow',
       timeoutSeconds,
+      limits: {},
       engine: ({ signal }) =>
         new Promise<EngineOutcome>((_resolve, reject) => {
           signal.addEventListener(
@@ -474,6 +539,7 @@ it('lets an aggregate merge a fast child past equal child deadlines', async () =
     {
       id: 'fast',
       timeoutSeconds,
+      limits: {},
       engine: result,
     },
   ]);
