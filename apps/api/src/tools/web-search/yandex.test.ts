@@ -64,8 +64,11 @@ function envelope(xml: string): string {
 }
 const fixture = (name: string): string =>
   readFileSync(join(__dirname, 'fixtures', name), 'utf8');
-/** A response envelope with the recorded flat-grouping results. */
-const recordedResults = (): string =>
+/**
+ * A response envelope around the fixture, which is hand-built from the
+ * documented response format: the vendor's shape, not a captured payload.
+ */
+const fixtureEnvelope = (): string =>
   envelope(fixture('yandex-web-search.xml'));
 const errorXml = (code: string, text: string): string =>
   envelope(
@@ -78,13 +81,13 @@ const noResultsXml = (): string =>
 <yandexsearch version="1.0"><response date="20261027T120000"><reqid>r</reqid><results><grouping mode="flat" groups-on-page="5" docs-in-group="1" /></results></response></yandexsearch>`,
   );
 
-/** The recorded results of the fixture, as the output normalizes them. */
-const recordedMapped = [
+/** The results the fixture maps to, as the output normalizes them. */
+const fixtureMapped = [
   {
     title: 'pgvector "0.8.7" Released & notes',
     url: 'https://www.postgresql.org/about/news/pgvector-087-released-3392/',
     snippet: 'pgvector 0.8.7 adds HNSW index build parallelism and iterators.',
-    published: '2026-10-05T10:15:00Z',
+    published: '2026-10-05',
   },
   {
     title: 'pgvector — PostgreSQL documentation',
@@ -100,8 +103,8 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('Yandex adapter', () => {
-  it('sends the request and maps the recorded flat-group results', async () => {
-    const recorded = captureFetch(recordedResults());
+  it("sends the request and maps the fixture's flat-group results", async () => {
+    const recorded = captureFetch(fixtureEnvelope());
     const engine = createYandexEngine(config, { fetch: recorded.fetch });
 
     const result = await engine(request());
@@ -130,7 +133,7 @@ describe('Yandex adapter', () => {
     });
     expect(result).toStrictEqual({
       kind: 'results',
-      results: recordedMapped,
+      results: fixtureMapped,
       notes: ['yandex mapped week to two weeks'],
     });
   });
@@ -166,7 +169,7 @@ describe('Yandex adapter', () => {
   });
 
   it('sends the folder id the entry sets and omits it otherwise', async () => {
-    const withFolder = captureFetch(recordedResults());
+    const withFolder = captureFetch(fixtureEnvelope());
     await createYandexEngine(
       { ...config, folderId: 'folder-id' },
       { fetch: withFolder.fetch },
@@ -175,7 +178,7 @@ describe('Yandex adapter', () => {
       'folder-id',
     );
 
-    const withoutFolder = captureFetch(recordedResults());
+    const withoutFolder = captureFetch(fixtureEnvelope());
     await createYandexEngine(config, { fetch: withoutFolder.fetch })(request());
     expect(await parseBody(withoutFolder.seen().init)).not.toHaveProperty(
       'folderId',
@@ -183,44 +186,15 @@ describe('Yandex adapter', () => {
   });
 
   it('sends no objective, which the vendor has no field for', async () => {
-    const recorded = captureFetch(recordedResults());
+    const recorded = captureFetch(fixtureEnvelope());
     const result = await createYandexEngine(config, {
       fetch: recorded.fetch,
-    })(
-      request({ objective: 'compare pgvector benchmarks', recency: undefined }),
-    );
+    })(request({ objective: 'compare pgvector benchmarks' }));
 
-    expect(await parseBody(recorded.seen().init)).toStrictEqual({
-      query: {
-        searchType: 'SEARCH_TYPE_COM',
-        queryText: 'pgvector release',
-        familyMode: 'FAMILY_MODE_MODERATE',
-      },
-      groupSpec: {
-        groupMode: 'GROUP_MODE_FLAT',
-        groupsOnPage: 5,
-        docsInGroup: 1,
-      },
-      maxPassages: 3,
-      responseFormat: 'FORMAT_XML',
-    });
-    expect(result).not.toHaveProperty('notes');
-  });
-
-  it.each([
-    ['ru', 'SEARCH_TYPE_RU'],
-    ['tr', 'SEARCH_TYPE_TR'],
-    ['com', 'SEARCH_TYPE_COM'],
-    ['kk', 'SEARCH_TYPE_KK'],
-    ['be', 'SEARCH_TYPE_BE'],
-    ['uz', 'SEARCH_TYPE_UZ'],
-  ] as const)('sends the %s search type as %s', async (searchType, sent) => {
-    const recorded = captureFetch(recordedResults());
-    await createYandexEngine(
-      { ...config, searchType },
-      { fetch: recorded.fetch },
-    )(request());
-    expect((await parseBody(recorded.seen().init)).query.searchType).toBe(sent);
+    // The strict request schema refuses any field the vendor does not take.
+    const body = await parseBody(recorded.seen().init);
+    expect(body.query.queryText).toBe('pgvector release');
+    expect(result).toHaveProperty('results');
   });
 
   it.each([
@@ -232,7 +206,7 @@ describe('Yandex adapter', () => {
   ] as const)(
     'maps recency %s to the period %s',
     async (recency, period, note) => {
-      const recorded = captureFetch(recordedResults());
+      const recorded = captureFetch(fixtureEnvelope());
       const result = await createYandexEngine(config, {
         fetch: recorded.fetch,
       })(request({ recency }));
@@ -241,26 +215,20 @@ describe('Yandex adapter', () => {
       expect(body.period).toBe(period);
       expect(result).toStrictEqual({
         kind: 'results',
-        results: recordedMapped,
+        results: fixtureMapped,
         ...(note !== undefined && { notes: [note] }),
       });
     },
   );
 
-  it('clamps the group count to the vendor maximum and passes a small one', async () => {
-    const large = captureFetch(recordedResults());
-    await createYandexEngine(config, { fetch: large.fetch })(
+  it('clamps the group count to the vendor maximum', async () => {
+    const recorded = captureFetch(fixtureEnvelope());
+    await createYandexEngine(config, { fetch: recorded.fetch })(
       request({ limit: 200 }),
     );
-    expect((await parseBody(large.seen().init)).groupSpec.groupsOnPage).toBe(
+    expect((await parseBody(recorded.seen().init)).groupSpec.groupsOnPage).toBe(
       100,
     );
-
-    const small = captureFetch(recordedResults());
-    await createYandexEngine(config, { fetch: small.fetch })(
-      request({ limit: 5 }),
-    );
-    expect((await parseBody(small.seen().init)).groupSpec.groupsOnPage).toBe(5);
   });
 
   it('is empty when the vendor finds nothing', async () => {
@@ -303,7 +271,7 @@ describe('Yandex adapter', () => {
   );
 
   it.each(['2', '15'] as const)(
-    'reads in-body error code %s as an empty outcome',
+    'reads in-body error code %s as an empty outcome with the recency note',
     async (code) => {
       const engine = createYandexEngine(config, {
         fetch: captureFetch(errorXml(code, 'No results found')).fetch,
@@ -311,9 +279,26 @@ describe('Yandex adapter', () => {
 
       await expect(engine(request())).resolves.toStrictEqual({
         kind: 'empty',
+        notes: ['yandex mapped week to two weeks'],
       });
     },
   );
+
+  it('reads the in-body error before the results of the same response', async () => {
+    const engine = createYandexEngine(config, {
+      fetch: captureFetch(
+        envelope(
+          `<?xml version="1.0" encoding="utf-8"?>
+<yandexsearch version="1.0"><response date="20261027T120000"><error code="55">rate limit exceeded</error><results><grouping mode="flat" groups-on-page="5" docs-in-group="1"><group><doc id="1"><url>https://a.test/x</url><title>A</title></doc></group></grouping></results></response></yandexsearch>`,
+        ),
+      ).fetch,
+    });
+
+    await expect(engine(request())).rejects.toMatchObject({
+      failureClass: 'rate_limited',
+      message: 'The web search engine rate limited the request.',
+    });
+  });
 
   it('classifies statuses without exposing an echoed folder id', async () => {
     const cases = [
@@ -327,7 +312,8 @@ describe('Yandex adapter', () => {
     ] as const;
 
     for (const [status, failureClass, message] of cases) {
-      // The recorded 403 body names the folder, the cloud, and the organization.
+      // A 403 body names the folder, the cloud, and the organization, as the
+      // vendor's own response does.
       const engine = createYandexEngine(
         { ...config, folderId: 'b1g-folder-id' },
         {

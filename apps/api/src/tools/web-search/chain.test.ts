@@ -148,6 +148,23 @@ const factoryCases: ReadonlyArray<FactoryCase> = [
     expectedUrl: 'https://html.duckduckgo.com/html/',
     headers: { 'content-type': 'text/html' },
   },
+  {
+    name: 'yandex',
+    config: {
+      id: 'yandex',
+      type: 'yandex',
+      key: 'key',
+      searchType: 'ru',
+      folderId: undefined,
+      timeoutSeconds: 60,
+    },
+    body: JSON.stringify({
+      rawData: Buffer.from(
+        '<yandexsearch version="1.0"><response><results><grouping mode="flat"><group><doc id="1"><url>https://example.test/a</url><title>Result</title></doc></group></grouping></results></response></yandexsearch>',
+      ).toString('base64'),
+    }),
+    expectedUrl: 'https://searchapi.api.cloud.yandex.net/v2/web/search',
+  },
 ];
 it.each(factoryCases)(
   'createEngine wires $name',

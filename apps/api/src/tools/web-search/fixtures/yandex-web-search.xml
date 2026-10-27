@@ -44,7 +44,7 @@
             <domain>www.postgresql.org</domain>
             <title>pgvector — PostgreSQL documentation</title>
             <passages>
-              <passage>pgvector is an open-source vector similarity search extension.</passage>
+              <passage>pgvector is an open-source <hlword>vector</hlword> similarity search extension.</passage>
             </passages>
             <mime-type>text/html</mime-type>
           </doc>

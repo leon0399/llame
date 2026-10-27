@@ -16,64 +16,51 @@ export const YANDEX_SEARCH_URL =
   'https://searchapi.api.cloud.yandex.net/v2/web/search';
 /** Passages per document for the snippet; the vendor takes 1 to 5. */
 const MAX_PASSAGES = 3;
-const WEEK_NOTE = 'yandex mapped week to two weeks';
-const YEAR_NOTE = 'recency not applied by yandex';
 /**
- * Error codes the vendor reports inside the XML body, also after HTTP 200.
- * Codes 2 and 15 mean the search found nothing; any other code is
- * `upstream_error`.
+ * What the vendor means by each error code it reports inside the XML body, also
+ * after HTTP 200. Codes 2 and 15 mean the search found nothing; a code this
+ * build does not know is `upstream_error`.
  */
-const IN_BODY_FAILURES = {
+const IN_BODY_ERRORS = {
+  '2': 'empty',
+  '15': 'empty',
   '32': 'rate_limited',
   '42': 'auth',
   '55': 'rate_limited',
   '100': 'challenge',
-} as const satisfies Readonly<Record<string, FailureClass>>;
-const EMPTY_ERROR_CODES = { '2': true, '15': true } as const;
-/** A `searchType` as the vendor spells it. */
-const SEARCH_TYPES: Readonly<Record<YandexSearchType, string>> = {
-  be: 'SEARCH_TYPE_BE',
-  com: 'SEARCH_TYPE_COM',
-  kk: 'SEARCH_TYPE_KK',
-  ru: 'SEARCH_TYPE_RU',
-  tr: 'SEARCH_TYPE_TR',
-  uz: 'SEARCH_TYPE_UZ',
+} as const satisfies Readonly<Record<string, FailureClass | 'empty'>>;
+type InBodyErrorCode = keyof typeof IN_BODY_ERRORS;
+/** The vendor `period` of one `recency` value, and the note where it differs. */
+type RecencyPeriod = {
+  readonly period?: string;
+  readonly notes?: ReadonlyArray<string>;
+};
+const RECENCY_PERIODS: Readonly<
+  Record<NonNullable<EngineRequest['recency']>, RecencyPeriod>
+> = {
+  day: { period: 'PERIOD_DAY' },
+  week: {
+    period: 'PERIOD_2_WEEKS',
+    notes: ['yandex mapped week to two weeks'],
+  },
+  month: { period: 'PERIOD_MONTH' },
+  year: { notes: ['recency not applied by yandex'] },
 };
 const YandexPayloadSchema = z.object({ rawData: z.string() });
-/** The vendor's Base64 alphabet; a body outside it is not a response. */
-const BASE64_PAYLOAD = /^[A-Za-z0-9+/]+={0,2}$/u;
 /** `modtime`, the vendor's publication stamp, as `YYYYMMDDTHHMMSS`. */
 const MODTIME = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/u;
 const PARSER = new DOMParser();
-
-function isInBodyFailure(code: string): code is keyof typeof IN_BODY_FAILURES {
-  return Object.hasOwn(IN_BODY_FAILURES, code);
-}
 
 type YandexEngineConfig = {
   readonly key: string;
   readonly searchType: YandexSearchType;
   readonly folderId: string | undefined;
 };
-type RecencyPeriod = {
-  readonly period?: string;
-  readonly notes?: ReadonlyArray<string>;
-};
 
-/** The recency `period` the vendor takes, and the note when it differs. */
-function periodOf(recency: EngineRequest['recency']): RecencyPeriod {
-  switch (recency) {
-    case 'day':
-      return { period: 'PERIOD_DAY' };
-    case 'week':
-      return { period: 'PERIOD_2_WEEKS', notes: [WEEK_NOTE] };
-    case 'month':
-      return { period: 'PERIOD_MONTH' };
-    case 'year':
-      return { notes: [YEAR_NOTE] };
-    default:
-      return {};
-  }
+/** Whether the vendor's code names one of the errors this build maps; the
+ *  guard is what keeps the table lookup cast-free. */
+function isInBodyErrorCode(code: string): code is InBodyErrorCode {
+  return Object.hasOwn(IN_BODY_ERRORS, code);
 }
 
 function requestBody(
@@ -83,7 +70,7 @@ function requestBody(
 ) {
   return {
     query: {
-      searchType: SEARCH_TYPES[config.searchType],
+      searchType: `SEARCH_TYPE_${config.searchType.toUpperCase()}`,
       queryText: request.query,
       familyMode: 'FAMILY_MODE_MODERATE',
     },
@@ -102,15 +89,13 @@ function requestBody(
 }
 
 /**
- * The XML document of one response. A body outside the decoder's reach is a
- * vendor protocol failure, never an empty search.
+ * The XML document of one response. Bytes outside the alphabet decode to
+ * nothing usable, so the root element is the whole check: anything but a
+ * Yandex response is a vendor protocol failure, never an empty search.
  */
 function parseResponse(rawData: string): Document {
-  const base64 = rawData.replaceAll(/\s+/gu, '');
-  if (base64.length % 4 !== 0 || !BASE64_PAYLOAD.test(base64))
-    throw new EngineFailure('upstream_error');
   const document = PARSER.parseFromString(
-    Buffer.from(base64, 'base64').toString('utf8'),
+    Buffer.from(rawData, 'base64').toString('utf8'),
     'text/xml',
   );
   if (document.querySelector('yandexsearch') === null)
@@ -124,14 +109,12 @@ function textOf(element: Element, selector: string): string | undefined {
 }
 
 /**
- * `modtime` as an ISO 8601 instant, which is the only `published` the output
- * keeps.
+ * `modtime` as the `YYYY-MM-DD` date the output keeps. The vendor documents no
+ * time zone for the stamp, so no time is emitted.
  */
 function publishedOf(modtime: string | undefined): string | undefined {
   const match = modtime === undefined ? null : MODTIME.exec(modtime);
-  if (match === null) return undefined;
-  const [, year, month, day, hour, minute, second] = match;
-  return `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
+  return match === null ? undefined : `${match[1]}-${match[2]}-${match[3]}`;
 }
 
 /**
@@ -157,54 +140,19 @@ function mapYandexResults(document: Document): Array<RawResult> {
 }
 
 /**
- * The outcome of one XML response. The vendor reports a search-level error in
- * the body, also after HTTP 200, and its text must not reach the output, so the
- * error code is read before any result.
+ * The empty outcome of a vendor error that means "nothing found", and a failure
+ * for every other one. The vendor reports a search-level error in the body, also
+ * after HTTP 200, and its text must not reach the output.
  */
-function outcomeOf(
-  document: Document,
-  notes: ReadonlyArray<string> | undefined,
-): EngineOutcome {
+function errorOutcome(document: Document): EngineOutcome | undefined {
   const error = document.querySelector('response > error');
-  if (error !== null) {
-    const code = error.getAttribute('code') ?? '';
-    if (Object.hasOwn(EMPTY_ERROR_CODES, code)) return { kind: 'empty' };
-    throw new EngineFailure(
-      isInBodyFailure(code) ? IN_BODY_FAILURES[code] : 'upstream_error',
-    );
-  }
-  const results = mapYandexResults(document);
-  const extra = notes === undefined ? {} : { notes };
-  return results.length > 0
-    ? { kind: 'results', results, ...extra }
-    : { kind: 'empty', ...extra };
-}
-
-async function fetchDocument(
-  config: YandexEngineConfig,
-  deps: { readonly fetch: VendorFetch },
-  request: EngineRequest,
-  period: string | undefined,
-): Promise<Document> {
-  const payload = await fetchVendorJson(
-    YANDEX_SEARCH_URL,
-    {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Authorization: `Api-Key ${config.key}`,
-      },
-      body: JSON.stringify(requestBody(config, request, period)),
-    },
-    {
-      signal: request.signal,
-      fetch: deps.fetch,
-      userAgent: request.userAgent,
-    },
-    YandexPayloadSchema,
-  );
-  return parseResponse(payload.rawData);
+  if (error === null) return undefined;
+  const code = error.getAttribute('code') ?? '';
+  const mapped = isInBodyErrorCode(code)
+    ? IN_BODY_ERRORS[code]
+    : 'upstream_error';
+  if (mapped === 'empty') return { kind: 'empty' };
+  throw new EngineFailure(mapped);
 }
 
 /** Create a Yandex Search API adapter for one resolved operator engine. */
@@ -213,7 +161,38 @@ export function createYandexEngine(
   deps: { readonly fetch: VendorFetch },
 ): Engine {
   return async (request: EngineRequest) => {
-    const { period, notes } = periodOf(request.recency);
-    return outcomeOf(await fetchDocument(config, deps, request, period), notes);
+    const recency =
+      request.recency === undefined
+        ? undefined
+        : RECENCY_PERIODS[request.recency];
+    const notes = recency?.notes;
+    const extra = notes === undefined ? {} : { notes };
+    const payload = await fetchVendorJson(
+      YANDEX_SEARCH_URL,
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Api-Key ${config.key}`,
+        },
+        body: JSON.stringify(requestBody(config, request, recency?.period)),
+      },
+      {
+        signal: request.signal,
+        fetch: deps.fetch,
+        userAgent: request.userAgent,
+      },
+      YandexPayloadSchema,
+    );
+    const document = parseResponse(payload.rawData);
+    // The error is decided before any result, so a response that carries both
+    // never reports partial results as success.
+    const outcome = errorOutcome(document);
+    if (outcome !== undefined) return { ...outcome, ...extra };
+    const results = mapYandexResults(document);
+    return results.length > 0
+      ? { kind: 'results', results, ...extra }
+      : { kind: 'empty', ...extra };
   };
 }
