@@ -88,7 +88,8 @@ never be emitted as a value:
 - `chats`, `chats.pinned`, `chats.recent` — true when that digest content is
   present.
 - `skills` — true when the chat's frozen skill catalog admits at least one
-  skill.
+  skill. System-prompt templates only: a tool description never receives the
+  catalog, so `{{#if skills}}` is always false there.
 - `webSearch` — true when the instance configures a `webSearch` section.
 - `tools.<exact-id>` — tool membership for this attempt.
 
@@ -116,9 +117,10 @@ An entry exposes `{{title}}`, `{{date}}`, `{{messageCount}}`, and `{{excerpt}}`
 and nothing else. A loop's `{{else}}` arm renders when the collection is absent.
 Iteration does not nest.
 
-`{{#each skills.entries}}` iterates the chat's frozen skill catalog, in catalog
-order. An entry exposes `{{name}}` and `{{description}}` and nothing else, and
-`{{#if skills.omitted}}` gates an overflow count.
+A system-prompt template can also iterate `{{#each skills.entries}}`: the
+chat's frozen skill catalog, in catalog order, where an entry exposes `{{name}}`
+and `{{description}}` and nothing else, and `{{#if skills.omitted}}` gates an
+overflow count. Tool descriptions never receive that collection.
 
 `{{#each webSearch.engines}}` iterates the configured web-search engines, in
 configuration order. An entry exposes only the fact phrases below; an
@@ -133,29 +135,27 @@ undeclared field such as `{{key}}` fails validation rather than rendering.
 | `{{recency}}`     | How the engine uses `recency`                                                             |
 | `{{queryLimit}}`  | Its query bound; an `aggregate` states the bounds below which no child is skipped         |
 | `{{objective}}`   | How it uses `objective`, absent for an engine that ignores it                             |
-| `{{description}}` | The operator's `description`, absent when it sets none                                    |
+| `{{description}}` | The operator's `description` without its one trailing period, absent when it sets none    |
 
 Every value arrives already neutralized, so it renders verbatim; the fields
-carry no key, base URL, folder id, or model id. The packaged
-[`web_search` description](../../../apps/api/src/prompts/tools/web_search.md)
-is the reference use:
+carry no key, base URL, folder id, or model id. `{{description}}` loses one
+trailing `.` because the packaged template ends each entry line with its own
+period; a template that ends the line differently keeps the operator's text
+without that period.
 
-```handlebars
+The packaged
+[`web_search` description](../../../apps/api/src/prompts/tools/web_search.md)
+is the reference use; paste this verbatim, since Handlebars keeps the
+whitespace exactly as written:
+
+<!-- prettier-ignore -->
+```text
 {{#if webSearch}}
-  <engines>
-    Configured web search engines. `engines` runs only the ids it lists, in
-    their order.
-    {{#each webSearch.engines}}-
-      {{id}}
-      [{{type}}]:
-      {{kind}};
-      {{position}};
-      {{recency}}; query limit
-      {{queryLimit}}{{#if objective}}; {{objective}}{{/if}}{{#if description}};
-        description:
-        {{description}}{{/if}}.
-    {{/each}}</engines>
-{{/if}}
+
+<engines>
+Configured web search engines. `engines` runs only the ids it lists, in their order.
+{{#each webSearch.engines}}- {{id}} [{{type}}]: {{kind}}; {{position}}; {{recency}}; query limit {{queryLimit}}{{#if objective}}; {{objective}}{{/if}}{{#if description}}; description: {{description}}{{/if}}.
+{{/each}}</engines>{{/if}}
 ```
 
 An override that does not iterate the collection declares no engine list; the
@@ -189,9 +189,11 @@ to the packaged text:
 - an unsupported construct, named in the error with its configuration path;
 - a file that can render empty, named in the error with its configuration path.
   Each file is rendered once per configured model, with every combination of the
-  independent `user`, `chats`, and `skills` gates, and with no tools admitted and
-  with every tool the template names. Text hidden behind a gate an ordinary
-  attempt can fail (`{{#if user.personalization}}…{{/if}}`) fails startup;
+  independent `user`, `chats`, `skills`, and `webSearch` gates, and with no
+  tools admitted and with every tool the template names. Text hidden behind a
+  gate an ordinary attempt can fail (`{{#if user.personalization}}…{{/if}}`)
+  fails startup, and so does text that only a deployment with configured
+  engines would render (`{{#if webSearch}}…{{/if}}` with nothing outside it);
   guidance gated on a tool that can be absent from an attempt
   (`{{#if tools.edit}}…{{/if}}`) does not, because another attempt renders it.
 
