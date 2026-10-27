@@ -724,22 +724,29 @@ describe('Machine scope addresses', () => {
 
 describe('Machine request shape', () => {
   it('carries the compiled flags and the call deadline', async () => {
-    const { peer, connector } = fixture({
-      answers: { 'fs.grep': { value: page([]) } },
-    });
-    await run(context(connector), {
-      patterns: ['needle'],
-      literal: true,
-      ignoreCase: true,
-      scopes: ['machine://devl/srv/app'],
-    });
-    const session = await peer.session(0);
-    const search = session.calls.find((call) => call.method === 'fs.grep');
-    expect(search?.params).toMatchObject({
-      literal: true,
-      ignoreCase: true,
-      envelope: { budgetMs: 30_000 },
-    });
+    // The budget is the deadline minus the clock at send time; a frozen clock
+    // keeps a slow runner from shaving milliseconds off the expected value.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { peer, connector } = fixture({
+        answers: { 'fs.grep': { value: page([]) } },
+      });
+      await run(context(connector), {
+        patterns: ['needle'],
+        literal: true,
+        ignoreCase: true,
+        scopes: ['machine://devl/srv/app'],
+      });
+      const session = await peer.session(0);
+      const search = session.calls.find((call) => call.method === 'fs.grep');
+      expect(search?.params).toMatchObject({
+        literal: true,
+        ignoreCase: true,
+        envelope: { budgetMs: 30_000 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps each passage matches and its truncation flag', async () => {
