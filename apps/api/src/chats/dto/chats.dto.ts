@@ -233,12 +233,6 @@ export class ContinueFollowUpRunDto {
   permissionMode?: PermissionMode;
 }
 
-/**
- * Every follow-up request body, discriminated by `action`. A second action adds
- * its own variant here, with the fields it accepts and nothing else.
- */
-export type CreateFollowUpRunDto = ContinueFollowUpRunDto;
-
 export class ChatResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
