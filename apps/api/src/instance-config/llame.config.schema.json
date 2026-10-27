@@ -90,6 +90,28 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "description": "A keyless hosted Parallel MCP web-search engine.",
+          "required": ["id", "type"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "parallel-mcp",
+              "description": "Parallel's hosted, keyless Search MCP endpoint."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "description": "A configured SearXNG web-search engine.",
           "required": ["id", "type", "baseUrl"],
           "properties": {

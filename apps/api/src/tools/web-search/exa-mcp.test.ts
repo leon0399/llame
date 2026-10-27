@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  callToolRequestIndex as callRequestIndex,
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
+  routedMcpFetch as routedFetch,
   type McpFixtureResponse,
   type McpTestFixture,
 } from '../../mcp/mcp-test-fixture';
@@ -10,11 +12,7 @@ import {
 import { type EngineRequest } from './chain';
 import { removalFor } from '../../testing/web-search-removal';
 import { EXA_MCP_URL, createExaMcpEngine } from './exa-mcp';
-import {
-  requestUrl,
-  type CapturedRequest,
-} from '../../testing/web-search-fetch';
-import { type VendorFetch } from './http';
+import { type CapturedRequest } from '../../testing/web-search-fetch';
 
 const exaTool = {
   name: 'web_search_exa',
@@ -103,24 +101,6 @@ function fixtureScripts(
       body: '',
     })),
   } satisfies Readonly<Record<string, ReadonlyArray<McpFixtureResponse>>>;
-}
-
-function routedFetch(
-  fixture: McpTestFixture,
-  seen: Array<CapturedRequest>,
-): VendorFetch {
-  return async (input, init) => {
-    seen.push({ url: requestUrl(input), init });
-    return globalThis.fetch(fixture.url, init);
-  };
-}
-
-function callRequestIndex(fixture: McpTestFixture): number {
-  const index = fixture
-    .requestSummaries()
-    .findIndex(({ rpcMethod }) => rpcMethod === 'tools/call');
-  if (index < 0) throw new Error('missing tools/call request');
-  return index;
 }
 
 const SearchCallSchema = z.object({

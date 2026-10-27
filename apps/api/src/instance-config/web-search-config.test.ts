@@ -849,4 +849,37 @@ describe('loadInstanceConfig — webSearch', () => {
       /webSearch\/engines\/0.*required property 'key'/u,
     );
   });
+
+  it('loads a keyless Parallel MCP engine', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'parallel-mcp', type: 'parallel-mcp' }],
+          chain: ['parallel-mcp'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toStrictEqual({
+      engines: [
+        { id: 'parallel-mcp', type: 'parallel-mcp', timeoutSeconds: 60 },
+      ],
+      chain: ['parallel-mcp'],
+    });
+  });
+
+  it('rejects a key on a Parallel MCP engine and names the key path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            { id: 'parallel-mcp', type: 'parallel-mcp', key: 'not-allowed' },
+          ],
+          chain: ['parallel-mcp'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(/webSearch\/engines\/0\/key/u);
+  });
 });

@@ -181,6 +181,24 @@ it('createEngine wires exa-mcp', async () => {
   ).rejects.toMatchObject({ failureClass: 'upstream_error' });
   expect(urls[0]).toBe('https://mcp.exa.ai/mcp');
 });
+it('createEngine wires parallel-mcp', async () => {
+  const urls: Array<string> = [];
+  const fetch: VendorFetch = (input) => {
+    urls.push(requestUrl(input));
+    return Promise.reject(new Error('fixture upstream failure'));
+  };
+  await expect(
+    createEngine(
+      {
+        id: 'parallel-mcp',
+        type: 'parallel-mcp',
+        timeoutSeconds: 60,
+      },
+      { fetch },
+    )(request()),
+  ).rejects.toMatchObject({ failureClass: 'upstream_error' });
+  expect(urls[0]).toBe('https://search.parallel.ai/mcp');
+});
 it('createEngine wires model-hosted', async () => {
   const createClient = (modelId: string): ModelClient => {
     expect(modelId).toBe('search-model');
