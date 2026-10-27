@@ -5,12 +5,12 @@ import {
 } from "@tanstack/react-query";
 import { ChatPage } from "../../components/chat-page";
 import { draftPhaseFromSearchParam } from "@/lib/services/chat/draft-route";
-import { PREHYDRATION_PIN_SCRIPT } from "@/lib/services/chat/prehydration-pin";
 import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import {
   fetchDraftChatMessages,
   fetchInitialChatMessages,
 } from "@/lib/services/chat/server";
+import { PrehydrationPinScript } from "./prehydration-pin-script";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -35,10 +35,7 @@ export default async function Page({ params, searchParams }: PageProps) {
       {/* Streams ahead of the transcript markup so the SSR paint is pinned
           to the newest message from the first frame — React cannot scroll
           until it hydrates (see prehydration-pin.ts). */}
-      {/* safe-html: PREHYDRATION_PIN_SCRIPT is a module-level constant string
-          literal in lib/services/chat/prehydration-pin.ts. It interpolates
-          nothing — no chat id, no message, no parameter. */}
-      <script dangerouslySetInnerHTML={{ __html: PREHYDRATION_PIN_SCRIPT }} />
+      <PrehydrationPinScript />
       <ChatPage
         chatId={id}
         initialChatExists={initialMessages !== null}
