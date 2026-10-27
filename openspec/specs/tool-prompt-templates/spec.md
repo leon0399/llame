@@ -9,7 +9,13 @@ with the system prompt from each worker execution attempt's safe current context
 
 ### Requirement: llame-owned descriptions are complete file templates
 
-Each registered llame-owned tool MUST have a complete packaged description. Both template kinds MUST share one language, the allowed variables, neutralization, omission, bounded iteration, and one-pass render. Selection MUST follow `instance-config` precedence. A template MUST change only description text, never identity, schemas, parameter descriptions, classification, permissions, or results. `web-search` can append its engine catalog. MCP descriptions MUST stay opaque source-authored text.
+Every registered llame-owned tool SHALL have a packaged complete Markdown
+description. System and description templates SHALL share the existing template
+language, allowed variables, neutralization, omission, bounded-iteration, and
+single-pass rendering rules. Selection SHALL follow `instance-config`
+precedence. Templates SHALL change only description text, never tool identity,
+input schemas, parameter descriptions, classification, permissions, or results.
+MCP descriptions SHALL remain opaque source-authored text.
 
 #### Scenario: Packaged descriptions cover the registry
 
@@ -21,19 +27,13 @@ Each registered llame-owned tool MUST have a complete packaged description. Both
 
 - **WHEN** the system prompt and an admitted description reference the same allowed path
 - **THEN** they receive the same resolved value and neutralization for that attempt
-- **AND** the worker does not evaluate substituted owner text again
+- **AND** substituted template-looking owner text is never evaluated again
 
 #### Scenario: MCP text is not a template
 
 - **WHEN** an MCP description contains `{{user.email}}`
-- **THEN** it stays literal text
+- **THEN** it remains literal text
 - **AND** the worker does not substitute owner data into it
-
-#### Scenario: Web search appends its engine catalog
-
-- **WHEN** an attempt declares `web_search` with a packaged or overridden description
-- **THEN** the declared description is the rendered template followed by the engine catalog that `web-search` defines
-- **AND** the template file stays complete without the catalog
 
 ### Requirement: Tool predicates are absent-safe membership checks
 
@@ -147,3 +147,24 @@ This SHALL include Bash-to-edit and search-to-conversation-read advice.
 - **THEN** that retry's Bash description includes the edit recommendation
 - **AND** the failed attempt supplies no earlier description to its model context; descriptions are rendered per attempt
 - **AND** the retry keeps the accepted-turn reminders already stored on the triggering user message unchanged and in place, and may store after them a reminder newly derived against the stored availability record
+
+### Requirement: Templates can iterate the configured web search engines
+
+Both template kinds MUST accept `webSearch.engines` as an `each` collection. Its items MUST be the configured web search engines in configuration order. Each item MUST declare only the fields `id`, `type`, `kind`, `position`, `recency`, `queryLimit`, `objective`, and `description`. The worker MUST resolve the collection once at boot, and MUST tag-neutralize each value. `webSearch` MUST be absent when the configuration has no `webSearch` section.
+
+#### Scenario: A template lists the engines
+
+- **WHEN** a template wraps an `each` block over `webSearch.engines` and references `id` and `description` inside it
+- **THEN** the block renders once for each configured engine in configuration order
+- **AND** startup succeeds
+
+#### Scenario: An undeclared engine field fails startup
+
+- **WHEN** a template references `key` inside an `each` body over `webSearch.engines`
+- **THEN** startup fails and names the offending construct
+- **AND** no engine key gets into a prompt
+
+#### Scenario: A template without web search configuration
+
+- **WHEN** the configuration has no `webSearch` section and a template wraps a region in `{{#if webSearch}}`
+- **THEN** the region renders empty
