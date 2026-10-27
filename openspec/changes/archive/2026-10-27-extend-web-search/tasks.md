@@ -4,7 +4,7 @@ Track [#1431](https://github.com/leon0399/llame/issues/1431),
 [#1438](https://github.com/leon0399/llame/issues/1438), and
 [#1440](https://github.com/leon0399/llame/issues/1440) under the epic
 [#1430](https://github.com/leon0399/llame/issues/1430) through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
 approval of the published proposal revision; keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Every layer
@@ -68,7 +68,7 @@ budget at its own boundary.
 - [x] 1.7 Document `objective`, query limits, and `unsupported` in `docs/product/operator/web-search.md` (including that the objective is outbound text) and `docs/product/reference/tools/web-search.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 1.8 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR carries `Closes #1431`
 - [x] 1.9 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
-- [ ] 1.10 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 1.10 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 2. `extend-web-search/result-filtering` — permission and exclusion filtering (design D2b)
 
@@ -76,7 +76,7 @@ budget at its own boundary.
 - [x] 2.2 Document the removal rules, the count note, and the whole-tool and `bypass` exceptions in the runbook's permission section and the reference page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 2.3 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites; this layer's PR carries `Closes #1440`
 - [x] 2.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 2.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 2.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 3. `extend-web-search/deepseek-parallel` — DeepSeek and Parallel (design D7)
 
@@ -87,7 +87,7 @@ budget at its own boundary.
 - [x] 3.5 Document the two engines, their keys, prices, modes, retention and training terms, and the `session_id` exposure of `parallel`, in the runbook; add commented examples to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 3.6 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR references #1437
 - [x] 3.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 3.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 3.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 4. `extend-web-search/parallel-mcp` — keyless Parallel MCP (design D8)
 
@@ -97,7 +97,7 @@ budget at its own boundary.
 - [x] 4.4 Document the engine, the keyless endpoint, its prices and retention terms, and the session-id exposure in the runbook; add a commented example to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 4.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR references #1437
 - [x] 4.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 4.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 4.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 5. `extend-web-search/yandex` — Yandex web search (design D9)
 
@@ -106,7 +106,7 @@ budget at its own boundary.
 - [x] 5.3 Document the engine, its keys, folder ids, prices, rate limits, Russian residency and the 152-FZ statement, and the result-order clause of the terms as an operator responsibility in the runbook; add commented examples to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 5.4 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR carries `Closes #1437`
 - [x] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `extend-web-search/aggregate-answers` — answer engines inside aggregates (design D10)
 
@@ -117,7 +117,7 @@ budget at its own boundary.
 - [x] 6.5 Document hosted aggregate children, their latency, and the output shape in the runbook and reference page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the `packages/ui` and `apps/web` checks; exercise an aggregate with a hosted child in a browser live and after reload; this layer's PR carries `Closes #1438`
 - [x] 6.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 7. `extend-web-search/engine-selection` — model-selected engines and catalog (design D3 to D5)
 
@@ -127,15 +127,15 @@ budget at its own boundary.
 - [x] 7.4 Update `prompts/tools/web_search.md` to describe `engines`; document selection, the catalog, and `description` in the runbook and reference page, including that every configured engine is selectable and that `engines` values match only all-field permission clauses; update `SPEC.md` if it states that engine choice is operator-only; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 7.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites; this layer's PR carries `Closes #1432`
 - [x] 7.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 7.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 7.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 8. `extend-web-search/finalize` — spec sync and archive
 
 Enter this layer with `$gh-stack` from the `engine-selection` top before `$openspec-sync-specs`
 writes. Its self-review and GitHub review are post-archive gates, not tasks here.
 
-- [ ] 8.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify that `web-search`, `instance-config`, `tool-prompt-templates`, `permission-modes`, `native-file-tools`, and `tool-call-permissions` gain no strict-validation issue compared with `master`
-- [ ] 8.2 Confirm `openspec status --change extend-web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
+- [x] 8.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify that `web-search`, `instance-config`, `tool-prompt-templates`, `permission-modes`, `native-file-tools`, and `tool-call-permissions` gain no strict-validation issue compared with `master`
+- [x] 8.2 Confirm `openspec status --change extend-web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
 
 ## Workflow follow-up
 

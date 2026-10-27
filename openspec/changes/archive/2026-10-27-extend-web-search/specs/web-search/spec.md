@@ -431,7 +431,7 @@ Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20 citations.
 
 ### Requirement: The chat renders attached answers
 
-The web chat MUST render each `answers` entry of a `web_search` part after the results, live and from history. Each entry MUST show its engine id, its answer as Markdown, and its numbered citation links. Only `http:` and `https:` URLs MUST render as links.
+The web chat MUST render each `answers` entry of a `web_search` part after the results, live and from history. Each entry MUST show its engine id, its answer as Markdown, and its numbered citation links. Only `http:` and `https:` citation URLs MUST render as links. Links in the answer MUST follow the link safety of the chat Markdown.
 
 #### Scenario: Attached answers render
 

@@ -74,7 +74,7 @@ Decisions from the 2026-10-26 design session (grilling rounds Q1 to Q18):
   value (Q7 A). Hosted engines receive it as a `Goal:` line (Q8 A). Engines without an objective field ignore it with no note (Leo, after the grilling).
 - All four engine types ship (Q9, narrowed after the grilling: `yandex-gen` dropped). DeepSeek's `ori_question` takes the objective cut silently to
   128 code points (Q16 B), on evidence from the
-  [objective spike](../../../docs/research/tool-harness/2026-10-26-web-search-objective-spike/report.md):
+  [objective spike](../../../../docs/research/tool-harness/2026-10-26-web-search-objective-spike/report.md):
   76 to 100 percent of objectives fit 128 characters, no query exceeded 124 characters, and
   `ori_question` left the top-10 order unchanged in 56 of 59 comparisons.
 - Parallel's `session_id` is the Chat id (Q10 A). Rerank preparation is out of scope (Q11 A).

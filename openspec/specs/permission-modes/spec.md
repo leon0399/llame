@@ -92,12 +92,12 @@ A Run SHALL persist the mode accepted with its triggering message. The persisted
 
 ### Requirement: The permission mode is not model-visible
 
-A Run's mode SHALL NOT be rendered into the system prompt, recorded in the system-prompt receipt, or authored as a model-visible context item. A mode change between turns SHALL NOT be a cause of effective-context change. The model SHALL learn of a policy decision only through the existing `permission_denied` tool results.
+The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A mode change between turns MUST NOT cause an effective-context change. The model MUST learn of a policy decision only through `permission_denied` tool results and the removal note of `web_search`, which `web-search` defines.
 
 #### Scenario: Switching mode preserves the prompt prefix
 
 - **WHEN** an owner sends one turn in `default` and the next in `bypass` with the same model and effort
-- **THEN** both Runs' rendered system prompts and receipts are identical apart from what other contracts change
+- **THEN** the rendered system prompts and receipts of both Runs are identical, apart from changes that other contracts make
 - **AND** no context item mentions the mode
 
 ### Requirement: Usage records a bypassed turn
