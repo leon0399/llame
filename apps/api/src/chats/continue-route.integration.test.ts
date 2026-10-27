@@ -259,15 +259,23 @@ d('the follow-up route', () => {
     expect(models.client.turns).toHaveLength(0);
   });
 
-  it('refuses a continue request that names a model', async () => {
+  it('refuses a body the continue variant does not describe', async () => {
     const turn = await seedFailedTurn();
 
-    const stream = await followUp(turn, {
+    // The schema has no model or effort on `continue`, so the request is not
+    // that variant at all: validation answers 400 before admission runs.
+    const named = await followUp(turn, {
       action: 'continue',
       modelId: MODEL_ID,
+      effort: '0',
     });
+    expect(named.status).toBe(400);
 
-    expect(stream.status).toBe(400);
+    // `regenerate` is a variant a later action adds; until then it is not one
+    // this route describes either.
+    const regenerate = await followUp(turn, { action: 'regenerate' });
+    expect(regenerate.status).toBe(400);
+
     expect(await runsOf(turn.chatId)).toHaveLength(1);
   });
 

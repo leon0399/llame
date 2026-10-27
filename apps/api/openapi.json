@@ -902,7 +902,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateFollowUpRunDto"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ContinueFollowUpRunDto"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "action",
+                  "mapping": {
+                    "continue": "#/components/schemas/ContinueFollowUpRunDto"
+                  }
+                }
               }
             }
           }
@@ -5054,23 +5064,13 @@
         },
         "required": ["statusCode", "error", "message", "code"]
       },
-      "CreateFollowUpRunDto": {
+      "ContinueFollowUpRunDto": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["continue", "regenerate"],
-            "description": "The action to apply to the latest turn of the Chat."
-          },
-          "modelId": {
-            "type": "string",
-            "pattern": "\\S",
-            "description": "Model for a regenerate request. A continue request keeps the model of the Run it continues and refuses this field."
-          },
-          "effort": {
-            "type": "string",
-            "pattern": "\\S",
-            "description": "Reasoning effort for a regenerate request, from the selected model's declared levels. A continue request keeps the effort of the Run it continues and refuses this field."
+            "enum": ["continue"],
+            "description": "Resume the completed steps of the latest Run and request its next step."
           },
           "permissionMode": {
             "type": "string",

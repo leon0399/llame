@@ -30,6 +30,7 @@ import {
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
+  getSchemaPath,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/auth-context';
@@ -51,7 +52,8 @@ import {
   ChatResponse,
   ChatSearchQueryDto,
   ChatSearchResponse,
-  CreateFollowUpRunDto,
+  ContinueFollowUpRunDto,
+  type CreateFollowUpRunDto,
   CreateMessageDto,
   ForkChatDto,
   ListChatsQueryDto,
@@ -70,6 +72,22 @@ import {
   CreateFileMessagePartDto,
   CreateTextMessagePartDto,
 } from './dto/message-parts.dto';
+
+/**
+ * The follow-up request body as a discriminated union on `action`: each variant
+ * declares only the fields its action accepts, so a schema-valid `continue`
+ * never carries a model or an effort. A second action adds its variant to the
+ * same `oneOf` and its own `mapping` entry.
+ */
+function followUpRunBodySchema() {
+  return {
+    oneOf: [{ $ref: getSchemaPath(ContinueFollowUpRunDto) }],
+    discriminator: {
+      propertyName: 'action',
+      mapping: { continue: getSchemaPath(ContinueFollowUpRunDto) },
+    },
+  };
+}
 
 export type ChatsControllerService = Pick<
   ChatsService,
@@ -336,7 +354,8 @@ export class ChatsController {
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiParam({ name: 'userMessageId', format: 'uuid' })
-  @ApiBody({ type: CreateFollowUpRunDto })
+  @ApiExtraModels(ContinueFollowUpRunDto)
+  @ApiBody({ schema: followUpRunBodySchema() })
   @ApiOkResponse({
     description: 'AI SDK v5 UI-message stream (SSE)',
     content: {
