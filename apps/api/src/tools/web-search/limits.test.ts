@@ -26,8 +26,8 @@ describe('acceptsQuery', () => {
   });
 
   it('rejects a yandex query over its word limit even under its code-point limit', () => {
-    // The scenario: 45 words and 300 characters. The vendor's 400 code points
-    // pass, and its 40 words do not.
+    // The spec's scenario: a query of 45 words and 300 characters. Its 300
+    // code points pass the vendor's 400, and its 45 words do not pass 40.
     expect(acceptsQuery(ENGINE_LIMITS.yandex, words(45))).toBe(false);
     expect(acceptsQuery(ENGINE_LIMITS.yandex, words(40))).toBe(true);
     expect(acceptsQuery(ENGINE_LIMITS.yandex, 'x'.repeat(400))).toBe(true);

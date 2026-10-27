@@ -135,7 +135,7 @@
             },
             "folderId": {
               "$ref": "#/$defs/nullableString",
-              "description": "Optional Yandex Cloud folder id, needed for a user-account key. It may use a whole or embedded {env:...}/{path:...} interpolation token; a blank resolution leaves it unset, which a service-account key allows."
+              "description": "Optional Yandex Cloud folder id, defaulting to the API key's own service-account folder. It may use a whole or embedded {env:...}/{path:...} interpolation token; a blank resolution leaves it unset."
             },
             "timeoutSeconds": {
               "$ref": "#/$defs/numberOrToken",

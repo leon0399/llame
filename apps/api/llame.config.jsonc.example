@@ -453,9 +453,9 @@
   //     },
   //     // Yandex Search API bills about $4 per 1,000 requests at 10 requests per
   //     // second, processes in Russia, and accepts a 400-code-point, 40-word
-  //     // query. `searchType` is the index: ru | tr | com | kk | be | uz.
-  //     // `folderId` is optional for a service-account key and required for a
-  //     // user-account key.
+  //     // query. The key is a service-account key with the yc.search-api.execute
+  //     // scope; `searchType` is the index: ru | tr | com | kk | be | uz.
+  //     // `folderId` is optional and defaults to that service account's folder.
   //     {
   //       "id": "yandex",
   //       "type": "yandex",

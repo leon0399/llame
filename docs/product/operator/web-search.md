@@ -396,23 +396,27 @@ llame keeps one MCP session per configured engine and reconnects on failure.
 
 `key` and `searchType` are required. `searchType` names the search index: `ru`
 (yandex.ru), `tr`, `com`, `kk` (yandex.kz), `be` (yandex.by), or `uz`.
-`folderId` is optional, because a service-account key implies its own folder;
-a user-account key needs the id. `key` and `folderId` SHOULD be whole-value
-secret interpolation, and llame sends neither anywhere but Yandex's fixed
-endpoint:
+`folderId` is optional and defaults to the service account's own folder. `key`
+and `folderId` SHOULD be whole-value secret interpolation, and llame sends
+neither anywhere but Yandex's fixed endpoint:
 
 ```text
 https://searchapi.api.cloud.yandex.net/v2/web/search
 ```
 
-The key travels as `Authorization: Api-Key <key>`, so the key of a user
-account needs `search-api.webSearch.user` on that folder. The request asks for
-flat groups with one document each, so `limit` becomes `groupsOnPage` (at most 100) and counts results; the vendor's default deep grouping returns one
-document per host. `maxPassages` is 3 and the response format is XML. Yandex
-answers with Base64 XML in a JSON `rawData` field; llame decodes and parses it,
-strips the `<hlword>` query highlights, and reads each document's `title`,
-`url`, `headline` (or its first passage) as the snippet, and `modtime` as the
-ISO `published` date.
+A Yandex API key belongs to a service account, so create one with the
+`yc.search-api.execute` scope, and give its service account the
+`search-api.webSearch.user` role on the folder; without that role the endpoint
+answers HTTP 403 `PermissionDenied`. The key travels as
+`Authorization: Api-Key <key>`. The request asks for flat groups with one
+document each, so `limit` becomes `groupsOnPage` (at most 100) and counts
+results; the vendor's default deep grouping returns one document per host.
+`maxPassages` is 3 and the response format is XML. Yandex answers with Base64
+XML in a JSON `rawData` field; llame decodes and parses it, strips the
+`<hlword>` query highlights, and reads each document's `title`, `url`,
+`headline` (or its first passage) as the snippet, and the date of `modtime` as
+`published`; the vendor documents no time zone for that stamp, so no time is
+emitted.
 
 `recency` becomes the vendor's `period`: `day` is `PERIOD_DAY`, `month` is
 `PERIOD_MONTH`, and `week` is `PERIOD_2_WEEKS` with a note, because the vendor
@@ -425,9 +429,10 @@ Yandex reports a search-level error inside a successful HTTP response, in the
 XML body. llame reads that `<error code>` before it reads any result: code 42
 is `auth`, codes 32 and 55 are `rate_limited`, and code 100 is `challenge`.
 Codes 2 and 15 mean the search found nothing, so the engine is empty. Every
-other code, a 5xx status, and a body that is not a Yandex response are
-`upstream_error`; HTTP 401 and 403 are `auth` and 429 `rate_limited`. The
-vendor's error text never reaches the output, the Run events, or the logs.
+other code and a body that is not a Yandex response are `upstream_error`; HTTP
+401 and 403 are `auth`, 429 `rate_limited`, 408 and 504 `timeout`, and every
+other status `upstream_error`. The vendor's error text never reaches the
+output, the Run events, or the logs.
 
 Price: $4 per 1,000 synchronous requests (₽488 per 1,000 in the Russian price
 list), billed per request. A request that ends in an internal-server or
