@@ -184,7 +184,9 @@ function makeService() {
     );
 
   const validateModelSelection = vi.fn(() => model);
-  const resolveEffortSelection = vi.fn(() => undefined);
+  const resolveEffortSelection = vi.fn<
+    ModelSelectionValidator['resolveEffortSelection']
+  >((_model, effort) => effort);
   const models: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection,
@@ -286,6 +288,7 @@ function makeService() {
     append,
     jobState,
     validateModelSelection,
+    resolveEffortSelection,
   };
 }
 
@@ -584,12 +587,21 @@ describe('FollowUpAdmissionService', () => {
   });
 
   it('re-resolves the stored effort through the model validator', async () => {
-    const { service, findLatestByChatId, validateModelSelection } =
-      makeService();
+    const {
+      service,
+      findLatestByChatId,
+      validateModelSelection,
+      resolveEffortSelection,
+      createRun,
+    } = makeService();
     findLatestByChatId.mockResolvedValue({ ...sourceRun, effort: 'high' });
 
     await admit(service);
 
     expect(validateModelSelection).toHaveBeenCalledWith(model.id);
+    expect(resolveEffortSelection).toHaveBeenCalledWith(model, 'high');
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ effort: 'high' }),
+    );
   });
 });
