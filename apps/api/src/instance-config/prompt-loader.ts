@@ -149,8 +149,10 @@ export type PromptWebSearchEngineItem = {
   readonly position: string;
   readonly recency: string;
   readonly queryLimit: string;
-  readonly objective: string;
-  readonly description: string;
+  /** Absent when the engine ignores `objective`. */
+  readonly objective?: string;
+  /** Absent when the operator sets none; its entry period is already gone. */
+  readonly description?: string;
 };
 
 /** The resolved `webSearch` projection; absent when no engine is configured. */
@@ -404,7 +406,6 @@ const PROBE_WEB_SEARCH: PromptWebSearchInput = {
       position: 'probe',
       recency: 'probe',
       queryLimit: 'probe',
-      objective: '',
       description: 'probe',
     },
   ],
@@ -1305,9 +1306,8 @@ function skillsContext(skills: PromptSkillsInput | undefined) {
  * Every value arrives already neutralized — the web-search module applies the
  * tag sanitizer and the list-fence neutralization — so each one is wrapped
  * verbatim: escaping it again would render `&lt;` as `&amp;lt;`. The two
- * optional facts are OMITTED rather than empty, because a `SafeString` around
- * `''` is an object and so truthy, which would make `{{#if objective}}` render
- * its clause around nothing.
+ * optional facts take `promptValue`'s identity neutralizer, whose omission rule
+ * is what drops a `{{#if}}` clause it has nothing to say about.
  */
 function webSearchContext(webSearch: PromptWebSearchInput | undefined) {
   if (webSearch === undefined || webSearch.engines.length === 0) {
@@ -1321,12 +1321,11 @@ function webSearchContext(webSearch: PromptWebSearchInput | undefined) {
       position: promptSafeString(engine.position),
       recency: promptSafeString(engine.recency),
       queryLimit: promptSafeString(engine.queryLimit),
-      ...(engine.objective.length > 0 && {
-        objective: promptSafeString(engine.objective),
-      }),
-      ...(engine.description.length > 0 && {
-        description: promptSafeString(engine.description),
-      }),
+      // The identity neutralizer: these values reach the projection already
+      // neutralized, and `promptValue`'s omission rule is what makes an absent
+      // fact drop its `{{#if}}` clause.
+      objective: promptValue(engine.objective, (value) => value),
+      description: promptValue(engine.description, (value) => value),
     })),
   };
 }

@@ -5,7 +5,10 @@ import {
 } from '../../instance-config/web-search-config';
 import { ORI_QUESTION_MAX_CODE_POINTS } from './deepseek';
 import { ENGINE_LIMITS, TOOL_QUERY_MAX, type EngineLimits } from './limits';
-import { type PromptWebSearchEngineItem } from '../../instance-config/prompt-loader';
+import {
+  type PromptWebSearchEngineItem,
+  type PromptWebSearchInput,
+} from '../../instance-config/prompt-loader';
 
 type EngineType = WebSearchEngineConfig['type'];
 /** The per-type vendor bounds, typed so a child of any type is read the same way. */
@@ -55,7 +58,7 @@ type QueryBound = { readonly codePoints?: number; readonly words?: number };
  */
 function catalogValue(value: string): string {
   return sanitizeAuthoredText(value).replaceAll(
-    /<(\s*\/?\s*engines)(?=\s*\/?>|[\s/]+[\w-]+\s*=|$)/giu,
+    /<(\s*\/?\s*engines)(?=[\s/>]|$)/giu,
     '&lt;$1',
   );
 }
@@ -89,12 +92,7 @@ function chainPosition(
   });
   return parent === undefined
     ? 'not in the default chain'
-    : `runs in the default chain through ${catalogValue(parent)}`;
-}
-
-/** The longest query an engine sends, as a code-point and word bound. */
-function queryLimit(limits: EngineLimits): string {
-  return boundText(limits.query ?? {});
+    : `runs in the default chain through ${parent}`;
 }
 
 /**
@@ -135,19 +133,20 @@ function engineKind(
   return 'results';
 }
 
-/** How one engine uses the call's `objective`; empty when it ignores it. */
+/** How one engine uses the call's `objective`; absent when it ignores it. */
 function objectiveUse(
   byId: EngineIndex,
   engine: WebSearchEngineConfig,
-): string {
+): string | undefined {
   if (engine.type !== 'aggregate') {
-    return OBJECTIVE_USE[engine.type] ?? '';
+    return OBJECTIVE_USE[engine.type];
   }
-  return engine.engines.some(
+  const childUsesOne = engine.engines.some(
     (id) => OBJECTIVE_USE[byId.get(id)!.type] !== undefined,
-  )
+  );
+  return childUsesOne
     ? 'objective passed to each child that accepts one'
-    : '';
+    : undefined;
 }
 
 /** One engine's fact phrases, for a template to lay out and frame. */
@@ -156,6 +155,7 @@ function engineItem(
   byId: EngineIndex,
   engine: WebSearchEngineConfig,
 ): PromptWebSearchEngineItem {
+  const objective = objectiveUse(byId, engine);
   return {
     id: catalogValue(engine.id),
     type: engine.type,
@@ -165,13 +165,15 @@ function engineItem(
     queryLimit: catalogValue(
       engine.type === 'aggregate'
         ? aggregateQueryLimit(byId, engine.engines)
-        : queryLimit(LIMITS[engine.type]),
+        : boundText(LIMITS[engine.type].query ?? {}),
     ),
-    objective: catalogValue(objectiveUse(byId, engine)),
-    description:
-      engine.description === undefined
-        ? ''
-        : catalogValue(engine.description).replace(/\.$/u, ''),
+    ...(objective !== undefined && { objective: catalogValue(objective) }),
+    ...(engine.description !== undefined && {
+      // The period ends the template's entry line, so the operator's own is
+      // dropped BEFORE neutralization: stripping it afterwards would leave an
+      // unterminated `<engines` that the end-of-value guard had escaped.
+      description: catalogValue(engine.description.replace(/\.$/u, '')),
+    }),
   };
 }
 
@@ -186,10 +188,12 @@ function engineItem(
  */
 export function webSearchEngineItems(
   config: WebSearchConfig | undefined,
-): ReadonlyArray<PromptWebSearchEngineItem> | undefined {
-  if (config === undefined || config.engines.length === 0) return undefined;
+): PromptWebSearchInput | undefined {
+  if (config === undefined) return undefined;
   const byId: EngineIndex = new Map(
     config.engines.map((engine) => [engine.id, engine]),
   );
-  return config.engines.map((engine) => engineItem(config, byId, engine));
+  return {
+    engines: config.engines.map((engine) => engineItem(config, byId, engine)),
+  };
 }

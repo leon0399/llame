@@ -157,6 +157,7 @@ import { resolveConfigPath } from '../instance-config/config-loader';
 import {
   createToolPromptRenderer,
   type PromptChatsDisclosure,
+  type PromptWebSearchInput,
   type RenderedPrompt,
   type ToolPromptRenderer,
 } from '../instance-config/prompt-loader';
@@ -314,7 +315,6 @@ import {
 } from '../chats/recency-digest.service';
 import { isToolPromptId } from '../prompts/tool-descriptions';
 import { webSearchEngineItems } from '../tools/web-search/catalog';
-import { type PromptWebSearchEngineItem } from '../instance-config/prompt-loader';
 import {
   resolveTurnSkillState,
   type SkillTurnState,
@@ -793,9 +793,7 @@ export class RunExecutionService {
    * changes only when the operator edits engines (design D5). Absent when no
    * engine is configured.
    */
-  private readonly webSearchEngines:
-    | ReadonlyArray<PromptWebSearchEngineItem>
-    | undefined;
+  private readonly webSearch: PromptWebSearchInput | undefined;
   /** The process-wide `ssh://` transport; absent without the `ssh` section. */
   private readonly sshClient: SshClient | undefined;
 
@@ -875,16 +873,12 @@ export class RunExecutionService {
     @Inject(ExecutorGit)
     private readonly executorGit?: ExecutorGit,
   ) {
-    this.webSearchEngines = webSearchEngineItems(
-      this.instanceConfig.config.webSearch,
-    );
+    this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
       instancePromptFiles: this.instanceConfig.config.tools.promptFiles,
       models: this.instanceConfig.config.models,
-      ...(this.webSearchEngines !== undefined && {
-        webSearch: { engines: this.webSearchEngines },
-      }),
+      webSearch: this.webSearch,
     });
     // One generated SSH configuration per worker process, written only when a
     // call actually resolves or runs (ssh-locator D1). Without the `ssh`
@@ -4660,9 +4654,7 @@ export class RunExecutionService {
       user: input.user,
       chats: input.chats ?? undefined,
       ...(input.skills !== undefined && { skills: input.skills }),
-      ...(this.webSearchEngines !== undefined && {
-        webSearch: { engines: this.webSearchEngines },
-      }),
+      webSearch: this.webSearch,
       admittedToolIds: input.admittedToolIds,
     };
     let rendered: RenderedPrompt;
