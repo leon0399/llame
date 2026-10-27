@@ -283,14 +283,16 @@ show the receipts of the follow-up Run.
 ### Requirement: The chat history read reports the latest Run
 
 `GET /api/v1/chats/:id/messages` MUST return `latestRun` from the same read as the messages. It is
-the Chat's newest Run, with its id, message id, status, follow-up action, model id, effort, and
-accepted permission mode. It MUST be `null` for a Chat with no Run. It MUST follow the owner scope
-of the history read.
+the Chat's newest Run, with its id, message id, status, follow-up action, model id, effort,
+accepted permission mode, and error. The error MUST be the terminal message that the Run's stream
+sends, or `null`. It MUST be `null` for a Chat with no Run. It MUST follow the owner scope of the
+history read.
 
 #### Scenario: The latest Run of a failed turn is reported
 
 - **WHEN** the latest Run of a Chat failed before it dispatched, with model `A` and mode `bypass`
 - **THEN** the history read reports that Run with status `failed`, model `A`, and mode `bypass`
+- **AND** it reports the failure message of that Run as its error
 
 #### Scenario: Another owner's latest Run is not reported
 
@@ -302,8 +304,8 @@ of the history read.
 The web MUST show Regenerate on the latest turn when `latestRun` is terminal. It MUST show Continue
 only when `latestRun` produced the reply and is `failed`, `cancelled`, or `expired`. The reply
 usage status MUST NOT be `completed`, and the reply MUST hold a settled tool part. A latest turn
-with no reply MUST show Regenerate when `latestRun` is terminal. Older turns MUST NOT show either
-action. Continue MUST send the composer's permission mode.
+with no visible reply MUST show a failed-turn row with the error of `latestRun` and Regenerate.
+Older turns MUST NOT show either action. Continue MUST send the composer's permission mode.
 
 #### Scenario: A failed agentic turn shows both actions
 
@@ -319,6 +321,12 @@ action. Continue MUST send the composer's permission mode.
 
 - **WHEN** the latest Run failed at pickup, so the latest turn has no reply
 - **THEN** the latest turn shows Regenerate
+
+#### Scenario: A failed turn with an empty reply shows its cause
+
+- **WHEN** the latest Run failed at its provider call and stored a reply with no visible content
+- **THEN** the latest turn shows a failed-turn row with the error of the Run and Regenerate
+- **AND** the row stays visible without hover
 
 #### Scenario: Older turns show no action
 

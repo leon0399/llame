@@ -278,8 +278,10 @@ through `GET /api/v1/runs/:id`.
 ### D12: The history read reports the latest Run
 
 `ChatMessagesResponse` (`GET /api/v1/chats/:id/messages`) gains
-`latestRun: { id, messageId, status, followUpAction, modelId, effort, permissionMode } | null`, read
-in the same transaction as the messages: the Chat's newest Run by creation, with its accepted mode.
+`latestRun: { id, messageId, status, followUpAction, modelId, effort, permissionMode, error } | null`,
+read in the same transaction as the messages: the Chat's newest Run by creation, with its accepted
+mode. `error` is `runs.error.message`, the same terminal message the Run's stream sends in its
+`error` frame, so a reload still shows why the turn failed; it is `null` when the Run recorded none.
 The web refetches this response after each stream, so the action check and the messages never
 disagree. `ChatResponse` stays unchanged, so the Chat list and the other endpoints that return it
 need no per-Chat Run query.
@@ -289,8 +291,9 @@ need no per-Chat Run query.
 - The action row of the latest assistant turn replaces the `Regenerate` stub. Continue shows when
   `latestRun` matches the reply's Run, its status is `failed`, `cancelled`, or `expired`, the
   reply's usage status is not `completed`, and the reply holds a settled tool part. Regenerate
-  shows when `latestRun` is terminal. A latest turn with no reply gets a minimal failed-turn row
-  with Regenerate when `latestRun` is terminal.
+  shows when `latestRun` is terminal. A latest turn with no visible reply (no reply row, or a stored
+  reply whose parts paint nothing) gets a failed-turn row, visible without hover, with the error of
+  `latestRun` and Regenerate when `latestRun` is terminal.
 - While `latestRun` is a non-terminal follow-up Run of the latest turn, the web hides the old reply,
   so a reload before the follow-up dispatch does not show the old reply beside the resumed stream.
 - Regenerate is a split button. A plain click sends `latestRun`'s `modelId`, `effort`, and
