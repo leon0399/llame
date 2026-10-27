@@ -13,14 +13,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   declared description is now the rendered `web_search` template, packaged or
   `tools.promptFiles`-overridden, followed by an engine catalog generated once
   per worker from the resolved configuration: id, type, result kind, chain
-  position, `recency` use, query limit (an `aggregate` states its smallest
-  child limit), `objective` use, and the entry's `description`, with ids and
-  descriptions tag-neutralized and no key, base URL, folder id, or model id.
-  An override that renders empty still fails the attempt, because the
-  empty-render check runs before the catalog is appended. Every `webSearch`
-  engine entry, an `aggregate` included, can carry an optional literal
-  `description` of 1 to 200 characters on one line; an interpolation token or
-  a line break fails startup naming the `description` path.
+  position (an aggregate child of a chain aggregate states the aggregate that
+  already runs it), `recency` use, query limit (an `aggregate` states its
+  smallest child code-point and word bounds, below which no child is skipped),
+  `objective` use, and the entry's `description`, with ids and descriptions
+  tag-neutralized, including the catalog's own `engines` fence, and no key,
+  base URL, folder id, or model id. An override that renders empty still fails
+  the attempt, because the empty-render check runs before the catalog is
+  appended. Every `webSearch` engine entry, an `aggregate` included, can carry
+  an optional literal `description` of 1 to 200 characters on one line; an
+  interpolation token or a line break fails startup naming the `description`
+  path, and engine ids follow the same one-line rule without angle brackets.
+  **Upgrade note:** an engine configured outside `chain` and outside every
+  `aggregate` used to be inert and is now listed to the model and callable, so
+  it can receive a model-chosen query and `objective`; remove an entry that
+  must not receive queries, and keep internal hostnames out of engine ids and
+  descriptions.
 - `web_search` aggregates accept `model-hosted` children. Each grounded answer
   of a hosted child is attached to the results output as an `answers` entry
   named by that child's id, in child order, and its citations join the rank

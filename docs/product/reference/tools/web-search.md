@@ -32,7 +32,7 @@ The tool accepts this strict object (unknown arguments are refused):
 
 ## Choosing engines
 
-The declared description is the rendered template followed by a generated catalog of the configured engines. Each catalog entry states the id, type, result kind, chain position, `recency` use, query limit, `objective` use, and the operator's `description`, and an `aggregate` entry states its smallest child limit. The catalog carries no key, base URL, folder id, or model id, and its text changes only when the operator edits engines.
+The declared description is the rendered template followed by a generated catalog of the configured engines. Each catalog entry states the id, type, result kind, chain position, `recency` use, query limit, `objective` use, and the operator's `description`; a chain aggregate's child states the aggregate that already runs it, and an `aggregate` entry states its smallest child code-point and word bounds, below which no child is skipped. The catalog carries no key, base URL, folder id, or model id, and its text changes only when the operator edits engines.
 
 Any configured engine is selectable, an `aggregate` and a child of an `aggregate` included. A call that names engines runs only those, in the given order, with the usual fall-through among them; it never falls back to the chain. An id that names no configured engine fails the call before any request, and the error lists the configured ids.
 
@@ -131,7 +131,7 @@ When every attempted engine fails, the fixed shape is:
 }
 ```
 
-An unknown id in `engines` takes a different fixed shape: `{"status": "error", "type": "web_search_failed", "message": "Unknown web search engine \"bing\". Configured engines: brave, exa."}`, returned before any request.
+An unknown id in `engines` returns `web_search_failed` before any request, in the shape `{"status": "error", "type": "web_search_failed", "message": "Unknown web search engine \"bing\". Configured engines: brave, exa."}`; the message echoes the requested id and then lists the configured ids, and unlike the total-failure message it carries no classes.
 
 The message names each attempted engine id and one class, with entries joined by a semicolon plus one space: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline or the vendor's read deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), `unsupported` (the query is over that engine's vendor limit, so nothing was sent), or `upstream_error` (other transport, protocol, status, or parse failure).
 Engine messages are fixed and non-disclosing: upstream status text/bodies, request headers, configured keys/URLs never appear in output, errors, events, or logs. Schema, permission, cancellation, and whole-call-timeout outcomes use the runtime's corresponding tool outcomes, not this engine-failure shape.

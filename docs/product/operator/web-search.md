@@ -72,7 +72,9 @@ Each non-aggregate engine's positive-integer `timeoutSeconds` defaults to 60 sec
 
 The model can pass `engines`: 1-20 unique configured engine ids, in its own order. A call that sets them runs those ids instead of `chain`, with the same fall-through among them only; naming one engine pins the call to it. No other engine sends a request, so a model that asks for `yandex` never silently gets `brave`. An id that names no configured engine fails the call before any request, and that error lists the configured ids.
 
-Every configured engine is selectable, an `aggregate` and a child of an `aggregate` included; there is no operator gate on which engine a call may name, so the cost of a selectable engine is the operator's decision. `tools.permissions.web_search` clauses judge `engines` by value only through `allFields`: a `field` clause selects a top-level string argument, `engines` is an array, so only an `allFields: true` reject clause can refuse engine ids. Engine ids are also not a seam for secret exposure: the model reads the declared catalog below, not the entry.
+Every configured engine is selectable, an `aggregate` and a child of an `aggregate` included; there is no operator gate on which engine a call may name, so the cost of a selectable engine is the operator's decision. `tools.permissions.web_search` clauses judge `engines` by value only through `allFields`: a `field` clause selects a top-level string argument, `engines` is an array, so only an `allFields: true` reject clause can refuse engine ids.
+
+**Upgrading:** an engine that an earlier release configured outside `chain` and outside every `aggregate` was inert; it is now listed to the model and callable, so it can receive a model-chosen query and `objective`. Remove an entry that must not receive queries, or keep it out of the file. Engine ids and descriptions are model-facing text: do not put an internal hostname, an account name, or any other detail the model should not read into either, and keep a description free of secrets.
 
 ## Engine catalog and descriptions
 
@@ -92,7 +94,7 @@ Each engine entry, an `aggregate` included, can carry an optional `description` 
 }
 ```
 
-The value is literal text: an `{env:...}` or `{path:...}` token or a line break fails startup and names the `description` path. Markup in the value is neutralized, so it cannot forge catalog framing.
+The value is literal text: an `{env:...}` or `{path:...}` token or a line break fails startup and names the `description` path. Engine ids follow the same one-line rule and may not contain angle brackets, so the catalog shows each id exactly as `engines` accepts it. Markup in either value is neutralized, so it cannot forge catalog framing.
 
 ## Query limits and result counts
 
