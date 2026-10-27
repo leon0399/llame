@@ -29,7 +29,7 @@ function SectionDragHandle({
     <Button
       type="button"
       variant="ghost"
-      size="icon-sm"
+      size="icon-xs"
       aria-label={`Drag to reorder ${title}`}
       className="absolute top-1 right-1 hidden cursor-grab active:cursor-grabbing group-hover/title:flex group-has-focus-visible/title:flex"
       onPointerDown={(event) => {
