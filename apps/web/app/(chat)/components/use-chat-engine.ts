@@ -46,7 +46,7 @@ import {
   type PermissionModesResponse,
   usePermissionModesQuery,
 } from "@/lib/services/permission-modes/queries";
-import { adoptServerHistory } from "@/lib/services/chat/history";
+import { adoptServerHistory } from "@/lib/services/chat/history-adoption";
 import {
   notificationLabel,
   streamingRunId,

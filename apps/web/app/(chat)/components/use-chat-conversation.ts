@@ -25,7 +25,10 @@ import {
   useChatRefresh,
   useChatSendTransport,
 } from "./use-chat-engine";
-import { hiddenFollowUpReplyIndex } from "./turn-action-rules";
+import {
+  hiddenFollowUpReplyIndex,
+  supersededReplyIndexes,
+} from "./turn-action-rules";
 import { usePendingStop } from "./use-pending-stop";
 import {
   attachmentFileParts,
@@ -250,13 +253,16 @@ function deriveChatTranscript(
   );
   // A follow-up Run of the latest turn that has not settled replaced its
   // reply: hide that reply so a reload before the dispatch shows the resumed
-  // stream alone (turn-actions D13). It keeps its stored position, because the
-  // resumed stream attaches after it.
-  const hidden = hiddenFollowUpReplyIndex(merged, latestRun);
+  // stream alone (turn-actions D13). The same holds for any durable reply a
+  // live stream already supersedes, because the stream attaches after it and a
+  // history read that raced the follow-up can put the old copy back.
+  const hidden = supersededReplyIndexes(merged);
+  const followUpReply = hiddenFollowUpReplyIndex(merged, latestRun);
+  if (followUpReply !== null) hidden.add(followUpReply);
   const displayMessages =
-    hidden === null
+    hidden.size === 0
       ? merged
-      : [...merged.slice(0, hidden), ...merged.slice(hidden + 1)];
+      : merged.filter((_message, index) => !hidden.has(index));
   // SAFETY: `UIMessage["metadata"]` is generic/unknown-shaped at the type
   // level; every message here is one this app persisted, so its metadata is
   // always this app's own `{ seq?: number }` shape (or absent).

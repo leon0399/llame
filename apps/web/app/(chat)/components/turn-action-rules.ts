@@ -11,9 +11,12 @@ import {
   messageSeqFromMetadata,
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
+import { supersededReplyIndexes } from "@/lib/services/chat/history-adoption";
 import { isTerminalRunStatus } from "@/lib/services/chat/run-notifications";
 
 import { parseTurnUsage } from "./message-usage";
+
+export { supersededReplyIndexes };
 
 export type TurnActionVisibility = {
   continueTurn: boolean;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
+import { adoptServerHistory } from "./history-adoption";
 import {
-  adoptServerHistory,
   isInstructionsPart,
   isPromptImportsPart,
   messageRenderKey,
@@ -1159,6 +1159,7 @@ describe("prompt-imports context items", () => {
 
 describe("adoptServerHistory", () => {
   const LIVE_RUN_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
+  const PREVIOUS_RUN_ID = "b6ed346f-2ef9-4bbe-95e9-f1f358c7b246";
 
   // Durable rows carry the seq toChatUiMessages stamps; live-authored rows
   // (optimistic user turns, streamed answers) carry at most usage metadata.
@@ -1237,6 +1238,76 @@ describe("adoptServerHistory", () => {
         liveAssistant(LIVE_RUN_ID),
       ]),
     ).toEqual(server);
+  });
+
+  it("never resurrects the reply a follow-up stream replaced", () => {
+    // The follow-up Run replaced the turn's reply in place, and the client
+    // dropped the old reply when it started the stream. A read that lands
+    // before the new reply's finalization still lists the old one; adopting
+    // it would show the replaced answer beside the stream — and leave it
+    // there, because the live streamed reply has no durable seq to outrank
+    // it.
+    const staleServer = [
+      durableUser("user-1", 1),
+      // The FAILED Run's reply: still the durable row that this read saw.
+      durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
+    ];
+
+    expect(
+      adopt("ready", staleServer, [
+        durableUser("user-1", 1),
+        liveAssistant(LIVE_RUN_ID),
+      ]),
+    ).toBe(null);
+  });
+
+  it("adopts the finalized reply over a stale row a raced read left behind", () => {
+    // The raced read reinserted the replaced reply before the stream attached.
+    // It is superseded, so it must not count as the log's newest durable
+    // coverage — the finalized read then adopts and drops it.
+    const finalized = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2, LIVE_RUN_ID),
+    ];
+
+    expect(
+      adopt("ready", finalized, [
+        durableUser("user-1", 1),
+        durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
+        liveAssistant(LIVE_RUN_ID),
+      ]),
+    ).toEqual(finalized);
+  });
+
+  it("adopts the finalized reply of the streamed turn once it lands", () => {
+    const finalized = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2, LIVE_RUN_ID),
+    ];
+
+    expect(
+      adopt("ready", finalized, [
+        durableUser("user-1", 1),
+        liveAssistant(LIVE_RUN_ID),
+      ]),
+    ).toEqual(finalized);
+  });
+
+  it("is idempotent — adopting its own result is a no-op", () => {
+    // Adoption writes the live log, so a second pass over an unchanged read
+    // must return null: re-setting an equivalent list re-runs the effect and,
+    // with the superseded-row rules in play, loops until React aborts.
+    const server = [
+      durableUser("user-1", 1),
+      durableAssistant("durable-assistant-1", 2, LIVE_RUN_ID),
+    ];
+    const healed = adopt("ready", server, [
+      durableUser("user-1", 1),
+      liveAssistant(LIVE_RUN_ID),
+    ]);
+    expect(healed).not.toBe(null);
+    if (healed === null) return;
+    expect(adopt("ready", server, healed)).toBe(null);
   });
 
   it("does not re-adopt after the durable history is already live", () => {
