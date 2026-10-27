@@ -61,7 +61,7 @@ export function RegenerateMenu({
   const request = composerRegenerateRequest(composer, chatId);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverTrigger
         render={
           <Button

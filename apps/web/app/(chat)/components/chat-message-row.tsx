@@ -68,8 +68,8 @@ import type { AvailableModel } from "@/lib/services/models/queries";
 import {
   isInstructionsPart,
   isPromptImportsPart,
-  isRegenerateNoticePart,
   messageSeqFromMetadata,
+  regenerateNoticePart,
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
 import { storedImageSources } from "@/lib/services/media/urls";
@@ -237,9 +237,6 @@ function MessagePartView({
   if (isPromptImportsPart(part)) {
     return <PromptImportsPart {...part.data.payload} />;
   }
-  if (isRegenerateNoticePart(part)) {
-    return <RegenerateNoticePart payload={part.data.payload} />;
-  }
   return <span>unsupported part type: {part.type}</span>;
 }
 
@@ -270,9 +267,7 @@ function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.part.type === "file") return false;
   if (segment.part.type === "data-context") {
     return (
-      isInstructionsPart(segment.part) ||
-      isPromptImportsPart(segment.part) ||
-      isRegenerateNoticePart(segment.part)
+      isInstructionsPart(segment.part) || isPromptImportsPart(segment.part)
     );
   }
   return true;
@@ -516,6 +511,15 @@ function MessageSegments({
   });
 }
 
+/** The regenerate notice a user turn carries (turn-actions D9/D13), rendered
+ *  above its bubble with the transcript's context-item styling: the notice is
+ *  server-authored context, not something the owner wrote. */
+function MessageNotice({ message }: { message: UIMessage }) {
+  const notice = message.role === "user" ? regenerateNoticePart(message) : null;
+  if (notice === null) return null;
+  return <RegenerateNoticePart payload={notice.data.payload} />;
+}
+
 /** The row's bubble: the pending shimmer or the stored parts. A turn whose
  *  parts all paint nothing (an image-only owner message) keeps its row and
  *  footer but no empty bubble. */
@@ -579,6 +583,7 @@ export function ChatMessageRow({
           data-message-key={renderKey}
         >
           <MessageAttachments message={message} />
+          <MessageNotice message={message} />
           <MessageBubble
             mode={mode}
             parts={message.parts}

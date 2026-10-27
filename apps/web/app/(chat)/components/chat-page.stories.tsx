@@ -20,6 +20,7 @@ import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
 import type { ChatListItemResponse } from "@/lib/api/generated/models";
 import { listPermissionModes } from "@/lib/api/generated/permission-modes/permission-modes";
+import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import type {
   ChatMessageResponse,
   Compaction,
@@ -119,6 +120,8 @@ function historyWithUsage(
 type ChatPageParameters = {
   history?: Array<ChatMessageResponse>;
   hash?: string;
+  /** The Chat's newest Run, as the same history read reports it. */
+  latestRun?: ChatLatestRunResponse | null;
 };
 
 const RENDERERS: ChatMarkdownRenderers = { MessageResponse, ReasoningContent };
@@ -180,13 +183,16 @@ const DRAFT_CATALOG_ROUTES = [
   "GET /api/v1/repositories",
 ];
 
-function routeOpenChat(history: Array<ChatMessageResponse>) {
+function routeOpenChat(
+  history: Array<ChatMessageResponse>,
+  latestRun: ChatLatestRunResponse | null,
+) {
   fetchMock = stubFetch();
   unrouted = [];
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
     if (key === HISTORY_ROUTE) {
-      return Promise.resolve(jsonResponse({ messages: history }));
+      return Promise.resolve(jsonResponse({ messages: history, latestRun }));
     }
     if (key === RESUME_ROUTE) return Promise.resolve(emptyResponse());
     if (key === SEND_ROUTE) return new Promise<Response>(() => {});
@@ -238,7 +244,11 @@ async function sentBody(route: string) {
 // history is in place on the page's first render.
 let queryClient: QueryClient;
 
-function seedHistory(chatExists: boolean, history: Array<ChatMessageResponse>) {
+function seedHistory(
+  chatExists: boolean,
+  history: Array<ChatMessageResponse>,
+  latestRun: ChatLatestRunResponse | null,
+) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 60 * 1000 } },
   });
@@ -248,7 +258,7 @@ function seedHistory(chatExists: boolean, history: Array<ChatMessageResponse>) {
     seedChatMessagesQueryData(queryClient, CHAT_ID, {
       messages: history,
       compaction: null,
-      latestRun: null,
+      latestRun,
     });
   }
 }
@@ -263,7 +273,11 @@ const meta = {
   component: ChatPage,
   args: { chatId: CHAT_ID, initialChatExists: true, initialDraftPhase: null },
   beforeEach: ({ args, parameters }) => {
-    const { history = HISTORY, hash = "" }: ChatPageParameters = parameters;
+    const {
+      history = HISTORY,
+      hash = "",
+      latestRun = null,
+    }: ChatPageParameters = parameters;
     // The page reads and rewrites its URL (draft marker, #msg-N target), so
     // each story opens on its own chat route and leaves the URL as it was.
     const href = window.location.href;
@@ -272,7 +286,7 @@ const meta = {
       "",
       `/chat/${CHAT_ID}${hash}`,
     );
-    seedHistory(args.initialChatExists, history);
+    seedHistory(args.initialChatExists, history, latestRun);
     // isSuccess too: the page enables Send only on a successful catalog.
     useModelsQuery.mockReturnValue({
       data: { defaultModelId: GPT_5_4_MINI.id, models: [GPT_5_4_MINI] },
@@ -285,7 +299,7 @@ const meta = {
       isError: false,
       isPending: false,
     });
-    const restoreFetch = routeOpenChat(history);
+    const restoreFetch = routeOpenChat(history, latestRun);
     const restoreChunks = holdMarkdownChunks();
     return () => {
       restoreChunks();
@@ -2318,5 +2332,126 @@ export const PastWorkspaceEntryKeepsCard: Story = {
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Entered the project.");
     await panelShows(canvasElement, LLAME_ROOT);
     await expect(chatRoutes()).toEqual(OPEN_CHAT_ROUTES);
+  },
+};
+
+const TURN_RUN_ID = "11111111-1111-4111-8111-111111111111";
+const NEXT_TURN_RUN_ID = "22222222-2222-4222-8222-222222222222";
+
+/** The latest Run the turn-level actions judge. */
+function latestTurnRun(
+  overrides: Partial<ChatLatestRunResponse> = {},
+): ChatLatestRunResponse {
+  return {
+    id: TURN_RUN_ID,
+    messageId: "user-turn",
+    status: "failed",
+    followUpAction: null,
+    modelId: GPT_5_4_MINI.id,
+    effort: null,
+    permissionMode: "default",
+    ...overrides,
+  };
+}
+
+const TURN_USER_ROW = rawChatMessage({
+  id: "user-turn",
+  chatId: CHAT_ID,
+  role: "user",
+  seq: 1,
+  parts: [{ type: "text", text: "Search my conversations for budget notes." }],
+});
+
+const TURN_REPLY_ROW = rawChatMessage({
+  id: "assistant-turn",
+  chatId: CHAT_ID,
+  role: "assistant",
+  seq: 2,
+  inReplyTo: "user-turn",
+  parts: [
+    {
+      type: "dynamic-tool",
+      toolCallId: "call-search",
+      toolName: "search_conversations",
+      state: "output-available",
+      input: { query: "budget" },
+      output: { status: "success", results: [] },
+    },
+    { type: "text", text: "I found the budget notes." },
+  ],
+  usage: { runId: TURN_RUN_ID, status: "error" },
+});
+
+/** Opens the story's chat at the markdown-loaded state and leaves it. */
+async function settledTurnChat(
+  canvasElement: HTMLElement,
+  expectedRouteCount: number,
+  text: string,
+) {
+  const canvas = within(canvasElement);
+  (await chunkLoad(1)).resolve(RENDERERS);
+  await settledChat(canvasElement, OPEN_CHAT_ROUTES, text);
+  await waitFor(() => expect(sentRoutes()).toHaveLength(expectedRouteCount));
+  return canvas;
+}
+
+/**
+ * A latest Run that ended before it left any reply still offers Regenerate:
+ * the turn gets a minimal row, because there is no answer row to carry the
+ * action.
+ *
+ * @summary a turn with no reply gets a minimal failed-turn row
+ */
+export const FailedTurnWithoutReply: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW],
+    latestRun: latestTurnRun(),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+    expect(
+      canvas.getByText("This turn ended without an answer."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Regenerate" }),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+  },
+};
+
+/**
+ * A reload while a follow-up Run of the latest turn is still queued shows one
+ * reply: the replaced answer is hidden, because the api keeps it until that
+ * Run dispatches.
+ *
+ * @summary a queued follow-up Run hides the reply it replaces
+ */
+export const QueuedFollowUpHidesTheReplacedReply: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: latestTurnRun({
+      id: NEXT_TURN_RUN_ID,
+      status: "queued",
+      followUpAction: "regenerate",
+      permissionMode: "default",
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+    await expect(canvas.queryByText("I found the budget notes.")).toBeNull();
+    // No turn-level action either: the Run it would act on is still queued.
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
   },
 };

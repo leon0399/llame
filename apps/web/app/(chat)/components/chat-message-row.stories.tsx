@@ -1,8 +1,23 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
+import { vi } from "vitest";
 import type { UIMessage } from "ai";
 
+import { ChatProvider } from "@/contexts/chat-context";
+import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
+import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
+
+// Import via the REAL specifiers: sb.mock (preview.tsx) redirects them to the
+// __mocks__ modules, so these are the SAME hooks the selector reads.
+const useModelsQueryMock = vi.mocked(modelQueries.useModelsQuery, {
+  partial: true,
+});
+const usePermissionModesQueryMock = vi.mocked(
+  permissionModeQueries.usePermissionModesQuery,
+  { partial: true },
+);
 import { ChatMessageRow } from "./chat-message-row";
 import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
 
@@ -682,7 +697,8 @@ export const ImageOnlyMessage: Story = {
  * The reply's action row keeps its layout space but stays transparent until
  * the message is hovered or holds focus. Actions that have not shipped are
  * disabled and out of the tab order, like the sidebar's placeholders, and
- * say they are coming soon on hover.
+ * say they are coming soon on hover; the turn-level actions are absent here
+ * because this reply is not the latest turn's.
  *
  * @summary the action row reveals on focus; unshipped actions say coming soon
  */
@@ -712,15 +728,14 @@ export const ActionRowReveal: Story = {
     await expect(canvas.getByRole("button", { name: "Copy" })).toHaveFocus();
     await waitFor(() => expect(getComputedStyle(row).opacity).toBe("1"));
 
-    // The disabled Regenerate is skipped: Tab lands on Fork next.
+    // The disabled Edit is skipped and no turn-level action is offered for
+    // an older reply, so Tab lands on Fork next.
     await userEvent.tab();
     await expect(fork).toHaveFocus();
-    const regenerate = canvas.getByRole("button", { name: "Regenerate" });
-    await expect(regenerate).toBeDisabled();
-    await userEvent.hover(regenerate.parentElement ?? regenerate);
     await expect(
-      await screen.findByText("Regenerate — coming soon"),
-    ).toBeInTheDocument();
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
   },
 };
 
@@ -1472,5 +1487,476 @@ export const CompleteUsageBreakdown: Story = {
         "Recorded usage may not cover all of this Run's spend",
       ),
     ).toBeNull();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Turn-level actions (turn-actions D13)
+// ---------------------------------------------------------------------------
+
+const TURN_RUN_ID = "11111111-1111-4111-8111-111111111111";
+
+/** A latest Run as the history read reports it. */
+function turnRun(
+  overrides: Partial<ChatLatestRunResponse> = {},
+): ChatLatestRunResponse {
+  return {
+    id: TURN_RUN_ID,
+    messageId: "user-turn",
+    status: "failed",
+    followUpAction: null,
+    modelId: "system:openai:gpt-5.4-mini",
+    effort: "low",
+    permissionMode: "default",
+    ...overrides,
+  };
+}
+
+/** A stored dynamic-tool part plus the classification the api records beside
+ *  it; the AI SDK's part union does not declare that extra field. */
+type ClassifiedDynamicTool = Extract<
+  UIMessage["parts"][number],
+  { type: "dynamic-tool" }
+> & { classification: string };
+
+/** Adds the classification the api stores beside a settled tool part. */
+function storedTool(
+  part: Extract<UIMessage["parts"][number], { type: "dynamic-tool" }>,
+  classification: string,
+): UIMessage["parts"][number] {
+  const classified: ClassifiedDynamicTool = { ...part, classification };
+  return classified;
+}
+
+const SEARCH_TOOL_PART: UIMessage["parts"][number] = {
+  type: "dynamic-tool",
+  toolCallId: "call-search",
+  toolName: "search_conversations",
+  state: "output-available",
+  input: { query: "budget" },
+  output: { status: "success", results: [] },
+};
+
+const READ_TOOL_PART = storedTool(
+  {
+    type: "dynamic-tool",
+    toolCallId: "call-read",
+    toolName: "read",
+    state: "output-available",
+    input: { path: "notes.md" },
+    output: { status: "success", content: "notes" },
+  },
+  "read_only",
+);
+
+const EDIT_TOOL_PART = storedTool(
+  {
+    type: "dynamic-tool",
+    toolCallId: "call-edit",
+    toolName: "edit",
+    state: "output-available",
+    input: { path: "notes.md" },
+    output: { status: "success" },
+  },
+  "write_low_risk",
+);
+
+const BASH_TOOL_PART = storedTool(
+  {
+    type: "dynamic-tool",
+    toolCallId: "call-bash",
+    toolName: "bash",
+    state: "output-available",
+    input: { command: "npm test" },
+    output: { status: "success", exitCode: 0 },
+  },
+  "execute_code",
+);
+
+/** A latest reply whose own Run left it unfinished. */
+function failedReply(parts: UIMessage["parts"]): UIMessage {
+  return {
+    id: "assistant-turn",
+    role: "assistant",
+    parts,
+    metadata: { seq: 2, usage: { runId: TURN_RUN_ID, status: "error" } },
+  };
+}
+
+/** The latest turn's action row reveals through focus, like the per-message
+ *  actions: focus the first turn-level button so the row is painted before it
+ *  is queried. */
+async function revealTurnActions(canvas: PlayContext["canvas"]) {
+  const regenerate = canvas.getByRole("button", { name: "Regenerate" });
+  regenerate.focus();
+  await waitFor(() => expect(regenerate).toBeVisible());
+  return regenerate;
+}
+
+/**
+ * A failed agentic turn offers both actions: Continue resumes the settled tool
+ * step, and Regenerate starts the turn again. Continue sends the composer's
+ * permission mode and nothing the Run already owns.
+ *
+ * @summary a failed agentic turn shows Continue and Regenerate
+ */
+export const LatestTurnActions: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([
+      SEARCH_TOOL_PART,
+      { type: "text", text: "I found the budget notes." },
+    ]),
+    latestRun: turnRun(),
+  },
+  play: async ({ canvas, args }) => {
+    await revealTurnActions(canvas);
+    const continueTurn = canvas.getByRole("button", { name: "Continue" });
+    await expect(continueTurn).toBeVisible();
+    await userEvent.click(continueTurn);
+    await expect(args.onRegenerate).toHaveBeenCalledWith({
+      action: "continue",
+    });
+  },
+};
+
+/**
+ * A failed turn that settled no tool call has no step to resume from, so only
+ * Regenerate is offered.
+ *
+ * @summary Continue is hidden when no tool call settled
+ */
+export const ContinueHiddenWithoutSettledTool: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([{ type: "text", text: "I could not start." }]),
+    latestRun: turnRun(),
+  },
+  play: async ({ canvas }) => {
+    await revealTurnActions(canvas);
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+  },
+};
+
+/**
+ * Only the latest turn offers the actions: an older reply keeps its
+ * per-message actions and nothing that would act on it again.
+ *
+ * @summary older turns show no turn-level actions
+ */
+export const OlderTurnShowsNoActions: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-older",
+    isLast: false,
+    message: failedReply([SEARCH_TOOL_PART]),
+    latestRun: turnRun(),
+  },
+  play: async ({ canvas }) => {
+    await waitFor(
+      async () =>
+        await expect(
+          canvas.getByRole("button", { name: "Fork from here" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
+  },
+};
+
+/**
+ * A plain Regenerate click repeats the Run it replaces — its model, effort,
+ * and accepted permission mode — while the composer shows something else.
+ *
+ * @summary a plain click repeats the latest Run's settings
+ */
+export const RegenerateRepeatsLatestRun: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([
+      READ_TOOL_PART,
+      { type: "text", text: "Only read-only calls here." },
+    ]),
+    latestRun: turnRun({
+      status: "completed",
+      effort: "xhigh",
+      permissionMode: "bypass",
+    }),
+  },
+  play: async ({ canvas, args }) => {
+    const regenerate = await revealTurnActions(canvas);
+    await userEvent.click(regenerate);
+    await expect(args.onRegenerate).toHaveBeenCalledWith({
+      action: "regenerate",
+      modelId: "system:openai:gpt-5.4-mini",
+      effort: "xhigh",
+      permissionMode: "bypass",
+    });
+  },
+};
+
+/**
+ * A reply whose calls could change files or state is not discarded silently:
+ * the dialog names those calls and says their effects stay, and a cancel sends
+ * nothing.
+ *
+ * @summary Regenerate names the calls it discards and a cancel sends nothing
+ */
+export const RegenerateConfirmsDiscardedCalls: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([
+      EDIT_TOOL_PART,
+      BASH_TOOL_PART,
+      { type: "text", text: "I edited notes and ran the tests." },
+    ]),
+    latestRun: turnRun({ status: "completed" }),
+  },
+  play: async ({ canvas, args }) => {
+    args.onRegenerate.mockClear();
+    const regenerate = await revealTurnActions(canvas);
+    await userEvent.click(regenerate);
+
+    const dialog = await screen.findByRole("alertdialog");
+    await expect(dialog).toHaveTextContent("edit");
+    await expect(dialog).toHaveTextContent("bash");
+    await expect(dialog).toHaveTextContent(
+      "Their effects stay, and the new answer will not see them.",
+    );
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await expect(args.onRegenerate).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * The same confirmation, accepted: the request goes out after the owner
+ * confirms.
+ *
+ * @summary a confirmed Regenerate sends the request
+ */
+export const RegenerateConfirmedSends: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([
+      EDIT_TOOL_PART,
+      { type: "text", text: "I edited notes." },
+    ]),
+    latestRun: turnRun({ status: "completed" }),
+  },
+  play: async ({ canvas, args }) => {
+    args.onRegenerate.mockClear();
+    const regenerate = await revealTurnActions(canvas);
+    await userEvent.click(regenerate);
+
+    const dialog = await screen.findByRole("alertdialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Regenerate" }),
+    );
+    await expect(args.onRegenerate).toHaveBeenCalledWith({
+      action: "regenerate",
+      modelId: "system:openai:gpt-5.4-mini",
+      effort: "low",
+    });
+  },
+};
+
+/**
+ * A read-only reply discards nothing whose effects outlive it, so Regenerate
+ * sends at once without a dialog.
+ *
+ * @summary a read-only reply regenerates without a dialog
+ */
+export const RegenerateReadOnlySkipsDialog: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([
+      READ_TOOL_PART,
+      { type: "text", text: "I read notes." },
+    ]),
+    latestRun: turnRun({ status: "completed" }),
+  },
+  play: async ({ canvas, args }) => {
+    args.onRegenerate.mockClear();
+    const regenerate = await revealTurnActions(canvas);
+    await userEvent.click(regenerate);
+    await expect(screen.queryByRole("alertdialog")).toBeNull();
+    await expect(args.onRegenerate).toHaveBeenCalledWith({
+      action: "regenerate",
+      modelId: "system:openai:gpt-5.4-mini",
+      effort: "low",
+    });
+  },
+};
+
+// Base UI's own focus guards (`[data-base-ui-focus-guard]`) are aria-hidden
+// spans with tabindex="0", which axe reports as aria-hidden-focus whenever a
+// nested popup mounts one. The guards belong to the primitive, not to this
+// component, and no call-site markup can fix them — only that rule is
+// suppressed here.
+const regenerateMenuFocusGuardKnownIssue = {
+  a11y: {
+    config: {
+      rules: [{ id: "aria-hidden-focus", enabled: false }],
+    },
+  },
+};
+
+const MENU_CATALOG = {
+  defaultModelId: "system:openai:model-one",
+  models: [
+    {
+      id: "system:openai:model-one",
+      source: "system",
+      name: "Model One",
+      contextWindowTokens: 128_000,
+      input: ["text"],
+    },
+    {
+      id: "system:openai:model-three",
+      source: "system",
+      name: "Model Three",
+      contextWindowTokens: 200_000,
+      input: ["text"],
+    },
+  ],
+} satisfies { defaultModelId: string; models: Array<AvailableModel> };
+
+/**
+ * The Regenerate menu offers the composer's own selectors, so a pick sets the
+ * composer, and its submit sends those values.
+ *
+ * @summary a menu pick sets the composer and submits its values
+ */
+export const RegenerateMenuSetsTheComposer: Story = {
+  tags: ["ai-generated"],
+  parameters: regenerateMenuFocusGuardKnownIssue,
+  decorators: [
+    (Story) => (
+      <ChatProvider>
+        <Story />
+      </ChatProvider>
+    ),
+  ],
+  beforeEach: () => {
+    useModelsQueryMock.mockReturnValue({
+      data: MENU_CATALOG,
+      isError: false,
+      isPending: false,
+    });
+    usePermissionModesQueryMock.mockReturnValue({
+      data: { modes: [{ value: "default" }, { value: "bypass" }] },
+      isError: false,
+      isPending: false,
+    });
+  },
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([
+      READ_TOOL_PART,
+      { type: "text", text: "A read-only reply." },
+    ]),
+    latestRun: turnRun({ status: "completed" }),
+  },
+  play: async ({ canvas, args }) => {
+    args.onRegenerate.mockClear();
+    const trigger = canvas.getByRole("button", {
+      name: "Regenerate with other settings",
+    });
+    trigger.focus();
+    await userEvent.click(trigger);
+
+    const menu = await screen.findByRole("dialog", {
+      name: "Regenerate settings",
+    });
+    await userEvent.click(
+      within(menu).getByRole("combobox", { name: /Select model/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Model Three/ }),
+    );
+
+    // The pick wrote the composer: the selector inside the menu now names it.
+    await waitFor(() =>
+      expect(
+        within(menu).getByRole("combobox", { name: /Model Three/ }),
+      ).toBeVisible(),
+    );
+
+    await userEvent.click(
+      within(menu).getByRole("button", {
+        name: "Regenerate with these settings",
+      }),
+    );
+    await expect(args.onRegenerate).toHaveBeenCalledWith({
+      action: "regenerate",
+      modelId: "system:openai:model-three",
+    });
+  },
+};
+
+/** The notice the api stores on the user message a Regenerate discarded calls
+ *  from (turn-actions D9). */
+const REGENERATE_NOTICE_MESSAGE: UIMessage = {
+  id: "user-turn",
+  role: "user",
+  parts: [
+    {
+      type: "data-context",
+      data: {
+        v: 1,
+        producer: "regenerate",
+        form: "notice",
+        runId: TURN_RUN_ID,
+        payload: { reason: "non_read_only_calls" },
+        text: '<system-reminder producer="regenerate" form="notice">discarded</system-reminder>',
+      },
+    },
+    { type: "text", text: "Search my conversations for budget notes." },
+  ],
+};
+
+/**
+ * A user turn whose earlier attempt was discarded carries the regenerate
+ * notice, rendered with the transcript's context-item styling. The stored
+ * model-facing reminder never surfaces.
+ *
+ * @summary the regenerate notice renders on its user message
+ */
+export const RegenerateNoticeOnUserMessage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "user-turn",
+    message: REGENERATE_NOTICE_MESSAGE,
+  },
+  play: async ({ canvas }) => {
+    const notice = await waitFor(
+      () =>
+        canvas.getByText(
+          "An earlier attempt at this turn was discarded after it ran tools whose effects stay.",
+        ),
+      { timeout: 15_000 },
+    );
+    await expect(notice).toBeVisible();
+    expect(canvas.queryByText(/system-reminder/)).toBeNull();
   },
 };

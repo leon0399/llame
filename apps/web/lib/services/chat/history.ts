@@ -427,6 +427,13 @@ export function isRegenerateNoticePart(
   );
 }
 
+/** The `regenerate` notice a user turn carries, or null when it carries none. */
+export function regenerateNoticePart(message: {
+  parts: ReadonlyArray<unknown>;
+}): RegenerateNoticePart | null {
+  return message.parts.find(isRegenerateNoticePart) ?? null;
+}
+
 /** Whether this app renders a server context item on that role: the
  *  model-switch marker, the prompt-imports disclosure, and the regenerate
  *  notice that ride a user message, and the instructions item, which rides
