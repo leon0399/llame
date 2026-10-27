@@ -141,26 +141,32 @@ rejected: a zod enum built from configuration, which gives provider-side constra
 makes `web_search` the only code-owned tool with a configuration-derived schema and breaks the
 registry's build-time invariant.
 
-### D5: The engine catalog is appended by code
+### D5: The engine catalog is a template collection
 
-The declared description is the rendered template (packaged or `tools.promptFiles` override)
-followed by a generated `Engines` section. Per engine: id, type, result kind (`results`,
-`answer`, or `results with answers` for an aggregate with answer children), chain position or
-"not in the default chain", objective use (`objective`, first 128 characters, or `Goal:` line; omitted for engines that ignore it), recency use (applied, mapped, or ignored), query limit, and the operator `description`
-after tag neutralization. Engine ids are tag-neutralized like the descriptions, since ids are operator text bounded only by
-length. Keys, base URLs, folder ids, and model ids never appear. The empty-render check runs on
-the rendered template before the catalog is appended, so an override that renders empty still
-fails the attempt (`apps/api/src/tools/turn-tool-catalog.ts:420-432`). The section is
-built once per worker from the resolved configuration, so the provider prompt cache changes only
-when the operator edits engines.
+The packaged `web_search.md` renders the engine list from a new `webSearch.engines` template
+collection, so every word of the tool description stays in the template. Each item carries short
+fact phrases that code builds from the resolved configuration: `id`, `type`, `kind` (`results`,
+`answer`, or `results with answers` for an aggregate with answer children), `position` (chain
+position, the chain aggregate the engine runs through, or "not in the default chain"),
+`recency`, `queryLimit`, `objective` (empty for engines that ignore it), and the operator
+`description`. The template owns the framing, the layout, the order of the facts, and which facts
+appear; the per-type phrases stay in code next to the adapter behavior that they describe. Each
+value is tag-neutralized, with `engines` tags neutralized too so that operator text cannot forge
+the list framing. Keys, base URLs, folder ids, and model ids never become item fields.
 
-This deviates from the grilling record's "template collection" (proposal.md). `tool-prompt-templates` gets one MODIFIED sentence allowing `web-search` to append the catalog,
-so its "complete packaged description" rule stays true for the template file. Alternatives
-rejected: a `webSearch.engines` template collection, which `tool-prompt-templates` would expose to
-system prompts too and which requires rewriting the `model-system-prompts` vocabulary
-requirement; the `engines` parameter's JSON-schema description, which would make the declared
-schema configuration-derived (contradicting D4) and which `tool-prompt-templates` reserves from
-templates.
+The collection is resolved once at boot, like the model paths, so the provider prompt cache
+changes only when the operator edits engines. It follows the bounded-iteration rules of
+`skills.entries`, and `tool-prompt-templates` adds it the way it added `tools.<exact-id>`. Both
+template kinds can use it; `webSearch` is absent without a `webSearch` section. An override
+that does not iterate the collection declares no engine list, and the generic empty-render
+check covers every template.
+
+Leo chose this on 2026-10-27 over the earlier code-appended section, which put description text
+outside the template. Alternatives rejected: structured item fields with the template writing
+every phrase, which needs about ten per-type flags because the template language has no
+equality helper and makes the template track every adapter change; the `engines` parameter's
+JSON-schema description, which would make the declared schema configuration-derived
+(contradicting D4) and which `tool-prompt-templates` reserves from templates.
 
 ### D6: Objective mapping
 
