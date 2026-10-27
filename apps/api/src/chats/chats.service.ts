@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { type Chat, type Message } from '../db/schema';
+import { type Chat, type Message, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   ChatSearchQueryEmbedder,
@@ -131,44 +131,75 @@ export class ChatsService {
   }
 
   /**
-   * Owner history includes checkpoint rows. Each checkpoint in the window gets
-   * its absorbed user/assistant count from one aggregate read, so a page never
-   * loads the rest of the chat.
+   * Owner history includes checkpoint rows.
+   *
+   * The Chat's newest Run comes from the same transaction (turn-actions D12):
+   * the web refetches this response after each stream, so the follow-up action
+   * check and the messages it judges never disagree. `latestRun` is undefined
+   * for a Chat with no Run, and the whole read is undefined for a Chat the
+   * caller does not own.
    */
   async getChatMessages(
     chatId: string,
     ownerUserId: string,
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
-  ): Promise<Array<ChatMessageResponseRow> | undefined> {
+  ): Promise<
+    | { messages: Array<ChatMessageResponseRow>; latestRun: Run | undefined }
+    | undefined
+  > {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const messages = await this.loadMessageWindow(
+      const window = await this.loadMessageWindow(
         tx,
         chatId,
         ownerUserId,
         options,
       );
-      if (!messages) {
+      if (!window) {
         return undefined;
       }
 
-      const checkpointIds = messages
-        .filter((message) => message.role === 'checkpoint')
-        .map((message) => message.id);
-      if (checkpointIds.length === 0) {
-        return messages;
-      }
-
-      const counts = await new MessagesRepository(tx).countAbsorbedMessages(
-        chatId,
-        ownerUserId,
-        checkpointIds,
-      );
-      return messages.map((message) =>
-        message.role === 'checkpoint'
-          ? { ...message, absorbedMessageCount: counts.get(message.id) ?? 0 }
-          : message,
-      );
+      return {
+        messages: await this.withAbsorbedCounts(
+          tx,
+          chatId,
+          ownerUserId,
+          window,
+        ),
+        latestRun: await new RunsRepository(tx).findLatestByChatId(
+          chatId,
+          ownerUserId,
+        ),
+      };
     });
+  }
+
+  /**
+   * Each checkpoint in a window gets its absorbed user/assistant count from one
+   * aggregate read, so a page never loads the rest of the chat.
+   */
+  private async withAbsorbedCounts(
+    tx: Db,
+    chatId: string,
+    ownerUserId: string,
+    messages: Array<ChatMessageResponseRow>,
+  ): Promise<Array<ChatMessageResponseRow>> {
+    const checkpointIds = messages.flatMap((message) =>
+      message.role === 'checkpoint' ? [message.id] : [],
+    );
+    if (checkpointIds.length === 0) {
+      return messages;
+    }
+
+    const counts = await new MessagesRepository(tx).countAbsorbedMessages(
+      chatId,
+      ownerUserId,
+      checkpointIds,
+    );
+    return messages.map((message) =>
+      message.role === 'checkpoint'
+        ? { ...message, absorbedMessageCount: counts.get(message.id) ?? 0 }
+        : message,
+    );
   }
 
   /**

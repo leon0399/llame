@@ -324,6 +324,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           createdAt: expect.any(String),
         }),
       ],
+      // This Chat has messages but no Run: the follow-up actions have nothing
+      // to act on.
+      latestRun: null,
     });
     expect(Date.parse(firstMessage.createdAt)).not.toBeNaN();
     expect(Date.parse(secondMessage.createdAt)).not.toBeNaN();
@@ -341,6 +344,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           seq: firstMessage.seq,
         }),
       ],
+      latestRun: null,
     });
 
     const tooLarge = await request(http)
@@ -358,6 +362,80 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       `/api/v1/chats/${historyChatId}/messages`,
     );
     expect(anonymousRead.status).toBe(401);
+  });
+
+  it('reports the latest Run of the Chat from the same read as its messages', async () => {
+    const runChatId = await createChat(userAId, 'Latest run API Chat');
+    const userMessageId = crypto.randomUUID();
+    let failedRunId = '';
+    let continueRunId = '';
+
+    await tenantDb.runAs(userAId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      const runsRepo = new RunsRepository(tx);
+      await messagesRepo.create({
+        id: userMessageId,
+        chatId: runChatId,
+        role: 'user',
+        senderUserId: userAId,
+        parts: [{ type: 'text', text: 'A turn that failed at pickup' }],
+      });
+      // Failed before it dispatched: nothing of the turn was written, and the
+      // follow-up actions must still judge it.
+      const failed = await runsRepo.create({
+        chatId: runChatId,
+        messageId: userMessageId,
+        userId: userAId,
+        modelId: 'system:test-model-a',
+        effort: 'high',
+        permissionMode: 'bypass',
+      });
+      await runsRepo.markFinished(failed.id, userAId, 'failed');
+      failedRunId = failed.id;
+    });
+
+    // A Continue Run on the same turn is the newest Run, and records the action
+    // that started it. It is created in its own transaction so its `createdAt`
+    // is strictly later than the Run it continues.
+    await tenantDb.runAs(userAId, async (tx) => {
+      const runsRepo = new RunsRepository(tx);
+      const continued = await runsRepo.create({
+        chatId: runChatId,
+        messageId: userMessageId,
+        userId: userAId,
+        modelId: 'system:test-model-a',
+        effort: 'high',
+        permissionMode: 'default',
+        followUpAction: 'continue',
+        sourceRunId: failedRunId,
+      });
+      await runsRepo.markFinished(continued.id, userAId, 'cancelled');
+      continueRunId = continued.id;
+    });
+
+    const read = await request(http)
+      .get(`/api/v1/chats/${runChatId}/messages`)
+      .set('Cookie', cookieA);
+
+    expect(read.status).toBe(200);
+    expect(
+      z.object({ latestRun: z.unknown() }).parse(read.body).latestRun,
+    ).toEqual({
+      id: continueRunId,
+      messageId: userMessageId,
+      status: 'cancelled',
+      followUpAction: 'continue',
+      modelId: 'system:test-model-a',
+      effort: 'high',
+      permissionMode: 'default',
+    });
+    expect(continueRunId).not.toBe(failedRunId);
+
+    const foreignRead = await request(http)
+      .get(`/api/v1/chats/${runChatId}/messages`)
+      .set('Cookie', cookieB);
+    expect(foreignRead.status).toBe(404);
+    expect(foreignRead.body).not.toHaveProperty('latestRun');
   });
   it('returns checkpoint rows with owner-only summary and boundary-interval counts, per page', async () => {
     const checkpointChatId = await createChat(userAId, 'Checkpoint API Chat');

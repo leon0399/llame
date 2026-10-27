@@ -4762,6 +4762,67 @@
           "createdAt"
         ]
       },
+      "ChatLatestRunResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "The user message this Run executes."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "resolving_config",
+              "retrieving_context",
+              "planning",
+              "waiting_for_approval",
+              "running_model",
+              "running_tool",
+              "running_sandbox",
+              "updating_artifact",
+              "summarizing",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ]
+          },
+          "followUpAction": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["continue", "regenerate"],
+            "description": "The follow-up action that started this Run, or null for a chat send."
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string",
+            "nullable": true,
+            "description": "The effort the Run executes with; null sends no effort."
+          },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass"]
+          }
+        },
+        "required": [
+          "id",
+          "messageId",
+          "status",
+          "followUpAction",
+          "modelId",
+          "effort",
+          "permissionMode"
+        ]
+      },
       "ChatMessagesResponse": {
         "type": "object",
         "properties": {
@@ -4770,9 +4831,19 @@
             "items": {
               "$ref": "#/components/schemas/ChatMessageResponse"
             }
+          },
+          "latestRun": {
+            "nullable": true,
+            "description": "The Chat's newest Run; null when the Chat has no Run.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChatLatestRunResponse"
+              }
+            ]
           }
         },
-        "required": ["messages"]
+        "required": ["messages", "latestRun"]
       },
       "CreateTextMessagePartDto": {
         "type": "object",

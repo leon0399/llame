@@ -26,5 +26,8 @@ read_when:
   pre-fill them.
 - [Permission modes](permission-modes.md): what `default` and `bypass` change
   for one Run.
+- [Follow-up runs](follow-up-runs.md): which turn a follow-up request may act
+  on, which parts of a failed reply a Continue Run keeps, and what the history
+  read reports about the latest Run.
 - [Mutation recovery](mutation-recovery.md): how `edit`, `write`, and `bash`
   attempts are fenced so a redelivered Run never repeats an effect.

@@ -39,6 +39,8 @@ const run: Run = {
   finishedAt: now,
   effort: null,
   permissionMode: 'default',
+  followUpAction: null,
+  sourceRunId: null,
 };
 
 const userMessage: Message = {

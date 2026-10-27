@@ -103,7 +103,7 @@ describe('ChatsController', () => {
         .mockResolvedValue(chat),
       getChatMessages: vi
         .fn<ChatsControllerService['getChatMessages']>()
-        .mockResolvedValue(chatMessages),
+        .mockResolvedValue({ messages: chatMessages, latestRun: undefined }),
       updateChat: vi
         .fn<ChatsControllerService['updateChat']>()
         .mockResolvedValue(chat),
@@ -255,6 +255,7 @@ describe('ChatsController', () => {
           createdAt: new Date('2026-06-29T00:01:01.000Z'),
         },
       ],
+      latestRun: null,
     });
   });
 
@@ -270,12 +271,15 @@ describe('ChatsController', () => {
 
   it('returns an empty message list for an owned chat with no messages', async () => {
     const { controller } = makeController({
-      getChatMessages: vi.fn().mockResolvedValue([]),
+      getChatMessages: vi.fn().mockResolvedValue({
+        messages: [],
+        latestRun: undefined,
+      }),
     });
 
     await expect(
       controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
-    ).resolves.toEqual({ messages: [] });
+    ).resolves.toEqual({ messages: [], latestRun: null });
   });
 
   it('passes message history pagination options to the service', async () => {
@@ -767,7 +771,10 @@ describe('ChatsController response plumbing', () => {
 
   it('forwards history pagination verbatim', async () => {
     const { controller, chatsService } = makeController();
-    chatsService.getChatMessages.mockResolvedValue([]);
+    chatsService.getChatMessages.mockResolvedValue({
+      messages: [],
+      latestRun: undefined,
+    });
 
     await controller.getChatMessages('u', chatId, {
       limit: 25,

@@ -913,9 +913,11 @@ describeIfDb(
         });
       });
 
-      const aMessages = await svc.getChatMessages(chat.id, userAId, {
-        limit: 100,
-      });
+      const aMessages = (
+        await svc.getChatMessages(chat.id, userAId, {
+          limit: 100,
+        })
+      )?.messages;
       expect(aMessages).toHaveLength(2);
       expect(aMessages?.[0]).toEqual(
         expect.objectContaining({

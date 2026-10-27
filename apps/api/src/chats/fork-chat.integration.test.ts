@@ -822,8 +822,8 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       service.getChatMessages(forked.id, a, { limit: 50 }),
     ]);
     const absorbedCounts = (read: typeof sourceRead) =>
-      read
-        ?.filter((message) => message.role === 'checkpoint')
+      read?.messages
+        .filter((message) => message.role === 'checkpoint')
         .map((message) => message.absorbedMessageCount);
     expect(absorbedCounts(sourceRead)).toEqual([2, 2]);
     expect(absorbedCounts(forkRead)).toEqual(absorbedCounts(sourceRead));

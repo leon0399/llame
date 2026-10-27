@@ -315,6 +315,8 @@ const run: Run = {
   finishedAt: null,
   effort: null,
   permissionMode: 'default' as const,
+  followUpAction: null,
+  sourceRunId: null,
 };
 
 const receipt = {
@@ -2167,6 +2169,8 @@ describe('RunExecutionService executeRun', () => {
           ...run,
           activeAttemptId: testAttemptId,
           permissionMode: mode,
+          followUpAction: null,
+          sourceRunId: null,
         });
         const resolved = vi
           .spyOn(ActivationPartsRepository.prototype, 'resolvedSkillsForRun')
@@ -4217,6 +4221,8 @@ describe('RunExecutionService executeRun — stream completion', () => {
         ...run,
         activeAttemptId: testAttemptId,
         permissionMode: 'bypass',
+        followUpAction: null,
+        sourceRunId: null,
       });
       const capturing = makeCapturingClient();
       const execution = makeExecutionService(
@@ -11958,6 +11964,8 @@ describe('RunExecutionService instruction files', () => {
         ...run,
         activeAttemptId: testAttemptId,
         permissionMode: 'bypass',
+        followUpAction: null,
+        sourceRunId: null,
       });
       bindChatTo(root);
       serveNativeReads();
@@ -14219,6 +14227,8 @@ describe('RunExecutionService prompt imports', () => {
         ...run,
         activeAttemptId: testAttemptId,
         permissionMode: mode,
+        followUpAction: null,
+        sourceRunId: null,
       });
       const read = stubWebRead('https://example.test/page', {
         hop,
@@ -14284,6 +14294,8 @@ describe('RunExecutionService prompt imports', () => {
         ...run,
         activeAttemptId: testAttemptId,
         permissionMode: 'bypass',
+        followUpAction: null,
+        sourceRunId: null,
       });
       bindChat(root);
       const execution = serviceFor(

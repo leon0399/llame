@@ -918,6 +918,8 @@ describe('RunStreamBridgeService', () => {
         finishedAt: null,
         effort: null,
         permissionMode: 'default' as const,
+        followUpAction: null,
+        sourceRunId: null,
       });
     const { bridge } = bridgeFixture();
 
@@ -958,6 +960,8 @@ describe('RunStreamBridgeService', () => {
       finishedAt: new Date('2026-01-01T00:00:00.000Z'),
       effort: null,
       permissionMode: 'default' as const,
+      followUpAction: null,
+      sourceRunId: null,
     });
     const { bridge } = bridgeFixture();
 
@@ -1003,6 +1007,8 @@ describe('RunStreamBridgeService', () => {
       finishedAt: null,
       effort: null,
       permissionMode: 'default' as const,
+      followUpAction: null,
+      sourceRunId: null,
     });
     const { bridge } = bridgeFixture();
 
@@ -1350,6 +1356,8 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
     finishedAt: null,
     effort: null,
     permissionMode: 'default' as const,
+    followUpAction: null,
+    sourceRunId: null,
   });
 
   it('stops on a terminal run row that never published a terminal event', async () => {

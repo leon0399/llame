@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
+- The chat history read reports the Chat's latest Run beside its messages, with
+  that Run's status, follow-up action, model, effort, and accepted permission
+  mode, from the same read. A follow-up request on the latest turn of a Chat
+  passes the admission a chat send passes — the chat-row lock, single-flight,
+  and stuck-Run expiry — and a Continue records the parts of the failed reply
+  it keeps, and the usage it replaces, as the start of the new Run.
 - `web_search` takes an optional `engines` input: 1 to 20 unique configured
   engine ids that run in that order for one call instead of `webSearch.chain`,
   with the same fall-through among them only, so a call that names one engine
@@ -86,6 +92,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   output, counts the removed results and citations of the call and names no
   URL or host.
 
+||||||| .merge_file_BBeuyZ
 - The chat sidebar's loading skeletons no longer cause a hydration mismatch:
   their widths come from `useId()` instead of `Math.random()`, so the server
   and the browser draw the same rows. Opening a chat by client navigation no

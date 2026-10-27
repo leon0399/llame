@@ -121,6 +121,9 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
     );
+    vi.spyOn(RunsRepository.prototype, 'findLatestByChatId').mockResolvedValue(
+      undefined,
+    );
     return new ChatsService(
       tenantDb,
       new RunAbortRegistry(),
@@ -152,7 +155,10 @@ describe('ChatsService.getChatMessages targetSeq', () => {
         limit: 2,
         targetSeq: 30,
       }),
-    ).resolves.toEqual([message(20), message(30)]);
+    ).resolves.toEqual({
+      messages: [message(20), message(30)],
+      latestRun: undefined,
+    });
 
     expect(findById).toHaveBeenCalledWith(chat.id, ownerUserId);
     expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
@@ -198,10 +204,10 @@ describe('ChatsService.getChatMessages targetSeq', () => {
         limit: 2,
         targetSeq: secondCheckpoint.seq,
       }),
-    ).resolves.toEqual([
-      message(5),
-      { ...secondCheckpoint, absorbedMessageCount: 2 },
-    ]);
+    ).resolves.toEqual({
+      messages: [message(5), { ...secondCheckpoint, absorbedMessageCount: 2 }],
+      latestRun: undefined,
+    });
 
     expect(findByChatId).toHaveBeenCalledTimes(1);
     expect(countAbsorbedMessages).toHaveBeenCalledWith(chat.id, ownerUserId, [
@@ -267,6 +273,9 @@ describe('ChatsService message windows, updates and forks', () => {
     vi.spyOn(tenantDb, 'runAsPublic').mockImplementation(
       async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     );
+    vi.spyOn(RunsRepository.prototype, 'findLatestByChatId').mockResolvedValue(
+      undefined,
+    );
     const aborts = new RunAbortRegistry();
     return {
       service: new ChatsService(
@@ -313,7 +322,10 @@ describe('ChatsService message windows, updates and forks', () => {
           limit: 2,
           beforeSeq: 9,
         }),
-      ).resolves.toEqual([message(7), message(8)]);
+      ).resolves.toEqual({
+        messages: [message(7), message(8)],
+        latestRun: undefined,
+      });
 
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
         limit: 2,
@@ -350,7 +362,10 @@ describe('ChatsService message windows, updates and forks', () => {
           limit: 3,
           targetSeq: 30,
         }),
-      ).resolves.toEqual([message(10), message(20), message(30)]);
+      ).resolves.toEqual({
+        messages: [message(10), message(20), message(30)],
+        latestRun: undefined,
+      });
     });
   });
 
@@ -811,6 +826,8 @@ describe('ChatsService message windows, updates and forks', () => {
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
       startedAt: new Date('2026-08-28T00:00:00.000Z'),
       finishedAt: null,
+      followUpAction: null,
+      sourceRunId: null,
     };
 
     it('cancels and aborts the in-flight run before deleting the chat', async () => {

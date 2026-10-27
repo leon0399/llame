@@ -520,6 +520,31 @@ export class MessagesRepository {
   }
 
   /**
+   * Whether the owned Chat holds a user message after `seq`. A follow-up
+   * request acts on the latest turn only, so any later user row refuses it.
+   */
+  async hasLaterUserMessage(
+    chatId: string,
+    ownerUserId: string,
+    seq: number,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          eq(messages.role, 'user'),
+          gt(messages.seq, seq),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /**
    * Whether the owned Chat holds any message. Chat creation asks this before it
    * rebinds: a Chat with a message is a send, not a create.
    */

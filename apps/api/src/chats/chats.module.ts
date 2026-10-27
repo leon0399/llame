@@ -12,6 +12,7 @@ import { ChatCreationController } from './chat-creation.controller';
 import { ChatCreationService } from './chat-creation.service';
 import { ChatCreationWorkspace } from './chat-creation-workspace';
 import { ChatLoopService } from './chat-loop.service';
+import { FollowUpAdmissionService } from './follow-up-admission.service';
 import { ChatsController } from './chats.controller';
 import { ChatsService } from './chats.service';
 import { MeRunsController } from './me-runs.controller';
@@ -45,6 +46,7 @@ import { SharedChatsController } from './shared-chats.controller';
   providers: [
     ChatsService,
     ChatLoopService,
+    FollowUpAdmissionService,
     ChatCreationLock,
     ChatCreationService,
     ChatCreationWorkspace,

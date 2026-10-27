@@ -21,6 +21,8 @@ const run: Run = {
   createdAt: new Date('2026-07-18T10:00:00.000Z'),
   startedAt: new Date('2026-07-18T10:00:01.000Z'),
   finishedAt: new Date('2026-07-18T10:00:02.000Z'),
+  followUpAction: null,
+  sourceRunId: null,
 };
 
 describe('toContextReceiptResponse', () => {

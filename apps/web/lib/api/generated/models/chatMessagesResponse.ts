@@ -5,8 +5,14 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { ChatLatestRunResponse } from "./chatLatestRunResponse";
 import type { ChatMessageResponse } from "./chatMessageResponse";
 
 export interface ChatMessagesResponse {
   messages: ChatMessageResponse[];
+  /**
+   * The Chat's newest Run; null when the Chat has no Run.
+   * @nullable
+   */
+  latestRun: ChatLatestRunResponse | null;
 }
