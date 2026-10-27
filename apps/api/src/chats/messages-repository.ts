@@ -506,14 +506,12 @@ export class MessagesRepository {
       eq(messages.role, 'user'),
       eq(chats.ownerUserId, ownerUserId),
     ]);
-    return {
-      userMessage,
-      assistantMessage: await this.findReply(
-        chatId,
-        ownerUserId,
-        userMessageId,
-      ),
-    };
+    const assistantMessage = await this.findReply(
+      chatId,
+      ownerUserId,
+      userMessageId,
+    );
+    return { userMessage, assistantMessage };
   }
 
   /**
@@ -526,14 +524,17 @@ export class MessagesRepository {
     ownerUserId: string,
     inReplyTo: string,
   ): Promise<Message | undefined> {
-    // One row at most: `messages_in_reply_to_unique_idx` makes a turn's reply
-    // unique, so no ordering is needed to pick it.
-    return this.findOneMessage([
-      eq(messages.chatId, chatId),
-      eq(messages.role, 'assistant'),
-      eq(messages.inReplyTo, inReplyTo),
-      eq(chats.ownerUserId, ownerUserId),
-    ]);
+    // Ordered like the turn read: a reply is unique per turn, and the earliest
+    // row wins if legacy data ever breaks that.
+    return this.findOneMessage(
+      [
+        eq(messages.chatId, chatId),
+        eq(messages.role, 'assistant'),
+        eq(messages.inReplyTo, inReplyTo),
+        eq(chats.ownerUserId, ownerUserId),
+      ],
+      { orderBySeq: true },
+    );
   }
 
   /**

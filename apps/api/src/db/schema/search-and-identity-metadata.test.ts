@@ -209,6 +209,7 @@ describe('chat schema metadata', () => {
     expect(indexNames(runs)).toEqual([
       'runs_chat_created_idx',
       'runs_user_status_idx',
+      'runs_source_run_id_user_id_idx',
       'runs_id_user_id_unique_idx',
       'runs_chat_inflight_unique',
     ]);
