@@ -171,12 +171,15 @@ function canonicalizeOutcome(
 }
 
 /**
- * A Markdown inline link: its text, and the target it points at. A target can
- * hold balanced parentheses one level deep (`/wiki/Foo_(bar)`). Each repeated
- * alternative starts with a different character, so a hostile line cannot make
- * the engine backtrack.
+ * A Markdown inline link: its text and the destination it points at, in either
+ * CommonMark form. A bare destination can hold balanced parentheses one level
+ * deep (`/wiki/Foo_(bar)`) and an escaped character; a pointy destination is
+ * wrapped in `<` and `>`. An optional title follows after whitespace, delimited
+ * by `"`, `'`, or `(`. Each repeated alternative starts with a different
+ * character, so a hostile line cannot make the engine backtrack.
  */
-const MARKDOWN_LINK = /\[([^[\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/gu;
+const MARKDOWN_LINK =
+  /\[([^[\]\n]*)\]\([ \t\n]*(?:<([^<>\n]*)>|((?:[^()\s\\]|\\[!-/:-@[-`{-~]|\([^()\s]*\))*))(?:[ \t\n]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t\n]*\)/gu;
 /**
  * A URL written as itself rather than as a Markdown link target, with balanced
  * parentheses one level deep. The last character cannot be sentence
@@ -196,8 +199,11 @@ const MARKDOWN_ESCAPE = /\\([!-/:-@[-`{-~])/gu;
  * character, so a hostile answer cannot make the engine backtrack.
  */
 const HTML_ANCHOR = /<a\b((?:[^<>"']|"[^"]*"|'[^']*')*)>/giu;
-/** The `href` of one anchor's attributes; an unquoted value ends at a space. */
-const HTML_HREF = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))/iu;
+/**
+ * The `href` of one anchor's attributes, which must start the list or follow
+ * whitespace so `data-href` is not one. An unquoted value ends at a space.
+ */
+const HTML_HREF = /(?:^|\s)href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))/iu;
 /**
  * A link reference definition: its label and the destination that a reference
  * elsewhere in the answer resolves to. The renderer builds that link's `href`
@@ -266,15 +272,24 @@ function withoutRemovedTargets(answer: string, removal: ResultRemoval): string {
       // behind cannot start a link, so the HTML5 parser drops it.
       return removal.removes(value) ? '' : tag;
     })
-    .replace(MARKDOWN_LINK, (link, text: string, target: string) => {
-      const decoded = decodeMarkdownTarget(target);
-      if (!removal.removes(decoded) && !removal.removes(target)) return link;
-      const label = text.trim().toLowerCase();
-      const shown = (canonicalUrl(decoded) ?? decoded).toLowerCase();
-      // A label that spells the removed target or its host is a bare copy of
-      // the entry, not text worth keeping.
-      return [shown, URL.parse(shown)?.hostname].includes(label) ? '' : text;
-    })
+    .replace(
+      MARKDOWN_LINK,
+      (
+        link,
+        text: string,
+        angled: string | undefined,
+        bare: string | undefined,
+      ) => {
+        const target = angled ?? bare ?? '';
+        const decoded = decodeMarkdownTarget(target);
+        if (!removal.removes(decoded) && !removal.removes(target)) return link;
+        const label = text.trim().toLowerCase();
+        const shown = (canonicalUrl(decoded) ?? decoded).toLowerCase();
+        // A label that spells the removed target or its host is a bare copy of
+        // the entry, not text worth keeping.
+        return [shown, URL.parse(shown)?.hostname].includes(label) ? '' : text;
+      },
+    )
     .replace(
       LINK_DEFINITION,
       (line: string, angled: string | undefined, bare: string | undefined) => {

@@ -874,6 +874,23 @@ it.each([
   ],
   ['a named character reference', '[Docs](https&colon;//grokipedia.com/a)'],
   ['a backslash escape', String.raw`[Docs](https\://grokipedia.com/a)`],
+  ['a pointy-bracket destination', '[Docs](<https&#58;//grokipedia.com/a>)'],
+  [
+    'a double-quoted title',
+    '[Docs](https&#58;//grokipedia.com/a "the source")',
+  ],
+  [
+    'a single-quoted title',
+    "[Docs](https&#58;//grokipedia.com/a 'the source')",
+  ],
+  [
+    'a parenthesized title',
+    '[Docs](https&#58;//grokipedia.com/a (the source))',
+  ],
+  [
+    'a pointy-bracket destination with a title',
+    '[Docs](<https&#58;//grokipedia.com/a> "the source")',
+  ],
 ])(
   'removes a link target the renderer decodes, spelled with %s',
   async (_name, link) => {
@@ -977,9 +994,32 @@ it('drops a link definition whose decoded destination is a removed URL', async (
   });
   expect(JSON.stringify(output)).not.toContain('grokipedia');
 });
-it('keeps an allowed link whose target carries an encoded character', async () => {
+it('reads href from the attribute list, not from a data-href', async () => {
+  const output = await executeSearchChain(
+    config(['answer']),
+    request(undefined, { removal: removalFor(rejectsGrokipedia) }),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer:
+            'See <a data-href="https://grokipedia.com/a" href="https://example.test/docs">the docs</a>.',
+          citations: [{ url: 'https://example.test/docs' }],
+        }),
+    }),
+  );
+  // The tag keeps its place: its `href` is allowed and a `data-href` is not an
+  // `href`, so only the bare copy of the removed URL inside it goes.
+  expect(output).toMatchObject({
+    kind: 'answer',
+    answer:
+      'See <a data-href="" href="https://example.test/docs">the docs</a>.',
+  });
+  expect(JSON.stringify(output)).not.toContain('grokipedia');
+});
+it('keeps an allowed link in every form, encoded or not', async () => {
   const answer =
-    'See [the docs](https&#58;//example.test/docs) and [more](https&colon;//example.test/more) and <a href="https&#x3a;//example.test/more">that</a>.';
+    'See [the docs](https&#58;//example.test/docs), [more](https&colon;//example.test/more "more"), [plain](https://example.test/plain), [pointy](<https&#58;//example.test/plain>) and <a data-href="https&#58;//example.test/data" href="https://example.test/plain">that</a>.';
   const output = await executeSearchChain(
     config(['answer']),
     request(undefined, { removal: removalFor(rejectsGrokipedia) }),
@@ -998,6 +1038,7 @@ it('keeps an allowed link whose target carries an encoded character', async () =
 it.each([
   `${'['.repeat(4000)}${']('.repeat(2000)}`,
   `[x](${'(a'.repeat(4000)} https://a.test/${'(b'.repeat(4000)}`,
+  `${'[x](u (t'.repeat(4000)}${'[x](<u'.repeat(4000)}`,
   `${'<a "'.repeat(4000)}${'<a href="&#58;'.repeat(4000)}`,
 ])('cleans a pathological answer without backtracking', async (answer) => {
   const started = performance.now();
