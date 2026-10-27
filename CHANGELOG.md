@@ -203,6 +203,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   output, counts the removed results and citations of the call and names no
   URL or host.
 
+- `pnpm lint:complexity` computes Halstead difficulty on TypeScript 7.1's own
+  syntax tree (`typescript/sync`, `typescript/ast`) and `ts-complex` is
+  removed. `ts-complex` parsed with its bundled TypeScript 2.8, which misreads
+  syntax newer than 2018 (`?.`, `??`, `satisfies`, `as const`, template literal
+  types), so 2,118 of the 7,930 measured functions change value; the counting
+  rule is unchanged, no function crosses the `90` threshold either way (the
+  maximum moves from 53.1 to 59.7), and both implementations agree exactly on
+  syntax 2.8 understood. `reasoning.stories.tsx` is back on the
+  `satisfies Meta<...>` convention: 7.1 names its inferred type where the
+  preview build raised TS2883.
 - TypeScript 7.1 Beta (`typescript@7.1.0-beta`) is the workspace compiler:
   every `typecheck` and package `build` runs its native `tsc`, which replaces
   the `@typescript/native-preview` (`tsgo`) nightly for checking and the 5.9

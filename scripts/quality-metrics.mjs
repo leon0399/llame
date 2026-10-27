@@ -5,8 +5,8 @@ import { globSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import tsComplex from "ts-complex";
-import { isFunctionLikeDeclaration } from "typescript/ast/is";
+import { SyntaxKind } from "typescript/ast";
+import { isFunctionLikeDeclaration, isIdentifier } from "typescript/ast/is";
 import { API } from "typescript/sync";
 
 const THRESHOLDS = {
@@ -47,43 +47,65 @@ function sourceFiles() {
 const api = new API();
 process.once("exit", () => api.close());
 
-function hasCallable(source, file) {
-  const lease = api.createSourceFile(file, source);
-  try {
-    let found = false;
-    const visit = (node) => {
-      if (isFunctionLikeDeclaration(node) && node.body !== undefined) {
-        found = true;
-      }
-      if (!found) node.forEachChild(visit);
-    };
-    visit(lease.sourceFile);
-    return found;
-  } finally {
-    lease.dispose();
-  }
+// Halstead counts over a function body (the definition ts-complex used, on
+// the current compiler's syntax tree): every identifier or literal node is an
+// operand, every punctuation or keyword token node is an operator, and
+// uniqueness is by text (operands) or by token text, falling back to kind
+// (operators).
+function halsteadDifficulty(fn) {
+  const operands = { total: 0, unique: new Set() };
+  const operators = { total: 0, unique: new Set() };
+  const visit = (node) => {
+    const { kind } = node;
+    if (
+      kind === SyntaxKind.Identifier ||
+      (kind >= SyntaxKind.FirstLiteralToken &&
+        kind <= SyntaxKind.LastLiteralToken)
+    ) {
+      operands.total += 1;
+      operands.unique.add(node.text);
+    } else if (
+      (kind >= SyntaxKind.FirstPunctuation &&
+        kind <= SyntaxKind.LastPunctuation) ||
+      (kind >= SyntaxKind.FirstKeyword && kind <= SyntaxKind.LastKeyword)
+    ) {
+      operators.total += 1;
+      operators.unique.add(node.text ?? kind);
+    }
+    node.forEachChild(visit);
+  };
+  fn.forEachChild(visit);
+
+  const length = operands.total + operators.total;
+  const vocabulary = operands.unique.size + operators.unique.size;
+  if (length === 0 || vocabulary === 1 || operands.unique.size === 0) return 0;
+  return (operators.unique.size / 2) * (operands.total / operands.unique.size);
 }
 
 export function analyzeHalsteadFile(filePath) {
   const file = relativeFile(filePath);
-  const source = readFileSync(filePath, "utf8");
-  if (!hasCallable(source, file)) return [];
-
-  let output;
+  const lease = api.createSourceFile(file, readFileSync(filePath, "utf8"));
   try {
-    output = tsComplex.calculateHalstead(filePath);
-  } catch (error) {
-    throw new Error(`Halstead analysis failed for ${file}`, { cause: error });
-  }
-
-  return Object.entries(output).map(([name, metrics]) => {
-    const difficulty = Number(metrics?.difficulty);
-    return {
-      file,
-      name: `${file} ${name}`,
-      value: Number.isFinite(difficulty) ? difficulty : 0,
+    const rows = [];
+    const visit = (node) => {
+      if (isFunctionLikeDeclaration(node) && node.body !== undefined) {
+        const name =
+          node.name !== undefined && isIdentifier(node.name)
+            ? node.name.text
+            : JSON.stringify({ pos: node.pos, end: node.end });
+        rows.push({
+          file,
+          name: `${file} ${name}`,
+          value: halsteadDifficulty(node),
+        });
+      }
+      node.forEachChild(visit);
     };
-  });
+    visit(lease.sourceFile);
+    return rows;
+  } finally {
+    lease.dispose();
+  }
 }
 
 export function evaluateRows(label, rows, threshold, exceptions) {
