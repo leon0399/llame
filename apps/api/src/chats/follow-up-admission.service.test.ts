@@ -236,6 +236,11 @@ function makeService() {
   const listByRunId = vi
     .spyOn(RunEventsRepository.prototype, 'listByRunId')
     .mockResolvedValue([]);
+  // No source Run in these cases continued one itself, so the chained step
+  // lookup answers nothing.
+  vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
+    undefined,
+  );
   const cancelActiveRunsForMessage = vi
     .spyOn(RunsRepository.prototype, 'cancelActiveRunsForMessage')
     .mockResolvedValue([]);
@@ -344,6 +349,10 @@ describe('FollowUpAdmissionService', () => {
     expect(append).toHaveBeenNthCalledWith(2, admitted.runId, 'run.continued', {
       sourceRunId: sourceRun.id,
       parts: continueKeptParts(replyParts),
+      // The source Run recorded no step number and no model-facing result, so
+      // the projection takes its consecutive-call fallback.
+      steps: {},
+      results: {},
     });
   });
 
