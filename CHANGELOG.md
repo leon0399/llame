@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
+- `web_search` gains a `yandex` engine type for Yandex Search API. It posts to
+  `https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key`
+  authorization, the entry's `searchType` index, and its optional `folderId`;
+  it asks for flat groups with one document each so `groupsOnPage` counts
+  results, and decodes the Base64 XML `rawData` with `linkedom`. `recency` maps
+  to the vendor's `period`, with `week` sent as two weeks and `year` sent as no
+  period, each with a note. Errors that Yandex reports inside an HTTP 200 XML
+  body are read before any result: 42 is `auth`, 32 and 55 `rate_limited`, 100
+  `challenge`, and 2 and 15 an empty search, while other codes and bodies that
+  are not Yandex responses are `upstream_error`; HTTP 401 and 403 are `auth`,
+  429 `rate_limited`, and 408 and 504 `timeout` through the shared status
+  classifier. The vendor text never reaches the output.
 - `web_search` gains three engine types. `deepseek` posts to DeepSeek's search
   API, sends `limit` as `count`, `objective` as `ori_question` cut to 128 code
   points, and `recency` as an `after:` date that is dropped with a note when it

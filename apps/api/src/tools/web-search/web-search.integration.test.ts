@@ -8,8 +8,11 @@ import type {
   LanguageModelV3StreamResult,
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createServer, type Server, type ServerResponse } from 'node:http';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import {
@@ -32,6 +35,7 @@ import {
 } from '../../chats/chats-repository';
 import { isTextPart } from '../../chats/context-builder';
 import type { CompactionCapability } from '../../compaction/compaction.service';
+import { loadInstanceConfig } from '../../instance-config/config-loader';
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
@@ -76,11 +80,15 @@ import { TOOL_REGISTRY } from '../registry';
 import type { KnowledgeToolResolver } from '../types';
 import type { KnowledgeToolCandidateResolverPort } from '../../knowledge/knowledge-tool-candidate-resolver';
 import { BRAVE_SEARCH_URL } from './brave';
+import { YANDEX_SEARCH_URL } from './yandex';
 import { HOSTED_SEARCH_INSTRUCTIONS } from './model-hosted';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 const SENTINEL_KEY = 'brave-canary';
+const YANDEX_SENTINEL_KEY = 'yandex-canary-key';
+const YANDEX_SENTINEL_FOLDER_ID = 'yandex-canary-folder';
 const BRAVE_ORIGIN = new URL(BRAVE_SEARCH_URL).origin;
+const YANDEX_ORIGIN = new URL(YANDEX_SEARCH_URL).origin;
 const FIXTURE_QUERY = 'fixture query';
 const USER_TURN = 'search the fixture';
 const FIXTURE_RESULT_URL = 'https://Example.test/results/page#fragment';
@@ -249,7 +257,7 @@ function modelFor(
     doStream: () => Promise.resolve(script(++turn)),
   });
 }
-type FixtureMode = 'success' | 'hold' | 'auth' | 'redirect';
+type FixtureMode = 'success' | 'hold' | 'auth' | 'redirect' | 'yandex-denied';
 type Deferred = { promise: Promise<void>; resolve: () => void };
 function deferred(): Deferred {
   let resolve = () => {};
@@ -277,6 +285,17 @@ function sendFixtureResponse(
       response,
       401,
       JSON.stringify({ error: `invalid key ${SENTINEL_KEY}` }),
+      { 'content-type': 'application/json' },
+    );
+  else if (mode === 'yandex-denied')
+    // The vendor's own 403 names the folder, the cloud, and the organization.
+    send(
+      response,
+      403,
+      JSON.stringify({
+        code: 7,
+        message: `Permission to [resource-manager.folder ${YANDEX_SENTINEL_FOLDER_ID}] denied`,
+      }),
       { 'content-type': 'application/json' },
     );
   else if (mode === 'redirect')
@@ -341,7 +360,7 @@ function stubFetch(fixture: { origin: string }): () => void {
       : input instanceof URL
         ? input
         : new URL(input.url);
-    if (requested.origin !== BRAVE_ORIGIN)
+    if (requested.origin !== BRAVE_ORIGIN && requested.origin !== YANDEX_ORIGIN)
       throw new Error(`Unexpected outbound URL: ${requested.href}`);
     return realFetch(
       new URL(`${requested.pathname}${requested.search}`, fixture.origin),
@@ -356,6 +375,42 @@ const SEARCH_CONFIG: WebSearchConfig = {
   ],
   chain: ['brave'],
 };
+/**
+ * The `yandex` engine of a config whose key and folder id arrive as `{env:...}`
+ * tokens, resolved by the real loader: the loop then carries values an operator
+ * never writes into the file.
+ */
+function yandexSearchConfig(): WebSearchConfig {
+  const directory = mkdtempSync(
+    path.join(tmpdir(), 'llame-yandex-integration-'),
+  );
+  const configPath = path.join(directory, 'llame.config.jsonc');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      webSearch: {
+        engines: [
+          {
+            id: 'yandex',
+            type: 'yandex',
+            key: '{env:YANDEX_API_KEY}',
+            searchType: 'com',
+            folderId: '{env:YANDEX_FOLDER_ID}',
+          },
+        ],
+        chain: ['yandex'],
+      },
+    }),
+  );
+  const webSearch = loadInstanceConfig({
+    LLAME_CONFIG_PATH: configPath,
+    YANDEX_API_KEY: YANDEX_SENTINEL_KEY,
+    YANDEX_FOLDER_ID: YANDEX_SENTINEL_FOLDER_ID,
+  }).webSearch;
+  if (webSearch === undefined)
+    throw new Error('the Yandex fixture resolved no webSearch section');
+  return webSearch;
+}
 const knowledgeResolver: KnowledgeToolResolver = {
   listForOwnerPage: () => Promise.resolve({ spaces: [] }),
   resolveBindingForOwnerById: () => Promise.resolve(undefined),
@@ -515,6 +570,8 @@ type ServiceOptions = {
   timeout?: number;
   /** Runs on `HOSTED_INSTANCE`, whose only search engine is hosted by its second model. */
   hosted?: HostedSide;
+  /** Replaces the Brave-only `SEARCH_CONFIG` for one scenario. */
+  webSearch?: WebSearchConfig;
 };
 function service(options: ServiceOptions): RunExecutionService {
   const config: InstanceConfigReader = {
@@ -522,7 +579,8 @@ function service(options: ServiceOptions): RunExecutionService {
       ...BUILT_IN_DEFAULTS,
       ...(options.hosted !== undefined && HOSTED_INSTANCE),
       webSearch:
-        options.hosted === undefined ? SEARCH_CONFIG : HOSTED_SEARCH_CONFIG,
+        options.webSearch ??
+        (options.hosted === undefined ? SEARCH_CONFIG : HOSTED_SEARCH_CONFIG),
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: options.allowed,
@@ -918,6 +976,47 @@ describeIfDb('web search through the real tool loop', () => {
       }
     },
   );
+  it('never discloses an interpolated Yandex key or folder id', async () => {
+    fixture.configure('yandex-denied');
+    const logs = captureLogs();
+    try {
+      const seeded = await seedRun('yandex-denied');
+      const model = modelFor((turn) =>
+        turn === 1
+          ? toolResponse('yandex-call', 'web_search', { query: FIXTURE_QUERY })
+          : textResponse('The failure was handled.'),
+      );
+      await execute(
+        seeded,
+        service({
+          allowed: ['web_search'],
+          permissionPolicy: ALLOW_SEARCH,
+          webSearch: yandexSearchConfig(),
+        }),
+        model,
+      );
+      await waitStatus(seeded.run.id, 'completed');
+      expect(fixture.requests).toStrictEqual(['/v2/web/search']);
+      const events = await eventsFor(seeded.run.id);
+      const error = errorSchema.parse(
+        payload(lastEvent(callEvents(events, 'yandex-call'))).output,
+      );
+      expect(error).toMatchObject({
+        status: 'error',
+        type: 'web_search_failed',
+      });
+      expect(error.message).toContain('auth');
+      const parts = JSON.stringify(await assistantParts(seeded.chatId));
+      const serialized = JSON.stringify(events);
+      for (const secret of [YANDEX_SENTINEL_KEY, YANDEX_SENTINEL_FOLDER_ID]) {
+        expect(parts).not.toContain(secret);
+        expect(serialized).not.toContain(secret);
+        expect(logs.text()).not.toContain(secret);
+      }
+    } finally {
+      logs.restore();
+    }
+  });
   it('records an unavailable web_search call as a non-fatal error and continues', async () => {
     fixture.configure('success');
     const seeded = await seedRun('unlisted');

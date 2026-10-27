@@ -882,4 +882,147 @@ describe('loadInstanceConfig — webSearch', () => {
 
     expect(() => loadInstanceConfig()).toThrow(/webSearch\/engines\/0\/key/u);
   });
+
+  it('loads a Yandex engine with an interpolated key and folder id', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            {
+              id: 'yandex',
+              type: 'yandex',
+              key: '{env:YANDEX_API_KEY}',
+              searchType: 'com',
+              folderId: '{env:YANDEX_FOLDER_ID}',
+            },
+          ],
+          chain: ['yandex'],
+        },
+      }),
+    );
+
+    expect(
+      loadInstanceConfig({
+        YANDEX_API_KEY: 'yandex-secret',
+        YANDEX_FOLDER_ID: 'b1g-folder-id',
+      }).webSearch,
+    ).toStrictEqual({
+      engines: [
+        {
+          id: 'yandex',
+          type: 'yandex',
+          key: 'yandex-secret',
+          searchType: 'com',
+          folderId: 'b1g-folder-id',
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['yandex'],
+    });
+  });
+
+  it('loads a Yandex engine without a folder id or a blank resolution', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            {
+              id: 'yandex',
+              type: 'yandex',
+              key: 'yandex-key',
+              searchType: 'ru',
+            },
+            {
+              id: 'yandex-blank',
+              type: 'yandex',
+              key: 'yandex-key',
+              searchType: 'ru',
+              folderId: '{env:YANDEX_FOLDER_ID}',
+            },
+          ],
+          chain: ['yandex'],
+        },
+      }),
+    );
+
+    expect(
+      loadInstanceConfig({ YANDEX_FOLDER_ID: '' }).webSearch?.engines,
+    ).toStrictEqual([
+      {
+        id: 'yandex',
+        type: 'yandex',
+        key: 'yandex-key',
+        searchType: 'ru',
+        folderId: undefined,
+        timeoutSeconds: 60,
+      },
+      {
+        id: 'yandex-blank',
+        type: 'yandex',
+        key: 'yandex-key',
+        searchType: 'ru',
+        folderId: undefined,
+        timeoutSeconds: 60,
+      },
+    ]);
+  });
+
+  it('rejects a Yandex engine without a search type and names the searchType property', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'yandex', type: 'yandex', key: 'yandex-key' }],
+          chain: ['yandex'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/0.*required property 'searchType'/u,
+    );
+  });
+
+  it('rejects an unsupported Yandex search type and names the searchType path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            {
+              id: 'yandex',
+              type: 'yandex',
+              key: 'yandex-key',
+              searchType: 'en',
+            },
+          ],
+          chain: ['yandex'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/0\/searchType/u,
+    );
+  });
+
+  it('rejects an empty resolved Yandex key and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            {
+              id: 'yandex',
+              type: 'yandex',
+              key: '{env:YANDEX_API_KEY}',
+              searchType: 'tr',
+            },
+          ],
+          chain: ['yandex'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig({ YANDEX_API_KEY: '' })).toThrow(
+      'webSearch.engines[yandex].key: must resolve to a nonblank string',
+    );
+  });
 });

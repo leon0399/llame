@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<yandexsearch version="1.0">
+  <request>
+    <query>pgvector release</query>
+    <page>0</page>
+    <maxpassages>3</maxpassages>
+  </request>
+  <response date="20261027T120000">
+    <reqid>1690000000000000-0000000000000000-0000000-0000000000000000</reqid>
+    <found priority="phrase">1542</found>
+    <found-human>1 thousand results found</found-human>
+    <results>
+      <grouping mode="flat" groups-on-page="5" docs-in-group="1">
+        <group>
+          <categ name="postgresql.org" />
+          <doccount>2</doccount>
+          <relevance>0.99</relevance>
+          <doc id="0A1B2C3D4E5F6071">
+            <url>https://www.postgresql.org/about/news/pgvector-087-released-3392/</url>
+            <domain>www.postgresql.org</domain>
+            <title>pgvector &quot;0.8.7&quot; <hlword>Released</hlword> &amp; notes</title>
+            <headline>pgvector 0.8.7 adds <hlword>HNSW</hlword> index build parallelism and iterators.</headline>
+            <modtime>20261005T101500</modtime>
+            <size>32145</size>
+            <charset>utf-8</charset>
+            <passages>
+              <passage>pgvector 0.8.7 adds HNSW index build parallelism.</passage>
+              <passage>Iterators were added to the HNSW scan.</passage>
+            </passages>
+            <properties>
+              <_PassagesType>1</_PassagesType>
+              <lang>en</lang>
+            </properties>
+            <mime-type>text/html</mime-type>
+            <saved-copy-url>https://yandexwebcache.net/yandbtm?url=https%3A%2F%2Fwww.postgresql.org</saved-copy-url>
+          </doc>
+        </group>
+        <group>
+          <categ name="www.postgresql.org" />
+          <doccount>1</doccount>
+          <relevance>0.87</relevance>
+          <doc id="1F2E3D4C5B6A7988">
+            <url>https://www.postgresql.org/docs/current/pgvector.html</url>
+            <domain>www.postgresql.org</domain>
+            <title>pgvector — PostgreSQL documentation</title>
+            <passages>
+              <passage>pgvector is an open-source <hlword>vector</hlword> similarity search extension.</passage>
+            </passages>
+            <mime-type>text/html</mime-type>
+          </doc>
+        </group>
+      </grouping>
+    </results>
+  </response>
+</yandexsearch>
