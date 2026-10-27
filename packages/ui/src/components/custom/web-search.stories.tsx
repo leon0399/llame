@@ -457,14 +457,30 @@ export const AggregateAnswers: Story = {
 export const StoredResultsWithoutAnswers: Story = {
   tags: ["ai-generated"],
   args: {
-    output: resultsOutput,
+    output: {
+      status: "success" as const,
+      kind: "results" as const,
+      engine: "searxng",
+      query: "self-hosted search engines",
+      results: [
+        {
+          title: "Self-hosted metasearch notes",
+          url: "https://notes.example.net/searxng",
+          published: "2025-11-02",
+        },
+        {
+          title: "Metasearch comparison",
+          url: "https://example.org/metasearch",
+        },
+      ],
+    },
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(
-      canvas.getByRole("button", { name: "Llame release notes" }),
+      canvas.getByRole("button", { name: "Self-hosted metasearch notes" }),
     ).toBeInTheDocument();
-    await expect(canvas.getByText("Engine:")).toBeInTheDocument();
+    await expect(canvas.getByText(/searxng/u)).toBeInTheDocument();
     // Only the result list renders: a stored part without `answers` adds no
     // answer block.
     await expect(canvas.getAllByRole("list")).toHaveLength(1);

@@ -4,6 +4,7 @@ import type { ComponentType, ReactElement } from "react";
 import { z } from "zod";
 
 import type { ToolHeaderState } from "@workspace/ui/components/ai-elements/tool";
+import { cn } from "@workspace/ui/lib/utils";
 import {
   ToolResultFallback,
   ToolRow,
@@ -53,6 +54,7 @@ const outputSchema = z.discriminatedUnion("kind", [
 ]);
 
 type WebSearchResult = z.infer<typeof resultSchema>;
+type Citation = z.infer<typeof citationSchema>;
 type WebSearchAnswer = z.infer<typeof answerSchema>;
 type WebSearchOutput = z.infer<typeof outputSchema>;
 type WebSearchResultsOutput = Extract<WebSearchOutput, { kind: "results" }>;
@@ -175,6 +177,32 @@ function ResultItem({
   );
 }
 
+/** The numbered citations of an answer, every link through `SearchLink`. */
+function CitationList({
+  citations,
+  className,
+  Markdown,
+}: {
+  citations: ReadonlyArray<Citation>;
+  className: string;
+  Markdown: ComponentType<{ children?: string }>;
+}) {
+  if (citations.length === 0) return null;
+  return (
+    <ol className={cn("list-decimal space-y-2", className)}>
+      {citations.map((citation, index) => (
+        <li className="pl-1" key={`${citation.url}-${index}`}>
+          <SearchLink
+            label={citation.title ?? citation.url}
+            url={citation.url}
+            Markdown={Markdown}
+          />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /** Attached answers render after the results, one block per answer engine. */
 function AttachedAnswers({
   answers,
@@ -194,19 +222,11 @@ function AttachedAnswers({
       <div className="text-sm">
         <Markdown>{entry.answer}</Markdown>
       </div>
-      {entry.citations.length > 0 && (
-        <ol className="list-decimal space-y-2 px-4">
-          {entry.citations.map((citation, citationIndex) => (
-            <li className="pl-1" key={`${citation.url}-${citationIndex}`}>
-              <SearchLink
-                label={citation.title ?? citation.url}
-                url={citation.url}
-                Markdown={Markdown}
-              />
-            </li>
-          ))}
-        </ol>
-      )}
+      <CitationList
+        citations={entry.citations}
+        className="px-4"
+        Markdown={Markdown}
+      />
     </section>
   ));
 }
@@ -255,19 +275,11 @@ function AnswerBody({
       <div className="px-4 pt-4">
         <Markdown>{output.answer}</Markdown>
       </div>
-      {output.citations.length > 0 && (
-        <ol className="list-decimal space-y-2 px-8">
-          {output.citations.map((citation, index) => (
-            <li className="pl-1" key={`${citation.url}-${index}`}>
-              <SearchLink
-                label={citation.title ?? citation.url}
-                url={citation.url}
-                Markdown={Markdown}
-              />
-            </li>
-          ))}
-        </ol>
-      )}
+      <CitationList
+        citations={output.citations}
+        className="px-8"
+        Markdown={Markdown}
+      />
       <SearchMetadata engine={output.engine} notes={output.notes} />
     </div>
   );
