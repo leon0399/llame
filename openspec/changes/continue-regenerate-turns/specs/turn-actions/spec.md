@@ -259,42 +259,45 @@ name resolves to a `read_only` tool. When the replaced reply holds one, the Rege
 ### Requirement: The follow-up Run's usage replaces the reply's usage
 
 The usage of the follow-up Run MUST replace the reply's usage and MUST name the follow-up Run in
-`runId`. The usage MUST NOT add the spend of an earlier Run. The effective-context action of the
-reply MUST show the receipts of the follow-up Run.
+`runId`. The usage MUST NOT add the spend of an earlier Run. When the replaced reply recorded
+usage, the new usage MUST record `complete: false`. The effective-context action of the reply MUST
+show the receipts of the follow-up Run.
 
 #### Scenario: Continue usage counts only the new Run
 
 - **WHEN** a Continue Run completes after a `failed` Run that reported usage
 - **THEN** the reply's usage is the aggregate of the requests of the Continue Run only
-- **AND** its `runId` names the Continue Run
+- **AND** its `runId` names the Continue Run, and it records `complete: false`
 
 #### Scenario: The context action follows the reply's Run
 
 - **WHEN** the owner opens the effective-context action of a reply that a Continue Run finalized
 - **THEN** it shows the receipts of the Continue Run
 
-### Requirement: The Chat read reports the latest Run
+### Requirement: The chat history read reports the latest Run
 
-`GET /api/v1/chats/:id` MUST return `latestRun`. It is the Chat's newest Run, with its id, message
-id, status, model id, effort, and accepted permission mode. It MUST be `null` for a Chat with no
-Run. The field MUST follow the owner scope of the Chat read.
+`GET /api/v1/chats/:id/messages` MUST return `latestRun` from the same read as the messages. It is
+the Chat's newest Run, with its id, message id, status, follow-up action, model id, effort, and
+accepted permission mode. It MUST be `null` for a Chat with no Run. It MUST follow the owner scope
+of the history read.
 
 #### Scenario: The latest Run of a failed turn is reported
 
 - **WHEN** the latest Run of a Chat failed before it dispatched, with model `A` and mode `bypass`
-- **THEN** the Chat read reports that Run with status `failed`, model `A`, and mode `bypass`
+- **THEN** the history read reports that Run with status `failed`, model `A`, and mode `bypass`
 
 #### Scenario: Another owner's latest Run is not reported
 
-- **WHEN** user B reads a Chat of user A
+- **WHEN** user B reads the history of a Chat of user A
 - **THEN** the API returns the current not-found response and no `latestRun`
 
 ### Requirement: The latest turn shows Continue and Regenerate actions
 
 The web MUST show Regenerate on the latest turn when `latestRun` is terminal. It MUST show Continue
-only when `latestRun` produced the reply, is `failed`, `cancelled`, or `expired`, and the reply
-holds a settled tool part. A latest turn with no reply MUST show Regenerate. Older turns MUST NOT
-show either action. Continue MUST send the composer's permission mode.
+only when `latestRun` produced the reply and is `failed`, `cancelled`, or `expired`. The reply
+usage status MUST NOT be `completed`, and the reply MUST hold a settled tool part. A latest turn
+with no reply MUST show Regenerate when `latestRun` is terminal. Older turns MUST NOT show either
+action. Continue MUST send the composer's permission mode.
 
 #### Scenario: A failed agentic turn shows both actions
 
@@ -357,3 +360,14 @@ cancel MUST send no request.
 
 - **WHEN** the owner clicks Regenerate on a reply whose tool calls all record `classification: "read_only"`
 - **THEN** the web sends the request without a dialog
+
+### Requirement: The web shows one reply during a follow-up Run
+
+While a follow-up Run of the latest turn is not terminal, the web MUST NOT show the replaced reply
+beside its stream. After a reload, the web MUST use `latestRun` to hide that reply.
+
+#### Scenario: A reload before the follow-up dispatch shows one reply
+
+- **WHEN** the owner reloads the Chat while a Regenerate Run is still `queued`
+- **THEN** the web shows the resumed stream of the Regenerate Run
+- **AND** it does not show the old reply next to it

@@ -29,8 +29,8 @@ cannot be redone, and the web shows a disabled `Regenerate` stub (#1451).
   start, so the web and the API can find non-read-only calls in a reply.
 - A reply that a Regenerate replaced after it was `completed` stops being addressable conversation
   evidence and leaves search, permanently.
-- The Chat read reports the Chat's latest Run (`latestRun`) with its status, model, effort, and
-  accepted mode.
+- The chat history read reports the Chat's latest Run (`latestRun`) with its status, follow-up
+  action, model, effort, and accepted mode, from the same read as the messages.
 - The web shows Continue and Regenerate on the latest turn. Regenerate is a split button: a plain
   click repeats the latest Run's model, effort, and permission mode, and the menu picks other
   values and also sets the composer. Before a Regenerate discards non-read-only calls, the web asks
@@ -79,8 +79,11 @@ Assumptions that follow from those answers but were not asked:
   that Run starts from the same kept parts.
 - Continue needs a reply of the latest Run. A turn whose Run failed before its reply existed can
   only be regenerated.
-- The API layer is split in three (follow-up admission, Continue worker, Regenerate) to stay in
-  the review budget.
+- The API layer is split in three (follow-up admission service, Continue worker with the HTTP
+  route, Regenerate) to stay in the review budget. The route ships with the Continue worker, so no
+  layer can create a Continue Run that executes as a plain Run.
+- A follow-up Run reuses the `prompt-imports` and `skill-activation` items that an earlier Run
+  stored, and does not import or activate again.
 
 ## Deviation from the grilling record
 
@@ -131,15 +134,18 @@ for a rail rule that allows a reply-leading item.
 
 Deliberately unchanged:
 
-- `run-usage-accounting` "Usage records whether it is complete": it already states that a new
-  reply's usage replaces an earlier reply's usage and does not carry its spend forward.
+- `run-usage-accounting` "Usage records whether it is complete": it already requires
+  `complete: false` for a usage that replaces an earlier reply's usage, and `turn-actions` makes a
+  follow-up Run apply that rule even though its dispatch reset hides the earlier usage.
 - `search-projection` "Lexical indexing is synchronous on turn completion, with async fallback and
   coalescing": it already rebuilds the projection after any regenerate.
 - `chat-creation` "The message step commits the message and its Run before the enqueue": a resend
   as a new message stays valid after an enqueue failure; the follow-up route is an extra option.
-- `workspace-entry`, `media-attachments`, `reasoning-output`, `chat-recency-digest`, and
-  `temporal-anchor`: their rules are stated per Run or per attempt and hold for a follow-up Run
-  unchanged.
+- `media-attachments`, `reasoning-output`, `chat-recency-digest`, and `temporal-anchor`: their
+  rules are stated per Run or per attempt and hold for a follow-up Run unchanged. The reuse of
+  pre-dispatch `prompt-imports` and `skill-activation` items by a follow-up Run is stated once, in
+  the `context-injection` rail requirement, and the retry rules of `prompt-imports`,
+  `workspace-entry`, and `agent-skills` stay true for retries.
 
 ## Impact
 
@@ -148,11 +154,11 @@ Deliberately unchanged:
   step-grouped Continue projection, stream replay, and finalization; Regenerate's reset of a
   `completed` reply; the `regenerate` notice producer; classification on `tool.started` and stored
   tool parts; follow-up rules for accepted-turn context items and the model-switch item;
-  `latestRun` on the Chat read.
+  `latestRun` on the chat history read.
 - Database: two migrations. `runs` gains the follow-up action and the source Run id. `messages`
   gains `revised_at`. The evidence predicate excludes revised rows.
-- OpenAPI: one new `streaming` path, which the generated web client excludes, and the `latestRun`
-  field, which it includes.
+- OpenAPI: one new `streaming` path, which the generated web client excludes; the `latestRun` field
+  on `ChatMessagesResponse` and the `classification` field on tool parts, which it includes.
 - Web: the action row on the latest assistant turn, the Regenerate split button and confirmation,
   the transport route for follow-up Runs, and the notice display. Stories and a focused E2E test.
 - Docs: a reference page for the two actions; `CHANGELOG.md` in each shipping layer.

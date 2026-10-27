@@ -15,8 +15,8 @@ the dispatch of a retry of the same Run, which resets the reply. The second is t
 follow-up Run, which replaces the reply. A Continue Run puts back the in-Run items of its kept
 parts. A retry and a follow-up Run read history only through the triggering user message. Thus
 removed in-Run items are not in their seen set. A retry or follow-up Run that fails before its own
-dispatch leaves them in place. A bundle MUST omit a file whose identity is in the seen set. No
-file identity MUST cross a checkpoint. Thus a file whose item a checkpoint absorbed is no longer
+dispatch leaves them in place. A bundle MUST omit a file whose identity is in the seen set. A
+file identity MUST NOT cross a checkpoint. Thus a file whose item a checkpoint absorbed is no longer
 seen, and it loads again on its next trigger. A checkpoint published before the first model
 request of a Run MUST reset the seen state of that attempt to the rebuilt effective history. The
 accepted-turn root load MUST use that rebuilt history. Path identity MUST be the canonical

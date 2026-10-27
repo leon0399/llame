@@ -14,8 +14,10 @@ that can be this baseline. The worker MUST persist that exact text on the trigge
 in the dispatch transaction of the first model request of the attempt. This applies whatever the
 outcome of the Run. A retry of the same Run MUST keep the stored item unchanged. It MUST NOT add a second
 switch item when one is already stored on the triggering user message. A Continue Run MUST follow
-the same rule as a retry. A Regenerate dispatch MUST remove each switch item stored on the
-triggering user message, then store the item that its own comparison yields. The producer MUST be
+the same rule as a retry. The first dispatch of a Regenerate Run MUST remove each model-switch item
+with cause `model` from the triggering user message. It then stores the item that its own
+comparison yields, after the last stored context item. A retry of that Regenerate Run keeps the
+item that its first dispatch stored. The producer MUST be
 `effective-context-change`, the form MUST be `notice`, and `data.v` MUST stay `1`.
 
 The producer MUST carry a closed cause vocabulary, in which `model` covers a model change. A cause
@@ -35,8 +37,8 @@ assistant not to start again, not to introduce itself again, and not to mention 
 unless the user asks.
 
 The system MUST render each model from a descriptor that the producer derives. The descriptor holds
-the display name, the public llame model id, and the provider model id when known. No other catalog
-value MUST reach the body. The system MUST resolve the display name and the provider model id from
+the display name, the public llame model id, and the provider model id when known. Other catalog
+values MUST NOT reach the body. The system MUST resolve the display name and the provider model id from
 the configured model catalog when it authors the item. They MUST stay rendering values, not
 persisted metadata. When the catalog has no name for a model, the public llame model id of that
 model MUST fill its name slot. When the provider model id is unknown, the system MUST omit the

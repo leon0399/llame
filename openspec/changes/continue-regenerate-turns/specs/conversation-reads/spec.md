@@ -19,7 +19,7 @@ owner. An empty trusted identity MUST fail closed. A source
 locator MUST NOT expand authority.
 
 The reader MUST return only immutable evidence-eligible messages. A retryable assistant row is a
-reply whose usage status is not `completed`. Until #611 replaces the in-place change of a reply, a
+reply whose usage records a status other than `completed`. Until #611 replaces the in-place change of a reply, a
 retryable assistant row MUST NOT be an addressable evidence source.
 A revised assistant row is a `completed` reply that a Regenerate from `turn-actions` replaced. A
 revised row MUST NOT be an addressable evidence source again. User messages stay eligible.
@@ -40,7 +40,7 @@ eligible.
 
 #### Scenario: Retryable assistant source is unavailable
 
-- **WHEN** a selector identifies an assistant row whose usage status is not `completed`
+- **WHEN** a selector identifies an assistant row whose usage records a status other than `completed`
 - **THEN** the reader returns `conversation_source_not_found`
 - **AND** it does not show changeable bytes as canonical history
 

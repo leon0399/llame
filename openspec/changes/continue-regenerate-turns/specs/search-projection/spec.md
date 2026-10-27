@@ -22,7 +22,7 @@ Unicode NFKC, whitespace-collapse, and lowercase rules to the lexical column onl
 
 #### Scenario: Retryable assistant content is absent
 
-- **WHEN** an assistant row has a usage status other than `completed`
+- **WHEN** an assistant row has a recorded usage status other than `completed`
 - **THEN** no live projection document contains its visible text
 - **AND** the system cannot return it as stable episodic evidence
 

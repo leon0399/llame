@@ -109,8 +109,9 @@ after a rebuilt part. That part is the last one whose toolCallId occurs before t
 stored snapshot. It
 MUST place the item at the start only when none of those toolCallIds is in the rebuild. Thus the
 item stays after the last tool part of the step that triggered it. A Continue rebuild MUST NOT
-place a second copy of a kept context item. When the Run has an assistant message, the finalizer
-MUST write a terminal usage, also with no parts. That usage carries the status (`completed`,
+place a second copy of a kept context item. When the reply usage names the Run, the finalizer
+MUST write a terminal usage, also with no parts. A follow-up Run that ends before its own dispatch
+MUST leave the reply of the earlier Run unchanged. That usage carries the status (`completed`,
 `error`, or `aborted`), `complete`, the Run id, the attempt id, the model id, and the effort. Some
 finalizers do not belong to the attempt that the reply usage names. Examples are an out-of-attempt
 settler, and a later attempt that ends before its own dispatch. Such a finalizer MUST write `complete: false`
@@ -121,7 +122,7 @@ Run dispatched before the system created replies at dispatch. The finalizer MUST
 reply from the full event log of the Run, with no in-Run items, and write terminal usage per
 `run-usage-accounting`. When the log has no such event, the Run never dispatched: cancellation
 before start, or a pickup or claim failure before dispatch. The finalizer MUST then write no
-assistant message and no usage. No assistant message MUST stay `running` after its Run is terminal.
+assistant message and no usage. An assistant message MUST NOT stay `running` after its Run is terminal.
 
 Owner-facing reads are chat history, public share, the sources of shared-Chat and owner forks, and
 the chat-list preview. They MUST omit an assistant message whose usage status is `running`. The

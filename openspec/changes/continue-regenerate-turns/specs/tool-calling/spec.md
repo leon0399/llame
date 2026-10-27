@@ -109,8 +109,8 @@ The ordinary projection MUST stay:
 - bounded in JavaScript UTF-16 code units over the exact serialized text of the pair. The limits
   are 8,000 for each pair and 32,000 for each stored assistant turn. An image in a result counts only as its
   stored result text, with no `thumbnail`;
-- reduced in this order: pairs before budget, newer observations before older ones, and identity
-  and outcome before payload; and
+- reduced so that it keeps pairing before budget, newer observations before older ones, and
+  identity and outcome before payload; and
 - stable for the same unchanged stored turn under the current explicit best-effort projector.
 
 The system MUST clear payloads, oldest first, only when this makes the envelope smaller. When pairs
@@ -136,7 +136,7 @@ for an image result. That result MUST then replay as the not-retained placeholde
 declares `image` input. For other models, it MUST replay as the omitted placeholder. This applies in a later
 turn, a retry or resume (a new attempt on any worker), a compaction request, or a fork. A
 `media://` reference that does not resolve to media of the Run owner MUST replay as the
-unavailable placeholder. None of these placeholders MUST fail the request. Image content MUST NOT
+unavailable placeholder. These placeholders MUST NOT fail the request. Image content MUST NOT
 count toward the UTF-16 budgets. An image MUST replay only with its kept result payload. When the
 system clears a payload or drops a pair, it also removes the image from the request.
 
@@ -147,8 +147,8 @@ rewrite this behavior; #599 owns its research and refactor. The kept parts of a 
 `turn-actions` are not later-turn replay. That capability owns their projection, which groups each
 kept step and applies no replay budget.
 
-Tool activity MUST stay available to the model until a checkpoint absorbs it. No tool record MUST
-cross that boundary. A checkpoint message MUST carry no tool part. It MUST select and re-bound no
+Tool activity MUST stay available to the model until a checkpoint absorbs it. A tool record MUST
+NOT cross that boundary. A checkpoint message MUST carry no tool part. It MUST select and re-bound no
 payload, and it MUST compute no budget again. There MUST be no semantic observation ledger, no
 bounded replacement set, and no compacted tool record to read back. Absorbed tool activity stays
 only as summary text. The `Errors and Corrections`, `Completed`, and `Critical References` content

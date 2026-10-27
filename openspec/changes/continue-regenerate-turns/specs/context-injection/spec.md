@@ -110,6 +110,13 @@ user-authored content is structural, not a text convention that user input can c
 - **THEN** the dispatch transaction of the Regenerate Run removes that item from the triggering user message
 - **AND** the Regenerate request carries no model-switch item
 
+#### Scenario: A follow-up Run reuses prompt imports and skill activations
+
+- **WHEN** the triggering user message has an import marker and a `$skill` mention, and its first Run stored a `prompt-imports` item and a `skill-activation` item
+- **AND** the owner regenerates the turn
+- **THEN** the Regenerate Run reads no import target again and stores no second `prompt-imports` or `skill-activation` item
+- **AND** its request carries the stored items once
+
 The system MUST persist in conversation history each persisted-literal rail item that a model
 request carries. It MUST do this in the dispatch transaction of that request, whatever the outcome
 of the Run.
@@ -128,10 +135,14 @@ dispatched MUST store each item that it yields at its producer rank, as a first 
 rank is relative to the `prompt-imports` and `skill-activation` facts persisted before dispatch.
 
 A follow-up Run from `turn-actions` MUST follow the same keep-and-append rule. The rule applies to
-each item that an earlier Run of the triggering user message stored at its dispatch. The model-switch
-item is the one exception. A Regenerate dispatch MUST remove each `effective-context-change` item
-stored on the triggering user message. It then stores the item that its own model comparison
-yields, if any.
+each item that an earlier Run of the triggering user message stored at its dispatch. A follow-up
+Run MUST also reuse the `prompt-imports` item and the `skill-activation` items that an earlier Run
+stored on that message before its dispatch. It MUST NOT import those targets or activate those
+skills again. The model-switch item is the one exception to the keep rule. The first dispatch of a
+Regenerate Run MUST remove each model-switch item with cause `model` from the triggering user
+message. It then stores the model-switch item that its own comparison yields, if any, after the
+last stored context item. A retry of that Regenerate Run keeps the item that its first dispatch
+stored.
 
 A retry MUST create or reset the assistant message of the Run to `running` inside its own dispatch
 transaction, not before it reads history. Its preparation MUST read history only through the
@@ -304,6 +315,6 @@ limitation MUST stay documented.
 
 #### Scenario: A follow-up dispatch replaces in-Run items with the reply
 
-- **WHEN** a `failed` reply holds an in-Run item after its first settled tool call and another after its unfinished step, and a Continue Run dispatches
-- **THEN** the Continue reply holds the first item in its stored position
-- **AND** the reply does not hold the second item, which only the event log of the failed Run keeps
+- **WHEN** a `failed` reply holds an in-Run item after its first settled tool call, a second settled tool call, then partial text, and a Continue Run dispatches
+- **THEN** the Continue reply holds the item in its stored position, after the first tool part
+- **AND** the reply does not hold the partial text, which only the event log of the failed Run keeps

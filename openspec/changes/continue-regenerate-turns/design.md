@@ -80,7 +80,10 @@ files. Only Cursor asks first.
 ### D1: One route keyed on the user message
 
 `POST /api/v1/chats/:chatId/messages/:userMessageId/runs`, tagged `streaming` like
-`createChatMessage`, with operation id `createChatFollowUpRun`. The admission transaction:
+`createChatMessage`, with operation id `createChatFollowUpRun`. The admission service ships in
+`api-follow-up` without an HTTP route. The route ships in `api-continue`, with the worker that
+executes a Continue Run, so no layer can create a Continue Run that runs as a plain Run. The
+admission transaction:
 
 1. resolves the Chat for the owner and locks its row with `touch`, as `admitTurn` does; a foreign
    or missing Chat or message answers 404 before any job state is read;
@@ -148,9 +151,16 @@ kept items appear once. The stream bridge emits the kept text, reasoning, and to
 chunks before the first `model.*` event. Kept context items have no UI chunk; they appear when the
 web adopts the finalized history, as live in-Run items do today.
 
-Kept parts count toward the request's context fit and are never compacted. When the history
-through the trigger plus the kept parts does not fit even after compaction of the history, the Run
-fails with the current context-incompatible error, and Regenerate stays available.
+Kept parts count toward both the compaction threshold and the window fit, and compaction never
+absorbs them. When the history through the trigger plus the kept parts does not fit even after
+compaction of the history, the Run fails with the current context-incompatible error, and
+Regenerate stays available.
+
+No stored copy holds the exact model-facing tool output, so the projection rebuilds it the way the
+live loop builds it: native tools through their model-output serializer, other tools as JSON. A
+Continue Run is a new attempt with empty image memory (`media-attachments`), so a kept image
+result from a non-`media://` read replays with the not-retained placeholder, and a `media://`
+result replays from the media store.
 
 Rejected: seeding the reset reply row. A later attempt of the same Continue Run would have to read
 its own reply to recover the kept parts, and a reload during the Run would hide them, because owner
@@ -170,8 +180,8 @@ This shape matches what the live loop sent, which matters on two wires:
 
 - Anthropic with thinking validates the in-progress turn: the final assistant message must start
   with its thinking block, and one step's parallel calls must be one assistant turn.
-- OpenAI Responses keeps reasoning items of the current turn only up to the latest user message, so
-  the projection must not add user text.
+- The projection adds no user text of its own. Kept in-Run items stay where the live loop put them,
+  as user-role text after their step's tool results, which the live loop already sends.
 
 Wire tests with the real adapters prove the shape: Anthropic with thinking and two parallel calls,
 Responses with `store` unset (reasoning as `item_reference`), and the Codex wire with
@@ -200,15 +210,23 @@ rule in each writer.
 
 `priorDispatch` becomes "any Run of the triggering user message dispatched". A follow-up Run then
 follows the retry rule: it keeps every stored item in place, derives each producer again with
-stored items counted as told, authors no second `temporal` item, keeps the `prompt-imports` item,
-loads only unseen instruction files, and appends new items after the last stored context item. The
-tool-availability baseline is the most recent prior dispatched Run, which can be the earlier Run of
-the same message.
+stored items counted as told, authors no second `temporal` item, loads only unseen instruction
+files, and appends new items after the last stored context item. The tool-availability baseline is
+the most recent prior dispatched Run, which can be the earlier Run of the same message.
+
+The `prompt-imports` and `skill-activation` items are stored before dispatch and keyed by Run id
+today (`PromptImportPartsRepository.findForRun`, `ActivationPartsRepository`). For a follow-up Run
+both lookups become message-scoped: the Run reuses the stored items, reads no import target again,
+and activates no skill again. The omission rewrite of an activation stays limited to the Run that
+stored it, because a model already read the earlier text.
 
 The model-switch item is the exception, because the stored item names the model of an earlier Run.
-A Regenerate dispatch removes the `effective-context-change` items stored on the trigger and
-stores the item that its own comparison yields against the most recent prior reply below the
-trigger, if any. A Continue keeps the Run's model, so the stored item stays valid.
+The first dispatch of a Regenerate Run removes the `effective-context-change` items with cause
+`model` from the trigger and stores, after the last stored context item, the item that its own
+comparison against the most recent prior reply below the trigger yields. This derivation runs on
+the Regenerate's first dispatch even though an earlier Run dispatched. A retry of the Regenerate
+Run keeps what its first dispatch stored. A Continue keeps the Run's model, so the stored item
+stays valid.
 
 A Run that a Regenerate replaced is no longer "the previous completed Run" for compaction's model
 and receipt source: that lookup reads the Run named by the reply's `usage.runId`.
@@ -244,22 +262,32 @@ treats a legacy part (no field) as non-read-only.
 ### D11: Usage and receipts
 
 The follow-up Run writes `running` usage with its own `runId` and `attemptId` at dispatch, and
-finalizes its own aggregate. For Continue, the kept parts' spend is not added. The effective
-context action resolves `usage.runId`, so it shows the follow-up Run's receipts. The old Run's
-receipts stay readable through `GET /api/v1/runs/:id`.
+finalizes its own aggregate. For Continue, the kept parts' spend is not added. The canonical rule
+"a usage that replaces an earlier reply's usage records `complete: false`" applies, but the reset
+hides the earlier usage from the finalizer (`hasReplaceableAssistantUsage` reads the reply at
+finalization). The admission therefore records `replacesUsage: true` in the `run.created` payload
+when the reply has usage, and the finalizer reads it. The effective context action resolves
+`usage.runId`, so it shows the follow-up Run's receipts. The old Run's receipts stay readable
+through `GET /api/v1/runs/:id`.
 
-### D12: The Chat read reports the latest Run
+### D12: The history read reports the latest Run
 
-`ChatResponse` gains `latestRun: { id, messageId, status, modelId, effort, permissionMode } | null`:
-the Chat's newest Run by creation, with its accepted mode. The web uses it for the action check, the
-plain-click repeat, and the turn with no reply. The field is owner-scoped like the Chat read.
+`ChatMessagesResponse` (`GET /api/v1/chats/:id/messages`) gains
+`latestRun: { id, messageId, status, followUpAction, modelId, effort, permissionMode } | null`, read
+in the same transaction as the messages: the Chat's newest Run by creation, with its accepted mode.
+The web refetches this response after each stream, so the action check and the messages never
+disagree. `ChatResponse` stays unchanged, so the Chat list and the other endpoints that return it
+need no per-Chat Run query.
 
 ### D13: Web
 
 - The action row of the latest assistant turn replaces the `Regenerate` stub. Continue shows when
-  `latestRun` matches the reply's Run, its status is `failed`, `cancelled`, or `expired`, and the
-  reply holds a settled tool part. Regenerate shows when `latestRun` is terminal. A latest turn
-  with no reply gets a minimal failed-turn row with Regenerate.
+  `latestRun` matches the reply's Run, its status is `failed`, `cancelled`, or `expired`, the
+  reply's usage status is not `completed`, and the reply holds a settled tool part. Regenerate
+  shows when `latestRun` is terminal. A latest turn with no reply gets a minimal failed-turn row
+  with Regenerate when `latestRun` is terminal.
+- While `latestRun` is a non-terminal follow-up Run of the latest turn, the web hides the old reply,
+  so a reload before the follow-up dispatch does not show the old reply beside the resumed stream.
 - Regenerate is a split button. A plain click sends `latestRun`'s `modelId`, `effort`, and
   `permissionMode`. The menu holds the composer's model, effort, and permission-mode selectors,
   so a pick sets the composer; its submit item sends the composer values. Continue sends the
@@ -275,8 +303,9 @@ plain-click repeat, and the turn with no reply. The field is owner-scoped like t
 ## Risks / Trade-offs
 
 - [The inferred step grouping merges two steps when the second has no reasoning and no text] ->
-  the merged message still pairs every call with its result. Thinking models open each step with
-  reasoning, so the case needs a model that calls tools with no reasoning.
+  the merged message still pairs every call with its result. Adaptive thinking can skip reasoning on
+  a step, so this happens; the merged shape is one assistant turn with all calls, which both wires
+  accept.
 - [A provider rejects the replayed reasoning] -> Continue keeps the reply's model and wire (D2),
   and wire tests cover both reasoning wires. A rejection fails the Run under the current failure
   contract, and Regenerate stays available.
