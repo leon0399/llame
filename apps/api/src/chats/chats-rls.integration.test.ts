@@ -455,6 +455,62 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
+  // The follow-up columns are a tenant boundary of their own: a Run must name
+  // only its own owner's Run as its source, and only the declared actions.
+  it('rejects a source Run of another owner and an unknown follow-up action', async () => {
+    const foreignRunId = await asUser(userBId, async (tx) => {
+      const [chat] =
+        await tx`INSERT INTO chats (owner_user_id, updated_at) VALUES (${userBId}, now()) RETURNING id`;
+      assertRowId(chat);
+      const [run] =
+        await tx`INSERT INTO runs (chat_id, user_id, model_id) VALUES (${chat.id}, ${userBId}, 'system:test') RETURNING id`;
+      assertRowId(run);
+      return run.id;
+    });
+    const ownChatId = await asUser(userAId, async (tx) => {
+      const [chat] =
+        await tx`INSERT INTO chats (owner_user_id, updated_at) VALUES (${userAId}, now()) RETURNING id`;
+      assertRowId(chat);
+      return chat.id;
+    });
+
+    try {
+      // 23503 = foreign_key_violation on runs_source_run_id_user_id_fk.
+      await expect(
+        asUser(
+          userAId,
+          (tx) =>
+            tx`INSERT INTO runs (chat_id, user_id, model_id, source_run_id) VALUES (${ownChatId}, ${userAId}, 'system:test', ${foreignRunId})`,
+        ),
+      ).rejects.toMatchObject({ code: '23503' });
+
+      // 23514 = check_violation on runs_follow_up_action_check.
+      await expect(
+        asUser(
+          userAId,
+          (tx) =>
+            tx`INSERT INTO runs (chat_id, user_id, model_id, follow_up_action) VALUES (${ownChatId}, ${userAId}, 'system:test', 'retry')`,
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+
+      // Nothing was written by either refusal.
+      const rows = await asUser(
+        userAId,
+        (tx) => tx`SELECT id FROM runs WHERE chat_id = ${ownChatId}`,
+      );
+      expect(rows).toHaveLength(0);
+    } finally {
+      await asUser(
+        userAId,
+        (tx) => tx`DELETE FROM chats WHERE id = ${ownChatId}`,
+      );
+      await asUser(
+        userBId,
+        (tx) => tx`DELETE FROM runs WHERE id = ${foreignRunId}`,
+      );
+    }
+  });
+
   // #666 — verify the ordinary deletion shape carrying both ordinary messages
   // and a checkpoint row. Checkpoints are messages, so the whole tree is one
   // sibling FK cascade under chats.

@@ -239,25 +239,6 @@ export class RunsRepository {
   }
 
   /**
-   * The newest Run of one triggering user message: the Run a follow-up request
-   * acts on and whose reply a Continue Run continues. Owner-scoped; same tie
-   * break as `findLatestByChatId`.
-   */
-  async findLatestForMessage(
-    messageId: string,
-    userId: string,
-  ): Promise<Run | undefined> {
-    const rows = await this.db
-      .select()
-      .from(runs)
-      .where(and(eq(runs.messageId, messageId), eq(runs.userId, userId)))
-      .orderBy(desc(runs.createdAt), desc(runs.id))
-      .limit(1);
-
-    return rows[0];
-  }
-
-  /**
    * The chat's active (non-terminal) run, if any — well-defined because the
    * per-chat single-flight index admits at most one. Owner-scoped.
    */

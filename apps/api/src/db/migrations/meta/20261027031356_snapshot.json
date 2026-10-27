@@ -1,5 +1,5 @@
 {
-  "id": "c8cbacbe-3817-49b5-8944-511ae8179521",
+  "id": "4412fe32-333b-4e83-bce3-1941d81ba81f",
   "prevId": "f7417bbb-7281-437a-bd84-43b19d00c90d",
   "version": "7",
   "dialect": "postgresql",
@@ -1262,6 +1262,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "runs_source_run_id_user_id_idx": {
+          "name": "runs_source_run_id_user_id_idx",
+          "columns": [
+            {
+              "expression": "source_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"runs\".\"source_run_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

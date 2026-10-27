@@ -295,6 +295,22 @@ describe('ChatsService message windows, updates and forks', () => {
   });
 
   describe('getChatMessages', () => {
+    it('reads the messages and the latest Run under one snapshot', async () => {
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        message(1),
+      ]);
+      const { service, runAs } = makeService();
+
+      await service.getChatMessages(chat.id, ownerUserId, { limit: 5 });
+
+      // READ COMMITTED would let a Run settle between the message window and
+      // the latest-Run read, reporting a reply the window omits.
+      expect(runAs).toHaveBeenCalledWith(ownerUserId, expect.any(Function), {
+        isolationLevel: 'repeatable read',
+      });
+    });
+
     it('reports an absent chat as not found rather than an empty window', async () => {
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
         undefined,

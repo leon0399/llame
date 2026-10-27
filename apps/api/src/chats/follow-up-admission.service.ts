@@ -3,7 +3,7 @@
  * on an existing turn into a queued Run, with no HTTP route of its own.
  *
  * One transaction locks the Chat's row, checks that the turn is the latest
- * one, passes the chat send's single-flight admission, applies the action
+ * one, passes the chat send's single-flight admission, applies the Continue
  * check, and creates the Run with the parts its event log starts from. The
  * caller dispatches and streams the returned Run through
  * `ChatLoopService.finalizeAcceptedRun`, so a follow-up never runs as a plain
@@ -11,6 +11,7 @@
  */
 
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -18,8 +19,10 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
+import { isRecord } from '@workspace/runtime-safety';
+
 import { assertNotArchived } from '../db/assert-not-archived';
-import { type Message, type Run } from '../db/schema';
+import { type Message, type Run, type RunStatus } from '../db/schema';
 import {
   TenantDbService,
   type Db,
@@ -31,47 +34,42 @@ import {
 } from '../instance-config/instance-config.service';
 import {
   ModelsService,
+  resolvePermissionMode,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import {
   RunDispatchService,
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
-import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { type RunUserMessage } from '../runs/run-execution.service';
+import { isCompletedAssistantTurn } from './assistant-completion';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { clearActiveRunSlot } from './chat-admission';
-import { continueKeptParts } from './continue-kept-parts';
-import { continuableReply } from './follow-up-admission';
-import {
-  validateFollowUpRequest,
-  type FollowUpRequestInput,
-  type ValidatedFollowUpRequest,
-} from './follow-up-request';
-import { createRunForMessage, type FollowUpRunInput } from './run-creation';
+import { type AcceptedRun } from './chat-loop.service';
 import { toRunUserMessage } from './chat-message-parts';
+import { continueKeptParts } from './continue-kept-parts';
+import { type PermissionMode } from '../tools/permissions/permission-mode';
+import { createRunForMessage } from './run-creation';
+import { RunsRepository } from '../runs/runs-repository';
 
 /**
- * A follow-up Run that passed admission, shaped as `finalizeAcceptedRun`'
- * input: the caller dispatches and streams it exactly like an accepted chat
- * send.
+ * A follow-up request as the caller sent it, before its checks. Continue takes
+ * its model and its effort from the Run it continues, so those fields are only
+ * here to be refused.
  */
-export type AdmittedFollowUpRun = {
-  runId: string;
-  userMessage: RunUserMessage;
-  supersededRunIds: Array<string>;
-  chatId: string;
-  userId: string;
-  modelId: string;
-  followUp: FollowUpRunInput;
+export type FollowUpRequestInput = {
+  action?: string;
+  modelId?: string;
+  effort?: string;
+  /** Absent means `default`, as on a chat send. */
+  permissionMode?: PermissionMode;
 };
 
-/** The settings the action check derives from the Run it continues. */
-type ContinueSettings = {
-  modelId: string;
-  effort: string | undefined;
-  followUp: FollowUpRunInput;
-};
+/** The terminal statuses a Continue Run resumes from. */
+const CONTINUABLE_RUN_STATUSES: ReadonlyArray<RunStatus> = [
+  'failed',
+  'cancelled',
+  'expired',
+];
 
 @Injectable()
 export class FollowUpAdmissionService {
@@ -95,48 +93,45 @@ export class FollowUpAdmissionService {
     userId: string;
     userMessageId: string;
     request: FollowUpRequestInput;
-  }): Promise<AdmittedFollowUpRun> {
-    // A refused request costs no transaction and writes nothing.
-    const request = validateFollowUpRequest(
-      input.request,
+  }): Promise<AcceptedRun> {
+    // The checks that need no stored state, before the transaction: `continue`
+    // is the only action this layer can execute, and a model or an effort it
+    // names would be silently ignored.
+    if (input.request.action !== 'continue') {
+      throw new BadRequestException('action must be continue');
+    }
+    if (input.request.modelId !== undefined) {
+      throw new BadRequestException('A continue request does not name a model');
+    }
+    if (input.request.effort !== undefined) {
+      throw new BadRequestException(
+        'A continue request does not name an effort',
+      );
+    }
+    const permissionMode = resolvePermissionMode(
+      input.request.permissionMode,
       this.instanceConfig.config.tools.permissionModes,
     );
 
-    return this.tenantDb.runAs(input.userId, (tx) =>
-      this.admitInTransaction(tx, input, request),
-    );
-  }
+    return this.tenantDb.runAs(input.userId, async (tx) => {
+      const userMessage = await this.lockLatestTurn(
+        new ChatsRepository(tx),
+        new MessagesRepository(tx),
+        input,
+      );
 
-  private async admitInTransaction(
-    tx: Db,
-    input: {
-      chatId: string;
-      userId: string;
-      userMessageId: string;
-    },
-    request: ValidatedFollowUpRequest,
-  ): Promise<AdmittedFollowUpRun> {
-    const eventsRepo = new RunEventsRepository(tx);
-    const runsRepo = new RunsRepository(tx);
-    const userMessage = await this.lockLatestTurn(
-      new ChatsRepository(tx),
-      new MessagesRepository(tx),
-      input,
-    );
+      // A chat send's own single-flight admission: a live Run answers 409, and
+      // a stuck Run is expired here so the Continue check reads its outcome.
+      await clearActiveRunSlot({
+        tx,
+        chatId: input.chatId,
+        userId: input.userId,
+        dispatch: this.dispatch,
+        instanceConfig: this.instanceConfig,
+      });
 
-    // A chat send's own single-flight admission: a live Run answers 409, and a
-    // stuck Run is expired here so the action check reads its outcome.
-    await clearActiveRunSlot({
-      tx,
-      runsRepo,
-      eventsRepo,
-      chatId: input.chatId,
-      userId: input.userId,
-      dispatch: this.dispatch,
-      instanceConfig: this.instanceConfig,
+      return this.continueRun(tx, input, userMessage, permissionMode);
     });
-
-    return this.createFollowUpRun(tx, input, request, userMessage);
   }
 
   /**
@@ -153,8 +148,13 @@ export class FollowUpAdmissionService {
     if (!chat) {
       throw new NotFoundException(`Chat ${input.chatId} not found`);
     }
-    assertNotArchived(chat);
-    await chatsRepo.touch(input.chatId, input.userId);
+    // The row lock comes before the archive check (design D1): an archive that
+    // commits after the lock is seen by the next request, not this one.
+    const locked = await chatsRepo.touch(input.chatId, input.userId);
+    if (!locked) {
+      throw new NotFoundException(`Chat ${input.chatId} not found`);
+    }
+    assertNotArchived(locked);
 
     const { userMessage } = await messagesRepo.findTurnState(
       input.chatId,
@@ -179,28 +179,38 @@ export class FollowUpAdmissionService {
   }
 
   /**
-   * The action check and the Run it admits: the message's latest Run and its
-   * reply decide the kept parts, and the Run records the follow-up identity its
-   * event log starts from.
+   * The Continue check and the Run it admits. The Run's own model and effort
+   * pass the chat-send checks again, so an operator who removed that model is
+   * answered before any write; a stored effort stays exactly as it was.
    */
-  private async createFollowUpRun(
+  private async continueRun(
     tx: Db,
-    input: { chatId: string; userId: string; userMessageId: string },
-    request: ValidatedFollowUpRequest,
+    input: { chatId: string; userId: string },
     userMessage: Message,
-  ): Promise<AdmittedFollowUpRun> {
-    const continued = await this.continueSettingsFor(tx, input, userMessage);
+    permissionMode: PermissionMode,
+  ): Promise<AcceptedRun> {
+    const { latestRun, source } = await this.continueSource(
+      tx,
+      input,
+      userMessage,
+    );
+    const effort = this.storedEffort(latestRun);
 
     const { run, supersededRunIds } = await createRunForMessage(
       tx,
       {
         userId: input.userId,
         chatId: input.chatId,
-        modelId: continued.modelId,
-        effort: continued.effort,
-        permissionMode: request.permissionMode,
+        modelId: latestRun.modelId,
+        effort,
+        permissionMode,
         targetRunId: randomUUID(),
-        followUp: continued.followUp,
+        followUp: {
+          action: 'continue',
+          sourceRunId: latestRun.id,
+          keptParts: continueKeptParts(source.parts),
+          replacesUsage: source.usage !== null,
+        },
       },
       userMessage,
     );
@@ -211,57 +221,76 @@ export class FollowUpAdmissionService {
       supersededRunIds,
       chatId: input.chatId,
       userId: input.userId,
-      modelId: continued.modelId,
-      followUp: continued.followUp,
+      modelId: latestRun.modelId,
     };
   }
 
   /**
-   * The message's latest Run and its reply, then the Continue check on them.
-   * A message with no Run has nothing to follow up.
+   * The effort the Continue Run sends: exactly the source Run's, re-checked
+   * against the model still declaring it. A stored `null` is "send no effort",
+   * not "use the model's default", so a later default cannot change the turn.
    */
-  private async continueSettingsFor(
+  private storedEffort(latestRun: Run): string | undefined {
+    const model = this.models.validateModelSelection(latestRun.modelId);
+    return latestRun.effort === null
+      ? undefined
+      : this.models.resolveEffortSelection(model, latestRun.effort);
+  }
+
+  /**
+   * The message's latest Run and the reply it continues. The turn check has
+   * already refused every later turn, so the Chat's newest Run is this
+   * message's Run whenever the message has one.
+   */
+  private async continueSource(
     tx: Db,
     input: { chatId: string; userId: string },
     userMessage: Message,
-  ): Promise<ContinueSettings> {
-    const latestRun = await new RunsRepository(tx).findLatestForMessage(
-      userMessage.id,
+  ): Promise<{ latestRun: Run; source: Message }> {
+    const latestRun = await new RunsRepository(tx).findLatestByChatId(
+      input.chatId,
       input.userId,
     );
-    if (!latestRun) {
+    if (latestRun?.messageId !== userMessage.id) {
       throw new ConflictException('The message has no Run to follow up');
     }
-    const { assistantMessage: reply } = await new MessagesRepository(
-      tx,
-    ).findTurnState(input.chatId, input.userId, userMessage.id);
-    return this.continueSettings(latestRun, reply);
+    const reply = await new MessagesRepository(tx).findReply(
+      input.chatId,
+      input.userId,
+      userMessage.id,
+    );
+    return { latestRun, source: this.continuableReply(latestRun, reply) };
   }
 
   /**
-   * The Continue action check (turn-actions D2): the resumable Run and its
-   * unfinished reply decide what the new Run keeps, and the Run's own model and
-   * effort pass the chat-send checks again — an operator who removed that
-   * model is answered before any write.
+   * The reply a Continue Run continues, or a 409: the latest Run must be
+   * resumable, its reply must exist, its usage must name that Run, and its
+   * usage must not be `completed`.
    */
-  private continueSettings(
+  private continuableReply(
     latestRun: Run,
     reply: Message | undefined,
-  ): ContinueSettings {
-    const source = continuableReply(latestRun, reply);
-    const model = this.models.validateModelSelection(latestRun.modelId);
-    return {
-      modelId: latestRun.modelId,
-      effort: this.models.resolveEffortSelection(
-        model,
-        latestRun.effort ?? undefined,
-      ),
-      followUp: {
-        action: 'continue',
-        sourceRunId: latestRun.id,
-        keptParts: continueKeptParts(source.parts),
-        replacesUsage: source.usage !== null,
-      },
-    };
+  ): Message {
+    if (!CONTINUABLE_RUN_STATUSES.includes(latestRun.status)) {
+      throw new ConflictException(
+        `A ${latestRun.status} Run cannot be continued`,
+      );
+    }
+    if (reply === undefined) {
+      throw new ConflictException(
+        'The Run that can be continued left no reply',
+      );
+    }
+    const usage = reply.usage;
+    if (
+      !isRecord(usage) ||
+      usage['runId'] !== latestRun.id ||
+      isCompletedAssistantTurn(reply)
+    ) {
+      throw new ConflictException(
+        'The reply does not belong to a Run that can be continued',
+      );
+    }
+    return reply;
   }
 }

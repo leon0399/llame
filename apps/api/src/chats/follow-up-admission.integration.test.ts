@@ -25,8 +25,10 @@ import type { FollowUpAction, Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { MediaService } from '../media/media.service';
 import {
+  EffortNotAvailableError,
   ModelNotAvailableError,
   PermissionModeNotAvailableError,
+  resolveEffortSelection,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
@@ -42,7 +44,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { ChatLoopService } from './chat-loop.service';
 import { FollowUpAdmissionService } from './follow-up-admission.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import type { FollowUpRequestInput } from './follow-up-request';
+import type { FollowUpRequestInput } from './follow-up-admission.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -83,6 +85,13 @@ function catalogEntry(modelId: string): SystemModelCatalogEntry {
     systemPromptTemplate: 'Bound prompt',
     systemPromptSource: 'project_default',
     referencesSkills: false,
+    // The real effort contract: `high` is declared, and a model default exists
+    // so re-defaulting a stored `null` would show up as `low`.
+    reasoning: {
+      effortLevels: [{ value: 'high' }, { value: 'low' }],
+      defaultEffort: 'low',
+      cacheInvalidatedByEffortChange: false,
+    },
   };
 }
 
@@ -94,7 +103,9 @@ function modelValidator(): ModelSelectionValidator {
       }
       return catalogEntry(modelId);
     },
-    resolveEffortSelection: (_model, effort) => effort,
+    // The production implementation, so the stored-effort rules are real.
+    resolveEffortSelection: (model, effort) =>
+      resolveEffortSelection(model, effort),
   };
 }
 
@@ -355,12 +366,6 @@ describeIfDb('follow-up admission', () => {
       expect(admitted.modelId).toBe(MODEL_ID);
       expect(admitted.chatId).toBe(fixture.chatId);
       expect(admitted.userMessage.id).toBe(fixture.messageId);
-      expect(admitted.followUp).toEqual({
-        action: 'continue',
-        sourceRunId: fixture.runId,
-        keptParts: settledCall('call-1'),
-        replacesUsage: true,
-      });
 
       const run = await runById(admitted.runId);
       expect(run).toMatchObject({
@@ -405,6 +410,27 @@ describeIfDb('follow-up admission', () => {
 
       expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
       expect(await replyOf(fixture)).toEqual(replyBefore);
+    });
+
+    it('refuses an older turn before it reads any job state', async () => {
+      const fixture = await seedTurn({
+        status: 'running_model',
+        runningAttempt: true,
+        replyUsageStatus: 'running',
+        laterUserMessage: true,
+      });
+      api.jobState.mockResolvedValue('active');
+
+      await expect(
+        admit(fixture, { action: 'continue' }),
+      ).rejects.toMatchObject({
+        constructor: ConflictException,
+        message: 'A follow-up request applies to the latest user message only',
+      });
+      // The turn check runs before single-flight admission: a refused request
+      // never waits on, or expires, another Run.
+      expect(api.jobState).not.toHaveBeenCalled();
+      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
     });
 
     it('refuses a follow-up on an archived Chat with the chat-send error', async () => {
@@ -457,9 +483,9 @@ describeIfDb('follow-up admission', () => {
       // Continue check reads a resumable Run and admits.
       const reply = await replyOf(fixture);
       expect(reply?.usage).toMatchObject({ status: 'aborted' });
-      expect(admitted.followUp.sourceRunId).toBe(fixture.runId);
       expect(await runById(admitted.runId)).toMatchObject({
         followUpAction: 'continue',
+        sourceRunId: fixture.runId,
         status: 'queued',
       });
     });
@@ -631,6 +657,26 @@ describeIfDb('follow-up admission', () => {
         message: 'The reply does not belong to a Run that can be continued',
       });
       expect(await runsOfChat(fixture.chatId)).toHaveLength(2);
+    });
+
+    it('keeps a stored null effort as no effort, not the current default', async () => {
+      // The model declares `defaultEffort: 'low'`; the source Run sent none, so
+      // re-resolving `undefined` would send an effort the turn never used.
+      const fixture = await seedTurn({ status: 'failed', effort: null });
+
+      const admitted = await admit(fixture, { action: 'continue' });
+
+      expect((await runById(fixture.runId))?.effort).toBeNull();
+      expect((await runById(admitted.runId))?.effort).toBeNull();
+    });
+
+    it('rejects a stored effort the model no longer declares', async () => {
+      const fixture = await seedTurn({ status: 'failed', effort: 'max' });
+
+      await expect(
+        admit(fixture, { action: 'continue' }),
+      ).rejects.toBeInstanceOf(EffortNotAvailableError);
+      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
     });
 
     it('stores the requested mode on the follow-up Run and keeps the old one', async () => {

@@ -506,17 +506,34 @@ export class MessagesRepository {
       eq(messages.role, 'user'),
       eq(chats.ownerUserId, ownerUserId),
     ]);
-    const assistantMessage = await this.findOneMessage(
-      [
-        eq(messages.chatId, chatId),
-        eq(messages.role, 'assistant'),
-        eq(messages.inReplyTo, userMessageId),
-        eq(chats.ownerUserId, ownerUserId),
-      ],
-      { orderBySeq: true },
-    );
+    return {
+      userMessage,
+      assistantMessage: await this.findReply(
+        chatId,
+        ownerUserId,
+        userMessageId,
+      ),
+    };
+  }
 
-    return { userMessage, assistantMessage };
+  /**
+   * The assistant reply to one user message in an owned chat. A caller that
+   * already holds the user row reads only this row — after a stuck-Run expiry,
+   * for example, which may have rewritten the reply.
+   */
+  async findReply(
+    chatId: string,
+    ownerUserId: string,
+    inReplyTo: string,
+  ): Promise<Message | undefined> {
+    // One row at most: `messages_in_reply_to_unique_idx` makes a turn's reply
+    // unique, so no ordering is needed to pick it.
+    return this.findOneMessage([
+      eq(messages.chatId, chatId),
+      eq(messages.role, 'assistant'),
+      eq(messages.inReplyTo, inReplyTo),
+      eq(chats.ownerUserId, ownerUserId),
+    ]);
   }
 
   /**

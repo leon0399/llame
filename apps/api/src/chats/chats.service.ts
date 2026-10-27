@@ -131,13 +131,15 @@ export class ChatsService {
   }
 
   /**
-   * Owner history includes checkpoint rows.
+   * Owner history includes checkpoint rows. The Chat's newest Run comes from
+   * the same transaction (turn-actions D12): the web refetches this response
+   * after each stream, so the follow-up action check and the messages it judges
+   * never disagree. `latestRun` is undefined for a Chat with no Run, and the
+   * whole read is undefined for a Chat the caller does not own.
    *
-   * The Chat's newest Run comes from the same transaction (turn-actions D12):
-   * the web refetches this response after each stream, so the follow-up action
-   * check and the messages it judges never disagree. `latestRun` is undefined
-   * for a Chat with no Run, and the whole read is undefined for a Chat the
-   * caller does not own.
+   * REPEATABLE READ, like the fork below: each statement would otherwise take
+   * its own snapshot under READ COMMITTED, so a Run settling between the two
+   * reads could report a reply the window omits.
    */
   async getChatMessages(
     chatId: string,
@@ -147,36 +149,50 @@ export class ChatsService {
     | { messages: Array<ChatMessageResponseRow>; latestRun: Run | undefined }
     | undefined
   > {
-    return this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const window = await this.loadMessageWindow(
-        tx,
-        chatId,
-        ownerUserId,
-        options,
-      );
-      if (!window) {
-        return undefined;
-      }
-
-      return {
-        messages: await this.withAbsorbedCounts(
-          tx,
-          chatId,
-          ownerUserId,
-          window,
-        ),
-        latestRun: await new RunsRepository(tx).findLatestByChatId(
-          chatId,
-          ownerUserId,
-        ),
-      };
-    });
+    return this.tenantDb.runAs(
+      ownerUserId,
+      (tx) => this.loadHistoryWindow(tx, chatId, ownerUserId, options),
+      { isolationLevel: 'repeatable read' },
+    );
   }
 
   /**
-   * Each checkpoint in a window gets its absorbed user/assistant count from one
-   * aggregate read, so a page never loads the rest of the chat.
+   * The requested window plus the Chat's newest Run, from the same snapshot.
+   * Each checkpoint in the window gets its absorbed user/assistant count from
+   * one aggregate read, so a page never loads the rest of the chat.
    */
+  private async loadHistoryWindow(
+    tx: Db,
+    chatId: string,
+    ownerUserId: string,
+    options: { limit: number; beforeSeq?: number; targetSeq?: number },
+  ): Promise<
+    | { messages: Array<ChatMessageResponseRow>; latestRun: Run | undefined }
+    | undefined
+  > {
+    const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+    if (!chat) {
+      return undefined;
+    }
+
+    const scope = { chatId, ownerUserId, limit: options.limit };
+    const window =
+      options.targetSeq !== undefined
+        ? await this.loadWindowAtTarget(tx, scope, options.targetSeq)
+        : await this.loadWindowBeforeSeq(tx, scope, options.beforeSeq);
+    if (!window) {
+      return undefined;
+    }
+
+    return {
+      messages: await this.withAbsorbedCounts(tx, chatId, ownerUserId, window),
+      latestRun: await new RunsRepository(tx).findLatestByChatId(
+        chatId,
+        ownerUserId,
+      ),
+    };
+  }
+
   private async withAbsorbedCounts(
     tx: Db,
     chatId: string,
@@ -200,28 +216,6 @@ export class ChatsService {
         ? { ...message, absorbedMessageCount: counts.get(message.id) ?? 0 }
         : message,
     );
-  }
-
-  /**
-   * Either an exact-target window (final row must land on `targetSeq`, else
-   * the target is missing/deleted/foreign and the read reports "not found")
-   * or a `beforeSeq`-paginated one.
-   */
-  private async loadMessageWindow(
-    tx: Db,
-    chatId: string,
-    ownerUserId: string,
-    options: { limit: number; beforeSeq?: number; targetSeq?: number },
-  ): Promise<Array<Message> | undefined> {
-    const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
-    if (!chat) {
-      return undefined;
-    }
-
-    const scope = { chatId, ownerUserId, limit: options.limit };
-    return options.targetSeq !== undefined
-      ? this.loadWindowAtTarget(tx, scope, options.targetSeq)
-      : this.loadWindowBeforeSeq(tx, scope, options.beforeSeq);
   }
 
   /** The window ending exactly at `targetSeq`, or undefined if it doesn't land there. */

@@ -255,10 +255,9 @@ export class ChatsController {
 
     return {
       messages: view.messages.map(toChatMessageResponse),
-      latestRun:
-        view.latestRun === undefined
-          ? null
-          : toChatLatestRunResponse(view.latestRun),
+      latestRun: view.latestRun
+        ? toChatLatestRunResponse(view.latestRun)
+        : null,
     };
   }
 

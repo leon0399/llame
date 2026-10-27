@@ -22,7 +22,7 @@ import {
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
-  PermissionModeNotAvailableError,
+  resolvePermissionMode,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
@@ -37,7 +37,6 @@ import {
   RunStreamBridgeService,
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
-import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import {
   RunDispatchService,
   type RunDispatcher,
@@ -51,6 +50,20 @@ import { type MessagePart } from './context-builder';
 import { resolveOwnerFileParts, toRunUserMessage } from './chat-message-parts';
 import { clearActiveRunSlot } from './chat-admission';
 import { createRunForMessage } from './run-creation';
+
+/**
+ * A Run that passed admission, and the identity its dispatch needs: what
+ * `finalizeAcceptedRun` consumes, and what a follow-up admission returns.
+ */
+export type AcceptedRun = {
+  runId: string;
+  userMessage: RunUserMessage;
+  supersededRunIds: Array<string>;
+  chatId: string;
+  userId: string;
+  modelId: string;
+  abortSignal?: AbortSignal;
+};
 
 /** A message as a caller sent it: parts are untrusted until sanitized. */
 export type ChatMessageInput = {
@@ -198,12 +211,10 @@ export class ChatLoopService {
     // Resolved from the already-validated model, so an unavailable model is
     // reported without the effort ever being considered.
     const effort = this.models.resolveEffortSelection(model, input.effort);
-    const permissionMode: PermissionMode = input.permissionMode ?? 'default';
-    if (
-      !this.instanceConfig.config.tools.permissionModes.includes(permissionMode)
-    ) {
-      throw new PermissionModeNotAvailableError(permissionMode);
-    }
+    const permissionMode = resolvePermissionMode(
+      input.permissionMode,
+      this.instanceConfig.config.tools.permissionModes,
+    );
     const message = this.sanitizeAndValidateMessage(input.message);
     return {
       modelId: input.modelId,
@@ -275,15 +286,7 @@ export class ChatLoopService {
    * the assistant finalize re-indexes the whole chat (incl. this message); an
    * orphaned user-only turn (failed run) is caught by the discovery sweep.
    */
-  async finalizeAcceptedRun(input: {
-    runId: string;
-    userMessage: RunUserMessage;
-    supersededRunIds: Array<string>;
-    chatId: string;
-    userId: string;
-    modelId: string;
-    abortSignal?: AbortSignal;
-  }): Promise<ChatMessageStream> {
+  async finalizeAcceptedRun(input: AcceptedRun): Promise<ChatMessageStream> {
     for (const supersededRunId of input.supersededRunIds) {
       this.aborts.abort(supersededRunId);
     }
@@ -322,82 +325,70 @@ export class ChatLoopService {
     // opened: a file part naming media the sender does not own rejects the
     // message before any chat or message row is written. Media is immutable, so
     // reading it in its own transaction races nothing.
-    return this.tenantDb.runAs(input.userId, (tx) =>
-      this.bindAcceptedTurn(tx, input),
-    );
+    return this.tenantDb.runAs(input.userId, async (tx) => {
+      await this.takeCreationLock(tx, input);
+      const chatsRepo = new ChatsRepository(tx);
+      const messagesRepo = new MessagesRepository(tx);
+
+      const { userMessage: admittedMessage } = await this.admitTurn(
+        chatsRepo,
+        messagesRepo,
+        input,
+      );
+      await clearActiveRunSlot({
+        tx,
+        chatId: input.chatId,
+        userId: input.userId,
+        dispatch: this.dispatch,
+        instanceConfig: this.instanceConfig,
+      });
+
+      // The user message is persisted with only the caller's sanitized text
+      // and resolved file parts. Context-rail items (model-switch,
+      // availability, digest, temporal) are resolved by the executing worker
+      // and stored on this message by the attempt's dispatch transaction,
+      // before its first request.
+      const userMessage = await this.persistUserMessageIfAbsent(
+        messagesRepo,
+        admittedMessage,
+        input,
+        input.parts,
+      );
+
+      // Durable run (#48): every accepted user message becomes exactly one run
+      // (SPEC §9.3). The run row + run.created land in the SAME transaction as
+      // the user message, so a message can never exist without its execution
+      // record. Reusing a message id is rejected above; retries are a separate
+      // feature, not implicit idempotency.
+      const { run, supersededRunIds } = await createRunForMessage(
+        tx,
+        input,
+        userMessage,
+      );
+
+      return {
+        runId: run.id,
+        userMessage: toRunUserMessage(userMessage),
+        supersededRunIds,
+      };
+    });
   }
 
-  private async bindAcceptedTurn(
+  /**
+   * The Chat's creation lock, inside the admission transaction: a create
+   * request holding it answers 409 here, and this route holds it only until the
+   * transaction ends, never for the life of the Run.
+   */
+  private async takeCreationLock(
     tx: Db,
     input: PersistUserMessageAndRunInput,
-  ): Promise<PersistUserMessageAndRunResult> {
-    // The Chat's creation lock, inside the admission transaction: a create
-    // request holding it answers 409 here, and this route holds it only until
-    // the transaction ends, never for the life of the Run.
+  ): Promise<void> {
     if (
       input.takeCreationLock &&
       !(await tryCreationTransactionLock(tx, input.chatId))
     ) {
       throw creationInProgress();
     }
-    const chatsRepo = new ChatsRepository(tx);
-    const messagesRepo = new MessagesRepository(tx);
-    const eventsRepo = new RunEventsRepository(tx);
-    const runsRepo = new RunsRepository(tx);
-
-    const { userMessage: admittedMessage } = await this.admitTurn(
-      chatsRepo,
-      messagesRepo,
-      input,
-    );
-    await this.freeSlot(tx, input, runsRepo, eventsRepo);
-
-    // The user message is persisted with only the caller's sanitized text
-    // and resolved file parts. Context-rail items (model-switch,
-    // availability, digest, temporal) are resolved by the executing worker
-    // and stored on this message by the attempt's dispatch transaction,
-    // before its first request.
-    const userMessage = await this.persistUserMessageIfAbsent(
-      messagesRepo,
-      admittedMessage,
-      input,
-      input.parts,
-    );
-
-    // Durable run (#48): every accepted user message becomes exactly one run
-    // (SPEC §9.3). The run row + run.created land in the SAME transaction as
-    // the user message, so a message can never exist without its execution
-    // record. Reusing a message id is rejected above; retries are a separate
-    // feature, not implicit idempotency.
-    const { run, supersededRunIds } = await createRunForMessage(
-      tx,
-      input,
-      userMessage,
-    );
-
-    return {
-      runId: run.id,
-      userMessage: toRunUserMessage(userMessage),
-      supersededRunIds,
-    };
-  }
-
-  /** The chat send's single-flight admission, inside the binding transaction. */
-  private async freeSlot(
-    tx: Db,
-    input: { chatId: string; userId: string },
-    runsRepo: RunsRepository,
-    eventsRepo: RunEventsRepository,
-  ): Promise<void> {
-    await clearActiveRunSlot({
-      tx,
-      runsRepo,
-      eventsRepo,
-      chatId: input.chatId,
-      userId: input.userId,
-      dispatch: this.dispatch,
-      instanceConfig: this.instanceConfig,
-    });
   }
 
   /**

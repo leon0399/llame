@@ -675,14 +675,14 @@ describe('ChatLoopService.createMessageStream', () => {
       {
         error: {
           message:
-            'Expired by a new message: run stuck with no execution progress.',
+            'Expired by a new request: run stuck with no execution progress.',
         },
       },
     );
     expect(appendEvent).toHaveBeenCalledWith(blocking.id, 'run.expired', {
       status: 'expired',
       message:
-        'Expired by a new message: run stuck with no execution progress.',
+        'Expired by a new request: run stuck with no execution progress.',
     });
   });
 

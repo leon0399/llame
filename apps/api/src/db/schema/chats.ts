@@ -397,6 +397,8 @@ export const runs = pgTable(
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),
     index('runs_user_status_idx').on(t.userId, t.status),
+    // Serves the source-run FK's referential check when a Run is deleted.
+    index('runs_source_run_id_user_id_idx').on(t.sourceRunId, t.userId),
     check(
       'runs_permission_mode_check',
       sql`${t.permissionMode} IN ('default', 'bypass')`,

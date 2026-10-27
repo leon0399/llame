@@ -30,7 +30,7 @@ const JOB_STATE_READ_TIMEOUT_MS = 5000;
  * so it is bounded; a state it cannot read in time, or at all, cannot prove
  * the run wedged and counts as live (409), never as expirable.
  */
-export async function blockerIsLive(input: {
+async function blockerIsLive(input: {
   dispatch: Pick<RunDispatcher, 'jobState'>;
   instanceConfig: InstanceConfigReader;
   run: Run;
@@ -69,15 +69,15 @@ export async function blockerIsLive(input: {
  */
 export async function clearActiveRunSlot(input: {
   tx: Db;
-  runsRepo: RunsRepository;
-  eventsRepo: RunEventsRepository;
   chatId: string;
   userId: string;
   dispatch: Pick<RunDispatcher, 'jobState'>;
   instanceConfig: InstanceConfigReader;
 }): Promise<void> {
+  const runsRepo = new RunsRepository(input.tx);
+  const eventsRepo = new RunEventsRepository(input.tx);
   const findActive = () =>
-    input.runsRepo.findActiveByChatId(input.chatId, input.userId);
+    runsRepo.findActiveByChatId(input.chatId, input.userId);
   const blocking = await findActive();
   if (!blocking) return;
   if (await blockerIsLive({ ...input, run: blocking })) {
@@ -93,26 +93,9 @@ export async function clearActiveRunSlot(input: {
     return;
   }
 
-  await expireStuckRun(input, blocking);
-}
-
-/**
- * Expire a Run the queue can no longer execute, with a terminal `run.expired`
- * and a finalized reply, so the Chat's single-flight slot is free.
- */
-async function expireStuckRun(
-  input: {
-    tx: Db;
-    runsRepo: RunsRepository;
-    eventsRepo: RunEventsRepository;
-    userId: string;
-    instanceConfig: InstanceConfigReader;
-  },
-  blocking: Run,
-): Promise<void> {
   const message =
-    'Expired by a new message: run stuck with no execution progress.';
-  const expired = await input.runsRepo.markFinished(
+    'Expired by a new request: run stuck with no execution progress.';
+  const expired = await runsRepo.markFinished(
     blocking.id,
     input.userId,
     'expired',
@@ -126,7 +109,7 @@ async function expireStuckRun(
     status: 'expired',
     models: input.instanceConfig.config.models,
   });
-  await input.eventsRepo.append(blocking.id, 'run.expired', {
+  await eventsRepo.append(blocking.id, 'run.expired', {
     status: 'expired',
     message,
   });

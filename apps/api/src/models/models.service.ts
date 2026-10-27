@@ -6,6 +6,7 @@ import {
 } from '../instance-config/instance-config.service';
 import type { ProductIdentityReader } from '../instance-config/product-identity';
 import type { ProviderConfig } from '../instance-config/llame-config';
+import { type PermissionMode } from '../tools/permissions/permission-mode';
 import {
   toPublicModel,
   type PublicModelCatalogEntry,
@@ -100,6 +101,23 @@ export function resolveEffortSelection(
     throw new EffortNotAvailableError(model.id, requested);
   }
   return requested;
+}
+
+/**
+ * The permission mode a Run stores: the requested one, or `default` when the
+ * request named none. Both admission paths — a chat send and a follow-up
+ * request — resolve it here, so a mode default or alias can never differ
+ * between them.
+ */
+export function resolvePermissionMode(
+  requested: PermissionMode | undefined,
+  enabled: ReadonlyArray<PermissionMode>,
+): PermissionMode {
+  const mode = requested ?? 'default';
+  if (!enabled.includes(mode)) {
+    throw new PermissionModeNotAvailableError(mode);
+  }
+  return mode;
 }
 
 /** The only capability a run needs to obtain a client (#268). */

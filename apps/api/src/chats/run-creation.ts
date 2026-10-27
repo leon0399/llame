@@ -37,8 +37,6 @@ export type CreateRunForMessageInput = {
   followUp?: FollowUpRunInput;
 };
 
-export type CreatedRun = { run: Run; supersededRunIds: Array<string> };
-
 /**
  * The Run row, atomically with canceling any (defensively impossible, but
  * legacy-data-tolerant) stale active runs on this same message, and the
@@ -50,7 +48,7 @@ export async function createRunForMessage(
   tx: Db,
   input: CreateRunForMessageInput,
   userMessage: Message,
-): Promise<CreatedRun> {
+): Promise<{ run: Run; supersededRunIds: Array<string> }> {
   const runsRepo = new RunsRepository(tx);
   const eventsRepo = new RunEventsRepository(tx);
   const superseded = await runsRepo.cancelActiveRunsForMessage(

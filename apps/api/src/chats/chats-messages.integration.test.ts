@@ -394,6 +394,24 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       failedRunId = failed.id;
     });
 
+    // The scenario shape: a failed Run with no reply, model A, mode `bypass`,
+    // and no follow-up action.
+    const failedRead = await request(http)
+      .get(`/api/v1/chats/${runChatId}/messages`)
+      .set('Cookie', cookieA);
+    expect(failedRead.status).toBe(200);
+    expect(
+      z.object({ latestRun: z.unknown() }).parse(failedRead.body).latestRun,
+    ).toEqual({
+      id: failedRunId,
+      messageId: userMessageId,
+      status: 'failed',
+      followUpAction: null,
+      modelId: 'system:test-model-a',
+      effort: 'high',
+      permissionMode: 'bypass',
+    });
+
     // A Continue Run on the same turn is the newest Run, and records the action
     // that started it. It is created in its own transaction so its `createdAt`
     // is strictly later than the Run it continues.
