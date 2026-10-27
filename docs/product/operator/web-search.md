@@ -10,7 +10,9 @@ behavior:
 # Web search
 
 This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
-Supported operator engines are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, `duckduckgo`, `aggregate`, and `model-hosted`; configure only these types.
+Supported operator engines are `brave`, `deepseek`, `exa`, `exa-mcp`,
+`parallel`, `perplexity`, `searxng`, `duckduckgo`, `aggregate`, and
+`model-hosted`; configure only these types.
 
 ## Enabling
 
@@ -72,7 +74,9 @@ Each engine type declares its vendor's query limit in code. llame checks the sub
 | Type           | Query limit                  | Result count                       |
 | -------------- | ---------------------------- | ---------------------------------- |
 | `brave`        | 600 code points and 75 words | `count`, at most 20                |
+| `deepseek`     | 128 code points              | `count`, at most 50                |
 | `exa`          | the tool's 1,000 units       | `numResults`, at most 100          |
+| `parallel`     | 200 code points              | `max_results`, at most 20          |
 | `perplexity`   | the tool's 1,000 units       | `max_results`, at most 20          |
 | `exa-mcp`      | the tool's 1,000 units       | the hosted tool's `numResults`     |
 | `searxng`      | the tool's 1,000 units       | cut to `limit` after normalization |
@@ -84,11 +88,23 @@ A word is a run of non-space characters; lengths are code points, so a character
 
 A query over an engine's limit skips that engine: it sends nothing, the call records `<id>: unsupported`, and a later engine answers. When every chain engine is skipped, the call fails with the fixed error and class `unsupported`. An aggregate runs only the children that accept the query, notes each skipped child as `unsupported`, and fails with `unsupported` when it skips every child.
 
-`limit` is 1-20 for the model and is clamped to the vendor maximum, so a vendor that caps fewer results never fails a call. `searxng` and `duckduckgo` take no count, so their normalized results are cut to `limit` after URLs that fail validation are dropped.
+`limit` is 1-20 for the model and is clamped to the vendor maximum, so a
+vendor that caps fewer results never fails a call. `searxng` and `duckduckgo`
+take no count, so their normalized results are cut to `limit` after URLs that
+fail validation are dropped.
 
 ## Objective
 
-`objective` is an optional 1-2,000-unit statement of the goal the search serves, for example which sources should rank first. It is outbound text to every engine that accepts the field: `exa` and `exa-mcp` send it as Exa's `objective` (the query when absent), and a `model-hosted` engine adds one `Goal:` line to its sub-request. Every other engine ignores it without a note, and no engine joins it to the query. Because it leaves the instance, add an `objective` clause to `tools.permissions.web_search` when it can carry text the instance must not send.
+`objective` is an optional 1-2,000-unit statement of the goal the search
+serves, for example which sources should rank first. It is outbound text to
+every engine that accepts the field: `exa` and `exa-mcp` send it as Exa's
+`objective` (the query when absent), `parallel` sends it as Parallel's
+`objective` (absent when the call sets none), `deepseek` sends its first 128
+code points as `ori_question` without a note, and a `model-hosted` engine adds
+one `Goal:` line to its sub-request. Every other engine ignores it without a note, and no
+engine joins it to the query. Because it leaves the instance, add an
+`objective` clause to `tools.permissions.web_search` when it can carry text
+the instance must not send.
 
 ## Aggregate
 
@@ -254,6 +270,89 @@ challenges on datacenter/shared IPs are reported as `challenge`.
 There is no license for automated queries or storage, so the operator owns that
 risk. SearXNG is the dependable keyless option.
 
+## DeepSeek
+
+```jsonc
+{
+  "id": "deepseek",
+  "type": "deepseek",
+  "key": "{env:DEEPSEEK_API_KEY}",
+  "timeoutSeconds": 60,
+}
+```
+
+`key` is required. llame sends it only as `Authorization: Bearer <key>` to
+`https://api.deepseek.com/v1/tools/search`, and redirects are refused, so the
+key cannot follow a redirect to another host. `limit` becomes `count` (at most 50) and `objective` its first 128 code points as `ori_question`.
+
+DeepSeek has no freshness parameter, so `recency` becomes an `after:YYYY-MM-DD`
+term appended to the query. The vendor caps the query at 128 code points, so
+when the dated query would be longer the date is omitted and the output notes
+that `deepseek` did not apply `recency`. DeepSeek filters on publication date,
+so a page that was updated but published earlier is excluded. `site:`,
+`-site:`, `lang:`, `after:`, and `before:` stay in the query text; llame
+translates none of them here.
+
+The snippet is the vendor's `summary` (the longer, model-oriented field) unless
+it is empty, then its `snippet`. `date` becomes `published`. HTTP 401 and 403
+are `auth`, 429 `rate_limited`, 408 and 504 `timeout`, and every other status
+`upstream_error`; a 402 means the account is not funded and is reported as
+`upstream_error`, so top up the account. The vendor's 401 body echoes the key's
+last four characters, which llame never surfaces.
+
+Price: $0.75 per 1,000 successful requests, per request rather than per token
+or result. Failed requests, empty results, and timeouts are not billed. The
+documented limit is 100 requests per second per account. DeepSeek documents no
+retention period or training use for search queries, and its privacy policy
+stores personal data in the People's Republic of China; treat query retention
+as unknown and decide accordingly.
+
+## Parallel
+
+```jsonc
+{
+  "id": "parallel",
+  "type": "parallel",
+  "key": "{env:PARALLEL_API_KEY}",
+  "mode": "fast",
+  "timeoutSeconds": 60,
+}
+```
+
+`key` is required and is sent only as `x-api-key` to
+`https://api.parallel.ai/v1/search`; redirects are refused. `mode` is one of
+`turbo`, `fast`, `basic`, or `advanced` and defaults to `fast`. `turbo` and
+`fast` cost $1 per 1,000 requests at up to 10 results, `basic` and `advanced`
+$5; each result beyond ten adds $1 per 1,000. `turbo` answers English and
+Japanese queries only and rejects a `site:` host that carries a path, so such a
+query fails as `upstream_error`; other modes accept it. `advanced` is the
+vendor default and is the slowest (about 3 seconds).
+
+The query is the only `search_queries` entry, `limit` becomes `max_results` (at
+most 20), and `objective` is sent as the vendor's `objective`. `site:` hosts
+become `include_domains` and `-site:` hosts `exclude_domains`, and those tokens
+leave the query. Parallel ignores exclusions while inclusions exist, so with
+both present llame sends the inclusions only and notes the dropped exclusions.
+`recency` becomes `source_policy.after_date`. Each result's first excerpt
+becomes the snippet, without a leading copy of the title, and the request asks
+for at most 1,000 excerpt characters per result (the vendor's own default is
+undocumented) so the output's 300-unit cap does the cutting.
+
+The Chat id is sent as `session_id`, so Parallel can contextualize calls made
+inside one Chat. That is the same exposure as the default `X-Session-Id`
+model-provider header; sessions are never shared across Chats. The vendor's
+error bodies carry a reference id and are discarded; HTTP 401 and 403 are
+`auth`, 429 `rate_limited`, 408 and 504 `timeout`, and a 402 (credit exhausted)
+stays `upstream_error`, so watch the account balance.
+
+Processing is in the United States, and llame calls only that endpoint:
+Parallel's EU endpoint, which returns zero data retention and runs `basic`
+mode, is not configurable here. With llame, zero data retention therefore
+needs an Enterprise plan, and the standard customer terms allow Parallel to
+train on customer input. Search answers at most 600 requests per minute over a
+rolling 60-second window; Parallel does not document whether that limit applies
+per key or per organization.
+
 ## Query exfiltration
 
 Every query leaves the instance for the configured provider and may contain model-copied conversation, file, or tool text. `read` path permissions do not restrict this, and `read_only` does not make it private. `objective` is outbound text in the same way, for the engines that accept it.
@@ -264,4 +363,9 @@ The only query-exfiltration control is a `query` or `objective` reject clause in
 A completed call stores normalized results/answer in the chat's `web_search` tool part as conversation context, not raw vendor payload or request metadata. The part replays as untrusted tool output and is omitted from public chat shares like other protected parts.
 Provider terms constrain this storage. Brave Search API terms prohibit storing/caching results beyond transient operational use. Exa's terms prohibit copying/archiving results except a temporary cache; normalized chat storage may exceed that allowance.
 Perplexity grants display rights without an archive grant, so retaining normalized results is not automatically permitted. SearXNG is self-hosted, but the upstream engines' terms still apply.
-Disable or avoid an engine if the operator cannot accept its terms for llame's chat-part storage.
+DeepSeek documents no retention period for search queries or results, and its
+privacy policy stores personal data in the People's Republic of China.
+Parallel processes searches in the United States, publishes no default
+retention period, and its standard terms allow training on customer input.
+Disable or avoid an engine if the operator cannot accept its terms for llame's
+chat-part storage.
