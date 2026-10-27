@@ -1,23 +1,27 @@
 ---
-summary: "How a failing turn is continued from its last completed step without repeating a settled tool call"
+summary: "How a finished turn is continued from its last completed step, or regenerated from its user message"
 read_when:
-  - you need to know when the Continue action is offered and what it refuses
-  - you need to know what a continued Run sends to the model and what it keeps
+  - you need to know when the Continue and Regenerate actions are offered and what they refuse
+  - you need to know what a continued or regenerated Run sends to the model and what it keeps
+  - you need to know when a discarded attempt leaves a notice on the turn
 spec: durable-runs
 ---
 
-# Continue a turn
+# Continue or regenerate a turn
 
-Continue resumes the latest user turn of a Chat after its Run ended. It keeps the
-steps the earlier Run completed and asks the model for the next one. The model
-receives every kept tool result again, and no kept call runs a second time.
+Both actions act on the latest user turn of a Chat after its Run ended.
+Continue keeps the steps the earlier Run completed and asks the model for the
+next one; the model receives every kept tool result again, and no kept call
+runs a second time. Regenerate discards the turn's answer and asks the model for
+a new one from the user message alone.
 
 ## The request
 
 An owner starts a follow-up Run with `POST
 /api/v1/chats/:chatId/messages/:userMessageId/runs` and
-`{"action": "continue"}`. The answer is the same UI-message stream a chat send
-returns, and its first frame names the new Run's id.
+`{"action": "continue"}` or `{"action": "regenerate"}`. The answer is the same
+UI-message stream a chat send returns, and its first frame names the new Run's
+id.
 
 The route accepts only the latest user message of a Chat that is not archived.
 Every refusal below answers before it writes anything, except that admission
@@ -28,9 +32,10 @@ still expires a stuck Run of the Chat, exactly as a chat send does.
   changed.
 - A live Run in the Chat answers 409.
 - A malformed body answers 400. Continue refuses `modelId` and `effort`,
-  because it takes both from the Run it continues.
-- A permission mode that the instance does not enable answers with the error a
-  chat send with that mode gets. An absent mode means `default`.
+  because it takes both from the Run it continues. Regenerate requires
+  `modelId` and accepts `effort`.
+- A model, an effort, or a permission mode that a chat send cannot use answers
+  with the error that chat send gets. An absent mode means `default`.
 
 ## When Continue applies
 
@@ -109,3 +114,45 @@ instruction load skips every file whose bundle the kept parts already carry.
 
 Continue keeps the turn's model, so the stored model-switch item stays valid and
 no second one is authored.
+
+## Regenerate a turn
+
+Regenerate starts when the message's latest Run is terminal, whatever its
+status, and whether or not it left a reply. A Run that failed at pickup leaves
+no reply, and that turn needs Regenerate most. The new Run uses the model, the
+effort, and the permission mode the request names, and each passes the chat-send
+checks before anything is written.
+
+The first request starts from the history through the triggering user message,
+so it carries no part of the answer being discarded. Its dispatch replaces the
+turn's reply — also a `completed` answer of an earlier Run — and the replaced
+row stops being evidence: search, `conversation_read`, and timeline discovery
+never return it again. A Regenerate that ends before its dispatch leaves the old
+reply, its usage, and its evidence untouched.
+
+## The notice a discarded attempt leaves
+
+An answer may have run tools whose effects outlive it. When the replaced reply
+holds a call that can change files or other state, the turn gains a `regenerate`
+notice on its user message:
+
+> An earlier attempt at this turn was discarded after it ran tools that can
+> change files or other state. Check the current state before you act on it.
+
+A call counts when its recorded classification is anything but read-only, and a
+reply written before that classification existed falls back to the tool
+catalog: a tool the catalog does not know counts, and an MCP tool is unverified.
+A call that never started — the availability gate or the permission policy
+rejected it — does not count, and neither does a read-only call. The notice is
+stored once for the turn, after the items already on the user message, so every
+later Run of that turn and every later turn carries it. A tool-less Regenerate
+carries it too.
+
+## The model switch on a Regenerate
+
+A stored model-switch item names the model of the Run that stored it, so the
+first dispatch of a Regenerate removes it and stores the item that its own
+comparison against the most recent prior reply yields — or none, when the
+Regenerate returns to that reply's model. A retry of the same Regenerate keeps
+what its first dispatch stored. Continue keeps the turn's model, so its stored
+switch item stays valid.
