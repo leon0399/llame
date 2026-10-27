@@ -4,12 +4,14 @@ read_when:
   - you need to know when the Continue and Regenerate actions are offered and what they refuse
   - you need to know what a continued or regenerated Run sends to the model and what it keeps
   - you need to know when a discarded attempt leaves a notice on the turn
+  - you need to know where the web offers the actions and what each click sends
 spec: durable-runs
 ---
 
 # Continue or regenerate a turn
 
-Both actions act on the latest user turn of a Chat after its Run ended.
+Both actions act on the latest user turn of a Chat after its Run ended, from
+the Chat's own request route or from the action row under the reply's answer.
 Continue keeps the steps the earlier Run completed and asks the model for the
 next one; the model receives every kept tool result again, and no kept call
 runs a second time. Regenerate discards the turn's answer and asks the model for
@@ -132,6 +134,46 @@ searchable either. A Regenerate that ends before its dispatch leaves the old
 reply, its usage, and its evidence untouched, and a turn whose reply was never
 `completed` takes no mark at all.
 
+## The web actions
+
+The web offers both actions on the latest turn of a Chat, from the action row
+under the reply. An older turn offers neither, because the follow-up route acts
+on the latest user message only.
+
+Continue appears when all of these hold:
+
+- the reply's usage names the Chat's latest Run, and that Run is `failed`,
+  `cancelled`, or `expired`;
+- that usage is not `completed`;
+- the reply holds a settled tool part, so there is a step to resume from.
+
+Continue sends the composer's permission mode and nothing else: the Run keeps
+its own model and effort.
+
+Regenerate appears whenever the latest Run is terminal. A turn whose Run ended
+without leaving a reply gets a short failed-turn row of its own, since there is
+no answer row to carry the action.
+
+Regenerate is a split button. A plain click repeats the latest Run's model, the
+effort it ran with, and the permission mode it was accepted with, whatever the
+composer shows. The menu beside it holds the composer's model, effort, and
+permission-mode selectors: a pick sets the composer, and the menu's submit sends
+those values.
+
+Before a Regenerate discards a call whose effects outlive the reply, the web
+asks first. The dialog names each such tool, and says that their effects stay
+and that the new answer will not see them. A tool part with no recorded
+classification counts, because the web holds no tool catalog to clear it; a
+cancelled dialog sends nothing.
+
+Both actions are follow-up Runs, so the request is the same `POST` above with
+the action body the web builds. The answer streams into one assistant message
+that holds the kept parts and the new parts.
+
+A reload during a follow-up Run shows one reply. Until that Run settles, the web
+hides the reply it replaces, so the old answer never appears beside the resumed
+stream.
+
 ## The notice a discarded attempt leaves
 
 An answer may have run tools whose effects outlive it. When the replaced reply
@@ -148,7 +190,9 @@ A call that never started — the availability gate or the permission policy
 rejected it — does not count, and neither does a read-only call. The notice is
 stored once for the turn, after the items already on the user message, so every
 later Run of that turn and every later turn carries it. A tool-less Regenerate
-carries it too.
+carries it too. The web renders it above the user message's text with the
+transcript's context-item styling; the reminder text the model receives never
+appears in the transcript.
 
 ## The model switch on a Regenerate
 

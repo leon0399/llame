@@ -2,6 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
+- The latest turn's answer now offers Continue and Regenerate in the web. Continue
+  resumes a failed, cancelled, or expired Run from the reply's last settled tool
+  step with the composer's permission mode, and appears only when the reply
+  still falls short of `completed`. Regenerate is a split button: a plain click
+  repeats the latest Run's model, effort, and permission mode, while its menu
+  holds the composer's own model, effort, and permission-mode selectors and
+  submits those. A Regenerate that would discard a call whose effects stay asks
+  first, names those calls, and says the effects remain and the new answer will
+  not see them; a cancel sends nothing. A reload during a follow-up Run shows one
+  reply, the notice a discarded attempt leaves now renders on its user message,
+  and a turn whose Run ended without a reply gets a short row that still offers
+  Regenerate. See
+  [Continue or regenerate a turn](docs/product/reference/continue-a-turn.md).
 - The latest turn can also be regenerated: `POST
   /api/v1/chats/:chatId/messages/:userMessageId/runs` with `{"action":
   "regenerate", "modelId": …}` starts a Run that discards the turn's answer —
@@ -13,7 +26,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   current state first. A stored model-switch reminder is replaced by the new attempt's
   own comparison. Stored tool parts now record the classification of the tool
   that ran, so a client can tell a read-only call from one whose effects stay.
-  The web app does not offer the action yet; see
+  The web app offers it on the latest turn; see
   [Continue or regenerate a turn](docs/product/reference/continue-a-turn.md).
 - A failed, cancelled, or expired turn can be continued from its last completed
   step: `POST /api/v1/chats/:chatId/messages/:userMessageId/runs` with
@@ -21,7 +34,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   steps, sends every kept tool result again with the reasoning that authorized
   it, and runs no kept call a second time. The reply then holds the kept parts
   followed by the new ones, and the turn's stored context items, model, and
-  effort decide the new request. The web app does not offer the action yet; see
+  effort decide the new request. The web app offers it on the latest turn; see
   [Continue a turn](docs/product/reference/continue-a-turn.md).
 - The chat history read reports the Chat's latest Run beside its messages, with
   that Run's status, follow-up action, model, effort, and accepted permission
