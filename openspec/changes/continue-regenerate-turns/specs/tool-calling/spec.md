@@ -344,7 +344,7 @@ When a tool call starts, the `tool.started` event and the stored tool part MUST 
 `classification` with the classification of the tool that executes it. A call that the
 availability gate or the permission policy rejects does not start. Its stored part MUST record
 `classification: null`, also after a rebuild from events. The chat history response MUST return
-the field. A tool part with no `classification` field is a part from before this rule.
+the field. Model replay, public shares, exports, and search MUST NOT carry it.
 
 #### Scenario: A started bash call records its classification
 

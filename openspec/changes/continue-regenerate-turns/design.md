@@ -89,7 +89,8 @@ admission transaction:
    or missing Chat or message answers 404 before any job state is read;
 2. refuses an archived Chat with the chat-send error;
 3. requires the message to be a user row of that Chat with no user row of higher `seq` (409);
-4. runs `clearActiveRunSlot`, so a live Run answers 409 and a stuck Run expires;
+4. runs `clearActiveRunSlot`, so a live Run answers 409 and a stuck Run expires; that expiry is
+   the one write a refused follow-up request can leave, as on a chat send;
 5. reads the message's latest Run and the reply after that, and applies the action check (D2);
 6. creates the Run through `createRunForMessage`, then `finalizeAcceptedRun` dispatches and
    streams.
@@ -169,7 +170,11 @@ reads omit a `running` reply.
 ### D6: The Continue projection
 
 The kept parts do not go through later-turn replay. A dedicated projection groups them by step: a
-step is the reasoning and text parts before a run of consecutive tool parts, plus that run. Each
+step is the tool calls of one model response, with the reasoning and text parts before them. From
+`api-continue` on, `tool.requested` carries the AI SDK `stepNumber`, and `run.continued` carries a
+`toolCallId -> stepNumber` map built from the source Run's events, so two sequential steps with no
+text between them stay two steps. A source Run from before that change has no step numbers; its
+projection falls back to "a run of consecutive tool parts is one step". Each
 step becomes one assistant message (its reasoning parts with their stored provider metadata, its
 text, then all its tool calls) and one tool message with all its results. A kept in-Run item
 becomes a user-role text block after its step's tool message, at its stored position, as the live
@@ -302,10 +307,9 @@ need no per-Chat Run query.
 
 ## Risks / Trade-offs
 
-- [The inferred step grouping merges two steps when the second has no reasoning and no text] ->
-  the merged message still pairs every call with its result. Adaptive thinking can skip reasoning on
-  a step, so this happens; the merged shape is one assistant turn with all calls, which both wires
-  accept.
+- [A legacy source Run has no step numbers, so two sequential steps with no text between them
+  merge] -> only Runs from before `api-continue` take that fallback; the merged message still pairs
+  every call with its result, and both wires accept it.
 - [A provider rejects the replayed reasoning] -> Continue keeps the reply's model and wire (D2),
   and wire tests cover both reasoning wires. A rejection fails the Run under the current failure
   contract, and Regenerate stays available.
@@ -323,9 +327,11 @@ need no per-Chat Run query.
 
 Two Drizzle migrations, all columns nullable with no backfill: `api-follow-up` adds
 `runs.follow_up_action` and `runs.source_run_id`; `api-regenerate` adds `messages.revised_at`.
-RLS policies on both tables are row-scoped and need no change. Rollback: deploy the earlier image
-and drop the columns; until then the old image ignores them. The eligibility predicate change
-ships with `revised_at`.
+RLS policies on both tables are row-scoped and need no change. Rollback before any Regenerate of a
+`completed` reply: deploy the earlier image and drop the columns. After one, the earlier image
+would treat a revised row as eligible evidence again, so rollback below `api-regenerate` means
+restoring a pre-change database snapshot, or keeping `revised_at` and the predicate change on a
+fix-forward image. The eligibility predicate change ships with `revised_at`.
 
 ## Open Questions
 

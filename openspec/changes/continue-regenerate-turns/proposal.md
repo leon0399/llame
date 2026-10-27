@@ -115,7 +115,8 @@ for a rail rule that allows a reply-leading item.
 - `conversation-reads`: "Conversation reads derive authority only from trusted Run identity": a
   retryable row is a non-completed reply, and a revised reply is not eligible evidence.
 - `search-projection`: "Only user-visible conversation text is indexed": a revised reply leaves the
-  index.
+  index. "Lexical indexing is synchronous on turn completion, with async fallback and
+  coalescing": the rebuild after a Regenerate keeps the revised reply out.
 - `context-injection`: "Server-authored context is injected as discrete items on one rail": a
   follow-up Run keeps and appends items as a retry does, and a Regenerate replaces the model-switch
   item. "Co-occurring items have a total author-time order": the `regenerate` producer. "An item
@@ -137,8 +138,8 @@ Deliberately unchanged:
 - `run-usage-accounting` "Usage records whether it is complete": it already requires
   `complete: false` for a usage that replaces an earlier reply's usage, and `turn-actions` makes a
   follow-up Run apply that rule even though its dispatch reset hides the earlier usage.
-- `search-projection` "Lexical indexing is synchronous on turn completion, with async fallback and
-  coalescing": it already rebuilds the projection after any regenerate.
+- `owner-chat-forks`: a fork copies a revised reply as a new message with a new identity, so no
+  citation of the original row can resolve to it; the copy needs no revised mark.
 - `chat-creation` "The message step commits the message and its Run before the enqueue": a resend
   as a new message stays valid after an enqueue failure; the follow-up route is an extra option.
 - `media-attachments`, `reasoning-output`, `chat-recency-digest`, and `temporal-anchor`: their

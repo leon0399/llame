@@ -58,7 +58,8 @@ for a new message. The action check MUST read the latest Run of the message afte
 The `action` field MUST be `continue` or `regenerate`. A malformed request MUST get a 400 answer. A
 Continue request MUST NOT name `modelId` or `effort`. A Regenerate request MUST name `modelId`. A
 model, effort, or permission mode that a chat send cannot use MUST get the chat-send error. An
-absent `permissionMode` MUST mean `default`. A refused request MUST write nothing.
+absent `permissionMode` MUST mean `default`. A refused request MUST write nothing, except the
+expiry of a stuck Run that single-flight admission performs.
 
 #### Scenario: Continue rejects a model choice
 
@@ -143,16 +144,21 @@ keep no part.
 ### Requirement: Continue requests the next step of the same turn
 
 The first model request of a Continue Run MUST carry the history through the triggering user
-message, then the kept parts. Each kept step MUST be one assistant message with its reasoning,
-its text, and all its tool calls, then one message with all its results. Kept results MUST be
-complete. The request MUST NOT add a user-role message, except a kept context item. The Run MUST
-NOT execute a kept call again.
+message, then the kept parts. A kept step is the set of tool calls that one model response made.
+Each kept step MUST be one assistant message with its reasoning, its text, and its tool calls, then
+one message with their results. Kept results MUST be complete. The request MUST NOT add a
+user-role message, except a kept context item. The Run MUST NOT execute a kept call again.
 
 #### Scenario: Continue sends the kept steps with their reasoning
 
 - **WHEN** the owner continues a `failed` Run whose kept step holds a reasoning part with encrypted provider metadata and two parallel tool calls
 - **THEN** the first model request carries one assistant message with that reasoning part, its metadata, and both calls, then both results
 - **AND** the request has no user-role message after those results
+
+#### Scenario: Sequential steps stay separate
+
+- **WHEN** the kept parts hold call `t1` from one model response and call `t2` from the next response, with no text or reasoning between them
+- **THEN** the first model request carries `t1` and its result, then a second assistant message with `t2`, then its result
 
 #### Scenario: Continue sends long results in full
 

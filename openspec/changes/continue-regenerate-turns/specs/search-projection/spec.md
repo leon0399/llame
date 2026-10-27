@@ -58,3 +58,61 @@ Unicode NFKC, whitespace-collapse, and lowercase rules to the lexical column onl
 
 - **WHEN** a Regenerate replaces a `completed` reply, the Regenerate Run completes, and reindex runs
 - **THEN** no projection row contains the old text or the new text of that reply
+
+### Requirement: Lexical indexing is synchronous on turn completion, with async fallback and coalescing
+
+Turn completion is assistant finalization, also after any regenerate. It MUST rebuild the lexical
+projection of the whole Chat **synchronously, after the user-facing write commits, inside the
+tenant scope of the Chat owner**. Thus the content of the turn that the chunker keeps is
+searchable as soon as finalization completes. This content is the user message and the assistant
+reply together, except a revised reply that the chunker excludes. The rebuild needs no BYPASSRLS
+and no background worker. This is the only inline indexing site. The system does not rebuild
+inline for a user message persisted before its turn finalizes, because finalization covers it
+soon after. A fork enqueues its own content asynchronously and does not rebuild inline. The
+synchronous rebuild MUST NOT run inside the user-facing write transaction and MUST NOT fail the
+user-facing write. On any failure it MUST fall back to an asynchronous per-Chat reindex job, so the
+update is not lost. Each rebuild MUST be an idempotent reconstruction from canonical `messages`. It
+MUST run under **REPEATABLE READ**, so the message read and the `indexed_at` watermark share one
+snapshot. Thus a plain message write during a rebuild is fully indexed or fully excluded. It is
+never chunked out but stamped into the watermark. An excluded write leaves `chats.updated_at` ahead
+of `indexed_at`, so discovery flags the Chat again. A rebuild can lose a write race with a
+concurrent rebuild of the same Chat, as a serialization failure under REPEATABLE READ. The system
+MUST then retry it; the rebuild is idempotent, so the fresh snapshot of the retry converges.
+`search_chat_state.indexed_at` MUST only advance (`GREATEST(existing, excluded)`). The asynchronous
+paths are the Tier-1 fallback, fork, the discovery sweep, and phase-2 embedding work. The system
+MUST coalesce them, so at most one job is pending and one runs for each Chat (pg-boss queue policy
+`'stately'` and `singletonKey = chat_id`).
+
+#### Scenario: Fresh turn is searchable synchronously
+
+- **WHEN** a user's message gets an answer, and the assistant's reply finalizes with a distinctive term
+- **THEN** the term is searchable directly when that request completes, before any background job runs
+
+#### Scenario: Synchronous rebuild failure falls back to the queue
+
+- **WHEN** the synchronous rebuild fails after the user-facing write committed
+- **THEN** the user-facing write still succeeds, and the system enqueues an asynchronous reindex job for the Chat
+- **AND** the Chat becomes searchable when that job runs
+
+#### Scenario: Concurrent rebuilds of one chat converge
+
+- **WHEN** two rebuilds for the same Chat run at the same time, for example a Tier-1 inline write and a queued reindex job
+- **THEN** a rebuild that fails with a serialization error is retried and converges on the same projection
+- **AND** `indexed_at` only advances
+
+#### Scenario: A message written during a rebuild is never lost by a stale watermark
+
+- **WHEN** a new message commits to a Chat while the rebuild of that Chat is in progress
+- **THEN** the rebuild, under REPEATABLE READ, includes the message or excludes it fully
+- **AND** when it excludes the message, `indexed_at` does not move past that message, so `chats.updated_at` stays ahead and discovery flags the Chat for reindex again
+
+#### Scenario: Async paths coalesce per chat
+
+- **WHEN** the fallback, fork, or sweep enqueues reindex jobs for one Chat while a rebuild runs
+- **THEN** at most one additional rebuild is queued, and the final projection reflects all messages
+
+#### Scenario: A regenerated reply is rebuilt out of the projection
+
+- **WHEN** a Regenerate Run from `turn-actions` replaces a `completed` reply and then finalizes
+- **THEN** the synchronous rebuild runs after that finalization
+- **AND** the projection holds the user message of the turn and no text of the revised reply
