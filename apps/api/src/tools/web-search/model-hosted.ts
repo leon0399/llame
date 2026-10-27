@@ -143,15 +143,29 @@ const WIRES: Record<HostedConfig['wire'], WireProfile> = {
   'anthropic-messages': ANTHROPIC_WIRE,
 };
 
+/**
+ * The user message of every hosted search sub-request, packaged as
+ * `prompts/hosted-search-request.md`: the query, then a recency line and a goal
+ * line when set. The goal never joins the query, so the model still searches
+ * the keywords.
+ */
+const renderHostedSearchRequest = loadPackagedTemplate<{
+  query: string;
+  recency?: string;
+  objective?: string;
+}>(__dirname, 'hosted-search-request');
+
 function hostedMessages(request: EngineRequest): Array<ModelMessage> {
-  const recency =
-    request.recency === undefined
-      ? ''
-      : `\n\nOnly use sources published within the last ${request.recency}.`;
-  // A goal line, never the query text: the model still searches the keywords.
-  const goal =
-    request.objective === undefined ? '' : `\n\nGoal: ${request.objective}`;
-  return [{ role: 'user', content: `${request.query}${recency}${goal}` }];
+  return [
+    {
+      role: 'user',
+      content: renderHostedSearchRequest({
+        query: request.query,
+        recency: request.recency,
+        objective: request.objective,
+      }),
+    },
+  ];
 }
 
 /**
