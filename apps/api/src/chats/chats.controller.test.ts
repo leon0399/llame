@@ -8,10 +8,8 @@ import {
   ChatsController,
   type ChatsControllerService,
 } from './chats.controller';
-import {
-  CHAT_MESSAGES_DEFAULT_LIMIT,
-  ContinueFollowUpRunDto,
-} from './dto/chats.dto';
+import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
+import { type ContinueFollowUpRunDto } from './dto/follow-up-run.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
 import * as schema from '../db/schema';

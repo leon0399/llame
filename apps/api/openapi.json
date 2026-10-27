@@ -905,12 +905,16 @@
                 "oneOf": [
                   {
                     "$ref": "#/components/schemas/ContinueFollowUpRunDto"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RegenerateFollowUpRunDto"
                   }
                 ],
                 "discriminator": {
                   "propertyName": "action",
                   "mapping": {
-                    "continue": "#/components/schemas/ContinueFollowUpRunDto"
+                    "continue": "#/components/schemas/ContinueFollowUpRunDto",
+                    "regenerate": "#/components/schemas/RegenerateFollowUpRunDto"
                   }
                 }
               }
@@ -5079,6 +5083,33 @@
           }
         },
         "required": ["action"],
+        "additionalProperties": false
+      },
+      "RegenerateFollowUpRunDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["regenerate"],
+            "description": "Discard the turn's answer and request a new one from the user message."
+          },
+          "modelId": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "Model for the regenerated Run."
+          },
+          "effort": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "Reasoning effort for the regenerated Run, from the selected model's declared levels."
+          },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass"],
+            "description": "Permission mode for this Run; omit for default."
+          }
+        },
+        "required": ["action", "modelId"],
         "additionalProperties": false
       },
       "UpdateChatDto": {
