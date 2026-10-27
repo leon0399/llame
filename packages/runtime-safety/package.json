@@ -26,7 +26,7 @@
     "@workspace/config-typescript": "workspace:*",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
-    "typescript": "catalog:",
+    "typescript": "catalog:classic-api",
     "vitest": "catalog:",
     "zod": "catalog:"
   }

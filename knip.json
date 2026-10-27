@@ -107,6 +107,6 @@
     "apps/api/src/queue/generated/**",
     "packages/oxlint-plugin-anti-slop/vendor/**"
   ],
-  "ignoreDependencies": ["next", "shadcn", "typescript-language-server"],
+  "ignoreDependencies": ["next", "shadcn"],
   "ignoreExportsUsedInFile": true
 }

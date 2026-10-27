@@ -1,28 +1,41 @@
-import fs from "node:fs";
 import path from "node:path";
 
-import ts from "typescript";
-import { describe, expect, test } from "vitest";
+import {
+  ScriptKind,
+  SyntaxKind,
+  type Node,
+  type SourceFile,
+} from "typescript/ast";
+import {
+  isCallExpression,
+  isIdentifier,
+  isImportDeclaration,
+  isObjectLiteralExpression,
+  isPropertyAssignment,
+  isStringLiteral,
+} from "typescript/ast/is";
+import { API } from "typescript/sync";
+import { afterAll, describe, expect, test } from "vitest";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 
-function parse(relativePath: string): ts.SourceFile {
-  const absolutePath = path.join(repoRoot, relativePath);
-  return ts.createSourceFile(
-    absolutePath,
-    fs.readFileSync(absolutePath, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
+// One compiler session for the file: it owns a native worker, and every
+// source file it parses stays retained until the session closes.
+const api = new API();
+afterAll(() => api.close());
+
+function parse(relativePath: string): SourceFile {
+  return api.createSourceFileFromFile(path.join(repoRoot, relativePath), {
+    scriptKind: ScriptKind.TSX,
+  }).sourceFile;
 }
 
-function staticImports(source: ts.SourceFile): Array<string> {
+function staticImports(source: SourceFile): Array<string> {
   return source.statements.flatMap((statement) => {
     if (
-      !ts.isImportDeclaration(statement) ||
-      !ts.isStringLiteral(statement.moduleSpecifier) ||
-      statement.importClause?.isTypeOnly
+      !isImportDeclaration(statement) ||
+      !isStringLiteral(statement.moduleSpecifier) ||
+      statement.importClause?.phaseModifier === SyntaxKind.TypeKeyword
     ) {
       return [];
     }
@@ -30,54 +43,45 @@ function staticImports(source: ts.SourceFile): Array<string> {
   });
 }
 
-function dynamicImports(source: ts.SourceFile): Array<string> {
+function dynamicImports(source: Node): Array<string> {
   const imports: Array<string> = [];
 
-  function visit(node: ts.Node): void {
+  function visit(node: Node): void {
     if (
-      ts.isCallExpression(node) &&
-      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      isCallExpression(node) &&
+      node.expression.kind === SyntaxKind.ImportKeyword &&
       node.arguments.length === 1 &&
-      ts.isStringLiteral(node.arguments[0])
+      isStringLiteral(node.arguments[0])
     ) {
       imports.push(node.arguments[0].text);
     }
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   }
 
   visit(source);
   return imports;
 }
 
-function clientOnlyDynamicImports(source: ts.SourceFile): Array<string> {
+function clientOnlyDynamicImports(source: SourceFile): Array<string> {
   const imports: Array<string> = [];
 
-  function visit(node: ts.Node): void {
+  function visit(node: Node): void {
     if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
+      isCallExpression(node) &&
+      isIdentifier(node.expression) &&
       node.expression.text === "dynamic" &&
       node.arguments.length === 2 &&
-      ts.isObjectLiteralExpression(node.arguments[1]) &&
+      isObjectLiteralExpression(node.arguments[1]) &&
       node.arguments[1].properties.some(
         (property) =>
-          ts.isPropertyAssignment(property) &&
+          isPropertyAssignment(property) &&
           property.name.getText(source) === "ssr" &&
-          property.initializer.kind === ts.SyntaxKind.FalseKeyword,
+          property.initializer.kind === SyntaxKind.FalseKeyword,
       )
     ) {
-      const loaderImports = dynamicImports(
-        ts.createSourceFile(
-          "loader.tsx",
-          node.arguments[0].getText(source),
-          ts.ScriptTarget.Latest,
-          true,
-          ts.ScriptKind.TSX,
-        ),
-      );
-      imports.push(...loaderImports);
+      imports.push(...dynamicImports(node.arguments[0]));
     }
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   }
 
   visit(source);

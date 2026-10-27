@@ -10,7 +10,7 @@
     "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@workspace/ui": "workspace:*",
@@ -34,7 +34,6 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@typescript/native-preview": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",
@@ -48,7 +47,7 @@
     "sonner": "catalog:",
     "storybook": "catalog:",
     "streamdown": "catalog:",
-    "typescript": "catalog:",
+    "typescript": "catalog:classic-api",
     "use-stick-to-bottom": "catalog:",
     "vite": "6.4.4",
     "vitest": "catalog:",

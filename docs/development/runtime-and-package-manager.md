@@ -29,9 +29,10 @@ in-place API migration.
 - `allowBuilds` is the reviewed install-script allowlist; unlisted scripts are
   blocked. Record a decision with `pnpm add <pkg> --allow-build=<pkg>` (or
   `--allow-build=!<pkg>` to deny) rather than editing the list by hand.
-- Keep `virtualStoreType: project`: with the global virtual store, tsgo
-  resolves global-store realpaths into split `@types` identities. Revisit when
-  tsgo supports that layout.
+- Keep `virtualStoreType: project`: with the global virtual store, `tsc`
+  resolves global-store realpaths into split `@types` identities (last seen on
+  the TypeScript 7 preview builds). Revisit when the compiler supports that
+  layout.
 - Stay current on pnpm 12, pinned to the version nixpkgs packages as
   `pnpm_12` so the Nix dev shell and `packageManager` agree. Security/build
   defaults are pinned in `pnpm-workspace.yaml`; `minimumReleaseAge` is seven

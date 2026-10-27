@@ -8,7 +8,7 @@ Configuration-only TypeScript presets; no runtime, output, or scripts.
 | `nextjs.json`        | bundler resolution, preserved JSX, no emit | web, Storybook     |
 | `react-library.json` | React JSX transform                        | `@workspace/ui`    |
 
-API owns separate Nest/tsgo settings and must not inherit these incidentally.
+API owns separate Nest/tsc settings and must not inherit these incidentally.
 Keep aliases, plugins, types, includes, excludes, and output paths in consumers.
 Preserve base `NodeNext` unless every consumer moves together. Do not add scripts
 or generated output; consumers own complete-program checks.
