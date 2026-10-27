@@ -428,7 +428,8 @@ post-filter described in [Result removal](#result-removal).
 Yandex reports a search-level error inside a successful HTTP response, in the
 XML body. llame reads that `<error code>` before it reads any result: code 42
 is `auth`, codes 32 and 55 are `rate_limited`, and code 100 is `challenge`.
-Codes 2 and 15 mean the search found nothing, so the engine is empty. Every
+Code 2 means the search query was empty and code 15 that the search found
+nothing; both make the engine empty. Every
 other code and a body that is not a Yandex response are `upstream_error`; HTTP
 401 and 403 are `auth`, 429 `rate_limited`, 408 and 504 `timeout`, and every
 other status `upstream_error`. The vendor's error text never reaches the

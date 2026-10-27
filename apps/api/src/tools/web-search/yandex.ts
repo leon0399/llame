@@ -18,7 +18,8 @@ export const YANDEX_SEARCH_URL =
 const MAX_PASSAGES = 3;
 /**
  * What the vendor means by each error code it reports inside the XML body, also
- * after HTTP 200. Codes 2 and 15 mean the search found nothing; a code this
+ * after HTTP 200. Code 2 means the query was empty and code 15 that nothing was
+ * found; both give an empty outcome. A code this
  * build does not know is `upstream_error`.
  */
 const IN_BODY_ERRORS = {
