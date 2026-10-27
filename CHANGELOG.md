@@ -2,6 +2,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
+- `web_search` takes an optional `engines` input: 1 to 20 unique configured
+  engine ids that run in that order for one call instead of `webSearch.chain`,
+  with the same fall-through among them only, so a call that names one engine
+  is pinned to it and never falls back to the chain. Every configured engine is
+  selectable, an `aggregate` and a child of an `aggregate` included, and a
+  repeated id fails schema validation. Each id is checked against the
+  configured engines before any request; an unknown id returns
+  `web_search_failed` listing the configured ids and sends nothing. The
+  declared description is now the rendered `web_search` template, packaged or
+  `tools.promptFiles`-overridden, followed by an engine catalog generated once
+  per worker from the resolved configuration: id, type, result kind, chain
+  position, `recency` use, query limit (an `aggregate` states its smallest
+  child limit), `objective` use, and the entry's `description`, with ids and
+  descriptions tag-neutralized and no key, base URL, folder id, or model id.
+  An override that renders empty still fails the attempt, because the
+  empty-render check runs before the catalog is appended. Every `webSearch`
+  engine entry, an `aggregate` included, can carry an optional literal
+  `description` of 1 to 200 characters on one line; an interpolation token or
+  a line break fails startup naming the `description` path.
 - `web_search` aggregates accept `model-hosted` children. Each grounded answer
   of a hosted child is attached to the results output as an `answers` entry
   named by that child's id, in child order, and its citations join the rank

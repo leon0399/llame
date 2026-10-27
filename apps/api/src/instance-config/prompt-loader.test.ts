@@ -1739,6 +1739,10 @@ describe('llame-owned tool description templates', () => {
     expect(rendered).toContain(
       'Any other operator can reach an engine as plain words',
     );
+    // The template names the `engines` input and stays complete without the
+    // generated catalog the worker appends after rendering.
+    expect(rendered).toContain('1–20 unique engine ids');
+    expect(rendered).toContain('instead of the default chain');
     // The objective and the skip it must warn about.
     expect(rendered).toContain('objective');
     expect(rendered).toContain('2,000');

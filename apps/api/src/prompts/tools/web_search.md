@@ -5,6 +5,7 @@ Search the public web for current information.
 - objective: optionally, the goal this search serves, 1–2,000 characters. State which sources should rank first and which facts matter, and keep it concise. It never joins `query`.
 - recency: optionally limit results to day, week, month, or year.
 - limit: optionally request 1–20 results; the default is 10.
+- engines: optionally 1–20 unique engine ids listed under `Configured web search engines` below. They run in that order instead of the default chain, with fallback only among them, and an id that is not listed fails the call.
 - Supported operators in `query`: `site:`, `-site:`, and quoted phrases. Any other operator can reach an engine as plain words, so do not rely on it.
 </instruction>
 

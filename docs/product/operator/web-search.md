@@ -3,13 +3,14 @@ summary: "Configure web_search engines, its fallback chain, permissions, and dat
 read_when:
   - you are enabling, restricting, or troubleshooting web_search
   - you are configuring a search-engine key or endpoint, or deciding how search results may be stored
+  - you need to know which engines a call can select or what the declared catalog shows the model
 behavior:
   - ../reference/tools/web-search.md
 ---
 
 # Web search
 
-This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
+This runbook covers enabling `web_search`, its configured engines/chain, the engines a model can select, the generated catalog, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
 Supported operator engines are `brave`, `deepseek`, `exa`, `exa-mcp`,
 `parallel`, `parallel-mcp`, `perplexity`, `searxng`, `duckduckgo`, `yandex`,
 `aggregate`, and `model-hosted`; configure only these types.
@@ -66,6 +67,32 @@ Add optional top-level `webSearch`; `engines` contains operator-owned entries an
 
 Engine ids are unique strings of 1-64 characters; every chain id must exist, the chain is non-empty and has no repeats. There is no built-in engine/chain; omit `webSearch` to leave search unconfigured.
 Each non-aggregate engine's positive-integer `timeoutSeconds` defaults to 60 seconds. The whole call (all chain steps) uses existing `tools.callTimeoutSeconds`, default 120 seconds; do not add another web-search call timeout. Engine timeouts are `timeout` and advance; other failures and empty results also advance. The first non-empty result/grounded answer ends the call. If all attempts fail, the fixed error names engine ids/classes, never an upstream response or credential.
+
+## Select engines for one call
+
+The model can pass `engines`: 1-20 unique configured engine ids, in its own order. A call that sets them runs those ids instead of `chain`, with the same fall-through among them only; naming one engine pins the call to it. No other engine sends a request, so a model that asks for `yandex` never silently gets `brave`. An id that names no configured engine fails the call before any request, and that error lists the configured ids.
+
+Every configured engine is selectable, an `aggregate` and a child of an `aggregate` included; there is no operator gate on which engine a call may name, so the cost of a selectable engine is the operator's decision. `tools.permissions.web_search` clauses judge `engines` by value only through `allFields`: a `field` clause selects a top-level string argument, `engines` is an array, so only an `allFields: true` reject clause can refuse engine ids. Engine ids are also not a seam for secret exposure: the model reads the declared catalog below, not the entry.
+
+## Engine catalog and descriptions
+
+The declared `web_search` description is the rendered template, packaged or overridden through `tools.promptFiles.web_search`, followed by a generated catalog of the configured engines. Each entry states the id, type, result kind (`results`, `answer`, or `results with answers`), its chain position or that it is outside the default chain, how it uses `recency`, its query limit, its `objective` use when it has one, and its `description`. An `aggregate` entry states its smallest child limit as the length below which no child is skipped. The catalog never contains a key, a base URL, a folder id, or a model id, and the template file stays complete without it.
+
+The catalog is generated once per worker from the resolved configuration, so the declared description, and with it the provider prompt cache, changes only when the operator edits engines and the instance restarts. An override that renders empty still fails the attempt: the catalog never stands in for a missing description.
+
+Each engine entry, an `aggregate` included, can carry an optional `description` of 1-200 characters on one line; the model reads it in the catalog, so write it for the model and never put a secret in it:
+
+```jsonc
+{
+  "id": "yandex",
+  "type": "yandex",
+  "key": "{env:YANDEX_API_KEY}",
+  "searchType": "ru",
+  "description": "Russian-language and CIS sources",
+}
+```
+
+The value is literal text: an `{env:...}` or `{path:...}` token or a line break fails startup and names the `description` path. Markup in the value is neutralized, so it cannot forge catalog framing.
 
 ## Query limits and result counts
 

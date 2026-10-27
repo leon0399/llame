@@ -11,7 +11,7 @@ configured_by: ../../operator/web-search.md
 
 ## Purpose
 
-`web_search` is read-only public-web search through operator-selected engines. The model supplies a query and optional controls, never an engine; success is normalized, untrusted output: a result list or cited answer.
+`web_search` is read-only public-web search through operator-configured engines. The model supplies a query and optional controls, and may name configured engines for the call; success is normalized, untrusted output: a result list or cited answer.
 See [Web search](../../operator/web-search.md) for enabling and configuration.
 
 ## Arguments
@@ -25,9 +25,16 @@ The tool accepts this strict object (unknown arguments are refused):
   "query": "pgvector benchmarks",
   "objective": "compare HNSW and IVFFlat recall"
 }
+{ "query": "release notes", "engines": ["deepseek", "exa"] }
 ```
 
-`query` is required, a 1-1,000 JavaScript UTF-16-code-unit string. Optional `objective` is a 1-2,000-unit statement of the goal the search serves; it never joins `query`, and only an engine whose vendor API has the field receives it. Optional `recency` is `day`, `week`, `month`, or `year`; `limit` is an integer 1-20, default 10. Search operators such as `site:`, `-site:`, and quoted phrases remain query text; the model cannot name an engine.
+`query` is required, a 1-1,000 JavaScript UTF-16-code-unit string. Optional `objective` is a 1-2,000-unit statement of the goal the search serves; it never joins `query`, and only an engine whose vendor API has the field receives it. Optional `engines` is 1-20 unique configured engine ids; they replace the chain for that call, and a repeated id fails schema validation. Optional `recency` is `day`, `week`, `month`, or `year`; `limit` is an integer 1-20, default 10. Search operators such as `site:`, `-site:`, and quoted phrases remain query text.
+
+## Choosing engines
+
+The declared description is the rendered template followed by a generated catalog of the configured engines. Each catalog entry states the id, type, result kind, chain position, `recency` use, query limit, `objective` use, and the operator's `description`, and an `aggregate` entry states its smallest child limit. The catalog carries no key, base URL, folder id, or model id, and its text changes only when the operator edits engines.
+
+Any configured engine is selectable, an `aggregate` and a child of an `aggregate` included. A call that names engines runs only those, in the given order, with the usual fall-through among them; it never falls back to the chain. An id that names no configured engine fails the call before any request, and the error lists the configured ids.
 
 ## Locators
 
@@ -94,7 +101,7 @@ An aggregate's results output can also carry `answers`, one entry per grounded a
 
 ## Behavior
 
-The configured chain runs in order: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. An engine whose vendor query limit the query exceeds sends nothing and advances as `unsupported`; an `aggregate` runs only the children that accept the query. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
+The configured chain runs in order, or the call's `engines` when it sets them: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. An engine whose vendor query limit the query exceeds sends nothing and advances as `unsupported`; an `aggregate` runs only the children that accept the query. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
 Engines request `min(limit, vendor maximum)` results and cut their normalized list to `limit` when the vendor API takes no count, so `limit` is an upper bound the call never exceeds.
 
 An engine in the chain may be an operator-configured aggregate. It runs its child engines together and merges their results by rank, so a URL that several children return ranks higher. `engine` is then the aggregate's id, and `notes` name each child that failed or returned nothing (`<child>: <class>` or `<child>: empty`), followed by the children's own notes. A child can be any engine except another aggregate, `model-hosted` included: each grounded answer of a hosted child becomes an `answers` entry named by that child's id, and its citations join the merge as results at citation rank, with the citation title and no snippet; a hosted child that answers without a cited URL counts as failed. The aggregate is empty when no child returned results or a grounded answer and at least one returned none; when every child fails, the aggregate counts as one failed engine with class `upstream_error`; when the query limit skips every child, it fails as `unsupported`.
@@ -124,9 +131,11 @@ When every attempted engine fails, the fixed shape is:
 }
 ```
 
+An unknown id in `engines` takes a different fixed shape: `{"status": "error", "type": "web_search_failed", "message": "Unknown web search engine \"bing\". Configured engines: brave, exa."}`, returned before any request.
+
 The message names each attempted engine id and one class, with entries joined by a semicolon plus one space: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline or the vendor's read deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), `unsupported` (the query is over that engine's vendor limit, so nothing was sent), or `upstream_error` (other transport, protocol, status, or parse failure).
 Engine messages are fixed and non-disclosing: upstream status text/bodies, request headers, configured keys/URLs never appear in output, errors, events, or logs. Schema, permission, cancellation, and whole-call-timeout outcomes use the runtime's corresponding tool outcomes, not this engine-failure shape.
 
 ## Configured by
 
-[Web search](../../operator/web-search.md) — enabling `web_search`, configuring its chain/deadlines, and deciding how returned data may be sent to or stored from the provider.
+[Web search](../../operator/web-search.md) — enabling `web_search`, configuring its chain/deadlines and engine descriptions, and deciding how returned data may be sent to or stored from the provider.
