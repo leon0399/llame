@@ -160,6 +160,8 @@ const meta = {
     chatId: "chat-1",
     status: "ready",
     availableModels: [],
+    latestRun: null,
+    onRegenerate: fn(),
     onForked: fn(),
     onInspectContext: fn(),
   },

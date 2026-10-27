@@ -40,7 +40,7 @@ import Page from "./page";
 let fetchMock: Mock<typeof fetch>;
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
-const EMPTY_HISTORY = { messages: [], compaction: null };
+const EMPTY_HISTORY = { messages: [], compaction: null, latestRun: null };
 
 type ChatPageProps = {
   chatId: string;

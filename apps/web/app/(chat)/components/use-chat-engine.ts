@@ -22,7 +22,7 @@ import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { authAwareFetch } from "@/lib/api/fetch";
 import {
   buildChatMessagesUrl,
-  NO_MODEL_SELECTED_ERROR,
+  type ChatTransportRequestOptions,
   prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
@@ -263,27 +263,29 @@ function useChatPermissionModeRestore({
   ]);
 }
 
-/** The model, effort, and permission mode a request must carry, read from the
- * transport's latest-value mirrors when a request is prepared — that read
- * happens in an event-time callback, never while the component renders, which
- * is why it lives here and not inside the options object the transport is
- * built from. */
-function resolveSendSelections(
-  modelRef: RefObject<string | undefined>,
-  effortRef: RefObject<string | undefined>,
-  permissionModeRef: RefObject<PermissionMode>,
-) {
-  const modelId = modelRef.current;
-  if (modelId === undefined) {
-    // Unreachable in practice (both send affordances are gated on
-    // modelReadyForSend), but this narrows undefined → string so a request can
-    // never be built without a model.
-    throw new Error(NO_MODEL_SELECTED_ERROR);
-  }
+/** The composer's latest selections, read at request time (never during
+ *  render) so an id-stable transport always sends what is selected now. */
+function requestOptions(
+  options: {
+    id: string;
+    messages: Array<Pick<UIMessage, "id" | "parts">>;
+    trigger: "submit-message" | "regenerate-message";
+    body: object | undefined;
+  },
+  selections: {
+    model: RefObject<string | undefined>;
+    effort: RefObject<string | undefined>;
+    permissionMode: RefObject<PermissionMode>;
+  },
+): ChatTransportRequestOptions {
   return {
-    modelId,
-    effort: effortRef.current,
-    permissionMode: permissionModeRef.current,
+    chatId: options.id,
+    messages: options.messages,
+    trigger: options.trigger,
+    followUp: options.body,
+    modelId: selections.model.current,
+    effort: selections.effort.current,
+    permissionMode: selections.permissionMode.current,
   };
 }
 
@@ -320,14 +322,13 @@ export function useChatSendTransport(
         credentials: "include",
         fetch: authAwareFetch,
         prepareSendMessagesRequest: (options) =>
-          prepareSendMessagesRequest({
-            ...options,
-            ...resolveSendSelections(
-              selectedModelRef,
-              selectedEffortRef,
-              selectedPermissionModeRef,
-            ),
-          }),
+          prepareSendMessagesRequest(
+            requestOptions(options, {
+              model: selectedModelRef,
+              effort: selectedEffortRef,
+              permissionMode: selectedPermissionModeRef,
+            }),
+          ),
         prepareReconnectToStreamRequest,
       }),
     // The refs are listed for the exhaustive-deps rule's benefit only: a ref

@@ -203,6 +203,7 @@ describe("fetchDraftChatMessages", () => {
     ).resolves.toEqual({
       messages: [],
       compaction: null,
+      latestRun: null,
     });
   });
 

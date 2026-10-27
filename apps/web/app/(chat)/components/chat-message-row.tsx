@@ -23,7 +23,6 @@ import { EditTool } from "@workspace/ui/components/custom/edit";
 import { GrepTool } from "@workspace/ui/components/custom/grep";
 import { KnowledgeSearchTool } from "@workspace/ui/components/custom/knowledge-search";
 import { McpTool } from "@workspace/ui/components/custom/mcp-tool";
-import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
 import { ReadTool } from "@workspace/ui/components/custom/read";
 import { SearchConversationsTool } from "@workspace/ui/components/custom/search-conversations";
 import type { ToolPartProps } from "@workspace/ui/components/custom/tool-row";
@@ -38,12 +37,11 @@ import {
   type ToolUIPart,
   type UIMessage,
 } from "ai";
-import { PencilIcon, RefreshCwIcon } from "lucide-react";
+import { PencilIcon } from "lucide-react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
 import { ComingSoonMessageAction } from "./coming-soon-message-action";
-import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
 import {
   groupAssistantParts,
@@ -56,20 +54,23 @@ import { MessageCopyButton } from "./message-copy-button";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { PromptImportsPart } from "./prompt-imports-part";
+import { RegenerateNoticePart } from "./regenerate-notice-part";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
+import { TurnActions } from "./turn-actions";
 import {
   useChatMarkdownRenderers,
   type ChatMarkdownRenderers,
 } from "./use-chat-markdown-ready";
 
+import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import {
   isInstructionsPart,
   isPromptImportsPart,
+  isRegenerateNoticePart,
   messageSeqFromMetadata,
-  modelSwitchPart,
   runIdFromMessageMetadata,
-  type Compaction,
 } from "@/lib/services/chat/history";
 import { storedImageSources } from "@/lib/services/media/urls";
 
@@ -236,6 +237,9 @@ function MessagePartView({
   if (isPromptImportsPart(part)) {
     return <PromptImportsPart {...part.data.payload} />;
   }
+  if (isRegenerateNoticePart(part)) {
+    return <RegenerateNoticePart payload={part.data.payload} />;
+  }
   return <span>unsupported part type: {part.type}</span>;
 }
 
@@ -266,7 +270,9 @@ function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.part.type === "file") return false;
   if (segment.part.type === "data-context") {
     return (
-      isInstructionsPart(segment.part) || isPromptImportsPart(segment.part)
+      isInstructionsPart(segment.part) ||
+      isPromptImportsPart(segment.part) ||
+      isRegenerateNoticePart(segment.part)
     );
   }
   return true;
@@ -330,6 +336,10 @@ type ChatMessageActionProps = {
   status: ChatStatus;
   onForked: (forkedChatId: string) => void;
   onInspectContext: (runId: string) => void;
+  /** The Chat's newest Run, which decides the latest turn's turn-level
+   *  actions, and the follow-up sender those actions call. */
+  latestRun: ChatLatestRunResponse | null;
+  onRegenerate: (request: FollowUpRunRequest) => void;
 };
 
 /**
@@ -361,15 +371,16 @@ function MessageActionRow({
   );
 }
 
-function ChatMessageFooter({
+type ChatMessageFooterProps = ChatMessageActionProps & { isLast: boolean };
+
+/** Fork, disabled rather than removed while a turn streams. */
+function MessageForkAction({
   message,
-  availableModels,
   chatId,
   status,
   onForked,
-  onInspectContext,
-}: ChatMessageActionProps) {
-  const fork = (
+}: Pick<ChatMessageFooterProps, "message" | "chatId" | "status" | "onForked">) {
+  return (
     <MessageForkButton
       chatId={chatId}
       fromMessageId={message.id}
@@ -377,29 +388,86 @@ function ChatMessageFooter({
       onForked={onForked}
     />
   );
+}
 
-  if (message.role === "user") {
-    return (
-      <MessageActionRow from="user">
-        <MessageCopyButton parts={message.parts} />
-        <ComingSoonMessageAction label="Edit" icon={PencilIcon} />
-        {fork}
-      </MessageActionRow>
-    );
-  }
-  const contextRunId = runIdFromMessageMetadata(message.metadata);
+function UserMessageFooter(props: ChatMessageFooterProps) {
+  return (
+    <MessageActionRow from="user">
+      <MessageCopyButton parts={props.message.parts} />
+      <ComingSoonMessageAction label="Edit" icon={PencilIcon} />
+      <MessageForkAction {...props} />
+    </MessageActionRow>
+  );
+}
+
+/** The reply's action row: per-message actions, the turn-level actions the
+ *  latest turn alone offers, fork, then the context receipt and usage. */
+function AssistantMessageFooter({
+  message,
+  availableModels,
+  chatId,
+  status,
+  onForked,
+  onInspectContext,
+  latestRun,
+  onRegenerate,
+  isLast,
+}: ChatMessageFooterProps) {
   return (
     <MessageActionRow from="assistant">
       <MessageCopyButton parts={message.parts} />
-      <ComingSoonMessageAction label="Regenerate" icon={RefreshCwIcon} />
-      {fork}
+      {isLast && (
+        <TurnActions
+          chatId={chatId}
+          latestRun={latestRun}
+          reply={{ metadata: message.metadata, parts: message.parts }}
+          onRegenerate={onRegenerate}
+        />
+      )}
+      <MessageForkAction
+        message={message}
+        chatId={chatId}
+        status={status}
+        onForked={onForked}
+      />
+      <AssistantContextActions
+        metadata={message.metadata}
+        availableModels={availableModels}
+        onInspectContext={onInspectContext}
+      />
+    </MessageActionRow>
+  );
+}
+
+function ChatMessageFooter(props: ChatMessageFooterProps) {
+  return props.message.role === "user" ? (
+    <UserMessageFooter {...props} />
+  ) : (
+    <AssistantMessageFooter {...props} />
+  );
+}
+
+/** The reply's own affordances after the actions: the Run's context receipt,
+ *  then its usage. */
+function AssistantContextActions({
+  metadata,
+  availableModels,
+  onInspectContext,
+}: {
+  metadata: unknown;
+  availableModels: ReadonlyArray<AvailableModel>;
+  onInspectContext: (runId: string) => void;
+}) {
+  const contextRunId = runIdFromMessageMetadata(metadata);
+  return (
+    <>
       {contextRunId && (
         <EffectiveContextAction
           onClick={() => onInspectContext(contextRunId)}
         />
       )}
-      <MessageUsage metadata={message.metadata} models={availableModels} />
-    </MessageActionRow>
+      <MessageUsage metadata={metadata} models={availableModels} />
+    </>
   );
 }
 
@@ -517,51 +585,9 @@ export function ChatMessageRow({
             renderKey={renderKey}
             renderers={renderers}
           />
-          <ChatMessageFooter {...footerProps} />
+          <ChatMessageFooter {...footerProps} isLast={isLast} />
         </Message>
       )}
     </>
   );
-}
-
-type MessageBoundariesParams = {
-  message: UIMessage;
-  index: number;
-  compaction: Compaction | null;
-  compactionIndex: number;
-  availableModels: ReadonlyArray<AvailableModel>;
-  onInspectContext: (runId: string) => void;
-};
-
-/** The compaction and/or model-switch boundary that sits above a message at
- *  this index, or null for either when it doesn't apply here. */
-export function messageBoundaries(params: MessageBoundariesParams) {
-  const {
-    message,
-    index,
-    compaction,
-    compactionIndex,
-    availableModels,
-    onInspectContext,
-  } = params;
-  const switchPart = message.role === "user" ? modelSwitchPart(message) : null;
-  const boundary =
-    compaction && index === compactionIndex ? (
-      <div
-        key="compaction-boundary"
-        className="mx-auto w-full max-w-3xl md:px-6"
-      >
-        <CompactionBoundary compaction={compaction} models={availableModels} />
-      </div>
-    ) : null;
-  const modelBoundary = switchPart ? (
-    <div className="mx-auto w-full max-w-3xl md:px-6">
-      <ModelSwitchBoundary
-        fromModelId={switchPart.data.payload.fromModelId}
-        toModelId={switchPart.data.payload.toModelId}
-        onInspectContext={() => onInspectContext(switchPart.data.runId)}
-      />
-    </div>
-  ) : null;
-  return { boundary, modelBoundary };
 }

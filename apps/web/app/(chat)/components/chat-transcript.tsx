@@ -25,12 +25,17 @@ import {
 
 import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
-import { ChatMessageRow, messageBoundaries } from "./chat-message-row";
+import { ChatMessageRow } from "./chat-message-row";
+import { messageBoundaries } from "./message-boundaries";
+import { FailedTurnRow } from "./failed-turn-row";
+import { needsFailedTurnRow } from "./turn-action-rules";
 import {
   messageRenderKey,
   messageSeqFromMetadata,
   type Compaction,
 } from "@/lib/services/chat/history";
+import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { AvailableModel } from "@/lib/services/models/queries";
 
 type ChatTranscriptMessageProps = {
@@ -42,6 +47,8 @@ type ChatTranscriptMessageProps = {
   compactionIndex: number;
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onRegenerate: (request: FollowUpRunRequest) => void;
   onInspectContext: (runId: string) => void;
   onForked: (forkedChatId: string) => void;
 };
@@ -64,16 +71,12 @@ export function setTranscriptMessageRenderProbe(
  *  message identity. Default shallow compare is enough once parent props
  *  (`onForked`, `availableModels`, message refs) stay stable across ticks. */
 const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
-  chatId,
   message,
   index,
-  isLast,
   compaction,
   compactionIndex,
   availableModels,
-  status,
-  onInspectContext,
-  onForked,
+  ...rowProps
 }: ChatTranscriptMessageProps) {
   const renderKey = messageRenderKey(message);
   transcriptMessageRenderProbe?.(renderKey);
@@ -83,21 +86,17 @@ const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
     compaction,
     compactionIndex,
     availableModels,
-    onInspectContext,
+    onInspectContext: rowProps.onInspectContext,
   });
 
   return (
     <ChatMessageRow
+      {...rowProps}
       renderKey={renderKey}
       message={message}
-      isLast={isLast}
+      availableModels={availableModels}
       boundary={boundary}
       modelBoundary={modelBoundary}
-      availableModels={availableModels}
-      chatId={chatId}
-      status={status}
-      onForked={onForked}
-      onInspectContext={onInspectContext}
     />
   );
 });
@@ -128,6 +127,8 @@ type ChatTranscriptMessagesProps = {
   compactionIndex: number;
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onRegenerate: (request: FollowUpRunRequest) => void;
   onInspectContext: (runId: string) => void;
 };
 
@@ -145,6 +146,8 @@ export function ChatTranscriptMessageList({
   compactionIndex,
   availableModels,
   status,
+  latestRun,
+  onRegenerate,
   onInspectContext,
   onForked,
 }: ChatTranscriptMessageListProps) {
@@ -159,6 +162,8 @@ export function ChatTranscriptMessageList({
       compactionIndex={compactionIndex}
       availableModels={availableModels}
       status={status}
+      latestRun={latestRun}
+      onRegenerate={onRegenerate}
       onInspectContext={onInspectContext}
       onForked={onForked}
     />
@@ -168,44 +173,54 @@ export function ChatTranscriptMessageList({
 /** Every message row, plus the trailing compaction boundary when it lands
  *  after the last loaded message. Split out of `ChatTranscript` as its own
  *  self-contained region. */
-function ChatTranscriptMessages({
-  chatId,
-  displayMessages,
-  compaction,
-  compactionIndex,
-  availableModels,
-  status,
-  onInspectContext,
-}: ChatTranscriptMessagesProps) {
-  const router = useRouter();
-  const onForked = useCallback(
-    (forkedChatId: string) => {
-      router.push(`/chat/${forkedChatId}`);
-    },
-    [router],
-  );
+function ChatTranscriptMessages(props: ChatTranscriptMessagesProps) {
+  const { displayMessages, compaction, compactionIndex } = props;
+  const onForked = useForkedChatNavigation();
 
   return (
     <>
-      <ChatTranscriptMessageList
-        chatId={chatId}
-        displayMessages={displayMessages}
-        compaction={compaction}
-        compactionIndex={compactionIndex}
-        availableModels={availableModels}
-        status={status}
-        onInspectContext={onInspectContext}
-        onForked={onForked}
-      />
+      <ChatTranscriptMessageList {...props} onForked={onForked} />
+      <ChatTranscriptFailedTurn {...props} />
       {/* All loaded messages are within the summarized span → boundary sits
           after the last one. */}
       {compaction && compactionIndex === displayMessages.length && (
         <ChatTranscriptCompactionBoundary
           compaction={compaction}
-          availableModels={availableModels}
+          availableModels={props.availableModels}
         />
       )}
     </>
+  );
+}
+
+/** Lands a fork on the new Chat. Split out of `ChatTranscriptMessages` so that
+ *  component composes only regions. */
+function useForkedChatNavigation(): (forkedChatId: string) => void {
+  const router = useRouter();
+  return useCallback(
+    (forkedChatId: string) => {
+      router.push(`/chat/${forkedChatId}`);
+    },
+    [router],
+  );
+}
+
+/** The latest turn's Regenerate when its Run left no reply to sit under
+ *  (turn-actions D13). Render-nothing for every other transcript. */
+function ChatTranscriptFailedTurn({
+  chatId,
+  displayMessages,
+  latestRun,
+  onRegenerate,
+}: ChatTranscriptMessagesProps) {
+  if (latestRun === null) return null;
+  if (!needsFailedTurnRow(displayMessages, latestRun)) return null;
+  return (
+    <FailedTurnRow
+      chatId={chatId}
+      latestRun={latestRun}
+      onRegenerate={onRegenerate}
+    />
   );
 }
 
@@ -232,6 +247,8 @@ type ChatTranscriptProps = {
   onLoadOlderMessages: () => void;
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onRegenerate: (request: FollowUpRunRequest) => void;
   displayedError: Error | undefined;
   onInspectContext: (runId: string) => void;
 };
@@ -239,19 +256,14 @@ type ChatTranscriptProps = {
 /** The scrollable region's content: older-page loading, every message row,
  *  and a send/stream error. Split out of `ChatTranscript` as its own
  *  self-contained region — reuses its parent's full prop set. */
-function ChatTranscriptBody({
-  chatId,
-  displayMessages,
-  compaction,
-  compactionIndex,
-  hasOlderMessages,
-  isLoadingOlderMessages,
-  onLoadOlderMessages,
-  availableModels,
-  status,
-  displayedError,
-  onInspectContext,
-}: ChatTranscriptProps) {
+function ChatTranscriptBody(props: ChatTranscriptProps) {
+  const {
+    displayMessages,
+    hasOlderMessages,
+    isLoadingOlderMessages,
+    onLoadOlderMessages,
+    displayedError,
+  } = props;
   return (
     <>
       <ChatLoadOlder
@@ -264,15 +276,7 @@ function ChatTranscriptBody({
             : null
         }
       />
-      <ChatTranscriptMessages
-        chatId={chatId}
-        displayMessages={displayMessages}
-        compaction={compaction}
-        compactionIndex={compactionIndex}
-        availableModels={availableModels}
-        status={status}
-        onInspectContext={onInspectContext}
-      />
+      <ChatTranscriptMessages {...props} />
       {displayedError && <ChatTranscriptErrorAlert error={displayedError} />}
     </>
   );

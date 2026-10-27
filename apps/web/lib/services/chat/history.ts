@@ -4,10 +4,20 @@ import { z } from "zod";
 import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
 import type {
+  ChatLatestRunResponse,
   ChatMessagesResponse as GeneratedChatMessagesResponse,
   CheckpointStatsResponse,
 } from "../../api/generated/models";
 import { mediaIdFromLocator } from "../media/urls";
+import {
+  isContextItemPart,
+  isNonNullObject,
+  isNumber,
+  isString,
+  contextItemEnvelope,
+  isUuid,
+  keysMatch,
+} from "./context-item-envelope";
 
 export type ChatMessageResponse = {
   id: string;
@@ -41,6 +51,11 @@ export type Compaction = Required<
 export type ChatMessagesResponse = {
   messages: Array<ChatMessageResponse>;
   compaction: Compaction | null;
+  /**
+   * The Chat's newest Run as the same read reports it (turn-actions D12): the
+   * Run the latest turn's actions judge, or null for a Chat with no Run.
+   */
+  latestRun: ChatLatestRunResponse | null;
 };
 
 function isCompaction(
@@ -57,7 +72,9 @@ function isCompaction(
 
 /** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
 export function normalizeChatMessagesResponse(
-  response: Pick<GeneratedChatMessagesResponse, "messages">,
+  response: Pick<GeneratedChatMessagesResponse, "messages"> & {
+    latestRun?: ChatLatestRunResponse | null;
+  },
 ): ChatMessagesResponse {
   const messages: Array<ChatMessageResponse> = response.messages.map(
     (message) => ({
@@ -71,13 +88,18 @@ export function normalizeChatMessagesResponse(
     }),
   );
   const compaction = [...messages].reverse().find(isCompaction);
-  return { compaction: compaction ?? null, messages };
+  return {
+    compaction: compaction ?? null,
+    messages,
+    latestRun: response.latestRun ?? null,
+  };
 }
 
 /** The combined shape `ChatPage` renders from — one query, one fetch. */
 export type ChatHistory = {
   messages: Array<UIMessage>;
   compaction: Compaction | null;
+  latestRun: ChatLatestRunResponse | null;
 };
 
 /**
@@ -167,97 +189,25 @@ export type PromptImportsPart = {
 /** The private payload of a prompt-imports item: what the owner chip renders. */
 export type PromptImportsPayload = PromptImportsPart["data"]["payload"];
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isNonNullObject(value: unknown): value is object {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === "string";
-}
-
-function isNumber(value: unknown): value is number {
-  return typeof value === "number";
-}
-
-/** Exact key-set structural check on an already-narrowed object's own keys —
- *  the caller still owns validating each field's type; this only confirms
- *  which fields exist. */
-function keysMatch(
-  actualKeys: ReadonlyArray<string>,
-  expectedKeys: ReadonlyArray<string>,
-): boolean {
-  return (
-    [...actualKeys].sort().join("\0") === [...expectedKeys].sort().join("\0")
-  );
-}
-
-export function isContextItemPart(
-  value: unknown,
-): value is { type: "data-context"; data: unknown } {
-  if (
-    !isNonNullObject(value) ||
-    !keysMatch(Object.keys(value), ["type", "data"])
-  ) {
-    return false;
-  }
-  // SAFETY: `keysMatch` above confirmed `value` has exactly the `type` and
-  // `data` keys; both are read here still unvalidated, and checked on the
-  // following lines before this function returns true.
-  const { type, data } = value as { type: unknown; data: unknown };
-  return type === "data-context" && isNonNullObject(data);
-}
-
-/** The envelope every `data-context` notice this app renders shares: exact
- *  key set (`text` optional), `v: 1`, the expected `producer`, form
- *  `notice`, a UUID `runId`, and `text` a string when present. Returns the
- *  still-unvalidated `payload` once the envelope holds — each caller owns
- *  validating that payload — or `undefined` when it does not. */
-function noticePayload(
-  value: unknown,
-  producer: "effective-context-change" | "instructions" | "prompt-imports",
-) {
-  if (!isContextItemPart(value)) return undefined;
-  const requiredKeys = ["v", "producer", "form", "runId", "payload"];
-  if (
-    !isNonNullObject(value.data) ||
-    (!keysMatch(Object.keys(value.data), requiredKeys) &&
-      !keysMatch(Object.keys(value.data), [...requiredKeys, "text"]))
-  ) {
-    return undefined;
-  }
-  // SAFETY: the checks above confirmed `value.data` is a non-null object
-  // with exactly these keys (optionally plus `text`); each field is
-  // validated individually below before the payload is returned.
-  const {
-    v,
-    producer: actualProducer,
-    form,
-    runId,
-    payload,
-    text,
-  } = value.data as {
-    v: unknown;
-    producer: unknown;
-    form: unknown;
-    runId: unknown;
-    payload: unknown;
-    text?: unknown;
+/**
+ * A server-authored context item on a USER message recording that an earlier
+ * attempt at this turn was discarded after it ran calls whose effects stay
+ * (turn-actions D9). It is an accepted-turn item: every later Run of the turn
+ * carries it, and it stays on the triggering user message for good.
+ */
+export type RegenerateNoticePart = {
+  type: "data-context";
+  data: {
+    v: 1;
+    producer: "regenerate";
+    form: "notice";
+    runId: string;
+    payload: {
+      reason: "non_read_only_calls";
+    };
+    text?: string;
   };
-  if (
-    v !== 1 ||
-    actualProducer !== producer ||
-    form !== "notice" ||
-    !isString(runId) ||
-    !UUID_PATTERN.test(runId) ||
-    (text !== undefined && !isString(text))
-  ) {
-    return undefined;
-  }
-  return payload;
-}
+};
 
 /** The `data.payload` shape of a model-switch context item, validated on its
  *  own — a real sub-boundary of `isModelSwitchPart`, not an arbitrary split. */
@@ -288,7 +238,9 @@ function isModelSwitchPayload(
 }
 
 export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
-  return isModelSwitchPayload(noticePayload(value, "effective-context-change"));
+  return isModelSwitchPayload(
+    contextItemEnvelope(value, "effective-context-change")?.payload,
+  );
 }
 
 export function modelSwitchPart(message: {
@@ -361,7 +313,9 @@ function isInstructionsPayload(
 }
 
 export function isInstructionsPart(value: unknown): value is InstructionsPart {
-  return isInstructionsPayload(noticePayload(value, "instructions"));
+  return isInstructionsPayload(
+    contextItemEnvelope(value, "instructions")?.payload,
+  );
 }
 
 const nonEmptyStringSchema = z.string().refine(isNonEmptyString);
@@ -448,21 +402,48 @@ function isPromptImportsPayload(value: unknown): value is PromptImportsPayload {
 export function isPromptImportsPart(
   value: unknown,
 ): value is PromptImportsPart {
-  return isPromptImportsPayload(noticePayload(value, "prompt-imports"));
+  return isPromptImportsPayload(
+    contextItemEnvelope(value, "prompt-imports")?.payload,
+  );
+}
+
+/** The `data.payload` shape of a regenerate notice, validated on its own: the
+ *  one reason this build knows. */
+function isRegenerateNoticePayload(
+  value: unknown,
+): value is RegenerateNoticePart["data"]["payload"] {
+  if (!isNonNullObject(value) || !keysMatch(Object.keys(value), ["reason"])) {
+    return false;
+  }
+  if (!("reason" in value)) return false;
+  return value.reason === "non_read_only_calls";
+}
+
+export function isRegenerateNoticePart(
+  value: unknown,
+): value is RegenerateNoticePart {
+  return isRegenerateNoticePayload(
+    contextItemEnvelope(value, "regenerate")?.payload,
+  );
 }
 
 /** Whether this app renders a server context item on that role: the
- *  model-switch marker and the prompt-imports disclosure the rail stages on a
- *  user message, and the instructions item, which rides either role. A type
- *  predicate, so the caller keeps the narrowed part. */
+ *  model-switch marker, the prompt-imports disclosure, and the regenerate
+ *  notice that ride a user message, and the instructions item, which rides
+ *  either role. A type predicate, so the caller keeps the narrowed part. */
 function isRenderableControlPart(
   role: UIMessage["role"],
   part: unknown,
-): part is ModelSwitchPart | InstructionsPart | PromptImportsPart {
+): part is
+  | ModelSwitchPart
+  | InstructionsPart
+  | PromptImportsPart
+  | RegenerateNoticePart {
   return role === "user"
     ? isModelSwitchPart(part) ||
         isInstructionsPart(part) ||
-        isPromptImportsPart(part)
+        isPromptImportsPart(part) ||
+        isRegenerateNoticePart(part)
     : isInstructionsPart(part);
 }
 
@@ -487,7 +468,11 @@ function trustedContextParts(message: {
   // drops context parts of every other producer, so they occupy no index.
   const placed: Array<{
     index: number;
-    part: ModelSwitchPart | InstructionsPart | PromptImportsPart;
+    part:
+      | ModelSwitchPart
+      | InstructionsPart
+      | PromptImportsPart
+      | RegenerateNoticePart;
   }> = [];
   let index = 0;
   for (const part of message.parts) {
@@ -577,7 +562,7 @@ export function runIdFromMessageMetadata(metadata: unknown): string | null {
   // SAFETY: `isNonNullObject` above confirmed `usage` is a non-null
   // object; `runId` is read here still unvalidated and checked next.
   const runId = (usage as { runId?: unknown }).runId;
-  return isString(runId) && UUID_PATTERN.test(runId) ? runId : null;
+  return isUuid(runId) ? runId : null;
 }
 
 export function messageRenderKey(

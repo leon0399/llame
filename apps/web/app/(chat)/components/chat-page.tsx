@@ -14,6 +14,7 @@ import { Button } from "@workspace/ui/components/button";
 
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { useMessageTarget } from "@/lib/services/chat/message-target";
+import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import type { Compaction } from "@/lib/services/chat/history";
 import {
   shouldRenderChatOwner,
@@ -135,6 +136,7 @@ function deriveChatSessionRender(
       chatId,
       chatMessages: historyQuery.data?.messages ?? EMPTY_MESSAGES,
       compaction: historyQuery.data?.compaction ?? null,
+      latestRun: historyQuery.data?.latestRun ?? null,
       hasOlderMessages: historyQuery.hasNextPage,
       isLoadingOlderMessages: historyQuery.isFetchingNextPage,
       initialChatExists,
@@ -206,6 +208,7 @@ type ChatSessionContentProps = {
   chatId: string;
   chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
+  latestRun: ChatLatestRunResponse | null;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   initialChatExists: boolean;
@@ -309,6 +312,8 @@ function ChatSessionMain({
       onLoadOlderMessages={onLoadOlderMessages}
       availableModels={transcript.availableModels}
       status={status}
+      latestRun={transcript.latestRun}
+      onRegenerate={transcript.onRegenerate}
       displayedError={transcript.displayedError}
       onInspectContext={onInspectContext}
       targetSeq={targetSeq}

@@ -349,6 +349,7 @@ function messagesPage(
       rawChatMessage({ id, seq, parts: [{ type: "text" as const, text }] }),
     ),
     compaction: null,
+    latestRun: null,
   };
 }
 

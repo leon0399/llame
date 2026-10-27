@@ -248,6 +248,7 @@ function seedHistory(chatExists: boolean, history: Array<ChatMessageResponse>) {
     seedChatMessagesQueryData(queryClient, CHAT_ID, {
       messages: history,
       compaction: null,
+      latestRun: null,
     });
   }
 }
@@ -909,6 +910,7 @@ export const BypassStaysWithItsChat: Story = {
     seedChatMessagesQueryData(queryClient, OTHER_CHAT_ID, {
       messages: [],
       compaction: null,
+      latestRun: null,
     });
     routeAlso({
       [OTHER_RESUME_ROUTE]: () => Promise.resolve(emptyResponse()),
