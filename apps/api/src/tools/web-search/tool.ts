@@ -16,18 +16,27 @@ import {
 import { normalizeOutput } from './output';
 import { splitSiteFilters } from './query';
 import { createResultRemoval } from './removal';
-import { ENGINE_LIMITS } from './limits';
+import { ENGINE_LIMITS, TOOL_QUERY_MAX } from './limits';
 
 export const webSearchInputSchema = z.strictObject({
-  query: z.string().min(1).max(1000),
+  query: z.string().min(1).max(TOOL_QUERY_MAX),
   objective: z.string().min(1).max(2000).optional(),
   /**
    * The engines to run for this call, in order, in place of the configured
    * chain. Ids are plain strings, so the schema stays static; the tool checks
-   * them against the configured engines before any request.
+   * them against the configured engines before any request. A length counts
+   * code points, the unit the configuration's own bound uses, so every
+   * configured id is selectable.
    */
   engines: z
-    .array(z.string().min(1).max(64))
+    .array(
+      z
+        .string()
+        .min(1)
+        .refine((id) => Array.from(id).length <= 64, {
+          message: 'An engine id is at most 64 characters.',
+        }),
+    )
     .min(1)
     .max(20)
     .refine((ids) => new Set(ids).size === ids.length, {

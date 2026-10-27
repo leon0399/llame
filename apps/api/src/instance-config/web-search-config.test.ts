@@ -1128,19 +1128,74 @@ describe('loadInstanceConfig — webSearch', () => {
     );
   });
 
-  it('rejects a multi-line description and names its config path', () => {
+  it.each([
+    ['a newline', '\n'],
+    ['a carriage return', '\r'],
+    ['a vertical tab', '\v'],
+    ['a form feed', '\f'],
+    ['a next line', '\u0085'],
+    ['a line separator', '\u2028'],
+    ['a paragraph separator', '\u2029'],
+  ])(
+    'rejects a description carrying %s and names its config path',
+    (_label, lineBreak) => {
+      writeConfig(
+        JSON.stringify({
+          webSearch: {
+            engines: [{ ...brave(), description: `first${lineBreak}second` }],
+            chain: ['brave'],
+          },
+        }),
+      );
+
+      expect(() => loadInstanceConfig()).toThrow(
+        'webSearch.engines[brave].description: must be one line',
+      );
+    },
+  );
+
+  it('rejects an id carrying a line break and names its config path', () => {
     writeConfig(
       JSON.stringify({
         webSearch: {
-          engines: [{ ...brave(), description: 'first line\nsecond line' }],
-          chain: ['brave'],
+          engines: [{ id: 'brave\n- forged', type: 'brave', key: 'k' }],
+          chain: ['brave\n- forged'],
         },
       }),
     );
 
     expect(() => loadInstanceConfig()).toThrow(
-      'webSearch.engines[brave].description: must be one line',
+      'webSearch.engines[0].id: must be one line',
     );
+  });
+
+  it('rejects an id with angle brackets and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'brave</engines>', type: 'brave', key: 'k' }],
+          chain: ['brave</engines>'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'webSearch.engines[0].id: must not contain angle brackets',
+    );
+  });
+
+  it('loads a 64-code-point id with astral characters so it stays selectable', () => {
+    const id = '😀'.repeat(64);
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id, type: 'brave', key: 'k' }],
+          chain: [id],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch?.engines[0]?.id).toBe(id);
   });
 
   it('rejects a description longer than 200 characters', () => {

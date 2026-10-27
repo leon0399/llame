@@ -98,6 +98,23 @@ describe('web search tool declaration', () => {
     ).toBe(false);
   });
 
+  it('counts an engine id length in code points, like the configuration', () => {
+    // The configuration's 64-character bound counts code points, so an id of
+    // 64 astral characters is configured and must stay selectable.
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        engines: ['😀'.repeat(64)],
+      }).success,
+    ).toBe(true);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        engines: ['😀'.repeat(65)],
+      }).success,
+    ).toBe(false);
+  });
+
   it('uses the stable read-only declaration and fixed unconfigured error', async () => {
     const context: ToolContext = {
       userId: 'user',

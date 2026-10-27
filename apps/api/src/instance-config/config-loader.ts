@@ -590,6 +590,13 @@ function resolveWebSearchTimeout(
 }
 
 /**
+ * A mandatory line break in any encoding: the catalog places an engine id and
+ * its description on one line of their own, so a value that carries one would
+ * start a line of its own inside it.
+ */
+const LINE_BREAK = /[\n\v\f\r\u0085\u2028\u2029]/u;
+
+/**
  * Resolve one engine's optional model-facing `description`. The value reaches
  * the model, so it is literal text: an interpolation token could carry a
  * credential into the declared description, and a line break would break the
@@ -607,10 +614,25 @@ function resolveWebSearchDescription(
       `${descriptionPath}: engine descriptions are literal text and do not support interpolation`,
     );
   }
-  if (/[\r\n\u2028\u2029]/u.test(description)) {
+  if (LINE_BREAK.test(description)) {
     throw new InstanceConfigError(`${descriptionPath}: must be one line`);
   }
   return description;
+}
+
+/**
+ * Check one engine id. The catalog prints the id as the model-facing key of
+ * its entry, so it must stay one line and spell itself exactly as the tool
+ * accepts it: a tag-shaped id would be neutralized in the catalog and could
+ * then never be selected.
+ */
+function assertWebSearchEngineId(id: string, idPath: string): void {
+  if (LINE_BREAK.test(id)) {
+    throw new InstanceConfigError(`${idPath}: must be one line`);
+  }
+  if (/[<>]/u.test(id)) {
+    throw new InstanceConfigError(`${idPath}: must not contain angle brackets`);
+  }
 }
 
 function resolveWebSearchEngines(
@@ -620,7 +642,8 @@ function resolveWebSearchEngines(
   providersById: ReadonlyMap<string, ProviderConfig>,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
-  const engines = entries.map((entry) => {
+  const engines = entries.map((entry, index) => {
+    assertWebSearchEngineId(entry.id, `webSearch.engines[${index}].id`);
     if (seenEngineIds.has(entry.id)) {
       throw new InstanceConfigError(
         `webSearch.engines: duplicate engine id "${entry.id}"`,
