@@ -5,7 +5,7 @@ read_when:
   - you need to know what a continued or regenerated Run sends to the model and what it keeps
   - you need to know when a discarded attempt leaves a notice on the turn
   - you need to know where the web offers the actions and what each click sends
-spec: durable-runs
+spec: turn-actions
 ---
 
 # Continue or regenerate a turn

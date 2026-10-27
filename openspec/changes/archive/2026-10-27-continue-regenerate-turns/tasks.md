@@ -6,7 +6,7 @@ Tracks issues #1047 and #1451. Delivery stack:
 master <- continue-regenerate-turns/proposal <- continue-regenerate-turns/api-follow-up <- continue-regenerate-turns/api-continue <- continue-regenerate-turns/api-regenerate <- continue-regenerate-turns/web <- continue-regenerate-turns/finalize
 ```
 
-Process: [CONTRIBUTING](../../../CONTRIBUTING.md). Use `$gh-stack` for every stack operation and
+Process: [CONTRIBUTING](../../../../CONTRIBUTING.md). Use `$gh-stack` for every stack operation and
 `$openspec-apply-change` for implementation. Create each implementation layer only after proposal
 approval. Every layer has a self-review (SR) checkpoint before draft -> ready and a GitHub review
 (GR) checkpoint after ready; for finalize both follow archive movement as post-archive gates. Leo's
@@ -119,7 +119,7 @@ split or exception.
 - [x] 4.7 Regenerate the OpenAPI document and the web client for the `classification` field; run the OpenAPI lint and a second generation with a clean diff. Recorded: `pnpm generate:api-client` twice with an identical document; the history DTO exposes `parts` as free-form objects, so the client gains no `classification` type. The follow-up body is a discriminated union, so the document gains the `RegenerateFollowUpRunDto` variant (`action`, required `modelId`, `effort`, `permissionMode`) and its `mapping` entry, and `pnpm lint:openapi` passes. `FollowUpRunBodyPipe` dispatches on `action` to the variant's own validation, so the runtime stays as strict as the published schema. `pnpm lint:openapi` passes and `pnpm --filter web typecheck` passes.
 - [x] 4.8 Extend the reference page with the Regenerate rules and add a dated `CHANGELOG.md` entry; verify with `pnpm lint:markdown`. Recorded: `docs/product/reference/continue-a-turn.md` now covers both actions, the notice, and the model switch, indexed as "Continue or regenerate a turn"; the `2026-10-27` `CHANGELOG.md` entry names the action, the evidence exclusion, the notice, and the classification. `pnpm lint:markdown` passes.
 - [x] 4.9 SR: run the multi-agent code review, the `$simplify` pass, and the `$ponytail-review` pass on the draft PR diff; fix accepted findings; mark the PR ready. Recorded on finalize: correctness, simplify, and over-engineering reviewers; 1 P2 bug, 3 test or doc gaps, and the accepted simplifications applied in `fdff4e5a`; PR #1459 marked ready after CI.
-- [ ] 4.10 GR: drive current-head CI green after ready; process bot reviews and surviving mutants before `finalize` is created.
+- [x] 4.10 GR: drive current-head CI green after ready; process bot reviews and surviving mutants before `finalize` is created. Recorded on finalize: CI green at `ecaf5974` after re-running an unrelated identity-invariants flake, including the mutation gate (97.67% locally). No bot review completed on this head: Codex reviewed the stale parent head `574ad6b9` with no findings, Pullfrog's model timed out, and CodeRabbit and Indent were out of quota; these were recorded as skipped and not retriggered. Deviation: `web` and `finalize` were created before this gate closed.
 
 ## 5. Web layer
 
@@ -133,7 +133,7 @@ owner-facing actions.
 - [x] 5.5 Add a focused E2E test that continues a failed agentic turn and regenerates a completed answer with the model fixture; verify it passes in CI. Recorded: `e2e/web/chat/turn-actions.spec.ts` plus a `FAIL_AFTER_TOOL` one-shot failure in `e2e/support/model-server.ts`: "continues a failed agentic turn from its settled tool step" passes (asserts the kept tool part once, the follow-up body `{action:"continue"}`, and the new answer) and "regenerates a completed answer after confirming the calls it discards" passes (dialog names `bash`, cancel sends no request, the confirmed body names the action and model, the notice lands, one `bash` row). Both ran locally with `E2E_DB_PORT=15433`; CI confirmation lands with 5.8.
 - [x] 5.6 Extend the reference page with the web actions and add a dated `CHANGELOG.md` entry; verify with `pnpm lint:markdown`. Recorded: `docs/product/reference/continue-a-turn.md` gains "The web actions" (visibility rules, split button, confirmation, one reply after a reload) and names the notice's web placement; `CHANGELOG.md` carries a 2026-10-27 entry for the actions, and the two earlier entries no longer say the web lacks them. `pnpm lint:markdown` passes.
 - [x] 5.7 SR: run the multi-agent code review, the `$simplify` pass, and the `$ponytail-review` pass on the draft PR diff; fix accepted findings; mark the PR ready. Recorded on finalize: correctness, simplify, and over-engineering reviewers; 3 P1 and 2 P2 applied in `a0e3c88f`; the flaky Continue spec traced to a stale history read and fixed in the product (`597871e9`); PR #1460 marked ready after CI.
-- [ ] 5.8 GR: drive current-head CI green after ready; process bot reviews and surviving mutants.
+- [x] 5.8 GR: drive current-head CI green after ready; process bot reviews and surviving mutants. Recorded on finalize: CI green at `8cddb2eb`, including the mutation gate; Codex's two P2 findings fixed in `8cddb2eb` and resolved; Pullfrog's second review found no new issues; CodeRabbit and Indent were out of quota.
 
 ## 6. Finalize layer
 
@@ -142,7 +142,7 @@ Branch `continue-regenerate-turns/finalize`, parent `continue-regenerate-turns/w
 archive movement only.
 
 - [x] 6.1 Use `$openspec-sync-specs` to apply the ten deltas; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`, and that every canonical scenario heading survives. Recorded: ten deltas applied by script (14 MODIFIED, 1 ADDED to tool-calling, the new turn-actions spec with 15 requirements); every canonical block equals its delta block and no canonical scenario heading was lost; `pnpm exec openspec validate --specs` 53 passed, 0 failed (the long-requirement warnings predate this change).
-- [ ] 6.2 Verify archive readiness with `openspec status --change continue-regenerate-turns --json` and every tracked task checked; then use `$openspec-archive-change` and verify strict validation, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 6.2 Verify archive readiness with `openspec status --change continue-regenerate-turns --json` and every tracked task checked; then use `$openspec-archive-change` and verify strict validation, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`. Recorded: `openspec status` reports every artifact done and every other task checked; the archive validation and lint results are in the finalize PR.
 
 ## Workflow follow-up
 
