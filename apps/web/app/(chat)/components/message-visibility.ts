@@ -1,10 +1,3 @@
-/**
- * Whether a stored assistant turn paints anything. Pure and component-free, so
- * both the row that renders a reply (`chat-message-row`) and the rules that
- * decide whether that reply can carry the turn's actions
- * (`turn-action-rules`) ask the same question.
- */
-
 import type { UIMessage } from "ai";
 
 import {

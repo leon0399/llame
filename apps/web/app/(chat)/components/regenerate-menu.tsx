@@ -13,16 +13,12 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@workspace/ui/components/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
 
 import { useChatContext, type ChatContextType } from "@/contexts/chat-context";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 
 import { EffortSelector } from "./effort-selector";
+import { MessageActionButton } from "./message-action-button";
 import { ModelSelector } from "./model-selector";
 import { PermissionModeSelector } from "./permission-mode-selector";
 
@@ -70,7 +66,15 @@ export function RegenerateMenu({
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>
-      <RegenerateMenuTrigger open={open} />
+      {/* The split button's tail; the trigger sets its own aria-expanded. */}
+      <PopoverTrigger
+        render={
+          <MessageActionButton
+            label="Regenerate with other settings"
+            icon={ChevronDownIcon}
+          />
+        }
+      />
       <RegenerateMenuContent
         chatId={chatId}
         request={request}
@@ -80,35 +84,6 @@ export function RegenerateMenu({
         }}
       />
     </Popover>
-  );
-}
-
-/** The split button's tail: a narrow chevron that opens the menu, named by
- *  its tooltip like the row's icon actions. */
-function RegenerateMenuTrigger({ open }: { open: boolean }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <PopoverTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                // Narrower than its icon cell: it is the split button's tail.
-                className="w-5"
-                aria-label="Regenerate with other settings"
-                aria-expanded={open}
-              />
-            }
-          />
-        }
-      >
-        <ChevronDownIcon aria-hidden="true" />
-      </TooltipTrigger>
-      <TooltipContent>Regenerate with other settings</TooltipContent>
-    </Tooltip>
   );
 }
 

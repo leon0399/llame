@@ -37,12 +37,11 @@ import {
   type ToolUIPart,
   type UIMessage,
 } from "ai";
-import { PencilIcon } from "lucide-react";
+import { FileSearchIcon, PencilIcon } from "lucide-react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
-import { ComingSoonMessageAction } from "./coming-soon-message-action";
-import { EffectiveContextAction } from "./effective-context-inspector";
+import { MessageActionButton } from "./message-action-button";
 import {
   groupAssistantParts,
   type NonReasoningPart,
@@ -346,7 +345,12 @@ function UserMessageFooter(props: ChatMessageFooterProps) {
   return (
     <MessageActionRow from="user">
       <MessageCopyButton parts={props.message.parts} />
-      <ComingSoonMessageAction label="Edit" icon={PencilIcon} />
+      <MessageActionButton
+        label="Edit"
+        icon={PencilIcon}
+        tooltip="Edit — coming soon"
+        disabled
+      />
       <MessageForkAction {...props} />
     </MessageActionRow>
   );
@@ -415,7 +419,9 @@ function AssistantContextActions({
   return (
     <>
       {contextRunId && (
-        <EffectiveContextAction
+        <MessageActionButton
+          label="System prompt"
+          icon={FileSearchIcon}
           onClick={() => onInspectContext(contextRunId)}
         />
       )}

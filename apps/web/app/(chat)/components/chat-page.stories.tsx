@@ -2423,6 +2423,31 @@ export const FailedTurnWithoutReply: Story = {
   },
 };
 
+/**
+ * A turn the owner stopped before any output reads as stopped, not failed:
+ * a cancelled Run reports no error, so the row names no cause.
+ *
+ * @summary a stopped turn with no reply reads as stopped
+ */
+export const StoppedTurnWithoutReply: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW],
+    latestRun: latestTurnRun({ status: "cancelled" }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+    expect(canvas.getByText("This turn was stopped")).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Regenerate" }),
+    ).toBeVisible();
+  },
+};
+
 /** The reply a Run persists when its provider call fails: it carries a durable
  *  `seq` (so it renders as a row with its own footer) but no part that paints
  *  anything. */

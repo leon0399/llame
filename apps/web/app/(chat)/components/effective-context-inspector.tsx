@@ -1,6 +1,6 @@
 "use client";
 
-import { FileSearchIcon, LoaderCircleIcon } from "lucide-react";
+import { LoaderCircleIcon } from "lucide-react";
 
 import {
   Sheet,
@@ -14,19 +14,6 @@ import {
   useRunContextReceipt,
   type RunContextReceipt,
 } from "@/lib/services/chat/runs";
-
-import { MessageActionButton } from "./message-action-button";
-
-export function EffectiveContextAction({ onClick }: { onClick: () => void }) {
-  return (
-    <MessageActionButton
-      label="System prompt"
-      icon={FileSearchIcon}
-      onClick={onClick}
-    />
-  );
-}
-
 function promptSourceLabel(source: "project_default" | "model_override") {
   return source === "model_override"
     ? "Model-specific override"

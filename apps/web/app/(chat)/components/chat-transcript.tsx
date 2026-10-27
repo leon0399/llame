@@ -231,14 +231,19 @@ function ChatTranscriptFailedTurn({
   if (!needsFailedTurnRow({ messages: displayMessages, latestRun, status })) {
     return null;
   }
-  const failed = latestRun.error !== null;
+  const title =
+    latestRun.status === "cancelled"
+      ? "This turn was stopped"
+      : latestRun.error === null
+        ? "This turn ended without an answer"
+        : "This turn failed";
   return (
     <div className="mx-auto w-full max-w-3xl md:px-6">
       <Alert>
-        <AlertTitle>
-          {failed ? "This turn failed" : "This turn ended without an answer"}
-        </AlertTitle>
-        {failed && <AlertDescription>{latestRun.error}</AlertDescription>}
+        <AlertTitle>{title}</AlertTitle>
+        {latestRun.error !== null && (
+          <AlertDescription>{latestRun.error}</AlertDescription>
+        )}
         <AlertAction>
           <TurnActions
             chatId={chatId}
@@ -292,7 +297,15 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
     isLoadingOlderMessages,
     onLoadOlderMessages,
     displayedError,
+    latestRun,
+    status,
   } = props;
+  // The failed-turn row already names this message once the history read
+  // reports it; a second alert would announce the same failure twice.
+  const shownByFailedTurn =
+    latestRun !== null &&
+    latestRun.error === displayedError?.message &&
+    needsFailedTurnRow({ messages: displayMessages, latestRun, status });
   return (
     <>
       <ChatLoadOlder
@@ -306,7 +319,9 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
         }
       />
       <ChatTranscriptMessages {...props} />
-      {displayedError && <ChatTranscriptErrorAlert error={displayedError} />}
+      {displayedError && !shownByFailedTurn && (
+        <ChatTranscriptErrorAlert error={displayedError} />
+      )}
     </>
   );
 }
