@@ -1,13 +1,17 @@
 import {
   EngineFailure,
+  canonicalizeCitations,
   canonicalizeResults,
   isFailureClass,
+  isGrounded,
   runOne,
   throwAbort,
   type Engine,
   type EngineOutcome,
   type EngineRequest,
   type FailureClass,
+  type RawAnswer,
+  type RawCitation,
   type RawResult,
 } from './chain';
 import { acceptsQuery, type EngineLimits } from './limits';
@@ -23,6 +27,12 @@ type ChildRun = { readonly child: AggregateChild } & (
   | {
       readonly kind: 'results';
       readonly results: ReadonlyArray<RawResult>;
+      readonly notes?: ReadonlyArray<string>;
+    }
+  | {
+      readonly kind: 'answer';
+      readonly answer: string;
+      readonly citations: ReadonlyArray<RawCitation>;
       readonly notes?: ReadonlyArray<string>;
     }
   | {
@@ -52,8 +62,20 @@ function classifyOutcome(
 ): ChildRun {
   if (outcome.kind === 'empty')
     return { child, kind: 'empty', notes: outcome.notes };
-  if (outcome.kind !== 'results')
-    return { child, kind: 'failure', failureClass: 'upstream_error' };
+  if (outcome.kind === 'answer') {
+    const citations = canonicalizeCitations(outcome.citations);
+    // The rest is a failed child, so the aggregate can still answer from its
+    // result children.
+    if (!isGrounded(outcome.answer, citations))
+      return { child, kind: 'failure', failureClass: 'ungrounded' };
+    return {
+      child,
+      kind: 'answer',
+      answer: outcome.answer,
+      citations,
+      notes: outcome.notes,
+    };
+  }
   const results = canonicalizeResults(outcome.results);
   return results.length === 0
     ? { child, kind: 'empty', notes: outcome.notes }
@@ -118,11 +140,20 @@ function groupResult(group: ResultGroup): RawResult {
   };
 }
 
+/** The results one child contributes to the merge; an answer contributes its citations. */
+function runResults(run: ChildRun): ReadonlyArray<RawResult> {
+  if (run.kind === 'results') return run.results;
+  if (run.kind !== 'answer') return [];
+  return run.citations.map((citation) => ({
+    title: citation.title ?? '',
+    url: citation.url,
+  }));
+}
+
 function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
   const groups = new Map<string, ResultGroup>();
   runs.forEach((run, childIndex) => {
-    if (run.kind !== 'results') return;
-    run.results.forEach((result, resultIndex) => {
+    runResults(run).forEach((result, resultIndex) => {
       const rank = resultIndex + 1;
       const key = groupingKey(result.url);
       let group = groups.get(key);
@@ -150,6 +181,21 @@ function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
         left.bestChild - right.bestChild,
     )
     .map(groupResult);
+}
+
+/** The grounded answers one aggregate attaches, in child order. */
+function attachedAnswers(runs: ReadonlyArray<ChildRun>): Array<RawAnswer> {
+  return runs.flatMap((run): Array<RawAnswer> =>
+    run.kind === 'answer'
+      ? [
+          {
+            engine: run.child.id,
+            answer: run.answer,
+            citations: run.citations,
+          },
+        ]
+      : [],
+  );
 }
 
 function outcomeNotes(runs: ReadonlyArray<ChildRun>): Array<string> {
@@ -189,10 +235,12 @@ export function createAggregateEngine(
     );
     if (request.signal.aborted) throwAbort(request.signal);
     const notes = [...outcomeNotes(runs), ...childNotes(runs)];
-    if (runs.some((run) => run.kind === 'results')) {
+    if (runs.some((run) => run.kind === 'results' || run.kind === 'answer')) {
+      const answers = attachedAnswers(runs);
       const result = {
         kind: 'results' as const,
         results: mergeResultGroups(runs).slice(0, request.limit),
+        ...(answers.length > 0 && { answers }),
       };
       return notes.length === 0 ? result : { ...result, notes };
     }

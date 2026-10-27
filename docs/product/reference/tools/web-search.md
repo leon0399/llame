@@ -72,6 +72,24 @@ A successful call returns exactly one of these closed shapes:
 }
 ```
 
+An aggregate's results output can also carry `answers`, one entry per grounded answer child, in child order:
+
+```json
+{
+  "kind": "results",
+  "engine": "broad",
+  "query": "deployment decision",
+  "results": [{ "title": "Example result", "url": "https://example.com/docs" }],
+  "answers": [
+    {
+      "engine": "claude-search",
+      "answer": "A concise answer in Markdown.",
+      "citations": [{ "url": "https://example.com/docs", "title": "Docs" }]
+    }
+  ]
+}
+```
+
 `engine` is the answering operator id; both shapes carry validated `query` and may carry `notes`. A result has `title`/`url`, optional `snippet`/ISO-date `published`; an answer has non-empty `answer` and at least one citation. No vendor-specific fields are returned.
 
 ## Behavior
@@ -79,7 +97,7 @@ A successful call returns exactly one of these closed shapes:
 The configured chain runs in order: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. An engine whose vendor query limit the query exceeds sends nothing and advances as `unsupported`; an `aggregate` runs only the children that accept the query. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
 Engines request `min(limit, vendor maximum)` results and cut their normalized list to `limit` when the vendor API takes no count, so `limit` is an upper bound the call never exceeds.
 
-An engine in the chain may be an operator-configured aggregate. It runs its child engines together and merges their results by rank, so a URL that several children return ranks higher. `engine` is then the aggregate's id, and `notes` name each child that failed or returned nothing (`<child>: <class>` or `<child>: empty`), followed by the children's own notes. The aggregate is empty when no child returned results and at least one returned none; when every child fails, the aggregate counts as one failed engine with class `upstream_error`; when the query limit skips every child, it fails as `unsupported`.
+An engine in the chain may be an operator-configured aggregate. It runs its child engines together and merges their results by rank, so a URL that several children return ranks higher. `engine` is then the aggregate's id, and `notes` name each child that failed or returned nothing (`<child>: <class>` or `<child>: empty`), followed by the children's own notes. A child can be any engine except another aggregate, `model-hosted` included: each grounded answer of a hosted child becomes an `answers` entry named by that child's id, and its citations join the merge as results at citation rank, with the citation title and no snippet; a hosted child that answers without a cited URL counts as failed. The aggregate is empty when no child returned results or a grounded answer and at least one returned none; when every child fails, the aggregate counts as one failed engine with class `upstream_error`; when the query limit skips every child, it fails as `unsupported`.
 
 ## Result removal
 
@@ -92,7 +110,7 @@ Titles, snippets, answers, notes, and citations may be stale or contain prompt-i
 ## Bounds
 
 Lengths are JavaScript UTF-16 code units, cut only at code-point boundaries: `query` 1-1,000; `objective` 1-2,000; result/citation titles 200 each; snippets 300 each; `answer` 8,000; URLs 2,048 each; at most 20 citations (deduplicated by URL); at most 10 notes of 200 each (the tenth records any remainder); serialized output at most 15,000 UTF-16 units.
-Requested `limit` remains 1-20. An engine's vendor query limit is shorter for some types (600 code points and 75 words on `brave`), and a longer query skips that engine as `unsupported`. `published` is kept only for an ISO 8601 date. If serialization exceeds its bound, trailing results/citations are dropped with a note (URLs are never cut); an answer keeps its first citation and its text is cut further if needed.
+Requested `limit` remains 1-20. An engine's vendor query limit is shorter for some types (600 code points and 75 words on `brave`), and a longer query skips that engine as `unsupported`. `published` is kept only for an ISO 8601 date. If serialization exceeds its bound, trailing results/citations are dropped with a note (URLs are never cut); an answer keeps its first citation and its text is cut further if needed. Each attached answer has at most 8,000 units and 20 citations. An aggregate output over its serialized bound drops result entries from the end first, then citations from the last answer's end while each answer keeps one, then answer text from the last answer backwards, then whole answers from the end; each step adds one note with its count.
 
 ## Errors
 

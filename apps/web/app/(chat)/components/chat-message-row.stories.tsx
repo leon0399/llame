@@ -71,34 +71,60 @@ const WEB_SEARCH_OUTPUT = {
   ],
 } as const;
 
-const LIVE_WEB_SEARCH_MESSAGE: UIMessage = {
-  id: "assistant-web-search-live",
-  role: "assistant",
-  parts: [
+/** The live and the stored form of one web search part carrying `output`. */
+function webSearchMessages(output: { readonly query: string }, suffix: string) {
+  const input = { query: output.query };
+  return {
+    live: {
+      id: `assistant-web-search-${suffix}-live`,
+      role: "assistant",
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolCallId: `web-search-${suffix}-live`,
+          toolName: "web_search",
+          state: "output-available",
+          input,
+          output,
+        },
+      ],
+    } satisfies UIMessage,
+    historical: {
+      id: `assistant-web-search-${suffix}-history`,
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-web_search",
+          toolCallId: `web-search-${suffix}-history`,
+          state: "output-available",
+          input,
+          output,
+        },
+      ],
+    } satisfies UIMessage,
+  };
+}
+
+const WEB_SEARCH_MESSAGES = webSearchMessages(WEB_SEARCH_OUTPUT, "results");
+
+const WEB_SEARCH_ANSWERS_OUTPUT = {
+  ...WEB_SEARCH_OUTPUT,
+  engine: "aggregate",
+  answers: [
     {
-      type: "dynamic-tool",
-      toolCallId: "web-search-live",
-      toolName: "web_search",
-      state: "output-available",
-      input: { query: WEB_SEARCH_OUTPUT.query },
-      output: WEB_SEARCH_OUTPUT,
+      engine: "claude-search",
+      answer: "**Aggregate answers** follow the results.",
+      citations: [
+        { title: "Keyboard acoustics", url: "https://example.com/acoustics" },
+      ],
     },
   ],
 };
 
-const HISTORICAL_WEB_SEARCH_MESSAGE: UIMessage = {
-  id: "assistant-web-search-history",
-  role: "assistant",
-  parts: [
-    {
-      type: "tool-web_search",
-      toolCallId: "web-search-history",
-      state: "output-available",
-      input: { query: WEB_SEARCH_OUTPUT.query },
-      output: WEB_SEARCH_OUTPUT,
-    },
-  ],
-};
+const WEB_SEARCH_ANSWERS_MESSAGES = webSearchMessages(
+  WEB_SEARCH_ANSWERS_OUTPUT,
+  "answers",
+);
 
 const CANCELLED_WEB_SEARCH_ERROR = "The web search was cancelled.";
 const CANCELLED_WEB_SEARCH_MESSAGE: UIMessage = {
@@ -259,6 +285,25 @@ const webSearchShikiContrastKnownIssue = {
   },
 };
 
+/** Expands the two web_search rows these stories render side by side. */
+async function expandWebSearchRows(
+  canvas: Pick<ReturnType<typeof within>, "getAllByRole">,
+): Promise<void> {
+  const headers = await waitFor(
+    () => {
+      const found = canvas.getAllByRole("button", { name: /web_search/iu });
+      expect(found).toHaveLength(2);
+      return found;
+    },
+    { timeout: 15_000 },
+  );
+  for (const header of headers) {
+    if (header.getAttribute("aria-expanded") === "false") {
+      await userEvent.click(header);
+    }
+  }
+}
+
 /**
  * Live dynamic-tool parts and stored tool-web_search parts use the same
  * dedicated renderer, so reloading a completed search preserves its links.
@@ -268,32 +313,19 @@ const webSearchShikiContrastKnownIssue = {
 export const LiveAndHistoricalWebSearch: Story = {
   tags: ["ai-generated"],
   parameters: webSearchShikiContrastKnownIssue,
-  args: { message: LIVE_WEB_SEARCH_MESSAGE },
+  args: { message: WEB_SEARCH_MESSAGES.live },
   render: (args) => (
     <div>
       <ChatMessageRow {...args} renderKey="web-search-live" />
       <ChatMessageRow
         {...args}
         renderKey="web-search-history"
-        message={HISTORICAL_WEB_SEARCH_MESSAGE}
+        message={WEB_SEARCH_MESSAGES.historical}
       />
     </div>
   ),
   play: async ({ canvas }) => {
-    const headers = await waitFor(
-      () => {
-        const found = canvas.getAllByRole("button", { name: /web_search/iu });
-        expect(found).toHaveLength(2);
-        return found;
-      },
-      { timeout: 15_000 },
-    );
-
-    for (const header of headers) {
-      if (header.getAttribute("aria-expanded") === "false") {
-        await userEvent.click(header);
-      }
-    }
+    await expandWebSearchRows(canvas);
 
     for (const result of WEB_SEARCH_OUTPUT.results) {
       const found = await waitFor(() => {
@@ -306,6 +338,41 @@ export const LiveAndHistoricalWebSearch: Story = {
       }
     }
     expect(canvas.queryAllByRole("link")).toHaveLength(0);
+  },
+};
+
+/**
+ * A live search and a reloaded one both render an aggregate's attached answer
+ * after the results, with its engine id, Markdown text, and citation link.
+ *
+ * @summary live and historical parts render attached answers
+ */
+export const LiveAndHistoricalWebSearchAnswers: Story = {
+  tags: ["ai-generated"],
+  parameters: webSearchShikiContrastKnownIssue,
+  args: { message: WEB_SEARCH_ANSWERS_MESSAGES.live },
+  render: (args) => (
+    <div>
+      <ChatMessageRow {...args} renderKey="web-search-answers-live" />
+      <ChatMessageRow
+        {...args}
+        renderKey="web-search-answers-history"
+        message={WEB_SEARCH_ANSWERS_MESSAGES.historical}
+      />
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    await expandWebSearchRows(canvas);
+    await waitFor(
+      () => {
+        expect(canvas.getAllByText("Aggregate answers")).toHaveLength(2);
+        expect(canvas.getAllByText(/claude-search/u)).toHaveLength(2);
+        expect(
+          canvas.getAllByRole("button", { name: "Keyboard acoustics" }),
+        ).toHaveLength(2);
+      },
+      { timeout: 15_000 },
+    );
   },
 };
 

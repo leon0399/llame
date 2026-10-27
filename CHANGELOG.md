@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
+- `web_search` aggregates accept `model-hosted` children. Each grounded answer
+  of a hosted child is attached to the results output as an `answers` entry
+  named by that child's id, in child order, and its citations join the rank
+  merge as results at citation rank with the citation title and no snippet; a
+  hosted child that answers without a cited URL counts as a failed child. Each
+  attached answer keeps at most 8,000 units and 20 citations, and an output over
+  the 15,000-unit serialized bound drops trailing results first, then citations
+  from the last answer's end while each answer keeps one, then answer text from
+  the last answer backwards, then whole answers from the end, one note per step.
+  The web chat renders attached answers after the results with the engine id,
+  the answer as Markdown, and numbered citation links, live and from history; a
+  stored part without `answers` renders as before. Startup validation now
+  admits a `model-hosted` child and still rejects a nested aggregate, and a
+  hosted child on an unsupported provider type fails naming the `model` path.
 - `web_search` gains a `yandex` engine type for Yandex Search API. It posts to
   `https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key`
   authorization, the entry's `searchType` index, and its optional `folderId`;

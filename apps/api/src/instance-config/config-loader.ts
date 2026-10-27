@@ -637,9 +637,9 @@ function assertAggregateChildren(
           `${childrenPath}: unknown engine id "${childId}"`,
         );
       }
-      if (child.type === 'aggregate' || child.type === 'model-hosted') {
+      if (child.type === 'aggregate') {
         throw new InstanceConfigError(
-          `${childrenPath}: child "${childId}" must be a result engine`,
+          `${childrenPath}: child "${childId}" must not be an aggregate`,
         );
       }
     }

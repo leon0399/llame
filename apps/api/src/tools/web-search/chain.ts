@@ -57,10 +57,18 @@ export type RawResult = {
   readonly published?: string;
 };
 export type RawCitation = { readonly url: string; readonly title?: string };
+/** The grounded answer an `aggregate` attaches from one of its answer children. */
+export type RawAnswer = {
+  readonly engine: string;
+  readonly answer: string;
+  readonly citations: ReadonlyArray<RawCitation>;
+};
 type ResultOutcome = {
   readonly kind: 'results';
   readonly results: ReadonlyArray<RawResult>;
   readonly notes?: ReadonlyArray<string>;
+  /** Answers that an `aggregate` attaches from its answer children, in child order. */
+  readonly answers?: ReadonlyArray<RawAnswer>;
 };
 type AnswerOutcome = {
   readonly kind: 'answer';
@@ -154,7 +162,7 @@ export function canonicalizeResults(
   });
 }
 
-function canonicalizeCitations(
+export function canonicalizeCitations(
   citations: ReadonlyArray<RawCitation>,
 ): Array<RawCitation> {
   const seen = new Set<string>();
@@ -164,6 +172,18 @@ function canonicalizeCitations(
     seen.add(url);
     return [{ ...citation, url }];
   });
+}
+
+/**
+ * Whether a hosted answer is grounded: it has visible text and cites at least
+ * one URL. An attached answer's citations are already canonicalized by the
+ * aggregate that produced it and again by the output layer.
+ */
+export function isGrounded(
+  answer: string,
+  citations: ReadonlyArray<RawCitation>,
+): boolean {
+  return answer.trim() !== '' && citations.length > 0;
 }
 
 function canonicalizeOutcome(
@@ -307,6 +327,22 @@ function withoutRemovedTargets(answer: string, removal: ResultRemoval): string {
     .replace(BARE_URL, (url) => (removal.removes(url) ? '' : url));
 }
 
+/** One span of answer text that a cut must not split: a link or a bare URL. */
+export type AnswerLinkRange = { readonly start: number; readonly end: number };
+
+/**
+ * The Markdown links and bare URLs of answer text, as source offsets, so a
+ * bounded or trimmed answer never ends inside a link target.
+ */
+export function answerLinkRanges(text: string): Array<AnswerLinkRange> {
+  return [MARKDOWN_LINK, BARE_URL].flatMap((pattern) =>
+    [...text.matchAll(pattern)].map((match) => {
+      const start = match.index ?? 0;
+      return { start, end: start + match[0].length };
+    }),
+  );
+}
+
 /**
  * Removes the entries the call excludes from one engine outcome, before the
  * chain decides on it and before an aggregate merges and cuts it. An answer
@@ -444,7 +480,7 @@ function classifyOutcome(
   }
   if (
     success.kind === 'answer' &&
-    (success.answer.trim() === '' || success.citations.length === 0)
+    !isGrounded(success.answer, success.citations)
   ) {
     notes.push(`${id}: ungrounded`);
     return { kind: 'continue' };

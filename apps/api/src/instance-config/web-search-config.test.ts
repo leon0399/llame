@@ -640,7 +640,7 @@ describe('loadInstanceConfig — webSearch', () => {
     );
   });
 
-  it('rejects a model-hosted child inside an aggregate', () => {
+  it('loads a model-hosted child inside an aggregate', () => {
     writeConfig(
       JSON.stringify({
         ...hostedModel('openai-responses'),
@@ -655,8 +655,37 @@ describe('loadInstanceConfig — webSearch', () => {
       }),
     );
 
+    const config = loadInstanceConfig();
+    expect(config.webSearch?.engines).toStrictEqual([
+      { id: 'brave', type: 'brave', key: 'brave-secret', timeoutSeconds: 60 },
+      {
+        id: 'hosted',
+        type: 'model-hosted',
+        model: 'hosted-model',
+        wire: 'openai-responses',
+        timeoutSeconds: 60,
+      },
+      { id: 'aggregate', type: 'aggregate', engines: ['brave', 'hosted'] },
+    ]);
+  });
+
+  it('rejects a model-hosted child inside an aggregate on an unsupported wire', () => {
+    writeConfig(
+      JSON.stringify({
+        ...hostedModel('openai-completions'),
+        webSearch: {
+          engines: [
+            brave(),
+            { id: 'hosted', type: 'model-hosted', model: 'hosted-model' },
+            aggregate('aggregate', ['brave', 'hosted']),
+          ],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
     expect(() => loadInstanceConfig()).toThrow(
-      /webSearch\.engines\[aggregate\]\.engines.*hosted/u,
+      'webSearch.engines[hosted].model: unsupported provider type "openai-completions"',
     );
   });
 

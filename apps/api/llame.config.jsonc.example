@@ -498,7 +498,8 @@
   //       "model": "system:openai:gpt-5.4-mini",
   //       // "timeoutSeconds": 90,
   //     },
-  //     // Aggregate runs all listed result engines concurrently and merges ranks.
+  //     // Aggregate runs all listed engines concurrently and merges ranks; a
+  //     // model-hosted child also contributes its grounded answer.
   //     {
   //       "id": "all",
   //       "type": "aggregate",

@@ -736,3 +736,72 @@ it('puts one count note before the engine notes of an aggregate', async () => {
     vi.unstubAllGlobals();
   }
 });
+
+it('runs a hosted child inside an aggregate and returns its answer', async () => {
+  const config: WebSearchConfig = {
+    engines: [
+      {
+        id: 'claude',
+        type: 'model-hosted',
+        model: 'search-model',
+        wire: 'openai-responses',
+        timeoutSeconds: 60,
+      },
+      {
+        id: 'gpt',
+        type: 'model-hosted',
+        model: 'other-model',
+        wire: 'openai-responses',
+        timeoutSeconds: 60,
+      },
+      { id: 'mix', type: 'aggregate', engines: ['claude', 'gpt'] },
+    ],
+    chain: ['mix'],
+  };
+  // Each hosted child answers with its own model id and cites it, so the
+  // attached answer belongs to the child that requested it.
+  const clientFor = (modelId: string) =>
+    scriptedModelClient(
+      () =>
+        Promise.resolve(
+          answerStream(modelId, [
+            urlSourcePart(`https://example.test/${modelId}`),
+          ]),
+        ),
+      [],
+    );
+
+  const output = await webSearchTool.execute(
+    {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
+      webSearch: config,
+      modelClients: { createClient: clientFor },
+    },
+    { query: 'latest', limit: 10 },
+  );
+
+  expect(output).toStrictEqual({
+    status: 'success',
+    kind: 'results',
+    engine: 'mix',
+    query: 'latest',
+    results: [
+      { title: '', url: 'https://example.test/search-model' },
+      { title: '', url: 'https://example.test/other-model' },
+    ],
+    answers: [
+      {
+        engine: 'claude',
+        answer: 'search-model',
+        citations: [{ url: 'https://example.test/search-model' }],
+      },
+      {
+        engine: 'gpt',
+        answer: 'other-model',
+        citations: [{ url: 'https://example.test/other-model' }],
+      },
+    ],
+  });
+});
