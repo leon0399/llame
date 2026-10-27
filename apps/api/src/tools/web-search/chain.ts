@@ -57,10 +57,18 @@ export type RawResult = {
   readonly published?: string;
 };
 export type RawCitation = { readonly url: string; readonly title?: string };
+/** The grounded answer an `aggregate` attaches from one of its answer children. */
+export type RawAnswer = {
+  readonly engine: string;
+  readonly answer: string;
+  readonly citations: ReadonlyArray<RawCitation>;
+};
 type ResultOutcome = {
   readonly kind: 'results';
   readonly results: ReadonlyArray<RawResult>;
   readonly notes?: ReadonlyArray<string>;
+  /** Answers that an `aggregate` attaches from its answer children, in child order. */
+  readonly answers?: ReadonlyArray<RawAnswer>;
 };
 type AnswerOutcome = {
   readonly kind: 'answer';
@@ -154,7 +162,7 @@ export function canonicalizeResults(
   });
 }
 
-function canonicalizeCitations(
+export function canonicalizeCitations(
   citations: ReadonlyArray<RawCitation>,
 ): Array<RawCitation> {
   const seen = new Set<string>();
@@ -166,12 +174,27 @@ function canonicalizeCitations(
   });
 }
 
+function canonicalizeAnswers(
+  answers: ReadonlyArray<RawAnswer> | undefined,
+): ReadonlyArray<RawAnswer> | undefined {
+  if (answers === undefined) return undefined;
+  return answers.map((answer) => ({
+    ...answer,
+    citations: canonicalizeCitations(answer.citations),
+  }));
+}
+
 function canonicalizeOutcome(
   outcome: ResultOutcome | AnswerOutcome,
 ): ResultOutcome | AnswerOutcome {
-  return outcome.kind === 'results'
-    ? { ...outcome, results: canonicalizeResults(outcome.results) }
-    : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
+  if (outcome.kind === 'answer')
+    return { ...outcome, citations: canonicalizeCitations(outcome.citations) };
+  const answers = canonicalizeAnswers(outcome.answers);
+  return {
+    ...outcome,
+    results: canonicalizeResults(outcome.results),
+    ...(answers !== undefined && { answers }),
+  };
 }
 
 /**

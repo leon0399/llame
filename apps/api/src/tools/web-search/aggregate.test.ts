@@ -3,6 +3,7 @@ import {
   type Engine,
   type EngineOutcome,
   type EngineRequest,
+  type RawCitation,
   type RawResult,
 } from './chain';
 import { removalFor } from '../../testing/web-search-removal';
@@ -36,6 +37,11 @@ const result = (
 
 const results = (...items: ReadonlyArray<RawResult>): Promise<EngineOutcome> =>
   Promise.resolve({ kind: 'results', results: items });
+const answer = (
+  text: string,
+  citations: ReadonlyArray<RawCitation>,
+): Promise<EngineOutcome> =>
+  Promise.resolve({ kind: 'answer', answer: text, citations });
 const rankedResults = (
   id: string,
   length: number,
@@ -588,5 +594,126 @@ it('removes excluded entries before the merge and the limit cut', async () => {
       result('https://example.test/u1'),
       result('https://example.test/u2'),
     ],
+  });
+});
+
+const rejectsGrokipedia = {
+  allow: [{ field: 'path', regex: '^https://' }],
+  reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
+};
+it('attaches a grounded answer child and merges its citations', async () => {
+  const engine = createAggregateEngine([
+    child('brave', () =>
+      results(
+        result('https://example.test/u1', {
+          title: 'Brave one',
+          snippet: 'A snippet.',
+        }),
+      ),
+    ),
+    child('claude', () =>
+      answer('The answer.', [
+        { url: 'https://example.test/u1', title: 'U1' },
+        { url: 'https://example.test/u2', title: 'U2' },
+      ]),
+    ),
+  ]);
+
+  await expect(engine(request())).resolves.toStrictEqual({
+    kind: 'results',
+    // u1 is returned by both children, so it ranks first; each citation takes
+    // its own rank in the merge and carries its title with no snippet.
+    results: [
+      result('https://example.test/u1', {
+        title: 'Brave one',
+        snippet: 'A snippet.',
+      }),
+      result('https://example.test/u2', { title: 'U2' }),
+    ],
+    answers: [
+      {
+        engine: 'claude',
+        answer: 'The answer.',
+        citations: [
+          { url: 'https://example.test/u1', title: 'U1' },
+          { url: 'https://example.test/u2', title: 'U2' },
+        ],
+      },
+    ],
+  });
+});
+it('attaches answers in child order', async () => {
+  const engine = createAggregateEngine([
+    child('claude', () =>
+      answer('First.', [{ url: 'https://example.test/first' }]),
+    ),
+    child('gpt', () =>
+      answer('Second.', [{ url: 'https://example.test/second' }]),
+    ),
+  ]);
+
+  const outcome = await engine(request());
+
+  if (outcome.kind !== 'results') throw new Error('expected results output');
+  expect(outcome.answers?.map((entry) => entry.engine)).toStrictEqual([
+    'claude',
+    'gpt',
+  ]);
+});
+it('counts an answer child without citations as failed', async () => {
+  const engine = createAggregateEngine([
+    child('brave', () => results(result('https://example.test/u1'))),
+    child('claude', () => answer('An uncited answer.', [])),
+  ]);
+
+  await expect(engine(request())).resolves.toStrictEqual({
+    kind: 'results',
+    results: [result('https://example.test/u1')],
+    notes: ['claude: ungrounded'],
+  });
+});
+it('removes a rejected citation and its link from an answer child', async () => {
+  const engine = createAggregateEngine([
+    child('claude', () =>
+      answer(
+        'See [Grokipedia](https://grokipedia.com/one) and [Docs](https://example.test/docs).',
+        [
+          { url: 'https://grokipedia.com/one', title: 'Grokipedia' },
+          { url: 'https://example.test/docs', title: 'Docs' },
+        ],
+      ),
+    ),
+  ]);
+
+  await expect(
+    engine(request(undefined, 10, { removal: removalFor(rejectsGrokipedia) })),
+  ).resolves.toStrictEqual({
+    kind: 'results',
+    results: [result('https://example.test/docs', { title: 'Docs' })],
+    answers: [
+      {
+        engine: 'claude',
+        answer: 'See Grokipedia and [Docs](https://example.test/docs).',
+        citations: [{ url: 'https://example.test/docs', title: 'Docs' }],
+      },
+    ],
+  });
+});
+it('drops an answer child that loses every citation to removal', async () => {
+  const engine = createAggregateEngine([
+    child('brave', () => results(result('https://example.test/u1'))),
+    child('claude', () =>
+      answer('See [Grokipedia](https://grokipedia.com/one).', [
+        { url: 'https://grokipedia.com/one', title: 'Grokipedia' },
+      ]),
+    ),
+  ]);
+
+  await expect(
+    engine(request(undefined, 10, { removal: removalFor(rejectsGrokipedia) })),
+  ).resolves.toStrictEqual({
+    kind: 'results',
+    results: [result('https://example.test/u1')],
+    notes: ['claude: ungrounded'],
   });
 });
