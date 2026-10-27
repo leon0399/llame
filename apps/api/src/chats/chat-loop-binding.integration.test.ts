@@ -387,10 +387,12 @@ describe('ChatLoopService accept/worker context binding', () => {
             : undefined,
         ),
       );
-    // Context measurement still reads the most recent *completed* turn.
+    // Context measurement reads the completed Run the previous reply names,
+    // falling back to the most recent *completed* turn — the same Run here,
+    // because the fixture's reply names it.
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
+      'findCompletedReplyRunBefore',
     ).mockImplementation(() =>
       Promise.resolve(
         priorRun?.status === 'completed' && priorRun.completedAttemptId !== null

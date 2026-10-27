@@ -168,7 +168,7 @@ function mockReads(options?: {
     .mockResolvedValue(options?.previous);
   const findRun = vi.spyOn(
     RunsRepository.prototype,
-    'findMostRecentCompletedByChatMessageSequence',
+    'findCompletedReplyRunBefore',
   );
   findRun.mockResolvedValue(
     options?.source
