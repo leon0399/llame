@@ -4811,6 +4811,11 @@
           "permissionMode": {
             "type": "string",
             "enum": ["default", "bypass"]
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "The Run's terminal message, the same text its stream error frame carries; null when the Run recorded none."
           }
         },
         "required": [
@@ -4820,7 +4825,8 @@
           "followUpAction",
           "modelId",
           "effort",
-          "permissionMode"
+          "permissionMode",
+          "error"
         ]
       },
       "ChatMessagesResponse": {

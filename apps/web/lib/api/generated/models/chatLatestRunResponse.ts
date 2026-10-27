@@ -29,4 +29,9 @@ export interface ChatLatestRunResponse {
    */
   effort: string | null;
   permissionMode: ChatLatestRunResponsePermissionMode;
+  /**
+   * The Run's terminal message, the same text its stream error frame carries; null when the Run recorded none.
+   * @nullable
+   */
+  error: string | null;
 }

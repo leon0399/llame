@@ -6,8 +6,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   that Run's status, follow-up action, model, effort, and accepted permission
   mode, read in the same transaction as the messages so the two never disagree.
   A Run also records the follow-up action that started it and the earlier Run it
-  acts on; a chat send leaves both empty. No owner-facing action sends a
-  follow-up request yet.
+  acts on; a chat send leaves both empty. The report carries the failure message
+  of a failed Run, so a reload still shows why the turn ended. No owner-facing
+  action sends a follow-up request yet.
 - `web_search` takes an optional `engines` input: 1 to 20 unique configured
   engine ids that run in that order for one call instead of `webSearch.chain`,
   with the same fall-through among them only, so a call that names one engine

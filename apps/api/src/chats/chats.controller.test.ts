@@ -299,6 +299,7 @@ describe('ChatsController', () => {
       modelId: 'system:openai:gpt-5.4-mini',
       effort: 'high',
       permissionMode: 'bypass',
+      error: 'provider failed',
     });
   });
 
