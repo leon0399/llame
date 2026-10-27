@@ -61,6 +61,7 @@ import {
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
+import { toChatLatestRunResponse } from './dto/latest-run.dto';
 import {
   CreateFileMessagePartDto,
   CreateTextMessagePartDto,
@@ -243,16 +244,21 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: OwnerChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
-    const messages = await this.chatsService.getChatMessages(id, userId, {
+    const view = await this.chatsService.getChatMessages(id, userId, {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
       targetSeq: query.targetSeq,
     });
-    if (!messages) {
+    if (!view) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
 
-    return { messages: messages.map(toChatMessageResponse) };
+    return {
+      messages: view.messages.map(toChatMessageResponse),
+      latestRun: view.latestRun
+        ? toChatLatestRunResponse(view.latestRun)
+        : null,
+    };
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat

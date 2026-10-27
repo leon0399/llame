@@ -177,7 +177,9 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
       const second = await addMessage(chat, a);
       await addCheckpoint(chat, a, second.seq, 'older context');
 
-      const result = await chatsService.getChatMessages(chat, a, { limit: 10 });
+      const result = (
+        await chatsService.getChatMessages(chat, a, { limit: 10 })
+      )?.messages;
       const checkpoint = result?.find(
         (message) => message.role === 'checkpoint',
       );

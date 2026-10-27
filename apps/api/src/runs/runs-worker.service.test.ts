@@ -362,6 +362,8 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     error: null,
     workerId: null,
     createdAt: new Date(),
+    followUpAction: null,
+    sourceRunId: null,
   };
   const cancellationMessage =
     'Run was cancelled before this worker attempt started.';
@@ -535,6 +537,8 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
     error: null,
     workerId: null,
     createdAt: new Date(),
+    followUpAction: null,
+    sourceRunId: null,
   };
 
   afterEach(() => {
@@ -630,6 +634,8 @@ describe('RunsWorkerService — durable run-level failures', () => {
       error: null,
       workerId: null,
       createdAt: new Date(),
+      followUpAction: null,
+      sourceRunId: null,
     } as const;
     vi.spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValueOnce(run)
@@ -683,6 +689,8 @@ describe('RunsWorkerService — durable run-level failures', () => {
       error: null,
       workerId: null,
       createdAt: new Date(),
+      followUpAction: null,
+      sourceRunId: null,
     };
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     const contextError = new ModelContextExecutionError(

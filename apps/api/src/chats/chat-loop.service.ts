@@ -14,7 +14,7 @@ import {
   type TenantRunner,
 } from '../db/tenant-db.service';
 import { assertNotArchived } from '../db/assert-not-archived';
-import { type Chat, type Message, type Run } from '../db/schema';
+import { type Chat, type Message } from '../db/schema';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -22,12 +22,11 @@ import {
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
-  PermissionModeNotAvailableError,
+  resolvePermissionMode,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { isInflightUniqueViolation } from './inflight-unique-violation';
 import {
   creationInProgress,
   tryCreationTransactionLock,
@@ -38,9 +37,6 @@ import {
   RunStreamBridgeService,
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
-import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { finalizeRunReply } from '../runs/run-reply-finalizer';
-import { heartbeatSeconds } from '../runs/run-queues';
 import {
   RunDispatchService,
   type RunDispatcher,
@@ -52,9 +48,22 @@ import {
 import { MediaService, type MediaDescriber } from '../media/media.service';
 import { type MessagePart } from './context-builder';
 import { resolveOwnerFileParts, toRunUserMessage } from './chat-message-parts';
+import { clearActiveRunSlot } from './chat-admission';
+import { createRunForMessage } from './run-creation';
 
-/** How long admission waits on the blocking run's job state (see blockerIsLive). */
-const JOB_STATE_READ_TIMEOUT_MS = 5000;
+/**
+ * A Run that passed admission, and the identity its dispatch needs: what
+ * `finalizeAcceptedRun` consumes, and what a follow-up admission returns.
+ */
+export type AcceptedRun = {
+  runId: string;
+  userMessage: RunUserMessage;
+  supersededRunIds: Array<string>;
+  chatId: string;
+  userId: string;
+  modelId: string;
+  abortSignal?: AbortSignal;
+};
 
 /** A message as a caller sent it: parts are untrusted until sanitized. */
 export type ChatMessageInput = {
@@ -108,17 +117,6 @@ type ChatMessageStream = Pick<
   ReturnType<ModelClient['streamText']>,
   'toUIMessageStreamResponse'
 >;
-
-type CreateRunForMessageInput = {
-  userId: string;
-  chatId: string;
-  modelId: string;
-  effort: string | undefined;
-  permissionMode: PermissionMode;
-  targetRunId: string;
-};
-
-type CreateRunForMessageResult = { run: Run; supersededRunIds: Array<string> };
 
 type PersistUserMessageAndRunResult = {
   runId: string;
@@ -213,12 +211,10 @@ export class ChatLoopService {
     // Resolved from the already-validated model, so an unavailable model is
     // reported without the effort ever being considered.
     const effort = this.models.resolveEffortSelection(model, input.effort);
-    const permissionMode: PermissionMode = input.permissionMode ?? 'default';
-    if (
-      !this.instanceConfig.config.tools.permissionModes.includes(permissionMode)
-    ) {
-      throw new PermissionModeNotAvailableError(permissionMode);
-    }
+    const permissionMode = resolvePermissionMode(
+      input.permissionMode,
+      this.instanceConfig.config.tools.permissionModes,
+    );
     const message = this.sanitizeAndValidateMessage(input.message);
     return {
       modelId: input.modelId,
@@ -290,15 +286,7 @@ export class ChatLoopService {
    * the assistant finalize re-indexes the whole chat (incl. this message); an
    * orphaned user-only turn (failed run) is caught by the discovery sweep.
    */
-  private async finalizeAcceptedRun(input: {
-    runId: string;
-    userMessage: RunUserMessage;
-    supersededRunIds: Array<string>;
-    chatId: string;
-    userId: string;
-    modelId: string;
-    abortSignal?: AbortSignal;
-  }): Promise<ChatMessageStream> {
+  async finalizeAcceptedRun(input: AcceptedRun): Promise<ChatMessageStream> {
     for (const supersededRunId of input.supersededRunIds) {
       this.aborts.abort(supersededRunId);
     }
@@ -338,26 +326,22 @@ export class ChatLoopService {
     // message before any chat or message row is written. Media is immutable, so
     // reading it in its own transaction races nothing.
     return this.tenantDb.runAs(input.userId, async (tx) => {
-      // The Chat's creation lock, inside the admission transaction: a create
-      // request holding it answers 409 here, and this route holds it only until
-      // the transaction ends, never for the life of the Run.
-      if (
-        input.takeCreationLock &&
-        !(await tryCreationTransactionLock(tx, input.chatId))
-      ) {
-        throw creationInProgress();
-      }
+      await this.takeCreationLock(tx, input);
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
-      const eventsRepo = new RunEventsRepository(tx);
-      const runsRepo = new RunsRepository(tx);
 
       const { userMessage: admittedMessage } = await this.admitTurn(
         chatsRepo,
         messagesRepo,
         input,
       );
-      await this.clearActiveRunSlot({ tx, runsRepo, eventsRepo, ...input });
+      await clearActiveRunSlot({
+        tx,
+        chatId: input.chatId,
+        userId: input.userId,
+        dispatch: this.dispatch,
+        instanceConfig: this.instanceConfig,
+      });
 
       // The user message is persisted with only the caller's sanitized text
       // and resolved file parts. Context-rail items (model-switch,
@@ -376,7 +360,7 @@ export class ChatLoopService {
       // the user message, so a message can never exist without its execution
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
-      const { run, supersededRunIds } = await this.createRunForMessage(
+      const { run, supersededRunIds } = await createRunForMessage(
         tx,
         input,
         userMessage,
@@ -388,6 +372,23 @@ export class ChatLoopService {
         supersededRunIds,
       };
     });
+  }
+
+  /**
+   * The Chat's creation lock, inside the admission transaction: a create
+   * request holding it answers 409 here, and this route holds it only until the
+   * transaction ends, never for the life of the Run.
+   */
+  private async takeCreationLock(
+    tx: Db,
+    input: PersistUserMessageAndRunInput,
+  ): Promise<void> {
+    if (
+      input.takeCreationLock &&
+      !(await tryCreationTransactionLock(tx, input.chatId))
+    ) {
+      throw creationInProgress();
+    }
   }
 
   /**
@@ -467,176 +468,5 @@ export class ChatLoopService {
       throw new ConflictException('Message id already exists');
     }
     return userMessage;
-  }
-
-  /**
-   * The Run row, atomically with canceling any (defensively impossible, but
-   * legacy-data-tolerant) stale active runs on this same message, and the
-   * `run.created` event. No snapshot is bound — the worker resolves
-   * prompt/catalog at execution time.
-   */
-  private async createRunForMessage(
-    tx: Db,
-    input: CreateRunForMessageInput,
-    userMessage: Message,
-  ): Promise<CreateRunForMessageResult> {
-    const runsRepo = new RunsRepository(tx);
-    const eventsRepo = new RunEventsRepository(tx);
-    const superseded = await this.cancelSupersededRuns(
-      runsRepo,
-      eventsRepo,
-      userMessage,
-      input.userId,
-    );
-
-    const run = await this.createRunRow(tx, input, userMessage);
-    await eventsRepo.append(run.id, 'run.created', {
-      chatId: input.chatId,
-      messageId: userMessage.id,
-    });
-
-    return { run, supersededRunIds: superseded.map((stale) => stale.id) };
-  }
-
-  /**
-   * Defensive cleanup for impossible legacy state: a freshly inserted
-   * message should have no older active runs, but if dev data violates that
-   * invariant, canceling them preserves the per-chat single-flight slot.
-   */
-  private async cancelSupersededRuns(
-    runsRepo: RunsRepository,
-    eventsRepo: RunEventsRepository,
-    userMessage: Message,
-    userId: string,
-  ): Promise<Array<Run>> {
-    const superseded = await runsRepo.cancelActiveRunsForMessage(
-      userMessage.id,
-      userId,
-    );
-    for (const stale of superseded) {
-      await eventsRepo.append(stale.id, 'run.cancelled', {
-        reason: 'superseded by retry',
-      });
-    }
-    return superseded;
-  }
-
-  /**
-   * The Run row itself, in a savepoint (nested tx) so the single-flight
-   * unique violation it may raise cannot poison the outer accepted-turn
-   * transaction — `clearActiveRunSlot` above still needs it live.
-   */
-  private async createRunRow(
-    tx: Db,
-    input: CreateRunForMessageInput,
-    userMessage: Message,
-  ): Promise<Run> {
-    try {
-      return await tx.transaction((inner) =>
-        new RunsRepository(inner).create({
-          id: input.targetRunId,
-          chatId: input.chatId,
-          messageId: userMessage.id,
-          userId: input.userId,
-          modelId: input.modelId,
-          effort: input.effort,
-          permissionMode: input.permissionMode,
-        }),
-      );
-    } catch (error) {
-      if (isInflightUniqueViolation(error)) {
-        throw new ConflictException(
-          'Another run is already in flight for this chat',
-        );
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Whether a run still in flight is one the queue can execute, judged by its
-   * own job's state rather than by its age: a queued, retrying, or active job
-   * is live however long the run has existed. A job-less run is still treated
-   * as live for one liveness window, because the enqueue can legitimately
-   * land just after the run row committed. Anything else — absent and older
-   * than that, or a settled job — means the queue can no longer execute it.
-   *
-   * The read runs inside the accepted-turn transaction, which holds the chat
-   * row, so it is bounded; a state it cannot read in time, or at all, cannot
-   * prove the run wedged and counts as live (409), never as expirable.
-   */
-  private async blockerIsLive(run: Run): Promise<boolean> {
-    let timer: NodeJS.Timeout | undefined;
-    const state = await Promise.race([
-      this.dispatch.jobState(run.id),
-      new Promise<'unreadable'>((resolve) => {
-        timer = setTimeout(
-          () => resolve('unreadable'),
-          JOB_STATE_READ_TIMEOUT_MS,
-        );
-      }),
-    ])
-      .catch(() => 'unreadable' as const)
-      .finally(() => clearTimeout(timer));
-    if (state !== 'absent') {
-      return (
-        state === 'unreadable' ||
-        state === 'queued' ||
-        state === 'retrying' ||
-        state === 'active'
-      );
-    }
-    const lastSignOfLife = run.startedAt ?? run.createdAt;
-    return (
-      Date.now() - lastSignOfLife.getTime() <
-      heartbeatSeconds(this.instanceConfig.config) * 1000
-    );
-  }
-
-  private async clearActiveRunSlot(input: {
-    tx: Db;
-    runsRepo: RunsRepository;
-    eventsRepo: RunEventsRepository;
-    chatId: string;
-    userId: string;
-  }): Promise<void> {
-    const findActive = () =>
-      input.runsRepo.findActiveByChatId(input.chatId, input.userId);
-    const blocking = await findActive();
-    if (!blocking) return;
-    if (await this.blockerIsLive(blocking)) {
-      // Re-check the row once: `blocking` may have finished between the read
-      // above and now, in which case the chat is simply free. Its job state
-      // is not read again, so one send holds the chat row for at most one
-      // bounded wait.
-      if (await findActive()) {
-        throw new ConflictException(
-          'Another run is already in flight for this chat',
-        );
-      }
-      return;
-    }
-
-    const message =
-      'Expired by a new message: run stuck with no execution progress.';
-    const expired = await input.runsRepo.markFinished(
-      blocking.id,
-      input.userId,
-      'expired',
-      { error: { message } },
-    );
-    if (expired) {
-      // The chat row is held first and the run row next, so finalizing the
-      // reply after them keeps the worker's run-then-reply order.
-      await finalizeRunReply(input.tx, {
-        run: expired,
-        status: 'expired',
-        models: this.instanceConfig.config.models,
-      });
-      await input.eventsRepo.append(blocking.id, 'run.expired', {
-        status: 'expired',
-        message,
-      });
-    }
   }
 }

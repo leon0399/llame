@@ -26,6 +26,7 @@ import {
   messages,
   runEvents,
   runs,
+  type FollowUpAction,
   type Run,
   type RunEvent,
   type RunStatus,
@@ -101,6 +102,10 @@ export class RunsRepository {
     effort?: string | undefined;
     /** Accepted at message time; absent lets the database default to `default`. */
     permissionMode?: PermissionMode | undefined;
+    /** The follow-up action that started this Run; absent for a chat send. */
+    followUpAction?: FollowUpAction | undefined;
+    /** The earlier Run this follow-up Run acts on; absent for a chat send. */
+    sourceRunId?: string | undefined;
   }): Promise<Run> {
     const values: typeof runs.$inferInsert = {
       chatId: input.chatId,
@@ -111,6 +116,12 @@ export class RunsRepository {
     if (input.effort !== undefined) values.effort = input.effort;
     if (input.permissionMode !== undefined) {
       values.permissionMode = input.permissionMode;
+    }
+    if (input.followUpAction !== undefined) {
+      values.followUpAction = input.followUpAction;
+    }
+    if (input.sourceRunId !== undefined) {
+      values.sourceRunId = input.sourceRunId;
     }
     if (input.id !== undefined) values.id = input.id;
 
@@ -205,6 +216,26 @@ export class RunsRepository {
       .from(runs)
       .where(and(eq(runs.chatId, chatId), eq(runs.userId, userId)))
       .orderBy(asc(runs.createdAt));
+  }
+
+  /**
+   * The Chat's newest Run — the Run the history read reports and the one the
+   * follow-up actions judge (turn-actions D12). Owner-scoped; `createdAt` and
+   * `id` break ties between Runs created in one transaction. Returns
+   * undefined for a Chat with no Run.
+   */
+  async findLatestByChatId(
+    chatId: string,
+    userId: string,
+  ): Promise<Run | undefined> {
+    const rows = await this.db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.chatId, chatId), eq(runs.userId, userId)))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(1);
+
+    return rows[0];
   }
 
   /**
@@ -430,6 +461,9 @@ export type RunEventType =
   | 'run.failed'
   | 'run.cancelled'
   | 'run.expired'
+  // The kept parts of a Continue Run: appended by admission right after
+  // `run.created`, so every attempt starts from the same completed steps.
+  | 'run.continued'
   | 'reasoning.delta'
   // Tool-calling loop (SPEC §9.4 tool.* vocabulary): requested (model called
   // an advertised tool, or a refused/hallucinated call was recorded) ->

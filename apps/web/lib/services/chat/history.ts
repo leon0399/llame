@@ -57,7 +57,7 @@ function isCompaction(
 
 /** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
 export function normalizeChatMessagesResponse(
-  response: GeneratedChatMessagesResponse,
+  response: Pick<GeneratedChatMessagesResponse, "messages">,
 ): ChatMessagesResponse {
   const messages: Array<ChatMessageResponse> = response.messages.map(
     (message) => ({

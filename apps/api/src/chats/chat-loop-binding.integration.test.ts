@@ -139,6 +139,8 @@ function previousRun(overrides: Partial<Run> = {}): Run {
     startedAt: new Date('2026-08-11T08:00:01.000Z'),
     finishedAt: new Date('2026-08-11T08:00:02.000Z'),
     ...overrides,
+    followUpAction: null,
+    sourceRunId: null,
   };
 }
 
@@ -440,6 +442,8 @@ describe('ChatLoopService accept/worker context binding', () => {
         createdAt: new Date(),
         startedAt: new Date(),
         finishedAt: null,
+        followUpAction: null,
+        sourceRunId: null,
       });
     vi.spyOn(RunsRepository.prototype, 'markStarted').mockImplementation(
       (runId) =>
@@ -520,6 +524,8 @@ describe('ChatLoopService accept/worker context binding', () => {
           createdAt: new Date(),
           startedAt: null,
           finishedAt: null,
+          followUpAction: null,
+          sourceRunId: null,
         }),
       );
 

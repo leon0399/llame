@@ -101,6 +101,8 @@ const run: Run = {
   finishedAt: null,
   effort: null,
   permissionMode: 'default' as const,
+  followUpAction: null,
+  sourceRunId: null,
 };
 
 const input = {
@@ -362,6 +364,16 @@ describe('ChatLoopService.createMessageStream', () => {
       message: 'Message must contain a text or file part',
     });
     expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 while a chat-creation request holds the Chat', async () => {
+    const { service, dispatchRun } = makeService({ creationLockHeld: false });
+
+    await expect(service.createMessageStream(input)).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'creation_in_progress' },
+    });
+    expect(dispatchRun).not.toHaveBeenCalled();
   });
 
   describe('file parts', () => {
@@ -673,14 +685,14 @@ describe('ChatLoopService.createMessageStream', () => {
       {
         error: {
           message:
-            'Expired by a new message: run stuck with no execution progress.',
+            'Expired by a new request: run stuck with no execution progress.',
         },
       },
     );
     expect(appendEvent).toHaveBeenCalledWith(blocking.id, 'run.expired', {
       status: 'expired',
       message:
-        'Expired by a new message: run stuck with no execution progress.',
+        'Expired by a new request: run stuck with no execution progress.',
     });
   });
 

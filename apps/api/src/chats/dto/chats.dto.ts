@@ -20,7 +20,7 @@ import {
   type ValidationArguments,
   type ValidatorConstraintInterface,
 } from 'class-validator';
-import type { Chat, Message, MessageRole } from '../../db/schema';
+import { type Chat, type Message, type MessageRole } from '../../db/schema';
 import {
   isNumber,
   isRecord,
@@ -37,6 +37,7 @@ import {
   PERMISSION_MODES,
   type PermissionMode,
 } from '../../tools/permissions/permission-mode';
+import { ChatLatestRunResponse } from './latest-run.dto';
 import { CreateMessageBodyDto } from './message-parts.dto';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
@@ -505,6 +506,13 @@ export class ChatMessageResponse {
 export class ChatMessagesResponse {
   @ApiProperty({ type: () => [ChatMessageResponse] })
   messages!: Array<ChatMessageResponse>;
+
+  @ApiProperty({
+    type: () => ChatLatestRunResponse,
+    nullable: true,
+    description: "The Chat's newest Run; null when the Chat has no Run.",
+  })
+  latestRun!: ChatLatestRunResponse | null;
 }
 
 export function toChatMessageResponse(

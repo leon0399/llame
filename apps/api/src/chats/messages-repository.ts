@@ -506,17 +506,60 @@ export class MessagesRepository {
       eq(messages.role, 'user'),
       eq(chats.ownerUserId, ownerUserId),
     ]);
-    const assistantMessage = await this.findOneMessage(
+    const assistantMessage = await this.findReply(
+      chatId,
+      ownerUserId,
+      userMessageId,
+    );
+    return { userMessage, assistantMessage };
+  }
+
+  /**
+   * The assistant reply to one user message in an owned chat. A caller that
+   * already holds the user row reads only this row — after a stuck-Run expiry,
+   * for example, which may have rewritten the reply.
+   */
+  async findReply(
+    chatId: string,
+    ownerUserId: string,
+    inReplyTo: string,
+  ): Promise<Message | undefined> {
+    // Ordered like the turn read: a reply is unique per turn, and the earliest
+    // row wins if legacy data ever breaks that.
+    return this.findOneMessage(
       [
         eq(messages.chatId, chatId),
         eq(messages.role, 'assistant'),
-        eq(messages.inReplyTo, userMessageId),
+        eq(messages.inReplyTo, inReplyTo),
         eq(chats.ownerUserId, ownerUserId),
       ],
       { orderBySeq: true },
     );
+  }
 
-    return { userMessage, assistantMessage };
+  /**
+   * Whether the owned Chat holds a user message after `seq`. A follow-up
+   * request acts on the latest turn only, so any later user row refuses it.
+   */
+  async hasLaterUserMessage(
+    chatId: string,
+    ownerUserId: string,
+    seq: number,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          eq(messages.role, 'user'),
+          gt(messages.seq, seq),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
   }
 
   /**

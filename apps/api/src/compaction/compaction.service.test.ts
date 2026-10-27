@@ -88,6 +88,8 @@ const sourceRun: Run = {
   finishedAt: now,
   effort: null,
   permissionMode: 'default' as const,
+  followUpAction: null,
+  sourceRunId: null,
 };
 
 const sourceReceipt: SystemPromptReceipt = {

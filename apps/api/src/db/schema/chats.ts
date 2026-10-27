@@ -312,6 +312,12 @@ export const runStatus = pgEnum('run_status', [
   'expired',
 ]);
 
+// The actions an owner can start on the turn of an earlier Run
+// (turn-actions). A chat-send Run records none.
+export const followUpActions = ['continue', 'regenerate'] as const;
+
+export type FollowUpAction = (typeof followUpActions)[number];
+
 // A durable run (#48, SPEC §9.3): every user message becomes a worker-processed
 // run. One message may have several runs across retries; the run row is the
 // unit of execution state, the run_events log is the source of truth.
@@ -381,13 +387,25 @@ export const runs = pgTable(
     turnToolAvailability: jsonb('turn_tool_availability').$type<
       Array<TurnToolAvailabilityEntry>
     >(),
+    // The follow-up action that started this Run, null for a chat send
+    // (turn-actions D3). The worker reads it to choose its path.
+    followUpAction: text('follow_up_action').$type<FollowUpAction>(),
+    // The earlier Run this follow-up Run acts on: the reply's Run for
+    // Continue, the latest Run for Regenerate. Null for a chat send.
+    sourceRunId: uuid('source_run_id'),
   },
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),
     index('runs_user_status_idx').on(t.userId, t.status),
+    // Serves the source-run FK's referential check when a Run is deleted.
+    index('runs_source_run_id_user_id_idx').on(t.sourceRunId, t.userId),
     check(
       'runs_permission_mode_check',
       sql`${t.permissionMode} IN ('default', 'bypass')`,
+    ),
+    check(
+      'runs_follow_up_action_check',
+      sql`${t.followUpAction} IS NULL OR ${t.followUpAction} IN ('continue', 'regenerate')`,
     ),
     // Composite target for owner-matching system prompt receipts.
     uniqueIndex('runs_id_user_id_unique_idx').on(t.id, t.userId),
@@ -400,6 +418,12 @@ export const runs = pgTable(
       name: 'runs_message_id_chat_id_fk',
       columns: [t.messageId, t.chatId],
       foreignColumns: [messages.id, messages.chatId],
+    }),
+    // A source Run belongs to the same owner; the pair names the Run too.
+    foreignKey({
+      name: 'runs_source_run_id_user_id_fk',
+      columns: [t.sourceRunId, t.userId],
+      foreignColumns: [t.id, t.userId],
     }),
     // Per-chat single-flight (#48): at most one non-terminal run per chat —
     // the DB-level guarantee against concurrent double model calls (#73).

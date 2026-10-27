@@ -35,6 +35,8 @@ describe('RunsController context receipt', () => {
     createdAt: new Date('2026-07-18T10:00:00.000Z'),
     startedAt: new Date('2026-07-18T10:00:01.000Z'),
     finishedAt: new Date('2026-07-18T10:00:02.000Z'),
+    followUpAction: null,
+    sourceRunId: null,
   };
   const promptReceipt: SystemPromptReceipt = {
     id: '55555555-5555-4555-8555-555555555555',
