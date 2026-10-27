@@ -590,11 +590,23 @@ function resolveWebSearchTimeout(
 }
 
 /**
- * A mandatory line break in any encoding: the catalog places an engine id and
- * its description on one line of their own, so a value that carries one would
- * start a line of its own inside it.
+ * Every code point Unicode treats as a mandatory line break: LF, VT, FF, CR,
+ * NEL, LS, PS. The catalog places an engine id and its description on a line of
+ * their own, so a value that carries one would start a line of its own inside
+ * it. A code-point set rather than a character class: `\s` would also match
+ * ordinary spaces, and a literal control-character class trips the lint rule
+ * against control characters in regular expressions.
  */
-const LINE_BREAK = /[\n\v\f\r\u0085\u2028\u2029]/u;
+const LINE_BREAK_CODE_POINTS: ReadonlySet<number> = new Set([
+  0x0a, 0x0b, 0x0c, 0x0d, 0x85, 0x20_28, 0x20_29,
+]);
+
+function hasLineBreak(value: string): boolean {
+  for (const character of value) {
+    if (LINE_BREAK_CODE_POINTS.has(character.codePointAt(0)!)) return true;
+  }
+  return false;
+}
 
 /**
  * Resolve one engine's optional model-facing `description`. The value reaches
@@ -614,7 +626,7 @@ function resolveWebSearchDescription(
       `${descriptionPath}: engine descriptions are literal text and do not support interpolation`,
     );
   }
-  if (LINE_BREAK.test(description)) {
+  if (hasLineBreak(description)) {
     throw new InstanceConfigError(`${descriptionPath}: must be one line`);
   }
   return description;
@@ -627,7 +639,7 @@ function resolveWebSearchDescription(
  * then never be selected.
  */
 function assertWebSearchEngineId(id: string, idPath: string): void {
-  if (LINE_BREAK.test(id)) {
+  if (hasLineBreak(id)) {
     throw new InstanceConfigError(`${idPath}: must be one line`);
   }
   if (/[<>]/u.test(id)) {

@@ -7581,6 +7581,55 @@ describe('RunExecutionService executeRun — context preparation', () => {
       execution.service.executeRun(executionInput(capturing.client)),
     ).rejects.toThrow('Tool "web_search" description rendered empty.');
   });
+
+  it('appends the engine catalog only to the web_search description', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      { allowed: ['bash'], webSearch },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    // Another admitted llame-owned tool renders its template alone: the
+    // catalog belongs to `web_search` and to no other declaration.
+    const description =
+      capturing.streamOptions().tools?.['bash']?.description ?? '';
+    expect(description.length).toBeGreaterThan(0);
+    expect(description).not.toContain('<engines>');
+    expect(description).not.toContain('Configured web search engines.');
+  });
+
+  it('fails a web_search template that renders only whitespace', async () => {
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'web-search-catalog-'));
+    // The loader trims trailing whitespace and refuses an empty file, so the
+    // leading space left by the unadmitted gate is what survives to the
+    // render: a whitespace-only description is still an empty render.
+    writeFileSync(
+      path.join(tmpDir, 'web-search-space.md'),
+      '  {{#if tools.edit}}Use edit for the fetched page.{{/if}}',
+    );
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['web_search'],
+        configPath: path.join(tmpDir, 'llame.config.json'),
+        toolPromptFiles: { web_search: 'web-search-space.md' },
+        webSearch,
+      },
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow('Tool "web_search" description rendered empty.');
+  });
 });
 
 /**
