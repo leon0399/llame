@@ -13,12 +13,16 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@workspace/ui/components/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
 
 import { useChatContext, type ChatContextType } from "@/contexts/chat-context";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 
 import { EffortSelector } from "./effort-selector";
-import { MessageActionButton } from "./message-action-button";
 import { ModelSelector } from "./model-selector";
 import { PermissionModeSelector } from "./permission-mode-selector";
 
@@ -66,15 +70,7 @@ export function RegenerateMenu({
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>
-      {/* The split button's tail; the trigger sets its own aria-expanded. */}
-      <PopoverTrigger
-        render={
-          <MessageActionButton
-            label="Regenerate with other settings"
-            icon={ChevronDownIcon}
-          />
-        }
-      />
+      <RegenerateMenuTrigger />
       <RegenerateMenuContent
         chatId={chatId}
         request={request}
@@ -84,6 +80,34 @@ export function RegenerateMenu({
         }}
       />
     </Popover>
+  );
+}
+
+/** The split button's tail: a chevron that opens the menu, named by its
+ *  tooltip like the row's icon actions. The tooltip wraps the popover
+ *  trigger: the reverse nesting re-renders the tooltip's trigger on hover and
+ *  closes the tooltip at once. */
+function RegenerateMenuTrigger() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Regenerate with other settings"
+              />
+            }
+          />
+        }
+      >
+        <ChevronDownIcon aria-hidden="true" />
+      </TooltipTrigger>
+      <TooltipContent>Regenerate with other settings</TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -1961,6 +1961,29 @@ export const RegenerateMenuSetsTheComposer: Story = {
   },
 };
 
+/**
+ * Hovering the menu chevron keeps its tooltip open: it names an icon-only
+ * control, so it must stay readable for as long as the pointer rests there.
+ *
+ * @summary the menu chevron's tooltip stays open while hovered
+ */
+export const RegenerateMenuTooltipStaysOpen: Story = {
+  ...RegenerateMenuSetsTheComposer,
+  play: async ({ canvas }) => {
+    await userEvent.hover(
+      await canvas.findByRole("button", {
+        name: "Regenerate with other settings",
+      }),
+    );
+    await screen.findByText("Regenerate with other settings");
+    // The broken nesting closed the tooltip within a few hundred ms.
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await expect(
+      screen.getByText("Regenerate with other settings"),
+    ).toBeVisible();
+  },
+};
+
 /** The notice the api stores on the user message a Regenerate discarded calls
  *  from (turn-actions D9). */
 const REGENERATE_NOTICE_MESSAGE: UIMessage = {
