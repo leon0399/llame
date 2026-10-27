@@ -106,7 +106,7 @@ When every attempted engine fails, the fixed shape is:
 }
 ```
 
-The message names each attempted engine id and one class, with entries joined by a semicolon plus one space: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), `unsupported` (the query is over that engine's vendor limit, so nothing was sent), or `upstream_error` (other transport, protocol, status, or parse failure).
+The message names each attempted engine id and one class, with entries joined by a semicolon plus one space: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline or the vendor's read deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), `unsupported` (the query is over that engine's vendor limit, so nothing was sent), or `upstream_error` (other transport, protocol, status, or parse failure).
 Engine messages are fixed and non-disclosing: upstream status text/bodies, request headers, configured keys/URLs never appear in output, errors, events, or logs. Schema, permission, cancellation, and whole-call-timeout outcomes use the runtime's corresponding tool outcomes, not this engine-failure shape.
 
 ## Configured by

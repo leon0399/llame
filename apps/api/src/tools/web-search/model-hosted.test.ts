@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
-} from '../../instance-config/llame-config';
+} from '../../instance-config/web-search-config';
 import {
   type ModelClient,
   type ModelStreamInput,

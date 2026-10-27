@@ -1,15 +1,18 @@
-import { type WebSearchEngineConfig } from '../../instance-config/llame-config';
+import { type WebSearchEngineConfig } from '../../instance-config/web-search-config';
 
 type EngineType = WebSearchEngineConfig['type'];
 
 /** An engine type whose vendor takes a result count. */
-type CountEngineType = 'brave' | 'exa' | 'perplexity';
+type CountEngineType = 'brave' | 'deepseek' | 'exa' | 'parallel' | 'perplexity';
 
 /** What one engine type accepts from the model's `query` and `limit`. */
 export type EngineLimits = {
   /** Absent when the vendor accepts every query the tool's own bound allows. */
   readonly query?: { readonly codePoints: number; readonly words?: number };
-  /** The vendor's maximum result count; absent when its API takes no count. */
+  /**
+   * The vendor's maximum result count; absent when the vendor caps nothing. An
+   * engine whose API takes no count parameter cuts to `limit` instead.
+   */
   readonly results?: number;
 };
 
@@ -20,8 +23,10 @@ export type EngineLimits = {
  */
 export const ENGINE_LIMITS = {
   brave: { query: { codePoints: 600, words: 75 }, results: 20 },
+  deepseek: { query: { codePoints: 128 }, results: 50 },
   exa: { results: 100 },
   'exa-mcp': {},
+  parallel: { query: { codePoints: 200 }, results: 20 },
   perplexity: { results: 20 },
   searxng: {},
   duckduckgo: {},

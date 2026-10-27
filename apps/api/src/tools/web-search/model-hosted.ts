@@ -3,7 +3,7 @@ import { openai } from '@ai-sdk/openai';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { RetryError, type ModelMessage, type ToolSet } from 'ai';
 
-import { type WebSearchEngineConfig } from '../../instance-config/llame-config';
+import { type WebSearchEngineConfig } from '../../instance-config/web-search-config';
 import {
   type ModelStreamInput,
   type ModelStreamResult,

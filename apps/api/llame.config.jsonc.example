@@ -429,6 +429,22 @@
   //       "type": "brave",
   //       "key": "{env:BRAVE_API_KEY}",
   //     },
+  //     // DeepSeek's search API bills per request and accepts a 128-code-point
+  //     // query; `objective` reaches it as `ori_question`.
+  //     {
+  //       "id": "deepseek",
+  //       "type": "deepseek",
+  //       "key": "{env:DEEPSEEK_API_KEY}",
+  //     },
+  //     // Parallel takes a mode: turbo | fast | basic | advanced. `fast` is the
+  //     // default and the vendor's recommendation for agents; basic/advanced
+  //     // cost five times as much.
+  //     {
+  //       "id": "parallel",
+  //       "type": "parallel",
+  //       "key": "{env:PARALLEL_API_KEY}",
+  //       // "mode": "fast",
+  //     },
   //     {
   //       "id": "exa",
   //       "type": "exa",

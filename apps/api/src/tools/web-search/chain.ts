@@ -2,11 +2,13 @@ import { parseHTML } from 'linkedom';
 import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
-} from '../../instance-config/llame-config';
+} from '../../instance-config/web-search-config';
 import { createDuckDuckGoEngine } from './duckduckgo';
 import { createExaMcpEngine } from './exa-mcp';
 import { createBraveEngine } from './brave';
+import { createDeepseekEngine } from './deepseek';
 import { createExaEngine } from './exa';
+import { createParallelEngine } from './parallel';
 import { createPerplexityEngine } from './perplexity';
 import { createSearxngEngine } from './searxng';
 import { createModelHostedEngine } from './model-hosted';
@@ -376,10 +378,14 @@ export function createEngine(
   switch (config.type) {
     case 'brave':
       return createBraveEngine(config, deps);
+    case 'deepseek':
+      return createDeepseekEngine(config, deps);
     case 'exa':
       return createExaEngine(config, deps);
     case 'exa-mcp':
       return createExaMcpEngine(config, deps);
+    case 'parallel':
+      return createParallelEngine(config, deps);
     case 'perplexity':
       return createPerplexityEngine(config, deps);
     case 'searxng':
