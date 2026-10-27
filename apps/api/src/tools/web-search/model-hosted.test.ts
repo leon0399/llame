@@ -191,6 +191,26 @@ describe('the hosted request', () => {
     ]);
   });
 
+  it('sends template-looking text literally, recency before the goal', async () => {
+    const { engine, inputs } = hostedEngine('openai-responses', GROUNDED);
+
+    await engine(
+      request({
+        query: 'pg {{user.email}} & <b>',
+        recency: 'week',
+        objective: 'rank {{#if x}}docs{{/if}} & <i>',
+      }),
+    );
+
+    expect(inputs[0].messages).toStrictEqual([
+      {
+        role: 'user',
+        content:
+          'pg {{user.email}} & <b>\n\nOnly use sources published within the last week.\n\nGoal: rank {{#if x}}docs{{/if}} & <i>',
+      },
+    ]);
+  });
+
   it('packages the hosted search instructions', () => {
     expect(HOSTED_SEARCH_INSTRUCTIONS).toBe(
       [
