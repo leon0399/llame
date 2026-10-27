@@ -5,9 +5,60 @@
  * outgrew that module's line budget.
  */
 
-import type { UIMessage } from "ai";
+import type { ChatStatus, UIMessage } from "ai";
 
+import type { ChatLatestRunResponse } from "../../api/generated/models";
 import { messageSeqFromMetadata, runIdFromMessageMetadata } from "./history";
+import { isTerminalRunStatus } from "./run-notifications";
+
+/**
+ * What the log knows about a follow-up Run replacing a turn's reply right now.
+ * A live-authored reply only supersedes the durable one while the replacement
+ * is actually under way: a follow-up that fails before its dispatch leaves the
+ * previous reply in place, and that reply is the turn's answer.
+ */
+export type ReplacementContext = {
+  /** True while a request streams, so a replacement's output is arriving. */
+  streaming: boolean;
+  /** The user message of the Chat's newest Run, while that Run is a
+   *  non-terminal follow-up. */
+  pendingFollowUpMessageId: string | null;
+};
+
+/** The replacement state of a Chat, from the settled history read it is judged
+ *  with. */
+export function replacementContext(input: {
+  status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+}): ReplacementContext {
+  const { latestRun, status } = input;
+  const pending =
+    latestRun !== null &&
+    latestRun.followUpAction !== null &&
+    !isTerminalRunStatus(latestRun.status)
+      ? latestRun.messageId
+      : null;
+  return {
+    streaming: status === "streaming" || status === "submitted",
+    pendingFollowUpMessageId: pending,
+  };
+}
+
+/**
+ * Whether a live-authored assistant message replaces its turn's durable reply.
+ * Only a replacement with output (or one the Chat is still awaiting) does: a
+ * bare placeholder is what a follow-up that failed before its dispatch leaves
+ * behind, and the reply it preserved is the turn's answer.
+ */
+function replacesReply(
+  message: UIMessage,
+  turnUserMessageId: string,
+  context: ReplacementContext,
+): boolean {
+  if (message.parts.length > 0) return true;
+  if (context.streaming) return true;
+  return turnUserMessageId === context.pendingFollowUpMessageId;
+}
 
 /**
  * The oldest and newest durable seq in a message list, in one pass — null
@@ -41,14 +92,17 @@ function durableSeqBounds(
  */
 export function supersededReplyIndexes(
   messages: ReadonlyArray<UIMessage>,
+  context: ReplacementContext,
 ): Set<number> {
   const superseded = new Set<number>();
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
     if (message?.role !== "assistant") continue;
     if (messageSeqFromMetadata(message.metadata) !== null) continue;
-    let turnStart = index - 1;
-    while (turnStart >= 0 && messages[turnStart]?.role !== "user") turnStart--;
+    const turnStart = turnStartIndex(messages, index);
+    const user = messages[turnStart];
+    if (user?.role !== "user") continue;
+    if (!replacesReply(message, user.id, context)) continue;
     for (let row = turnStart + 1; row < index; row += 1) {
       if (messages[row]?.role === "assistant") superseded.add(row);
     }
@@ -56,11 +110,22 @@ export function supersededReplyIndexes(
   return superseded;
 }
 
+/** The index of the user message a live reply at `index` answers, or -1. */
+function turnStartIndex(
+  messages: ReadonlyArray<UIMessage>,
+  index: number,
+): number {
+  let row = index - 1;
+  while (row >= 0 && messages[row]?.role !== "user") row -= 1;
+  return row;
+}
+
 /** The messages without the rows a live stream supersedes. */
 function withoutSupersededRows(
   messages: ReadonlyArray<UIMessage>,
+  context: ReplacementContext,
 ): ReadonlyArray<UIMessage> {
-  const superseded = supersededReplyIndexes(messages);
+  const superseded = supersededReplyIndexes(messages, context);
   return superseded.size === 0
     ? messages
     : messages.filter((_message, index) => !superseded.has(index));
@@ -96,6 +161,7 @@ function streamedReplyByTurn(
 function withoutSupersededReplies(
   serverMessages: ReadonlyArray<UIMessage>,
   liveMessages: ReadonlyArray<UIMessage>,
+  context: ReplacementContext,
 ): ReadonlyArray<UIMessage> {
   const streamed = streamedReplyByTurn(liveMessages);
   if (streamed.size === 0) return serverMessages;
@@ -105,7 +171,36 @@ function withoutSupersededReplies(
     if (user?.role !== "user") return true;
     const live = streamed.get(user.id);
     if (live === undefined) return true;
+    if (!replacesReply(live, user.id, context)) return true;
     return runIdFromMessageMetadata(message.metadata) === live.id;
+  });
+}
+
+/**
+ * Whether this read holds a reply the log already carries under the same seq
+ * but from another Run. A follow-up replaces the turn's reply in place, so its
+ * seq never moves: with coverage alone (a strictly newer or older seq) the log
+ * could never adopt a regenerated or continued answer — a reload that seeded
+ * the old reply, and a reconnect probe that answered 204 after the follow-up
+ * settled, would keep showing the replaced answer. The reply's `usage.runId`
+ * names the Run that wrote it, so a different one is a revision.
+ */
+function holdsRevisedReply(
+  server: ReadonlyArray<UIMessage>,
+  live: ReadonlyArray<UIMessage>,
+): boolean {
+  const liveRunIds = new Map<number, string | null>();
+  for (const message of live) {
+    const seq = messageSeqFromMetadata(message.metadata);
+    if (seq === null || message.role !== "assistant") continue;
+    liveRunIds.set(seq, runIdFromMessageMetadata(message.metadata));
+  }
+  if (liveRunIds.size === 0) return false;
+  return server.some((message) => {
+    const seq = messageSeqFromMetadata(message.metadata);
+    if (seq === null || message.role !== "assistant") return false;
+    if (!liveRunIds.has(seq)) return false;
+    return liveRunIds.get(seq) !== runIdFromMessageMetadata(message.metadata);
   });
 }
 
@@ -149,14 +244,17 @@ export function adoptServerHistory(input: {
   status: string;
   serverMessages: ReadonlyArray<UIMessage>;
   liveMessages: ReadonlyArray<UIMessage>;
+  replacement: ReplacementContext;
 }): Array<UIMessage> | null {
   if (input.status === "streaming" || input.status === "submitted") {
     return null;
   }
-  const live = withoutSupersededRows(input.liveMessages);
+  const { replacement } = input;
+  const live = withoutSupersededRows(input.liveMessages, replacement);
   const server = withoutSupersededReplies(
     input.serverMessages,
     input.liveMessages,
+    replacement,
   );
   const serverBounds = durableSeqBounds(server);
   if (serverBounds === null) return null;
@@ -166,7 +264,8 @@ export function adoptServerHistory(input: {
     liveBounds === null || serverBounds.newest > liveBounds.newest;
   const extendsOlder =
     liveBounds !== null && serverBounds.oldest < liveBounds.oldest;
-  if (!extendsNewer && !extendsOlder) return null;
+  const revised = holdsRevisedReply(server, live);
+  if (!extendsNewer && !extendsOlder && !revised) return null;
 
   const head = liveHead(live, serverBounds.oldest);
   const tail = liveTail(live, server);

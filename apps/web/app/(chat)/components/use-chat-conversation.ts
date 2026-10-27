@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { useChat } from "@ai-sdk/react";
-import type { FileUIPart, UIMessage } from "ai";
+import type { ChatStatus, FileUIPart, UIMessage } from "ai";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatContext } from "@/contexts/chat-context";
@@ -19,16 +19,17 @@ import {
 } from "@/lib/services/chat/history";
 import {
   useChatEngine,
-  useChatHistorySync,
   useChatModelSelection,
   useChatPresenceEffects,
   useChatRefresh,
   useChatSendTransport,
 } from "./use-chat-engine";
+import { useChatHistorySync } from "./use-chat-history-sync";
+import { hiddenFollowUpReplyIndex } from "./turn-action-rules";
 import {
-  hiddenFollowUpReplyIndex,
+  replacementContext,
   supersededReplyIndexes,
-} from "./turn-action-rules";
+} from "@/lib/services/chat/history-adoption";
 import { usePendingStop } from "./use-pending-stop";
 import {
   attachmentFileParts,
@@ -196,6 +197,7 @@ type UseChatSideEffectsArgs = {
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
   refreshChatBinding: () => void;
+  latestRun: ChatLatestRunResponse | null;
   interruption: StreamInterruption | null;
 };
 
@@ -215,6 +217,7 @@ function useChatSideEffects({
   trackRun,
   markChatSeen,
   refreshChatBinding,
+  latestRun,
   interruption,
 }: UseChatSideEffectsArgs) {
   useChatHistorySync({
@@ -225,6 +228,7 @@ function useChatSideEffects({
     messages,
     status,
     setMessages,
+    latestRun,
     interruption,
   });
   useChatPresenceEffects({
@@ -242,21 +246,29 @@ function useChatSideEffects({
 // deliberately drops that non-conversation row before rendering. The
 // checkpoint's absorbed-through boundary still places the marker before the
 // triggering user row.
-function deriveChatTranscript(
-  messages: Array<UIMessage>,
-  chatMessages: Array<UIMessage>,
-  compaction: Compaction | null,
-  latestRun: ChatLatestRunResponse | null,
-) {
-  const merged = mergeTrustedModelContextParts(messages, chatMessages).filter(
-    (message) => message.role !== "system",
-  );
+type ChatTranscriptInput = {
+  messages: Array<UIMessage>;
+  chatMessages: Array<UIMessage>;
+  compaction: Compaction | null;
+  status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+};
+
+function deriveChatTranscript(input: ChatTranscriptInput) {
+  const { compaction, latestRun, status } = input;
+  const merged = mergeTrustedModelContextParts(
+    input.messages,
+    input.chatMessages,
+  ).filter((message) => message.role !== "system");
   // A follow-up Run of the latest turn that has not settled replaced its
   // reply: hide that reply so a reload before the dispatch shows the resumed
   // stream alone (turn-actions D13). The same holds for any durable reply a
   // live stream already supersedes, because the stream attaches after it and a
   // history read that raced the follow-up can put the old copy back.
-  const hidden = supersededReplyIndexes(merged);
+  const hidden = supersededReplyIndexes(
+    merged,
+    replacementContext({ status, latestRun }),
+  );
   const followUpReply = hiddenFollowUpReplyIndex(merged, latestRun);
   if (followUpReply !== null) hidden.add(followUpReply);
   const displayMessages =
@@ -305,12 +317,13 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
     onSendFailed: args.onSendFailed,
     onStreamInterrupted: streamInterruption.report,
   });
-  const transcript = deriveChatTranscript(
-    engine.messages,
+  const transcript = deriveChatTranscript({
+    messages: engine.messages,
     chatMessages,
     compaction,
+    status: engine.status,
     latestRun,
-  );
+  });
 
   useChatSideEffects({
     ...setup,
@@ -321,6 +334,7 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
     status: engine.status,
     setMessages: engine.setMessages,
     chatId,
+    latestRun,
     interruption: streamInterruption.interruption,
   });
 

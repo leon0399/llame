@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
-import { adoptServerHistory } from "./history-adoption";
+import {
+  adoptServerHistory,
+  replacementContext,
+  supersededReplyIndexes,
+  type ReplacementContext,
+} from "./history-adoption";
 import {
   isInstructionsPart,
   isPromptImportsPart,
@@ -1193,11 +1198,23 @@ describe("adoptServerHistory", () => {
           parts: [{ type: "text", text: id }],
           metadata: { usage: { runId } },
         };
+  /** No follow-up in flight: nothing is replacing a turn's reply. */
+  const SETTLED: ReplacementContext = {
+    streaming: false,
+    pendingFollowUpMessageId: null,
+  };
   const adopt = (
     status: string,
     serverMessages: ReadonlyArray<UIMessage>,
     liveMessages: ReadonlyArray<UIMessage>,
-  ) => adoptServerHistory({ status, serverMessages, liveMessages });
+    replacement: ReplacementContext = SETTLED,
+  ) =>
+    adoptServerHistory({
+      status,
+      serverMessages,
+      liveMessages,
+      replacement,
+    });
 
   it("adopts a strictly longer server history once the turn is settled (#261)", () => {
     // The 204-resume case: the log holds only the user turn, the answer is
@@ -1480,5 +1497,227 @@ describe("messageRenderKey", () => {
     expect(messageRenderKey({ id: "assistant-1", role: "assistant" })).toBe(
       "assistant:assistant-1",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up replacement (turn-actions D13): an in-place reply replacement is
+// invisible to sequence coverage, and a replacement that never dispatched must
+// leave the previous reply standing.
+// ---------------------------------------------------------------------------
+
+describe("adoptServerHistory under a follow-up replacement", () => {
+  const PREVIOUS_RUN_ID = "b6ed346f-2ef9-4bbe-95e9-f1f358c7b246";
+  const FOLLOW_UP_RUN_ID = "c7fe4570-3fa0-4cc7-a6fa-02a469d8c357";
+
+  const durableUser = (id: string, seq: number): UIMessage => ({
+    id,
+    role: "user",
+    parts: [{ type: "text", text: id }],
+    metadata: { seq },
+  });
+  const durableAssistant = (
+    id: string,
+    seq: number,
+    runId: string,
+  ): UIMessage => ({
+    id,
+    role: "assistant",
+    parts: [{ type: "text", text: id }],
+    metadata: { seq, usage: { runId } },
+  });
+  /** The empty assistant message the stream's `start` frame creates. */
+  const placeholder = (runId: string): UIMessage => ({
+    id: runId,
+    role: "assistant",
+    parts: [],
+  });
+  const SETTLED: ReplacementContext = {
+    streaming: false,
+    pendingFollowUpMessageId: null,
+  };
+  const adopt = (
+    serverMessages: ReadonlyArray<UIMessage>,
+    liveMessages: ReadonlyArray<UIMessage>,
+    replacement: ReplacementContext = SETTLED,
+  ) =>
+    adoptServerHistory({
+      status: "ready",
+      serverMessages,
+      liveMessages,
+      replacement,
+    });
+
+  it("restores the reply a follow-up that failed before dispatch preserved", () => {
+    // The client dropped the answer when it started the follow-up, and the
+    // Run failed before its dispatch, so the api kept the previous reply. The
+    // empty placeholder must not supersede it: without that reply the turn
+    // shows no answer until a reload.
+    const preserved = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
+    ];
+    const live = [durableUser("user-1", 1), placeholder(FOLLOW_UP_RUN_ID)];
+
+    expect(adopt(preserved, live)).toEqual([...preserved, ...live.slice(1)]);
+  });
+
+  it("drops the preserved reply while its replacement is under way", () => {
+    const stale = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
+    ];
+    const live = [durableUser("user-1", 1), placeholder(FOLLOW_UP_RUN_ID)];
+
+    expect(adopt(stale, live, { ...SETTLED, streaming: true })).toBe(null);
+    expect(
+      adopt(stale, live, { ...SETTLED, pendingFollowUpMessageId: "user-1" }),
+    ).toBe(null);
+  });
+
+  it("adopts a reply replaced in place under the same seq", () => {
+    // A follow-up replaces the turn's reply without moving its seq, so
+    // coverage alone can never adopt it: a reload that seeded the old reply
+    // and a reconnect probe that answered 204 after the follow-up settled
+    // would both keep showing the replaced answer.
+    const live = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
+    ];
+    const regenerated = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2, FOLLOW_UP_RUN_ID),
+    ];
+
+    expect(adopt(regenerated, live)).toEqual(regenerated);
+  });
+
+  it("leaves an unchanged reply of the same Run alone", () => {
+    const rows = [
+      durableUser("user-1", 1),
+      durableAssistant("assistant-1", 2, FOLLOW_UP_RUN_ID),
+    ];
+
+    expect(adopt(rows, rows)).toBe(null);
+  });
+});
+
+describe("replacementContext", () => {
+  const run = (
+    overrides: Partial<
+      import("../../api/generated/models").ChatLatestRunResponse
+    >,
+  ) =>
+    ({
+      id: "11111111-1111-4111-8111-111111111111",
+      messageId: "user-1",
+      status: "queued",
+      followUpAction: "regenerate",
+      modelId: "system:openai:gpt-5.4-mini",
+      effort: null,
+      permissionMode: "default",
+      ...overrides,
+    }) as const;
+
+  it("marks the Chat streaming while a request is in flight", () => {
+    expect(
+      replacementContext({ status: "submitted", latestRun: null }),
+    ).toEqual({ streaming: true, pendingFollowUpMessageId: null });
+    expect(
+      replacementContext({ status: "streaming", latestRun: null }).streaming,
+    ).toBe(true);
+    expect(
+      replacementContext({ status: "ready", latestRun: null }).streaming,
+    ).toBe(false);
+  });
+
+  it("names the turn of a follow-up Run that has not settled", () => {
+    for (const status of ["queued", "running_model"] as const) {
+      expect(
+        replacementContext({ status: "ready", latestRun: run({ status }) }),
+      ).toEqual({ streaming: false, pendingFollowUpMessageId: "user-1" });
+    }
+  });
+
+  it("names no turn once the follow-up settled or for a chat send", () => {
+    expect(
+      replacementContext({
+        status: "ready",
+        latestRun: run({ status: "failed" }),
+      }).pendingFollowUpMessageId,
+    ).toBe(null);
+    expect(
+      replacementContext({
+        status: "ready",
+        latestRun: run({ status: "running_model", followUpAction: null }),
+      }).pendingFollowUpMessageId,
+    ).toBe(null);
+  });
+});
+
+describe("supersededReplyIndexes", () => {
+  const user = (id: string): UIMessage => ({
+    id,
+    role: "user",
+    parts: [{ type: "text", text: id }],
+  });
+  const reply = (id: string, seq: number): UIMessage => ({
+    id,
+    role: "assistant",
+    parts: [{ type: "text", text: id }],
+    metadata: { seq, usage: { runId: "old-run" } },
+  });
+  const streamed = (id: string, text: string): UIMessage => ({
+    id,
+    role: "assistant",
+    parts: text === "" ? [] : [{ type: "text", text }],
+  });
+  const REPLACING: ReplacementContext = {
+    streaming: true,
+    pendingFollowUpMessageId: null,
+  };
+
+  it("hides the durable reply a live stream replaces, wherever it sits", () => {
+    expect([
+      ...supersededReplyIndexes(
+        [user("user-1"), reply("assistant-1", 2), streamed("run-1", "answer")],
+        REPLACING,
+      ),
+    ]).toEqual([1]);
+  });
+
+  it("hides a superseded reply per turn", () => {
+    expect([
+      ...supersededReplyIndexes(
+        [
+          user("user-1"),
+          reply("assistant-1", 2),
+          user("user-2"),
+          reply("assistant-2", 4),
+          streamed("run-2", "answer"),
+        ],
+        REPLACING,
+      ),
+    ]).toEqual([3]);
+  });
+
+  it("keeps the reply a follow-up that never dispatched preserved", () => {
+    // Nothing is streaming and no follow-up is pending, so the empty
+    // placeholder is a dead one and the reply beside it is the turn's answer.
+    expect(
+      supersededReplyIndexes(
+        [user("user-1"), reply("assistant-1", 2), streamed("run-1", "")],
+        { streaming: false, pendingFollowUpMessageId: null },
+      ).size,
+    ).toBe(0);
+  });
+
+  it("hides nothing once the stream's own reply is the durable one", () => {
+    expect(
+      supersededReplyIndexes([user("user-1"), reply("assistant-1", 2)], {
+        streaming: true,
+        pendingFollowUpMessageId: null,
+      }).size,
+    ).toBe(0);
   });
 });

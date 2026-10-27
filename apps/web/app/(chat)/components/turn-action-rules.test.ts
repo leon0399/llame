@@ -13,7 +13,6 @@ import {
   discardedCallNames,
   hiddenFollowUpReplyIndex,
   needsFailedTurnRow,
-  supersededReplyIndexes,
   turnActionVisibility,
   type TurnReply,
 } from "./turn-action-rules";
@@ -466,52 +465,5 @@ describe("needsFailedTurnRow", () => {
         }),
       ).toBe(false);
     }
-  });
-});
-
-describe("supersededReplyIndexes", () => {
-  it("hides the durable reply a live stream replaces, wherever it sits", () => {
-    expect([
-      ...supersededReplyIndexes([
-        userMessage("user-1"),
-        assistantMessage(),
-        { id: NEXT_RUN_ID, role: "assistant", parts: [] },
-      ]),
-    ]).toEqual([1]);
-  });
-
-  it("hides nothing when the live reply has no durable copy beside it", () => {
-    expect(
-      supersededReplyIndexes([
-        userMessage("user-1"),
-        { id: NEXT_RUN_ID, role: "assistant", parts: [] },
-      ]).size,
-    ).toBe(0);
-  });
-
-  it("hides nothing once the stream's own reply is the durable one", () => {
-    expect(
-      supersededReplyIndexes([
-        userMessage("user-1"),
-        assistantMessage({
-          metadata: {
-            seq: 2,
-            usage: { runId: NEXT_RUN_ID, status: "running" },
-          },
-        }),
-      ]).size,
-    ).toBe(0);
-  });
-
-  it("hides a superseded reply per turn", () => {
-    expect([
-      ...supersededReplyIndexes([
-        userMessage("user-1"),
-        assistantMessage({ id: "assistant-1" }),
-        userMessage("user-2"),
-        assistantMessage({ id: "assistant-2" }),
-        { id: NEXT_RUN_ID, role: "assistant", parts: [] },
-      ]),
-    ]).toEqual([3]);
   });
 });
