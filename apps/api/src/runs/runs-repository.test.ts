@@ -452,6 +452,27 @@ describe('RunsRepository.findCompletedReplyRunBefore', () => {
     ).resolves.toEqual({ run: completedRun, triggeringUserSeq: 4 });
   });
 
+  it('falls back when the named Run recorded no completed attempt', async () => {
+    const previous: Run = { ...run, id: 'run-previous' };
+    const { db } = makeDb({
+      select: [
+        [{ runId: completedRun.id }],
+        // Completed, but with no link to the attempt that answered it: its
+        // reply carries no receipt a summary could reproduce.
+        [{ ...completedRun, completedAttemptId: null }],
+        [{ runs: previous, triggeringSeq: 3 }],
+      ],
+    });
+
+    await expect(
+      new RunsRepository(db).findCompletedReplyRunBefore(
+        run.chatId,
+        run.userId,
+        { beforeSeq: 10 },
+      ),
+    ).resolves.toEqual({ run: previous, triggeringUserSeq: 3 });
+  });
+
   it('falls back to the newest completed turn when the named Run is not completed', async () => {
     const previous: Run = { ...run, id: 'run-previous' };
     const { db } = makeDb({

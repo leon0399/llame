@@ -8,13 +8,17 @@ import {
   ChatsController,
   type ChatsControllerService,
 } from './chats.controller';
-import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
+import {
+  CHAT_MESSAGES_DEFAULT_LIMIT,
+  ContinueFollowUpRunDto,
+} from './dto/chats.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
 import * as schema from '../db/schema';
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
+import { asDouble } from '../testing/support';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
@@ -803,12 +807,19 @@ describe('ChatsController response plumbing', () => {
       new BadRequestException('action must be continue'),
     );
 
+    // The body a request without one delivers: the declared class cannot
+    // express it, and an optional field carries its real type.
+    const missingBody = asDouble<{ body?: ContinueFollowUpRunDto }>({}).body;
+
     await expect(
       controller.createFollowUpRun(
         'user',
         chatId,
         '9b2f1c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d',
-        undefined,
+        // SAFETY: a bodyless request delivers no body; the handler's class type
+        // is what the validation pipeline names it, not what arrives.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        missingBody as ContinueFollowUpRunDto,
         makeWritableResponse(),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);

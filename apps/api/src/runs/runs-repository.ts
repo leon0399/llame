@@ -215,7 +215,10 @@ export class RunsRepository {
     );
     if (namedRunId !== undefined) {
       const named = await this.findById(namedRunId, userId);
-      if (named?.status === 'completed') {
+      // The same link the sequence lookup requires: a completed Run records the
+      // attempt that produced its answer, and only that Run's receipt describes
+      // the context the model read.
+      if (named?.status === 'completed' && named.completedAttemptId !== null) {
         const trigger = await this.findTriggerSeq(chatId, named.messageId);
         if (trigger !== undefined) {
           return { run: named, triggeringUserSeq: trigger };

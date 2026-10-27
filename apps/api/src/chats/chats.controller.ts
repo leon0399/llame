@@ -53,7 +53,6 @@ import {
   ChatSearchQueryDto,
   ChatSearchResponse,
   ContinueFollowUpRunDto,
-  type CreateFollowUpRunDto,
   CreateMessageDto,
   ForkChatDto,
   ListChatsQueryDto,
@@ -393,10 +392,12 @@ export class ChatsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) chatId: string,
     @Param('userMessageId', ParseUUIDPipe) userMessageId: string,
-    // A request with no body reaches the handler as `undefined`: the body is
-    // required, so it is answered as the empty request it is, and the action
-    // check refuses it as a 400.
-    @Body() input: CreateFollowUpRunDto | undefined,
+    // The parameter names the value class, so the global validation pipe runs
+    // the DTO's rules and rejects an unknown property or an invalid mode. A
+    // request with no body still reaches the handler as `undefined`: the body
+    // is required, so it is answered as the empty request it is, and the
+    // action check refuses it as a 400.
+    @Body() input: ContinueFollowUpRunDto,
     @Res() response: ChatStreamResponse,
   ): Promise<void> {
     const abort = requestAbortSignal(response);
@@ -405,6 +406,8 @@ export class ChatsController {
         chatId,
         userId,
         userMessageId,
+        // A bodyless request reaches the handler as `undefined` despite the
+        // declared class, so the empty request is what admission judges.
         request: input ?? {},
       });
       const result = await this.chatLoopService.finalizeAcceptedRun({

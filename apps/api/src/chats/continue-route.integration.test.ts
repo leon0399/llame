@@ -292,6 +292,23 @@ d('the follow-up route', () => {
     expect(await runsOf(turn.chatId)).toHaveLength(1);
   });
 
+  it('refuses a body the continue variant does not describe', async () => {
+    const turn = await seedFailedTurn();
+
+    // The body is validated as the continue variant itself: an invalid mode or
+    // a property that variant does not declare is a 400, before admission.
+    const badMode = await followUp(turn, {
+      action: 'continue',
+      permissionMode: 'nope',
+    });
+    expect(badMode.status).toBe(400);
+
+    const unknown = await followUp(turn, { action: 'continue', modelId: 'm' });
+    expect(unknown.status).toBe(400);
+
+    expect(await runsOf(turn.chatId)).toHaveLength(1);
+  });
+
   it('refuses a follow-up on an older turn', async () => {
     const turn = await seedFailedTurn({ laterUserMessage: true });
 
