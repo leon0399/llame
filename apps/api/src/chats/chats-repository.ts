@@ -502,13 +502,16 @@ export class ChatsRepository {
     chatId: string,
     ownerUserId: string,
   ): Promise<Chat | undefined> {
-    const rows = await this.db
+    const rows = await this.ownedChatQuery(chatId, ownerUserId).limit(1);
+    return rows[0];
+  }
+
+  /** One owned Chat's row, before a caller narrows or locks it. */
+  private ownedChatQuery(chatId: string, ownerUserId: string) {
+    return this.db
       .select()
       .from(chats)
-      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
-      .limit(1);
-
-    return rows[0];
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
   /**
@@ -718,6 +721,17 @@ export class ChatsRepository {
       .returning();
 
     return updated;
+  }
+
+  /**
+   * Take the Chat's row lock without marking activity: a `SELECT … FOR UPDATE`
+   * reads the post-lock row and writes no column, so an admission that ends in
+   * a refusal writes nothing. A caller that accepts the turn bumps `updated_at`
+   * with `touch` afterwards.
+   */
+  async lock(chatId: string, ownerUserId: string): Promise<Chat | undefined> {
+    const rows = await this.ownedChatQuery(chatId, ownerUserId).for('update');
+    return rows[0];
   }
 
   /**

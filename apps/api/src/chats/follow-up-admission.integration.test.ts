@@ -326,6 +326,14 @@ describeIfDb('follow-up admission', () => {
     );
   }
 
+  /** The Chat's stored recency: `touch` is the only writer on this path. */
+  function chatUpdatedAt(chatId: string, ownerUserId = api.userId) {
+    return api.tenantDb.runAs(ownerUserId, async (tx) => {
+      const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+      return chat?.updatedAt.getTime();
+    });
+  }
+
   function runById(runId: string, ownerUserId = api.userId) {
     return api.tenantDb.runAs(ownerUserId, (tx) =>
       new RunsRepository(tx).findById(runId, ownerUserId),
@@ -362,11 +370,16 @@ describeIfDb('follow-up admission', () => {
         replyParts: settledCall('call-1'),
       });
 
+      const beforeAdmission = await chatUpdatedAt(fixture.chatId);
       const admitted = await admit(fixture, {
         action: 'continue',
         permissionMode: 'bypass',
       });
 
+      // An accepted turn is the Chat's latest activity again.
+      expect(await chatUpdatedAt(fixture.chatId)).toBeGreaterThan(
+        beforeAdmission!,
+      );
       expect(admitted.modelId).toBe(MODEL_ID);
       expect(admitted.chatId).toBe(fixture.chatId);
       expect(admitted.userMessage.id).toBe(fixture.messageId);
@@ -503,6 +516,7 @@ describeIfDb('follow-up admission', () => {
         ageMs: STUCK_AGE_MS,
       });
       api.jobState.mockResolvedValue('absent');
+      const recencyBefore = await chatUpdatedAt(fixture.chatId);
 
       await expect(
         admit(fixture, { action: 'continue' }),
@@ -517,6 +531,9 @@ describeIfDb('follow-up admission', () => {
         (await eventsOfRun(fixture.runId)).map((event) => event.eventType),
       ).toEqual(['run.expired']);
       expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
+      // The refusal wrote nothing but the expiry it found: the row lock does
+      // not advance the Chat's recency.
+      expect(await chatUpdatedAt(fixture.chatId)).toBe(recencyBefore);
     });
 
     it("reveals nothing about another owner's Chat and reads no job state", async () => {

@@ -196,8 +196,10 @@ export class FollowUpAdmissionService {
       throw new NotFoundException(`Chat ${input.chatId} not found`);
     }
     // The row lock comes before the archive check (design D1): an archive that
-    // commits after the lock is seen by the next request, not this one.
-    const locked = await chatsRepo.touch(input.chatId, input.userId);
+    // commits after the lock is seen by the next request, not this one. The
+    // lock writes nothing, so a refused request leaves the Chat untouched; the
+    // admitted path bumps `updated_at` below, once the turn is accepted.
+    const locked = await chatsRepo.lock(input.chatId, input.userId);
     if (!locked) {
       throw new NotFoundException(`Chat ${input.chatId} not found`);
     }
@@ -242,6 +244,8 @@ export class FollowUpAdmissionService {
     }
     const { latestRun, source, effort } = decision;
 
+    // Accepted: the Chat is the turn's latest activity again.
+    await new ChatsRepository(tx).touch(input.chatId, input.userId);
     const { run, supersededRunIds } = await createRunForMessage(
       tx,
       {

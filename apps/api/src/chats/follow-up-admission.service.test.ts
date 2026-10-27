@@ -198,6 +198,9 @@ function makeService() {
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
     .mockResolvedValue(chat);
+  const lock = vi
+    .spyOn(ChatsRepository.prototype, 'lock')
+    .mockResolvedValue(chat);
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
@@ -269,6 +272,7 @@ function makeService() {
     runAs,
     transactions,
     findById,
+    lock,
     touch,
     findTurnState,
     hasLaterUserMessage,
@@ -303,11 +307,13 @@ afterEach(() => {
 
 describe('FollowUpAdmissionService', () => {
   it('admits a Continue and records the Run its event log continues', async () => {
-    const { service, runAs, createRun, append } = makeService();
+    const { service, runAs, createRun, append, touch } = makeService();
 
     const admitted = await admit(service);
 
     expect(runAs).toHaveBeenCalledWith(chat.ownerUserId, expect.anything());
+    // The accepted turn is the Chat's latest activity again.
+    expect(touch).toHaveBeenCalledWith(chat.id, chat.ownerUserId);
     expect(admitted).toMatchObject({
       chatId: chat.id,
       userId: chat.ownerUserId,
@@ -377,8 +383,20 @@ describe('FollowUpAdmissionService', () => {
   });
 
   it('answers 404 for an unowned Chat before taking its row lock', async () => {
-    const { service, findById, touch } = makeService();
+    const { service, findById, lock, touch } = makeService();
     findById.mockResolvedValue(undefined);
+
+    await expect(admit(service)).rejects.toMatchObject({
+      constructor: NotFoundException,
+      message: `Chat ${chat.id} not found`,
+    });
+    expect(lock).not.toHaveBeenCalled();
+    expect(touch).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the row lock finds no owned Chat', async () => {
+    const { service, lock, touch } = makeService();
+    lock.mockResolvedValue(undefined);
 
     await expect(admit(service)).rejects.toMatchObject({
       constructor: NotFoundException,
@@ -387,14 +405,14 @@ describe('FollowUpAdmissionService', () => {
     expect(touch).not.toHaveBeenCalled();
   });
 
-  it('answers 404 when the row lock finds no owned Chat', async () => {
-    const { service, touch } = makeService();
-    touch.mockResolvedValue(undefined);
+  it('leaves the Chat’s recency alone when the Continue check refuses', async () => {
+    const { service, findLatestByChatId, touch } = makeService();
+    findLatestByChatId.mockResolvedValue({ ...sourceRun, status: 'completed' });
 
-    await expect(admit(service)).rejects.toMatchObject({
-      constructor: NotFoundException,
-      message: `Chat ${chat.id} not found`,
-    });
+    await expect(admit(service)).rejects.toBeInstanceOf(ConflictException);
+
+    // A refused request writes nothing: the row lock took no column with it.
+    expect(touch).not.toHaveBeenCalled();
   });
 
   it('answers 404 for a message that is not the Chat’s turn', async () => {
