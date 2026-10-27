@@ -87,6 +87,9 @@ never be emitted as a value:
 - `user.personalization` — true when any authored field would render.
 - `chats`, `chats.pinned`, `chats.recent` — true when that digest content is
   present.
+- `skills` — true when the chat's frozen skill catalog admits at least one
+  skill.
+- `webSearch` — true when the instance configures a `webSearch` section.
 - `tools.<exact-id>` — tool membership for this attempt.
 
 `{{#if tools.read}}` is true exactly when that exact tool id is advertised on
@@ -111,7 +114,54 @@ attempts, owners, or chats.
 `{{#each chats.pinned}}` and `{{#each chats.recent}}` iterate digest entries.
 An entry exposes `{{title}}`, `{{date}}`, `{{messageCount}}`, and `{{excerpt}}`
 and nothing else. A loop's `{{else}}` arm renders when the collection is absent.
-No other collection is iterable, and iteration does not nest.
+Iteration does not nest.
+
+`{{#each skills.entries}}` iterates the chat's frozen skill catalog, in catalog
+order. An entry exposes `{{name}}` and `{{description}}` and nothing else, and
+`{{#if skills.omitted}}` gates an overflow count.
+
+`{{#each webSearch.engines}}` iterates the configured web-search engines, in
+configuration order. An entry exposes only the fact phrases below; an
+undeclared field such as `{{key}}` fails validation rather than rendering.
+
+| Field             | Contents                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `{{id}}`          | The engine id `engines` accepts                                                           |
+| `{{type}}`        | The engine type, such as `brave` or `aggregate`                                           |
+| `{{kind}}`        | `results`, `answer`, or `results with answers` for an aggregate with a hosted child       |
+| `{{position}}`    | The chain position, the chain aggregate already running it, or that it is outside `chain` |
+| `{{recency}}`     | How the engine uses `recency`                                                             |
+| `{{queryLimit}}`  | Its query bound; an `aggregate` states the bounds below which no child is skipped         |
+| `{{objective}}`   | How it uses `objective`, absent for an engine that ignores it                             |
+| `{{description}}` | The operator's `description`, absent when it sets none                                    |
+
+Every value arrives already neutralized, so it renders verbatim; the fields
+carry no key, base URL, folder id, or model id. The packaged
+[`web_search` description](../../../apps/api/src/prompts/tools/web_search.md)
+is the reference use:
+
+```handlebars
+{{#if webSearch}}
+  <engines>
+    Configured web search engines. `engines` runs only the ids it lists, in
+    their order.
+    {{#each webSearch.engines}}-
+      {{id}}
+      [{{type}}]:
+      {{kind}};
+      {{position}};
+      {{recency}}; query limit
+      {{queryLimit}}{{#if objective}}; {{objective}}{{/if}}{{#if description}};
+        description:
+        {{description}}{{/if}}.
+    {{/each}}</engines>
+{{/if}}
+```
+
+An override that does not iterate the collection declares no engine list; the
+`engines` input still accepts every configured id. `{{#if webSearch}}` is false
+when the instance has no `webSearch` section, so the whole region renders
+empty.
 
 ### Restrictions
 

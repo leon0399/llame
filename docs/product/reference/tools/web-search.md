@@ -32,7 +32,7 @@ The tool accepts this strict object (unknown arguments are refused):
 
 ## Choosing engines
 
-The declared description is the rendered template followed by a generated catalog of the configured engines. Each catalog entry states the id, type, result kind, chain position, `recency` use, query limit, `objective` use, and the operator's `description`; a chain aggregate's child states the aggregate that already runs it, and an `aggregate` entry states its smallest child code-point and word bounds, below which no child is skipped. The catalog carries no key, base URL, folder id, or model id, and its text changes only when the operator edits engines.
+The packaged description renders the configured engines from the `webSearch.engines` template collection. Each item carries the id, type, result kind, chain position, `recency` use, query limit, `objective` use, and the operator's `description`; a chain aggregate's child states the aggregate that already runs it, and an `aggregate` item states its smallest child code-point and word bounds, below which no child is skipped. No item field carries a key, base URL, folder id, or model id, and the list changes only when the operator edits engines. An override that does not iterate the collection declares no engine list.
 
 Any configured engine is selectable, an `aggregate` and a child of an `aggregate` included. A call that names engines runs only those, in the given order, with the usual fall-through among them; it never falls back to the chain. An id that names no configured engine fails the call before any request, and the error lists the configured ids.
 

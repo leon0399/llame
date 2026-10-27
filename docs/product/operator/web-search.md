@@ -76,13 +76,13 @@ Every configured engine is selectable, an `aggregate` and a child of an `aggrega
 
 **Upgrading:** an engine that an earlier release configured outside `chain` and outside every `aggregate` was inert; it is now listed to the model and callable, so it can receive a model-chosen query and `objective`. Remove an entry that must not receive queries, or keep it out of the file. Engine ids and descriptions are model-facing text: do not put an internal hostname, an account name, or any other detail the model should not read into either, and keep a description free of secrets.
 
-## Engine catalog and descriptions
+## Engine list and descriptions
 
-The declared `web_search` description is the rendered template, packaged or overridden through `tools.promptFiles.web_search`, followed by a generated catalog of the configured engines. Each entry states the id, type, result kind (`results`, `answer`, or `results with answers`), its chain position or that it is outside the default chain, how it uses `recency`, its query limit, its `objective` use when it has one, and its `description`. An `aggregate` entry states its smallest child limit as the length below which no child is skipped. The catalog never contains a key, a base URL, a folder id, or a model id, and the template file stays complete without it.
+The packaged `web_search` description renders the engine list from the `webSearch.engines` template collection, so every word of the description stays in the template file. Each item carries short fact phrases built from the resolved configuration: id, type, result kind (`results`, `answer`, or `results with answers`), chain position (or the chain aggregate the engine already runs through, or that it is outside the default chain), `recency` use, query limit, `objective` use when the engine has one, and its `description`. An `aggregate` item states its smallest child code-point and word bounds as the lengths below which no child is skipped. No item field contains a key, a base URL, a folder id, or a model id, and every value is tag-neutralized, the list's own `engines` tag included.
 
-The catalog is generated once per worker from the resolved configuration, so the declared description, and with it the provider prompt cache, changes only when the operator edits engines and the instance restarts. An override that renders empty still fails the attempt: the catalog never stands in for a missing description.
+The collection is resolved once per worker from the configuration, so the declared description, and with it the provider prompt cache, changes only when the operator edits engines and the instance restarts. A `tools.promptFiles.web_search` override that does not iterate `webSearch.engines` declares no engine list at all; see [Tool prompt templates](tool-prompts.md) for the collection's fields and iteration rules.
 
-Each engine entry, an `aggregate` included, can carry an optional `description` of 1-200 characters on one line; the model reads it in the catalog, so write it for the model and never put a secret in it:
+Each engine entry, an `aggregate` included, can carry an optional `description` of 1-200 characters on one line; the model reads it in the list, so write it for the model and never put a secret in it:
 
 ```jsonc
 {

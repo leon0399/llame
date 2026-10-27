@@ -10,17 +10,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   repeated id fails schema validation. Each id is checked against the
   configured engines before any request; an unknown id returns
   `web_search_failed` listing the configured ids and sends nothing. The
-  declared description is now the rendered `web_search` template, packaged or
-  `tools.promptFiles`-overridden, followed by an engine catalog generated once
-  per worker from the resolved configuration: id, type, result kind, chain
-  position (an aggregate child of a chain aggregate states the aggregate that
-  already runs it), `recency` use, query limit (an `aggregate` states its
-  smallest child code-point and word bounds, below which no child is skipped),
-  `objective` use, and the entry's `description`, with ids and descriptions
-  tag-neutralized, including the catalog's own `engines` fence, and no key,
-  base URL, folder id, or model id. An override that renders empty still fails
-  the attempt, because the empty-render check runs before the catalog is
-  appended. Every `webSearch` engine entry, an `aggregate` included, can carry
+  packaged description now lists the engines by iterating a new
+  `webSearch.engines` template collection, resolved once per worker from the
+  resolved configuration: id, type, result kind, chain position (an aggregate
+  child of a chain aggregate states the aggregate that already runs it),
+  `recency` use, query limit (an `aggregate` states its smallest child
+  code-point and word bounds, below which no child is skipped), `objective` use,
+  and the entry's `description`, with every value tag-neutralized, including
+  the list's own `engines` fence, and no key, base URL, folder id, or model id.
+  The template owns the framing, layout, and which facts appear, so an override
+  that does not iterate the collection declares no engine list, and the generic
+  empty-render check covers every template. Every `webSearch` engine entry, an
+  `aggregate` included, can carry
   an optional literal `description` of 1 to 200 characters on one line; an
   interpolation token or a line break fails startup naming the `description`
   path, and engine ids follow the same one-line rule without angle brackets.
