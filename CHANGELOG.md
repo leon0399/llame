@@ -2,7 +2,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
-- `web_search` gains two engine types. `deepseek` posts to DeepSeek's search
+- `web_search` gains three engine types. `deepseek` posts to DeepSeek's search
   API, sends `limit` as `count`, `objective` as `ori_question` cut to 128 code
   points, and `recency` as an `after:` date that is dropped with a note when it
   would exceed the vendor's 128-code-point query limit. `parallel` posts to
