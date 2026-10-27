@@ -21,6 +21,9 @@ and develops applications U13-U20 beyond Knowledge search.
 - [Decision APIs](../2026-10-08-decision-apis.md) -
   OpenAI's `/v1/decisions` and the decisionapi.net gateway as System One-family
   backends, with llame applications and cautions.
+- [System One extraction models](../2026-10-27-system-one-extraction.md) -
+  Clairic's typed value extraction as the second System One class, with
+  applications U32-U39.
 - [Cookbook applicability and ideas](./cookbooks.md) - All 18 TypeSafe recipes,
   direct reuse versus adaptation, and applications U21-U29. A concise,
   separately cited analysis; no additional experiments or review campaign.
