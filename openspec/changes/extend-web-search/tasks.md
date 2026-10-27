@@ -16,6 +16,7 @@ before it is marked ready, and monitored per `CONTRIBUTING.md`.
          <- extend-web-search/limits-objective
          <- extend-web-search/result-filtering
          <- extend-web-search/deepseek-parallel
+         <- extend-web-search/parallel-mcp
          <- extend-web-search/yandex
          <- extend-web-search/aggregate-answers
          <- extend-web-search/engine-selection
@@ -27,8 +28,9 @@ before it is marked ready, and monitored per `CONTRIBUTING.md`.
 | `proposal`          | `master`            | this ledger, the proposal, the design, six delta specs, and the objective spike research bundle                                                                                                     | none   | about 1,990 authored plus 210 generated (measured)          |
 | `limits-objective`  | `proposal`          | per-engine query limits, the `unsupported` class, result-count clamps, the portable-operator description and hosted domain filters, the `objective` input and its mapping on existing engines, docs | #1431  | about 1,500                                                 |
 | `result-filtering`  | `limits-objective`  | removal of `read`-rejected and `-site:`-excluded results and citations, answer-text link cleanup, the count note, docs                                                                              | #1440  | about 900                                                   |
-| `deepseek-parallel` | `result-filtering`  | the `deepseek`, `parallel`, and `parallel-mcp` types and engines, and their docs                                                                                                                    | none   | about 1,800                                                 |
-| `yandex`            | `deepseek-parallel` | the `yandex` type and engine, and its docs                                                                                                                                                          | #1437  | about 1,700                                                 |
+| `deepseek-parallel` | `result-filtering`  | the `deepseek` and `parallel` types and engines, and their docs                                                                                                                                     | none   | measured 1,376 inserted, 132 removed                        |
+| `parallel-mcp`      | `deepseek-parallel` | the shared hosted MCP session, the keyless `parallel-mcp` type and engine, and their docs                                                                                                           | none   | measured 1,040 inserted, 215 removed                        |
+| `yandex`            | `parallel-mcp`      | the `yandex` type and engine, and its docs                                                                                                                                                          | #1437  | about 1,700                                                 |
 | `aggregate-answers` | `yandex`            | answer children in aggregates, `answers` output and bounds, the renderer and stories, docs                                                                                                          | #1438  | about 1,600                                                 |
 | `engine-selection`  | `aggregate-answers` | the `engines` input, the execution-time id check, the generated catalog, the `description` field, docs                                                                                              | #1432  | about 1,200                                                 |
 | `finalize`          | `engine-selection`  | spec synchronization, task records, and archive movement only                                                                                                                                       | none   | under 300 (archive movement measured with rename detection) |
@@ -42,6 +44,10 @@ Budget note (named exception for Leo's approval): the proposal layer measures ab
 English, and the spike bundle that justifies D2 and D6; splitting the bundle into its own PR would
 separate the evidence from the decisions it supports. Re-estimate each implementation layer at its
 boundary. If `deepseek-parallel` exceeds about 2,000 lines, move `parallel-mcp` to its own layer above it. Implementation layers have no generated output.
+The split is in effect (applied 2026-10-27): `deepseek-parallel` measured 1,376
+inserted and 132 removed lines against `result-filtering`, and `parallel-mcp`
+1,040 inserted and 215 removed against `deepseek-parallel`, each within the
+budget at its own boundary.
 
 ## 0. `extend-web-search/proposal` — planning artifacts
 
@@ -72,55 +78,64 @@ boundary. If `deepseek-parallel` exceeds about 2,000 lines, move `parallel-mcp` 
 - [x] 2.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 2.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
-## 3. `extend-web-search/deepseek-parallel` — DeepSeek and Parallel (design D7, D8)
+## 3. `extend-web-search/deepseek-parallel` — DeepSeek and Parallel (design D7)
 
-- [ ] 3.1 Add the `deepseek`, `parallel` (with `mode`, default `fast`), and `parallel-mcp` schema branches and loader shapes; verify by loader tests for the scenarios of "New web search engine types have fixed shapes"
-- [ ] 3.2 Implement the `deepseek` engine: request, `ori_question` cut to 128 code points, `after:` recency or its note, `summary` snippets, status classes, and the 128 limit; verify by fixture tests for every scenario of "DeepSeek engines call the DeepSeek search API", the DeepSeek objective scenario, and the "A small limit passes unchanged" scenario, including that a 401 body echoing the key never reaches output
-- [ ] 3.3 Implement the `parallel` engine: request, `objective`, `mode`, `session_id` from the Chat id, source policy from `site:` operators, `after_date`, excerpt snippets, status classes, and the 200 limit; verify by fixture tests for every scenario of "Parallel engines call the Parallel search API" and the Parallel objective scenario
-- [ ] 3.4 Implement the `parallel-mcp` engine on the existing `@ai-sdk/mcp` client: keyless `web_search` call, `objective ?? query`, `isError` as `upstream_error` without vendor text, the 200 limit, the Chat id as `session_id`, and no model-facing declaration; verify by tests against a local Streamable HTTP MCP fixture for "Keyless Parallel engines call the hosted Parallel MCP tool"
-- [ ] 3.5 Re-run the aggregate skip tests with real `deepseek` and `parallel` children against recorded fixtures as a regression check (layer 1 owns the scenarios)
-- [ ] 3.6 Document the three engines, their keys, prices, modes, retention and training terms, and session-id exposure in the runbook; add commented examples to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 3.7 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR references #1437
-- [ ] 3.8 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 3.9 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 3.1 Add the `deepseek` and `parallel` (with `mode`, default `fast`) schema branches and loader shapes; verify by loader tests for the scenarios of "New web search engine types have fixed shapes"
+- [x] 3.2 Implement the `deepseek` engine: request, `ori_question` cut to 128 code points, `after:` recency or its note, `summary` snippets, status classes, and the 128 limit; verify by fixture tests for every scenario of "DeepSeek engines call the DeepSeek search API", the DeepSeek objective scenario, and the "A small limit passes unchanged" scenario, including that a 401 body echoing the key never reaches output
+- [x] 3.3 Implement the `parallel` engine: request, `objective`, `mode`, `session_id` from the Chat id, source policy from `site:` operators, `after_date`, excerpt snippets, status classes, and the 200 limit; verify by fixture tests for every scenario of "Parallel engines call the Parallel search API" and the Parallel objective scenario
+- [x] 3.4 Re-run the aggregate skip tests with real `deepseek` and `parallel` children against recorded fixtures as a regression check (layer 1 owns the scenarios)
+- [x] 3.5 Document the two engines, their keys, prices, modes, retention and training terms, and the `session_id` exposure of `parallel`, in the runbook; add commented examples to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 3.6 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR references #1437
+- [x] 3.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [ ] 3.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
-## 4. `extend-web-search/yandex` — Yandex web search (design D9)
+## 4. `extend-web-search/parallel-mcp` — keyless Parallel MCP (design D8)
 
-- [ ] 4.1 Add the `yandex` schema branch with `searchType` and optional `folderId`; verify by loader tests for the scenarios of "Yandex web search engines have a fixed shape"
-- [ ] 4.2 Implement the `yandex` engine: request with flat groups, base64 XML parsing with `linkedom`, in-body error classification, recency periods and notes, the 400-character and 40-word limit; verify by tests against recorded XML fixtures for every scenario of "Yandex engines call the Yandex web search API" and "Yandex engines classify errors from the response body", the "A word limit applies" scenario, including that error text never reaches output
-- [ ] 4.3 Document the engine, its keys, folder ids, prices, rate limits, Russian residency and the 152-FZ statement, and the result-order clause of the terms as an operator responsibility in the runbook; add commented examples to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 4.4 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR carries `Closes #1437`
-- [ ] 4.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 4.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [ ] 4.1 Add the `parallel-mcp` schema branch and loader shape: a keyless engine whose type has no other field; verify by loader tests for the "Keyless Parallel MCP refuses a key" scenario of "New web search engine types have fixed shapes"
+- [ ] 4.2 Extract the shared hosted MCP session from `exa-mcp`: the handshake, the tool lookup, one cached session per configured engine, and the result envelope, so the model still receives no declaration of an MCP tool; verify by the `exa-mcp` unit tests
+- [ ] 4.3 Implement the `parallel-mcp` engine on the shared `@ai-sdk/mcp` client: keyless `web_search` call, `objective ?? query`, `isError` as `upstream_error` without vendor text, the 200 limit, the Chat id as `session_id`, no model-facing declaration, and results cut to `limit`; verify by tests against a local Streamable HTTP MCP fixture for "Keyless Parallel engines call the hosted Parallel MCP tool"
+- [ ] 4.4 Document the engine, the keyless endpoint, its prices and retention terms, and the session-id exposure in the runbook; add a commented example to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [ ] 4.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR references #1437
+- [ ] 4.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [ ] 4.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
-## 5. `extend-web-search/aggregate-answers` — answer engines inside aggregates (design D10)
+## 5. `extend-web-search/yandex` — Yandex web search (design D9)
 
-- [ ] 5.1 Admit `model-hosted` as an `aggregate` child in the loader and schema; update the tests that pinned the old rejection; verify by loader tests for every scenario of "Web search references are validated at startup"
-- [ ] 5.2 Attach grounded answer children as `answers`, merge their citations as results, and count ungrounded children as failed; verify by aggregate unit tests with fake answer children for every scenario of "Aggregate engines attach the answers of answer children" and the "Aggregate output can carry answers" scenario
-- [ ] 5.3 Bound attached answers and apply the trim order in `output.ts`; verify by output unit tests for every scenario of "Attached answers fit the result cap after results", including the whole-answer drop
-- [ ] 5.4 Render `answers` after the results in the web search renderer with engine id, Markdown answer, and citation links under the existing link safety; add stories for an aggregate with answers and for a stored part without `answers`; verify with Storybook MCP story tests and preview URLs, or the Storybook CLI fallback, for "The chat renders attached answers"
-- [ ] 5.5 Document hosted aggregate children, their latency, and the output shape in the runbook and reference page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 5.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the `packages/ui` and `apps/web` checks; exercise an aggregate with a hosted child in a browser live and after reload; this layer's PR carries `Closes #1438`
-- [ ] 5.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 5.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [ ] 5.1 Add the `yandex` schema branch with `searchType` and optional `folderId`; verify by loader tests for the scenarios of "Yandex web search engines have a fixed shape"
+- [ ] 5.2 Implement the `yandex` engine: request with flat groups, base64 XML parsing with `linkedom`, in-body error classification, recency periods and notes, the 400-character and 40-word limit; verify by tests against recorded XML fixtures for every scenario of "Yandex engines call the Yandex web search API" and "Yandex engines classify errors from the response body", the "A word limit applies" scenario, including that error text never reaches output
+- [ ] 5.3 Document the engine, its keys, folder ids, prices, rate limits, Russian residency and the 152-FZ statement, and the result-order clause of the terms as an operator responsibility in the runbook; add commented examples to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [ ] 5.4 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR carries `Closes #1437`
+- [ ] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [ ] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
-## 6. `extend-web-search/engine-selection` — model-selected engines and catalog (design D3 to D5)
+## 6. `extend-web-search/aggregate-answers` — answer engines inside aggregates (design D10)
 
-- [ ] 6.1 Add `engines` (1 to 20 unique ids) to the input schema; check each id before any engine runs and fail with the configured ids; run the listed engines instead of the chain; verify by chain and tool unit tests for the "Duplicate engine ids fail validation", "Selected engines replace the chain", and "A selected engine does not fall back to the chain" scenarios and every scenario of "The model can select the engines for one call"
-- [ ] 6.2 Add the optional literal `description` to every engine entry (1 to 200 characters, one line, no interpolation); verify by loader tests for every scenario of "Web search engine entries can carry a model-facing description" and the updated "Web search engine entries have fixed per-type shapes"
-- [ ] 6.3 Generate the engine catalog once per worker and append it after the rendered `web_search` description, packaged or overridden, with tag-neutralized ids and operator descriptions and no keys, base URLs, folder ids, or model ids, running the empty-render check before the append; verify by unit tests for every scenario of "The web search description lists the configured engines" and the "Web search appends its engine catalog" scenario of `tool-prompt-templates` and an integration test that an attempt's declared description ends with the catalog
-- [ ] 6.4 Update `prompts/tools/web_search.md` to describe `engines`; document selection, the catalog, and `description` in the runbook and reference page, including that every configured engine is selectable and that `engines` values match only all-field permission clauses; update `SPEC.md` if it states that engine choice is operator-only; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 6.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites; this layer's PR carries `Closes #1432`
-- [ ] 6.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 6.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [ ] 6.1 Admit `model-hosted` as an `aggregate` child in the loader and schema; update the tests that pinned the old rejection; verify by loader tests for every scenario of "Web search references are validated at startup"
+- [ ] 6.2 Attach grounded answer children as `answers`, merge their citations as results, and count ungrounded children as failed; verify by aggregate unit tests with fake answer children for every scenario of "Aggregate engines attach the answers of answer children" and the "Aggregate output can carry answers" scenario
+- [ ] 6.3 Bound attached answers and apply the trim order in `output.ts`; verify by output unit tests for every scenario of "Attached answers fit the result cap after results", including the whole-answer drop
+- [ ] 6.4 Render `answers` after the results in the web search renderer with engine id, Markdown answer, and citation links under the existing link safety; add stories for an aggregate with answers and for a stored part without `answers`; verify with Storybook MCP story tests and preview URLs, or the Storybook CLI fallback, for "The chat renders attached answers"
+- [ ] 6.5 Document hosted aggregate children, their latency, and the output shape in the runbook and reference page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [ ] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the `packages/ui` and `apps/web` checks; exercise an aggregate with a hosted child in a browser live and after reload; this layer's PR carries `Closes #1438`
+- [ ] 6.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [ ] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
-## 7. `extend-web-search/finalize` — spec sync and archive
+## 7. `extend-web-search/engine-selection` — model-selected engines and catalog (design D3 to D5)
+
+- [ ] 7.1 Add `engines` (1 to 20 unique ids) to the input schema; check each id before any engine runs and fail with the configured ids; run the listed engines instead of the chain; verify by chain and tool unit tests for the "Duplicate engine ids fail validation", "Selected engines replace the chain", and "A selected engine does not fall back to the chain" scenarios and every scenario of "The model can select the engines for one call"
+- [ ] 7.2 Add the optional literal `description` to every engine entry (1 to 200 characters, one line, no interpolation); verify by loader tests for every scenario of "Web search engine entries can carry a model-facing description" and the updated "Web search engine entries have fixed per-type shapes"
+- [ ] 7.3 Generate the engine catalog once per worker and append it after the rendered `web_search` description, packaged or overridden, with tag-neutralized ids and operator descriptions and no keys, base URLs, folder ids, or model ids, running the empty-render check before the append; verify by unit tests for every scenario of "The web search description lists the configured engines" and the "Web search appends its engine catalog" scenario of `tool-prompt-templates` and an integration test that an attempt's declared description ends with the catalog
+- [ ] 7.4 Update `prompts/tools/web_search.md` to describe `engines`; document selection, the catalog, and `description` in the runbook and reference page, including that every configured engine is selectable and that `engines` values match only all-field permission clauses; update `SPEC.md` if it states that engine choice is operator-only; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [ ] 7.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites; this layer's PR carries `Closes #1432`
+- [ ] 7.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [ ] 7.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+
+## 8. `extend-web-search/finalize` — spec sync and archive
 
 Enter this layer with `$gh-stack` from the `engine-selection` top before `$openspec-sync-specs`
 writes. Its self-review and GitHub review are post-archive gates, not tasks here.
 
-- [ ] 7.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify that `web-search`, `instance-config`, `tool-prompt-templates`, `permission-modes`, `native-file-tools`, and `tool-call-permissions` gain no strict-validation issue compared with `master`
-- [ ] 7.2 Confirm `openspec status --change extend-web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
+- [ ] 8.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify that `web-search`, `instance-config`, `tool-prompt-templates`, `permission-modes`, `native-file-tools`, and `tool-call-permissions` gain no strict-validation issue compared with `master`
+- [ ] 8.2 Confirm `openspec status --change extend-web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
 
 ## Workflow follow-up
 
