@@ -23,6 +23,11 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      type: 'parallel-mcp';
+      timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
       type: 'searxng';
       /** Required operator-controlled SearXNG base URL before interpolation. */
       baseUrl: string;
@@ -77,6 +82,7 @@ export type WebSearchEngineConfig =
           /** The vendor search mode; `fast` unless the operator sets another. */
           mode: ParallelSearchMode;
         }
+      | { type: 'parallel-mcp' }
       | {
           type: 'searxng';
           /** Absolute http(s) base URL of the operator's SearXNG instance. */

@@ -27,6 +27,7 @@ export const ENGINE_LIMITS = {
   exa: { results: 100 },
   'exa-mcp': {},
   parallel: { query: { codePoints: 200 }, results: 20 },
+  'parallel-mcp': { query: { codePoints: 200 } },
   perplexity: { results: 20 },
   searxng: {},
   duckduckgo: {},

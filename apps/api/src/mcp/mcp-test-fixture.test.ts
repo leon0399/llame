@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  callToolRequestIndex,
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
   MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS,
@@ -290,6 +291,62 @@ describe('MCP Streamable HTTP test fixture', () => {
       const sse = await rpc(fixture.url, 'tools/call');
       expect(sse.headers.get('content-type')).toContain('text/event-stream');
       expect((await sse.text()).length).toBeGreaterThan(ONE_MIB);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('indexes the first recorded tool call and refuses a script without one', async () => {
+    const fixture = await createMcpTestFixture({
+      'tools/call': [
+        {
+          kind: 'json',
+          body: {
+            jsonrpc: '2.0',
+            id: 1,
+            result: { content: [{ type: 'text', text: 'ok' }] },
+          },
+        },
+      ],
+      initialize: [mcpStreamableHttpInitialize({ sessionId: 'session' })],
+    });
+
+    try {
+      await rpc(fixture.url, 'initialize');
+      await rpc(fixture.url, 'tools/call', { name: 'one', arguments: {} });
+      expect(callToolRequestIndex(fixture)).toBe(1);
+
+      // A call first in the recording is at index zero, which is a hit.
+      const callFirst = await createMcpTestFixture({
+        'tools/call': [
+          {
+            kind: 'json',
+            body: {
+              jsonrpc: '2.0',
+              id: 1,
+              result: { content: [{ type: 'text', text: 'ok' }] },
+            },
+          },
+        ],
+      });
+      try {
+        await rpc(callFirst.url, 'tools/call');
+        expect(callToolRequestIndex(callFirst)).toBe(0);
+      } finally {
+        await callFirst.close();
+      }
+
+      const noCalls = await createMcpTestFixture({
+        initialize: [mcpStreamableHttpInitialize({ sessionId: 'session' })],
+      });
+      try {
+        await rpc(noCalls.url, 'initialize');
+        expect(() => callToolRequestIndex(noCalls)).toThrow(
+          'missing tools/call request',
+        );
+      } finally {
+        await noCalls.close();
+      }
     } finally {
       await fixture.close();
     }

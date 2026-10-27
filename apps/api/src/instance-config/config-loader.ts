@@ -730,7 +730,7 @@ function resolveWebSearchResultEngine(
       }) ?? undefined;
     return { ...base, type: entry.type, key };
   }
-  if (entry.type === 'duckduckgo') {
+  if (entry.type === 'duckduckgo' || entry.type === 'parallel-mcp') {
     return { ...base, type: entry.type };
   }
   return resolveKeyedEngine(entry, entryPath, base, env);

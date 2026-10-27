@@ -91,12 +91,12 @@ budget at its own boundary.
 
 ## 4. `extend-web-search/parallel-mcp` — keyless Parallel MCP (design D8)
 
-- [ ] 4.1 Add the `parallel-mcp` schema branch and loader shape: a keyless engine whose type has no other field; verify by loader tests for the "Keyless Parallel MCP refuses a key" scenario of "New web search engine types have fixed shapes"
-- [ ] 4.2 Extract the shared hosted MCP session from `exa-mcp`: the handshake, the tool lookup, one cached session per configured engine, and the result envelope, so the model still receives no declaration of an MCP tool; verify by the `exa-mcp` unit tests
-- [ ] 4.3 Implement the `parallel-mcp` engine on the shared `@ai-sdk/mcp` client: keyless `web_search` call, `objective ?? query`, `isError` as `upstream_error` without vendor text, the 200 limit, the Chat id as `session_id`, no model-facing declaration, and results cut to `limit`; verify by tests against a local Streamable HTTP MCP fixture for "Keyless Parallel engines call the hosted Parallel MCP tool"
-- [ ] 4.4 Document the engine, the keyless endpoint, its prices and retention terms, and the session-id exposure in the runbook; add a commented example to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 4.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR references #1437
-- [ ] 4.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 4.1 Add the `parallel-mcp` schema branch and loader shape: a keyless engine whose type has no other field; verify by loader tests for the "Keyless Parallel MCP refuses a key" scenario of "New web search engine types have fixed shapes"
+- [x] 4.2 Extract the shared hosted MCP session from `exa-mcp`: the handshake, the tool lookup, one cached session per configured engine, and the result envelope, so the model still receives no declaration of an MCP tool; verify by the `exa-mcp` unit tests
+- [x] 4.3 Implement the `parallel-mcp` engine on the shared `@ai-sdk/mcp` client: keyless `web_search` call, `objective ?? query`, `isError` as `upstream_error` without vendor text, the 200 limit, the Chat id as `session_id`, no model-facing declaration, and results cut to `limit`; verify by tests against a local Streamable HTTP MCP fixture for "Keyless Parallel engines call the hosted Parallel MCP tool"
+- [x] 4.4 Document the engine, the keyless endpoint, its prices and retention terms, and the session-id exposure in the runbook; add a commented example to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 4.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR references #1437
+- [x] 4.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 4.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 5. `extend-web-search/yandex` — Yandex web search (design D9)

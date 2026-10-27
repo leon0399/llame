@@ -8,6 +8,7 @@ import { createExaMcpEngine } from './exa-mcp';
 import { createBraveEngine } from './brave';
 import { createDeepseekEngine } from './deepseek';
 import { createExaEngine } from './exa';
+import { createParallelMcpEngine } from './parallel-mcp';
 import { createParallelEngine } from './parallel';
 import { createPerplexityEngine } from './perplexity';
 import { createSearxngEngine } from './searxng';
@@ -386,6 +387,8 @@ export function createEngine(
       return createExaMcpEngine(config, deps);
     case 'parallel':
       return createParallelEngine(config, deps);
+    case 'parallel-mcp':
+      return createParallelMcpEngine(deps);
     case 'perplexity':
       return createPerplexityEngine(config, deps);
     case 'searxng':

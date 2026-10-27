@@ -7,6 +7,8 @@ import {
 } from 'node:http';
 
 import { isRecord, isString } from '@workspace/runtime-safety';
+import { requestUrl, type CapturedRequest } from '../testing/web-search-fetch';
+import { type VendorFetch } from '../tools/web-search/http';
 
 type FixtureResponseBase = {
   readonly status?: number;
@@ -305,4 +307,24 @@ export async function createMcpTestFixture(
       return closePromise;
     },
   };
+}
+
+/** A fetch that records each request and forwards it to `fixture`. */
+export function routedMcpFetch(
+  fixture: McpTestFixture,
+  seen: Array<CapturedRequest> = [],
+): VendorFetch {
+  return async (input, init) => {
+    seen.push({ url: requestUrl(input), init });
+    return globalThis.fetch(fixture.url, init);
+  };
+}
+
+/** The index of the first `tools/call` request the fixture recorded. */
+export function callToolRequestIndex(fixture: McpTestFixture): number {
+  const index = fixture
+    .requestSummaries()
+    .findIndex(({ rpcMethod }) => rpcMethod === 'tools/call');
+  if (index < 0) throw new Error('missing tools/call request');
+  return index;
 }

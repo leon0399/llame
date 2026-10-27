@@ -2,17 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
-- `web_search` gains two engine types. `deepseek` posts to DeepSeek's search
+- `web_search` gains three engine types. `deepseek` posts to DeepSeek's search
   API, sends `limit` as `count`, `objective` as `ori_question` cut to 128 code
   points, and `recency` as an `after:` date that is dropped with a note when it
   would exceed the vendor's 128-code-point query limit. `parallel` posts to
   Parallel's Search API with the site operators as included/excluded domains,
   the Chat id as `session_id`, `recency` as `after_date`, and an operator
-  `mode` (default `fast`). HTTP 408 and 504 now map to `timeout` in the shared
-  vendor-status classifier, so every engine that calls a vendor HTTP API
-  directly reports a read timeout that way (`brave`, `deepseek`, `exa`,
-  `parallel`, `perplexity`, `searxng`, `duckduckgo`); `exa-mcp` and
-  `model-hosted` have their own paths.
+  `mode` (default `fast`). `parallel-mcp` calls Parallel's hosted, keyless
+  `web_search` MCP tool from llame code with the objective, the query, and the
+  Chat id, cuts results to `limit`, and drops all vendor text. HTTP 408 and 504
+  now map to `timeout` in the shared vendor-status classifier, so every engine
+  that calls a vendor HTTP API directly reports a read timeout that way
+  (`brave`, `deepseek`, `exa`, `parallel`, `perplexity`, `searxng`,
+  `duckduckgo`); the hosted MCP engines classify their transport statuses by
+  401/403/429 and `model-hosted` has its own path. A hosted MCP engine keeps one
+  session for all its calls, and a failed call drops it from the cache at once
+  while its client closes only after the calls still using it finish.
 - `web_search` removes the results and citations that a `read` reject clause
   matches and those on a `-site:` host of the query or its subdomains, before
   the chain decides and, inside an `aggregate`, before the merge and the
