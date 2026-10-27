@@ -401,3 +401,123 @@ it('summarizes notes beyond the tenth entry', () => {
     ],
   });
 });
+
+const attachedAnswer = (
+  engine: string,
+  answer: string,
+  citations: ReadonlyArray<RawCitation>,
+) => ({ engine, answer, citations });
+
+it('caps each attached answer and its citations', () => {
+  const output = normalizeSearchOutput(
+    {
+      ...resultsSource([result('https://example.test/r')]),
+      answers: [
+        attachedAnswer(
+          'claude',
+          'a'.repeat(9000),
+          Array.from({ length: 25 }, (_, index) => ({
+            url: `https://example.test/a${index}`,
+          })),
+        ),
+      ],
+    },
+    10,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers).toHaveLength(1);
+  expect(output.answers?.[0]?.answer).toHaveLength(8000);
+  expect(output.answers?.[0]?.citations).toHaveLength(20);
+});
+
+it('leaves a results output without answers unchanged', () => {
+  const output = normalizeSearchOutput(
+    resultsSource([result('https://example.test/a')]),
+    10,
+  );
+  expect(Object.hasOwn(output, 'answers')).toBe(false);
+});
+
+it('drops results before the text of an attached answer', () => {
+  const output = normalizeSearchOutput(
+    {
+      ...resultsSource(
+        Array.from({ length: 20 }, (_, index) => ({
+          title: 't'.repeat(200),
+          url: `https://example.test/${'u'.repeat(1950)}${index}`,
+          snippet: 's'.repeat(300),
+        })),
+      ),
+      answers: [
+        attachedAnswer('claude', 'a'.repeat(8000), [
+          { url: 'https://example.test/cited' },
+        ]),
+      ],
+    },
+    20,
+  );
+  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.results.length).toBeGreaterThan(0);
+  expect(output.results.length).toBeLessThan(20);
+  expect(output.answers?.[0]?.answer).toHaveLength(8000);
+  expect(output.notes?.some((note) => /^\d+ results dropped/u.test(note))).toBe(
+    true,
+  );
+  expect(output.notes).not.toContain('1 answer cut to fit the output limit');
+  expect(output.notes?.some((note) => /answers dropped/u.test(note))).toBe(
+    false,
+  );
+});
+
+it('keeps the first citation of each attached answer', () => {
+  const answerOf = (engine: string) =>
+    attachedAnswer(
+      engine,
+      'a'.repeat(8000),
+      Array.from({ length: 20 }, (_, index) => ({
+        url: `https://example.test/${engine}/${'u'.repeat(1980)}${index}`,
+      })),
+    );
+  const output = normalizeSearchOutput(
+    { ...resultsSource([]), answers: [answerOf('one'), answerOf('two')] },
+    10,
+  );
+  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers?.map((entry) => entry.citations.length)).toEqual([
+    1, 1,
+  ]);
+  expect(output.answers?.[1]?.citations[0]?.url).toContain('/two/');
+  expect(output.notes).toContain(
+    '38 citations dropped to fit the output limit',
+  );
+  expect(output.notes).toContain('1 answer cut to fit the output limit');
+});
+
+it('drops whole attached answers from the end last', () => {
+  const url = `https://example.test/${'u'.repeat(2048 - 'https://example.test/'.length)}`;
+  const engines = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const output = normalizeSearchOutput(
+    {
+      ...resultsSource([]),
+      answers: engines.map((engine) =>
+        attachedAnswer(engine, 'Answer.', [{ url }]),
+      ),
+    },
+    10,
+  );
+  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  const kept = output.answers ?? [];
+  expect(kept.length).toBeGreaterThan(0);
+  expect(kept.length).toBeLessThan(engines.length);
+  // The end goes first, so the kept answers are the leading child order.
+  expect(kept.map((entry) => entry.engine)).toEqual(
+    engines.slice(0, kept.length),
+  );
+  const dropped = engines.length - kept.length;
+  expect(output.notes).toEqual([
+    `${dropped} ${dropped === 1 ? 'answer' : 'answers'} dropped to fit the output limit`,
+  ]);
+});
