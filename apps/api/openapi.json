@@ -4815,7 +4815,7 @@
           "error": {
             "type": "string",
             "nullable": true,
-            "description": "The Run's terminal message, the same text its stream error frame carries; null when the Run recorded none."
+            "description": "The terminal message of a failed or expired Run, the same text its stream error frame carries; null for any other Run or none recorded."
           }
         },
         "required": [

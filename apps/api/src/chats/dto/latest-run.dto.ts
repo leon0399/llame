@@ -58,16 +58,18 @@ export class ChatLatestRunResponse {
     type: String,
     nullable: true,
     description:
-      "The Run's terminal message, the same text its stream error frame " +
-      'carries; null when the Run recorded none.',
+      'The terminal message of a failed or expired Run, the same text its ' +
+      'stream error frame carries; null for any other Run or none recorded.',
   })
   error!: string | null;
 }
 
-/** The failure message a finished Run recorded, or null when it recorded none. */
-function runErrorMessage(error: unknown): string | null {
-  if (!isRecord(error)) return null;
-  const message = error['message'];
+/** The message a failed or expired Run's stream sent in its `error` frame, or
+ *  null: a cancelled Run's stream sends none, though the row records why. */
+function runErrorMessage(run: Run): string | null {
+  if (run.status !== 'failed' && run.status !== 'expired') return null;
+  if (!isRecord(run.error)) return null;
+  const message = run.error['message'];
   return isString(message) ? message : null;
 }
 
@@ -80,6 +82,6 @@ export function toChatLatestRunResponse(run: Run): ChatLatestRunResponse {
     modelId: run.modelId,
     effort: run.effort,
     permissionMode: run.permissionMode,
-    error: runErrorMessage(run.error),
+    error: runErrorMessage(run),
   };
 }

@@ -390,7 +390,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         effort: 'high',
         permissionMode: 'bypass',
       });
-      await runsRepo.markFinished(failed.id, userAId, 'failed');
+      // The same message the Run's stream error frame carries.
+      await runsRepo.markFinished(failed.id, userAId, 'failed', {
+        error: { message: 'This model is unavailable for free.' },
+      });
       failedRunId = failed.id;
     });
 
@@ -410,7 +413,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       modelId: 'system:test-model-a',
       effort: 'high',
       permissionMode: 'bypass',
-      error: null,
+      error: 'This model is unavailable for free.',
     });
 
     // A Continue Run on the same turn is the newest Run, and records the action
@@ -428,7 +431,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         followUpAction: 'continue',
         sourceRunId: failedRunId,
       });
-      await runsRepo.markFinished(continued.id, userAId, 'cancelled');
+      // A cancelled Run records why, but its stream sends no error frame.
+      await runsRepo.markFinished(continued.id, userAId, 'cancelled', {
+        error: { message: 'Cancelled.' },
+      });
       continueRunId = continued.id;
     });
 
@@ -456,47 +462,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .set('Cookie', cookieB);
     expect(foreignRead.status).toBe(404);
     expect(foreignRead.body).not.toHaveProperty('latestRun');
-  });
-  it('reports the failure message of the latest Run as its error', async () => {
-    const failedChatId = await createChat(userAId, 'Failed Run API Chat');
-    const userMessageId = crypto.randomUUID();
-    let failedRunId = '';
-
-    await tenantDb.runAs(userAId, async (tx) => {
-      const messagesRepo = new MessagesRepository(tx);
-      const runsRepo = new RunsRepository(tx);
-      await messagesRepo.create({
-        id: userMessageId,
-        chatId: failedChatId,
-        role: 'user',
-        senderUserId: userAId,
-        parts: [{ type: 'text', text: 'A turn that failed at the provider' }],
-      });
-      const failed = await runsRepo.create({
-        chatId: failedChatId,
-        messageId: userMessageId,
-        userId: userAId,
-        modelId: 'system:test-model-a',
-      });
-      // The same message the Run's stream error frame carries.
-      await runsRepo.markFinished(failed.id, userAId, 'failed', {
-        error: { message: 'This model is unavailable for free.' },
-      });
-      failedRunId = failed.id;
-    });
-
-    const read = await request(http)
-      .get(`/api/v1/chats/${failedChatId}/messages`)
-      .set('Cookie', cookieA);
-
-    expect(read.status).toBe(200);
-    expect(
-      z.object({ latestRun: z.unknown() }).parse(read.body).latestRun,
-    ).toMatchObject({
-      id: failedRunId,
-      status: 'failed',
-      error: 'This model is unavailable for free.',
-    });
   });
   it('returns checkpoint rows with owner-only summary and boundary-interval counts, per page', async () => {
     const checkpointChatId = await createChat(userAId, 'Checkpoint API Chat');

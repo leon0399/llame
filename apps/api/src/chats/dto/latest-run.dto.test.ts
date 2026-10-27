@@ -37,15 +37,26 @@ describe('toChatLatestRunResponse', () => {
     });
   });
 
-  it('reports the recorded failure message as the error', () => {
-    const failed: Run = {
-      ...run,
-      error: { message: 'This model is unavailable for free.' },
-    };
+  it('reports the recorded message of a failed or expired Run as the error', () => {
+    const error = { message: 'This model is unavailable for free.' };
 
-    expect(toChatLatestRunResponse(failed).error).toBe(
+    expect(toChatLatestRunResponse({ ...run, error }).error).toBe(
       'This model is unavailable for free.',
     );
+    expect(
+      toChatLatestRunResponse({ ...run, status: 'expired', error }).error,
+    ).toBe('This model is unavailable for free.');
+  });
+
+  it('reports no error for a cancelled or completed Run, whose stream sends none', () => {
+    const error = { message: 'Cancelled.' };
+
+    expect(
+      toChatLatestRunResponse({ ...run, status: 'cancelled', error }).error,
+    ).toBeNull();
+    expect(
+      toChatLatestRunResponse({ ...run, status: 'completed', error }).error,
+    ).toBeNull();
   });
 
   it('reports null when the recorded error carries no message', () => {
