@@ -3,10 +3,10 @@
 ### Requirement: A file is loaded once per compaction epoch, derived from effective history
 
 The seen set MUST be the set of file identities that the `files` payload of `instructions` items
-names in the Chat's effective history. Effective history has three sources. These are the rows
-after the absorbed-through sequence of the active checkpoint, and the kept parts of a Continue Run
-from `turn-actions`. The third is the items that the current attempt stages or emits. The system
-MUST NOT store the seen set in a Chat
+names in the Chat's effective history. Effective history has three sources. The first is the rows
+after the absorbed-through sequence of the active checkpoint. The second is the kept parts of a
+Continue Run from `turn-actions`. The third is the items that the current attempt stages or emits. The system MUST NOT store
+the seen set in a Chat
 column or in any other durable state. That payload does not name denied, failed, and empty
 candidates, so they are not seen. An item stored in history MUST stay there, and its files stay
 seen, whatever the outcome of the attempt that stored it. Only two dispatch transactions remove
