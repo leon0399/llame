@@ -10,7 +10,7 @@
  */
 
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { streamText } from 'ai';
+import { streamText, type ModelMessage, type ToolResultPart } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
@@ -30,6 +30,8 @@ import { createTemporalItem } from '../chats/context-item-producers';
 import { type MessagePart } from '../chats/context-builder';
 import { RecencyDigestService } from '../chats/recency-digest.service';
 import { createRunForMessage } from '../chats/run-creation';
+import type { ToolResult } from '../tools/types';
+
 import {
   continuedRecords,
   type ContinuedEvent,
@@ -253,6 +255,70 @@ describeIfDb('a Continue Run', () => {
   };
 
   /**
+   * The source Run's own event log — the results it sent, its chain, and the
+   * extra step it made — and the records the Continue Run stores for the kept
+   * calls, derived from it.
+   */
+  async function seedSourceRecords(
+    tx: Parameters<Parameters<TenantDbService['runAs']>[1]>[0],
+    sourceRunId: string,
+    sourceParts: ReadonlyArray<unknown>,
+    options: Parameters<typeof seedContinuedTurn>[0],
+  ) {
+    const sourceEvents = new RunEventsRepository(tx);
+    const sourceRecorded: Array<ContinuedEvent> = [];
+    const inherited = options?.inheritedResults ?? {};
+    for (const part of sourceParts) {
+      const record = keptResultOf(part);
+      // An inherited call's result is not this Run's completion to record.
+      if (record === undefined || record.toolCallId in inherited) continue;
+      const payload = {
+        toolCallId: record.toolCallId,
+        toolName: 'read',
+        status: 'success',
+        output: record.output,
+      };
+      await sourceEvents.append(sourceRunId, 'tool.completed', payload);
+      sourceRecorded.push({ eventType: 'tool.completed', payload });
+    }
+    if (options?.chainedOwnCall === true) {
+      const payload = {
+        toolCallId: 'call-own',
+        toolName: 'read',
+        input: { path: '/tmp/second.txt' },
+        stepNumber: 0,
+      };
+      await sourceEvents.append(sourceRunId, 'tool.requested', payload);
+      sourceRecorded.push({ eventType: 'tool.requested', payload });
+    }
+    const chained = options?.sourceContinued === true;
+    if (chained) {
+      await sourceEvents.append(sourceRunId, 'run.continued', {
+        sourceRunId: crypto.randomUUID(),
+        parts: [],
+        steps: { [CALL_ID]: 0 },
+        results: options?.inheritedResults ?? {},
+      });
+    }
+    // SAFETY: the seeded reply parts are stored UI parts, and the projection
+    // re-validates every part it reads.
+    // eslint-disable-next-line typescript/no-unsafe-type-assertion
+    const keptParts = sourceParts as ReadonlyArray<MessagePart>;
+    return continuedRecords({
+      keptParts,
+      ...(chained && {
+        sourceContinued: {
+          parts: [],
+          stepNumbers: new Map([[CALL_ID, 0]]),
+          // The results that Run inherited, as its `run.continued` holds them.
+          results: new Map<string, ToolResult>(Object.entries(inherited)),
+        },
+      }),
+      sourceEvents: sourceRecorded,
+    });
+  }
+
+  /**
    * A turn whose source Run failed after one settled step, plus the Continue
    * Run admission would create for it — the same transaction path a follow-up
    * request uses, so the event log is real.
@@ -273,6 +339,11 @@ describeIfDb('a Continue Run', () => {
     sourceContinued?: boolean;
     /** Whether the source Run made a second read of its own. */
     chainedOwnCall?: boolean;
+    /**
+     * Results the source Run inherited from the Run it continued: they live
+     * only in its `run.continued`, never in its own completion events.
+     */
+    inheritedResults?: Record<string, ToolResult>;
   }): Promise<ContinuedTurn> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -397,56 +468,12 @@ describeIfDb('a Continue Run', () => {
           attemptId: crypto.randomUUID(),
         },
       });
-      // The source Run's own log: the results it sent, and — when it was
-      // itself continued — the steps its admission recorded.
-      const sourceEvents = new RunEventsRepository(tx);
-      const sourceRecorded: Array<ContinuedEvent> = [];
-      for (const part of sourceParts) {
-        const record = keptResultOf(part);
-        if (record === undefined) continue;
-        const payload = {
-          toolCallId: record.toolCallId,
-          toolName: 'read',
-          status: 'success',
-          output: record.output,
-        };
-        await sourceEvents.append(sourceRun.id, 'tool.completed', payload);
-        sourceRecorded.push({ eventType: 'tool.completed', payload });
-      }
-      if (options?.sourceContinued === true) {
-        const payload = {
-          sourceRunId: crypto.randomUUID(),
-          parts: [],
-          steps: { [CALL_ID]: 0 },
-          results: {},
-        };
-        await sourceEvents.append(sourceRun.id, 'run.continued', payload);
-      }
-      if (options?.chainedOwnCall === true) {
-        const payload = {
-          toolCallId: 'call-own',
-          toolName: 'read',
-          input: { path: '/tmp/second.txt' },
-          stepNumber: 0,
-        };
-        await sourceEvents.append(sourceRun.id, 'tool.requested', payload);
-        sourceRecorded.push({ eventType: 'tool.requested', payload });
-      }
-      // SAFETY: the seeded reply parts are stored UI parts, and the projection
-      // re-validates every part it reads.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      const keptForRecords = sourceParts as ReadonlyArray<MessagePart>;
-      const records = continuedRecords({
-        keptParts: keptForRecords,
-        ...(options?.sourceContinued === true && {
-          sourceContinued: {
-            parts: [],
-            stepNumbers: new Map([[CALL_ID, 0]]),
-            results: new Map(),
-          },
-        }),
-        sourceEvents: sourceRecorded,
-      });
+      const records = await seedSourceRecords(
+        tx,
+        sourceRun.id,
+        sourceParts,
+        options,
+      );
       const { run } = await createRunForMessage(
         tx,
         {
@@ -690,9 +717,16 @@ describeIfDb('a Continue Run', () => {
     // The source Run was itself continued: it kept one step of its own source
     // (its own events number its step 0, and so does the kept one) and made a
     // second. The new Continue must send both as separate steps.
+    const inherited = {
+      status: 'success' as const,
+      kind: 'text' as const,
+      path: '/tmp/file.txt',
+      text: 'inherited body',
+    };
     const turn = await seedContinuedTurn({
       sourceContinued: true,
       chainedOwnCall: true,
+      inheritedResults: { [CALL_ID]: inherited },
       replyParts: [
         keptParts[0],
         keptParts[1],
@@ -730,6 +764,21 @@ describeIfDb('a Continue Run', () => {
         : [],
     );
     expect(callIds).toEqual([CALL_ID, 'call-own']);
+    // The inherited call's result lives only in the source Run's
+    // `run.continued`, and it replays exactly as the live loop sent it rather
+    // than through the later-turn renderer.
+    const inheritedResult = toolResultOf(sent, CALL_ID);
+    expect(inheritedResult).toMatchObject({
+      type: 'tool-result',
+      toolName: 'read',
+      output: { type: 'text' },
+    });
+    // The live loop sent a native result as its serialized form, with no
+    // untrusted frame and no budget.
+    const serialized = inheritedResult?.output;
+    expect(
+      serialized?.type === 'text' ? JSON.parse(serialized.value) : undefined,
+    ).toEqual(inherited);
   });
 
   it('reads the previous completed Run the reply names, not the newest one', async () => {
@@ -893,6 +942,21 @@ describeIfDb('a Continue Run', () => {
     ]);
   });
 });
+
+/** The tool-result part for `toolCallId` in the request the Run sent. */
+function toolResultOf(
+  messages: Array<ModelMessage>,
+  toolCallId: string,
+): ToolResultPart | undefined {
+  return messages.flatMap((message) =>
+    message.role === 'tool' && Array.isArray(message.content)
+      ? message.content.filter(
+          (part): part is ToolResultPart =>
+            part.type === 'tool-result' && part.toolCallId === toolCallId,
+        )
+      : [],
+  )[0];
+}
 
 /** The recorded result of one kept part, when it is a settled `read` call. */
 function keptResultOf(

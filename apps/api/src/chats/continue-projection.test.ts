@@ -683,6 +683,80 @@ describe('the Continue state of a Run', () => {
     ).toEqual({ [CALL_ID]: 2, 'call-own-1': 3, 'call-own-2': 4 });
   });
 
+  it('carries the results a chained Continue inherited from its own source', () => {
+    const inherited = {
+      status: 'success' as const,
+      kind: 'text' as const,
+      path: '/work/a',
+      text: 'inherited body',
+    };
+    const own = { status: 'success' as const, text: 'own body' };
+
+    const records = continuedRecords({
+      keptParts: [toolPart(CALL_ID, 'stored'), toolPart(CALL_ID_2, 'stored')],
+      sourceContinued: {
+        parts: [],
+        stepNumbers: new Map([[CALL_ID, 0]]),
+        // The inherited call's result lives only here: the source Run never
+        // completed it itself.
+        results: new Map([[CALL_ID, inherited]]),
+      },
+      sourceEvents: [
+        {
+          eventType: 'tool.completed',
+          payload: { toolCallId: CALL_ID_2, status: 'success', output: own },
+        },
+      ],
+    });
+
+    expect(records.results).toEqual({
+      [CALL_ID]: inherited,
+      [CALL_ID_2]: own,
+    });
+  });
+
+  it('drops an inherited result the boundary kept nothing of', () => {
+    expect(
+      continuedRecords({
+        keptParts: [toolPart(CALL_ID, 'stored')],
+        sourceContinued: {
+          parts: [],
+          stepNumbers: new Map([[CALL_ID, 0]]),
+          results: new Map([
+            [CALL_ID, { status: 'success' as const, text: 'kept' }],
+            ['not-kept', { status: 'success' as const, text: 'dropped' }],
+          ]),
+        },
+        sourceEvents: [],
+      }).results,
+    ).toEqual({ [CALL_ID]: { status: 'success', text: 'kept' } });
+  });
+
+  it('lets the source Run own completion win over an inherited result', () => {
+    expect(
+      continuedRecords({
+        keptParts: [toolPart(CALL_ID, 'stored')],
+        sourceContinued: {
+          parts: [],
+          stepNumbers: new Map(),
+          results: new Map([
+            [CALL_ID, { status: 'success' as const, text: 'stale' }],
+          ]),
+        },
+        sourceEvents: [
+          {
+            eventType: 'tool.completed',
+            payload: {
+              toolCallId: CALL_ID,
+              status: 'success',
+              output: { status: 'success', text: 'fresh' },
+            },
+          },
+        ],
+      }).results,
+    ).toEqual({ [CALL_ID]: { status: 'success', text: 'fresh' } });
+  });
+
   it('records the model-facing result of each kept call', () => {
     const output = {
       status: 'success',

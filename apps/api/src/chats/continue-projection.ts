@@ -389,12 +389,22 @@ function chainedSteps(
   return steps;
 }
 
-/** The model-facing result recorded for each kept call, from its completion. */
+/**
+ * The model-facing result of each kept call: the ones the source Run's own
+ * completions recorded, over the ones it inherited from the Run it continued.
+ * A chained Continue inherits calls whose results only that earlier record
+ * holds, and without them the projection would fall back to the later-turn
+ * renderer for a result the live loop never sent that way.
+ */
 function recordedResults(
   events: ReadonlyArray<ContinuedEvent>,
   kept: ReadonlySet<string>,
+  inherited: ReadonlyMap<string, ToolResult> | undefined,
 ): ContinuedRecords['results'] {
   const results: ContinuedRecords['results'] = {};
+  for (const [toolCallId, result] of inherited ?? []) {
+    if (kept.has(toolCallId)) results[toolCallId] = result;
+  }
   for (const event of events) {
     if (event.eventType !== 'tool.completed' || !isRecord(event.payload)) {
       continue;
@@ -449,7 +459,11 @@ export function continuedRecords(input: {
   const chained = chainedSteps(input.sourceContinued, kept);
   return {
     steps: ownSteps(input.sourceEvents, kept, chained),
-    results: recordedResults(input.sourceEvents, kept),
+    results: recordedResults(
+      input.sourceEvents,
+      kept,
+      input.sourceContinued?.results,
+    ),
   };
 }
 
