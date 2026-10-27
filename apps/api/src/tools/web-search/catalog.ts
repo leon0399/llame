@@ -31,7 +31,7 @@ const RECENCY_USE: Record<EngineType, string> = {
 
 /** How one engine type uses the call's `objective`; absent when it ignores it. */
 const OBJECTIVE_USE: Partial<Record<EngineType, string>> = {
-  exa: 'objective sent as `objective`',
+  exa: 'objective sent as `objective`, the query when absent',
   'exa-mcp': 'objective sent as `objective`, the query when absent',
   parallel: 'objective sent as `objective`',
   'parallel-mcp': 'objective sent as `objective`, the query when absent',
