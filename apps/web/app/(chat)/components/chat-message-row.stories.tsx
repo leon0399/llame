@@ -100,6 +100,51 @@ const HISTORICAL_WEB_SEARCH_MESSAGE: UIMessage = {
   ],
 };
 
+const WEB_SEARCH_ANSWERS_OUTPUT = {
+  ...WEB_SEARCH_OUTPUT,
+  engine: "aggregate",
+  answers: [
+    {
+      engine: "claude-search",
+      answer: "**Aggregate answers** follow the results.",
+      citations: [
+        { title: "Keyboard acoustics", url: "https://example.com/acoustics" },
+      ],
+    },
+  ],
+};
+
+const WEB_SEARCH_ANSWERS_QUERY = { query: WEB_SEARCH_OUTPUT.query };
+
+const LIVE_WEB_SEARCH_ANSWERS_MESSAGE: UIMessage = {
+  id: "assistant-web-search-answers-live",
+  role: "assistant",
+  parts: [
+    {
+      type: "dynamic-tool",
+      toolCallId: "web-search-answers-live",
+      toolName: "web_search",
+      state: "output-available",
+      input: WEB_SEARCH_ANSWERS_QUERY,
+      output: WEB_SEARCH_ANSWERS_OUTPUT,
+    },
+  ],
+};
+
+const HISTORICAL_WEB_SEARCH_ANSWERS_MESSAGE: UIMessage = {
+  id: "assistant-web-search-answers-history",
+  role: "assistant",
+  parts: [
+    {
+      type: "tool-web_search",
+      toolCallId: "web-search-answers-history",
+      state: "output-available",
+      input: WEB_SEARCH_ANSWERS_QUERY,
+      output: WEB_SEARCH_ANSWERS_OUTPUT,
+    },
+  ],
+};
+
 const CANCELLED_WEB_SEARCH_ERROR = "The web search was cancelled.";
 const CANCELLED_WEB_SEARCH_MESSAGE: UIMessage = {
   id: "assistant-web-search-cancelled",
@@ -306,6 +351,53 @@ export const LiveAndHistoricalWebSearch: Story = {
       }
     }
     expect(canvas.queryAllByRole("link")).toHaveLength(0);
+  },
+};
+
+/**
+ * A live search and a reloaded one both render an aggregate's attached answer
+ * after the results, with its engine id, Markdown text, and citation link.
+ *
+ * @summary live and historical parts render attached answers
+ */
+export const LiveAndHistoricalWebSearchAnswers: Story = {
+  tags: ["ai-generated"],
+  parameters: webSearchShikiContrastKnownIssue,
+  args: { message: LIVE_WEB_SEARCH_ANSWERS_MESSAGE },
+  render: (args) => (
+    <div>
+      <ChatMessageRow {...args} renderKey="web-search-answers-live" />
+      <ChatMessageRow
+        {...args}
+        renderKey="web-search-answers-history"
+        message={HISTORICAL_WEB_SEARCH_ANSWERS_MESSAGE}
+      />
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    const headers = await waitFor(
+      () => {
+        const found = canvas.getAllByRole("button", { name: /web_search/iu });
+        expect(found).toHaveLength(2);
+        return found;
+      },
+      { timeout: 15_000 },
+    );
+    for (const header of headers) {
+      if (header.getAttribute("aria-expanded") === "false") {
+        await userEvent.click(header);
+      }
+    }
+    await waitFor(
+      () => {
+        expect(canvas.getAllByText("Aggregate answers")).toHaveLength(2);
+        expect(canvas.getAllByText(/claude-search/u)).toHaveLength(2);
+        expect(
+          canvas.getAllByRole("button", { name: "Keyboard acoustics" }),
+        ).toHaveLength(2);
+      },
+      { timeout: 15_000 },
+    );
   },
 };
 

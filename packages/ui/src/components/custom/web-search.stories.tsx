@@ -394,3 +394,79 @@ export const Notes: Story = {
     ).toBeInTheDocument();
   },
 };
+
+/**
+ * An aggregate can also carry the grounded answers of its hosted children. Each
+ * answer follows the results, named by its engine id, with its citation links.
+ *
+ * @summary for an aggregate that attaches one hosted answer
+ */
+export const AggregateAnswers: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...resultsOutput,
+      engine: "aggregate",
+      answers: [
+        {
+          engine: "claude-search",
+          answer:
+            "**Aggregate answers** come from the hosted child.\n\nIt cites two sources.",
+          citations: [
+            { title: "Hosted context", url: "https://example.com/context" },
+            // Untrusted historical data: a non-http(s) citation is text only.
+            { url: "javascript:alert(1)" },
+          ],
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    const lastResult = canvas.getByRole("button", {
+      name: "Tool calling guide",
+    });
+    const answer = canvas.getByText("Aggregate answers");
+    await expect(answer).toBeInTheDocument();
+    await expect(
+      Boolean(
+        lastResult.compareDocumentPosition(answer) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    await expect(canvas.getByText(/claude-search/u)).toBeInTheDocument();
+    await expect(canvas.getByText("It cites two sources.")).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Hosted context" }),
+    ).toBeInTheDocument();
+    await expect(
+      canvas.queryByRole("button", { name: "javascript:alert(1)" }),
+    ).not.toBeInTheDocument();
+    await expect(
+      canvas.getByText("javascript:alert(1)").closest("a"),
+    ).toBeNull();
+  },
+};
+
+/**
+ * A web search part stored before `answers` existed still renders its results;
+ * the missing field is optional and never an error.
+ *
+ * @summary for a stored results part without answers
+ */
+export const StoredResultsWithoutAnswers: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: resultsOutput,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(
+      canvas.getByRole("button", { name: "Llame release notes" }),
+    ).toBeInTheDocument();
+    await expect(canvas.getByText("Engine:")).toBeInTheDocument();
+    // Only the result list renders: a stored part without `answers` adds no
+    // answer block.
+    await expect(canvas.getAllByRole("list")).toHaveLength(1);
+  },
+};

@@ -31,11 +31,18 @@ const outputBaseSchema = {
   notes: z.array(z.string()).optional(),
 };
 
+const answerSchema = z.object({
+  engine: z.string(),
+  answer: z.string(),
+  citations: z.array(citationSchema),
+});
+
 const outputSchema = z.discriminatedUnion("kind", [
   z.object({
     ...outputBaseSchema,
     kind: z.literal("results"),
     results: z.array(resultSchema),
+    answers: z.array(answerSchema).optional(),
   }),
   z.object({
     ...outputBaseSchema,
@@ -46,6 +53,7 @@ const outputSchema = z.discriminatedUnion("kind", [
 ]);
 
 type WebSearchResult = z.infer<typeof resultSchema>;
+type WebSearchAnswer = z.infer<typeof answerSchema>;
 type WebSearchOutput = z.infer<typeof outputSchema>;
 type WebSearchResultsOutput = Extract<WebSearchOutput, { kind: "results" }>;
 type WebSearchAnswerOutput = Extract<WebSearchOutput, { kind: "answer" }>;
@@ -167,6 +175,42 @@ function ResultItem({
   );
 }
 
+/** Attached answers render after the results, one block per answer engine. */
+function AttachedAnswers({
+  answers,
+  Markdown,
+}: {
+  answers: ReadonlyArray<WebSearchAnswer>;
+  Markdown: ComponentType<{ children?: string }>;
+}) {
+  return answers.map((entry, index) => (
+    <section
+      className="space-y-2 border-border border-t px-4 pt-4"
+      key={`${entry.engine}-${index}`}
+    >
+      <p className="text-muted-foreground text-xs">
+        <span className="font-medium">Engine:</span> {entry.engine}
+      </p>
+      <div className="text-sm">
+        <Markdown>{entry.answer}</Markdown>
+      </div>
+      {entry.citations.length > 0 && (
+        <ol className="list-decimal space-y-2 px-4">
+          {entry.citations.map((citation, citationIndex) => (
+            <li className="pl-1" key={`${citation.url}-${citationIndex}`}>
+              <SearchLink
+                label={citation.title ?? citation.url}
+                url={citation.url}
+                Markdown={Markdown}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  ));
+}
+
 function ResultsBody({
   output,
   Markdown,
@@ -190,6 +234,9 @@ function ResultsBody({
             />
           ))}
         </ol>
+      )}
+      {output.answers !== undefined && output.answers.length > 0 && (
+        <AttachedAnswers answers={output.answers} Markdown={Markdown} />
       )}
       <SearchMetadata engine={output.engine} notes={output.notes} />
     </div>
