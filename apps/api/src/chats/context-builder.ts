@@ -100,7 +100,7 @@ export function isTextPart(part: unknown): part is TextPart {
 }
 
 /** Duck-typed like `isTextPart`: `parts` is jsonb with no runtime validation. */
-function isReasoningPart(part: unknown): part is ReasoningPart {
+export function isReasoningPart(part: unknown): part is ReasoningPart {
   return (
     typeof part === 'object' &&
     part !== null &&

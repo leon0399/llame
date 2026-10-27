@@ -50,9 +50,11 @@ import { clearActiveRunSlot } from './chat-admission';
 import { type AcceptedRun } from './chat-loop.service';
 import { toRunUserMessage } from './chat-message-parts';
 import { continueKeptParts } from './continue-kept-parts';
+import { type MessagePart } from './context-builder';
+import { keptStepNumbers, type KeptStepNumbers } from './continue-projection';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
-import { createRunForMessage } from './run-creation';
-import { RunsRepository } from '../runs/runs-repository';
+import { createRunForMessage, type FollowUpRunInput } from './run-creation';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
 /**
  * A follow-up request as the caller sent it, before its checks. Continue takes
@@ -255,12 +257,12 @@ export class FollowUpAdmissionService {
         effort,
         permissionMode,
         targetRunId: randomUUID(),
-        followUp: {
-          action: 'continue',
-          sourceRunId: latestRun.id,
-          keptParts: continueKeptParts(source.parts),
-          replacesUsage: source.usage !== null,
-        },
+        followUp: await this.continueFollowUp(
+          tx,
+          input.userId,
+          latestRun.id,
+          source,
+        ),
       },
       userMessage,
     );
@@ -275,6 +277,7 @@ export class FollowUpAdmissionService {
     };
   }
 
+  /**
   /**
    * Everything the Continue check decides, as a value: a refusal is returned
    * so the transaction can commit the stuck-Run expiry it already performed.
@@ -295,6 +298,53 @@ export class FollowUpAdmissionService {
       if (!isFollowUpRefusal(error)) throw error;
       return { refusal: error };
     }
+  }
+
+  /**
+   * What the Continue Run's event log starts from: the reply's kept parts
+   * through its last settled tool part, the step each kept call belongs to, and
+   * whether the reply already recorded usage (turn-actions D4, D6, D11).
+   */
+  private async continueFollowUp(
+    tx: Db,
+    userId: string,
+    sourceRunId: string,
+    source: Message,
+  ): Promise<FollowUpRunInput> {
+    const keptParts = continueKeptParts(source.parts);
+    return {
+      action: 'continue',
+      sourceRunId,
+      keptParts,
+      keptStepNumbers: await this.keptStepNumbers(
+        tx,
+        userId,
+        sourceRunId,
+        keptParts,
+      ),
+      replacesUsage: source.usage !== null,
+    };
+  }
+
+  /**
+   * The step each kept call belongs to, from the source Run's own events, so
+   * two sequential steps with no text between them stay two steps for the
+   * Continue projection (turn-actions D6).
+   */
+  private async keptStepNumbers(
+    tx: Db,
+    userId: string,
+    sourceRunId: string,
+    keptParts: ReadonlyArray<unknown>,
+  ): Promise<KeptStepNumbers> {
+    const events = await new RunEventsRepository(tx).listByRunId(
+      sourceRunId,
+      userId,
+    );
+    // SAFETY: the kept parts are the reply's own stored UI parts, and the
+    // projection re-validates every part it reads.
+    // eslint-disable-next-line typescript/no-unsafe-type-assertion
+    return keptStepNumbers(events, keptParts as ReadonlyArray<MessagePart>);
   }
 
   /**

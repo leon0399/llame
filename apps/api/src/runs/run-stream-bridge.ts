@@ -1,3 +1,4 @@
+import { replayKeptParts, type KeptPartStream } from './kept-parts-replay';
 import { toolTerminationMessage } from './tool-settlement';
 /**
  * Run-event → AI SDK UI-message stream bridge (#50, SPEC §9.4/§9.5).
@@ -12,72 +13,17 @@ import { toolTerminationMessage } from './tool-settlement';
 import { Injectable } from '@nestjs/common';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
+import {
+  payloadField,
+  payloadNumber,
+  payloadString,
+  type RunEventLike,
+  type UiChunk,
+} from './run-event-chunks';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { isSystemOriginPayload } from './tool-activity-origin';
 import { isTerminalRunStatus } from './run-status';
-
-/** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
-export type UiChunk =
-  | { type: 'start'; messageId: string }
-  | { type: 'text-start'; id: string }
-  | { type: 'text-delta'; id: string; delta: string }
-  | { type: 'text-end'; id: string }
-  | { type: 'reasoning-start'; id: string }
-  | { type: 'reasoning-delta'; id: string; delta: string }
-  | { type: 'reasoning-end'; id: string }
-  | { type: 'message-metadata'; messageMetadata: unknown }
-  | {
-      type: 'tool-input-available';
-      toolCallId: string;
-      toolName: string;
-      input: unknown;
-      dynamic: true;
-    }
-  | {
-      type: 'tool-output-available';
-      toolCallId: string;
-      output: unknown;
-      dynamic: true;
-    }
-  | {
-      type: 'tool-output-error';
-      toolCallId: string;
-      errorText: string;
-      providerMetadata?: { llame: { cancelled: true } };
-      dynamic: true;
-    }
-  | {
-      type: 'data-cap-notice';
-      data: { stepsUsed: number; maxSteps: number };
-    }
-  | { type: 'error'; errorText: string }
-  | { type: 'finish'; finishReason: 'stop' };
-
-export interface RunEventLike {
-  eventType: string;
-  payload: unknown;
-}
-
-/** Raw field off an unknown object payload — the one null-guard every reader shares. */
-function payloadField(payload: unknown, key: string) {
-  if (!isRecord(payload)) {
-    return undefined;
-  }
-  return payload[key];
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
-function payloadString(payload: unknown, key: string): string | undefined {
-  const value = payloadField(payload, key);
-  return isString(value) ? value : undefined;
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
-function payloadNumber(payload: unknown, key: string): number | undefined {
-  const value = payloadField(payload, key);
-  return isNumber(value) ? value : undefined;
-}
 
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
@@ -206,6 +152,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         return this.onToolCompleted(event);
       case 'run.step_cap_reached':
         return this.onStepCapReached(event);
+      case 'run.continued':
+        return this.onRunContinued(event);
       case 'run.completed':
       case 'run.cancelled':
         return this.onRunTerminated(event);
@@ -216,6 +164,35 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       default:
         return [];
     }
+  }
+
+  /**
+   * The kept parts of a Continue Run (turn-actions D5), replayed as the UI
+   * chunks the source Run streamed, through the same part counters and
+   * open-part state every other chunk uses.
+   */
+  private onRunContinued(event: RunEventLike): Array<UiChunk> {
+    const parts = payloadField(event.payload, 'parts');
+    return Array.isArray(parts)
+      ? [...this.prelude(), ...replayKeptParts(parts, this.keptPartStream())]
+      : this.prelude();
+  }
+
+  private keptPartStream(): KeptPartStream {
+    return {
+      closeText: () => this.closeText(),
+      closeReasoning: () => this.closeReasoning(),
+      currentTextId: () => this.openTextId,
+      startText: () => {
+        this.textPartCount += 1;
+        this.openTextId = `text-${this.textPartCount}`;
+        return this.openTextId;
+      },
+      startReasoning: () => {
+        this.reasoningPartCount += 1;
+        return `reasoning-${this.reasoningPartCount}`;
+      },
+    };
   }
 
   private onModelDelta(event: RunEventLike): Array<UiChunk> {

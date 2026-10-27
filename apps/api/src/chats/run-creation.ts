@@ -19,6 +19,8 @@ export type FollowUpRunInput = {
   sourceRunId: string;
   /** The reply's parts through its last settled tool part. */
   keptParts: Array<unknown>;
+  /** The source Run's `toolCallId -> stepNumber` map for those kept calls. */
+  keptStepNumbers: Record<string, number>;
   /** Whether the replaced reply already recorded usage. */
   replacesUsage: boolean;
 };
@@ -73,6 +75,10 @@ export async function createRunForMessage(
     await eventsRepo.append(run.id, 'run.continued', {
       sourceRunId: input.followUp.sourceRunId,
       parts: input.followUp.keptParts,
+      // Two sequential steps with no text between them stay two steps in the
+      // Continue projection (turn-actions D6); a source Run from before
+      // `api-continue` recorded none and stores an empty map.
+      steps: input.followUp.keptStepNumbers,
     });
   }
 

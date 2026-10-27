@@ -206,6 +206,54 @@ export class CreateMessageDto {
   message!: CreateMessageBodyDto;
 }
 
+/**
+ * `POST /chats/:chatId/messages/:userMessageId/runs` body — act on a turn that
+ * already has a Run. `continue` resumes the completed steps of a failed,
+ * cancelled, or expired Run and takes its model and effort from that Run, so
+ * it refuses both fields here; `regenerate` is validated by its own layer.
+ */
+export class CreateFollowUpRunDto {
+  @ApiProperty({
+    enum: ['continue', 'regenerate'],
+    description: 'The action to apply to the latest turn of the Chat.',
+  })
+  @IsIn(['continue', 'regenerate'])
+  action!: 'continue' | 'regenerate';
+
+  // ValidateIf (not IsOptional), for the reason `CreateMessageDto` states: an
+  // explicit null is malformed, while absence is the only "not sent".
+  @ApiPropertyOptional({
+    pattern: '\\S',
+    description:
+      'Model for a regenerate request. A continue request keeps the model of ' +
+      'the Run it continues and refuses this field.',
+  })
+  @ValidateIf((o: CreateFollowUpRunDto) => o.modelId !== undefined)
+  @IsString()
+  @Matches(/\S/, { message: 'modelId must not be blank' })
+  modelId?: string;
+
+  @ApiPropertyOptional({
+    pattern: '\\S',
+    description:
+      "Reasoning effort for a regenerate request, from the selected model's " +
+      'declared levels. A continue request keeps the effort of the Run it ' +
+      'continues and refuses this field.',
+  })
+  @ValidateIf((o: CreateFollowUpRunDto) => o.effort !== undefined)
+  @IsString()
+  @Matches(/\S/, { message: 'effort must not be blank' })
+  effort?: string;
+
+  @ApiPropertyOptional({
+    enum: PERMISSION_MODES,
+    description: 'Permission mode for this Run; omit for default.',
+  })
+  @ValidateIf((o: CreateFollowUpRunDto) => o.permissionMode !== undefined)
+  @IsIn(PERMISSION_MODES)
+  permissionMode?: PermissionMode;
+}
+
 export class ChatResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;

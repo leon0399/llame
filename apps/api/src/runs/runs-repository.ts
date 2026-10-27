@@ -219,6 +219,60 @@ export class RunsRepository {
   }
 
   /**
+   * The most recent dispatched Run of one triggering message itself, or the
+   * most recent dispatched turn before it when the message's Runs never
+   * dispatched (turn-actions D8). A follow-up Run compares tool availability
+   * with the earlier Run of its own message, which a sequence-bounded lookup
+   * can never reach.
+   */
+  async findDispatchedBaselineForTurn(
+    chatId: string,
+    userId: string,
+    turn: { messageId: string; beforeSeq: number },
+  ): Promise<CompletedRunWithTrigger | undefined> {
+    const dispatched = sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`;
+    return (
+      (await this.findMostRecentByMessageSequence(
+        chatId,
+        userId,
+        undefined,
+        dispatched,
+        eq(runs.messageId, turn.messageId),
+      )) ??
+      (await this.findMostRecentByMessageSequence(
+        chatId,
+        userId,
+        { beforeSeq: turn.beforeSeq },
+        dispatched,
+      ))
+    );
+  }
+
+  /**
+   * Whether any Run of the message dispatched — its dispatch transaction wrote
+   * the availability record, or it completed before that record existed. A
+   * follow-up Run reads this as "an earlier attempt of this turn told the model
+   * what its items say" (turn-actions D8).
+   */
+  async hasDispatchedRunForMessage(
+    messageId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.messageId, messageId),
+          eq(runs.userId, userId),
+          sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`,
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /**
    * The Chat's newest Run — the Run the history read reports and the one the
    * follow-up actions judge (turn-actions D12). Owner-scoped; `createdAt` and
    * `id` break ties between Runs created in one transaction. Returns
@@ -497,6 +551,32 @@ export class RunEventsRepository {
       .returning();
 
     return created;
+  }
+
+  /**
+   * The first event of `eventType` this Run holds, or undefined. Owner-scoped
+   * like every read here; used for the single `run.created` and
+   * `run.continued` events a Run has.
+   */
+  async findFirstByType(
+    runId: string,
+    userId: string,
+    eventType: RunEventType,
+  ): Promise<RunEvent | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(runEvents)
+      .innerJoin(runs, eq(runEvents.runId, runs.id))
+      .where(
+        and(
+          eq(runEvents.runId, runId),
+          eq(runs.userId, userId),
+          eq(runEvents.eventType, eventType),
+        ),
+      )
+      .orderBy(asc(runEvents.sequence))
+      .limit(1);
+    return row?.run_events;
   }
 
   /**

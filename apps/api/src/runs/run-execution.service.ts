@@ -26,6 +26,7 @@ import {
   serializeNativeModelOutput,
   statHostPath,
 } from '@workspace/native-file-tools';
+import { isRecord } from '@workspace/runtime-safety';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -131,6 +132,11 @@ import {
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
+import {
+  continueStateFromEvents,
+  projectContinueParts,
+  type ContinueState,
+} from '../chats/continue-projection';
 import { createDeltaBuffer } from './delta-buffer';
 import {
   MAX_ADDRESS_DECISIONS,
@@ -376,6 +382,8 @@ type PromptImportStep = {
   readonly detaching: boolean;
   /** The attempt's memory of unstored media. */
   readonly heldMedia: Map<string, HeldMedia>;
+  /** Whether this Run follows up an earlier Run of the same turn. */
+  readonly followUp: boolean;
 };
 
 type WorkspaceStagedContext = {
@@ -431,6 +439,12 @@ type PreparedAttemptContext = ModelRequestContext & {
    * its own to carry the items.
    */
   triggerParts: ReadonlyArray<unknown> | undefined;
+  /**
+   * The triggering row's id, so the request can place its message from the
+   * history rows rather than from "the last message" — a Continue request
+   * carries the kept steps after it (turn-actions D6).
+   */
+  triggerRowId: string | undefined;
   /** The stored rows this request was built from; the trigger plans on them. */
   historyRows: Array<Message>;
   /**
@@ -459,6 +473,8 @@ type CompactionTriggerInput = {
   prepared: PreparedExecutionContext;
   stagedParts: ReadonlyArray<MessagePart>;
   historyRows: ReadonlyArray<Message>;
+  /** The kept steps a Continue request adds after the trigger (D5). */
+  keptMessages: ReadonlyArray<ModelRequestContext['messages'][number]>;
   boundarySeq: number;
   /** The prepared request's media sizing for the attempt model (vision-media D6). */
   media: MediaSizing | undefined;
@@ -519,6 +535,8 @@ type DisclosureBaseline = {
   readonly previousReplyModelId: string | undefined;
   /** The most recent dispatched predecessor turn (design D11). */
   readonly previousDispatched: CompletedRunWithTrigger | undefined;
+  /** Whether an earlier Run of this same turn dispatched (turn-actions D8). */
+  readonly priorTurnDispatched: boolean;
   /** Whether this turn opens a new disclosure epoch (design D7). */
   readonly startsEpoch: boolean;
 };
@@ -691,6 +709,12 @@ type ToolRequestedEventPayload = {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  /**
+   * The AI SDK step that requested this call. A Continue Run groups the kept
+   * parts by it, so two sequential steps with no text between them stay two
+   * steps (turn-actions D6).
+   */
+  stepNumber: number;
   permission?: PermissionDecision;
   /** Absent means model-origin; see tool-activity-origin.ts. */
   origin?: ToolActivityOrigin;
@@ -1047,6 +1071,11 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
     const { effort, permissionMode, attemptId } = claim;
+    // A Continue Run starts from the kept parts its admission recorded, in the
+    // same transaction as its own row (turn-actions D5). Every later read of
+    // this attempt — the request, the collector, the in-Run region — reads
+    // that one state, so no path can disagree about where the turn resumes.
+    const continued = await this.loadContinueState(input);
     const effectivePermissionMode =
       this.resolveEffectivePermissionMode(permissionMode);
     if (input.abortSignal?.aborted) {
@@ -1080,6 +1109,7 @@ export class RunExecutionService {
       claim.nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
+      continued !== undefined,
     );
     // The attempt's view of its owner's media: prompt imports, admission,
     // compaction, and the step composer all read descriptors and bytes through
@@ -1099,6 +1129,7 @@ export class RunExecutionService {
       skillSelection,
       detaching: workspacePreparation.detaching,
       heldMedia: media.heldMedia,
+      followUp: continued !== undefined,
     });
     // Prompt/catalog resolution, the single pre-step compaction trigger, and the
     // request this Run actually sends (design D4/D5): both prompt surfaces come
@@ -1119,6 +1150,7 @@ export class RunExecutionService {
         workspaceRootCell: workspaceRoot,
         effort,
         media,
+        continued,
       });
       prepared = firstStep.request;
       attemptContext = firstStep.context;
@@ -1248,6 +1280,11 @@ export class RunExecutionService {
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
     const assistantPartCollector = createAssistantPartCollector();
+    // The kept parts are the transcript's prefix, so every terminal writer of
+    // this attempt persists them once, ahead of its own parts (D5). The kept
+    // boundary ends on a settled tool part or an in-Run item, which is why no
+    // live delta can merge into a kept part.
+    if (continued !== undefined) assistantPartCollector.seed(continued.parts);
     // In-Run rail items for this attempt: staged at step boundaries, written
     // onto the running reply with the collector's snapshot before the step's
     // request, and spliced into every later step by the model client's step
@@ -1390,6 +1427,10 @@ export class RunExecutionService {
     // on the abort path (#293). Name and input live here rather than in the
     // part collector so termination settles through recordToolCompleted, and
     // the durable event and the persisted part can never disagree.
+    // The step the live stream is in, for `tool.requested`'s step number
+    // (turn-actions D6). `onStepStart` stamps it before each step's request, so
+    // every call a step makes carries that step.
+    let currentStepNumber = 0;
     const openToolCalls = new Map<
       string,
       {
@@ -1436,6 +1477,9 @@ export class RunExecutionService {
         toolCallId,
         toolName,
         input: toolInput,
+        // The step the call was requested in, stamped by `onStepStart`. A call
+        // outside any step (the step cap's forced answer) keeps the last one.
+        stepNumber: currentStepNumber,
       };
       if (permission !== undefined) payload.permission = permission;
       if (origin !== undefined) payload.origin = origin;
@@ -1891,6 +1935,7 @@ export class RunExecutionService {
           onToolSet: (record) => toolAdditions.bindToolRecord(record),
           maxSteps: maxStepsPerRun,
           onStepStart: async ({ messages, stepNumber }) => {
+            currentStepNumber = stepNumber;
             workspaceRoot.beginStep();
             inRunItems.beginStep(messages);
             const staged: Array<AuthoredContextItemPart> = [];
@@ -2292,6 +2337,7 @@ export class RunExecutionService {
     tx: Db,
     input: ExecuteRunInput,
     systemPrompt: string,
+    continued: ContinueState | undefined,
   ): Promise<{
     readonly context: ModelRequestContext;
     readonly historyRows: Array<Message>;
@@ -2322,9 +2368,15 @@ export class RunExecutionService {
         }),
       }),
       historyRows: history,
-      seenInstructionPaths: instructionsSeenPaths(
-        history.flatMap((message) => message.parts),
-      ),
+      // The kept parts sit above the trigger in the reply, which this read
+      // never returns, so their instruction bundles would look unseen and the
+      // Continue Run would load and send them a second time (turn-actions D8).
+      seenInstructionPaths: new Set([
+        ...instructionsSeenPaths(history.flatMap((message) => message.parts)),
+        ...(continued === undefined
+          ? []
+          : instructionsSeenPaths(continued.parts)),
+      ]),
     };
   }
 
@@ -2577,6 +2629,7 @@ export class RunExecutionService {
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
+    followUp: boolean,
   ): Promise<ReadonlySet<string>> {
     const config = this.instanceConfig.config;
     if (
@@ -2599,14 +2652,22 @@ export class RunExecutionService {
     );
     // What a prior attempt of this Run already resolved. Reading it first is
     // what makes recovery replay stored observations rather than re-reading a
-    // package that may have changed.
-    const resolved = await this.tenantDb.runAs(input.userId, (tx) =>
-      new ActivationPartsRepository(tx).resolvedSkillsForRun({
-        id: input.userMessage.id,
-        chatId: input.chatId,
-        runId: input.runId,
-      }),
-    );
+    // package that may have changed. A follow-up Run reads the whole message
+    // instead, so it activates no skill an earlier Run of the turn already
+    // did (turn-actions D8).
+    const resolved = await this.tenantDb.runAs(input.userId, (tx) => {
+      const repo = new ActivationPartsRepository(tx);
+      return followUp
+        ? repo.resolvedSkillsForMessage({
+            id: input.userMessage.id,
+            chatId: input.chatId,
+          })
+        : repo.resolvedSkillsForRun({
+            id: input.userMessage.id,
+            chatId: input.chatId,
+            runId: input.runId,
+          });
+    });
     const outcome = await activateSkills({
       mentions,
       resolved,
@@ -2664,9 +2725,14 @@ export class RunExecutionService {
       chatId: input.chatId,
       runId: input.runId,
     };
-    const stored = await this.tenantDb.runAs(input.userId, (tx) =>
-      new PromptImportPartsRepository(tx).findForRun(message),
-    );
+    // A follow-up Run reuses the item an earlier Run of the turn stored and
+    // reads no target again (turn-actions D8).
+    const stored = await this.tenantDb.runAs(input.userId, (tx) => {
+      const repo = new PromptImportPartsRepository(tx);
+      return step.followUp
+        ? repo.findForMessage(message)
+        : repo.findForRun(message);
+    });
     // Presence is authoritative even when an older reader cannot decode payload.
     if (stored !== undefined) return;
     const { outcomes, omitted } = await resolvePromptImportTargets(
@@ -3333,6 +3399,15 @@ export class RunExecutionService {
           .map((part) => part.text)
           .join(''),
         media: input.media,
+      }) +
+      // The kept steps are not history rows, so the continuation estimate
+      // cannot see them: a Continue Run measures them here, or its threshold
+      // would ignore everything it resumes (turn-actions D5).
+      estimateModelRequestTokens({
+        system: '',
+        messages: [...input.keptMessages],
+        toolDeclarations: [],
+        media: input.media,
       })
     );
   }
@@ -3605,6 +3680,25 @@ export class RunExecutionService {
     return !isRunningUsage(usage) || usage.runId !== runId;
   }
 
+  /**
+   * Whether this Run's `run.created` recorded `replacesUsage`, the flag a
+   * follow-up admission sets when the reply it acted on already recorded usage
+   * (turn-actions D11).
+   */
+  private async createdReplacesUsage(
+    tx: Db,
+    runId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const created = await new RunEventsRepository(tx).findFirstByType(
+      runId,
+      userId,
+      'run.created',
+    );
+    const payload = created?.payload;
+    return isRecord(payload) && payload['replacesUsage'] === true;
+  }
+
   /** Finalizes usage completeness against owner-scoped Run and reply state. */
   private async finalizeAssistantTurnTelemetry(
     tx: Db,
@@ -3627,13 +3721,19 @@ export class RunExecutionService {
     const receipts = await new SystemPromptReceiptsRepository(
       tx,
     ).findByOwnedRun(input.runId, input.userId);
-    const replacedUsage = await this.hasReplaceableAssistantUsage(
-      tx,
-      input.userId,
-      input.runId,
-      chatId,
-      inReplyTo,
-    );
+    // A follow-up Run's admission recorded whether its reply replaces one that
+    // already carried usage: the dispatch reset hides that usage from the read
+    // above, so the flag is the only trace of it (turn-actions D11).
+    const replacedUsage =
+      (await this.hasReplaceableAssistantUsage(
+        tx,
+        input.userId,
+        input.runId,
+        chatId,
+        inReplyTo,
+      )) ||
+      (run?.followUpAction != null &&
+        (await this.createdReplacesUsage(tx, input.runId, input.userId)));
     telemetry.complete =
       telemetry.complete === true &&
       run?.status === 'completed' &&
@@ -3923,6 +4023,25 @@ export class RunExecutionService {
   }
 
   /**
+   * The kept parts a Continue Run's admission recorded, and the step of each
+   * kept call, or undefined for a Run that did not continue one (turn-actions
+   * D5). Read once per attempt, before any preparation, so the request, the
+   * part collector, and the in-Run region all start from the same state.
+   */
+  private async loadContinueState(
+    input: ExecuteRunInput,
+  ): Promise<ContinueState | undefined> {
+    const event = await this.tenantDb.runAs(input.userId, (tx) =>
+      new RunEventsRepository(tx).findFirstByType(
+        input.runId,
+        input.userId,
+        'run.continued',
+      ),
+    );
+    return event === undefined ? undefined : continueStateFromEvents([event]);
+  }
+
+  /**
    * Resolve prompt, catalog, context items, and message history for one
    * execution attempt. Runs inside a single tenant transaction.
    *
@@ -3942,6 +4061,7 @@ export class RunExecutionService {
     workspaceMcpKey: WorkspaceMcpKey | undefined,
     afterPublication: boolean,
     machine: MachineWorkspaceState | undefined,
+    continued: ContinueState | undefined,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -3953,6 +4073,7 @@ export class RunExecutionService {
         workspaceMcpKey,
         afterPublication,
         machine,
+        continued,
       ),
     );
   }
@@ -3966,6 +4087,7 @@ export class RunExecutionService {
     workspaceMcpKey: WorkspaceMcpKey | undefined,
     afterPublication: boolean,
     machine: MachineWorkspaceState | undefined,
+    continued: ContinueState | undefined,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -4032,20 +4154,24 @@ export class RunExecutionService {
       effectiveContext: catalog,
       afterPublication,
       machine,
+      followUp: continued !== undefined,
     });
     const built = await this.rebuildContextForChat(
       tx,
       input,
       prompt.systemPrompt,
+      continued,
     );
     const { freeze, told } = prompt.skillState;
+    const triggerRow = built.historyRows.find(
+      (row) => row.id === input.userMessage.id,
+    );
     return {
       ...built.context,
       seenInstructionPaths: built.seenInstructionPaths,
       historyRows: built.historyRows,
-      triggerParts: built.historyRows.find(
-        (row) => row.id === input.userMessage.id,
-      )?.parts,
+      triggerParts: triggerRow?.parts,
+      triggerRowId: triggerRow?.id,
       latestCheckpoint: prompt.checkpoint,
       effectiveContext,
       model: prompt.model,
@@ -4084,6 +4210,8 @@ export class RunExecutionService {
     effort: string | undefined;
     /** The attempt's owner-scoped media resolver (vision-media D6). */
     media: RunMediaResolver;
+    /** The kept parts of a Continue Run, and the step of each kept call. */
+    continued: ContinueState | undefined;
   }): Promise<PreparedFirstStep> {
     const estimatePass = await this.prepareAttemptContext(
       input.run,
@@ -4093,6 +4221,7 @@ export class RunExecutionService {
       input.workspaceMcpKey,
       false,
       input.workspacePreparation.machine,
+      input.continued,
     );
     const turnInstructions = await this.loadTurnInstructions(
       input.run,
@@ -4107,6 +4236,7 @@ export class RunExecutionService {
     const estimated = await this.assembleAttemptRequest(
       estimatePass,
       input.dynamicResolver,
+      input.continued,
     );
     // The same admission the step composer will make on this request, so the
     // trigger sees the not-attached result the request will carry.
@@ -4115,6 +4245,10 @@ export class RunExecutionService {
       prepared: estimated,
       stagedParts: estimatePass.stagedParts,
       historyRows: estimatePass.historyRows,
+      keptMessages:
+        input.continued === undefined
+          ? []
+          : projectContinueParts(input.continued),
       boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
       media:
         input.media &&
@@ -4183,6 +4317,7 @@ export class RunExecutionService {
         input.workspaceMcpKey,
         true,
         input.workspacePreparation.machine,
+        input.continued,
       );
       // The published history decides the accepted-turn bundle: the item the
       // estimate pass staged can no longer be what made its files seen.
@@ -4195,6 +4330,7 @@ export class RunExecutionService {
       request = await this.assembleAttemptRequest(
         context,
         input.dynamicResolver,
+        input.continued,
       );
     } else {
       await this.tenantDb.runAs(input.run.userId, (tx) =>
@@ -4232,30 +4368,19 @@ export class RunExecutionService {
   /**
    * The dispatchable request for one pass: the triggering message carries its
    * stored parts with the staged items placed as the dispatch transaction will
-   * store them, so items an earlier attempt stored replay once, in place.
-   * History is read through the trigger, and an accepted message always
-   * carries text, so the trigger's message is the request's last one.
+   * store them, so items an earlier attempt stored replay once, in place. A
+   * Continue Run then carries the kept steps, so the trigger's own position
+   * comes from the history rows rather than from "the last message"
+   * (turn-actions D6).
    */
   private async assembleAttemptRequest(
     context: PreparedAttemptContext,
     dynamicResolver: DynamicToolExecutorResolver | undefined,
+    continued: ContinueState | undefined,
   ): Promise<PreparedExecutionContext> {
-    const messages = context.messages;
-    if (context.triggerParts !== undefined) {
-      messages[messages.length - 1] = {
-        role: 'user',
-        content: userPartsToModelContent(
-          placeAcceptedTurnItems(
-            context.triggerParts,
-            context.stagedParts.filter(isContextItemPart),
-            context.placement,
-          ),
-        ),
-      };
-    }
     return {
       system: context.system,
-      messages,
+      messages: requestMessages(context, continued),
       untitled: context.untitled,
       toolDeclarations: context.toolCatalog.declarations,
       tools: await resolveBoundExecutableTools(
@@ -4775,18 +4900,24 @@ export class RunExecutionService {
     afterPublication: boolean;
     /** The bound Machine Workspace's availability as this attempt decided it. */
     machine: MachineWorkspaceState | undefined;
+    /** Whether this Run follows up an earlier Run of the same turn. */
+    followUp: boolean;
   }): Promise<AttemptStagedContext> {
     const baseline = await this.resolveDisclosureBaseline(
       input.tx,
       input.input,
       input.prompt,
+      input.followUp,
     );
     // The model switch, the digest supersession marker and the temporal anchor
     // are authored once per accepted turn, by the Run's first dispatch: an
-    // earlier dispatch already stored them on the trigger. A checkpoint this
-    // attempt published re-bakes the digest after that dispatch, so its marker
-    // is still untold.
-    const priorDispatch = baseline.ownAvailability !== null;
+    // earlier dispatch already stored them on the trigger. A follow-up Run
+    // counts an earlier Run of its own message as such a dispatch, so the turn
+    // keeps one temporal item and keeps the model-switch item it stored
+    // (turn-actions D8). A checkpoint this attempt published re-bakes the
+    // digest after that dispatch, so its marker is still untold.
+    const priorDispatch =
+      baseline.ownAvailability !== null || baseline.priorTurnDispatched;
     const stagedParts: Array<MessagePart> = [];
     if (!priorDispatch) {
       const modelChange = this.deriveModelChangeItem(
@@ -4851,6 +4982,7 @@ export class RunExecutionService {
     tx: Db,
     run: ExecuteRunInput,
     prompt: AttemptPromptContext,
+    followUp: boolean,
   ): Promise<DisclosureBaseline> {
     const runsRepo = new RunsRepository(tx);
     // An earlier attempt of this Run dispatched when its dispatch transaction
@@ -4871,12 +5003,25 @@ export class RunExecutionService {
     // whose dispatch stored its items has told the model what they say, even
     // if it later failed, while a run that ended before any request told it
     // nothing and must not mask the state the turns before it established.
-    const previousDispatched =
-      await runsRepo.findMostRecentDispatchedByChatMessageSequence(
-        run.chatId,
+    // A follow-up Run can be the second Run of its own turn, so its baseline
+    // is the most recent dispatched Run of that turn itself when there is one
+    // (turn-actions D8); every other Run compares with the turns before it.
+    const previousDispatched = followUp
+      ? await runsRepo.findDispatchedBaselineForTurn(run.chatId, run.userId, {
+          messageId: run.userMessage.id,
+          beforeSeq: run.userMessage.seq,
+        })
+      : await runsRepo.findMostRecentDispatchedByChatMessageSequence(
+          run.chatId,
+          run.userId,
+          { beforeSeq: run.userMessage.seq },
+        );
+    const priorTurnDispatched =
+      followUp &&
+      (await runsRepo.hasDispatchedRunForMessage(
+        run.userMessage.id,
         run.userId,
-        { beforeSeq: run.userMessage.seq },
-      );
+      ));
 
     // Every newly active compaction checkpoint starts a new disclosure epoch,
     // judged against that same dispatched-turn baseline by sequence rather
@@ -4892,6 +5037,7 @@ export class RunExecutionService {
       ownAvailability,
       previousReplyModelId,
       previousDispatched,
+      priorTurnDispatched,
       startsEpoch,
     };
   }
@@ -5136,6 +5282,49 @@ export class RunExecutionService {
       if (!stored) throw new RunNotRunnableError(input.runId);
     });
   }
+}
+
+/**
+ * The messages a prepared pass sends: the Chat's history, the trigger's own
+ * stored parts in the position its history row takes, then — for a Continue
+ * Run — the kept steps (turn-actions D5/D6). A Continue request carries
+ * messages after the trigger, so its trigger message is rebuilt from the
+ * history rows instead of replacing the request's last message.
+ */
+function requestMessages(
+  context: PreparedAttemptContext,
+  continued: ContinueState | undefined,
+): Array<ModelRequestContext['messages'][number]> {
+  if (context.triggerParts === undefined) return context.messages;
+  const trigger = {
+    role: 'user' as const,
+    content: userPartsToModelContent(
+      placeAcceptedTurnItems(
+        context.triggerParts,
+        context.stagedParts.filter(isContextItemPart),
+        context.placement,
+      ),
+    ),
+  };
+  if (continued === undefined) {
+    // An accepted message always carries text, so the trigger row's message is
+    // the last the history produced.
+    const messages = [...context.messages];
+    messages[messages.length - 1] = trigger;
+    return messages;
+  }
+  const historyRows = context.historyRows.filter(
+    (row) => row.id !== context.triggerRowId,
+  );
+  const checkpoint = context.latestCheckpoint;
+  const history = buildContext(toStoredMessages(historyRows), {
+    systemPrompt: context.system,
+    requestKind: 'continuation',
+    ...(checkpoint !== undefined && {
+      checkpoint: toContextCheckpoint(checkpoint),
+    }),
+  });
+  return [...history.messages, trigger, ...projectContinueParts(continued)];
 }
 
 /**

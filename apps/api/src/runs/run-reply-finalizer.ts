@@ -21,6 +21,11 @@ import {
 import { type BillingMode } from '../models/model-client';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { reconstructDurableAssistant } from './assistant-transcript';
+import {
+  continueStateFromEvents,
+  ownSnapshotParts,
+  type ContinueState,
+} from '../chats/continue-projection';
 import { NativeFilesRepository } from './native-files-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type TerminalRunStatus } from './run-status';
@@ -80,6 +85,11 @@ export type BillingCatalog = ReadonlyArray<{
 export type RunReplyFinalization = {
   /** The Run row as its terminal transition returned it. */
   readonly run: Run;
+  /**
+   * The kept parts of a Continue Run; read from the log when absent, and
+   * overridable by a caller that already holds them.
+   */
+  readonly continued?: ContinueState;
   readonly status: TerminalRunStatus;
   /** The settling attempt; absent for a settler outside any attempt. */
   readonly attemptId?: string;
@@ -278,6 +288,26 @@ async function settleOpenToolCalls(
 }
 
 /**
+ * The reply's parts for a settler without the collector: the rebuilt parts
+ * around this Run's own stored in-Run items, prefixed — for a Continue Run —
+ * with the kept parts its admission recorded. A kept item belongs to the
+ * earlier Run that authored it, so placing it again would duplicate it
+ * (turn-actions D5, `durable-runs`).
+ */
+function replyParts(
+  run: Run,
+  rebuilt: Array<MessagePart>,
+  snapshot: ReadonlyArray<unknown>,
+  continued: ContinueState | undefined,
+): Array<MessagePart> {
+  const placed = placeStoredContextItems(
+    rebuilt,
+    continued === undefined ? snapshot : ownSnapshotParts(snapshot, run.id),
+  );
+  return continued === undefined ? placed : [...continued.parts, ...placed];
+}
+
+/**
  * The reply write for a settler without the attempt's collector. `settled`
  * completes calls the log left open; a window ignores those it never opened.
  */
@@ -287,6 +317,7 @@ function rebuiltReplyWrite(
   log: Array<RunEvent>,
   settled: Array<RunEvent>,
 ): ReplyWrite | undefined {
+  const continued = input.continued ?? continueStateFromEvents(log);
   if (reply !== undefined) {
     const running = reply.usage;
     if (!isRunningUsage(running)) return undefined;
@@ -295,7 +326,7 @@ function rebuiltReplyWrite(
       ...settled,
     ]).collector.parts();
     return {
-      parts: placeStoredContextItems(rebuilt, reply.parts),
+      parts: replyParts(input.run, rebuilt, reply.parts, continued),
       usage:
         input.telemetry !== undefined && input.attemptId === running.attemptId
           ? input.telemetry

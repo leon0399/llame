@@ -77,6 +77,32 @@ export class ActivationPartsRepository {
   }
 
   /**
+   * The skills any earlier Run of this triggering message already RESOLVED —
+   * the message-scoped form of `resolvedSkillsForRun` that a follow-up Run
+   * reads so it activates no skill again (turn-actions D8).
+   */
+  async resolvedSkillsForMessage(input: {
+    id: string;
+    chatId: string;
+  }): Promise<ReadonlySet<string>> {
+    const [row] = await this.db
+      .select({ parts: messages.parts })
+      .from(messages)
+      .where(messageOwner(input));
+    const parts = Array.isArray(row?.parts) ? row.parts : [];
+    const resolved = new Set<string>();
+    for (const part of parts) {
+      if (!isContextItemPart(part)) continue;
+      if (part.data.producer !== ACTIVATION_PRODUCER) continue;
+      const kind = part.data.payload['kind'];
+      if (kind !== 'activation' && kind !== 'failure') continue;
+      const skill: unknown = part.data.payload['skill'];
+      if (isString(skill)) resolved.add(skill);
+    }
+    return resolved;
+  }
+
+  /**
    * Insert this Run's activation context items at their rail position, or report
    * that a prior attempt already did.
    *

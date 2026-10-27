@@ -87,6 +87,31 @@ export class PromptImportPartsRepository {
   }
 
   /**
+   * The `prompt-imports` item this triggering message already carries, whatever
+   * Run stored it, so a follow-up Run reuses the stored text and reads no
+   * import target again (turn-actions D8). An unreadable payload degrades the
+   * same way `findForRun` does.
+   */
+  async findForMessage(input: {
+    id: string;
+    chatId: string;
+  }): Promise<PromptImportsPart | undefined> {
+    const [row] = await this.db
+      .select({ parts: messages.parts })
+      .from(messages)
+      .where(messageOwner(input));
+    const parts: ReadonlyArray<unknown> = Array.isArray(row?.parts)
+      ? row.parts
+      : [];
+    const stored = parts.find((part): part is ContextItemPart =>
+      isPromptImportsEnvelope(part),
+    );
+    if (stored === undefined) return undefined;
+    if (isPromptImportsPartPayload(stored)) return stored;
+    return { ...stored, data: { ...stored.data, payload: undefined } };
+  }
+
+  /**
    * Insert this Run's item at its rail position — after `skill-activation`
    * items, before the digest, the temporal anchor, and the user's own text — or
    * report that a prior attempt already did.
@@ -129,10 +154,13 @@ function isRunPromptImportsEnvelope(
   part: unknown,
   runId: string,
 ): part is ContextItemPart {
+  return isPromptImportsEnvelope(part) && part.data.runId === runId;
+}
+
+/** The same envelope test without a Run: any producer item on the message. */
+function isPromptImportsEnvelope(part: unknown): part is ContextItemPart {
   return (
-    isContextItemPart(part) &&
-    part.data.producer === PROMPT_IMPORTS_PRODUCER &&
-    part.data.runId === runId
+    isContextItemPart(part) && part.data.producer === PROMPT_IMPORTS_PRODUCER
   );
 }
 

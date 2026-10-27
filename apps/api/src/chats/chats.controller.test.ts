@@ -10,6 +10,7 @@ import {
 } from './chats.controller';
 import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
 import type { ChatLoopService } from './chat-loop.service';
+import type { FollowUpAdmissionService } from './follow-up-admission.service';
 import * as schema from '../db/schema';
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
@@ -113,7 +114,14 @@ describe('ChatsController', () => {
     Object.assign(chatsService, service);
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
-    } satisfies Pick<ChatLoopService, 'createMessageStream'>;
+      finalizeAcceptedRun: vi.fn<ChatLoopService['finalizeAcceptedRun']>(),
+    } satisfies Pick<
+      ChatLoopService,
+      'createMessageStream' | 'finalizeAcceptedRun'
+    >;
+    const followUpAdmission = {
+      admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
+    } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
     const tx: Db = drizzle.mock({ schema });
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
@@ -132,9 +140,11 @@ describe('ChatsController', () => {
         chatLoopService,
         tenantDb,
         bridge,
+        followUpAdmission,
       ),
       chatsService,
       chatLoopService,
+      followUpAdmission,
       runAsSpy,
       bridge,
     };
@@ -752,7 +762,14 @@ describe('ChatsController response plumbing', () => {
     } satisfies ChatsControllerService;
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
-    } satisfies Pick<ChatLoopService, 'createMessageStream'>;
+      finalizeAcceptedRun: vi.fn<ChatLoopService['finalizeAcceptedRun']>(),
+    } satisfies Pick<
+      ChatLoopService,
+      'createMessageStream' | 'finalizeAcceptedRun'
+    >;
+    const followUpAdmission = {
+      admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
+    } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
     const tx: Db = drizzle.mock({ schema });
     const tenantDb: TenantRunner = {
       runAs: async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
@@ -769,9 +786,11 @@ describe('ChatsController response plumbing', () => {
         chatLoopService,
         tenantDb,
         bridge,
+        followUpAdmission,
       ),
       chatsService,
       chatLoopService,
+      followUpAdmission,
       runAsSpy,
       bridge,
     };

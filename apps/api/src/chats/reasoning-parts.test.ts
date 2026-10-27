@@ -12,10 +12,8 @@ import {
   reconstructDurableAssistant,
   toolActivityPart,
 } from '../runs/assistant-transcript';
-import {
-  createRunEventTranslator,
-  type UiChunk,
-} from '../runs/run-stream-bridge';
+import { createRunEventTranslator } from '../runs/run-stream-bridge';
+import { type UiChunk } from '../runs/run-event-chunks';
 import type { RunEvent } from '../db/schema';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
