@@ -4,7 +4,7 @@ Track [#1431](https://github.com/leon0399/llame/issues/1431),
 [#1438](https://github.com/leon0399/llame/issues/1438), and
 [#1440](https://github.com/leon0399/llame/issues/1440) under the epic
 [#1430](https://github.com/leon0399/llame/issues/1430) through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
 approval of the published proposal revision; keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Every layer
@@ -127,7 +127,7 @@ budget at its own boundary.
 - [x] 7.4 Update `prompts/tools/web_search.md` to describe `engines`; document selection, the catalog, and `description` in the runbook and reference page, including that every configured engine is selectable and that `engines` values match only all-field permission clauses; update `SPEC.md` if it states that engine choice is operator-only; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 7.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites; this layer's PR carries `Closes #1432`
 - [x] 7.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 7.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 7.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 8. `extend-web-search/finalize` — spec sync and archive
 
@@ -135,7 +135,7 @@ Enter this layer with `$gh-stack` from the `engine-selection` top before `$opens
 writes. Its self-review and GitHub review are post-archive gates, not tasks here.
 
 - [x] 8.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify that `web-search`, `instance-config`, `tool-prompt-templates`, `permission-modes`, `native-file-tools`, and `tool-call-permissions` gain no strict-validation issue compared with `master`
-- [ ] 8.2 Confirm `openspec status --change extend-web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
+- [x] 8.2 Confirm `openspec status --change extend-web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
 
 ## Workflow follow-up
 
