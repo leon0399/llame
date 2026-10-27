@@ -134,7 +134,7 @@ budget at its own boundary.
 Enter this layer with `$gh-stack` from the `engine-selection` top before `$openspec-sync-specs`
 writes. Its self-review and GitHub review are post-archive gates, not tasks here.
 
-- [ ] 8.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify that `web-search`, `instance-config`, `tool-prompt-templates`, `permission-modes`, `native-file-tools`, and `tool-call-permissions` gain no strict-validation issue compared with `master`
+- [x] 8.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify that `web-search`, `instance-config`, `tool-prompt-templates`, `permission-modes`, `native-file-tools`, and `tool-call-permissions` gain no strict-validation issue compared with `master`
 - [ ] 8.2 Confirm `openspec status --change extend-web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
 
 ## Workflow follow-up
