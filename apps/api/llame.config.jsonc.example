@@ -421,13 +421,17 @@
   // and/or SearXNG instance are configured. If enabled, also add
   // "web_search" to tools.allowed below and add a tools.permissions.web_search
   // group (for example, { "allow": true }); this example does not enable it.
-  // API engines send credentials only to their own vendor:
+  // API engines send credentials only to their own vendor. Every entry can
+  // also carry an optional "description" of 1-200 characters on one line: the
+  // model reads it in the generated engine catalog, so keep it literal text
+  // with no interpolation and no secret.
   // "webSearch": {
   //   "engines": [
   //     {
   //       "id": "brave",
   //       "type": "brave",
   //       "key": "{env:BRAVE_API_KEY}",
+  //       // "description": "Broad general web index",
   //     },
   //     // DeepSeek's search API bills per request and accepts a 128-code-point
   //     // query; `objective` reaches it as `ori_question`.

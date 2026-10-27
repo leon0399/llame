@@ -589,6 +589,30 @@ function resolveWebSearchTimeout(
   );
 }
 
+/**
+ * Resolve one engine's optional model-facing `description`. The value reaches
+ * the model, so it is literal text: an interpolation token could carry a
+ * credential into the declared description, and a line break would break the
+ * catalog entry it belongs to.
+ */
+function resolveWebSearchDescription(
+  entry: RawWebSearchEngineEntry,
+  entryPath: string,
+): string | undefined {
+  const description = entry.description;
+  if (description === undefined) return undefined;
+  const descriptionPath = `${entryPath}.description`;
+  if (INTERPOLATION_TOKEN_SYNTAX.test(description)) {
+    throw new InstanceConfigError(
+      `${descriptionPath}: engine descriptions are literal text and do not support interpolation`,
+    );
+  }
+  if (/[\r\n\u2028\u2029]/u.test(description)) {
+    throw new InstanceConfigError(`${descriptionPath}: must be one line`);
+  }
+  return description;
+}
+
 function resolveWebSearchEngines(
   entries: RawWebSearchConfig['engines'],
   env: NodeJS.ProcessEnv,
@@ -605,17 +629,26 @@ function resolveWebSearchEngines(
     seenEngineIds.add(entry.id);
 
     const entryPath = `webSearch.engines[${entry.id}]`;
+    const description = resolveWebSearchDescription(entry, entryPath);
     if (entry.type === 'aggregate')
-      return { id: entry.id, type: entry.type, engines: entry.engines };
+      return {
+        id: entry.id,
+        type: entry.type,
+        engines: entry.engines,
+        ...(description !== undefined && { description }),
+      };
     const timeoutSeconds = resolveWebSearchTimeout(entry, entryPath, env);
-    return resolveWebSearchEngine(
-      entry,
-      entryPath,
-      timeoutSeconds,
-      env,
-      modelsById,
-      providersById,
-    );
+    return {
+      ...resolveWebSearchEngine(
+        entry,
+        entryPath,
+        timeoutSeconds,
+        env,
+        modelsById,
+        providersById,
+      ),
+      ...(description !== undefined && { description }),
+    };
   });
   assertAggregateChildren(engines);
   return engines;

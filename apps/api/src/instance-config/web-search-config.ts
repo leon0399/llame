@@ -6,10 +6,15 @@ export type ParallelSearchMode = 'turbo' | 'fast' | 'basic' | 'advanced';
 /** The Yandex search index a `yandex` engine queries. */
 export type YandexSearchType = 'ru' | 'tr' | 'com' | 'kk' | 'be' | 'uz';
 
-/** The still-uninterpolated `webSearch` engine entry once schema-validated. */
+/**
+ * The still-uninterpolated `webSearch` engine entry once schema-validated.
+ * Every entry, an `aggregate` included, can carry a literal `description` of 1
+ * to 200 characters on one line, which never interpolates.
+ */
 export type RawWebSearchEngineEntry =
   | {
       id: string;
+      description?: string;
       type: 'brave' | 'deepseek' | 'exa' | 'perplexity';
       /** Schema-required credential; interpolation may still resolve blank. */
       key: string | null;
@@ -17,6 +22,7 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      description?: string;
       type: 'parallel';
       /** Schema-required credential; interpolation may still resolve blank. */
       key: string | null;
@@ -26,11 +32,13 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      description?: string;
       type: 'parallel-mcp';
       timeoutSeconds?: unknown;
     }
   | {
       id: string;
+      description?: string;
       type: 'yandex';
       /** Schema-required credential; interpolation may still resolve blank. */
       key: string | null;
@@ -42,6 +50,7 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      description?: string;
       type: 'searxng';
       /** Required operator-controlled SearXNG base URL before interpolation. */
       baseUrl: string;
@@ -49,6 +58,7 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      description?: string;
       type: 'exa-mcp';
       /** Optional Exa credential; interpolation may still resolve blank. */
       key?: string | null;
@@ -56,11 +66,13 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      description?: string;
       type: 'duckduckgo';
       timeoutSeconds?: unknown;
     }
   | {
       id: string;
+      description?: string;
       type: 'model-hosted';
       /** A `models[].id`, resolved against the model catalog at startup. */
       model: string;
@@ -68,6 +80,7 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      description?: string;
       type: 'aggregate';
       engines: Array<string>;
     };
@@ -81,6 +94,11 @@ export type RawWebSearchConfig = {
 export type WebSearchEngineConfig =
   | ({
       id: string;
+      /**
+       * Operator-authored model-facing text the engine catalog shows, absent
+       * when the operator sets none.
+       */
+      description?: string;
       /** Per-attempt deadline in seconds (default 60). */
       timeoutSeconds: number;
     } & (
@@ -130,6 +148,7 @@ export type WebSearchEngineConfig =
     ))
   | {
       id: string;
+      description?: string;
       type: 'aggregate';
       /**
        * Two or more distinct engine ids run concurrently and merged; a
