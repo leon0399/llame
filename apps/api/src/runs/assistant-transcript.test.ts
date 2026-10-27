@@ -358,6 +358,19 @@ describe('toolActivityPart', () => {
       outcome: 'success',
       classification: 'read_only',
     });
+    // No decision was made, so the part carries no `permission` key at all —
+    // not even one holding `undefined`.
+    expect(
+      Object.keys(
+        toolActivityPart({
+          toolCallId: 'call-1',
+          toolName: 'search',
+          input: { query: 'q' },
+          result,
+          classification: 'read_only',
+        }),
+      ),
+    ).not.toContain('permission');
   });
 
   it('omits an empty derived-decision list', () => {

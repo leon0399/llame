@@ -53,6 +53,9 @@ describe('discardsNonReadOnlyCall', () => {
 
   it('never counts a read-only call', () => {
     expect(discardsNonReadOnlyCall(toolPart('read', 'read_only'))).toBe(false);
+    // The recorded classification decides, even when the tool catalog would
+    // have said otherwise: a `bash` call recorded as read-only ran no effect.
+    expect(discardsNonReadOnlyCall(toolPart('bash', 'read_only'))).toBe(false);
   });
 
   it('never counts a call that did not start', () => {

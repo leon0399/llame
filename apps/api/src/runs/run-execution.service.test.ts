@@ -6204,7 +6204,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
   });
 
   it('applies a restarted process policy to a queued call and continues the run', async () => {
-    mockNormalExecutionRepositories();
+    const spies = mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
@@ -6271,6 +6271,20 @@ describe('RunExecutionService executeRun — tool loop', () => {
       },
     });
     expect(appended.map((entry) => entry.type)).toContain('run.completed');
+    // The rejected call never started, so its part records no classification —
+    // even though the executor declares one (turn-actions D10).
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          expect.objectContaining({
+            toolCallId: 'call-1',
+            state: 'output-error',
+            classification: null,
+          }),
+          { type: 'text', text: 'continued' },
+        ],
+      }),
+    );
   });
 
   it('records the step cap as an event and a persisted cap notice', async () => {
@@ -7885,9 +7899,13 @@ describe('RunExecutionService executeRun — a Continue Run', () => {
   });
 
   it('finalizes its own usage as incomplete when it replaced recorded usage', async () => {
+    // The model reported its usage, so only the replaced-usage flag can make
+    // the reply's own usage incomplete (turn-actions D11).
     const { spies, capturing } = await executeContinue({
       replacesUsage: true,
+      receipts: [],
     });
+    capturing.streamOptions().onRequestUsage?.(ZERO_USAGE, 1);
     await capturing.streamOptions().onFinish?.({
       text: 'answer',
       usage: ZERO_USAGE,
@@ -11044,6 +11062,14 @@ describe('RunExecutionService runtime-context lifecycle', () => {
    */
   async function executeRegenerate(
     turnToolAvailability: Run['turnToolAvailability'],
+    options: {
+      /** The trigger row's stored parts, when a case needs them. */
+      triggerParts?: Array<unknown>;
+      /** A client that captures the request; the default answers 'answer'. */
+      client?: ModelClient;
+      /** The `run.created` payload admission recorded. */
+      created?: { chatId: string; messageId: string; notice?: true };
+    } = {},
   ) {
     const repositories = mockNormalExecutionRepositories();
     repositories.findLatestReplyModelId.mockImplementation(
@@ -11072,18 +11098,34 @@ describe('RunExecutionService runtime-context lifecycle', () => {
           ? {
               ...event,
               eventType: 'run.created',
-              payload: { chatId, messageId, notice: true },
+              payload: options.created ?? { chatId, messageId, notice: true },
             }
           : undefined,
       ),
     );
-    const execution = makeExecutionService(createFakeModelClient(['answer']));
+    if (options.triggerParts !== undefined) {
+      const trigger: Message = { ...userMessage, parts: options.triggerParts };
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        trigger,
+      ]);
+      vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue(
+        {
+          userMessage: trigger,
+          assistantMessage: undefined,
+        },
+      );
+    }
+    const execution = makeExecutionService(
+      options.client ?? createFakeModelClient(['answer']),
+    );
 
     const result = await execution.service.executeRun({
       ...executionInput(execution.client),
       followUpAction: 'regenerate',
     });
-    await expect(result.text).resolves.toBe('answer');
+    if (options.client === undefined) {
+      await expect(result.text).resolves.toBe('answer');
+    }
     return repositories;
   }
 
@@ -11129,6 +11171,41 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(repositories.storeAtDispatch.mock.calls.at(-1)?.[0]).toMatchObject({
       removeModelSwitch: false,
     });
+  });
+
+  it("drops the stored model-switch item from a Regenerate's request", async () => {
+    // The turn stored a switch from `older-model` to `other-model`; this
+    // Regenerate compares against `other-model` and asks for `fake-model`, so
+    // the request must carry the new item and not the stored one.
+    const storedSwitch = createModelChangeItem({
+      oldModel: { id: 'older-model' },
+      newModel: { id: 'other-model' },
+      runId,
+    });
+    const capturing = makeCapturingClient();
+    await executeRegenerate(null, {
+      client: capturing.client,
+      triggerParts: [{ type: 'text', text: 'hello' }, storedSwitch],
+    });
+
+    const sent = JSON.stringify(capturing.streamOptions().messages);
+    // The user's own text survives the filter.
+    expect(sent).toContain('hello');
+    // The stored item names a model the request no longer announces.
+    expect(sent).not.toContain('older-model');
+    // The new comparison is there instead.
+    expect(sent).toContain('other-model');
+    expect(sent).toContain('fake-model');
+  });
+
+  it('stages no notice when admission recorded none', async () => {
+    const repositories = await executeRegenerate(null, {
+      created: { chatId, messageId },
+    });
+
+    expect(stagedItemsOf(repositories.storeAtDispatch, 'regenerate')).toEqual(
+      [],
+    );
   });
 
   it("narrates an owner's copied Workspace root on the first accepted turn", async () => {

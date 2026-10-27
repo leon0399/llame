@@ -600,6 +600,145 @@ describe('FollowUpAdmissionService', () => {
     });
   });
 
+  it('records the notice for one call whose effects stay beside a read-only one', async () => {
+    const { service, findReply, append } = makeService();
+    // One read-only call and one `bash` call: the notice is owed when ANY
+    // discarded call can have changed state.
+    findReply.mockResolvedValue({
+      ...replyWith({
+        status: 'completed',
+        runId: sourceRun.id,
+        modelId: model.id,
+      }),
+      parts: [
+        {
+          type: 'tool-read',
+          toolCallId: 'call-read',
+          state: 'output-available',
+          input: { path: '/tmp/file.txt' },
+          output: { status: 'success', text: 'body' },
+          outcome: 'success',
+          classification: 'read_only',
+        },
+        {
+          type: 'tool-bash',
+          toolCallId: 'call-bash',
+          state: 'output-available',
+          input: { command: 'make' },
+          output: { status: 'success' },
+          outcome: 'success',
+          classification: 'execute_code',
+        },
+      ],
+    });
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+    });
+
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+      replacesUsage: true,
+      notice: true,
+    });
+  });
+
+  it('records the notice on a turn holding an item of another producer', async () => {
+    const { service, findTurnState, findReply, append } = makeService();
+    // The trigger holds a `temporal` item, not a notice: the notice is still
+    // owed, because no `regenerate` item stands on the turn yet.
+    findTurnState.mockResolvedValue({
+      userMessage: {
+        ...userMessage,
+        parts: [
+          { type: 'text', text: 'do the work' },
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'temporal',
+              form: 'snapshot',
+              runId: '88888888-8888-4888-8888-888888888888',
+              payload: {},
+              text: '<system-reminder producer="temporal">Message received.</system-reminder>',
+            },
+          },
+        ],
+      },
+    });
+    findReply.mockResolvedValue({
+      ...replyWith({
+        status: 'completed',
+        runId: sourceRun.id,
+        modelId: model.id,
+      }),
+      parts: [
+        {
+          type: 'tool-bash',
+          toolCallId: 'call-bash',
+          state: 'output-available',
+          input: { command: 'make' },
+          output: { status: 'success' },
+          outcome: 'success',
+          classification: 'execute_code',
+        },
+      ],
+    });
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+    });
+
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+      replacesUsage: true,
+      notice: true,
+    });
+  });
+
+  it('records no replaced usage for a reply that never recorded one', async () => {
+    const { service, findReply, append } = makeService();
+    findReply.mockResolvedValue(replyWith(null));
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+    });
+
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+    });
+  });
+
+  it('lets a plain failure escape the transaction, and answers a refusal after it', async () => {
+    // A refusal is a VALUE: the transaction commits (keeping any stuck-Run
+    // expiry) and the caller throws afterwards. Anything else is a real
+    // failure and must roll the transaction back.
+    const refusal = makeService();
+    refusal.findLatestByChatId.mockResolvedValue({
+      ...sourceRun,
+      status: 'queued',
+    });
+
+    await expect(
+      admit(refusal.service, { action: 'regenerate', modelId: model.id }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(refusal.transactions.at(-1)?.rejected).toBe(false);
+
+    const failure = makeService();
+    failure.findLatestByChatId.mockRejectedValue(new Error('datastore down'));
+
+    await expect(
+      admit(failure.service, { action: 'regenerate', modelId: model.id }),
+    ).rejects.toThrow('datastore down');
+    expect(failure.transactions.at(-1)?.rejected).toBe(true);
+  });
+
   it('adds no notice for a reply whose calls were rejected before they started', async () => {
     const { service, findReply, append } = makeService();
     findReply.mockResolvedValue({

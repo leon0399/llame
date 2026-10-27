@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { describe, expect, it, vi } from 'vitest';
 
-import { placeAcceptedTurnItems } from './accepted-turn-parts.repository';
+import * as schema from '../db/schema';
+import { type Db } from '../db/tenant-db.service';
+import {
+  AcceptedTurnPartsRepository,
+  isModelSwitchItem,
+  placeAcceptedTurnItems,
+} from './accepted-turn-parts.repository';
 import {
   createContextItemPart,
   isContextItemPart,
@@ -125,5 +132,209 @@ describe('placeAcceptedTurnItems', () => {
     const stored = [USER_TEXT];
     placeAcceptedTurnItems(stored, [item('temporal')], 'rank');
     expect(stored).toEqual([USER_TEXT]);
+  });
+});
+
+/** A stored `effective-context-change` item whose only cause is `model`. */
+function switchItem(
+  text = 'The active model changed.',
+): AuthoredContextItemPart {
+  return createContextItemPart({
+    producer: 'effective-context-change',
+    form: 'notice',
+    runId: RUN_ID,
+    payload: { cause: 'model' },
+    text,
+  });
+}
+
+describe('isModelSwitchItem', () => {
+  it('recognizes the model-switch item', () => {
+    expect(isModelSwitchItem(switchItem())).toBe(true);
+  });
+
+  it('rejects an item of another producer', () => {
+    expect(isModelSwitchItem(item('tool-availability'))).toBe(false);
+    // The cause alone does not make a switch item: the producer must be the
+    // one that owns that cause.
+    expect(
+      isModelSwitchItem(
+        createContextItemPart({
+          producer: 'temporal',
+          form: 'snapshot',
+          runId: RUN_ID,
+          payload: { cause: 'model' },
+          text: 'another producer',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects an effective-context item with another cause', () => {
+    expect(
+      isModelSwitchItem(
+        createContextItemPart({
+          producer: 'effective-context-change',
+          form: 'notice',
+          runId: RUN_ID,
+          payload: { cause: 'tool-availability' },
+          text: 'another cause',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects a part that is not a context item', () => {
+    expect(isModelSwitchItem(USER_TEXT)).toBe(false);
+    expect(isModelSwitchItem(null)).toBe(false);
+  });
+});
+
+/** A Drizzle chain answering `rows`, recording the parts a `set` writes. */
+function queryResult(
+  rows: ReadonlyArray<unknown>,
+  onSet?: (values: { parts: Array<unknown> }) => void,
+) {
+  const terminal = Promise.resolve(rows);
+  const chain = Object.assign(terminal, {
+    from: () => chain,
+    where: () => chain,
+    for: () => chain,
+    set: (values: { parts: Array<unknown> }) => {
+      onSet?.(values);
+      return chain;
+    },
+    returning: () => terminal,
+  });
+  return chain;
+}
+
+function asQuery(value: ReturnType<typeof queryResult>): never {
+  // SAFETY: the repository tests replace Drizzle's fluent terminal with a
+  // Promise carrying exactly the chain methods these calls exercise.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as never;
+}
+
+/**
+ * The dispatch write over a fake driver: the locked row's parts in, the parts
+ * it wrote out. `updated` decides whether the row still existed for the write.
+ */
+function dispatchDb(
+  stored: ReadonlyArray<unknown> | undefined,
+  options: { updated?: boolean } = {},
+) {
+  const writes: Array<Array<unknown>> = [];
+  const db: Db = drizzle.mock({ schema });
+  vi.spyOn(db, 'select').mockImplementation(() =>
+    asQuery(queryResult(stored === undefined ? [] : [{ parts: stored }])),
+  );
+  vi.spyOn(db, 'update').mockImplementation(() =>
+    asQuery(
+      queryResult(
+        options.updated === false ? [] : [{ id: 'message-id' }],
+        (values) => {
+          writes.push(values.parts);
+        },
+      ),
+    ),
+  );
+  return { db, writes };
+}
+
+describe('storeAtDispatch', () => {
+  const input = {
+    id: 'message-id',
+    chatId: 'chat-id',
+    placement: 'append' as const,
+  };
+
+  it('reports a vanished row and writes nothing', async () => {
+    const { db, writes } = dispatchDb(undefined);
+
+    await expect(
+      new AcceptedTurnPartsRepository(db).storeAtDispatch({
+        ...input,
+        items: [item('temporal')],
+        removeModelSwitch: false,
+      }),
+    ).resolves.toEqual({ applied: false });
+    expect(writes).toEqual([]);
+  });
+
+  it('writes nothing when it has no item to add and nothing to remove', async () => {
+    const { db, writes } = dispatchDb([item('temporal'), USER_TEXT]);
+
+    await expect(
+      new AcceptedTurnPartsRepository(db).storeAtDispatch({
+        ...input,
+        items: [],
+        removeModelSwitch: true,
+      }),
+    ).resolves.toEqual({ applied: true });
+    expect(writes).toEqual([]);
+  });
+
+  it('writes the placed items when it has one, even with nothing to remove', async () => {
+    const { db, writes } = dispatchDb([USER_TEXT]);
+
+    await expect(
+      new AcceptedTurnPartsRepository(db).storeAtDispatch({
+        ...input,
+        items: [item('temporal')],
+        removeModelSwitch: true,
+      }),
+    ).resolves.toEqual({ applied: true });
+    expect(labelsOf(writes[0] ?? [])).toEqual(['temporal:temporal', 'text']);
+  });
+
+  it('writes the row with the model-switch item dropped when it replaces it', async () => {
+    const { db, writes } = dispatchDb([
+      item('temporal'),
+      switchItem('old switch'),
+      USER_TEXT,
+    ]);
+
+    await expect(
+      new AcceptedTurnPartsRepository(db).storeAtDispatch({
+        ...input,
+        items: [],
+        removeModelSwitch: true,
+      }),
+    ).resolves.toEqual({ applied: true });
+    expect(labelsOf(writes[0] ?? [])).toEqual(['temporal:temporal', 'text']);
+  });
+
+  it('keeps the model-switch item when the dispatch does not replace it', async () => {
+    const { db, writes } = dispatchDb([
+      item('temporal'),
+      switchItem('old switch'),
+      USER_TEXT,
+    ]);
+
+    await new AcceptedTurnPartsRepository(db).storeAtDispatch({
+      ...input,
+      items: [item('workspace')],
+      removeModelSwitch: false,
+    });
+
+    expect(labelsOf(writes[0] ?? [])).toEqual([
+      'temporal:temporal',
+      'effective-context-change:old switch',
+      'workspace:workspace',
+      'text',
+    ]);
+  });
+
+  it('reports not applied when the write matched no row', async () => {
+    const { db } = dispatchDb([USER_TEXT], { updated: false });
+
+    await expect(
+      new AcceptedTurnPartsRepository(db).storeAtDispatch({
+        ...input,
+        items: [item('temporal')],
+        removeModelSwitch: false,
+      }),
+    ).resolves.toEqual({ applied: false });
   });
 });
