@@ -13,7 +13,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   not see them; a cancel sends nothing. A reload during a follow-up Run shows one
   reply, the notice a discarded attempt leaves now renders on its user message,
   and a turn whose Run ended without a reply gets a short row that still offers
-  Regenerate. See
+  Regenerate, which now also covers a reply left empty by a failed provider
+  call and names the latest Run's error without a hover. See
   [Continue or regenerate a turn](docs/product/reference/continue-a-turn.md).
 - The latest turn can also be regenerated: `POST
   /api/v1/chats/:chatId/messages/:userMessageId/runs` with `{"action":

@@ -31,6 +31,7 @@ function latestRun(
     modelId: "system:openai:gpt-5.4-mini",
     effort: "low",
     permissionMode: "default",
+    error: null,
     ...overrides,
   };
 }
@@ -60,6 +61,17 @@ function assistantMessage(overrides: Partial<UIMessage> = {}): UIMessage {
     parts: [ANSWER],
     metadata: { seq: 2, usage: { runId: RUN_ID, status: "error" } },
     ...overrides,
+  };
+}
+
+/** The reply a Run persists when its provider call fails: it carries a durable
+ *  `seq` (so it renders as a row) but no part that paints anything. */
+function emptyStoredReply(): UIMessage {
+  return {
+    id: RUN_ID,
+    role: "assistant",
+    parts: [],
+    metadata: { seq: 2, usage: { runId: RUN_ID, status: "error" } },
   };
 }
 
@@ -199,6 +211,16 @@ describe("carriesTurnActions", () => {
       carriesTurnActions({
         messages: [userMessage("user-1"), assistantMessage()],
         latestRun: latestRun({ messageId: "user-9", status: "completed" }),
+        status: "ready",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps them off a reply that paints nothing", () => {
+    expect(
+      carriesTurnActions({
+        messages: [userMessage("user-1"), emptyStoredReply()],
+        latestRun: latestRun(),
         status: "ready",
       }),
     ).toBe(false);
@@ -428,6 +450,36 @@ describe("needsFailedTurnRow", () => {
         messages: [
           userMessage("user-1"),
           { id: RUN_ID, role: "assistant", parts: [] },
+        ],
+        latestRun: latestRun(),
+        status: "ready",
+      }),
+    ).toBe(true);
+  });
+
+  it("asks for it beside the empty reply a provider failure persists", () => {
+    expect(
+      needsFailedTurnRow({
+        messages: [userMessage("user-1"), emptyStoredReply()],
+        latestRun: latestRun(),
+        status: "ready",
+      }),
+    ).toBe(true);
+  });
+
+  it("asks for it when every stored part of the reply paints nothing", () => {
+    expect(
+      needsFailedTurnRow({
+        messages: [
+          userMessage("user-1"),
+          assistantMessage({
+            parts: [
+              {
+                type: "data-context",
+                data: { producer: "temporal", payload: {} },
+              },
+            ],
+          }),
         ],
         latestRun: latestRun(),
         status: "ready",

@@ -11,7 +11,8 @@ import { isValidElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
-import { hasVisibleContent, messageRowMode } from "./chat-message-row";
+import { messageRowMode } from "./chat-message-row";
+import { hasVisibleContent } from "./message-visibility";
 import { messageBoundaries } from "./message-boundaries";
 import { CompactionBoundary } from "./compaction-boundary";
 import type { Compaction } from "@/lib/services/chat/history";

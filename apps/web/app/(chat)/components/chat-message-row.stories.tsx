@@ -1508,6 +1508,7 @@ function turnRun(
     modelId: "system:openai:gpt-5.4-mini",
     effort: "low",
     permissionMode: "default",
+    error: null,
     ...overrides,
   };
 }

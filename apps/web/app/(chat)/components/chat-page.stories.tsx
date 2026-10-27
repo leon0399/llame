@@ -2350,6 +2350,7 @@ function latestTurnRun(
     modelId: GPT_5_4_MINI.id,
     effort: null,
     permissionMode: "default",
+    error: null,
     ...overrides,
   };
 }
@@ -2420,6 +2421,56 @@ export const FailedTurnWithoutReply: Story = {
     await expect(
       canvas.getByRole("button", { name: "Regenerate" }),
     ).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+  },
+};
+
+/** The reply a Run persists when its provider call fails: it carries a durable
+ *  `seq` (so it renders as a row with its own footer) but no part that paints
+ *  anything. */
+const EMPTY_TURN_REPLY_ROW = rawChatMessage({
+  id: "assistant-turn",
+  chatId: CHAT_ID,
+  role: "assistant",
+  seq: 2,
+  inReplyTo: "user-turn",
+  parts: [],
+  usage: { runId: TURN_RUN_ID, status: "error" },
+});
+
+/**
+ * A provider failure that stored an empty reply still names its cause and
+ * offers Regenerate: the turn's failed-turn row shows the Run's error, stays
+ * opaque without hover, and the empty reply row does not carry a second
+ * Regenerate in its hover-revealed footer.
+ *
+ * @summary an empty stored reply shows the Run's error and one Regenerate
+ */
+export const FailedTurnWithEmptyReply: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, EMPTY_TURN_REPLY_ROW],
+    latestRun: latestTurnRun({
+      error: "This model is unavailable for free.",
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+    expect(
+      canvas.getByText("This turn failed: This model is unavailable for free."),
+    ).toBeVisible();
+    const regenerate = canvas.getByRole("button", { name: "Regenerate" });
+    await expect(regenerate).toBeVisible();
+    // The failed-turn row is not the hover-revealed action row: it must paint
+    // without a hover or a focus.
+    expect(getComputedStyle(regenerate.parentElement!).opacity).toBe("1");
+    expect(canvas.getAllByRole("button", { name: "Regenerate" })).toHaveLength(
+      1,
+    );
     await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
   },
 };

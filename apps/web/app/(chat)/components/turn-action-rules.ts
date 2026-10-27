@@ -13,6 +13,7 @@ import {
 } from "@/lib/services/chat/history";
 import { isTerminalRunStatus } from "@/lib/services/chat/run-notifications";
 
+import { hasVisibleContent } from "./message-visibility";
 import { parseTurnUsage } from "./message-usage";
 
 export type TurnActionVisibility = {
@@ -133,14 +134,17 @@ export function carriesTurnActions(input: {
   }
   const reply = messages.at(-1);
   if (reply === undefined || reply.role !== "assistant") return false;
+  if (!hasVisibleContent(reply.parts)) return false;
   return turnUserIndex(messages, latestRun) === messages.length - 2;
 }
 
 /**
  * Whether the latest turn needs the minimal failed-turn row: its Run ended
- * without leaving a reply, so there is no answer row to carry the action. The
- * stream still pushes an empty placeholder when the Run fails at pickup, and
- * history adoption keeps it — a live-authored assistant message with no parts.
+ * without leaving anything an answer row could show, so no row of the reply
+ * carries the action. Two replies qualify: the live placeholder the stream
+ * pushes when the Run fails at pickup (no durable `seq`), and the reply a Run
+ * persists when it fails at its provider call — it keeps the stored parts'
+ * shape but paints nothing, so its footer would be an invisible hover row.
  */
 export function needsFailedTurnRow(input: {
   messages: ReadonlyArray<UIMessage>;
@@ -158,9 +162,7 @@ export function needsFailedTurnRow(input: {
     .slice(userIndex + 1)
     .every(
       (message) =>
-        message.role === "assistant" &&
-        message.parts.length === 0 &&
-        messageSeqFromMetadata(message.metadata) === null,
+        message.role === "assistant" && !hasVisibleContent(message.parts),
     );
 }
 

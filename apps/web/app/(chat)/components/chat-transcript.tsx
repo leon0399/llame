@@ -214,10 +214,11 @@ function useForkedChatNavigation(): (forkedChatId: string) => void {
   );
 }
 
-/** The latest turn's Regenerate when its Run left no reply to sit under
- *  (turn-actions D13): there is no answer row, so this row carries the action
- *  and says only that the turn ended. Render-nothing for every other
- *  transcript. */
+/** The latest turn's Regenerate when its Run left nothing an answer row could
+ *  show (turn-actions D13): no reply at all, or a reply whose parts paint
+ *  nothing — the one a Run persists when its provider call fails. This row
+ *  carries the action and names the turn's cause without hover. Render-nothing
+ *  for every other transcript. */
 function ChatTranscriptFailedTurn({
   chatId,
   displayMessages,
@@ -232,7 +233,9 @@ function ChatTranscriptFailedTurn({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 md:px-6">
       <span className="text-muted-foreground text-sm">
-        This turn ended without an answer.
+        {latestRun.error === null
+          ? "This turn ended without an answer."
+          : `This turn failed: ${latestRun.error}`}
       </span>
       <TurnActions
         chatId={chatId}

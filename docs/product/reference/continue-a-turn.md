@@ -152,7 +152,11 @@ its own model and effort.
 
 Regenerate appears whenever the latest Run is terminal. A turn whose Run ended
 without leaving a reply gets a short failed-turn row of its own, since there is
-no answer row to carry the action.
+no answer row to carry the action. The same row serves a reply that paints
+nothing — the one a Run stores when its provider call fails — so such a turn
+still offers Regenerate. The row shows why the turn failed, with the error of
+the latest Run, and it stays visible without a hover. The empty reply row keeps
+its own footer, without a second Regenerate.
 
 Regenerate is a split button. A plain click repeats the latest Run's model, the
 effort it ran with, and the permission mode it was accepted with, whatever the

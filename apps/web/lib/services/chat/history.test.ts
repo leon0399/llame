@@ -1616,6 +1616,7 @@ describe("replacementContext", () => {
       modelId: "system:openai:gpt-5.4-mini",
       effort: null,
       permissionMode: "default",
+      error: null,
       ...overrides,
     }) as const;
 
