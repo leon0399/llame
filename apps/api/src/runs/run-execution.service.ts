@@ -313,7 +313,8 @@ import {
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
 import { isToolPromptId } from '../prompts/tool-descriptions';
-import { renderEngineCatalog } from '../tools/web-search/catalog';
+import { webSearchEngineItems } from '../tools/web-search/catalog';
+import { type PromptWebSearchEngineItem } from '../instance-config/prompt-loader';
 import {
   resolveTurnSkillState,
   type SkillTurnState,
@@ -787,12 +788,14 @@ export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
   private readonly toolPromptRenderer: ToolPromptRenderer;
   /**
-   * The generated `web_search` engine catalog, built once from the resolved
-   * configuration: the declared description is the rendered template plus this
-   * text, so the provider prompt cache changes only when the operator edits
-   * engines (design D5). Absent when no engine is configured.
+   * The `webSearch.engines` template collection, built once from the resolved
+   * configuration and handed to both prompt kinds, so the provider prompt cache
+   * changes only when the operator edits engines (design D5). Absent when no
+   * engine is configured.
    */
-  private readonly webSearchCatalog: string | undefined;
+  private readonly webSearchEngines:
+    | ReadonlyArray<PromptWebSearchEngineItem>
+    | undefined;
   /** The process-wide `ssh://` transport; absent without the `ssh` section. */
   private readonly sshClient: SshClient | undefined;
 
@@ -872,14 +875,17 @@ export class RunExecutionService {
     @Inject(ExecutorGit)
     private readonly executorGit?: ExecutorGit,
   ) {
+    this.webSearchEngines = webSearchEngineItems(
+      this.instanceConfig.config.webSearch,
+    );
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
       instancePromptFiles: this.instanceConfig.config.tools.promptFiles,
       models: this.instanceConfig.config.models,
+      ...(this.webSearchEngines !== undefined && {
+        webSearch: { engines: this.webSearchEngines },
+      }),
     });
-    this.webSearchCatalog = renderEngineCatalog(
-      this.instanceConfig.config.webSearch,
-    );
     // One generated SSH configuration per worker process, written only when a
     // call actually resolves or runs (ssh-locator D1). Without the `ssh`
     // section there is no client, so `ssh://` stays an unknown scheme.
@@ -4654,6 +4660,9 @@ export class RunExecutionService {
       user: input.user,
       chats: input.chats ?? undefined,
       ...(input.skills !== undefined && { skills: input.skills }),
+      ...(this.webSearchEngines !== undefined && {
+        webSearch: { engines: this.webSearchEngines },
+      }),
       admittedToolIds: input.admittedToolIds,
     };
     let rendered: RenderedPrompt;
@@ -4720,14 +4729,7 @@ export class RunExecutionService {
           admittedToolIds,
         });
         disclosures.push(rendered.chatsDisclosure);
-        if (this.webSearchCatalog === undefined || id !== 'web_search')
-          return rendered.text;
-        // The catalog never stands in for an empty template: the declared
-        // description is empty exactly when the template renders empty, so the
-        // attempt fails here rather than after the append (design D5).
-        if (rendered.text.trim().length === 0)
-          throw new ToolDescriptionRenderError(id);
-        return `${rendered.text}\n\n${this.webSearchCatalog}`;
+        return rendered.text;
       },
     });
   }

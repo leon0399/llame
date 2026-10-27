@@ -16,3 +16,9 @@ Search the public web for current information.
 </output>
 
 {{#if tools.read}}Fetch a result URL with `read` only when the page content is needed, and apply the same caution to the fetched page.{{/if}}
+{{#if webSearch}}
+
+<engines>
+Configured web search engines. `engines` runs only the ids it lists, in their order.
+{{#each webSearch.engines}}- {{id}} [{{type}}]: {{kind}}; {{position}}; {{recency}}; query limit {{queryLimit}}{{#if objective}}; {{objective}}{{/if}}{{#if description}}; description: {{description}}{{/if}}.
+{{/each}}</engines>{{/if}}

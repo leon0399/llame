@@ -32,6 +32,7 @@ import type {
   SystemPromptSource,
 } from '../models/model-catalog';
 import type { TemporalAnchor } from '../prompts/temporal-anchor';
+import type { WebSearchEngineConfig } from './web-search-config';
 export type {
   PromptChatsDisclosure,
   PromptChatsInput,
@@ -62,6 +63,8 @@ export type ToolPromptRendererOptions = {
   configPath: string;
   instancePromptFiles?: ToolPromptFileMap;
   models?: ReadonlyArray<PromptModel>;
+  /** The boot-resolved engine list every tool description renders with. */
+  webSearch?: PromptWebSearchInput;
   access?: PromptFileAccess;
 };
 
@@ -132,6 +135,42 @@ const SKILL_CATALOG_ITEM_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The configured web-search engine vocabulary (extend-web-search D5). Each item
+ * is a short set of fact phrases the web-search module builds from the resolved
+ * configuration, so a template owns the wording around them; `objective` and
+ * `description` are empty when the engine has none, which the projection turns
+ * into an omission so `{{#if}}` can drop the clause.
+ */
+export type PromptWebSearchEngineItem = {
+  readonly id: string;
+  readonly type: WebSearchEngineConfig['type'];
+  /** What the engine returns: results, a cited answer, or results and answers. */
+  readonly kind: 'results' | 'answer' | 'results with answers';
+  readonly position: string;
+  readonly recency: string;
+  readonly queryLimit: string;
+  readonly objective: string;
+  readonly description: string;
+};
+
+/** The resolved `webSearch` projection; absent when no engine is configured. */
+export type PromptWebSearchInput = {
+  readonly engines: ReadonlyArray<PromptWebSearchEngineItem>;
+};
+
+/** The item vocabulary a `webSearch.engines` iteration may reference. */
+const WEB_SEARCH_ENGINE_ITEM_FIELDS: ReadonlySet<string> = new Set([
+  'id',
+  'type',
+  'kind',
+  'position',
+  'recency',
+  'queryLimit',
+  'objective',
+  'description',
+]);
+
+/**
  * Collections are declared with their complete item vocabulary. The same
  * segment-key discipline as scalar paths prevents bracketed paths from
  * spoofing a declared collection, while keeping later collection additions a
@@ -147,6 +186,10 @@ const PROMPT_COLLECTION_ITEM_FIELDS: ReadonlyMap<
   // operator-authored and takes the tag sanitizer, exactly as a digest item
   // field does.
   [toContextKey('skills.entries'), SKILL_CATALOG_ITEM_FIELDS],
+  // The web-search engine list (extend-web-search D5). Every value is
+  // operator- or configuration-derived, so each one arrives neutralized and
+  // the projection wraps it verbatim.
+  [toContextKey('webSearch.engines'), WEB_SEARCH_ENGINE_ITEM_FIELDS],
 ]);
 
 /**
@@ -161,7 +204,9 @@ const PROMPT_COLLECTION_ITEM_FIELDS: ReadonlyMap<
  * still fails boot with the same message as any other unsupported construct.
  */
 const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set([
-  ...['user', 'user.personalization', 'chats', 'skills'].map(toContextKey),
+  ...['user', 'user.personalization', 'chats', 'skills', 'webSearch'].map(
+    toContextKey,
+  ),
   ...PROMPT_COLLECTION_ITEM_FIELDS.keys(),
 ]);
 
@@ -209,12 +254,20 @@ export type RenderSystemPromptInput = {
   chats?: PromptChatsInput;
   /** The frozen skill-catalog baseline; absent renders no catalog section. */
   skills?: PromptSkillsInput;
+  /** The resolved engine list; absent renders no engine list. */
+  webSearch?: PromptWebSearchInput;
   admittedToolIds?: ReadonlyArray<string>;
 };
 
+/**
+ * A tool description render never takes the collection from its caller: the
+ * renderer resolved it once at boot from the configuration, exactly as it
+ * resolved the model paths, so an attempt cannot render a list the worker did
+ * not resolve.
+ */
 export type ToolPromptRenderInput = Omit<
   RenderSystemPromptInput,
-  'template'
+  'template' | 'webSearch'
 > & {
   toolId: ToolPromptId;
 };
@@ -340,16 +393,33 @@ const PROBE_SKILLS: PromptSkillsInput = {
   entries: [{ name: 'probe', description: 'probe' }],
   omitted: 0,
 };
+// The engine list gates independently too: a template whose only content is
+// the list renders empty for a deployment without a `webSearch` section.
+const PROBE_WEB_SEARCH: PromptWebSearchInput = {
+  engines: [
+    {
+      id: 'probe',
+      type: 'brave',
+      kind: 'results',
+      position: 'probe',
+      recency: 'probe',
+      queryLimit: 'probe',
+      objective: '',
+      description: 'probe',
+    },
+  ],
+};
 
 /** The independent gate subjects a boot probe must vary. */
 type PromptProbeGates = {
   readonly user?: PromptUserInput;
   readonly chats?: PromptChatsInput;
   readonly skills?: PromptSkillsInput;
+  readonly webSearch?: PromptWebSearchInput;
 };
 
 /**
- * Every combination of the three independent gates. `user` and `chats` each
+ * Every combination of the four independent gates. `user` and `chats` each
  * contribute several shapes because their sub-gates are independent too; a
  * template empty for ANY combination fails startup rather than shipping a
  * prompt that disappears for one owner population.
@@ -367,10 +437,14 @@ const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: ReadonlyArray<PromptProbeGates> = (
   ] satisfies ReadonlyArray<
     readonly [PromptUserInput | undefined, PromptChatsInput | undefined]
   >
-).flatMap(([user, chats]) => [
-  { user, chats },
-  { user, chats, skills: PROBE_SKILLS },
-]);
+)
+  .flatMap(([user, chats]) => [
+    { user, chats },
+    { user, chats, skills: PROBE_SKILLS },
+  ])
+  // The engine list joins the cross product for the same reason: presence and
+  // absence are both ordinary deployments, and `unless` can invert the gate.
+  .flatMap((gates) => [gates, { ...gates, webSearch: PROBE_WEB_SEARCH }]);
 
 /**
  * Whether some gate state renders the template as whitespace alone under BOTH
@@ -391,19 +465,21 @@ function rendersEmptyForSomeGateState(
   // For a tool-aware template, none/all membership probes are diagnostics
   // only. Rejecting is safe only when both memberships leave an independent
   // user/chat/skills probe empty, so an absent tool cannot be the reason.
-  return SYSTEM_PROMPT_EMPTY_RENDER_PROBES.some(({ user, chats, skills }) =>
-    toolProbeMemberships.every(
-      (probeToolIds) =>
-        renderSystemPromptTemplate({
-          template,
-          model,
-          anchor: PROBE_ANCHOR,
-          user,
-          chats,
-          skills,
-          admittedToolIds: probeToolIds,
-        }).text.trim().length === 0,
-    ),
+  return SYSTEM_PROMPT_EMPTY_RENDER_PROBES.some(
+    ({ user, chats, skills, webSearch }) =>
+      toolProbeMemberships.every(
+        (probeToolIds) =>
+          renderSystemPromptTemplate({
+            template,
+            model,
+            anchor: PROBE_ANCHOR,
+            user,
+            chats,
+            skills,
+            webSearch,
+            admittedToolIds: probeToolIds,
+          }).text.trim().length === 0,
+      ),
   );
 }
 
@@ -740,6 +816,7 @@ export function createToolPromptRenderer(
         anchor: input.anchor,
         user: input.user,
         chats: input.chats,
+        webSearch: options.webSearch,
         admittedToolIds: input.admittedToolIds,
       });
     },
@@ -1220,6 +1297,40 @@ function skillsContext(skills: PromptSkillsInput | undefined) {
   };
 }
 
+/**
+ * Projects the resolved engine list independently of every other namespace, so
+ * `{{#if webSearch}}` gates the whole section and an absent or empty
+ * configuration renders no list at all.
+ *
+ * Every value arrives already neutralized — the web-search module applies the
+ * tag sanitizer and the list-fence neutralization — so each one is wrapped
+ * verbatim: escaping it again would render `&lt;` as `&amp;lt;`. The two
+ * optional facts are OMITTED rather than empty, because a `SafeString` around
+ * `''` is an object and so truthy, which would make `{{#if objective}}` render
+ * its clause around nothing.
+ */
+function webSearchContext(webSearch: PromptWebSearchInput | undefined) {
+  if (webSearch === undefined || webSearch.engines.length === 0) {
+    return undefined;
+  }
+  return {
+    engines: webSearch.engines.map((engine) => ({
+      id: promptSafeString(engine.id),
+      type: promptSafeString(engine.type),
+      kind: promptSafeString(engine.kind),
+      position: promptSafeString(engine.position),
+      recency: promptSafeString(engine.recency),
+      queryLimit: promptSafeString(engine.queryLimit),
+      ...(engine.objective.length > 0 && {
+        objective: promptSafeString(engine.objective),
+      }),
+      ...(engine.description.length > 0 && {
+        description: promptSafeString(engine.description),
+      }),
+    })),
+  };
+}
+
 function projectToolPredicates(
   admittedToolIds: ReadonlyArray<string> | undefined,
 ): Readonly<Record<string, boolean>> {
@@ -1230,12 +1341,33 @@ function projectToolPredicates(
   return tools;
 }
 
-function renderPrompt(
-  source: string,
+type RenderPromptContext = {
+  model: {
+    id: PromptSafeValue | undefined;
+    name: PromptSafeValue | undefined;
+  };
+  context: {
+    systemTime: PromptSafeValue;
+    systemTimezone: PromptSafeValue;
+  };
+  user?: ReturnType<typeof userContext>;
+  chats?: ReturnType<typeof chatsContext>;
+  skills?: ReturnType<typeof skillsContext>;
+  webSearch?: ReturnType<typeof webSearchContext>;
+  tools: Readonly<Record<string, boolean>>;
+};
+
+/**
+ * Builds one render's context. Split from `renderPrompt` because the omission
+ * rule is the whole of this module's correctness argument and it reads as one
+ * sequence: project each namespace, then add it only when it has content.
+ */
+function promptContext(
   fields: Omit<RenderSystemPromptInput, 'template'>,
-): RenderedPrompt {
-  const { model, anchor, user, chats, skills, admittedToolIds } = fields;
-  const emitted = { pinned: new Set<number>(), recent: new Set<number>() };
+  emitted: { pinned: Set<number>; recent: Set<number> },
+): RenderPromptContext {
+  const { model, anchor, user, chats, skills, webSearch, admittedToolIds } =
+    fields;
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
@@ -1243,20 +1375,7 @@ function renderPrompt(
   const projectedUser = userContext(user);
   const projectedChats = chatsContext(chats, emitted);
   const projectedSkills = skillsContext(skills);
-  type RenderPromptContext = {
-    model: {
-      id: PromptSafeValue | undefined;
-      name: PromptSafeValue | undefined;
-    };
-    context: {
-      systemTime: PromptSafeValue;
-      systemTimezone: PromptSafeValue;
-    };
-    user?: typeof projectedUser;
-    chats?: typeof projectedChats;
-    skills?: typeof projectedSkills;
-    tools: Readonly<Record<string, boolean>>;
-  };
+  const projectedWebSearch = webSearchContext(webSearch);
   const renderContext: RenderPromptContext = {
     model: {
       id: promptValue(model.id),
@@ -1273,6 +1392,17 @@ function renderPrompt(
   if (projectedUser !== undefined) renderContext.user = projectedUser;
   if (projectedChats !== undefined) renderContext.chats = projectedChats;
   if (projectedSkills !== undefined) renderContext.skills = projectedSkills;
+  if (projectedWebSearch !== undefined)
+    renderContext.webSearch = projectedWebSearch;
+  return renderContext;
+}
+
+function renderPrompt(
+  source: string,
+  fields: Omit<RenderSystemPromptInput, 'template'>,
+): RenderedPrompt {
+  const emitted = { pinned: new Set<number>(), recent: new Set<number>() };
+  const renderContext = promptContext(fields, emitted);
   const text = compilePromptTemplate(source)(renderContext);
   return { text, chatsDisclosure: emitted };
 }

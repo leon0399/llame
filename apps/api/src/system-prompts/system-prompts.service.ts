@@ -4,6 +4,7 @@ import {
   type PromptChatsInput,
   type PromptSkillsInput,
   type PromptUserInput,
+  type PromptWebSearchInput,
   type RenderedPrompt,
   type TemporalAnchor,
   renderSystemPromptTemplate,
@@ -23,6 +24,8 @@ export type SystemPromptRenderInput = {
   chats?: PromptChatsInput;
   /** The frozen skill-catalog baseline; absent renders no catalog section. */
   skills?: PromptSkillsInput;
+  /** The boot-resolved engine list; absent renders no engine list. */
+  webSearch?: PromptWebSearchInput;
   admittedToolIds?: ReadonlyArray<string>;
 };
 
@@ -59,6 +62,7 @@ export class SystemPromptsService {
       user: input.user,
       chats: input.chats,
       skills: input.skills,
+      webSearch: input.webSearch,
       admittedToolIds: input.admittedToolIds,
     });
   }

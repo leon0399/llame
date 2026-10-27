@@ -5,6 +5,7 @@ import {
 } from '../../instance-config/web-search-config';
 import { ORI_QUESTION_MAX_CODE_POINTS } from './deepseek';
 import { ENGINE_LIMITS, TOOL_QUERY_MAX, type EngineLimits } from './limits';
+import { type PromptWebSearchEngineItem } from '../../instance-config/prompt-loader';
 
 type EngineType = WebSearchEngineConfig['type'];
 /** The per-type vendor bounds, typed so a child of any type is read the same way. */
@@ -93,7 +94,7 @@ function chainPosition(
 
 /** The longest query an engine sends, as a code-point and word bound. */
 function queryLimit(limits: EngineLimits): string {
-  return `query limit ${boundText(limits.query ?? {})}`;
+  return boundText(limits.query ?? {});
 }
 
 /**
@@ -117,64 +118,78 @@ function aggregateQueryLimit(
     ...(codePoints.length > 0 && { codePoints: Math.min(...codePoints) }),
     ...(words.length > 0 && { words: Math.min(...words) }),
   };
-  return `query limit ${boundText(bound)}, under which no child is skipped`;
+  return `${boundText(bound)}, under which no child is skipped`;
 }
 
-/** One catalog line: the facts a model needs to choose and bound the engine. */
-function engineEntry(
-  config: WebSearchConfig,
+/** What one engine returns: results, a cited answer, or results and answers. */
+function engineKind(
   byId: EngineIndex,
   engine: WebSearchEngineConfig,
-): string {
-  let kind = 'results';
-  if (engine.type === 'model-hosted') kind = 'answer';
-  else if (
+): PromptWebSearchEngineItem['kind'] {
+  if (engine.type === 'model-hosted') return 'answer';
+  if (
     engine.type === 'aggregate' &&
     engine.engines.some((id) => byId.get(id)!.type === 'model-hosted')
   )
-    kind = 'results with answers';
+    return 'results with answers';
+  return 'results';
+}
 
-  let objective: string | undefined;
-  if (engine.type !== 'aggregate') objective = OBJECTIVE_USE[engine.type];
-  else if (
-    engine.engines.some((id) => OBJECTIVE_USE[byId.get(id)!.type] !== undefined)
+/** How one engine uses the call's `objective`; empty when it ignores it. */
+function objectiveUse(
+  byId: EngineIndex,
+  engine: WebSearchEngineConfig,
+): string {
+  if (engine.type !== 'aggregate') {
+    return OBJECTIVE_USE[engine.type] ?? '';
+  }
+  return engine.engines.some(
+    (id) => OBJECTIVE_USE[byId.get(id)!.type] !== undefined,
   )
-    objective = 'objective passed to each child that accepts one';
+    ? 'objective passed to each child that accepts one'
+    : '';
+}
 
-  const facts = [
-    kind,
-    chainPosition(config, byId, engine.id),
-    RECENCY_USE[engine.type],
-    engine.type === 'aggregate'
-      ? aggregateQueryLimit(byId, engine.engines)
-      : queryLimit(LIMITS[engine.type]),
-  ];
-  if (objective !== undefined) facts.push(objective);
-  if (engine.description !== undefined)
-    facts.push(
-      `description: ${catalogValue(engine.description).replace(/\.$/u, '')}`,
-    );
-  return `- ${catalogValue(engine.id)} [${engine.type}]: ${facts.join('; ')}.`;
+/** One engine's fact phrases, for a template to lay out and frame. */
+function engineItem(
+  config: WebSearchConfig,
+  byId: EngineIndex,
+  engine: WebSearchEngineConfig,
+): PromptWebSearchEngineItem {
+  return {
+    id: catalogValue(engine.id),
+    type: engine.type,
+    kind: engineKind(byId, engine),
+    position: catalogValue(chainPosition(config, byId, engine.id)),
+    recency: catalogValue(RECENCY_USE[engine.type]),
+    queryLimit: catalogValue(
+      engine.type === 'aggregate'
+        ? aggregateQueryLimit(byId, engine.engines)
+        : queryLimit(LIMITS[engine.type]),
+    ),
+    objective: catalogValue(objectiveUse(byId, engine)),
+    description:
+      engine.description === undefined
+        ? ''
+        : catalogValue(engine.description).replace(/\.$/u, ''),
+  };
 }
 
 /**
- * The generated engine catalog that follows the rendered `web_search`
- * description (design D5): one line per configured engine, in configuration
- * order, with no key, base URL, folder id, or model id. The text is a function
- * of the resolved configuration alone, so a worker builds it once and the
- * provider prompt cache changes only when the operator edits engines.
+ * The `webSearch.engines` template collection (extend-web-search D5, revised
+ * 2026-10-27): one item per configured engine, in configuration order, holding
+ * only the fact phrases a template lays out. Every value is tag-neutralized,
+ * the catalog's own `engines` tag included, and no key, base URL, folder id, or
+ * model id ever becomes a field. The result is a function of the resolved
+ * configuration alone, so a worker builds it once and the provider prompt cache
+ * changes only when the operator edits engines.
  */
-export function renderEngineCatalog(
+export function webSearchEngineItems(
   config: WebSearchConfig | undefined,
-): string | undefined {
-  if (config === undefined) return undefined;
+): ReadonlyArray<PromptWebSearchEngineItem> | undefined {
+  if (config === undefined || config.engines.length === 0) return undefined;
   const byId: EngineIndex = new Map(
     config.engines.map((engine) => [engine.id, engine]),
   );
-  return [
-    '<engines>',
-    'Configured web search engines. `engines` runs only the ids it lists, in their order.',
-    ...config.engines.map((engine) => engineEntry(config, byId, engine)),
-    '</engines>',
-  ].join('\n');
+  return config.engines.map((engine) => engineItem(config, byId, engine));
 }
