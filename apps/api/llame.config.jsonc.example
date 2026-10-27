@@ -451,6 +451,18 @@
   //       "id": "parallel-mcp",
   //       "type": "parallel-mcp",
   //     },
+  //     // Yandex Search API bills about $4 per 1,000 requests at 10 requests per
+  //     // second, processes in Russia, and accepts a 400-code-point, 40-word
+  //     // query. `searchType` is the index: ru | tr | com | kk | be | uz.
+  //     // `folderId` is optional for a service-account key and required for a
+  //     // user-account key.
+  //     {
+  //       "id": "yandex",
+  //       "type": "yandex",
+  //       "key": "{env:YANDEX_API_KEY}",
+  //       "searchType": "ru",
+  //       // "folderId": "{env:YANDEX_FOLDER_ID}",
+  //     },
   //     {
   //       "id": "exa",
   //       "type": "exa",

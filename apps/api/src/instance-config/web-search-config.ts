@@ -3,6 +3,9 @@
 /** A Parallel search mode; `fast` is the default for agent calls. */
 export type ParallelSearchMode = 'turbo' | 'fast' | 'basic' | 'advanced';
 
+/** The Yandex search index a `yandex` engine queries. */
+export type YandexSearchType = 'ru' | 'tr' | 'com' | 'kk' | 'be' | 'uz';
+
 /** The still-uninterpolated `webSearch` engine entry once schema-validated. */
 export type RawWebSearchEngineEntry =
   | {
@@ -24,6 +27,17 @@ export type RawWebSearchEngineEntry =
   | {
       id: string;
       type: 'parallel-mcp';
+      timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
+      type: 'yandex';
+      /** Schema-required credential; interpolation may still resolve blank. */
+      key: string | null;
+      /** Schema-validated literal; no interpolation applies. */
+      searchType: YandexSearchType;
+      /** Schema-validated optional folder id; interpolation may resolve blank. */
+      folderId?: string | null;
       timeoutSeconds?: unknown;
     }
   | {
@@ -83,6 +97,18 @@ export type WebSearchEngineConfig =
           mode: ParallelSearchMode;
         }
       | { type: 'parallel-mcp' }
+      | {
+          type: 'yandex';
+          /** Interpolated vendor credential; never surfaced in output or errors. */
+          key: string;
+          /** The search index this engine queries. */
+          searchType: YandexSearchType;
+          /**
+           * Interpolated folder id, absent when the service-account key implies
+           * it; never surfaced in output or errors.
+           */
+          folderId: string | undefined;
+        }
       | {
           type: 'searxng';
           /** Absolute http(s) base URL of the operator's SearXNG instance. */

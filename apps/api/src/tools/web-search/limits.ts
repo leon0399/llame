@@ -3,7 +3,13 @@ import { type WebSearchEngineConfig } from '../../instance-config/web-search-con
 type EngineType = WebSearchEngineConfig['type'];
 
 /** An engine type whose vendor takes a result count. */
-type CountEngineType = 'brave' | 'deepseek' | 'exa' | 'parallel' | 'perplexity';
+type CountEngineType =
+  | 'brave'
+  | 'deepseek'
+  | 'exa'
+  | 'parallel'
+  | 'perplexity'
+  | 'yandex';
 
 /** What one engine type accepts from the model's `query` and `limit`. */
 export type EngineLimits = {
@@ -32,6 +38,7 @@ export const ENGINE_LIMITS = {
   searxng: {},
   duckduckgo: {},
   'model-hosted': {},
+  yandex: { query: { codePoints: 400, words: 40 }, results: 100 },
   aggregate: {},
 } as const satisfies Readonly<Record<EngineType, EngineLimits>>;
 

@@ -12,6 +12,14 @@
  */
 declare module 'linkedom' {
   export function parseHTML(html: string): Window & typeof globalThis;
+  /**
+   * The parser `yandex.ts` needs: HTML parsing leaves the contents of a
+   * `<title>` element as literal text, so the XML mode is the one that reads
+   * Yandex's XML envelope, where `<hlword>` is an element to strip.
+   */
+  export class DOMParser {
+    parseFromString(markup: string, mimeType: 'text/xml'): Document;
+  }
 }
 
 /** turndown-plugin-gfm ships no type declarations at all. */

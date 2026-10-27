@@ -733,7 +733,33 @@ function resolveWebSearchResultEngine(
   if (entry.type === 'duckduckgo' || entry.type === 'parallel-mcp') {
     return { ...base, type: entry.type };
   }
+  if (entry.type === 'yandex') {
+    return resolveYandexEngine(entry, entryPath, base, env);
+  }
   return resolveKeyedEngine(entry, entryPath, base, env);
+}
+
+function resolveYandexEngine(
+  entry: Extract<RawWebSearchEngineEntry, { type: 'yandex' }>,
+  entryPath: string,
+  base: { id: string; timeoutSeconds: number },
+  env: NodeJS.ProcessEnv,
+): WebSearchEngineConfig {
+  const key = requireNonBlankString(`${entryPath}.key`, entry.key, env);
+  const folderId =
+    resolveNullableString({
+      configPath: `${entryPath}.folderId`,
+      present: entry.folderId !== undefined,
+      raw: entry.folderId,
+      env,
+    }) ?? undefined;
+  return {
+    ...base,
+    type: entry.type,
+    key,
+    searchType: entry.searchType,
+    folderId,
+  };
 }
 
 function resolveKeyedEngine(

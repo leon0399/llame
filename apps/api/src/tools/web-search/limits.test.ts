@@ -24,4 +24,13 @@ describe('acceptsQuery', () => {
     expect(acceptsQuery(ENGINE_LIMITS.exa, 'x'.repeat(1000))).toBe(true);
     expect(acceptsQuery(ENGINE_LIMITS.aggregate, 'x'.repeat(1000))).toBe(true);
   });
+
+  it('rejects a yandex query over its word limit even under its code-point limit', () => {
+    // The scenario: 45 words and 300 characters. The vendor's 400 code points
+    // pass, and its 40 words do not.
+    expect(acceptsQuery(ENGINE_LIMITS.yandex, words(45))).toBe(false);
+    expect(acceptsQuery(ENGINE_LIMITS.yandex, words(40))).toBe(true);
+    expect(acceptsQuery(ENGINE_LIMITS.yandex, 'x'.repeat(400))).toBe(true);
+    expect(acceptsQuery(ENGINE_LIMITS.yandex, 'x'.repeat(401))).toBe(false);
+  });
 });

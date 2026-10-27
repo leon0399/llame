@@ -112,6 +112,40 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "description": "A configured Yandex Search API web-search engine.",
+          "required": ["id", "type", "key", "searchType"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "yandex",
+              "description": "Yandex Search API called with the operator's key."
+            },
+            "key": {
+              "$ref": "#/$defs/nullableString",
+              "description": "Required Search API key. It may use a whole or embedded {env:...}/{path:...} interpolation token and must resolve to a nonblank string."
+            },
+            "searchType": {
+              "enum": ["ru", "tr", "com", "kk", "be", "uz"],
+              "description": "Search index: ru (yandex.ru), tr, com, kk (yandex.kz), be (yandex.by), or uz."
+            },
+            "folderId": {
+              "$ref": "#/$defs/nullableString",
+              "description": "Optional Yandex Cloud folder id, needed for a user-account key. It may use a whole or embedded {env:...}/{path:...} interpolation token; a blank resolution leaves it unset, which a service-account key allows."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "description": "A configured SearXNG web-search engine.",
           "required": ["id", "type", "baseUrl"],
           "properties": {

@@ -11,8 +11,8 @@ behavior:
 
 This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
 Supported operator engines are `brave`, `deepseek`, `exa`, `exa-mcp`,
-`parallel`, `parallel-mcp`, `perplexity`, `searxng`, `duckduckgo`, `aggregate`,
-and `model-hosted`; configure only these types.
+`parallel`, `parallel-mcp`, `perplexity`, `searxng`, `duckduckgo`, `yandex`,
+`aggregate`, and `model-hosted`; configure only these types.
 
 ## Enabling
 
@@ -83,6 +83,7 @@ Each engine type declares its vendor's query limit in code. llame checks the sub
 | `searxng`      | the tool's 1,000 units       | cut to `limit` after normalization |
 | `duckduckgo`   | the tool's 1,000 units       | cut to `limit` after normalization |
 | `model-hosted` | the tool's 1,000 units       | not applicable                     |
+| `yandex`       | 400 code points and 40 words | `groupsOnPage`, at most 100        |
 | `aggregate`    | each child's own limit       | merged, then cut to `limit`        |
 
 A word is a run of non-space characters; lengths are code points, so a character outside the Basic Multilingual Plane counts once. The check covers the query the model submitted, before an engine moves `site:` hosts to filters or appends a date, so the model can predict it from the description.
@@ -380,6 +381,75 @@ supported, which the output notes. A tool error arrives as HTTP 200 with an
 error flag and vendor text; llame reports `upstream_error` and drops the text.
 llame keeps one MCP session per configured engine and reconnects on failure.
 
+## Yandex
+
+```jsonc
+{
+  "id": "yandex",
+  "type": "yandex",
+  "key": "{env:YANDEX_API_KEY}",
+  "searchType": "ru",
+  "folderId": "{env:YANDEX_FOLDER_ID}",
+  "timeoutSeconds": 60,
+}
+```
+
+`key` and `searchType` are required. `searchType` names the search index: `ru`
+(yandex.ru), `tr`, `com`, `kk` (yandex.kz), `be` (yandex.by), or `uz`.
+`folderId` is optional, because a service-account key implies its own folder;
+a user-account key needs the id. `key` and `folderId` SHOULD be whole-value
+secret interpolation, and llame sends neither anywhere but Yandex's fixed
+endpoint:
+
+```text
+https://searchapi.api.cloud.yandex.net/v2/web/search
+```
+
+The key travels as `Authorization: Api-Key <key>`, so the key of a user
+account needs `search-api.webSearch.user` on that folder. The request asks for
+flat groups with one document each, so `limit` becomes `groupsOnPage` (at most 100) and counts results; the vendor's default deep grouping returns one
+document per host. `maxPassages` is 3 and the response format is XML. Yandex
+answers with Base64 XML in a JSON `rawData` field; llame decodes and parses it,
+strips the `<hlword>` query highlights, and reads each document's `title`,
+`url`, `headline` (or its first passage) as the snippet, and `modtime` as the
+ISO `published` date.
+
+`recency` becomes the vendor's `period`: `day` is `PERIOD_DAY`, `month` is
+`PERIOD_MONTH`, and `week` is `PERIOD_2_WEEKS` with a note, because the vendor
+has no one-week period. `year` has no period and is noted instead. `objective`
+is ignored without a note, because the vendor has no field for it. `site:` and
+quoted phrases stay in the query text; `-site:` removal is the shared
+post-filter described in [Result removal](#result-removal).
+
+Yandex reports a search-level error inside a successful HTTP response, in the
+XML body. llame reads that `<error code>` before it reads any result: code 42
+is `auth`, codes 32 and 55 are `rate_limited`, and code 100 is `challenge`.
+Codes 2 and 15 mean the search found nothing, so the engine is empty. Every
+other code, a 5xx status, and a body that is not a Yandex response are
+`upstream_error`; HTTP 401 and 403 are `auth` and 429 `rate_limited`. The
+vendor's error text never reaches the output, the Run events, or the logs.
+
+Price: $4 per 1,000 synchronous requests (₽488 per 1,000 in the Russian price
+list), billed per request. A request that ends in an internal-server or
+authentication error is not billed, the v2 API has no free tier, and the
+documented quota is 10,000 requests per hour at 10 requests per second. Pricing
+runs on Moscow time, where the night window costs less.
+
+Yandex Search API runs in Russia, and Yandex's own documentation states that
+its requests leave the information system certified under 152-FZ, the Russian
+federal personal-data law: every query text leaves your jurisdiction and is
+handled under Russian law. Search API stores no request data unless a request
+opts in with `x-data-logging-enabled`, which llame never sends; AI Studio's
+platform data-storage page separately says it may keep depersonalized data for
+service quality, and the two statements conflict, so treat query retention as
+unknown. The [Search API terms](https://yandex.ru/legal/cloud_terms_search_api)
+§3.2 forbid changing the order of the results: display in any design is
+allowed, reordering is not. Keeping `yandex` in the chain is therefore fine,
+and putting it in an `aggregate`, whose rank fusion reorders its results, is
+the operator's own decision — llame neither validates against it nor hides it.
+The same terms forbid using the service to build a competing general search
+engine and require the Yandex Search license for the results.
+
 ## Query exfiltration
 
 Every query leaves the instance for the configured provider and may contain model-copied conversation, file, or tool text. `read` path permissions do not restrict this, and `read_only` does not make it private. `objective` is outbound text in the same way, for the engines that accept it.
@@ -394,5 +464,8 @@ DeepSeek documents no retention period for search queries or results, and its
 privacy policy stores personal data in the People's Republic of China.
 Parallel processes searches in the United States, publishes no default
 retention period, and its standard terms allow training on customer input.
+Yandex processes searches in Russia and publishes no result-retention period;
+its terms allow display but forbid reordering the results, and its documentation
+states that requests leave the 152-FZ-certified perimeter.
 Disable or avoid an engine if the operator cannot accept its terms for llame's
 chat-part storage.

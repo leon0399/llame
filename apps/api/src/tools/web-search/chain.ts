@@ -12,6 +12,7 @@ import { createParallelMcpEngine } from './parallel-mcp';
 import { createParallelEngine } from './parallel';
 import { createPerplexityEngine } from './perplexity';
 import { createSearxngEngine } from './searxng';
+import { createYandexEngine } from './yandex';
 import { createModelHostedEngine } from './model-hosted';
 import { canonicalUrl } from './output';
 import { ENGINE_LIMITS, acceptsQuery } from './limits';
@@ -395,6 +396,8 @@ export function createEngine(
       return createSearxngEngine(config, deps);
     case 'duckduckgo':
       return createDuckDuckGoEngine(deps);
+    case 'yandex':
+      return createYandexEngine(config, deps);
     case 'model-hosted':
       return createModelHostedEngine(config);
   }
