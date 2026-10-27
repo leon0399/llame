@@ -366,6 +366,16 @@ describe('ChatLoopService.createMessageStream', () => {
     expect(runAs).not.toHaveBeenCalled();
   });
 
+  it('answers 409 while a chat-creation request holds the Chat', async () => {
+    const { service, dispatchRun } = makeService({ creationLockHeld: false });
+
+    await expect(service.createMessageStream(input)).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'creation_in_progress' },
+    });
+    expect(dispatchRun).not.toHaveBeenCalled();
+  });
+
   describe('file parts', () => {
     const mediaId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
     const owned = descriptor(mediaId, { name: 'shot.png' });

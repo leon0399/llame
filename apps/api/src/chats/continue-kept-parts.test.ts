@@ -90,6 +90,19 @@ describe('continueKeptParts', () => {
     ]);
   });
 
+  it('keeps nothing when the reply opens with context items but never settles a call', () => {
+    // The in-Run items a producer writes before the first step are not a
+    // completed step: with no settled call there is nothing to continue from.
+    const parts = [
+      contextItem('temporal'),
+      contextItem('tool-availability'),
+      text('partial answer'),
+      call('call-1', 'input-available'),
+    ];
+
+    expect(continueKeptParts(parts)).toEqual([]);
+  });
+
   it('keeps a context item between two steps with the step it follows', () => {
     const availability = contextItem('tool-availability');
     const parts = [

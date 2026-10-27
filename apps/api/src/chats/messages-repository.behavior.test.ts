@@ -1232,3 +1232,32 @@ describe('Running replies', () => {
     },
   );
 });
+
+describe('MessagesRepository hasLaterUserMessage', () => {
+  it('probes only the id column of the next user row, owner-scoped', async () => {
+    const statement = await renderedStatement((repository) =>
+      repository.hasLaterUserMessage(chat.id, chat.ownerUserId, 3),
+    );
+
+    expect(statement.sql).toContain(
+      'select "messages"."id" from "messages" inner join "chats"',
+    );
+    expect(statement.sql).toContain(
+      'where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2 and "messages"."role" = $3 and "messages"."seq" > $4) limit $5',
+    );
+    expect(statement.sql).not.toContain('"messages"."parts"');
+    expect(statement.params).toEqual([chat.id, chat.ownerUserId, 'user', 3, 1]);
+  });
+
+  it('reports a later user message, and its absence', async () => {
+    const db = makeDb({ select: [[{ id: 'message-9' }], []] });
+    const repository = new MessagesRepository(db);
+
+    await expect(
+      repository.hasLaterUserMessage(chat.id, chat.ownerUserId, 3),
+    ).resolves.toBe(true);
+    await expect(
+      repository.hasLaterUserMessage(chat.id, chat.ownerUserId, 3),
+    ).resolves.toBe(false);
+  });
+});

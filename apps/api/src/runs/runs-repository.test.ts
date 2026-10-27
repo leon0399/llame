@@ -182,6 +182,41 @@ describe('RunsRepository', () => {
     expect(values[1]).not.toHaveProperty('permissionMode');
   });
 
+  it('stores the follow-up action and source Run only when supplied to create', async () => {
+    const followUpRun = {
+      ...run,
+      followUpAction: 'continue' as const,
+      sourceRunId: 'run-source',
+    };
+    const { db, calls } = makeDb({ insert: [[followUpRun], [run]] });
+    const repository = new RunsRepository(db);
+    const input = {
+      chatId: run.chatId,
+      messageId: 'message-1',
+      userId: run.userId,
+      modelId: run.modelId,
+    };
+
+    await expect(
+      repository.create({
+        ...input,
+        followUpAction: 'continue',
+        sourceRunId: 'run-source',
+      }),
+    ).resolves.toBe(followUpRun);
+    await expect(repository.create(input)).resolves.toBe(run);
+
+    const values = calls
+      .filter(({ method }) => method === 'values')
+      .map(({ args }) => args[0]);
+    expect(values[0]).toStrictEqual({
+      ...input,
+      followUpAction: 'continue',
+      sourceRunId: 'run-source',
+    });
+    expect(values[1]).toStrictEqual(input);
+  });
+
   it('findMostRecentByMessageSequence returns the run and triggering sequence, with a strict message-sequence bound', async () => {
     const triggeringUserSeq = 7;
     const { db } = makeDb({
