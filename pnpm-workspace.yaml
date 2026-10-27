@@ -131,7 +131,7 @@ catalog:
   # TypeScript 7.1 (native compiler): `tsc` for type-check and emit, the
   # `typescript/*` API entry points for in-repo scripts. Tools that still
   # bind to the classic compiler API get `@typescript/typescript6` through
-  # the `overrides` below.
+  # the `classic-api` catalog above.
   typescript: 7.1.0-beta
   # apps/storybook and apps/web both run stories as browser-mode tests, so
   # the addon and the browser provider are shared.
