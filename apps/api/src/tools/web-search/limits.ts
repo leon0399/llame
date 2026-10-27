@@ -23,9 +23,16 @@ export type EngineLimits = {
 };
 
 /**
+ * The tool's own `query` bound, in UTF-16 units: the schema and the descriptive
+ * catalog both read it, so a change to one cannot leave the other stale.
+ */
+export const TOOL_QUERY_MAX = 1000;
+
+/**
  * The vendor bounds of each engine type, from its API reference. The tool's
- * `query` bound is 1,000 units, so only a shorter vendor bound appears here. An
- * `aggregate` has no limit of its own and checks each child instead.
+ * `query` bound is `TOOL_QUERY_MAX` units, so only a shorter vendor bound
+ * appears here. An `aggregate` has no limit of its own and checks each child
+ * instead.
  */
 export const ENGINE_LIMITS = {
   brave: { query: { codePoints: 600, words: 75 }, results: 20 },

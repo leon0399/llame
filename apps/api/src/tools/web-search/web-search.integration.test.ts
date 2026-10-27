@@ -1257,7 +1257,7 @@ describeIfDb('web search through the real tool loop', () => {
       'Search the public web for current information.',
     );
     expect(description).toContain(
-      '- brave [brave]: brave; results; first in the default chain;',
+      '- brave [brave]: results; position 1 in the default chain;',
     );
     expect(description.endsWith('\n</engines>')).toBe(true);
     // The engine's configured key never reaches the declared description.

@@ -3,7 +3,8 @@ import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
 } from '../../instance-config/web-search-config';
-import { ENGINE_LIMITS, type EngineLimits } from './limits';
+import { ORI_QUESTION_MAX_CODE_POINTS } from './deepseek';
+import { ENGINE_LIMITS, TOOL_QUERY_MAX, type EngineLimits } from './limits';
 
 type EngineType = WebSearchEngineConfig['type'];
 /** The per-type vendor bounds, typed so a child of any type is read the same way. */
@@ -15,15 +16,15 @@ type EngineIndex = ReadonlyMap<string, WebSearchEngineConfig>;
 const RECENCY_USE: Record<EngineType, string> = {
   brave: 'recency applied as a freshness filter',
   deepseek:
-    'recency appended to the query as an `after:` date, omitted when the query is too long',
+    'recency applied by adding a date filter to the query, dropped with a note when the query is near its limit',
   exa: 'recency applied as a start date',
   'exa-mcp': 'recency ignored with a note',
-  parallel: 'recency applied as `after_date`',
+  parallel: 'recency applied as a start date',
   'parallel-mcp': 'recency ignored with a note',
-  perplexity: 'recency applied as a recency filter',
+  perplexity: 'recency applied as a date filter',
   searxng: 'recency applied, with a week sent as a month',
   duckduckgo: 'recency applied as a date filter',
-  'model-hosted': 'recency asked for in the hosted prompt',
+  'model-hosted': 'recency stated in the hosted request',
   yandex:
     'recency mapped, with a week sent as two weeks and a year not applied',
   aggregate: 'recency passed to each child',
@@ -31,54 +32,92 @@ const RECENCY_USE: Record<EngineType, string> = {
 
 /** How one engine type uses the call's `objective`; absent when it ignores it. */
 const OBJECTIVE_USE: Partial<Record<EngineType, string>> = {
-  exa: 'objective sent as `objective`, the query when absent',
-  'exa-mcp': 'objective sent as `objective`, the query when absent',
-  parallel: 'objective sent as `objective`',
-  'parallel-mcp': 'objective sent as `objective`, the query when absent',
-  deepseek: 'objective sent as `ori_question`, cut to 128 characters',
-  'model-hosted': 'objective sent as a `Goal:` line',
+  exa: 'objective used for ranking',
+  'exa-mcp': 'objective used for ranking',
+  parallel: 'objective used for ranking',
+  'parallel-mcp': 'objective used for ranking',
+  deepseek: `objective used for ranking, first ${ORI_QUESTION_MAX_CODE_POINTS} characters`,
+  'model-hosted': 'objective stated in the hosted request as a goal',
 };
 
-/** The chain position of an id, as an entry states it. */
-const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth'] as const;
+/** The code-point and word bounds one query must fit; either can be absent. */
+type QueryBound = { readonly codePoints?: number; readonly words?: number };
 
-/** The tool's own `query` bound, for an engine that adds nothing on top. */
-const TOOL_QUERY_LIMIT = 1000;
+/**
+ * Neutralize operator text that sits inside the catalog's own `<engines>`
+ * block. The shared sanitizer keeps a value from closing a tag it did not open
+ * and from emitting a reserved name. `engines` stays out of the shared reserved
+ * set because reserving it globally would strip the tag from every operator
+ * prompt, so a value that spells a tag-shaped `engines` token — a balanced
+ * forged block, or an unmatched opener the block's own closer would end — is
+ * neutralized here, with the `<` escaped so the text stays readable.
+ */
+function catalogValue(value: string): string {
+  return sanitizeAuthoredText(value).replaceAll(
+    /<(\s*\/?\s*engines)(?=\s*\/?>|[\s/]+[\w-]+\s*=|$)/giu,
+    '&lt;$1',
+  );
+}
 
-function chainPosition(config: WebSearchConfig, id: string): string {
+/** A query bound as prose; an unbounded engine states the tool's own bound. */
+function boundText(bound: QueryBound): string {
+  const parts: Array<string> = [];
+  if (bound.codePoints !== undefined)
+    parts.push(`${bound.codePoints} characters`);
+  if (bound.words !== undefined) parts.push(`${bound.words} words`);
+  return parts.length === 0
+    ? `${TOOL_QUERY_MAX} characters`
+    : parts.join(' and ');
+}
+
+/**
+ * Where an id runs in a default call: its own chain position, or the chain
+ * aggregate that already reaches it as a child, so a model does not read a
+ * covered engine as an uncovered one.
+ */
+function chainPosition(
+  config: WebSearchConfig,
+  byId: EngineIndex,
+  id: string,
+): string {
   const index = config.chain.indexOf(id);
-  if (index === -1) return 'not in the default chain';
-  const ordinal = ORDINALS[index];
-  return ordinal === undefined
-    ? `at position ${index + 1} in the default chain`
-    : `${ordinal} in the default chain`;
+  if (index !== -1) return `position ${index + 1} in the default chain`;
+  const parent = config.chain.find((candidate) => {
+    const engine = byId.get(candidate)!;
+    return engine.type === 'aggregate' && engine.engines.includes(id);
+  });
+  return parent === undefined
+    ? 'not in the default chain'
+    : `runs in the default chain through ${catalogValue(parent)}`;
 }
 
 /** The longest query an engine sends, as a code-point and word bound. */
 function queryLimit(limits: EngineLimits): string {
-  const query = limits.query;
-  if (query === undefined) return `query limit ${TOOL_QUERY_LIMIT} characters`;
-  return query.words === undefined
-    ? `query limit ${query.codePoints} characters`
-    : `query limit ${query.codePoints} characters and ${query.words} words`;
+  return `query limit ${boundText(limits.query ?? {})}`;
 }
 
 /**
- * An aggregate has no limit of its own: the smallest child limit is the length
- * below which no child is skipped.
+ * An aggregate has no limit of its own: the smallest child code-point and word
+ * bounds are the lengths below which no child is skipped, because a child is
+ * skipped for either bound.
  */
 function aggregateQueryLimit(
   byId: EngineIndex,
   children: ReadonlyArray<string>,
 ): string {
-  const codePoints = children.flatMap((id) => {
-    const child = byId.get(id);
-    const query = child === undefined ? undefined : LIMITS[child.type].query;
-    return query === undefined ? [] : [query.codePoints];
+  const bounds = children.flatMap((id) => {
+    const query = LIMITS[byId.get(id)!.type].query;
+    return query === undefined ? [] : [query];
   });
-  return codePoints.length === 0
-    ? `query limit ${TOOL_QUERY_LIMIT} characters`
-    : `query limit ${Math.min(...codePoints)} characters, under which no child is skipped`;
+  const codePoints = bounds.map((bound) => bound.codePoints);
+  const words = bounds.flatMap((bound) =>
+    bound.words === undefined ? [] : [bound.words],
+  );
+  const bound: QueryBound = {
+    ...(codePoints.length > 0 && { codePoints: Math.min(...codePoints) }),
+    ...(words.length > 0 && { words: Math.min(...words) }),
+  };
+  return `query limit ${boundText(bound)}, under which no child is skipped`;
 }
 
 /** One catalog line: the facts a model needs to choose and bound the engine. */
@@ -91,24 +130,20 @@ function engineEntry(
   if (engine.type === 'model-hosted') kind = 'answer';
   else if (
     engine.type === 'aggregate' &&
-    engine.engines.some((id) => byId.get(id)?.type === 'model-hosted')
+    engine.engines.some((id) => byId.get(id)!.type === 'model-hosted')
   )
     kind = 'results with answers';
 
   let objective: string | undefined;
   if (engine.type !== 'aggregate') objective = OBJECTIVE_USE[engine.type];
   else if (
-    engine.engines.some((id) => {
-      const child = byId.get(id);
-      return child !== undefined && OBJECTIVE_USE[child.type] !== undefined;
-    })
+    engine.engines.some((id) => OBJECTIVE_USE[byId.get(id)!.type] !== undefined)
   )
     objective = 'objective passed to each child that accepts one';
 
   const facts = [
-    engine.type,
     kind,
-    chainPosition(config, engine.id),
+    chainPosition(config, byId, engine.id),
     RECENCY_USE[engine.type],
     engine.type === 'aggregate'
       ? aggregateQueryLimit(byId, engine.engines)
@@ -116,8 +151,10 @@ function engineEntry(
   ];
   if (objective !== undefined) facts.push(objective);
   if (engine.description !== undefined)
-    facts.push(`description ${sanitizeAuthoredText(engine.description)}`);
-  return `- ${sanitizeAuthoredText(engine.id)} [${engine.type}]: ${facts.join('; ')}.`;
+    facts.push(
+      `description: ${catalogValue(engine.description).replace(/\.$/u, '')}`,
+    );
+  return `- ${catalogValue(engine.id)} [${engine.type}]: ${facts.join('; ')}.`;
 }
 
 /**
@@ -130,7 +167,7 @@ function engineEntry(
 export function renderEngineCatalog(
   config: WebSearchConfig | undefined,
 ): string | undefined {
-  if (config === undefined || config.engines.length === 0) return undefined;
+  if (config === undefined) return undefined;
   const byId: EngineIndex = new Map(
     config.engines.map((engine) => [engine.id, engine]),
   );
