@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-27
 
+- A failed, cancelled, or expired turn can be continued from its last completed
+  step: `POST /api/v1/chats/:chatId/messages/:userMessageId/runs` with
+  `{"action": "continue"}` starts a new Run that keeps the reply's completed
+  steps, sends every kept tool result again with the reasoning that authorized
+  it, and runs no kept call a second time. The reply then holds the kept parts
+  followed by the new ones, and the turn's stored context items, model, and
+  effort decide the new request. The web app does not offer the action yet; see
+  [Continue a turn](docs/product/reference/continue-a-turn.md).
 - The chat history read reports the Chat's latest Run beside its messages, with
   that Run's status, follow-up action, model, effort, and accepted permission
   mode, read in the same transaction as the messages so the two never disagree.

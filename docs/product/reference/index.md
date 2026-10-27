@@ -24,6 +24,8 @@ read_when:
 - [Chat location](chat-location.md): how the composer sets a new chat's project
   and working directory, what each chip cell changes, and which entry points
   pre-fill them.
+- [Continue a turn](continue-a-turn.md): when a failed turn can be resumed from
+  its last completed step, what the new Run sends, and what it keeps.
 - [Permission modes](permission-modes.md): what `default` and `bypass` change
   for one Run.
 - [Mutation recovery](mutation-recovery.md): how `edit`, `write`, and `bash`
