@@ -29,6 +29,12 @@
       "type": ["string", "null"],
       "description": "A plain string, or null to explicitly unset (overriding any legacy environment fallback). May embed {env:...}/{path:...} tokens anywhere in the string."
     },
+    "webSearchEngineDescription": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Optional model-facing text for an engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
+    },
     "webSearchEngine": {
       "oneOf": [
         {
@@ -41,14 +47,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "enum": ["brave", "deepseek", "exa", "perplexity"],
               "description": "API-backed web-search engine implementation."
@@ -73,14 +74,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "parallel",
               "description": "Parallel Search API called with the operator's key."
@@ -109,14 +105,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "parallel-mcp",
               "description": "Parallel's hosted, keyless Search MCP endpoint."
@@ -137,14 +128,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "yandex",
               "description": "Yandex Search API called with the operator's key."
@@ -177,14 +163,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "searxng",
               "description": "Operator-controlled SearXNG instance."
@@ -210,14 +191,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "exa-mcp",
               "description": "Exa's hosted MCP web-search endpoint."
@@ -242,14 +218,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "duckduckgo",
               "description": "DuckDuckGo's HTML search endpoint."
@@ -270,14 +241,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "model-hosted",
               "description": "A provider-hosted web-search engine."
@@ -303,14 +269,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
-              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`. One line, without angle brackets, so the generated catalog shows it exactly as `engines` accepts it."
             },
-            "description": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200,
-              "description": "Optional model-facing text for this engine, shown in the generated engine catalog the model reads. Literal text of 1 to 200 characters on one line; no {env:...}/{path:...} interpolation, and never a secret."
-            },
+            "description": { "$ref": "#/$defs/webSearchEngineDescription" },
             "type": {
               "const": "aggregate",
               "description": "Concurrent aggregate of engine children; a model-hosted child also contributes its grounded answer."
