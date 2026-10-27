@@ -54,16 +54,18 @@ export class PromptImportPartsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * The `prompt-imports` item a prior attempt of this Run persisted, so a
-   * retry or worker resumption reuses completed results without rereading.
-   * An item with this producer and Run is authoritative. An unreadable payload
-   * is retained as undefined so an older reader degrades rather than rejecting
-   * a newer writer's part.
+   * The `prompt-imports` item a prior attempt persisted, so a retry or worker
+   * resumption reuses completed results without rereading: of this Run when
+   * `runId` is given, or of any Run of the message when it is not, which is
+   * what a follow-up Run reads so it reads no target again (turn-actions D8).
+   * An item with this producer is authoritative. An unreadable payload is
+   * retained as undefined so an older reader degrades rather than rejecting a
+   * newer writer's part.
    */
-  async findForRun(input: {
+  async find(input: {
     id: string;
     chatId: string;
-    runId: string;
+    runId?: string;
   }): Promise<PromptImportsPart | undefined> {
     const [row] = await this.db
       .select({ parts: messages.parts })
@@ -73,17 +75,13 @@ export class PromptImportPartsRepository {
       ? row.parts
       : [];
     const stored = parts.find((part): part is ContextItemPart =>
-      isRunPromptImportsEnvelope(part, input.runId),
+      input.runId === undefined
+        ? isPromptImportsEnvelope(part)
+        : isRunPromptImportsEnvelope(part, input.runId),
     );
     if (stored === undefined) return undefined;
     if (isPromptImportsPartPayload(stored)) return stored;
-    return {
-      ...stored,
-      data: {
-        ...stored.data,
-        payload: undefined,
-      },
-    };
+    return { ...stored, data: { ...stored.data, payload: undefined } };
   }
 
   /**
@@ -129,10 +127,13 @@ function isRunPromptImportsEnvelope(
   part: unknown,
   runId: string,
 ): part is ContextItemPart {
+  return isPromptImportsEnvelope(part) && part.data.runId === runId;
+}
+
+/** The same envelope test without a Run: any producer item on the message. */
+function isPromptImportsEnvelope(part: unknown): part is ContextItemPart {
   return (
-    isContextItemPart(part) &&
-    part.data.producer === PROMPT_IMPORTS_PRODUCER &&
-    part.data.runId === runId
+    isContextItemPart(part) && part.data.producer === PROMPT_IMPORTS_PRODUCER
   );
 }
 

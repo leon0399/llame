@@ -113,7 +113,7 @@ export type PersistUserMessageAndRunInput = {
   takeCreationLock: boolean;
 };
 
-type ChatMessageStream = Pick<
+export type ChatMessageStream = Pick<
   ReturnType<ModelClient['streamText']>,
   'toUIMessageStreamResponse'
 >;

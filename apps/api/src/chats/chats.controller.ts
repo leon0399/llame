@@ -30,14 +30,13 @@ import {
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
+  getSchemaPath,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { Readable, type Writable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { Response as ExpressResponse } from 'express';
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
-import { ChatLoopService } from './chat-loop.service';
+import { ChatLoopService, type ChatMessageStream } from './chat-loop.service';
+import { FollowUpAdmissionService } from './follow-up-admission.service';
 import { ChatsService } from './chats.service';
 import {
   RunStreamBridgeService,
@@ -53,6 +52,7 @@ import {
   ChatResponse,
   ChatSearchQueryDto,
   ChatSearchResponse,
+  ContinueFollowUpRunDto,
   CreateMessageDto,
   ForkChatDto,
   ListChatsQueryDto,
@@ -63,24 +63,29 @@ import {
 } from './dto/chats.dto';
 import { toChatLatestRunResponse } from './dto/latest-run.dto';
 import {
+  requestAbortSignal,
+  writeWebResponse,
+  type ChatStreamResponse,
+} from './chat-stream-response';
+import {
   CreateFileMessagePartDto,
   CreateTextMessagePartDto,
 } from './dto/message-parts.dto';
 
-const streamLogger = new Logger('ChatStream');
-
 /**
- * DOM's `ReadableStream` type doesn't declare `[Symbol.asyncIterator]` even
- * though the runtime object supports it, and its BYOB-reader overload isn't
- * assignable to `node:stream/web`'s declaration of the same class —
- * `Readable.fromWeb` can't accept it without a cast. Checking async
- * iterability at runtime instead sidesteps both type declarations and lets
- * `Readable.from` (which only needs the iteration protocol) consume it.
+ * The follow-up request body as a discriminated union on `action`: each variant
+ * declares only the fields its action accepts, so a schema-valid `continue`
+ * never carries a model or an effort. A second action adds its variant to the
+ * same `oneOf` and its own `mapping` entry.
  */
-function isAsyncIterable(
-  value: ReadableStream<Uint8Array>,
-): value is ReadableStream<Uint8Array> & AsyncIterable<Uint8Array> {
-  return Symbol.asyncIterator in value;
+function followUpRunBodySchema() {
+  return {
+    oneOf: [{ $ref: getSchemaPath(ContinueFollowUpRunDto) }],
+    discriminator: {
+      propertyName: 'action',
+      mapping: { continue: getSchemaPath(ContinueFollowUpRunDto) },
+    },
+  };
 }
 
 export type ChatsControllerService = Pick<
@@ -107,12 +112,17 @@ export class ChatsController {
     @Inject(ChatLoopService)
     private readonly chatLoopService: Pick<
       ChatLoopService,
-      'createMessageStream'
+      'createMessageStream' | 'finalizeAcceptedRun'
     >,
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
     @Inject(RunStreamBridgeService)
     private readonly bridge: RunStreamResponder,
+    @Inject(FollowUpAdmissionService)
+    private readonly followUpAdmission: Pick<
+      FollowUpAdmissionService,
+      'admitFollowUpRun'
+    >,
   ) {}
 
   /**
@@ -324,22 +334,114 @@ export class ChatsController {
         abortSignal: abort.signal,
       });
 
-      const streamResponse = result.toUIMessageStreamResponse({
-        onError: (error) => {
-          this.logger.error(
-            'Model stream failed',
-            error instanceof Error ? error.stack : String(error),
-          );
-          return 'An error occurred.';
-        },
-      });
-
-      await writeWebResponse(streamResponse, response, abort.signal);
+      await this.answerWithRunStream(response, abort.signal, result);
     } catch (error) {
       throwModelDomainError(error);
     } finally {
       abort.cleanup();
     }
+  }
+
+  // A follow-up Run acts on a turn that already has a Run (turn-actions D1):
+  // Continue resumes the completed steps of a failed, cancelled, or expired
+  // Run, and the answer is the same UI-message stream a chat send returns, so
+  // the client renders the kept parts and the new parts in one assistant
+  // message.
+  @Post(':id/messages/:userMessageId/runs')
+  @ApiOperation({ operationId: 'createChatFollowUpRun' })
+  @ApiTags('streaming')
+  @HttpCode(200)
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'userMessageId', format: 'uuid' })
+  @ApiExtraModels(ContinueFollowUpRunDto)
+  @ApiBody({ schema: followUpRunBodySchema() })
+  @ApiOkResponse({
+    description: 'AI SDK v5 UI-message stream (SSE)',
+    content: {
+      'text/event-stream': {
+        schema: { type: 'string' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Malformed chat or message id, a missing body or action, an unknown ' +
+      'action, or a model or an effort on a continue request',
+  })
+  @ApiUnauthorizedResponse()
+  @ApiNotFoundResponse({
+    description: 'Chat or message not found or not owned',
+  })
+  @ApiConflictResponse({
+    description:
+      'The message is not the latest turn, another run is already in flight ' +
+      'for this chat, or the latest Run and its reply cannot be continued',
+  })
+  @ApiResponse({
+    status: 503,
+    description: 'Model catalog is not configured correctly',
+    type: ModelDomainErrorResponse,
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The Run model is no longer available, or the requested permission mode ' +
+      'is disabled',
+    type: ModelDomainErrorResponse,
+  })
+  async createFollowUpRun(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) chatId: string,
+    @Param('userMessageId', ParseUUIDPipe) userMessageId: string,
+    // The parameter names the value class, so the global validation pipe runs
+    // the DTO's rules and rejects an unknown property or an invalid mode. A
+    // request with no body still reaches the handler as `undefined`: the body
+    // is required, so it is answered as the empty request it is, and the
+    // action check refuses it as a 400.
+    @Body() input: ContinueFollowUpRunDto,
+    @Res() response: ChatStreamResponse,
+  ): Promise<void> {
+    const abort = requestAbortSignal(response);
+    try {
+      const accepted = await this.followUpAdmission.admitFollowUpRun({
+        chatId,
+        userId,
+        userMessageId,
+        // A bodyless request reaches the handler as `undefined` despite the
+        // declared class, so the empty request is what admission judges.
+        request: input ?? {},
+      });
+      const result = await this.chatLoopService.finalizeAcceptedRun({
+        ...accepted,
+        abortSignal: abort.signal,
+      });
+      await this.answerWithRunStream(response, abort.signal, result);
+    } catch (error) {
+      throwModelDomainError(error);
+    } finally {
+      abort.cleanup();
+    }
+  }
+
+  /**
+   * Write one accepted Run's UI-message stream, logging a model failure the
+   * client cannot read. Shared by a chat send and a follow-up request so both
+   * answer the same protocol.
+   */
+  private async answerWithRunStream(
+    response: ChatStreamResponse,
+    abortSignal: AbortSignal,
+    result: ChatMessageStream,
+  ): Promise<void> {
+    const streamResponse = result.toUIMessageStreamResponse({
+      onError: (error: unknown) => {
+        this.logger.error(
+          'Model stream failed',
+          error instanceof Error ? error.stack : String(error),
+        );
+        return 'An error occurred.';
+      },
+    });
+    await writeWebResponse(streamResponse, response, abortSignal);
   }
 
   @Patch(':id')
@@ -419,95 +521,5 @@ export class ChatsController {
       input.fromMessageId,
     );
     return toChatResponse(forked);
-  }
-}
-
-/**
- * Creates an abort signal tied to the request and response lifecycle.
- *
- * @returns The abort signal and a cleanup function that removes the registered listeners.
- */
-type ChatStreamResponse = Writable &
-  Pick<ExpressResponse, 'status' | 'setHeader' | 'headersSent'>;
-
-function requestAbortSignal(response: ChatStreamResponse) {
-  const controller = new AbortController();
-  const abort = () => {
-    if (!controller.signal.aborted) {
-      controller.abort();
-    }
-  };
-  const abortOnResponseClose = () => {
-    if (!response.writableEnded) {
-      abort();
-    }
-  };
-
-  // `response` 'close' fires on client disconnect (before or during streaming) — this is
-  // the reliable abort signal on Node 20+. (The old request 'aborted' event is deprecated
-  // and does not fire reliably, so it is not used.) If the socket is already
-  // gone by registration time, abort immediately — 'close' has already fired.
-  // response.destroyed = the socket is really gone. (request.destroyed is NOT
-  // usable here: a POST whose body stream has been fully consumed can read as
-  // destroyed while the connection is perfectly alive.)
-  if (response.destroyed) {
-    abort();
-  }
-  response.on('close', abortOnResponseClose);
-
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      response.off('close', abortOnResponseClose);
-    },
-  };
-}
-
-/**
- * Writes a web response to an Express response.
- *
- * @param streamResponse - The response to send, including status, headers, and optional body
- * @param response - The Express response to write to
- * @param abortSignal - The abort signal used to suppress errors after cancellation
- */
-async function writeWebResponse(
-  streamResponse: Response,
-  response: ChatStreamResponse,
-  abortSignal: AbortSignal,
-): Promise<void> {
-  response.status(streamResponse.status || 200);
-  streamResponse.headers.forEach((value, key) => {
-    response.setHeader(key, value);
-  });
-
-  if (!streamResponse.body) {
-    response.end();
-    return;
-  }
-
-  try {
-    const body = streamResponse.body;
-    if (!isAsyncIterable(body)) {
-      throw new Error('Expected the response body to be async-iterable');
-    }
-    await pipeline(Readable.from(body), response);
-  } catch (error) {
-    if (abortSignal.aborted) {
-      return;
-    }
-    // A mid-stream failure after the status+headers were flushed cannot be turned into
-    // an HTTP error response — re-throwing would trigger ERR_HTTP_HEADERS_SENT. Log and
-    // destroy the connection instead. (Pre-headers failures still throw → exception filter.)
-    if (response.headersSent) {
-      streamLogger.error(
-        'Stream pipeline failed after headers were sent',
-        error instanceof Error ? error.stack : String(error),
-      );
-      response.destroy(
-        error instanceof Error ? error : new Error(String(error)),
-      );
-      return;
-    }
-    throw error;
   }
 }

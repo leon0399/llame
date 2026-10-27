@@ -36,8 +36,10 @@ export class ActivationPartsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * The skills a prior attempt of this Run already RESOLVED, successfully or
-   * as a recorded failure.
+   * The skills a prior attempt already RESOLVED, successfully or as a recorded
+   * failure — of this Run when `runId` is given, or of any Run of the message
+   * when it is not, which is what a follow-up Run reads so it activates no
+   * skill again (turn-actions D8).
    *
    * Recovery uses this to replay completed observations instead of re-reading:
    * a package or policy change between attempts must not turn a completed
@@ -47,27 +49,23 @@ export class ActivationPartsRepository {
    * A selection the prior attempt never reached is deliberately absent — its
    * omission item named it but recorded no outcome — so recovery retries it.
    */
-  async resolvedSkillsForRun(input: {
+  async resolvedSkills(input: {
     id: string;
     chatId: string;
-    runId: string;
+    runId?: string;
   }): Promise<ReadonlySet<string>> {
     const [row] = await this.db
       .select({ parts: messages.parts })
       .from(messages)
-      .where(
-        and(
-          eq(messages.id, input.id),
-          eq(messages.chatId, input.chatId),
-          eq(messages.role, 'user'),
-        ),
-      );
+      .where(messageOwner(input));
     const parts = Array.isArray(row?.parts) ? row.parts : [];
     const resolved = new Set<string>();
     for (const part of parts) {
       if (!isContextItemPart(part)) continue;
       if (part.data.producer !== ACTIVATION_PRODUCER) continue;
-      if (part.data.runId !== input.runId) continue;
+      if (input.runId !== undefined && part.data.runId !== input.runId) {
+        continue;
+      }
       const kind = part.data.payload['kind'];
       if (kind !== 'activation' && kind !== 'failure') continue;
       const skill: unknown = part.data.payload['skill'];

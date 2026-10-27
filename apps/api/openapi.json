@@ -874,6 +874,108 @@
         "tags": ["chats", "streaming"]
       }
     },
+    "/api/v1/chats/{id}/messages/{userMessageId}/runs": {
+      "post": {
+        "operationId": "createChatFollowUpRun",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "userMessageId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ContinueFollowUpRunDto"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "action",
+                  "mapping": {
+                    "continue": "#/components/schemas/ContinueFollowUpRunDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AI SDK v5 UI-message stream (SSE)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed chat or message id, a missing body or action, an unknown action, or a model or an effort on a continue request"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat or message not found or not owned"
+          },
+          "409": {
+            "description": "The message is not the latest turn, another run is already in flight for this chat, or the latest Run and its reply cannot be continued"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
+          },
+          "422": {
+            "description": "The Run model is no longer available, or the requested permission mode is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Model catalog is not configured correctly",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats", "streaming"]
+      }
+    },
     "/api/v1/chats/{id}/forks": {
       "post": {
         "operationId": "forkChat",
@@ -4961,6 +5063,23 @@
           }
         },
         "required": ["statusCode", "error", "message", "code"]
+      },
+      "ContinueFollowUpRunDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["continue"],
+            "description": "Resume the completed steps of the latest Run and request its next step."
+          },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass"],
+            "description": "Permission mode for this Run; omit for default."
+          }
+        },
+        "required": ["action"],
+        "additionalProperties": false
       },
       "UpdateChatDto": {
         "type": "object",

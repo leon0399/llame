@@ -1,4 +1,4 @@
-import { Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { APICallError, streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
@@ -8,12 +8,17 @@ import {
   ChatsController,
   type ChatsControllerService,
 } from './chats.controller';
-import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
+import {
+  CHAT_MESSAGES_DEFAULT_LIMIT,
+  ContinueFollowUpRunDto,
+} from './dto/chats.dto';
 import type { ChatLoopService } from './chat-loop.service';
+import type { FollowUpAdmissionService } from './follow-up-admission.service';
 import * as schema from '../db/schema';
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
+import { asDouble } from '../testing/support';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
@@ -113,7 +118,14 @@ describe('ChatsController', () => {
     Object.assign(chatsService, service);
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
-    } satisfies Pick<ChatLoopService, 'createMessageStream'>;
+      finalizeAcceptedRun: vi.fn<ChatLoopService['finalizeAcceptedRun']>(),
+    } satisfies Pick<
+      ChatLoopService,
+      'createMessageStream' | 'finalizeAcceptedRun'
+    >;
+    const followUpAdmission = {
+      admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
+    } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
     const tx: Db = drizzle.mock({ schema });
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
@@ -132,9 +144,11 @@ describe('ChatsController', () => {
         chatLoopService,
         tenantDb,
         bridge,
+        followUpAdmission,
       ),
       chatsService,
       chatLoopService,
+      followUpAdmission,
       runAsSpy,
       bridge,
     };
@@ -752,7 +766,14 @@ describe('ChatsController response plumbing', () => {
     } satisfies ChatsControllerService;
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
-    } satisfies Pick<ChatLoopService, 'createMessageStream'>;
+      finalizeAcceptedRun: vi.fn<ChatLoopService['finalizeAcceptedRun']>(),
+    } satisfies Pick<
+      ChatLoopService,
+      'createMessageStream' | 'finalizeAcceptedRun'
+    >;
+    const followUpAdmission = {
+      admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
+    } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
     const tx: Db = drizzle.mock({ schema });
     const tenantDb: TenantRunner = {
       runAs: async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
@@ -769,15 +790,99 @@ describe('ChatsController response plumbing', () => {
         chatLoopService,
         tenantDb,
         bridge,
+        followUpAdmission,
       ),
       chatsService,
       chatLoopService,
+      followUpAdmission,
       runAsSpy,
       bridge,
     };
   }
 
   const chatId = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
+  it('answers a follow-up request with no body as an empty request', async () => {
+    const { controller, followUpAdmission } = makeController();
+    followUpAdmission.admitFollowUpRun.mockRejectedValue(
+      new BadRequestException('action must be continue'),
+    );
+
+    // The body a request without one delivers: the declared class cannot
+    // express it, and an optional field carries its real type.
+    const missingBody = asDouble<{ body?: ContinueFollowUpRunDto }>({}).body;
+
+    await expect(
+      controller.createFollowUpRun(
+        'user',
+        chatId,
+        '9b2f1c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d',
+        // SAFETY: a bodyless request delivers no body; the handler's class type
+        // is what the validation pipeline names it, not what arrives.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        missingBody as ContinueFollowUpRunDto,
+        makeWritableResponse(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // No body is not "no request": the action check refuses it as a 400, where
+    // reading a field off `undefined` would be a 500.
+    expect(followUpAdmission.admitFollowUpRun).toHaveBeenCalledWith(
+      expect.objectContaining({ request: {} }),
+    );
+  });
+
+  it('releases the request listener even when the stream write throws', async () => {
+    const { controller, chatLoopService } = makeController();
+    chatLoopService.createMessageStream.mockRejectedValue(
+      new Error('validation blew up'),
+    );
+    const response = makeWritableResponse();
+    const off = vi.spyOn(response, 'off');
+
+    await expect(
+      controller.createMessage(
+        'user',
+        chatId,
+        { modelId: 'm', message: { id: 'x', parts: [] } },
+        response,
+      ),
+    ).rejects.toThrow('validation blew up');
+
+    // The abort listener is removed in `finally`, so a later close cannot
+    // abort a signal nobody owns.
+    expect(off).toHaveBeenCalledWith('close', expect.any(Function));
+  });
+
+  it('answers a client error frame and logs the model failure', async () => {
+    const { controller, chatLoopService } = makeController();
+    const logger = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const errors: Array<(error: unknown) => string> = [];
+    chatLoopService.createMessageStream.mockResolvedValue({
+      toUIMessageStreamResponse: (given) => {
+        if (given?.onError !== undefined) errors.push(given.onError);
+        return new Response(null);
+      },
+    });
+    const response = makeWritableResponse();
+
+    await controller.createMessage(
+      'user',
+      chatId,
+      { modelId: 'm', message: { id: 'x', parts: [] } },
+      response,
+    );
+
+    expect(errors[0]?.(new Error('provider failed'))).toBe(
+      'An error occurred.',
+    );
+    expect(logger).toHaveBeenCalledWith(
+      'Model stream failed',
+      expect.any(String),
+    );
+  });
+
   it('names the chat in every owner-scoped 404', async () => {
     const { controller } = makeController();
 

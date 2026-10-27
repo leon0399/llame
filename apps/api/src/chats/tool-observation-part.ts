@@ -183,8 +183,9 @@ function isToolActivityPart(part: unknown): part is StoredToolPart {
   );
 }
 
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the compound guard `!isRecord(value) || !isRecord(value.llame)` below -- two type-guard calls combined with `||`, a shape the structural exemption's single-check parse doesn't cover.
-function isCancelledMetadata(value: unknown): boolean {
+/** Whether a stored result's metadata marks it as terminated, not failed. */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- stored result metadata is untyped jsonb, and the two `isRecord` guards inside parse each level before it is read.
+export function isCancelledMetadata(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.llame)) return false;
   return value.llame.cancelled === true;
 }
@@ -206,7 +207,8 @@ function serializePayload(value: unknown, native: boolean): string {
   return JSON.stringify(value ?? null) ?? 'null';
 }
 
-function isNativeToolName(toolName: string): boolean {
+/** The tools whose model output is their own serialization, not JSON. */
+export function isNativeToolName(toolName: string): boolean {
   return toolName === 'read' || toolName === 'edit' || toolName === 'write';
 }
 
@@ -457,42 +459,65 @@ function projectionFromBounded(input: {
   };
 }
 
+/** One stored tool part as the observation the projection works from. */
+function storedObservation(
+  part: MessagePart,
+  partIndex: number,
+): ObservationPayload | undefined {
+  // eslint-disable-next-line anti-slop/no-known-value-widening -- stored parts are the open `MessagePart` union, so the guard must accept it whole and narrow it itself.
+  if (!isToolActivityPart(part)) return undefined;
+  const toolName = part.type.slice(TOOL_PART_PREFIX.length);
+  if (!isToolName(toolName)) return undefined;
+  const outcome = resolveOutcome(part);
+  return {
+    partIndex,
+    toolCallId: part.toolCallId,
+    toolName,
+    outcome,
+    clearedOutcome:
+      Object.hasOwn(PARTIAL_RESULT_TOOL_PARTS, part.type) &&
+      part.state === 'output-available' &&
+      outcome === 'success' &&
+      isRecord(part.output) &&
+      part.output.status === 'success' &&
+      part.output.complete === false
+        ? 'incomplete'
+        : outcome,
+    input: part.input,
+    resultBody: resolveResultBody(
+      part,
+      isNativeToolName(toolName),
+      isHopRejection(toolName, outcome),
+    ),
+    media:
+      toolName === READ_TOOL_NAME && part.state === 'output-available'
+        ? mediaResultRef(part.output, submittedLocator(part.input))
+        : undefined,
+  };
+}
+
 function storedObservations(
   parts: Array<MessagePart>,
 ): Array<ObservationPayload> {
-  const observations: Array<ObservationPayload> = [];
-  parts.forEach((part, partIndex) => {
-    if (!isToolActivityPart(part)) return;
-    const toolName = part.type.slice(TOOL_PART_PREFIX.length);
-    if (!isToolName(toolName)) return;
-    const outcome = resolveOutcome(part);
-    observations.push({
-      partIndex,
-      toolCallId: part.toolCallId,
-      toolName,
-      outcome,
-      clearedOutcome:
-        Object.hasOwn(PARTIAL_RESULT_TOOL_PARTS, part.type) &&
-        part.state === 'output-available' &&
-        outcome === 'success' &&
-        isRecord(part.output) &&
-        part.output.status === 'success' &&
-        part.output.complete === false
-          ? 'incomplete'
-          : outcome,
-      input: part.input,
-      resultBody: resolveResultBody(
-        part,
-        isNativeToolName(toolName),
-        isHopRejection(toolName, outcome),
-      ),
-      media:
-        toolName === READ_TOOL_NAME && part.state === 'output-available'
-          ? mediaResultRef(part.output, submittedLocator(part.input))
-          : undefined,
-    });
+  return parts.flatMap((part, partIndex) => {
+    const observation = storedObservation(part, partIndex);
+    return observation === undefined ? [] : [observation];
   });
-  return observations;
+}
+
+/**
+ * One stored tool part as its model-facing call and result pair, unbudgeted:
+ * the Continue projection sends every kept result the way the live loop sent
+ * it (turn-actions D6), so it shares this file's serialization instead of the
+ * later-turn projection's clearing and omission. Undefined for a part that is
+ * not a settled tool part.
+ */
+export function projectStoredToolPart(
+  part: MessagePart,
+  partIndex: number,
+): ProjectedToolObservationPair | undefined {
+  const observation = storedObservation(part, partIndex);
+  return observation === undefined ? undefined : makePair(observation, false);
 }
 
 export function projectToolObservations(

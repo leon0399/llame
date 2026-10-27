@@ -1,3 +1,4 @@
+import { keptPartEvents } from './kept-parts-events';
 import { toolTerminationMessage } from './tool-settlement';
 /**
  * Run-event → AI SDK UI-message stream bridge (#50, SPEC §9.4/§9.5).
@@ -12,72 +13,17 @@ import { toolTerminationMessage } from './tool-settlement';
 import { Injectable } from '@nestjs/common';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
+import {
+  payloadField,
+  payloadNumber,
+  payloadString,
+  type RunEventLike,
+  type UiChunk,
+} from './run-event-chunks';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { isSystemOriginPayload } from './tool-activity-origin';
 import { isTerminalRunStatus } from './run-status';
-
-/** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
-export type UiChunk =
-  | { type: 'start'; messageId: string }
-  | { type: 'text-start'; id: string }
-  | { type: 'text-delta'; id: string; delta: string }
-  | { type: 'text-end'; id: string }
-  | { type: 'reasoning-start'; id: string }
-  | { type: 'reasoning-delta'; id: string; delta: string }
-  | { type: 'reasoning-end'; id: string }
-  | { type: 'message-metadata'; messageMetadata: unknown }
-  | {
-      type: 'tool-input-available';
-      toolCallId: string;
-      toolName: string;
-      input: unknown;
-      dynamic: true;
-    }
-  | {
-      type: 'tool-output-available';
-      toolCallId: string;
-      output: unknown;
-      dynamic: true;
-    }
-  | {
-      type: 'tool-output-error';
-      toolCallId: string;
-      errorText: string;
-      providerMetadata?: { llame: { cancelled: true } };
-      dynamic: true;
-    }
-  | {
-      type: 'data-cap-notice';
-      data: { stepsUsed: number; maxSteps: number };
-    }
-  | { type: 'error'; errorText: string }
-  | { type: 'finish'; finishReason: 'stop' };
-
-export interface RunEventLike {
-  eventType: string;
-  payload: unknown;
-}
-
-/** Raw field off an unknown object payload — the one null-guard every reader shares. */
-function payloadField(payload: unknown, key: string) {
-  if (!isRecord(payload)) {
-    return undefined;
-  }
-  return payload[key];
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
-function payloadString(payload: unknown, key: string): string | undefined {
-  const value = payloadField(payload, key);
-  return isString(value) ? value : undefined;
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `payloadField` above, which validates via `!isRecord(payload)` as its own first statement; bare-identifier delegation, not itself a validating call.
-function payloadNumber(payload: unknown, key: string): number | undefined {
-  const value = payloadField(payload, key);
-  return isNumber(value) ? value : undefined;
-}
 
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
@@ -206,6 +152,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         return this.onToolCompleted(event);
       case 'run.step_cap_reached':
         return this.onStepCapReached(event);
+      case 'run.continued':
+        return this.onRunContinued(event);
       case 'run.completed':
       case 'run.cancelled':
         return this.onRunTerminated(event);
@@ -216,6 +164,23 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       default:
         return [];
     }
+  }
+
+  /**
+   * The kept parts of a Continue Run (turn-actions D5), replayed through the
+   * same handlers and counters every other chunk uses: the parts are decoded
+   * into the events that produced them, so the kept text, reasoning, and tool
+   * chunks cannot drift from the live ones. A kept item has no chunk of its
+   * own — the client sees it when it adopts the finalized history.
+   */
+  private onRunContinued(event: RunEventLike): Array<UiChunk> {
+    const parts = payloadField(event.payload, 'parts');
+    if (!Array.isArray(parts)) return [];
+    const chunks = this.prelude();
+    for (const kept of keptPartEvents(parts)) {
+      chunks.push(...this.translate(kept));
+    }
+    return chunks;
   }
 
   private onModelDelta(event: RunEventLike): Array<UiChunk> {

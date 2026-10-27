@@ -12,6 +12,7 @@ import { type Db } from '../db/tenant-db.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
+import type { ToolResult } from '../tools/types';
 
 /** The follow-up identity of a Run that admission creates. */
 export type FollowUpRunInput = {
@@ -19,6 +20,10 @@ export type FollowUpRunInput = {
   sourceRunId: string;
   /** The reply's parts through its last settled tool part. */
   keptParts: Array<unknown>;
+  /** The source Run's `toolCallId -> stepNumber` map for those kept calls. */
+  keptStepNumbers: Record<string, number>;
+  /** The model-facing result the source Run sent the model for each kept call. */
+  keptResults: Record<string, ToolResult>;
   /** Whether the replaced reply already recorded usage. */
   replacesUsage: boolean;
 };
@@ -73,6 +78,11 @@ export async function createRunForMessage(
     await eventsRepo.append(run.id, 'run.continued', {
       sourceRunId: input.followUp.sourceRunId,
       parts: input.followUp.keptParts,
+      // Two sequential steps with no text between them stay two steps in the
+      // Continue projection (turn-actions D6); a source Run recorded before
+      // step numbers existed stores an empty map.
+      steps: input.followUp.keptStepNumbers,
+      results: input.followUp.keptResults,
     });
   }
 

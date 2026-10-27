@@ -15,6 +15,7 @@ import {
   desc,
   eq,
   gt,
+  inArray,
   isNotNull,
   isNull,
   lt,
@@ -66,6 +67,11 @@ function markFinishedUpdate(
     update.completedAttemptId = options.attemptId;
   }
   return update;
+}
+
+/** A Run whose dispatch transaction ran: it wrote its availability record. */
+function dispatchedRunPredicate(): SQL {
+  return sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`;
 }
 
 /**
@@ -191,6 +197,87 @@ export class RunsRepository {
   }
 
   /**
+   * The completed Run that produced the newest reply before `beforeSeq`: the
+   * Run that reply's usage names, or the most recent completed turn when the
+   * usage names none. A reply a later Run replaced still names the Run that
+   * produced the answer the model read, which is the source compaction's model
+   * and receipt come from (model-system-prompts).
+   */
+  async findCompletedReplyRunBefore(
+    chatId: string,
+    userId: string,
+    options: { beforeSeq: number },
+  ): Promise<CompletedRunWithTrigger | undefined> {
+    const namedRunId = await this.findLatestReplyRunIdBefore(
+      chatId,
+      userId,
+      options.beforeSeq,
+    );
+    if (namedRunId !== undefined) {
+      const named = await this.findById(namedRunId, userId);
+      // The same link the sequence lookup requires: a completed Run records the
+      // attempt that produced its answer, and only that Run's receipt describes
+      // the context the model read.
+      if (named?.status === 'completed' && named.completedAttemptId !== null) {
+        const trigger = await this.findTriggerSeq(chatId, named.messageId);
+        if (trigger !== undefined) {
+          return { run: named, triggeringUserSeq: trigger };
+        }
+      }
+    }
+    return this.findMostRecentCompletedByChatMessageSequence(
+      chatId,
+      userId,
+      options,
+    );
+  }
+
+  /** The Run named by the newest reply's usage before `beforeSeq`. */
+  private async findLatestReplyRunIdBefore(
+    chatId: string,
+    userId: string,
+    beforeSeq: number,
+  ): Promise<string | undefined> {
+    const runId = sql<string>`(${messages.usage} ->> 'runId')`;
+    const [row] = await this.db
+      .select({ runId })
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, userId),
+          eq(messages.role, 'assistant'),
+          lt(messages.seq, beforeSeq),
+          isNotNull(runId),
+        ),
+      )
+      .orderBy(desc(messages.seq))
+      .limit(1);
+    return row?.runId;
+  }
+
+  /** The sequence of the triggering user message a reply answers. */
+  private async findTriggerSeq(
+    chatId: string,
+    messageId: string | null,
+  ): Promise<number | undefined> {
+    if (messageId === null) return undefined;
+    const [row] = await this.db
+      .select({ seq: messages.seq })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.id, messageId),
+          eq(messages.chatId, chatId),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .limit(1);
+    return row?.seq;
+  }
+
+  /**
    * Most recent dispatched run by triggering-message sequence: one whose
    * dispatch transaction wrote its availability record (`[]` included), or one
    * that completed, which covers runs older than the record. A run that ended
@@ -205,7 +292,7 @@ export class RunsRepository {
       chatId,
       userId,
       options,
-      sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`,
+      dispatchedRunPredicate(),
     );
   }
 
@@ -216,6 +303,34 @@ export class RunsRepository {
       .from(runs)
       .where(and(eq(runs.chatId, chatId), eq(runs.userId, userId)))
       .orderBy(asc(runs.createdAt));
+  }
+
+  /**
+   * The most recent dispatched Run of one triggering message itself, or the
+   * most recent dispatched turn before it when the message's Runs never
+   * dispatched (turn-actions D8). A follow-up Run compares tool availability
+   * with the earlier Run of its own message, which a sequence-bounded lookup
+   * can never reach.
+   */
+  async findDispatchedBaselineForTurn(
+    chatId: string,
+    userId: string,
+    turn: { messageId: string; beforeSeq: number },
+  ): Promise<CompletedRunWithTrigger | undefined> {
+    return (
+      (await this.findMostRecentByMessageSequence(
+        chatId,
+        userId,
+        undefined,
+        dispatchedRunPredicate(),
+        eq(runs.messageId, turn.messageId),
+      )) ??
+      (await this.findMostRecentDispatchedByChatMessageSequence(
+        chatId,
+        userId,
+        { beforeSeq: turn.beforeSeq },
+      ))
+    );
   }
 
   /**
@@ -500,18 +615,50 @@ export class RunEventsRepository {
   }
 
   /**
+   * The first event of `eventType` this Run holds, or undefined. Owner-scoped
+   * like every read here; used for the single `run.created` and
+   * `run.continued` events a Run has.
+   */
+  async findFirstByType(
+    runId: string,
+    userId: string,
+    eventType: RunEventType,
+  ): Promise<RunEvent | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(runEvents)
+      .innerJoin(runs, eq(runEvents.runId, runs.id))
+      .where(
+        and(
+          eq(runEvents.runId, runId),
+          eq(runs.userId, userId),
+          eq(runEvents.eventType, eventType),
+        ),
+      )
+      .orderBy(asc(runEvents.sequence))
+      .limit(1);
+    return row?.run_events;
+  }
+
+  /**
    * Cursor read for replay (SPEC §9.4): events for a run, sequence-ascending,
    * strictly after `afterSequence` when given. Owner-scoped via join to runs.
    */
   async listByRunId(
     runId: string,
     userId: string,
-    options?: { afterSequence?: number },
+    options?: {
+      afterSequence?: number;
+      eventTypes?: ReadonlyArray<RunEventType>;
+    },
   ): Promise<Array<RunEvent>> {
     const predicates = [eq(runEvents.runId, runId), eq(runs.userId, userId)];
 
     if (options?.afterSequence !== undefined) {
       predicates.push(gt(runEvents.sequence, options.afterSequence));
+    }
+    if (options?.eventTypes !== undefined) {
+      predicates.push(inArray(runEvents.eventType, [...options.eventTypes]));
     }
 
     const rows = await this.db

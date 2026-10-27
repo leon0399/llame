@@ -120,6 +120,26 @@ class AssistantPartCollectorImpl {
   // whatever part is open (design D15).
   private readonly reasoningPartIndexes = new Map<string, number>();
 
+  /**
+   * Start the transcript from the parts an earlier Run kept (turn-actions D5),
+   * so every terminal writer of a Continue Run persists the kept parts once,
+   * ahead of its own. Each seeded call counts as settled, so a duplicate
+   * settlement cannot replace it. The kept boundary ends on a settled tool part
+   * or an in-Run item, so no later text or reasoning delivery merges into a
+   * seeded part.
+   */
+  seed(parts: ReadonlyArray<MessagePart>): void {
+    for (const part of parts) {
+      // Stored jsonb is untrusted: an entry that is not an object contributes
+      // nothing, and must not break the transcript the Run writes.
+      if (!isRecord(part)) continue;
+      this.collected.push(part);
+      if (isString(part['toolCallId'])) {
+        this.settledToolCallIds.add(part['toolCallId']);
+      }
+    }
+  }
+
   text(text: string): void {
     if (text.length === 0) return;
     const last = this.collected.at(-1);

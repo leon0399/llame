@@ -695,10 +695,7 @@ function mockNormalExecutionRepositories() {
   // The measurement source: absent unless a case installs a completed
   // predecessor, so the whole request is estimated instead.
   const findCompleted = vi
-    .spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    )
+    .spyOn(RunsRepository.prototype, 'findCompletedReplyRunBefore')
     .mockResolvedValue(undefined);
   // The epoch and availability baseline: absent unless a case installs a
   // dispatched predecessor.
@@ -711,10 +708,9 @@ function mockNormalExecutionRepositories() {
   const hasMutation = vi
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
-  vi.spyOn(
-    PromptImportPartsRepository.prototype,
-    'findForRun',
-  ).mockResolvedValue(undefined);
+  vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue(
+    undefined,
+  );
   vi.spyOn(
     PromptImportPartsRepository.prototype,
     'appendForRun',
@@ -2030,7 +2026,7 @@ describe('RunExecutionService executeRun', () => {
         .mockResolvedValue(undefined);
       vi.spyOn(
         ActivationPartsRepository.prototype,
-        'resolvedSkillsForRun',
+        'resolvedSkills',
       ).mockResolvedValue(new Set());
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2081,7 +2077,7 @@ describe('RunExecutionService executeRun', () => {
       mockNormalExecutionRepositories();
       vi.spyOn(
         ActivationPartsRepository.prototype,
-        'resolvedSkillsForRun',
+        'resolvedSkills',
       ).mockResolvedValue(new Set());
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2173,7 +2169,7 @@ describe('RunExecutionService executeRun', () => {
           sourceRunId: null,
         });
         const resolved = vi
-          .spyOn(ActivationPartsRepository.prototype, 'resolvedSkillsForRun')
+          .spyOn(ActivationPartsRepository.prototype, 'resolvedSkills')
           .mockResolvedValue(new Set());
         const appendActivation = vi
           .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2222,7 +2218,7 @@ describe('RunExecutionService executeRun', () => {
     mockNormalExecutionRepositories();
     vi.spyOn(
       ActivationPartsRepository.prototype,
-      'resolvedSkillsForRun',
+      'resolvedSkills',
     ).mockResolvedValue(new Set());
     const appendActivation = vi
       .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -2276,7 +2272,7 @@ describe('RunExecutionService executeRun', () => {
       });
       vi.spyOn(
         ActivationPartsRepository.prototype,
-        'resolvedSkillsForRun',
+        'resolvedSkills',
       ).mockResolvedValue(new Set());
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
@@ -5874,6 +5870,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolCallId: 'call-1',
       toolName: toolDeclaration.id,
       input: { q: 'llame' },
+      stepNumber: 0,
       permission: allowDecision(toolDeclaration.id),
     });
     expect(appended[4]?.payload).toStrictEqual({
@@ -6253,6 +6250,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolCallId: 'call-1',
       toolName: toolDeclaration.id,
       input: { q: 'llame' },
+      stepNumber: 0,
       permission: {
         policyId: 'restarted-policy',
         decision: 'reject',
@@ -7675,6 +7673,387 @@ describe('RunExecutionService executeRun — context preparation', () => {
     await expect(
       execution.service.executeRun(executionInput(capturing.client)),
     ).rejects.toThrow('Tool "web_search" description rendered empty.');
+  });
+});
+
+/**
+ * A Continue Run's first request and the turn rules around it: it sends the
+ * kept steps after the trigger, reuses the turn's stored items instead of
+ * authoring them again, and records its own usage.
+ */
+describe('RunExecutionService executeRun — a Continue Run', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const KEPT_CALL = 'call-kept';
+  const SOURCE_RUN = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const previousMessageId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc';
+
+  /** The skill-activation read, captured once per case. */
+  let resolvedSkills: MockInstance;
+
+  /** One settled read, with the reasoning and text that produced it. */
+  const keptParts = [
+    { type: 'reasoning', text: 'kept thinking' },
+    { type: 'text', text: 'reading the file' },
+    {
+      type: 'tool-read',
+      toolCallId: KEPT_CALL,
+      state: 'output-available',
+      input: { path: '/tmp/file.txt' },
+      output: { status: 'success', text: 'file body' },
+      outcome: 'success',
+    },
+  ];
+
+  /** The Run's own events: its creation, which carries the flag, and its chain. */
+  function serveRunEvents(replacesUsage: boolean) {
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _userId, eventType) =>
+      Promise.resolve(
+        eventType === 'run.created'
+          ? {
+              sequence: 1,
+              runId,
+              eventType: 'run.created',
+              payload: { chatId, messageId, replacesUsage },
+              createdAt: now,
+            }
+          : {
+              sequence: 2,
+              runId,
+              eventType: 'run.continued',
+              payload: {
+                sourceRunId: SOURCE_RUN,
+                parts: keptParts,
+                steps: { [KEPT_CALL]: 0 },
+                results: {},
+              },
+              createdAt: now,
+            },
+      ),
+    );
+    return vi.spyOn(RunEventsRepository.prototype, 'findFirstByType');
+  }
+
+  /** The import read, captured once per case. */
+  let promptImportFind: MockInstance;
+
+  async function executeContinue(
+    options: {
+      replacesUsage?: boolean;
+      allowed?: ReadonlyArray<string>;
+      historyParts?: Array<unknown>;
+      contextWindowTokens?: number;
+      /** The earlier Run of the same turn, as the follow-up baseline lookup. */
+      priorTurnRun?: Run;
+      skillDirectories?: ReadonlyArray<string>;
+      skillCatalog?: SkillCatalogPort;
+      model?: SystemModelCatalogEntry;
+      receipts?: ReadonlyArray<{ attemptId: string }>;
+      triggerText?: string;
+    } = {},
+  ) {
+    const spies = mockNormalExecutionRepositories();
+    promptImportFind = vi.spyOn(PromptImportPartsRepository.prototype, 'find');
+    resolvedSkills = vi.spyOn(
+      ActivationPartsRepository.prototype,
+      'resolvedSkills',
+    );
+    resolvedSkills.mockResolvedValue(new Set());
+    if (options.receipts !== undefined) {
+      // Only the receipt's attempt id decides completeness here.
+      vi.spyOn(
+        SystemPromptReceiptsRepository.prototype,
+        'findByOwnedRun',
+      ).mockResolvedValue(
+        options.receipts.map((receipt) => ({
+          id: `receipt-${receipt.attemptId}`,
+          runId,
+          attemptId: receipt.attemptId,
+          ownerUserId: userId,
+          source: 'model_override' as const,
+          promptHash: 'hash',
+          systemPrompt: 'prompt',
+          createdAt: now,
+        })),
+      );
+    }
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(
+      options.priorTurnRun === undefined
+        ? undefined
+        : { run: options.priorTurnRun, triggeringUserSeq: 2 },
+    );
+    spies.markFinished.mockResolvedValue({
+      ...run,
+      status: 'completed',
+      followUpAction: 'continue',
+      sourceRunId: SOURCE_RUN,
+    });
+    const findFirstByType = serveRunEvents(options.replacesUsage ?? true);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...userMessage,
+        seq: 2,
+        parts: options.historyParts ?? [{ type: 'text', text: 'hello' }],
+      },
+    ]);
+    const updateReply = vi
+      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
+      .mockResolvedValue(undefined);
+    const capturing = makeCapturingClient(options.contextWindowTokens);
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      options.allowed === undefined ? {} : { allowed: options.allowed },
+    );
+    const result = await execution.service.executeRun({
+      ...executionInput(capturing.client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+      followUpAction: 'continue',
+    });
+    return {
+      spies,
+      capturing,
+      execution,
+      result,
+      updateReply,
+      findFirstByType,
+    };
+  }
+
+  it('sends the kept steps after the trigger', async () => {
+    const { capturing } = await executeContinue();
+
+    const messages = capturing.streamOptions().messages;
+    expect(messages.slice(-2).map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+    ]);
+    expect(JSON.stringify(messages.slice(-2))).toContain('file body');
+  });
+
+  it("reads the turn's prompt imports without a Run id", async () => {
+    await executeContinue({ allowed: ['read'] });
+
+    // The import resolution reads the whole turn; only the instruction triggers
+    // of this Run's own item name it.
+    const calls = promptImportFind.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.some(([arg]) => !('runId' in arg))).toBe(true);
+  });
+
+  it('appends its items instead of authoring a second temporal one', async () => {
+    const stored = createTemporalItem({
+      runId: SOURCE_RUN,
+      instant: new Date('2026-10-27T10:00:00.000Z'),
+      timeZone: 'UTC',
+    });
+    const { spies } = await executeContinue({
+      historyParts: [{ type: 'text', text: 'hello' }, stored],
+      // The earlier Run of this turn dispatched, so the turn's items are told.
+      priorTurnRun: { ...run, messageId, turnToolAvailability: [] },
+    });
+
+    const stored0 = spies.storeAtDispatch.mock.calls[0]?.[0];
+    expect(stored0?.placement).toBe('append');
+    expect(
+      stored0?.items.filter((item) => item.data.producer === 'temporal'),
+    ).toEqual([]);
+  });
+
+  it('finalizes its own usage as incomplete when it replaced recorded usage', async () => {
+    const { spies, capturing } = await executeContinue({
+      replacesUsage: true,
+    });
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    // The reply's usage names this Run and records that it replaced one.
+    const written = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+    expect(written?.usage).toMatchObject({ runId, complete: false });
+  });
+
+  it("reads the turn's prompt imports scoped to its own Run on a plain Run", async () => {
+    mockNormalExecutionRepositories();
+    const find = vi.spyOn(PromptImportPartsRepository.prototype, 'find');
+    find.mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'hello' }] },
+    ]);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['read'],
+      },
+    );
+
+    await execution.service.executeRun({
+      ...executionInput(capturing.client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+    });
+
+    // A plain Run reuses what its own earlier attempt imported, not another
+    // Run's item.
+    expect(find.mock.calls[0]?.[0]).toEqual({
+      id: messageId,
+      chatId,
+      runId,
+    });
+  });
+
+  it('authors a temporal item on a plain Run whose baseline is an earlier turn', async () => {
+    const spies = mockNormalExecutionRepositories();
+    // The baseline is the turn before this one, so this turn has not told the
+    // model its own items yet.
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentDispatchedByChatMessageSequence',
+    ).mockResolvedValue({
+      run: { ...run, id: 'previous-run', messageId: previousMessageId },
+      triggeringUserSeq: 1,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'hello' }] },
+    ]);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun({
+      ...executionInput(capturing.client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+    });
+
+    const stored = spies.storeAtDispatch.mock.calls[0]?.[0];
+    expect(
+      stored?.items.filter((item) => item.data.producer === 'temporal'),
+    ).toHaveLength(1);
+  });
+
+  it('authors a temporal item on a follow-up whose baseline is an earlier turn', async () => {
+    const previousMessageId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc';
+    const spies = mockNormalExecutionRepositories();
+    spies.markFinished.mockResolvedValue({
+      ...run,
+      status: 'completed',
+      followUpAction: 'continue',
+    });
+    serveRunEvents(false);
+    // The earlier Run of *another* turn dispatched; this turn has not.
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue({
+      run: { ...run, id: 'previous-run', messageId: previousMessageId },
+      triggeringUserSeq: 1,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'hello' }] },
+    ]);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun({
+      ...executionInput(capturing.client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+      followUpAction: 'continue',
+    });
+
+    const stored = spies.storeAtDispatch.mock.calls[0]?.[0];
+    expect(
+      stored?.items.filter((item) => item.data.producer === 'temporal'),
+    ).toHaveLength(1);
+  });
+
+  it('records complete usage when its admission recorded no replaced usage', async () => {
+    const { spies, capturing } = await executeContinue({
+      replacesUsage: false,
+      receipts: [],
+    });
+    capturing.streamOptions().onRequestUsage?.(ZERO_USAGE, 1);
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const stored = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+    expect(stored?.usage).toMatchObject({ runId, complete: true });
+  });
+
+  it('consults the replaced-usage flag only for a follow-up Run', async () => {
+    mockNormalExecutionRepositories();
+    // The plain Run completed; the flag a follow-up admission writes is not
+    // this Run's business, so its finalization never looks for `run.created`.
+    const findFirstByType = serveRunEvents(true);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'hello' }] },
+    ]);
+    vi.spyOn(
+      SystemPromptReceiptsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue([]);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      findFirstByType.mock.calls.filter(([, , type]) => type === 'run.created'),
+    ).toEqual([]);
+  });
+
+  it('reads its own creation when it follows up an earlier Run', async () => {
+    const { findFirstByType, capturing } = await executeContinue({
+      replacesUsage: true,
+    });
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      findFirstByType.mock.calls.filter(([, , type]) => type === 'run.created'),
+    ).toHaveLength(1);
   });
 });
 
@@ -12006,7 +12385,7 @@ describe('RunExecutionService instruction files', () => {
       const repositories = mockNormalExecutionRepositories();
       const append = vi.spyOn(RunEventsRepository.prototype, 'append');
       const findPromptImports = vi
-        .spyOn(PromptImportPartsRepository.prototype, 'findForRun')
+        .spyOn(PromptImportPartsRepository.prototype, 'find')
         .mockResolvedValue(undefined);
       const { client } = readThenAnswerClient(touch);
       const execution = makeExecutionService(client, undefined, undefined, {
@@ -12950,10 +13329,7 @@ describe('RunExecutionService instruction files', () => {
     if (!isPromptImportsPayload(payload)) {
       throw new Error('the stored item must carry a valid payload');
     }
-    vi.spyOn(
-      PromptImportPartsRepository.prototype,
-      'findForRun',
-    ).mockResolvedValue({
+    vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue({
       ...item,
       data: {
         ...item.data,
@@ -13241,7 +13617,7 @@ describe('RunExecutionService prompt imports', () => {
       undefined,
     );
     const find = vi
-      .spyOn(PromptImportPartsRepository.prototype, 'findForRun')
+      .spyOn(PromptImportPartsRepository.prototype, 'find')
       .mockResolvedValue(undefined);
     const append = vi
       .spyOn(PromptImportPartsRepository.prototype, 'appendForRun')

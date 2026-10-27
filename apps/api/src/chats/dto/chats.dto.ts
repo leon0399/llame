@@ -206,6 +206,33 @@ export class CreateMessageDto {
   message!: CreateMessageBodyDto;
 }
 
+/**
+ * `POST /chats/:chatId/messages/:userMessageId/runs` body for `continue`: it
+ * resumes the completed steps of a failed, cancelled, or expired Run and takes
+ * the model and the effort from that Run, so the schema has no field to send
+ * either. A body that names one is not this variant, and the global validation
+ * pipe rejects the unknown property.
+ */
+export class ContinueFollowUpRunDto {
+  @ApiProperty({
+    enum: ['continue'],
+    description:
+      'Resume the completed steps of the latest Run and request its next step.',
+  })
+  @IsIn(['continue'])
+  action!: 'continue';
+
+  // ValidateIf (not IsOptional), for the reason `CreateMessageDto` states: an
+  // explicit null is malformed, while absence is the only "not sent".
+  @ApiPropertyOptional({
+    enum: PERMISSION_MODES,
+    description: 'Permission mode for this Run; omit for default.',
+  })
+  @ValidateIf((o: ContinueFollowUpRunDto) => o.permissionMode !== undefined)
+  @IsIn(PERMISSION_MODES)
+  permissionMode?: PermissionMode;
+}
+
 export class ChatResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
