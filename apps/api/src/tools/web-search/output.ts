@@ -343,9 +343,10 @@ type ResultsTrim = {
 
 /** The current rendering of a trimmed results output, notes included. */
 function renderTrimmed(trim: ResultsTrim): WebSearchSuccess {
+  const { answers: _initialAnswers, ...initial } = trim.initial;
   return withNotes(
     {
-      ...trim.initial,
+      ...initial,
       results: trim.results,
       ...(trim.answers.length > 0 && { answers: trim.answers }),
     },

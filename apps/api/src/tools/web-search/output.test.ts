@@ -522,6 +522,24 @@ it('drops whole attached answers from the end last', () => {
   ]);
 });
 
+it('drops every attached answer when none fits', () => {
+  const output = normalizeSearchOutput(
+    {
+      ...resultsSource([]),
+      answers: ['one', 'two'].map((engine) =>
+        attachedAnswer(engine, '"'.repeat(8000), [
+          { url: 'https://example.test/cited' },
+        ]),
+      ),
+    },
+    10,
+  );
+  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers).toBeUndefined();
+  expect(output.notes).toContain('2 answers dropped to fit the output limit');
+});
+
 const longUrl = (stem: string, length: number): string =>
   `https://example.test/${stem}${'u'.repeat(length - 'https://example.test/'.length - stem.length)}`;
 const attachedAnswers = (
