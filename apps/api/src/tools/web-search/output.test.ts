@@ -465,7 +465,7 @@ it('drops results before the text of an attached answer', () => {
     true,
   );
   expect(output.notes).not.toContain('1 answer cut to fit the output limit');
-  expect(output.notes?.some((note) => /answers dropped/u.test(note))).toBe(
+  expect(output.notes?.some((note) => /answers? dropped/u.test(note))).toBe(
     false,
   );
 });
@@ -520,4 +520,190 @@ it('drops whole attached answers from the end last', () => {
   expect(output.notes).toEqual([
     `${dropped} ${dropped === 1 ? 'answer' : 'answers'} dropped to fit the output limit`,
   ]);
+});
+
+const longUrl = (stem: string, length: number): string =>
+  `https://example.test/${stem}${'u'.repeat(length - 'https://example.test/'.length - stem.length)}`;
+const attachedAnswers = (
+  ...entries: ReadonlyArray<{
+    engine: string;
+    answer: string;
+    citations: ReadonlyArray<RawCitation>;
+  }>
+) => ({ ...resultsSource([]), answers: entries });
+
+it('cuts only the last answer’s text', () => {
+  const output = normalizeSearchOutput(
+    attachedAnswers(
+      attachedAnswer('a', 'a'.repeat(8000), [
+        { url: 'https://example.test/short' },
+      ]),
+      attachedAnswer('b', 'b'.repeat(3000), [{ url: longUrl('b', 2048) }]),
+      attachedAnswer('c', 'c'.repeat(3000), [{ url: longUrl('c', 1000) }]),
+    ),
+    10,
+  );
+  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  const answers = output.answers ?? [];
+  expect(answers.map((entry) => entry.engine)).toEqual(['a', 'b', 'c']);
+  // The earlier answers keep their whole text; only the last one is cut.
+  expect(answers[0].answer).toHaveLength(8000);
+  expect(answers[1].answer).toHaveLength(3000);
+  expect(answers[2].answer.length).toBeGreaterThan(0);
+  expect(answers[2].answer.length).toBeLessThan(3000);
+  expect(output.notes).toEqual(['1 answer cut to fit the output limit']);
+});
+
+it('stops the text step when the last answer cannot fit emptied', () => {
+  const output = normalizeSearchOutput(
+    attachedAnswers(
+      attachedAnswer('a', 'a'.repeat(8000), [
+        { url: 'https://example.test/short' },
+      ]),
+      attachedAnswer('b', 'b'.repeat(3000), [{ url: longUrl('b', 2048) }]),
+      attachedAnswer('c', 'c'.repeat(3000), [{ url: longUrl('c', 2048) }]),
+    ),
+    10,
+  );
+  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  const answers = output.answers ?? [];
+  // The whole last answer goes instead of cutting an earlier one.
+  expect(answers.map((entry) => entry.engine)).toEqual(['a', 'b']);
+  expect(answers[0].answer).toHaveLength(8000);
+  expect(answers[1].answer).toHaveLength(3000);
+  expect(output.notes).toEqual(['1 answer dropped to fit the output limit']);
+});
+
+it('does not cut an attached answer inside a bare URL', () => {
+  const filler = 'a'.repeat(7900);
+  const output = normalizeSearchOutput(
+    attachedAnswers(
+      attachedAnswer(
+        'a',
+        `${filler} https://example.test/${'u'.repeat(300)} tail`,
+        [{ url: 'https://example.test/short' }],
+      ),
+    ),
+    10,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  // 8,000 units falls inside the URL, so the bound moves back to before it.
+  expect(output.answers?.[0]?.answer).toBe(`${filler} `);
+});
+
+it('does not cut an attached answer inside a Markdown link', () => {
+  const filler = 'a'.repeat(7900);
+  const output = normalizeSearchOutput(
+    attachedAnswers(
+      attachedAnswer(
+        'a',
+        `${filler} [Docs](https://example.test/${'u'.repeat(300)}) tail`,
+        [{ url: 'https://example.test/short' }],
+      ),
+    ),
+    10,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers?.[0]?.answer).toBe(`${filler} `);
+});
+
+it('notes each attached answer cut to the answer bound', () => {
+  const output = normalizeSearchOutput(
+    attachedAnswers(
+      attachedAnswer('a', 'a'.repeat(9000), [
+        { url: 'https://example.test/a' },
+      ]),
+    ),
+    10,
+  );
+  expect(output).toMatchObject({
+    notes: ['answer truncated to 8000 characters'],
+  });
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers?.[0]?.answer).toHaveLength(8000);
+});
+
+it('counts the attached answers cut to the answer bound', () => {
+  const output = normalizeSearchOutput(
+    attachedAnswers(
+      attachedAnswer('a', 'a'.repeat(9000), [
+        { url: 'https://example.test/a' },
+      ]),
+      attachedAnswer('b', 'b'.repeat(9000), [
+        { url: 'https://example.test/b' },
+      ]),
+    ),
+    10,
+  );
+  expect(output.notes).toContain('2 answers truncated to 8000 characters');
+  expect(
+    output.notes?.filter((note) => note.includes('truncated')),
+  ).toHaveLength(1);
+});
+
+it('canonicalizes and bounds the citations of an attached answer', () => {
+  const output = normalizeSearchOutput(
+    attachedAnswers(
+      attachedAnswer('a', 'text', [
+        { url: 'https://Example.com/A#top', title: 'A' },
+        { url: 'javascript:alert(1)' },
+        { url: 'https://example.com/A' },
+      ]),
+    ),
+    10,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers?.[0]?.citations).toEqual([
+    { url: 'https://example.com/A', title: 'A' },
+  ]);
+});
+
+it('cuts the last answer outside a bare URL', () => {
+  const source = (lastAnswer: string) => ({
+    ...resultsSource([]),
+    answers: [
+      attachedAnswer('a', 'a'.repeat(8000), [
+        { url: 'https://example.test/short' },
+      ]),
+      attachedAnswer('b', 'b'.repeat(3000), [{ url: longUrl('b', 2048) }]),
+      attachedAnswer('c', lastAnswer, [{ url: longUrl('c', 1000) }]),
+    ],
+  });
+  const plain = normalizeSearchOutput(source('c'.repeat(3000)), 10);
+  if (plain.kind !== 'results') throw new Error('expected results output');
+  const budget = plain.answers?.[2]?.answer.length;
+  if (budget === undefined) throw new Error('expected a third answer');
+  const filler = 'a'.repeat(budget - 10);
+  // The URL starts just before the calibrated cut and ends after it.
+  const text = `${filler} ${longUrl('u', 300)}`;
+  expect(text.length).toBeGreaterThan(budget);
+
+  const output = normalizeSearchOutput(source(text), 10);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  // The cut at `budget` falls inside the URL, so it moves back before it.
+  expect(output.answers?.[2]?.answer).toBe(`${filler} `);
+  expect(output.notes).toEqual(['1 answer cut to fit the output limit']);
+});
+
+it('cuts an answer outside a Markdown link', () => {
+  const source = (answer: string): SearchChainSuccess => ({
+    kind: 'answer',
+    engine: 'hosted',
+    query: 'q'.repeat(100),
+    answer,
+    citations: [{ url: 'https://example.test/a' }],
+    notes: Array.from({ length: 10 }, () => '\u0000'.repeat(200)),
+  });
+  const cut = normalizeSearchOutput(source('a'.repeat(8000)), 10);
+  if (cut.kind !== 'answer') throw new Error('expected answer output');
+  const budget = cut.answer.length;
+  const filler = 'a'.repeat(budget - 10);
+  const link = '[Docs](https://example.test/x)';
+
+  const output = normalizeSearchOutput(source(`${filler} ${link} tail`), 10);
+  if (output.kind !== 'answer') throw new Error('expected answer output');
+  expect(output.answer).toBe(`${filler} `);
+  expect(output.notes).toContain('answer cut to fit the output limit');
 });

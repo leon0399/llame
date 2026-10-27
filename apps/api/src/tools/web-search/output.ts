@@ -1,10 +1,12 @@
 import { cutStringAtCodePointBoundary as capText } from '@workspace/runtime-safety';
 import { canonicalHref, stripFragment } from '../web-read/locator';
 import {
+  type AnswerLinkRange,
   type RawAnswer,
   type RawCitation,
   type RawResult,
   type SearchChainSuccess,
+  answerLinkRanges,
 } from './chain';
 
 export const WEB_SEARCH_URL_MAX_CODE_UNITS = 2048;
@@ -122,7 +124,7 @@ function capAnswers(source: ResultSource): Array<RawAnswer> | undefined {
   if (source.answers === undefined) return undefined;
   return source.answers.map((answer) => ({
     engine: answer.engine,
-    answer: capText(answer.answer, WEB_SEARCH_ANSWER_MAX_CODE_UNITS),
+    answer: boundedText(answer.answer, WEB_SEARCH_ANSWER_MAX_CODE_UNITS),
     citations: capCitations(answer.citations),
   }));
 }
@@ -147,41 +149,101 @@ function capFields(
     kind: 'answer',
     engine: source.engine,
     query: source.query,
-    answer: capText(source.answer, WEB_SEARCH_ANSWER_MAX_CODE_UNITS),
+    answer: boundedText(source.answer, WEB_SEARCH_ANSWER_MAX_CODE_UNITS),
     citations: capCitations(source.citations),
   };
 }
 
-/** One trim step's count note; empty until the step drops its first entry. */
-type TrimNotes = {
-  results: string;
-  citations: string;
-  answersCut: string;
-  answers: string;
+const ANSWER_TRUNCATION_NOTE = 'answer truncated to 8000 characters';
+/** The note of an answer output whose own text is cut further. */
+const ANSWER_CUT_NOTE = 'answer cut to fit the output limit';
+/**
+ * The note of a results output whose last answer text is cut. The step cuts at
+ * most one answer, so its note is a constant.
+ */
+const ATTACHED_ANSWER_CUT_NOTE = '1 answer cut to fit the output limit';
+
+/** A text prefix of `maximum` units that does not split a link or bare URL. */
+function textPrefix(
+  text: string,
+  maximum: number,
+  ranges: ReadonlyArray<AnswerLinkRange>,
+): string {
+  const split = ranges.find(
+    ({ start, end }) => start < maximum && end > maximum,
+  );
+  return capText(text, split === undefined ? maximum : split.start);
+}
+
+/** A text bounded to `maximum` units without leaving a truncated URL. */
+function boundedText(text: string, maximum: number): string {
+  return text.length <= maximum
+    ? text
+    : textPrefix(text, maximum, answerLinkRanges(text));
+}
+
+/** The longest prefix of `text` whose rendering the caller accepts. */
+function longestFittingPrefix(
+  text: string,
+  fits: (candidate: string) => boolean,
+): string | undefined {
+  const ranges = answerLinkRanges(text);
+  let low = 0,
+    high = text.length;
+  let fitting: string | undefined;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = textPrefix(text, middle, ranges);
+    if (fits(candidate)) {
+      fitting = candidate;
+      low = middle + 1;
+    } else high = middle - 1;
+  }
+  return fitting;
+}
+
+function isOverBudget(value: WebSearchSuccess): boolean {
+  return JSON.stringify(value).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
+}
+
+/** What each trim step removed, formatted into one note per step. */
+type TrimCounts = {
+  results: number;
+  citations: number;
+  /** The text step cuts at most the last answer, so this is a flag. */
+  answerCut: boolean;
+  answers: number;
+};
+const NO_TRIM_COUNTS: TrimCounts = {
+  results: 0,
+  citations: 0,
+  answerCut: false,
+  answers: 0,
 };
 
-const NO_TRIM_NOTES: TrimNotes = {
-  results: '',
-  citations: '',
-  answersCut: '',
-  answers: '',
-};
+/** A drop step's note: how many entries it removed. */
+function dropNote(
+  count: number,
+  unit: 'result' | 'citation' | 'answer',
+): string {
+  return `${count} ${unit}${count === 1 ? '' : 's'} dropped to fit the output limit`;
+}
 
-/** The trim notes in step order, each visible while its own step measures. */
-function trimNoteList(trimNotes: TrimNotes): Array<string> {
+/** The count notes of the trim steps that ran, in step order. */
+function trimNoteList(counts: TrimCounts): Array<string> {
   return [
-    trimNotes.results,
-    trimNotes.citations,
-    trimNotes.answersCut,
-    trimNotes.answers,
+    counts.results === 0 ? '' : dropNote(counts.results, 'result'),
+    counts.citations === 0 ? '' : dropNote(counts.citations, 'citation'),
+    counts.answerCut ? ATTACHED_ANSWER_CUT_NOTE : '',
+    counts.answers === 0 ? '' : dropNote(counts.answers, 'answer'),
   ].filter((note) => note !== '');
 }
 
 /** The notes of one normalized output, before they are bounded. */
 type NoteInputs = {
   readonly notes: ReadonlyArray<string>;
-  /** The trim notes of the current step and of the steps before it. */
-  readonly trimNotes: TrimNotes;
+  /** The count notes of the trim steps that ran. */
+  readonly counts: TrimCounts;
   /** Whether the answer was cut further to fit beside one citation. */
   readonly answerCut: boolean;
   /** Entries the call removed, for the note that comes before the others. */
@@ -190,10 +252,10 @@ type NoteInputs = {
 
 function withNotes(
   value: WebSearchSuccess,
-  { notes, trimNotes, answerCut, removed }: NoteInputs,
+  { notes, counts, answerCut, removed }: NoteInputs,
 ): WebSearchSuccess {
-  const visible = [...trimNoteList(trimNotes), ...notes];
-  if (answerCut) visible.unshift('answer cut to fit the output limit');
+  const visible = [...trimNoteList(counts), ...notes];
+  if (answerCut) visible.unshift(ANSWER_CUT_NOTE);
   // The count note goes before every other note, including the truncation ones
   // above, so neither the cap nor a cut can take its place. It names no URL or
   // host: the model learns that something was removed, not what.
@@ -205,47 +267,42 @@ function withNotes(
   return bounded.length === 0 ? value : { ...value, notes: bounded };
 }
 
-/** One trim step's note: the entries it removed and how it removed them. */
-function trimNote(
-  count: number,
-  unit: 'result' | 'citation' | 'answer',
-  verb: 'dropped' | 'cut',
-): string {
-  return `${count} ${unit}${count === 1 ? '' : 's'} ${verb} to fit the output limit`;
+/**
+ * Drops trailing entries of `items` while the rendered output is over its
+ * bound, measuring once after each drop, and reports whether the output is
+ * still over when nothing droppable is left.
+ */
+function dropTrailing<T>(
+  items: ReadonlyArray<T>,
+  floor: number,
+  isOver: () => boolean,
+  onDrop: (kept: Array<T>) => void,
+): boolean {
+  let kept = [...items];
+  for (;;) {
+    if (!isOver()) return false;
+    if (kept.length <= floor) return true;
+    kept = kept.slice(0, -1);
+    onDrop(kept);
+  }
 }
 
 function cutAnswer(
   output: AnswerOutput,
   notes: ReadonlyArray<string>,
-  trimNotes: TrimNotes,
+  counts: TrimCounts,
   removed: number | undefined,
 ): WebSearchSuccess {
-  let low = 0,
-    high = output.answer.length;
-  let fitting: string | undefined;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2),
-      candidate = capText(output.answer, middle);
-    if (
-      JSON.stringify(
-        withNotes(
-          { ...output, answer: candidate },
-          { notes, trimNotes, answerCut: true, removed },
-        ),
-      ).length <= WEB_SEARCH_OUTPUT_MAX_CODE_UNITS
-    ) {
-      fitting = candidate;
-      low = middle + 1;
-    } else high = middle - 1;
-  }
-  return withNotes(
-    { ...output, answer: fitting ?? '' },
-    { notes, trimNotes, answerCut: true, removed },
+  const render = (answer: string): WebSearchSuccess =>
+    withNotes(
+      { ...output, answer },
+      { notes, counts, answerCut: true, removed },
+    );
+  const fitting = longestFittingPrefix(
+    output.answer,
+    (candidate) => !isOverBudget(render(candidate)),
   );
-}
-
-function isOverBudget(value: WebSearchSuccess): boolean {
-  return JSON.stringify(value).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
+  return render(fitting ?? '');
 }
 
 function fitAnswer(
@@ -253,23 +310,25 @@ function fitAnswer(
   notes: ReadonlyArray<string>,
   removed: number | undefined,
 ): WebSearchSuccess {
-  const trimNotes: TrimNotes = { ...NO_TRIM_NOTES };
+  const counts: TrimCounts = { ...NO_TRIM_COUNTS };
   let citations = initial.citations;
   const render = (): WebSearchSuccess =>
     withNotes(
       { ...initial, citations },
-      { notes, trimNotes, answerCut: false, removed },
+      { notes, counts, answerCut: false, removed },
     );
-  let output = render(),
-    dropped = 0;
-  while (isOverBudget(output) && citations.length > 1) {
-    citations = citations.slice(0, -1);
-    trimNotes.citations = trimNote(++dropped, 'citation', 'dropped');
-    output = render();
-  }
-  return isOverBudget(output)
-    ? cutAnswer({ ...initial, citations }, notes, trimNotes, removed)
-    : output;
+  const over = dropTrailing(
+    initial.citations,
+    1,
+    () => isOverBudget(render()),
+    (kept) => {
+      citations = kept;
+      counts.citations += 1;
+    },
+  );
+  return over
+    ? cutAnswer({ ...initial, citations }, notes, counts, removed)
+    : render();
 }
 
 /** A results output while its trim steps run, with the notes they carry. */
@@ -277,10 +336,8 @@ type ResultsTrim = {
   readonly initial: ResultsOutput;
   readonly notes: ReadonlyArray<string>;
   readonly removed: number | undefined;
-  readonly trimNotes: TrimNotes;
-  /** Whether the output carries answers at all; an absent key stays absent. */
-  readonly hasAnswers: boolean;
-  results: ReadonlyArray<RawResult>;
+  readonly counts: TrimCounts;
+  results: Array<RawResult>;
   answers: Array<RawAnswer>;
 };
 
@@ -290,98 +347,66 @@ function renderTrimmed(trim: ResultsTrim): WebSearchSuccess {
     {
       ...trim.initial,
       results: trim.results,
-      ...(trim.hasAnswers && { answers: trim.answers }),
+      ...(trim.answers.length > 0 && { answers: trim.answers }),
     },
     {
       notes: trim.notes,
-      trimNotes: trim.trimNotes,
+      counts: trim.counts,
       answerCut: false,
       removed: trim.removed,
     },
   );
 }
 
-/** First trim step: a results output loses trailing results. */
-function trimTrailingResults(trim: ResultsTrim): void {
-  let dropped = 0;
-  while (trim.results.length > 0 && isOverBudget(renderTrimmed(trim))) {
-    trim.results = trim.results.slice(0, -1);
-    trim.trimNotes.results = trimNote(++dropped, 'result', 'dropped');
-  }
-}
-
 /** Second trim step: each attached answer loses citations from its end. */
 function trimAnswerCitations(trim: ResultsTrim): void {
-  let dropped = 0;
-  for (
-    let index = trim.answers.length - 1;
-    index >= 0 && isOverBudget(renderTrimmed(trim));
-    index -= 1
-  ) {
-    let citations = trim.answers[index].citations;
-    while (citations.length > 1 && isOverBudget(renderTrimmed(trim))) {
-      citations = citations.slice(0, -1);
-      trim.answers[index] = { ...trim.answers[index], citations };
-      trim.trimNotes.citations = trimNote(++dropped, 'citation', 'dropped');
-    }
-  }
-}
-
-/** Third trim step: answer text is cut, the last answer first. */
-function cutAnswerText(trim: ResultsTrim): void {
-  let cut = 0;
-  for (
-    let index = trim.answers.length - 1;
-    index >= 0 && isOverBudget(renderTrimmed(trim));
-    index -= 1
-  ) {
+  let over = isOverBudget(renderTrimmed(trim));
+  for (let index = trim.answers.length - 1; index >= 0 && over; index -= 1) {
     const answer = trim.answers[index];
-    if (answer.answer === '') continue;
-    // The note of this cut joins its own measurement, so a cut that only trades
-    // answer text for the note does not happen.
-    trim.trimNotes.answersCut = trimNote(cut + 1, 'answer', 'cut');
-    // The largest prefix that makes the whole output fit. An answer that cannot
-    // fit even when empty is left whole for the next step to drop, so trimming
-    // never discards text that the output would otherwise keep.
-    let low = 0,
-      high = answer.answer.length;
-    let fitting: string | undefined;
-    while (low <= high) {
-      const middle = Math.floor((low + high) / 2);
-      trim.answers[index] = {
-        ...answer,
-        answer: capText(answer.answer, middle),
-      };
-      if (isOverBudget(renderTrimmed(trim))) high = middle - 1;
-      else {
-        fitting = trim.answers[index].answer;
-        low = middle + 1;
-      }
-    }
-    if (fitting === undefined) {
-      trim.answers[index] = answer;
-      trim.trimNotes.answersCut = '';
-      continue;
-    }
-    trim.answers[index] = { ...answer, answer: fitting };
-    cut += 1;
+    over = dropTrailing(
+      answer.citations,
+      1,
+      () => over,
+      (kept) => {
+        trim.answers[index] = { ...answer, citations: kept };
+        trim.counts.citations += 1;
+        over = isOverBudget(renderTrimmed(trim));
+      },
+    );
   }
 }
 
-/** Fourth trim step: whole answers are dropped, the end first. */
-function trimWholeAnswers(trim: ResultsTrim): void {
-  let dropped = 0;
-  while (trim.answers.length > 0 && isOverBudget(renderTrimmed(trim))) {
-    trim.answers = trim.answers.slice(0, -1);
-    trim.trimNotes.answers = trimNote(++dropped, 'answer', 'dropped');
+/**
+ * Third trim step: the last answer's text is cut to the longest prefix that
+ * fits. When even an emptied answer does not fit, the step stops and the next
+ * one drops whole answers from the end, so no earlier answer loses text while a
+ * later one stays whole.
+ */
+function cutLastAnswerText(trim: ResultsTrim): void {
+  const index = trim.answers.length - 1;
+  if (index < 0) return;
+  const answer = trim.answers[index];
+  if (answer.answer === '' || !isOverBudget(renderTrimmed(trim))) return;
+  // The note of this cut joins its own measurement.
+  trim.counts.answerCut = true;
+  trim.answers[index] = { ...answer, answer: '' };
+  if (isOverBudget(renderTrimmed(trim))) {
+    trim.answers[index] = answer;
+    trim.counts.answerCut = false;
+    return;
   }
+  const fitting = longestFittingPrefix(answer.answer, (candidate) => {
+    trim.answers[index] = { ...answer, answer: candidate };
+    return !isOverBudget(renderTrimmed(trim));
+  });
+  trim.answers[index] = { ...answer, answer: fitting ?? '' };
 }
 
 /**
  * Fits a results output and its attached answers: trailing results go first,
  * then citations from the last answer's end while each answer keeps one, then
- * answer text from the last answer backwards, then whole answers from the end.
- * Each step keeps one count note.
+ * the last answer's text, then whole answers from the end. Each step keeps one
+ * count note.
  */
 function fitResults(
   initial: ResultsOutput,
@@ -392,18 +417,44 @@ function fitResults(
     initial,
     notes,
     removed,
-    trimNotes: { ...NO_TRIM_NOTES },
-    hasAnswers: initial.answers !== undefined,
-    results: initial.results,
+    counts: { ...NO_TRIM_COUNTS },
+    results: [...initial.results],
     answers: initial.answers === undefined ? [] : [...initial.answers],
   };
-  trimTrailingResults(trim);
-  if (trim.hasAnswers) {
+  dropTrailing(
+    trim.results,
+    0,
+    () => isOverBudget(renderTrimmed(trim)),
+    (kept) => {
+      trim.results = kept;
+      trim.counts.results += 1;
+    },
+  );
+  if (trim.answers.length > 0) {
     trimAnswerCitations(trim);
-    cutAnswerText(trim);
-    trimWholeAnswers(trim);
+    cutLastAnswerText(trim);
+    dropTrailing(
+      trim.answers,
+      0,
+      () => isOverBudget(renderTrimmed(trim)),
+      (kept) => {
+        trim.answers = kept;
+        trim.counts.answers += 1;
+      },
+    );
   }
   return renderTrimmed(trim);
+}
+
+/** The note for attached answers cut to the answer bound, if any. */
+function truncatedAnswersNote(source: ResultSource): string | undefined {
+  const truncated = (source.answers ?? []).filter(
+    (answer) => answer.answer.length > WEB_SEARCH_ANSWER_MAX_CODE_UNITS,
+  ).length;
+  if (truncated === 0) return undefined;
+  return truncated === 1
+    ? ANSWER_TRUNCATION_NOTE
+    : `${truncated} answers truncated to 8000 characters`;
 }
 
 /** Normalize one chain result into the bounded model-visible output. */
@@ -412,11 +463,13 @@ export function normalizeOutput(
   limit: number,
 ): WebSearchSuccess {
   const notes = source.notes === undefined ? [] : [...source.notes];
-  if (
-    source.kind === 'answer' &&
-    source.answer.length > WEB_SEARCH_ANSWER_MAX_CODE_UNITS
-  )
-    notes.unshift('answer truncated to 8000 characters');
+  const truncation =
+    source.kind === 'answer'
+      ? source.answer.length > WEB_SEARCH_ANSWER_MAX_CODE_UNITS
+        ? ANSWER_TRUNCATION_NOTE
+        : undefined
+      : truncatedAnswersNote(source);
+  if (truncation !== undefined) notes.unshift(truncation);
   const initial = capFields(source, limit);
   return initial.kind === 'results'
     ? fitResults(initial, notes, source.removed)
