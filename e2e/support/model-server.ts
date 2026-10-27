@@ -1172,11 +1172,52 @@ async function respondHeld(
   await writeDefaultAnswer(buildChunkContext(res, raw, classification));
 }
 
+const FAIL_AFTER_TOOL_MARKER = "FAIL_AFTER_TOOL";
+
+/**
+ * The prompts whose turn already failed after a settled tool call. The spec
+ * suffixes every attempt with its own token, so a Playwright retry fails a
+ * fresh turn instead of inheriting this state; the Continue request carries
+ * the same prompt and the same kept tool result as the failed attempt, which
+ * is why this memory — not the request shape — is what lets it answer.
+ */
+const failedAfterToolPrompts = new Set<string>();
+
+/**
+ * Whether this request is the one that fails a `FAIL_AFTER_TOOL` turn: the
+ * first request that comes back with a tool result fails with a 400, so the
+ * Run settles `failed` with the settled tool step persisted and no automatic
+ * retry (a 4xx is not retried). Every later request for that prompt answers,
+ * which is the state Continue resumes from.
+ */
+function shouldFailAfterTool(classification: ReturnType<typeof classify>) {
+  const prompt = classification.lastUserContent;
+  if (!prompt.includes(FAIL_AFTER_TOOL_MARKER)) return false;
+  if (!classification.hasToolResult) return false;
+  if (failedAfterToolPrompts.has(prompt)) return false;
+  failedAfterToolPrompts.add(prompt);
+  return true;
+}
+
+/** The refusal the mock answers with when a turn is meant to fail. */
+function writeModelFailure(res: ServerResponse): void {
+  res.writeHead(400, { "content-type": "application/json" });
+  res.end(
+    JSON.stringify({
+      error: { message: "e2e mock model failure after a settled tool call" },
+    }),
+  );
+}
+
 async function respondToChatCompletion(
   res: ServerResponse,
   raw: string,
 ): Promise<void> {
   const classification = classify(raw);
+  if (shouldFailAfterTool(classification)) {
+    writeModelFailure(res);
+    return;
+  }
 
   const holdToken = HOLD_TOKEN_RE.exec(classification.lastUserContent)?.[1];
   if (holdToken !== undefined) {

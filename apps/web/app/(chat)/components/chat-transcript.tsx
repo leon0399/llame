@@ -19,18 +19,24 @@ import {
 } from "@workspace/ui/components/ai-elements/conversation";
 import {
   Alert,
+  AlertAction,
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert";
 
 import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
-import { ChatMessageRow, messageBoundaries } from "./chat-message-row";
+import { ChatMessageRow } from "./chat-message-row";
+import { messageBoundaries } from "./message-boundaries";
+import { carriesTurnActions, needsFailedTurnRow } from "./turn-action-rules";
+import { TurnActions } from "./turn-actions";
 import {
   messageRenderKey,
   messageSeqFromMetadata,
   type Compaction,
 } from "@/lib/services/chat/history";
+import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { AvailableModel } from "@/lib/services/models/queries";
 
 type ChatTranscriptMessageProps = {
@@ -42,6 +48,8 @@ type ChatTranscriptMessageProps = {
   compactionIndex: number;
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onFollowUp: (request: FollowUpRunRequest) => void;
   onInspectContext: (runId: string) => void;
   onForked: (forkedChatId: string) => void;
 };
@@ -64,16 +72,12 @@ export function setTranscriptMessageRenderProbe(
  *  message identity. Default shallow compare is enough once parent props
  *  (`onForked`, `availableModels`, message refs) stay stable across ticks. */
 const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
-  chatId,
   message,
   index,
-  isLast,
   compaction,
   compactionIndex,
   availableModels,
-  status,
-  onInspectContext,
-  onForked,
+  ...rowProps
 }: ChatTranscriptMessageProps) {
   const renderKey = messageRenderKey(message);
   transcriptMessageRenderProbe?.(renderKey);
@@ -83,21 +87,17 @@ const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
     compaction,
     compactionIndex,
     availableModels,
-    onInspectContext,
+    onInspectContext: rowProps.onInspectContext,
   });
 
   return (
     <ChatMessageRow
+      {...rowProps}
       renderKey={renderKey}
       message={message}
-      isLast={isLast}
+      availableModels={availableModels}
       boundary={boundary}
       modelBoundary={modelBoundary}
-      availableModels={availableModels}
-      chatId={chatId}
-      status={status}
-      onForked={onForked}
-      onInspectContext={onInspectContext}
     />
   );
 });
@@ -128,6 +128,8 @@ type ChatTranscriptMessagesProps = {
   compactionIndex: number;
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onFollowUp: (request: FollowUpRunRequest) => void;
   onInspectContext: (runId: string) => void;
 };
 
@@ -145,9 +147,18 @@ export function ChatTranscriptMessageList({
   compactionIndex,
   availableModels,
   status,
+  latestRun,
+  onFollowUp,
   onInspectContext,
   onForked,
 }: ChatTranscriptMessageListProps) {
+  // Only the latest turn's reply row may read the Run (turn-actions D13): the
+  // other rows get a stable null, so a refetched Run cannot break their memo.
+  const actions = carriesTurnActions({
+    messages: displayMessages,
+    latestRun,
+    status,
+  });
   return displayMessages.map((message, index) => (
     <ChatTranscriptMessage
       key={`message-${messageRenderKey(message)}`}
@@ -159,6 +170,10 @@ export function ChatTranscriptMessageList({
       compactionIndex={compactionIndex}
       availableModels={availableModels}
       status={status}
+      latestRun={
+        actions && index === displayMessages.length - 1 ? latestRun : null
+      }
+      onFollowUp={onFollowUp}
       onInspectContext={onInspectContext}
       onForked={onForked}
     />
@@ -168,44 +183,78 @@ export function ChatTranscriptMessageList({
 /** Every message row, plus the trailing compaction boundary when it lands
  *  after the last loaded message. Split out of `ChatTranscript` as its own
  *  self-contained region. */
-function ChatTranscriptMessages({
-  chatId,
-  displayMessages,
-  compaction,
-  compactionIndex,
-  availableModels,
-  status,
-  onInspectContext,
-}: ChatTranscriptMessagesProps) {
-  const router = useRouter();
-  const onForked = useCallback(
-    (forkedChatId: string) => {
-      router.push(`/chat/${forkedChatId}`);
-    },
-    [router],
-  );
+function ChatTranscriptMessages(props: ChatTranscriptMessagesProps) {
+  const { displayMessages, compaction, compactionIndex } = props;
+  const onForked = useForkedChatNavigation();
 
   return (
     <>
-      <ChatTranscriptMessageList
-        chatId={chatId}
-        displayMessages={displayMessages}
-        compaction={compaction}
-        compactionIndex={compactionIndex}
-        availableModels={availableModels}
-        status={status}
-        onInspectContext={onInspectContext}
-        onForked={onForked}
-      />
+      <ChatTranscriptMessageList {...props} onForked={onForked} />
+      <ChatTranscriptFailedTurn {...props} />
       {/* All loaded messages are within the summarized span → boundary sits
           after the last one. */}
       {compaction && compactionIndex === displayMessages.length && (
         <ChatTranscriptCompactionBoundary
           compaction={compaction}
-          availableModels={availableModels}
+          availableModels={props.availableModels}
         />
       )}
     </>
+  );
+}
+
+/** Lands a fork on the new Chat. Split out of `ChatTranscriptMessages` so that
+ *  component composes only regions. */
+function useForkedChatNavigation(): (forkedChatId: string) => void {
+  const router = useRouter();
+  return useCallback(
+    (forkedChatId: string) => {
+      router.push(`/chat/${forkedChatId}`);
+    },
+    [router],
+  );
+}
+
+/** The latest turn's Regenerate when its Run left nothing an answer row could
+ *  show (turn-actions D13): no reply at all, or a reply whose parts paint
+ *  nothing — the one a Run persists when its provider call fails. This row
+ *  carries the action and names the turn's cause without hover. Render-nothing
+ *  for every other transcript. */
+function ChatTranscriptFailedTurn({
+  chatId,
+  displayMessages,
+  status,
+  latestRun,
+  onFollowUp,
+}: ChatTranscriptMessagesProps) {
+  if (latestRun === null) return null;
+  if (!needsFailedTurnRow({ messages: displayMessages, latestRun, status })) {
+    return null;
+  }
+  const title =
+    latestRun.status === "cancelled"
+      ? "This turn was stopped"
+      : latestRun.error === null
+        ? "This turn ended without an answer"
+        : "This turn failed";
+  return (
+    <div className="mx-auto w-full max-w-3xl md:px-6">
+      <Alert>
+        <AlertTitle>{title}</AlertTitle>
+        {latestRun.error !== null && (
+          <AlertDescription>{latestRun.error}</AlertDescription>
+        )}
+        <AlertAction>
+          <TurnActions
+            chatId={chatId}
+            latestRun={latestRun}
+            reply={null}
+            status={status}
+            onFollowUp={onFollowUp}
+          />
+        </AlertAction>
+      </Alert>
+    </div>
   );
 }
 
@@ -232,6 +281,8 @@ type ChatTranscriptProps = {
   onLoadOlderMessages: () => void;
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onFollowUp: (request: FollowUpRunRequest) => void;
   displayedError: Error | undefined;
   onInspectContext: (runId: string) => void;
 };
@@ -239,19 +290,22 @@ type ChatTranscriptProps = {
 /** The scrollable region's content: older-page loading, every message row,
  *  and a send/stream error. Split out of `ChatTranscript` as its own
  *  self-contained region — reuses its parent's full prop set. */
-function ChatTranscriptBody({
-  chatId,
-  displayMessages,
-  compaction,
-  compactionIndex,
-  hasOlderMessages,
-  isLoadingOlderMessages,
-  onLoadOlderMessages,
-  availableModels,
-  status,
-  displayedError,
-  onInspectContext,
-}: ChatTranscriptProps) {
+function ChatTranscriptBody(props: ChatTranscriptProps) {
+  const {
+    displayMessages,
+    hasOlderMessages,
+    isLoadingOlderMessages,
+    onLoadOlderMessages,
+    displayedError,
+    latestRun,
+    status,
+  } = props;
+  // The failed-turn row already names this message once the history read
+  // reports it; a second alert would announce the same failure twice.
+  const shownByFailedTurn =
+    latestRun !== null &&
+    latestRun.error === displayedError?.message &&
+    needsFailedTurnRow({ messages: displayMessages, latestRun, status });
   return (
     <>
       <ChatLoadOlder
@@ -264,16 +318,10 @@ function ChatTranscriptBody({
             : null
         }
       />
-      <ChatTranscriptMessages
-        chatId={chatId}
-        displayMessages={displayMessages}
-        compaction={compaction}
-        compactionIndex={compactionIndex}
-        availableModels={availableModels}
-        status={status}
-        onInspectContext={onInspectContext}
-      />
-      {displayedError && <ChatTranscriptErrorAlert error={displayedError} />}
+      <ChatTranscriptMessages {...props} />
+      {displayedError && !shownByFailedTurn && (
+        <ChatTranscriptErrorAlert error={displayedError} />
+      )}
     </>
   );
 }

@@ -113,7 +113,11 @@ beforeEach(() => {
   modelsHandler = () => new Promise<Response>(() => {});
   messagesHandler = () =>
     Promise.resolve(
-      jsonResponse<ChatMessagesResponse>({ compaction: null, messages: [] }),
+      jsonResponse<ChatMessagesResponse>({
+        compaction: null,
+        messages: [],
+        latestRun: null,
+      }),
     );
   permissionModesHandler = () =>
     Promise.resolve(jsonResponse({ modes: [{ value: "default" }] }));

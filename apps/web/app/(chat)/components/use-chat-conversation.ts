@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useChat } from "@ai-sdk/react";
-import type { FileUIPart, UIMessage } from "ai";
+import type { ChatStatus, FileUIPart, UIMessage } from "ai";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
+import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import {
   useStreamInterruption,
   type StreamInterruption,
@@ -17,12 +19,17 @@ import {
 } from "@/lib/services/chat/history";
 import {
   useChatEngine,
-  useChatHistorySync,
   useChatModelSelection,
   useChatPresenceEffects,
   useChatRefresh,
   useChatSendTransport,
 } from "./use-chat-engine";
+import { useChatHistorySync } from "./use-chat-history-sync";
+import { hiddenFollowUpReplyIndex } from "./turn-action-rules";
+import {
+  replacementContext,
+  supersededReplyIndexes,
+} from "@/lib/services/chat/history-adoption";
 import { usePendingStop } from "./use-pending-stop";
 import {
   attachmentFileParts,
@@ -190,6 +197,7 @@ type UseChatSideEffectsArgs = {
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
   refreshChatBinding: () => void;
+  latestRun: ChatLatestRunResponse | null;
   interruption: StreamInterruption | null;
 };
 
@@ -209,6 +217,7 @@ function useChatSideEffects({
   trackRun,
   markChatSeen,
   refreshChatBinding,
+  latestRun,
   interruption,
 }: UseChatSideEffectsArgs) {
   useChatHistorySync({
@@ -219,6 +228,7 @@ function useChatSideEffects({
     messages,
     status,
     setMessages,
+    latestRun,
     interruption,
   });
   useChatPresenceEffects({
@@ -236,15 +246,35 @@ function useChatSideEffects({
 // deliberately drops that non-conversation row before rendering. The
 // checkpoint's absorbed-through boundary still places the marker before the
 // triggering user row.
-function deriveChatTranscript(
-  messages: Array<UIMessage>,
-  chatMessages: Array<UIMessage>,
-  compaction: Compaction | null,
-) {
-  const displayMessages = mergeTrustedModelContextParts(
-    messages,
-    chatMessages,
+type ChatTranscriptInput = {
+  messages: Array<UIMessage>;
+  chatMessages: Array<UIMessage>;
+  compaction: Compaction | null;
+  status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+};
+
+function deriveChatTranscript(input: ChatTranscriptInput) {
+  const { compaction, latestRun, status } = input;
+  const merged = mergeTrustedModelContextParts(
+    input.messages,
+    input.chatMessages,
   ).filter((message) => message.role !== "system");
+  // A follow-up Run of the latest turn that has not settled replaced its
+  // reply: hide that reply so a reload before the dispatch shows the resumed
+  // stream alone (turn-actions D13). The same holds for any durable reply a
+  // live stream already supersedes, because the stream attaches after it and a
+  // history read that raced the follow-up can put the old copy back.
+  const hidden = supersededReplyIndexes(
+    merged,
+    replacementContext({ status, latestRun }),
+  );
+  const followUpReply = hiddenFollowUpReplyIndex(merged, latestRun);
+  if (followUpReply !== null) hidden.add(followUpReply);
+  const displayMessages =
+    hidden.size === 0
+      ? merged
+      : merged.filter((_message, index) => !hidden.has(index));
   // SAFETY: `UIMessage["metadata"]` is generic/unknown-shaped at the type
   // level; every message here is one this app persisted, so its metadata is
   // always this app's own `{ seq?: number }` shape (or absent).
@@ -259,6 +289,7 @@ type UseChatEngineStateArgs = {
   chatId: string;
   chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
+  latestRun: ChatLatestRunResponse | null;
   resume: boolean;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
@@ -270,36 +301,29 @@ type UseChatEngineStateArgs = {
  *  messages: the displayed transcript, the compaction boundary, and every
  *  effect that reacts to them. Split out so `useChatConversation` composes
  *  only a handful of top-level calls. */
-function useChatEngineState({
-  chatId,
-  chatMessages,
-  compaction,
-  resume,
-  onFinished,
-  onTargetSendInterrupted,
-  onSendFailed,
-  setup,
-}: UseChatEngineStateArgs) {
+function useChatEngineState(args: UseChatEngineStateArgs) {
+  const { chatId, chatMessages, compaction, latestRun, resume, setup } = args;
   // The run whose stream dropped while it was still executing (#1284). Held
   // here rather than acted on in the finish handler: re-attaching needs the
   // `Chat` instance `useChatEngine` returns, and an effect is where that
   // boundary is already crossed.
-  const { interruption, report: reportInterruptedStream } =
-    useStreamInterruption();
+  const streamInterruption = useStreamInterruption();
   const engine = useChatEngine({
     ...setup,
     chatId,
     chatMessages,
-    onFinished,
-    onTargetSendInterrupted,
-    onSendFailed,
-    onStreamInterrupted: reportInterruptedStream,
+    onFinished: args.onFinished,
+    onTargetSendInterrupted: args.onTargetSendInterrupted,
+    onSendFailed: args.onSendFailed,
+    onStreamInterrupted: streamInterruption.report,
   });
-  const { displayMessages, compactionIndex } = deriveChatTranscript(
-    engine.messages,
+  const transcript = deriveChatTranscript({
+    messages: engine.messages,
     chatMessages,
     compaction,
-  );
+    status: engine.status,
+    latestRun,
+  });
 
   useChatSideEffects({
     ...setup,
@@ -310,10 +334,11 @@ function useChatEngineState({
     status: engine.status,
     setMessages: engine.setMessages,
     chatId,
-    interruption,
+    latestRun,
+    interruption: streamInterruption.interruption,
   });
 
-  return { engine, displayMessages, compactionIndex };
+  return { engine, ...transcript };
 }
 
 /** Pure — no hooks: the `ChatComposer` props derived from setup and
@@ -351,10 +376,28 @@ function buildTranscriptState(
   };
 }
 
+/** The follow-up sender: `regenerate()` with a body naming the action, which
+ *  the transport routes to the follow-up Run (turn-actions D13). It marks the
+ *  send like the composer does, so a follow-up in a target view still clears
+ *  its tracking and refreshes history when it finishes. */
+export function useFollowUpRun(
+  regenerate: ReturnType<typeof useChat>["regenerate"],
+  onSendStarted: () => void,
+) {
+  return useCallback(
+    (request: FollowUpRunRequest) => {
+      onSendStarted();
+      void regenerate({ body: request });
+    },
+    [regenerate, onSendStarted],
+  );
+}
+
 export type UseChatConversationArgs = {
   chatId: string;
   chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
+  latestRun: ChatLatestRunResponse | null;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
   onSendFailed: () => void;
@@ -370,28 +413,11 @@ export type UseChatConversationArgs = {
  * direct call from that component's own render (see `useChatEngine`'s
  * comment on why).
  */
-export function useChatConversation({
-  chatId,
-  chatMessages,
-  compaction,
-  onFinished,
-  onTargetSendInterrupted,
-  onSendFailed,
-  onSendStarted,
-  resume,
-}: UseChatConversationArgs) {
+export function useChatConversation(args: UseChatConversationArgs) {
+  const { chatId, onSendStarted, onSendFailed } = args;
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
   const setup = useChatSetup(chatId);
-  const engineState = useChatEngineState({
-    chatId,
-    chatMessages,
-    compaction,
-    resume,
-    onFinished,
-    onTargetSendInterrupted,
-    onSendFailed,
-    setup,
-  });
+  const engineState = useChatEngineState({ ...args, setup });
   const actions = useChatActions({
     messages: engineState.engine.messages,
     stop: engineState.engine.stop,
@@ -401,11 +427,19 @@ export function useChatConversation({
     onSendStarted,
     onSendFailed,
   });
+  const onFollowUp = useFollowUpRun(
+    engineState.engine.regenerate,
+    onSendStarted,
+  );
 
   return {
     status: engineState.engine.status,
     composer: buildComposerState(setup, actions),
-    transcript: buildTranscriptState(setup, actions, engineState),
+    transcript: {
+      ...buildTranscriptState(setup, actions, engineState),
+      latestRun: args.latestRun,
+      onFollowUp,
+    },
     dialog: { inspectedRunId, setInspectedRunId },
   };
 }

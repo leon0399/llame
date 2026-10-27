@@ -9,8 +9,8 @@ import type { PermissionModesResponse } from "@/lib/services/permission-modes/qu
 import {
   resolveLastTurnModelEffort,
   resolveRestoredPermissionMode,
-  useChatHistorySync,
 } from "./use-chat-engine";
+import { useChatHistorySync } from "./use-chat-history-sync";
 
 describe("resolveLastTurnModelEffort", () => {
   const data: ModelsResponse = {
@@ -96,6 +96,7 @@ function historySyncProps(
     messages: [],
     status: "error",
     setMessages: vi.fn(),
+    latestRun: null,
     interruption: null,
     ...overrides,
   };

@@ -4,10 +4,20 @@ import { z } from "zod";
 import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
 import type {
+  ChatLatestRunResponse,
   ChatMessagesResponse as GeneratedChatMessagesResponse,
   CheckpointStatsResponse,
 } from "../../api/generated/models";
 import { mediaIdFromLocator } from "../media/urls";
+import {
+  isContextItemPart,
+  isNonNullObject,
+  isNumber,
+  isString,
+  contextItemEnvelope,
+  isUuid,
+  keysMatch,
+} from "./context-item-envelope";
 
 export type ChatMessageResponse = {
   id: string;
@@ -41,6 +51,11 @@ export type Compaction = Required<
 export type ChatMessagesResponse = {
   messages: Array<ChatMessageResponse>;
   compaction: Compaction | null;
+  /**
+   * The Chat's newest Run as the same read reports it (turn-actions D12): the
+   * Run the latest turn's actions judge, or null for a Chat with no Run.
+   */
+  latestRun: ChatLatestRunResponse | null;
 };
 
 function isCompaction(
@@ -57,7 +72,7 @@ function isCompaction(
 
 /** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
 export function normalizeChatMessagesResponse(
-  response: Pick<GeneratedChatMessagesResponse, "messages">,
+  response: Pick<GeneratedChatMessagesResponse, "messages" | "latestRun">,
 ): ChatMessagesResponse {
   const messages: Array<ChatMessageResponse> = response.messages.map(
     (message) => ({
@@ -71,13 +86,18 @@ export function normalizeChatMessagesResponse(
     }),
   );
   const compaction = [...messages].reverse().find(isCompaction);
-  return { compaction: compaction ?? null, messages };
+  return {
+    compaction: compaction ?? null,
+    messages,
+    latestRun: response.latestRun,
+  };
 }
 
 /** The combined shape `ChatPage` renders from — one query, one fetch. */
 export type ChatHistory = {
   messages: Array<UIMessage>;
   compaction: Compaction | null;
+  latestRun: ChatLatestRunResponse | null;
 };
 
 /**
@@ -167,97 +187,25 @@ export type PromptImportsPart = {
 /** The private payload of a prompt-imports item: what the owner chip renders. */
 export type PromptImportsPayload = PromptImportsPart["data"]["payload"];
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isNonNullObject(value: unknown): value is object {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === "string";
-}
-
-function isNumber(value: unknown): value is number {
-  return typeof value === "number";
-}
-
-/** Exact key-set structural check on an already-narrowed object's own keys —
- *  the caller still owns validating each field's type; this only confirms
- *  which fields exist. */
-function keysMatch(
-  actualKeys: ReadonlyArray<string>,
-  expectedKeys: ReadonlyArray<string>,
-): boolean {
-  return (
-    [...actualKeys].sort().join("\0") === [...expectedKeys].sort().join("\0")
-  );
-}
-
-export function isContextItemPart(
-  value: unknown,
-): value is { type: "data-context"; data: unknown } {
-  if (
-    !isNonNullObject(value) ||
-    !keysMatch(Object.keys(value), ["type", "data"])
-  ) {
-    return false;
-  }
-  // SAFETY: `keysMatch` above confirmed `value` has exactly the `type` and
-  // `data` keys; both are read here still unvalidated, and checked on the
-  // following lines before this function returns true.
-  const { type, data } = value as { type: unknown; data: unknown };
-  return type === "data-context" && isNonNullObject(data);
-}
-
-/** The envelope every `data-context` notice this app renders shares: exact
- *  key set (`text` optional), `v: 1`, the expected `producer`, form
- *  `notice`, a UUID `runId`, and `text` a string when present. Returns the
- *  still-unvalidated `payload` once the envelope holds — each caller owns
- *  validating that payload — or `undefined` when it does not. */
-function noticePayload(
-  value: unknown,
-  producer: "effective-context-change" | "instructions" | "prompt-imports",
-) {
-  if (!isContextItemPart(value)) return undefined;
-  const requiredKeys = ["v", "producer", "form", "runId", "payload"];
-  if (
-    !isNonNullObject(value.data) ||
-    (!keysMatch(Object.keys(value.data), requiredKeys) &&
-      !keysMatch(Object.keys(value.data), [...requiredKeys, "text"]))
-  ) {
-    return undefined;
-  }
-  // SAFETY: the checks above confirmed `value.data` is a non-null object
-  // with exactly these keys (optionally plus `text`); each field is
-  // validated individually below before the payload is returned.
-  const {
-    v,
-    producer: actualProducer,
-    form,
-    runId,
-    payload,
-    text,
-  } = value.data as {
-    v: unknown;
-    producer: unknown;
-    form: unknown;
-    runId: unknown;
-    payload: unknown;
-    text?: unknown;
+/**
+ * A server-authored context item on a USER message recording that an earlier
+ * attempt at this turn was discarded after it ran calls whose effects stay
+ * (turn-actions D9). It is an accepted-turn item: every later Run of the turn
+ * carries it, and it stays on the triggering user message for good.
+ */
+export type RegenerateNoticePart = {
+  type: "data-context";
+  data: {
+    v: 1;
+    producer: "regenerate";
+    form: "notice";
+    runId: string;
+    payload: {
+      reason: "non_read_only_calls";
+    };
+    text?: string;
   };
-  if (
-    v !== 1 ||
-    actualProducer !== producer ||
-    form !== "notice" ||
-    !isString(runId) ||
-    !UUID_PATTERN.test(runId) ||
-    (text !== undefined && !isString(text))
-  ) {
-    return undefined;
-  }
-  return payload;
-}
+};
 
 /** The `data.payload` shape of a model-switch context item, validated on its
  *  own — a real sub-boundary of `isModelSwitchPart`, not an arbitrary split. */
@@ -288,7 +236,9 @@ function isModelSwitchPayload(
 }
 
 export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
-  return isModelSwitchPayload(noticePayload(value, "effective-context-change"));
+  return isModelSwitchPayload(
+    contextItemEnvelope(value, "effective-context-change")?.payload,
+  );
 }
 
 export function modelSwitchPart(message: {
@@ -361,7 +311,9 @@ function isInstructionsPayload(
 }
 
 export function isInstructionsPart(value: unknown): value is InstructionsPart {
-  return isInstructionsPayload(noticePayload(value, "instructions"));
+  return isInstructionsPayload(
+    contextItemEnvelope(value, "instructions")?.payload,
+  );
 }
 
 const nonEmptyStringSchema = z.string().refine(isNonEmptyString);
@@ -448,21 +400,55 @@ function isPromptImportsPayload(value: unknown): value is PromptImportsPayload {
 export function isPromptImportsPart(
   value: unknown,
 ): value is PromptImportsPart {
-  return isPromptImportsPayload(noticePayload(value, "prompt-imports"));
+  return isPromptImportsPayload(
+    contextItemEnvelope(value, "prompt-imports")?.payload,
+  );
+}
+
+/** The `data.payload` shape of a regenerate notice, validated on its own: the
+ *  one reason this build knows. */
+function isRegenerateNoticePayload(
+  value: unknown,
+): value is RegenerateNoticePart["data"]["payload"] {
+  if (!isNonNullObject(value) || !keysMatch(Object.keys(value), ["reason"])) {
+    return false;
+  }
+  if (!("reason" in value)) return false;
+  return value.reason === "non_read_only_calls";
+}
+
+export function isRegenerateNoticePart(
+  value: unknown,
+): value is RegenerateNoticePart {
+  return isRegenerateNoticePayload(
+    contextItemEnvelope(value, "regenerate")?.payload,
+  );
+}
+
+/** The `regenerate` notice a user turn carries, or null when it carries none. */
+export function regenerateNoticePart(message: {
+  parts: ReadonlyArray<unknown>;
+}): RegenerateNoticePart | null {
+  return message.parts.find(isRegenerateNoticePart) ?? null;
 }
 
 /** Whether this app renders a server context item on that role: the
- *  model-switch marker and the prompt-imports disclosure the rail stages on a
- *  user message, and the instructions item, which rides either role. A type
- *  predicate, so the caller keeps the narrowed part. */
+ *  model-switch marker, the prompt-imports disclosure, and the regenerate
+ *  notice that ride a user message, and the instructions item, which rides
+ *  either role. A type predicate, so the caller keeps the narrowed part. */
 function isRenderableControlPart(
   role: UIMessage["role"],
   part: unknown,
-): part is ModelSwitchPart | InstructionsPart | PromptImportsPart {
+): part is
+  | ModelSwitchPart
+  | InstructionsPart
+  | PromptImportsPart
+  | RegenerateNoticePart {
   return role === "user"
     ? isModelSwitchPart(part) ||
         isInstructionsPart(part) ||
-        isPromptImportsPart(part)
+        isPromptImportsPart(part) ||
+        isRegenerateNoticePart(part)
     : isInstructionsPart(part);
 }
 
@@ -487,7 +473,11 @@ function trustedContextParts(message: {
   // drops context parts of every other producer, so they occupy no index.
   const placed: Array<{
     index: number;
-    part: ModelSwitchPart | InstructionsPart | PromptImportsPart;
+    part:
+      | ModelSwitchPart
+      | InstructionsPart
+      | PromptImportsPart
+      | RegenerateNoticePart;
   }> = [];
   let index = 0;
   for (const part of message.parts) {
@@ -577,7 +567,7 @@ export function runIdFromMessageMetadata(metadata: unknown): string | null {
   // SAFETY: `isNonNullObject` above confirmed `usage` is a non-null
   // object; `runId` is read here still unvalidated and checked next.
   const runId = (usage as { runId?: unknown }).runId;
-  return isString(runId) && UUID_PATTERN.test(runId) ? runId : null;
+  return isUuid(runId) ? runId : null;
 }
 
 export function messageRenderKey(
@@ -639,117 +629,4 @@ export function messageSeqFromMetadata(metadata: unknown): number | null {
   // object; `seq` is read here still unvalidated and checked next.
   const seq = (metadata as { seq?: unknown }).seq;
   return isNumber(seq) && Number.isSafeInteger(seq) && seq > 0 ? seq : null;
-}
-
-/**
- * The oldest and newest durable seq in a message list, in one pass — null
- * when the list holds no durable row at all. Returning the pair together
- * lets the type system carry "at least one seq'd message exists" through
- * adoptServerHistory, instead of two scans with individually-nullable
- * results that are in fact null together.
- */
-function durableSeqBounds(
-  messages: ReadonlyArray<UIMessage>,
-): { oldest: number; newest: number } | null {
-  let oldest: number | null = null;
-  let newest: number | null = null;
-  for (const message of messages) {
-    const seq = messageSeqFromMetadata(message.metadata);
-    if (seq === null) continue;
-    oldest ??= seq;
-    newest = seq;
-  }
-  return oldest !== null && newest !== null ? { oldest, newest } : null;
-}
-
-/**
- * The healed message list a freshly fetched server history justifies, or
- * null when the live list should stand. `useChat` freezes its messages at
- * creation, so a refetch is the ONLY thing that can heal a log the durable
- * run has moved past (#261) — and it can only heal it through `setMessages`.
- *
- * The not-streaming guard is the one with teeth: mid-turn the live copy
- * legitimately runs ahead of the server (an optimistic user turn, an answer
- * still streaming), and replacing it there duplicates or rewinds the
- * transcript (#259).
- *
- * Settled, the adoption rule is a durable-coverage comparison: adopt when
- * the server list extends past the log's durable rows on EITHER end.
- *
- * - NEWER coverage: the server's newest seq is beyond the newest durable seq
- *   the log holds. Live-authored messages never carry a seq, so every
- *   settled state worth healing lands here — a strictly longer history
- *   (204-resume, #261), a disconnect that left a partial answer at equal
- *   length, and a completed turn whose final assistant must swap its
- *   streaming representation (Run id as message id) for the durable one
- *   (Message id + Run id in metadata, which the fork affordance and context
- *   inspector need).
- * - OLDER coverage: an on-demand older page (#187) grew the window at the
- *   head without touching the newest seq.
- *
- * Adoption stamps every message with its durable seq, so re-running
- * afterwards is a no-op.
- *
- * The server history is a WINDOW (#187): the pages the reader has loaded,
- * not necessarily the whole chat. Live messages older than the window's
- * coverage (they exist exactly when the reader loaded older pages that a
- * later slid-window refetch no longer spans) are durable rows already
- * adopted once — keep them, and replace only the covered tail. The split is
- * on strict `seq < server oldest`, so the overlap region dedupes to the
- * server copy.
- */
-export function adoptServerHistory(input: {
-  status: string;
-  serverMessages: ReadonlyArray<UIMessage>;
-  liveMessages: ReadonlyArray<UIMessage>;
-}): Array<UIMessage> | null {
-  if (input.status === "streaming" || input.status === "submitted") {
-    return null;
-  }
-  const server = input.serverMessages;
-  const serverBounds = durableSeqBounds(server);
-  if (serverBounds === null) return null;
-  const liveBounds = durableSeqBounds(input.liveMessages);
-
-  const extendsNewer =
-    liveBounds === null || serverBounds.newest > liveBounds.newest;
-  const extendsOlder =
-    liveBounds !== null && serverBounds.oldest < liveBounds.oldest;
-  if (!extendsNewer && !extendsOlder) return null;
-
-  const head: Array<UIMessage> = [];
-  for (const message of input.liveMessages) {
-    const seq = messageSeqFromMetadata(message.metadata);
-    if (seq === null || seq >= serverBounds.oldest) break;
-    head.push(message);
-  }
-
-  // Adoption must not clip the log's live end: a refetch can land while the
-  // tail is only PARTIALLY durable — the user turn commits synchronously at
-  // send, the assistant reply only at run termination, so a mid-stream
-  // disconnect refetch advances the newest seq (the user turn) while the
-  // reader's partial answer exists nowhere server-side. Wiping it blanks
-  // text the reader is looking at until the background poll re-adopts,
-  // which on a long run is minutes. So keep each trailing live-authored
-  // message unless THIS server read provably carries its durable copy: a
-  // user turn persists under the client-supplied message id (idempotent
-  // create), and a streamed assistant's live id is its Run id, which the
-  // durable row carries in usage metadata. Matching per message (not
-  // "server advanced ⇒ tail covered") is what keeps a kept message from
-  // ever duplicating a server row.
-  const serverIds = new Set(server.map((message) => message.id));
-  const serverRunIds = new Set(
-    server.flatMap((message) => {
-      const runId = runIdFromMessageMetadata(message.metadata);
-      return runId === null ? [] : [runId];
-    }),
-  );
-  const tail: Array<UIMessage> = [];
-  for (let index = input.liveMessages.length - 1; index >= 0; index--) {
-    const message = input.liveMessages[index];
-    if (messageSeqFromMetadata(message.metadata) !== null) break;
-    if (serverIds.has(message.id) || serverRunIds.has(message.id)) continue;
-    tail.unshift(message);
-  }
-  return [...head, ...server, ...tail];
 }

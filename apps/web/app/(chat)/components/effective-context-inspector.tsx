@@ -1,8 +1,7 @@
 "use client";
 
-import { FileSearchIcon, LoaderCircleIcon } from "lucide-react";
+import { LoaderCircleIcon } from "lucide-react";
 
-import { Button } from "@workspace/ui/components/button";
 import {
   Sheet,
   SheetContent,
@@ -15,16 +14,6 @@ import {
   useRunContextReceipt,
   type RunContextReceipt,
 } from "@/lib/services/chat/runs";
-
-export function EffectiveContextAction({ onClick }: { onClick: () => void }) {
-  return (
-    <Button type="button" variant="ghost" size="xs" onClick={onClick}>
-      <FileSearchIcon data-icon="inline-start" aria-hidden="true" />
-      <span className="text-trim-cap">System prompt</span>
-    </Button>
-  );
-}
-
 function promptSourceLabel(source: "project_default" | "model_override") {
   return source === "model_override"
     ? "Model-specific override"

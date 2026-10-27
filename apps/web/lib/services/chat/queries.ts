@@ -235,6 +235,10 @@ export function toChatHistory(
   return {
     messages: toChatUiMessages({ messages }),
     compaction: checkpoint ?? null,
+    // Every page carries the same latest Run read; the newest window is the
+    // one the actions judge (turn-actions D12), and a loaded older page must
+    // not report an older Chat state.
+    latestRun: data.pages[0]?.latestRun ?? null,
   };
 }
 

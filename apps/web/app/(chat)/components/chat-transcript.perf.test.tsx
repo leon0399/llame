@@ -34,6 +34,7 @@ const STREAM_TICKS = 50;
 const EMPTY_MODELS: ReadonlyArray<never> = [];
 const onForked = () => {};
 const onInspectContext = () => {};
+const onFollowUp = () => {};
 
 type ToolFixturePart = UIMessage["parts"][number] & {
   type: `tool-${string}`;
@@ -127,6 +128,8 @@ describe("chat transcript stream-tick cost (perf)", () => {
           compactionIndex={0}
           availableModels={EMPTY_MODELS}
           status="streaming"
+          latestRun={null}
+          onFollowUp={onFollowUp}
           onInspectContext={onInspectContext}
           onForked={onForked}
         />,
@@ -156,6 +159,8 @@ describe("chat transcript stream-tick cost (perf)", () => {
             compactionIndex={0}
             availableModels={EMPTY_MODELS}
             status="streaming"
+            latestRun={null}
+            onFollowUp={onFollowUp}
             onInspectContext={onInspectContext}
             onForked={onForked}
           />,
