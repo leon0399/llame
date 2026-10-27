@@ -43,12 +43,20 @@ describe('eligibleMessagePredicate', () => {
     expect(text).not.toContain('checkpoint');
   });
 
-  it('ANDs the role check with the usage-completeness check for assistant rows', () => {
+  it('ANDs the role check with the revised and usage-completeness checks', () => {
     const { sql: text } = compile('m');
     const assistantBranch = text.slice(
       text.indexOf('"m".role = \'assistant\''),
     );
 
-    expect(assistantBranch).toMatch(/'assistant'\s*AND \(/);
+    expect(assistantBranch).toMatch(
+      /'assistant'\s*AND "m"\.revised_at IS NULL\s*AND \(/,
+    );
+  });
+
+  it('excludes a revised reply from evidence, whatever its usage says', () => {
+    const { sql: text } = compile('m');
+
+    expect(text).toContain('"m".revised_at IS NULL');
   });
 });

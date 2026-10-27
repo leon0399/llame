@@ -48,6 +48,7 @@ function message(seq: number, role: Message['role'] = 'user'): Message {
     absorbedThroughSeq: null,
     inReplyTo: null,
     createdAt: now,
+    revisedAt: null,
   };
 }
 

@@ -38,6 +38,7 @@ function toolPart(toolCallId: string) {
     input: { query: 'schema' },
     output: { status: 'success', results: [] },
     outcome: 'success',
+    classification: 'read_only' as const,
   };
 }
 
@@ -197,6 +198,7 @@ describe('AssistantPartCollector occurrence order', () => {
       input: undefined,
       errorText: 'The run was cancelled before this tool finished.',
       outcome: 'cancelled',
+      classification: null,
     });
 
     // Cooperative cancellation is best-effort, so a late genuine result is
@@ -212,6 +214,7 @@ describe('AssistantPartCollector occurrence order', () => {
         input: undefined,
         errorText: 'The run was cancelled before this tool finished.',
         outcome: 'cancelled',
+        classification: null,
       },
     ]);
   });
@@ -248,6 +251,11 @@ describe('assistant reasoning part identity across live, replay, and history', (
       toolName: 'search_conversations',
       input: { query: 'schema' },
     }),
+    event('tool.started', {
+      toolCallId: 'c1',
+      toolName: 'search_conversations',
+      classification: 'read_only',
+    }),
     event('tool.completed', {
       toolCallId: 'c1',
       output: { status: 'success', value: 'found' },
@@ -275,6 +283,7 @@ describe('assistant reasoning part identity across live, replay, and history', (
         toolName: 'search_conversations',
         input: { query: 'schema' },
         result: { status: 'success', value: 'found' },
+        classification: 'read_only',
       }),
     );
     live.reasoning('**After the tool**', 'rs_1:1');
@@ -369,6 +378,11 @@ describe('reasoning blocks a provider withheld (D18)', () => {
         toolName: 'search_conversations',
         input: { query: 'schema' },
       }),
+      event('tool.started', {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        classification: 'read_only',
+      }),
       event('tool.completed', {
         toolCallId: 'c1',
         output: { status: 'success', value: 'found' },
@@ -389,6 +403,7 @@ describe('reasoning blocks a provider withheld (D18)', () => {
         toolName: 'search_conversations',
         input: { query: 'schema' },
         result: { status: 'success', value: 'found' },
+        classification: 'read_only',
       }),
     );
     live.reasoning('', '1:0', secondSignature);

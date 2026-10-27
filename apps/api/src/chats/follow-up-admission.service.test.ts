@@ -89,6 +89,7 @@ const userMessage: Message = {
   usage: null,
   inReplyTo: null,
   createdAt: now,
+  revisedAt: null,
 };
 
 const sourceRun: Run = {
@@ -146,6 +147,7 @@ function replyWith(usage: ReplyUsage | null): Message {
     usage,
     inReplyTo: userMessage.id,
     createdAt: now,
+    revisedAt: null,
   };
 }
 
@@ -400,16 +402,44 @@ describe('FollowUpAdmissionService', () => {
     );
   });
 
-  it('rejects an action other than continue before any transaction', async () => {
+  it('rejects a malformed action before any transaction', async () => {
     const { service, runAs } = makeService();
+
+    await expect(admit(service, { action: 'retry' })).rejects.toMatchObject({
+      constructor: BadRequestException,
+      message: 'action must be continue or regenerate',
+    });
+    expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Regenerate without a model before any transaction', async () => {
+    const { service, runAs, validateModelSelection } = makeService();
 
     await expect(
       admit(service, { action: 'regenerate' }),
     ).rejects.toMatchObject({
       constructor: BadRequestException,
-      message: 'action must be continue',
+      message: 'A regenerate request must name a model',
     });
+    expect(validateModelSelection).not.toHaveBeenCalled();
     expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('validates a Regenerate like a chat send, in the chat-send order', async () => {
+    const { service, validateModelSelection, resolveEffortSelection, runAs } =
+      makeService();
+    resolveEffortSelection.mockReturnValue('high');
+
+    await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+      effort: 'high',
+      permissionMode: 'default',
+    });
+
+    expect(validateModelSelection).toHaveBeenCalledWith(model.id);
+    expect(resolveEffortSelection).toHaveBeenCalledWith(model, 'high');
+    expect(runAs).toHaveBeenCalled();
   });
 
   it('rejects a model or an effort named on a Continue', async () => {
@@ -468,6 +498,222 @@ describe('FollowUpAdmissionService', () => {
     await expect(admit(service)).rejects.toBeInstanceOf(ConflictException);
 
     // A refused request writes nothing: the row lock took no column with it.
+    expect(touch).not.toHaveBeenCalled();
+  });
+
+  it('admits a Regenerate of a completed reply with the requested settings', async () => {
+    const {
+      service,
+      findLatestByChatId,
+      findReply,
+      createRun,
+      append,
+      resolveEffortSelection,
+    } = makeService();
+    resolveEffortSelection.mockReturnValue('high');
+    findLatestByChatId.mockResolvedValue({
+      ...sourceRun,
+      status: 'completed',
+      modelId: 'model-a',
+      followUpAction: null,
+    });
+    findReply.mockResolvedValue(
+      replyWith({
+        status: 'completed',
+        runId: sourceRun.id,
+        modelId: 'model-a',
+      }),
+    );
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+      effort: 'high',
+      permissionMode: 'default',
+    });
+
+    expect(admitted.modelId).toBe(model.id);
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: model.id,
+        effort: 'high',
+        permissionMode: 'default',
+        followUpAction: 'regenerate',
+        sourceRunId: sourceRun.id,
+      }),
+    );
+    // The reply holds only a read call, so no notice is owed; its usage is
+    // replaced, so the new usage records `complete: false` (turn-actions D9,
+    // D11).
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+      replacesUsage: true,
+    });
+    // A Regenerate continues nothing, so its log carries no kept parts.
+    expect(append).not.toHaveBeenCalledWith(
+      admitted.runId,
+      'run.continued',
+      expect.anything(),
+    );
+  });
+
+  it('records the notice when the replaced reply ran a call whose effects stay', async () => {
+    const { service, findReply, append } = makeService();
+    findReply.mockResolvedValue(
+      replyWith({
+        status: 'completed',
+        runId: sourceRun.id,
+        modelId: model.id,
+      }),
+    );
+    // A started `bash` call outlives the reply it was recorded in.
+    findReply.mockResolvedValue({
+      ...replyWith({
+        status: 'completed',
+        runId: sourceRun.id,
+        modelId: model.id,
+      }),
+      parts: [
+        {
+          type: 'tool-bash',
+          toolCallId: 'call-bash',
+          state: 'output-available',
+          input: { command: 'make' },
+          output: { status: 'success' },
+          outcome: 'success',
+          classification: 'execute_code',
+        },
+      ],
+    });
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+    });
+
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+      replacesUsage: true,
+      notice: true,
+    });
+  });
+
+  it('adds no notice for a reply whose calls were rejected before they started', async () => {
+    const { service, findReply, append } = makeService();
+    findReply.mockResolvedValue({
+      ...replyWith({
+        status: 'completed',
+        runId: sourceRun.id,
+        modelId: model.id,
+      }),
+      parts: [
+        {
+          type: 'tool-bash',
+          toolCallId: 'call-bash',
+          state: 'output-error',
+          input: { command: 'make' },
+          errorText: 'rejected',
+          outcome: 'permission_denied',
+          classification: null,
+        },
+      ],
+    });
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+    });
+
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+      replacesUsage: true,
+    });
+  });
+
+  it('keeps one notice on a turn that already holds it', async () => {
+    const { service, findTurnState, findReply, append } = makeService();
+    findTurnState.mockResolvedValue({
+      userMessage: {
+        ...userMessage,
+        parts: [
+          { type: 'text', text: 'do the work' },
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'regenerate',
+              form: 'notice',
+              runId: '88888888-8888-4888-8888-888888888888',
+              payload: { reason: 'non_read_only_calls' },
+              text: '<system-reminder producer="regenerate">discarded</system-reminder>',
+            },
+          },
+        ],
+      },
+    });
+    findReply.mockResolvedValue({
+      ...replyWith({
+        status: 'completed',
+        runId: sourceRun.id,
+        modelId: model.id,
+      }),
+      parts: [
+        {
+          type: 'tool-bash',
+          toolCallId: 'call-bash',
+          state: 'output-available',
+          input: { command: 'make' },
+          output: { status: 'success' },
+          outcome: 'success',
+          classification: 'execute_code',
+        },
+      ],
+    });
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+    });
+
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+      replacesUsage: true,
+    });
+  });
+
+  it('admits a Regenerate of a turn that left no reply', async () => {
+    const { service, findReply, createRun, append } = makeService();
+    findReply.mockResolvedValue(undefined);
+
+    const admitted = await admit(service, {
+      action: 'regenerate',
+      modelId: model.id,
+    });
+
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ followUpAction: 'regenerate' }),
+    );
+    // Nothing recorded usage, so the new usage is the only one there was.
+    expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
+      chatId: chat.id,
+      messageId: userMessage.id,
+    });
+  });
+
+  it('refuses a Regenerate while the latest Run is not terminal', async () => {
+    const { service, findLatestByChatId, touch } = makeService();
+    findLatestByChatId.mockResolvedValue({ ...sourceRun, status: 'queued' });
+
+    await expect(
+      admit(service, { action: 'regenerate', modelId: model.id }),
+    ).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'A queued Run cannot be regenerated',
+    });
     expect(touch).not.toHaveBeenCalled();
   });
 

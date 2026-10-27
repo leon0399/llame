@@ -15,7 +15,7 @@ import {
   matchesAllowedToolId,
   matchesCodeOwnedToolId,
 } from './tool-id';
-import { type Tool } from './types';
+import { type Tool, isToolClassification } from './types';
 import { isString } from '@workspace/runtime-safety';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
@@ -40,19 +40,7 @@ type ToolRegistrationCandidate = Omit<Tool, 'classification'> & {
 function isClassifiedTool(
   candidate: ToolRegistrationCandidate,
 ): candidate is Tool {
-  switch (candidate.classification) {
-    case 'read_only':
-    case 'write_low_risk':
-    case 'write_high_risk':
-    case 'execute_code':
-    case 'external_send':
-    case 'financial_or_sensitive':
-    case 'admin':
-    case 'unverified':
-      return true;
-    default:
-      return false;
-  }
+  return isToolClassification(candidate.classification);
 }
 
 /**

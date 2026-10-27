@@ -916,6 +916,7 @@ describeIfDb('a Continue Run', () => {
           attemptId,
           modelId: MODEL_ID,
         },
+        followUpAction: 'continue',
       });
       await new RunningReplyRepository(tx).updateRunningReplyParts({
         chatId: turn.chatId,

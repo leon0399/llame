@@ -88,6 +88,7 @@ describeIfDb('MessagesRepository running replies', () => {
         chatId: turn.chatId,
         inReplyTo: turn.userId,
         usage: runningUsage('attempt-a'),
+        followUpAction: null,
       }),
     );
 
@@ -107,6 +108,7 @@ describeIfDb('MessagesRepository running replies', () => {
         chatId: turn.chatId,
         inReplyTo: turn.userId,
         usage: runningUsage('attempt-a'),
+        followUpAction: null,
       });
       await replies.updateRunningReplyParts({
         chatId: turn.chatId,
@@ -123,6 +125,7 @@ describeIfDb('MessagesRepository running replies', () => {
         chatId: turn.chatId,
         inReplyTo: turn.userId,
         usage: runningUsage('attempt-b'),
+        followUpAction: null,
       }),
     );
 
@@ -149,6 +152,7 @@ describeIfDb('MessagesRepository running replies', () => {
           chatId: turn.chatId,
           inReplyTo: turn.userId,
           usage: runningUsage('attempt-c'),
+          followUpAction: null,
         }),
       ),
     ).resolves.toMatchObject({ id: first.id, parts: [] });
@@ -171,6 +175,7 @@ describeIfDb('MessagesRepository running replies', () => {
           chatId: turn.chatId,
           inReplyTo: turn.userId,
           usage: runningUsage('attempt-b'),
+          followUpAction: null,
         }),
       ),
     ).resolves.toBeUndefined();
@@ -184,6 +189,7 @@ describeIfDb('MessagesRepository running replies', () => {
         chatId: turn.chatId,
         inReplyTo: turn.userId,
         usage: runningUsage('attempt-b'),
+        followUpAction: null,
       }),
     );
     const write = (attemptId: string, text: string) =>
@@ -271,6 +277,7 @@ describeIfDb('MessagesRepository running replies', () => {
         chatId: turn.chatId,
         inReplyTo: turn.userId,
         usage: runningUsage('attempt-a'),
+        followUpAction: null,
       }),
     );
     if (reply === undefined) expect.unreachable('expected a running reply');

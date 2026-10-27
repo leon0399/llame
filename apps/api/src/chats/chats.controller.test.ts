@@ -62,6 +62,7 @@ const chatMessages: Array<Message> = [
     usage: null,
     inReplyTo: null,
     createdAt: new Date('2026-06-29T00:01:00.000Z'),
+    revisedAt: null,
   },
   {
     id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
@@ -75,6 +76,7 @@ const chatMessages: Array<Message> = [
     usage: { status: 'completed', finishReason: 'stop' },
     inReplyTo: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
     createdAt: new Date('2026-06-29T00:01:01.000Z'),
+    revisedAt: null,
   },
 ];
 

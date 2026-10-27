@@ -34,20 +34,28 @@ export class AcceptedTurnPartsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * Insert one dispatch's items into the locked user row; `applied` is false
-   * when the row is gone. Callers run this inside the attempt-fenced dispatch
-   * transaction, after the runs fence and before any chats write.
+   * Insert one dispatch's items into the locked user row, after dropping the
+   * stored model-switch items when the dispatch replaces them; `applied` is
+   * false when the row is gone. Callers run this inside the attempt-fenced
+   * dispatch transaction, after the runs fence and before any chats write.
    */
   async storeAtDispatch(input: {
     id: string;
     chatId: string;
     items: ReadonlyArray<ContextItemPart>;
     placement: AcceptedTurnPlacement;
+    /** The first dispatch of a Regenerate Run replaces the switch item (D8). */
+    removeModelSwitch: boolean;
   }): Promise<{ applied: boolean }> {
     const parts = await lockParts(this.db, input);
     if (parts === undefined) return { applied: false };
-    if (input.items.length === 0) return { applied: true };
-    const placed = placeAcceptedTurnItems(parts, input.items, input.placement);
+    const kept = input.removeModelSwitch
+      ? parts.filter((part) => !isModelSwitchItem(part))
+      : parts;
+    if (kept.length === parts.length && input.items.length === 0) {
+      return { applied: true };
+    }
+    const placed = placeAcceptedTurnItems(kept, input.items, input.placement);
     const [updated] = await this.db
       .update(messages)
       .set({ parts: placed })
@@ -55,6 +63,20 @@ export class AcceptedTurnPartsRepository {
       .returning({ id: messages.id });
     return { applied: updated !== undefined };
   }
+}
+
+/**
+ * Whether a stored part is the model-switch item: an `effective-context-change`
+ * item whose only cause is `model`. A Regenerate's first dispatch replaces it
+ * with the item its own comparison yields (turn-actions D8).
+ */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- the argument is one stored jsonb part; `isContextItemPart` parses it before anything inside it is read.
+export function isModelSwitchItem(part: unknown): boolean {
+  return (
+    isContextItemPart(part) &&
+    part.data.producer === 'effective-context-change' &&
+    part.data.payload['cause'] === 'model'
+  );
 }
 
 /**

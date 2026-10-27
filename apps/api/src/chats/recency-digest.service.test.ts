@@ -211,6 +211,7 @@ describe('recency digest baseline', () => {
             usage: null,
             inReplyTo: null,
             createdAt: new Date(),
+            revisedAt: null,
           })),
         ),
       );

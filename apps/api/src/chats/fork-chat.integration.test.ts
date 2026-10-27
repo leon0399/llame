@@ -554,6 +554,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           attemptId: '44444444-4444-4444-8444-444444444444',
           modelId: 'model-a',
         },
+        followUpAction: null,
       });
       if (reply === undefined) expect.unreachable('expected a running reply');
       const stored = await replies.updateRunningReplyParts({

@@ -187,6 +187,8 @@ describeIfDb('follow-up admission', () => {
     effort?: string | null;
     permissionMode?: PermissionMode;
     replyParts?: Array<unknown>;
+    /** Items an earlier Run of this turn stored on the trigger. */
+    triggerItems?: Array<unknown>;
     replyUsageStatus?: 'error' | 'aborted' | 'completed' | 'running';
     reply?: boolean;
     followUpAction?: FollowUpAction;
@@ -213,7 +215,10 @@ describeIfDb('follow-up admission', () => {
         chatId: chat.id,
         role: 'user',
         senderUserId: ownerUserId,
-        parts: [{ type: 'text', text: 'Do the work' }],
+        parts: [
+          { type: 'text', text: 'Do the work' },
+          ...(options.triggerItems ?? []),
+        ],
       });
       if (options.laterUserMessage === true) {
         await messagesRepo.create({
@@ -764,6 +769,251 @@ describeIfDb('follow-up admission', () => {
 
       expect((await runById(admitted.runId))?.permissionMode).toBe('bypass');
       expect((await runById(fixture.runId))?.permissionMode).toBe('default');
+    });
+  });
+
+  describe('task 4.1 — the regenerate action', () => {
+    /** The notice an earlier Run of the turn stored, as the producer writes it. */
+    const storedNotice = (runId: string) => ({
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'regenerate',
+        form: 'notice',
+        runId,
+        payload: { reason: 'non_read_only_calls' },
+        text: '<system-reminder producer="regenerate" form="notice">\nInserted by llame; not written by the user.\nAn earlier attempt at this turn was discarded.\n</system-reminder>',
+      },
+    });
+
+    it('rejects a Regenerate without a model before any write', async () => {
+      const fixture = await seedTurn({ status: 'completed' });
+
+      await expect(
+        admit(fixture, { action: 'regenerate' }),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: 'A regenerate request must name a model',
+      });
+      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
+    });
+
+    it('validates a Regenerate like a chat send', async () => {
+      const fixture = await seedTurn({ status: 'completed' });
+
+      await expect(
+        admit(fixture, {
+          action: 'regenerate',
+          modelId: REMOVED_MODEL_ID,
+        }),
+      ).rejects.toBeInstanceOf(ModelNotAvailableError);
+      await expect(
+        admit(fixture, {
+          action: 'regenerate',
+          modelId: MODEL_ID,
+          effort: 'max',
+        }),
+      ).rejects.toBeInstanceOf(EffortNotAvailableError);
+      const admission = new FollowUpAdmissionService(
+        api.tenantDb,
+        modelValidator(),
+        {
+          config: {
+            ...BUILT_IN_DEFAULTS,
+            tools: { ...BUILT_IN_DEFAULTS.tools, permissionModes: ['default'] },
+          },
+        },
+        { dispatch: vi.fn(async () => {}), jobState: api.jobState },
+      );
+      await expect(
+        admit(
+          fixture,
+          {
+            action: 'regenerate',
+            modelId: MODEL_ID,
+            permissionMode: 'bypass',
+          },
+          { admission },
+        ),
+      ).rejects.toBeInstanceOf(PermissionModeNotAvailableError);
+      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
+    });
+
+    it('admits a Regenerate of a completed reply with the requested settings', async () => {
+      const fixture = await seedTurn({
+        status: 'completed',
+        modelId: 'system:openai:gpt-5.4',
+        replyUsageStatus: 'completed',
+        replyParts: [
+          {
+            type: 'tool-read',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { path: '/tmp/file.txt' },
+            output: { status: 'success', text: 'body' },
+            outcome: 'success',
+            classification: 'read_only',
+          },
+        ],
+      });
+
+      const admitted = await admit(fixture, {
+        action: 'regenerate',
+        modelId: MODEL_ID,
+        effort: 'high',
+        permissionMode: 'bypass',
+      });
+
+      expect(await runById(admitted.runId)).toMatchObject({
+        modelId: MODEL_ID,
+        effort: 'high',
+        permissionMode: 'bypass',
+        followUpAction: 'regenerate',
+        sourceRunId: fixture.runId,
+      });
+      const events = await eventsOfRun(admitted.runId);
+      // A Regenerate continues nothing, and a read-only reply owes no notice.
+      expect(events.map(({ eventType }) => eventType)).toEqual(['run.created']);
+      expect(events[0]?.payload).toEqual({
+        chatId: fixture.chatId,
+        messageId: fixture.messageId,
+        replacesUsage: true,
+      });
+    });
+
+    it('records the notice for a reply that ran a call whose effects stay', async () => {
+      const fixture = await seedTurn({
+        status: 'completed',
+        replyUsageStatus: 'completed',
+        replyParts: [
+          {
+            type: 'tool-bash',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { command: 'make' },
+            output: { status: 'success' },
+            outcome: 'success',
+            classification: 'execute_code',
+          },
+        ],
+      });
+
+      const admitted = await admit(fixture, {
+        action: 'regenerate',
+        modelId: MODEL_ID,
+      });
+
+      const events = await eventsOfRun(admitted.runId);
+      expect(events[0]?.payload).toMatchObject({ notice: true });
+    });
+
+    it('adds no second notice to a turn that already holds one', async () => {
+      const fixture = await seedTurn({
+        status: 'completed',
+        replyUsageStatus: 'completed',
+        triggerItems: [storedNotice(crypto.randomUUID())],
+        replyParts: [
+          {
+            type: 'tool-bash',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { command: 'make' },
+            output: { status: 'success' },
+            outcome: 'success',
+            classification: 'execute_code',
+          },
+        ],
+      });
+
+      const admitted = await admit(fixture, {
+        action: 'regenerate',
+        modelId: MODEL_ID,
+      });
+
+      const events = await eventsOfRun(admitted.runId);
+      expect(events[0]?.payload).not.toHaveProperty('notice');
+    });
+
+    it('adds no notice for a call that never started', async () => {
+      const fixture = await seedTurn({
+        status: 'completed',
+        replyUsageStatus: 'completed',
+        replyParts: [
+          {
+            type: 'tool-bash',
+            toolCallId: 'call-1',
+            state: 'output-error',
+            input: { command: 'make' },
+            errorText: 'rejected',
+            outcome: 'permission_denied',
+            classification: null,
+          },
+        ],
+      });
+
+      const admitted = await admit(fixture, {
+        action: 'regenerate',
+        modelId: MODEL_ID,
+      });
+
+      expect(
+        (await eventsOfRun(admitted.runId))[0]?.payload,
+      ).not.toHaveProperty('notice');
+    });
+
+    it('admits a Regenerate of a turn that left no reply', async () => {
+      const fixture = await seedTurn({ status: 'failed', reply: false });
+
+      const admitted = await admit(fixture, {
+        action: 'regenerate',
+        modelId: MODEL_ID,
+      });
+
+      expect(await runById(admitted.runId)).toMatchObject({
+        followUpAction: 'regenerate',
+        status: 'queued',
+      });
+      // Nothing recorded usage, so the new usage is the only one there was.
+      expect((await eventsOfRun(admitted.runId))[0]?.payload).toEqual({
+        chatId: fixture.chatId,
+        messageId: fixture.messageId,
+      });
+      await expect(
+        api.tenantDb.runAs(api.userId, (tx) =>
+          new MessagesRepository(tx).findReply(
+            fixture.chatId,
+            api.userId,
+            fixture.messageId,
+          ),
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('refuses a Continue after a Regenerate that failed before dispatch', async () => {
+      const fixture = await seedTurn({
+        status: 'completed',
+        replyUsageStatus: 'completed',
+      });
+      const regenerate = await admit(fixture, {
+        action: 'regenerate',
+        modelId: MODEL_ID,
+      });
+      // The Regenerate Run died before it dispatched, so the reply still
+      // belongs to the completed Run.
+      await api.tenantDb.runAs(api.userId, (tx) =>
+        new RunsRepository(tx).markFinished(
+          regenerate.runId,
+          api.userId,
+          'failed',
+        ),
+      );
+
+      await expect(
+        admit(fixture, { action: 'continue' }),
+      ).rejects.toMatchObject({
+        constructor: ConflictException,
+        message: 'The reply does not belong to a Run that can be continued',
+      });
     });
   });
 });

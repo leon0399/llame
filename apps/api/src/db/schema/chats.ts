@@ -252,6 +252,10 @@ export const messages = pgTable(
       onDelete: 'set null',
     }),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
+    // Set when a Regenerate (turn-actions) replaces this row's completed reply:
+    // the row stays in the conversation as the user saw it, but it is never
+    // evidence again — search, reads, and timeline discovery exclude it.
+    revisedAt: timestamptz('revised_at'),
   },
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),

@@ -50,7 +50,9 @@ import { clearActiveRunSlot } from './chat-admission';
 import { type AcceptedRun } from './chat-loop.service';
 import { toRunUserMessage } from './chat-message-parts';
 import { continueKeptParts } from './continue-kept-parts';
+import { isContextItemPart } from './context-item';
 import { type MessagePart } from './context-builder';
+import { replyDiscardsNonReadOnlyCalls } from './regenerate-notice';
 import {
   continuedRecords,
   continueStateFromEvents,
@@ -58,6 +60,7 @@ import {
 } from './continue-projection';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { createRunForMessage, type FollowUpRunInput } from './run-creation';
+import { isTerminalRunStatus } from '../runs/run-status';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
 /**
@@ -81,6 +84,20 @@ const CONTINUABLE_RUN_STATUSES: ReadonlyArray<RunStatus> = [
 ];
 
 /**
+ * A follow-up request whose model, effort, and mode already passed the
+ * chat-send checks, before any transaction exists. Continue takes its model and
+ * effort from the Run it continues; Regenerate names its own.
+ */
+type ValidatedFollowUp =
+  | { readonly action: 'continue'; readonly permissionMode: PermissionMode }
+  | {
+      readonly action: 'regenerate';
+      readonly modelId: string;
+      readonly effort: string | undefined;
+      readonly permissionMode: PermissionMode;
+    };
+
+/**
  * What one admission transaction returns. A refusal is a VALUE, not a throw:
  * the transaction may already have expired a stuck Run, and design D1 keeps
  * that expiry even when the follow-up is then refused. The caller throws the
@@ -91,6 +108,15 @@ type AdmissionOutcome = AcceptedRun | { refusal: Error };
 /** What the Continue check settles before the Run row exists. */
 type ContinueDecision =
   | { latestRun: Run; source: Message; effort: string | undefined }
+  | { refusal: Error };
+
+/**
+ * What the Regenerate check settles before the Run row exists: the Run it acts
+ * on, whether its notice is owed, and whether it replaces a reply that already
+ * recorded usage (turn-actions D2, D9, D11).
+ */
+type RegenerateDecision =
+  | { latestRun: Run; notice: boolean; replacesUsage: boolean }
   | { refusal: Error };
 
 /**
@@ -130,7 +156,7 @@ export class FollowUpAdmissionService {
     request: FollowUpRequestInput;
   }): Promise<AcceptedRun> {
     // A refused request costs no transaction and writes nothing.
-    const permissionMode = this.admissionPermissionMode(input.request);
+    const validated = this.validateFollowUpRequest(input.request);
 
     const outcome = await this.tenantDb.runAs(
       input.userId,
@@ -142,7 +168,7 @@ export class FollowUpAdmissionService {
         );
 
         // A chat send's own single-flight admission: a live Run answers 409, and
-        // a stuck Run is expired here so the Continue check reads its outcome.
+        // a stuck Run is expired here so the action check reads its outcome.
         await clearActiveRunSlot({
           tx,
           chatId: input.chatId,
@@ -151,7 +177,9 @@ export class FollowUpAdmissionService {
           instanceConfig: this.instanceConfig,
         });
 
-        return this.continueRun(tx, input, userMessage, permissionMode);
+        return validated.action === 'continue'
+          ? this.continueRun(tx, input, userMessage, validated.permissionMode)
+          : this.regenerateRun(tx, input, userMessage, validated);
       },
     );
 
@@ -163,16 +191,26 @@ export class FollowUpAdmissionService {
   }
 
   /**
-   * The checks that need no stored state: `continue` is the only action this
-   * layer can execute, a model or an effort it names would be silently
-   * ignored, and the mode must be one the operator enabled.
+   * The checks that need no stored state. A Continue names no model and no
+   * effort, because it takes both from the Run it continues and a silently
+   * ignored field would lie. A Regenerate names its model and passes the
+   * chat-send checks in the chat-send order: the model, its effort, then the
+   * mode the operator enabled.
    */
-  private admissionPermissionMode(
+  private validateFollowUpRequest(
     request: FollowUpRequestInput,
-  ): PermissionMode {
-    if (request.action !== 'continue') {
-      throw new BadRequestException('action must be continue');
+  ): ValidatedFollowUp {
+    if (request.action === 'continue') return this.validateContinue(request);
+    if (request.action !== 'regenerate') {
+      throw new BadRequestException('action must be continue or regenerate');
     }
+    return this.validateRegenerate(request);
+  }
+
+  /** A Continue names neither a model nor an effort; it takes both from its Run. */
+  private validateContinue(
+    request: FollowUpRequestInput,
+  ): Extract<ValidatedFollowUp, { action: 'continue' }> {
     if (request.modelId !== undefined) {
       throw new BadRequestException('A continue request does not name a model');
     }
@@ -181,6 +219,30 @@ export class FollowUpAdmissionService {
         'A continue request does not name an effort',
       );
     }
+    return {
+      action: 'continue',
+      permissionMode: this.requestPermissionMode(request),
+    };
+  }
+
+  /** A Regenerate names its model, then its effort, as a chat send does. */
+  private validateRegenerate(
+    request: FollowUpRequestInput,
+  ): Extract<ValidatedFollowUp, { action: 'regenerate' }> {
+    if (request.modelId === undefined) {
+      throw new BadRequestException('A regenerate request must name a model');
+    }
+    const model = this.models.validateModelSelection(request.modelId);
+    return {
+      action: 'regenerate',
+      modelId: request.modelId,
+      effort: this.models.resolveEffortSelection(model, request.effort),
+      permissionMode: this.requestPermissionMode(request),
+    };
+  }
+
+  /** The mode the operator enabled; absent means `default`, as on a chat send. */
+  private requestPermissionMode(request: FollowUpRequestInput): PermissionMode {
     return resolvePermissionMode(
       request.permissionMode,
       this.instanceConfig.config.tools.permissionModes,
@@ -282,6 +344,106 @@ export class FollowUpAdmissionService {
   }
 
   /**
+   * The Regenerate check and the Run it admits. The Run replaces the turn's
+   * reply — also a `completed` one — from the history through the triggering
+   * user message, with the model and the effort the request named.
+   */
+  private async regenerateRun(
+    tx: Db,
+    input: { chatId: string; userId: string },
+    userMessage: Message,
+    validated: Extract<ValidatedFollowUp, { action: 'regenerate' }>,
+  ): Promise<AdmissionOutcome> {
+    const decision = await this.regenerateDecision(tx, input, userMessage);
+    if ('refusal' in decision) {
+      return decision;
+    }
+    const { latestRun, notice, replacesUsage } = decision;
+
+    // Accepted: the Chat is the turn's latest activity again.
+    await new ChatsRepository(tx).touch(input.chatId, input.userId);
+    const { run, supersededRunIds } = await createRunForMessage(
+      tx,
+      {
+        userId: input.userId,
+        chatId: input.chatId,
+        modelId: validated.modelId,
+        effort: validated.effort,
+        permissionMode: validated.permissionMode,
+        targetRunId: randomUUID(),
+        followUp: {
+          action: 'regenerate',
+          sourceRunId: latestRun.id,
+          notice,
+          replacesUsage,
+        },
+      },
+      userMessage,
+    );
+
+    return {
+      runId: run.id,
+      userMessage: toRunUserMessage(userMessage),
+      supersededRunIds,
+      chatId: input.chatId,
+      userId: input.userId,
+      modelId: validated.modelId,
+    };
+  }
+
+  /**
+   * Everything the Regenerate check decides, as a value: a refusal is returned
+   * so the transaction can commit the stuck-Run expiry it already performed.
+   * Any terminal latest Run qualifies, with or without a reply — a Run that
+   * failed at pickup leaves the turn with no reply, and that turn needs
+   * Regenerate most.
+   */
+  private async regenerateDecision(
+    tx: Db,
+    input: { chatId: string; userId: string },
+    userMessage: Message,
+  ): Promise<RegenerateDecision> {
+    try {
+      const latestRun = await new RunsRepository(tx).findLatestByChatId(
+        input.chatId,
+        input.userId,
+      );
+      if (latestRun?.messageId !== userMessage.id) {
+        throw new ConflictException('The message has no Run to follow up');
+      }
+      if (!isTerminalRunStatus(latestRun.status)) {
+        throw new ConflictException(
+          `A ${latestRun.status} Run cannot be regenerated`,
+        );
+      }
+      const reply = await new MessagesRepository(tx).findReply(
+        input.chatId,
+        input.userId,
+        userMessage.id,
+      );
+      return {
+        latestRun,
+        // The notice is owed once per turn: the replaced reply has to hold a
+        // call whose effects stay, and the trigger has to hold no notice yet.
+        notice:
+          reply !== undefined &&
+          replyDiscardsNonReadOnlyCalls(reply.parts) &&
+          !this.holdsRegenerateNotice(userMessage),
+        replacesUsage: reply !== undefined && reply.usage !== null,
+      };
+    } catch (error) {
+      if (!isFollowUpRefusal(error)) throw error;
+      return { refusal: error };
+    }
+  }
+
+  /** Whether the triggering user message already carries a `regenerate` item. */
+  private holdsRegenerateNotice(userMessage: Message): boolean {
+    return userMessage.parts.some(
+      (part) => isContextItemPart(part) && part.data.producer === 'regenerate',
+    );
+  }
+
   /**
    * Everything the Continue check decides, as a value: a refusal is returned
    * so the transaction can commit the stuck-Run expiry it already performed.

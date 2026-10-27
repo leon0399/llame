@@ -26,7 +26,11 @@ import {
   isHopRejection,
   normalizeToolObservationOutcome,
 } from '../chats/tool-observation-part';
-import { type ToolResult } from '../tools/types';
+import {
+  isToolClassification,
+  type ToolClassification,
+  type ToolResult,
+} from '../tools/types';
 import { isRejectedHopUrl } from '../tools/permissions/messages';
 import {
   type PermissionClauseReference,
@@ -85,6 +89,13 @@ export type ToolActivityPart = {
    * and never part of the model-visible result.
    */
   derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
+  /**
+   * The classification of the tool that ran the call, from its `tool.started`
+   * event. `null` for a call that never started — the availability gate or the
+   * permission policy rejected it (turn-actions D10). The history response
+   * carries it; model replay, public shares, exports, and search never do.
+   */
+  classification: ToolClassification | null;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -309,6 +320,8 @@ export type ToolActivityPartInput = {
   readonly result: ToolResult;
   readonly permission?: PermissionDecision;
   readonly derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
+  /** The executing tool's classification, or `null` when the call never started. */
+  readonly classification: ToolClassification | null;
 };
 
 /**
@@ -332,45 +345,58 @@ export const MAX_ADDRESS_DECISIONS = 16;
 export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
-  const { toolCallId, toolName, input, result, permission, derivedDecisions } =
-    call;
-  const part: ToolActivityPart =
-    result.status === 'success'
-      ? {
-          type: `tool-${toolName}`,
-          toolCallId,
-          state: 'output-available',
-          input,
-          output: result,
-          outcome: 'success',
-        }
-      : {
-          type: `tool-${toolName}`,
-          toolCallId,
-          state: 'output-error',
-          input,
-          errorText: result.message,
-          outcome: normalizeToolObservationOutcome(result.type, 'error'),
-          ...(result.type === 'cancelled' && {
-            resultProviderMetadata: {
-              llame: { cancelled: true as const },
-            },
-          }),
-        };
-  if (permission !== undefined) part.permission = permission;
-  if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
-    part.derivedDecisions = derivedDecisions;
+  const part = toolPartBody(call);
+  if (call.permission !== undefined) part.permission = call.permission;
+  if (call.derivedDecisions !== undefined && call.derivedDecisions.length > 0) {
+    part.derivedDecisions = call.derivedDecisions;
   }
-  // Beside the stored error the model reads, not the excluded metadata: only
-  // the native `read` tool's refused hop carries a target, so a result from
-  // any other tool or error type stores none.
-  const refusedTarget =
-    result.status === 'error' && isHopRejection(toolName, result.type)
-      ? result.rejectedUrl
-      : undefined;
+  const refusedTarget = hopRejectionTarget(call.toolName, call.result);
   if (refusedTarget !== undefined) part.errorRejectedUrl = refusedTarget;
 
   return part;
+}
+
+/** The settled state a call's result stores, before its decision metadata. */
+function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
+  const { toolCallId, toolName, input, result, classification } = call;
+  return result.status === 'success'
+    ? {
+        type: `tool-${toolName}`,
+        toolCallId,
+        state: 'output-available',
+        input,
+        output: result,
+        outcome: 'success',
+        classification,
+      }
+    : {
+        type: `tool-${toolName}`,
+        toolCallId,
+        state: 'output-error',
+        input,
+        errorText: result.message,
+        outcome: normalizeToolObservationOutcome(result.type, 'error'),
+        classification,
+        ...(result.type === 'cancelled' && {
+          resultProviderMetadata: {
+            llame: { cancelled: true as const },
+          },
+        }),
+      };
+}
+
+/**
+ * The refused redirect target to store beside a call's error, or undefined.
+ * Only the native `read` tool's refused hop carries one, so a result from any
+ * other tool or error type stores none.
+ */
+function hopRejectionTarget(
+  toolName: string,
+  result: ToolResult,
+): string | undefined {
+  return result.status === 'error' && isHopRejection(toolName, result.type)
+    ? result.rejectedUrl
+    : undefined;
 }
 
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the ternary test `isRecord(payload)` below -- an `isXxx`-named guard call, but as a ternary test rather than an `if`/`return`-of-boolean, a shape the structural exemption doesn't unwrap.
@@ -573,6 +599,15 @@ class DurableAssistantReconstructor {
   readonly openToolCalls = new Map<string, OpenToolCall>();
   private readonly seenToolCallIds = new Set<string>();
   private readonly completedToolCallIds = new Set<string>();
+  /**
+   * The classification each started call recorded. A call with no
+   * `tool.started` never ran, so it is absent here and its part stores `null`
+   * (turn-actions D10).
+   */
+  private readonly startedClassifications = new Map<
+    string,
+    ToolClassification
+  >();
 
   apply(events: Array<RunEvent>): void {
     for (const event of events) {
@@ -597,6 +632,9 @@ class DurableAssistantReconstructor {
         return;
       case 'tool.requested':
         this.applyToolRequested(event);
+        return;
+      case 'tool.started':
+        this.applyToolStarted(event);
         return;
       case 'tool.completed':
         this.applyToolCompleted(event);
@@ -640,6 +678,13 @@ class DurableAssistantReconstructor {
     this.collector.toolRequested(toolCallId);
   }
 
+  private applyToolStarted(event: RunEvent): void {
+    const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+    const classification = eventPayloadField(event.payload, 'classification');
+    if (!toolCallId || !isToolClassification(classification)) return;
+    this.startedClassifications.set(toolCallId, classification);
+  }
+
   private applyToolCompleted(event: RunEvent): void {
     const toolCallId = eventPayloadString(event.payload, 'toolCallId');
     if (!toolCallId || this.completedToolCallIds.has(toolCallId)) {
@@ -665,6 +710,7 @@ class DurableAssistantReconstructor {
         input: request.toolInput,
         result,
         permission: request.permission,
+        classification: this.startedClassifications.get(toolCallId) ?? null,
         // The call decision rides on the request; the derived-locator
         // decisions only exist once the call settled, so they are read from
         // this completion payload.

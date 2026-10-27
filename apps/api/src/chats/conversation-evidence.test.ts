@@ -80,6 +80,31 @@ describe('conversation evidence', () => {
       ).toBe(false);
     });
 
+    it('excludes a revised reply, whatever its usage says', () => {
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'assistant',
+          usage: { status: 'completed' },
+          revisedAt: new Date('2026-10-27T00:00:00.000Z'),
+        }),
+      ).toBe(false);
+      // A null or absent mark is the unrevised row.
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'assistant',
+          usage: { status: 'completed' },
+          revisedAt: null,
+        }),
+      ).toBe(true);
+      // User rows never carry a mark, and one could not exclude them.
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'user',
+          revisedAt: new Date('2026-10-27T00:00:00.000Z'),
+        }),
+      ).toBe(true);
+    });
+
     it('excludes irrelevant roles', () => {
       expect(isImmutableEvidenceMessage({ role: 'system' })).toBe(false);
       expect(isImmutableEvidenceMessage({ role: 'tool' })).toBe(false);

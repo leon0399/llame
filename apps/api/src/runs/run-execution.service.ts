@@ -133,6 +133,8 @@ import {
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
+import { createRegenerateNoticeItem } from '../chats/regenerate-notice';
+import { isModelSwitchItem } from '../chats/accepted-turn-parts.repository';
 import {
   continueStateFromEvents,
   projectContinueParts,
@@ -225,6 +227,7 @@ import {
   type KnowledgeToolResolver,
   type MachineStatusReader,
   type Tool,
+  type ToolClassification,
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
@@ -435,6 +438,13 @@ type PreparedAttemptContext = ModelRequestContext & {
   /** Where the dispatch transaction places `stagedParts` on the trigger. */
   placement: AcceptedTurnPlacement;
   /**
+   * Whether the dispatch transaction drops the stored model-switch items from
+   * the trigger first — the first dispatch of a Regenerate Run, whose own
+   * comparison replaces the item an earlier Run stored (turn-actions D8). The
+   * request drops them too, so the model never reads both.
+   */
+  removesModelSwitch: boolean;
+  /**
    * The triggering user row's stored parts as this pass read them; undefined
    * when the history it read lacks the row, so the request has no message of
    * its own to carry the items.
@@ -517,6 +527,8 @@ type AttemptPromptContext = AttemptPromptInputs &
 type AttemptStagedContext = {
   stagedParts: Array<MessagePart>;
   placement: AcceptedTurnPlacement;
+  /** Whether the dispatch drops the stored model-switch items before storing. */
+  removesModelSwitch: boolean;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   skillCatalogNoticeTold?: NonNullable<Chat['skillCatalogTold']>;
   workspaceWrites?: WorkspaceWrites;
@@ -1441,6 +1453,12 @@ export class RunExecutionService {
         derivedDecisions?: Array<DerivedDecisionRecord>;
         /** Absent means model-origin (tool-activity-origin.ts). */
         origin?: ToolActivityOrigin;
+        /**
+         * The executing tool's classification, recorded only for a call that
+         * started; a rejected call stores `classification: null` on its part
+         * (turn-actions D10).
+         */
+        classification?: ToolClassification;
       }
     >();
     // Reserve the persisted part and the open-call entry at request time (before
@@ -1542,6 +1560,7 @@ export class RunExecutionService {
           result,
           permission,
           derivedDecisions,
+          classification: open?.classification ?? null,
         }),
       );
     };
@@ -1608,13 +1627,20 @@ export class RunExecutionService {
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK's own inputSchema validation already ran before this callback fires; `args` is that already-admitted value forwarded for durable recording.
       args: unknown,
       decision: PermissionDecision,
+      classification: ToolClassification,
       origin?: ToolActivityOrigin,
     ): Promise<void> => {
       const open = openToolCalls.get(toolCallId);
-      if (open !== undefined) open.permission = decision;
+      const started = decision.decision === 'allow';
+      if (open !== undefined) {
+        open.permission = decision;
+        // Only a started call has a classification; its part records the tool
+        // that ran it, and a rejected call's part records `null`.
+        if (started) open.classification = classification;
+      }
       emitToolRequested(toolCallId, toolName, args, decision, origin);
-      if (decision.decision === 'allow') {
-        enqueueEvent('tool.started', { toolCallId, toolName });
+      if (started) {
+        enqueueEvent('tool.started', { toolCallId, toolName, classification });
       }
       await deltaWrites;
       if (progressWriteFailed) {
@@ -1652,6 +1678,7 @@ export class RunExecutionService {
             'read',
             toolInput,
             decision,
+            nativeReadTool.classification,
             ORIGIN_INSTRUCTIONS,
           ),
       );
@@ -1694,7 +1721,13 @@ export class RunExecutionService {
         },
         callTimeoutSeconds,
         async (decision) => {
-          await admitToolCall(toolCallId, declaration.id, args, decision);
+          await admitToolCall(
+            toolCallId,
+            declaration.id,
+            args,
+            decision,
+            executor.classification,
+          );
           if (decision.decision === 'allow') {
             // The trigger follows admission, not the result: a call that is
             // allowed loads its directory whether or not it then failed, and a
@@ -3241,6 +3274,7 @@ export class RunExecutionService {
         await events.append(input.runId, 'tool.started', {
           toolCallId,
           toolName: 'read',
+          classification: nativeReadTool.classification,
         });
       }
     });
@@ -3691,13 +3725,39 @@ export class RunExecutionService {
     runId: string,
     userId: string,
   ): Promise<boolean> {
+    return (await this.createdFlags(tx, runId, userId)).replacesUsage;
+  }
+
+  /**
+   * Whether admission recorded that this Regenerate Run owes the turn its
+   * notice (turn-actions D9). It decided once per turn, from the reply it
+   * replaces, so every attempt of the Run reads the same answer.
+   */
+  private async createdNotice(tx: Db, run: ExecuteRunInput): Promise<boolean> {
+    return (await this.createdFlags(tx, run.runId, run.userId)).notice;
+  }
+
+  /**
+   * The two facts admission records in `run.created` and a later writer reads
+   * back: whether the reply it replaced had usage (D11), and whether it owes
+   * the turn the Regenerate notice (D9).
+   */
+  private async createdFlags(
+    tx: Db,
+    runId: string,
+    userId: string,
+  ): Promise<{ replacesUsage: boolean; notice: boolean }> {
     const created = await new RunEventsRepository(tx).findFirstByType(
       runId,
       userId,
       'run.created',
     );
     const payload = created?.payload;
-    return isRecord(payload) && payload['replacesUsage'] === true;
+    const record = isRecord(payload) ? payload : {};
+    return {
+      replacesUsage: record['replacesUsage'] === true,
+      notice: record['notice'] === true,
+    };
   }
 
   /** Finalizes usage completeness against owner-scoped Run and reply state. */
@@ -4156,7 +4216,10 @@ export class RunExecutionService {
       effectiveContext: catalog,
       afterPublication,
       machine,
-      followUp: continued !== undefined,
+      // Every follow-up Run — Continue and Regenerate alike — follows the
+      // retry rule and compares against the earlier Run of its own turn
+      // (turn-actions D8).
+      followUp: input.followUpAction != null,
     });
     const built = await this.rebuildContextForChat(
       tx,
@@ -4178,6 +4241,7 @@ export class RunExecutionService {
       toolCatalog: catalog,
       stagedParts: staged.stagedParts,
       placement: staged.placement,
+      removesModelSwitch: staged.removesModelSwitch,
       recencyDigestInitialization: prompt.recencyDigestInitialization,
       recencyDigestTold: staged.recencyDigestTold,
       // A started epoch always carries the told state its baseline sets.
@@ -4921,14 +4985,32 @@ export class RunExecutionService {
     // digest after that dispatch, so its marker is still untold.
     const priorDispatch =
       baseline.ownAvailability !== null || baseline.priorTurnDispatched;
+    // The model-switch item is the one exception to the keep rule: it names the
+    // model of an earlier Run, so the first dispatch of a Regenerate Run
+    // compares again and replaces it (turn-actions D8).
+    const regenerateFirstDispatch =
+      input.input.followUpAction === 'regenerate' &&
+      baseline.ownAvailability === null;
     const stagedParts: Array<MessagePart> = [];
-    if (!priorDispatch) {
+    if (!priorDispatch || regenerateFirstDispatch) {
       const modelChange = this.deriveModelChangeItem(
         baseline,
         input.input,
         input.prompt,
       );
       if (modelChange !== undefined) stagedParts.push(modelChange);
+    }
+    // The notice a Regenerate owes the turn follows the switch that names the
+    // model making the new attempt, and its admission recorded whether it is
+    // owed at all (turn-actions D9). Its own first dispatch is what stores it,
+    // so a retry keeps the stored copy instead of authoring a second one.
+    if (
+      regenerateFirstDispatch &&
+      (await this.createdNotice(input.tx, input.input))
+    ) {
+      stagedParts.push(
+        createRegenerateNoticeItem({ runId: input.input.runId }),
+      );
     }
     const availability = deriveAttemptAvailabilityItem({
       runId: input.input.runId,
@@ -4971,6 +5053,7 @@ export class RunExecutionService {
     return {
       stagedParts,
       placement: priorDispatch ? 'append' : 'rank',
+      removesModelSwitch: regenerateFirstDispatch,
       recencyDigestTold: input.prompt.digestDelta?.told,
       ...(workspaceWrites !== undefined && { workspaceWrites }),
       ...(skillNotice !== undefined && {
@@ -5199,6 +5282,7 @@ export class RunExecutionService {
       chatId: run.chatId,
       items: context.stagedParts.filter(isContextItemPart),
       placement: context.placement,
+      removeModelSwitch: context.removesModelSwitch,
     });
     // The chat was deleted out from under a claimed run; executing past that
     // would send a request on behalf of a run nobody can see.
@@ -5214,6 +5298,7 @@ export class RunExecutionService {
         effort: input.effort,
         permissionMode: input.permissionMode,
       }),
+      followUpAction: run.followUpAction ?? null,
     });
     if (!reply) throw new ReplyAlreadyCompletedError(run.runId);
     const chatsRepo = new ChatsRepository(tx);
@@ -5299,12 +5384,18 @@ function requestMessages(
   keptMessages: ReadonlyArray<ModelRequestContext['messages'][number]>,
 ): Array<ModelRequestContext['messages'][number]> {
   if (context.triggerParts === undefined) return context.messages;
+  // A dispatch that replaces the model-switch item drops the stored one from
+  // the request as well as from the row, so the model reads one switch item
+  // (turn-actions D8).
+  const triggerParts = context.removesModelSwitch
+    ? context.triggerParts.filter((part) => !isModelSwitchItem(part))
+    : context.triggerParts;
   const messages = [...context.messages];
   messages[messages.length - 1] = {
     role: 'user',
     content: userPartsToModelContent(
       placeAcceptedTurnItems(
-        context.triggerParts,
+        triggerParts,
         context.stagedParts.filter(isContextItemPart),
         context.placement,
       ),

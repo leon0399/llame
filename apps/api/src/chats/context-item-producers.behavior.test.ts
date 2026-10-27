@@ -251,6 +251,7 @@ describe('compaction checkpoint producer', () => {
     usage: null,
     inReplyTo: null,
     createdAt: new Date(0),
+    revisedAt: null,
   });
 
   it('renders once, stores the payload, and reads the persisted literal', () => {

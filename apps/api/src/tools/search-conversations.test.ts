@@ -116,6 +116,7 @@ function hydrationRow(
     message_role: 'user',
     message_parts: [{ type: 'text', text }],
     message_usage: null,
+    message_revised_at: null,
     message_created_at: new Date('2026-08-27T10:00:00.000Z'),
     first_message_id: MESSAGE_ID,
     last_message_id: MESSAGE_ID,

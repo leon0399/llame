@@ -47,6 +47,10 @@ export type ContextItemForm = (typeof CONTEXT_ITEM_FORMS)[number];
  */
 export const CONTEXT_ITEM_PRODUCERS = [
   'effective-context-change',
+  // A Regenerate's disclosure of the calls it discarded follows the switch that
+  // names the model making the new attempt, and precedes every other notice
+  // because it says what the new attempt must not trust.
+  'regenerate',
   'tool-availability',
   'workspace',
   // The instructions bundle describes the paths the model is about to work

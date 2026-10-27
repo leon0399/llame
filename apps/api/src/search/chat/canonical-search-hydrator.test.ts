@@ -26,6 +26,7 @@ function row(
     message_role: 'user',
     message_parts: [{ type: 'text', text: 'before 😀 after' }],
     message_usage: null,
+    message_revised_at: null,
     message_created_at: new Date('2026-08-27T12:00:00.000Z'),
     first_message_id: FIRST_MESSAGE_ID,
     last_message_id: LAST_MESSAGE_ID,

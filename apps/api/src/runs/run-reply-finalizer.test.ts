@@ -55,6 +55,7 @@ const userMessage: Message = {
   absorbedThroughSeq: null,
   inReplyTo: null,
   createdAt: now,
+  revisedAt: null,
 };
 
 const models = [{ id: 'fake-model', billing: 'subscription' as const }];
