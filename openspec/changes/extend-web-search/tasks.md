@@ -110,11 +110,11 @@ budget at its own boundary.
 
 ## 6. `extend-web-search/aggregate-answers` — answer engines inside aggregates (design D10)
 
-- [ ] 6.1 Admit `model-hosted` as an `aggregate` child in the loader and schema; update the tests that pinned the old rejection; verify by loader tests for every scenario of "Web search references are validated at startup"
-- [ ] 6.2 Attach grounded answer children as `answers`, merge their citations as results, and count ungrounded children as failed; verify by aggregate unit tests with fake answer children for every scenario of "Aggregate engines attach the answers of answer children" and the "Aggregate output can carry answers" scenario
-- [ ] 6.3 Bound attached answers and apply the trim order in `output.ts`; verify by output unit tests for every scenario of "Attached answers fit the result cap after results", including the whole-answer drop
-- [ ] 6.4 Render `answers` after the results in the web search renderer with engine id, Markdown answer, and citation links under the existing link safety; add stories for an aggregate with answers and for a stored part without `answers`; verify with Storybook MCP story tests and preview URLs, or the Storybook CLI fallback, for "The chat renders attached answers"
-- [ ] 6.5 Document hosted aggregate children, their latency, and the output shape in the runbook and reference page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 6.1 Admit `model-hosted` as an `aggregate` child in the loader and schema; update the tests that pinned the old rejection; verify by loader tests for every scenario of "Web search references are validated at startup"
+- [x] 6.2 Attach grounded answer children as `answers`, merge their citations as results, and count ungrounded children as failed; verify by aggregate unit tests with fake answer children for every scenario of "Aggregate engines attach the answers of answer children" and the "Aggregate output can carry answers" scenario
+- [x] 6.3 Bound attached answers and apply the trim order in `output.ts`; verify by output unit tests for every scenario of "Attached answers fit the result cap after results", including the whole-answer drop
+- [x] 6.4 Render `answers` after the results in the web search renderer with engine id, Markdown answer, and citation links under the existing link safety; add stories for an aggregate with answers and for a stored part without `answers`; verify with Storybook MCP story tests and preview URLs, or the Storybook CLI fallback, for "The chat renders attached answers"
+- [x] 6.5 Document hosted aggregate children, their latency, and the output shape in the runbook and reference page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the `packages/ui` and `apps/web` checks; exercise an aggregate with a hosted child in a browser live and after reload; this layer's PR carries `Closes #1438`
 - [ ] 6.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback

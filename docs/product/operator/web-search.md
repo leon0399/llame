@@ -111,17 +111,21 @@ the instance must not send.
 
 ## Aggregate
 
-An aggregate fans out across two or more distinct configured result-engine ids:
+An aggregate fans out across two or more distinct configured engine ids:
 
 ```jsonc
 {
   "id": "broad",
   "type": "aggregate",
-  "engines": ["brave", "exa"],
+  "engines": ["brave", "claude-search"],
 }
 ```
 
-Children cannot be another aggregate or `model-hosted`. All children start
+A child cannot be another aggregate. It can be any other engine, `model-hosted`
+included: each grounded answer of a hosted child is attached to the output as
+an `answers` entry in child order, and its citations join the merge as results
+at citation rank, with the citation title and no snippet. A hosted child that
+answers without a cited URL counts as a failed child. All children start
 concurrently, and the aggregate waits for every child up to
 `tools.callTimeoutSeconds`; each child is bounded by its own `timeoutSeconds`.
 Results use Reciprocal Rank Fusion (`k=60`), grouped by canonical URL while
@@ -129,7 +133,12 @@ ignoring a leading `www.` and trailing `/`. The emitted URL is the
 best-ranked member's spelling. It is empty only when no child has results and
 at least one child was empty; notes name failed and empty children. Cost
 multiplies by child count, while latency is the slowest child within those
-deadlines.
+deadlines, so a hosted child's 10 to 30 seconds sets the aggregate's latency.
+The output bounds each attached answer at 8,000 units and 20 citations; when
+the serialized output exceeds 15,000 units, it drops results from the end
+first, then citations from the last answer's end while each answer keeps one,
+then answer text from the last answer backwards, then whole answers from the
+end, one note per step.
 
 ## Model-hosted
 
@@ -144,11 +153,12 @@ A `model-hosted` entry delegates a search to a configured model:
 ```
 
 The referenced model's provider MUST be `openai-responses`, `openai-codex`, or
-`anthropic-messages`; a `model-hosted` entry cannot be an `aggregate` child.
-Each call is a separate bounded sub-request carrying only packaged search
-instructions, the query, a recency phrase when `recency` is set, a `Goal:` line
-when `objective` is set, and the provider's search tool—never chat history or
-other Run context. A configured `{session:id}` header (by default
+`anthropic-messages`. A `model-hosted` entry can be an `aggregate` child; each
+grounded answer is then attached to the aggregate's output (see
+[Aggregate](#aggregate)). Each call is a separate bounded sub-request carrying
+only packaged search instructions, the query, a recency phrase when `recency`
+is set, a `Goal:` line when `objective` is set, and the provider's search
+tool—never chat history or other Run context. A configured `{session:id}` header (by default
 `X-Session-Id`, except on Codex, which has no default) renders as
 `search:<chatId>`.
 
