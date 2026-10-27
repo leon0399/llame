@@ -9,6 +9,7 @@ import type { AssistantContent, ModelMessage, ToolResultPart } from 'ai';
 
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 
+import { asDouble } from '../testing/support';
 import { isContextItemPart } from './context-item';
 import { composeStepMessages } from '../models/step-composer';
 import { neutralizeToolResult } from './tool-observation-neutralizer';
@@ -452,6 +453,27 @@ describe('the Continue projection', () => {
       'assistant',
       'tool',
     ]);
+  });
+
+  it('keeps an item with no text out of the request', () => {
+    const messages = projectContinueParts(
+      state([toolPart(CALL_ID, 'done'), contextItem('')]),
+    );
+
+    // An item with no model-facing text would be an empty user message.
+    expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
+  });
+
+  it('reads no call id from a part that is not an object', () => {
+    // The kept parts are the reply's stored jsonb, which a malformed writer can
+    // leave holding anything.
+    const keptParts = asDouble<ReadonlyArray<MessagePart>>([
+      null,
+      { type: 'reasoning', text: 'thinking' },
+    ]);
+    const records = continuedRecords({ keptParts, sourceEvents: [] });
+
+    expect(records).toEqual({ steps: {}, results: {} });
   });
 
   it('adds no message after the last kept tool result of its own', () => {
