@@ -21,7 +21,6 @@
     "sourceMap": true,
     "outDir": "./dist",
     "types": ["node", "vitest/globals"],
-    "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,

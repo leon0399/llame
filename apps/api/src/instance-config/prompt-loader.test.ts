@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -20,7 +20,6 @@ import type {
 } from '../models/model-catalog';
 import { isValidSkillName } from '../skills/skill-name';
 import { resolvePackagedToolDescriptionPath } from '../prompts/tool-descriptions';
-import { isRecord } from '@workspace/runtime-safety';
 import { parseWebLocator } from '../tools/web-read/locator';
 
 let tmpDir: string;
@@ -636,23 +635,7 @@ describe('project-default prompt packaging contract', () => {
     ).toBe(path.join(apiRoot, 'dist/prompts/chat-default.md'));
   });
 
-  it('declares the prompt asset in Nest packaging and can load the source asset', () => {
-    const apiRoot = path.resolve(__dirname, '../..');
-    const nestConfig: unknown = JSON.parse(
-      readFileSync(path.join(apiRoot, 'nest-cli.json'), 'utf8'),
-    );
-    if (
-      !isRecord(nestConfig) ||
-      !isRecord(nestConfig.compilerOptions) ||
-      !Array.isArray(nestConfig.compilerOptions.assets)
-    ) {
-      throw new Error(
-        'expected nest-cli.json to declare compilerOptions.assets',
-      );
-    }
-
-    // Nested so the packaged tool descriptions under prompts/tools/ ship too.
-    expect(nestConfig.compilerOptions.assets).toContain('prompts/**/*.md');
+  it('can load the source asset', () => {
     const model = { id: 'model-id' };
     expect(
       renderResolved(

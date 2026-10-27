@@ -203,6 +203,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   output, counts the removed results and citations of the call and names no
   URL or host.
 
+- `apps/api` builds and runs without the Nest CLI. `build` is `tsc -p
+  tsconfig.build.json` (`rootDir: src`) plus `scripts/copy-assets.ts`, which
+  copies the instance-config JSON Schema and every `**/prompts/**/*.md` into
+  `dist/`; `dev` runs `tsc --watch`, the copier in watch mode, and
+  `node --watch-path=dist dist/main.js` in parallel. `nest-cli.json`,
+  `@nestjs/cli`, `@nestjs/schematics`, and `@swc/cli` are gone, as are the
+  `start`, `start:debug`, `start:dev`, `start:worker`, and `start:worker:dev`
+  scripts nothing called; `start:prod` and `start:worker:prod` are unchanged.
+  The build no longer depends on the TypeScript JavaScript compiler API, which
+  TypeScript 7 does not ship.
 - The chat sidebar's loading skeletons no longer cause a hydration mismatch:
   their widths come from `useId()` instead of `Math.random()`, so the server
   and the browser draw the same rows. Opening a chat by client navigation no

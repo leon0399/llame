@@ -56,6 +56,14 @@ pnpm --filter api test:mutation:dry
 pnpm --filter api test:mutation
 ```
 
+`build` is plain `tsc -p tsconfig.build.json` (`rootDir: src`, so `dist/`
+mirrors `src/`) followed by `scripts/copy-assets.ts`, which copies the
+instance-config JSON Schema and every `**/prompts/**/*.md` into `dist/`; the
+Nest CLI is not used. `dev` runs `tsc --watch`, the asset copier in watch
+mode, and `node --watch-path=dist dist/main.js` in parallel: any change under
+`dist/`, whether a recompiled module or a re-copied prompt, restarts the
+server.
+
 Integration tests self-provision Postgres; `TEST_DATABASE_URL` overrides.
 Mutation testing covers API source with unit tests and the TypeScript checker.
 CI mutates the lines a diff changed and requires 80% of the mutants on them to
