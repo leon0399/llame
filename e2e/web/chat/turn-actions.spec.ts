@@ -44,7 +44,11 @@ test("continues a failed agentic turn from its settled tool step", async ({
     timeout: 30_000,
   });
   await expect(log.getByText("Completed")).toBeVisible({ timeout: 30_000 });
-  await expect(log.getByText(/Error: /)).toBeVisible({ timeout: 30_000 });
+  // The reply's own usage records the failed attempt; the transient stream
+  // error alert is not asserted because the post-finish refresh clears it.
+  await expect(
+    log.getByRole("button", { name: /Message usage: error/ }),
+  ).toBeVisible({ timeout: 30_000 });
 
   const continueTurn = page.getByRole("button", {
     name: "Continue",
