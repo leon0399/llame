@@ -248,7 +248,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "description": "A concurrent aggregate of configured result-engine ids.",
+          "description": "A concurrent aggregate of configured engine ids, answer engines included.",
           "required": ["id", "type", "engines"],
           "properties": {
             "id": {
@@ -259,14 +259,14 @@
             },
             "type": {
               "const": "aggregate",
-              "description": "Concurrent aggregate of result-engine children."
+              "description": "Concurrent aggregate of engine children; a model-hosted child also contributes its grounded answer."
             },
             "engines": {
               "type": "array",
               "minItems": 2,
               "uniqueItems": true,
               "items": { "type": "string", "minLength": 1 },
-              "description": "Two or more distinct ids of configured result engines."
+              "description": "Two or more distinct ids of configured engines; an entry that is itself an aggregate is not allowed."
             }
           }
         }
