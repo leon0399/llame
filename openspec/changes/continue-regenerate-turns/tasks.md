@@ -101,12 +101,14 @@ Owns the execution of a Continue Run and the follow-up rail rules.
 Branch `continue-regenerate-turns/api-regenerate`, parent `continue-regenerate-turns/api-continue`.
 Owns the Regenerate action and its evidence and disclosure rules.
 
-Boundary re-estimate after SR: 2,678 authored lines added and 341 removed
-against the 1,700 estimate — 793 implementation (including the 170-line harness
-the two follow-up integration suites share), 1,794 tests, and 91 documentation
-and ledger — plus a generated migration snapshot and one generated OpenAPI
-description. The overrun is the evidence, disclosure, and classification rules
-each needing their own integration proof; SR records the split or exception.
+Boundary re-estimate after SR and the parent's schema split: 2,890 authored
+lines added and 387 removed against the 1,700 estimate — 962 implementation
+(including the 170-line harness the two follow-up integration suites share, the
+two request-body variants, and the pipe that validates them by `action`), 1,836
+tests, and 92 documentation and ledger — plus a generated migration snapshot and
+the generated OpenAPI document. The overrun is the evidence, disclosure, and
+classification rules each needing their own integration proof; SR records the
+split or exception.
 
 - [x] 4.1 Add the `regenerate` action with chat-send validation (design D2); verify with integration tests for a missing `modelId` (400), an unknown model, an undeclared effort, a disabled mode, a turn with no reply that gets a reply, and a Continue after a Regenerate that failed before dispatch (409). Recorded: `FollowUpAdmissionService.validateFollowUpRequest` splits into `validateContinue` and `validateRegenerate`, which checks the model, then its effort, then the mode before any transaction; `follow-up-admission.integration.test.ts` has a task 4.1 block for the 400, the unknown model, the undeclared effort, the disabled mode, the no-reply turn that is admitted, and the Continue refused after a real Regenerate Run failed before dispatch.
 - [x] 4.2 Let a Regenerate dispatch reset a `completed` reply of another Run and set `messages.revised_at` (design D7) with a generated migration; verify with tests that the reply holds only the new answer with `complete: false`, that a failure before dispatch keeps the old reply, that a later attempt does not reset its own salvaged answer, and that later turns do not replay the replaced tool pairs. Recorded: `replaceableReplyGuard` extends the conflict-update guard to a `completed` row whose `usage.runId` names another Run, and `revisedAtOnReset` writes the mark in the same statement; migration `20261027060556_colossal_hellcat.sql` adds the nullable column, and a second `pnpm db:generate` reports no change. `regenerate-run.integration.test.ts` proves the reply ends with only the new answer and `complete: false`, a pre-dispatch failure keeps the old parts, usage, and evidence, a salvaged answer of the Run's own earlier attempt is never reset, and the request carries no part of the replaced reply.
