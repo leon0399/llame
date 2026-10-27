@@ -120,7 +120,7 @@ The chat-send checks MUST accept them again.
 A settled tool part is a tool part with a result. The kept parts MUST be the reply's parts through
 the last settled tool part, and the context items directly after it. The parts after them are the
 unfinished step. The dispatch of a Continue Run MUST remove the unfinished step from the reply. The
-event log of the continued Run MUST keep it. When the reply has no settled tool part, Continue MUST
+event log of the source Run MUST keep it. When the reply has no settled tool part, Continue MUST
 keep no part.
 
 #### Scenario: Continue drops only the unfinished step
