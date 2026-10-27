@@ -797,6 +797,58 @@ describe('ChatsController response plumbing', () => {
   }
 
   const chatId = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
+  it('releases the request listener even when the stream write throws', async () => {
+    const { controller, chatLoopService } = makeController();
+    chatLoopService.createMessageStream.mockRejectedValue(
+      new Error('validation blew up'),
+    );
+    const response = makeWritableResponse();
+    const off = vi.spyOn(response, 'off');
+
+    await expect(
+      controller.createMessage(
+        'user',
+        chatId,
+        { modelId: 'm', message: { id: 'x', parts: [] } },
+        response,
+      ),
+    ).rejects.toThrow('validation blew up');
+
+    // The abort listener is removed in `finally`, so a later close cannot
+    // abort a signal nobody owns.
+    expect(off).toHaveBeenCalledWith('close', expect.any(Function));
+  });
+
+  it('answers a client error frame and logs the model failure', async () => {
+    const { controller, chatLoopService } = makeController();
+    const logger = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const errors: Array<(error: unknown) => string> = [];
+    chatLoopService.createMessageStream.mockResolvedValue({
+      toUIMessageStreamResponse: (given) => {
+        if (given?.onError !== undefined) errors.push(given.onError);
+        return new Response(null);
+      },
+    });
+    const response = makeWritableResponse();
+
+    await controller.createMessage(
+      'user',
+      chatId,
+      { modelId: 'm', message: { id: 'x', parts: [] } },
+      response,
+    );
+
+    expect(errors[0]?.(new Error('provider failed'))).toBe(
+      'An error occurred.',
+    );
+    expect(logger).toHaveBeenCalledWith(
+      'Model stream failed',
+      expect.any(String),
+    );
+  });
+
   it('names the chat in every owner-scoped 404', async () => {
     const { controller } = makeController();
 
