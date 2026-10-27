@@ -105,7 +105,7 @@ budget at its own boundary.
 - [x] 5.2 Implement the `yandex` engine: request with flat groups, base64 XML parsing with `linkedom`, in-body error classification, recency periods and notes, the 400-character and 40-word limit; verify by tests against hand-built XML fixtures of the documented response format for every scenario of "Yandex engines call the Yandex web search API" and "Yandex engines classify errors from the response body", the "A word limit applies" scenario, including that error text never reaches output
 - [x] 5.3 Document the engine, its keys, folder ids, prices, rate limits, Russian residency and the 152-FZ statement, and the result-order clause of the terms as an operator responsibility in the runbook; add commented examples to `llame.config.jsonc.example`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 5.4 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests; this layer's PR carries `Closes #1437`
-- [ ] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `extend-web-search/aggregate-answers` — answer engines inside aggregates (design D10)
