@@ -1,4 +1,4 @@
-import { Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { APICallError, streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
@@ -797,6 +797,29 @@ describe('ChatsController response plumbing', () => {
   }
 
   const chatId = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
+  it('answers a follow-up request with no body as an empty request', async () => {
+    const { controller, followUpAdmission } = makeController();
+    followUpAdmission.admitFollowUpRun.mockRejectedValue(
+      new BadRequestException('action must be continue'),
+    );
+
+    await expect(
+      controller.createFollowUpRun(
+        'user',
+        chatId,
+        '9b2f1c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d',
+        undefined,
+        makeWritableResponse(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // No body is not "no request": the action check refuses it as a 400, where
+    // reading a field off `undefined` would be a 500.
+    expect(followUpAdmission.admitFollowUpRun).toHaveBeenCalledWith(
+      expect.objectContaining({ request: {} }),
+    );
+  });
+
   it('releases the request listener even when the stream write throws', async () => {
     const { controller, chatLoopService } = makeController();
     chatLoopService.createMessageStream.mockRejectedValue(

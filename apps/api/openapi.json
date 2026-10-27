@@ -929,7 +929,7 @@
             }
           },
           "400": {
-            "description": "Malformed chat or message id, an unknown action, or a model or an effort on a continue request"
+            "description": "Malformed chat or message id, a missing body or action, an unknown action, or a model or an effort on a continue request"
           },
           "401": {
             "description": ""

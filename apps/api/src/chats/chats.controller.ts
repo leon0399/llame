@@ -366,8 +366,8 @@ export class ChatsController {
   })
   @ApiBadRequestResponse({
     description:
-      'Malformed chat or message id, an unknown action, or a model or an ' +
-      'effort on a continue request',
+      'Malformed chat or message id, a missing body or action, an unknown ' +
+      'action, or a model or an effort on a continue request',
   })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({
@@ -393,7 +393,10 @@ export class ChatsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) chatId: string,
     @Param('userMessageId', ParseUUIDPipe) userMessageId: string,
-    @Body() input: CreateFollowUpRunDto,
+    // A request with no body reaches the handler as `undefined`: the body is
+    // required, so it is answered as the empty request it is, and the action
+    // check refuses it as a 400.
+    @Body() input: CreateFollowUpRunDto | undefined,
     @Res() response: ChatStreamResponse,
   ): Promise<void> {
     const abort = requestAbortSignal(response);
@@ -402,7 +405,7 @@ export class ChatsController {
         chatId,
         userId,
         userMessageId,
-        request: input,
+        request: input ?? {},
       });
       const result = await this.chatLoopService.finalizeAcceptedRun({
         ...accepted,

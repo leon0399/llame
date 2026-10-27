@@ -279,6 +279,19 @@ d('the follow-up route', () => {
     expect(await runsOf(turn.chatId)).toHaveLength(1);
   });
 
+  it('refuses a request with no body at all', async () => {
+    const turn = await seedFailedTurn();
+
+    // No content-type and no body: the route answers the empty request it got,
+    // rather than failing to read a field off nothing.
+    const refused = await request(http)
+      .post(`/api/v1/chats/${turn.chatId}/messages/${turn.messageId}/runs`)
+      .set('Cookie', cookieA);
+
+    expect(refused.status).toBe(400);
+    expect(await runsOf(turn.chatId)).toHaveLength(1);
+  });
+
   it('refuses a follow-up on an older turn', async () => {
     const turn = await seedFailedTurn({ laterUserMessage: true });
 
