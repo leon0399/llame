@@ -11,8 +11,8 @@ behavior:
 
 This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
 Supported operator engines are `brave`, `deepseek`, `exa`, `exa-mcp`,
-`parallel`, `perplexity`, `searxng`, `duckduckgo`, `aggregate`, and
-`model-hosted`; configure only these types.
+`parallel`, `parallel-mcp`, `perplexity`, `searxng`, `duckduckgo`, `aggregate`,
+and `model-hosted`; configure only these types.
 
 ## Enabling
 
@@ -77,6 +77,7 @@ Each engine type declares its vendor's query limit in code. llame checks the sub
 | `deepseek`     | 128 code points              | `count`, at most 50                |
 | `exa`          | the tool's 1,000 units       | `numResults`, at most 100          |
 | `parallel`     | 200 code points              | `max_results`, at most 20          |
+| `parallel-mcp` | 200 code points              | cut to `limit` after normalization |
 | `perplexity`   | the tool's 1,000 units       | `max_results`, at most 20          |
 | `exa-mcp`      | the tool's 1,000 units       | the hosted tool's `numResults`     |
 | `searxng`      | the tool's 1,000 units       | cut to `limit` after normalization |
@@ -89,9 +90,9 @@ A word is a run of non-space characters; lengths are code points, so a character
 A query over an engine's limit skips that engine: it sends nothing, the call records `<id>: unsupported`, and a later engine answers. When every chain engine is skipped, the call fails with the fixed error and class `unsupported`. An aggregate runs only the children that accept the query, notes each skipped child as `unsupported`, and fails with `unsupported` when it skips every child.
 
 `limit` is 1-20 for the model and is clamped to the vendor maximum, so a
-vendor that caps fewer results never fails a call. `searxng` and `duckduckgo`
-take no count, so their normalized results are cut to `limit` after URLs that
-fail validation are dropped.
+vendor that caps fewer results never fails a call. `searxng`, `duckduckgo`, and
+`parallel-mcp` take no count, so their normalized results are cut to `limit`
+after URLs that fail validation are dropped.
 
 ## Objective
 
@@ -99,9 +100,10 @@ fail validation are dropped.
 serves, for example which sources should rank first. It is outbound text to
 every engine that accepts the field: `exa` and `exa-mcp` send it as Exa's
 `objective` (the query when absent), `parallel` sends it as Parallel's
-`objective` (absent when the call sets none), `deepseek` sends its first 128
-code points as `ori_question` without a note, and a `model-hosted` engine adds
-one `Goal:` line to its sub-request. Every other engine ignores it without a note, and no
+`objective` (absent when the call sets none), `parallel-mcp` sends it to the
+hosted tool (the query when absent), `deepseek` sends its first 128 code points
+as `ori_question` without a note, and a `model-hosted` engine adds one `Goal:`
+line to its sub-request. Every other engine ignores it without a note, and no
 engine joins it to the query. Because it leaves the instance, add an
 `objective` clause to `tools.permissions.web_search` when it can carry text
 the instance must not send.
@@ -352,6 +354,31 @@ needs an Enterprise plan, and the standard customer terms allow Parallel to
 train on customer input. Search answers at most 600 requests per minute over a
 rolling 60-second window; Parallel does not document whether that limit applies
 per key or per organization.
+
+## Parallel MCP
+
+```jsonc
+{
+  "id": "parallel-mcp",
+  "type": "parallel-mcp",
+  "timeoutSeconds": 60,
+}
+```
+
+`parallel-mcp` calls the `web_search` tool of Parallel's hosted, keyless MCP
+endpoint at `https://search.parallel.ai/mcp` from llame code; the model never
+receives a tool declaration from it. It takes no `key` and rejects one. The
+call sends `objective` (the query when the call sets none), the query as the
+only search query, and the Chat id as `session_id`, which is the same exposure
+as for `parallel`.
+
+Anonymous use runs the vendor's `fast` mode with about 25,000 excerpt
+characters per call and no documented rate limit, price, or retention period;
+Parallel's customer terms still apply to the queries. The tool takes no result
+count, so results are cut to `limit` after URL validation, and `recency` is not
+supported, which the output notes. A tool error arrives as HTTP 200 with an
+error flag and vendor text; llame reports `upstream_error` and drops the text.
+llame keeps one MCP session per configured engine and reconnects on failure.
 
 ## Query exfiltration
 

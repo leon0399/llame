@@ -445,6 +445,12 @@
   //       "key": "{env:PARALLEL_API_KEY}",
   //       // "mode": "fast",
   //     },
+  //     // Parallel's hosted MCP is keyless, runs its fast mode, and takes no
+  //     // result count; it rejects a key.
+  //     {
+  //       "id": "parallel-mcp",
+  //       "type": "parallel-mcp",
+  //     },
   //     {
   //       "id": "exa",
   //       "type": "exa",
