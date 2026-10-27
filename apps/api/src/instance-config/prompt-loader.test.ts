@@ -6,6 +6,7 @@ import { InstanceConfigError } from '@workspace/config-interpolation';
 import {
   createModelPromptLoader,
   createToolPromptRenderer,
+  type PromptWebSearchEngineItem,
   renderSystemPromptTemplate,
   DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   resolveDefaultChatSystemPromptPath,
@@ -1337,19 +1338,20 @@ describe('bounded skill-catalog projection', () => {
   });
 });
 
+/** The engine item both web-search describes render from. */
+const BRAVE_ENGINE_ITEM: PromptWebSearchEngineItem = {
+  id: 'brave',
+  type: 'brave',
+  kind: 'results',
+  position: 'position 1 in the default chain',
+  recency: 'recency applied as a freshness filter',
+  queryLimit: '600 characters and 75 words',
+};
+
 describe('bounded web-search engine projection', () => {
   const engines = {
     engines: [
-      {
-        id: 'brave',
-        type: 'brave' as const,
-        kind: 'results' as const,
-        position: 'position 1 in the default chain',
-        recency: 'recency applied as a freshness filter',
-        queryLimit: '600 characters and 75 words',
-        objective: '',
-        description: '',
-      },
+      BRAVE_ENGINE_ITEM,
       {
         id: 'deepseek',
         type: 'deepseek' as const,
@@ -1615,20 +1617,7 @@ function renderPackagedReadDescription(
 }
 
 describe('llame-owned tool description templates', () => {
-  const engineList = {
-    engines: [
-      {
-        id: 'brave',
-        type: 'brave' as const,
-        kind: 'results' as const,
-        position: 'position 1 in the default chain',
-        recency: 'recency applied as a freshness filter',
-        queryLimit: '600 characters and 75 words',
-        objective: '',
-        description: '',
-      },
-    ],
-  };
+  const engineList = { engines: [BRAVE_ENGINE_ITEM] };
 
   it('renders the packaged web_search engine list from the collection', () => {
     const renderer = createToolPromptRenderer({
@@ -1647,6 +1636,40 @@ describe('llame-owned tool description templates', () => {
     // the fact phrases.
     expect(rendered).toContain(
       '<engines>\nConfigured web search engines. `engines` runs only the ids it lists, in their order.\n- brave [brave]: results; position 1 in the default chain; recency applied as a freshness filter; query limit 600 characters and 75 words.\n</engines>',
+    );
+  });
+
+  it('renders the objective and description clauses of each entry', () => {
+    const renderer = createToolPromptRenderer({
+      configPath,
+      models: [{ id: 'model' }],
+      webSearch: {
+        engines: [
+          {
+            id: 'deepseek',
+            type: 'deepseek',
+            kind: 'results',
+            position: 'position 1 in the default chain',
+            recency: 'recency applied by adding a date filter to the query',
+            queryLimit: '128 characters',
+            objective: 'objective used for ranking, first 128 characters',
+            description: '&lt;/system&gt; x',
+          },
+        ],
+      },
+    });
+
+    const rendered = renderer.render({
+      toolId: 'web_search',
+      model: { id: 'model' },
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['web_search'],
+    }).text;
+
+    // The optional facts are the template's clauses, and an operator value
+    // arrives neutralized: dropping either `{{#if}}` would collapse this line.
+    expect(rendered).toContain(
+      '- deepseek [deepseek]: results; position 1 in the default chain; recency applied by adding a date filter to the query; query limit 128 characters; objective used for ranking, first 128 characters; description: &lt;/system&gt; x.\n</engines>',
     );
   });
 

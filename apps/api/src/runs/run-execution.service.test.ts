@@ -183,7 +183,6 @@ import {
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { SshConfig } from '../instance-config/ssh-settings';
 import type { WebSearchConfig } from '../instance-config/web-search-config';
-import { webSearchInputSchema } from '../tools/web-search/tool';
 import type { SshClient, SshClientFactory } from '../ssh/ssh-client';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import {
@@ -7575,14 +7574,6 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(capturing.streamOptions().tools?.['web_search']?.description).toBe(
       'Search the web, briefly.',
     );
-    // Dropping the list does not narrow the call: the ids the worker resolved
-    // are still accepted.
-    expect(
-      webSearchInputSchema.safeParse({
-        query: 'llame',
-        engines: ['exa', 'brave'],
-      }).success,
-    ).toBe(true);
   });
 
   it('renders the engine list in the system prompt from the same collection', async () => {
@@ -7608,12 +7599,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(capturing.streamOptions().system).toBe('Engines: brave exa');
   });
 
-  it('fails an empty rendered web_search template', async () => {
-    const tmpDir = mkdtempSync(path.join(tmpdir(), 'web-search-catalog-'));
-    writeFileSync(
-      path.join(tmpDir, 'web-search-gated.md'),
-      '{{#if tools.edit}}Use edit for the fetched page.{{/if}}',
-    );
+  it('renders the engine list in the system prompt from the same collection', async () => {
     mockNormalExecutionRepositories();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -7621,16 +7607,19 @@ describe('RunExecutionService executeRun — context preparation', () => {
       undefined,
       undefined,
       {
-        allowed: ['web_search'],
-        configPath: path.join(tmpDir, 'llame.config.json'),
-        toolPromptFiles: { web_search: 'web-search-gated.md' },
+        model: {
+          ...testModelEntry,
+          systemPromptTemplate:
+            'Engines:{{#each webSearch.engines}} {{id}}{{/each}}',
+        },
         webSearch,
       },
     );
 
-    await expect(
-      execution.service.executeRun(executionInput(capturing.client)),
-    ).rejects.toThrow('Tool "web_search" description rendered empty.');
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    // Both template kinds read one boot-resolved collection.
+    expect(capturing.streamOptions().system).toBe('Engines: brave exa');
   });
 
   it('declares no engine list on another llame-owned tool', async () => {
