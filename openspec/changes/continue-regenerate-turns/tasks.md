@@ -76,7 +76,7 @@ Owns the follow-up admission service, with no HTTP route, and the latest-Run rep
 - [ ] 2.4 Compute the kept parts at admission, append `run.continued`, and record `replacesUsage` in `run.created` (design D4, D11); verify with unit tests for three settled steps plus an unfinished step, no settled tool part, and in-Run items after the last settled tool part.
 - [ ] 2.5 Add `latestRun` to `ChatMessagesResponse`, read in the same transaction as the messages (design D12); verify with integration tests for a failed Run with no reply, a Chat with no Run (`null`), the follow-up action, the accepted mode, and another owner's Chat (not found).
 - [ ] 2.6 Regenerate `apps/api/openapi.json` and the web client; run the OpenAPI lint and a second generation with a clean diff.
-- [ ] 2.7 Add a `docs/product/reference/` page for the follow-up route and its admission rules, and a dated `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
+- [ ] 2.7 Add a dated `CHANGELOG.md` entry for `latestRun` on the history read; the reference page waits for the route in task 3.8, so no owner-facing doc describes a route that does not exist; verify with `pnpm lint:markdown`.
 - [ ] 2.8 SR: run the multi-agent code review, the `$simplify` pass, and the `$ponytail-review` pass on the draft PR diff; fix accepted findings; mark the PR ready.
 - [ ] 2.9 GR: drive current-head CI green after ready; process bot reviews and surviving mutants before `api-regenerate` is created.
 
@@ -92,7 +92,7 @@ Owns the execution of a Continue Run and the follow-up rail rules.
 - [ ] 3.5 Count kept parts toward the compaction threshold and the window fit, never absorbed (design D5); verify with a test that kept parts that do not fit fail the Run with the context-incompatible error.
 - [ ] 3.6 Make the accepted-turn producers treat earlier Runs of the triggering user message as earlier attempts, reuse the stored `prompt-imports` and `skill-activation` items through message-scoped lookups, count the kept parts' instructions bundles as seen, and read the previous completed Run through the reply's `usage.runId` (design D8); verify with tests for one `temporal` item per turn, an appended `tool-availability` change, a turn with an import marker and a `$skill` mention that stores no second item, a kept bundle that stays seen, and a Continue that adds no model-switch item.
 - [ ] 3.7 Write the follow-up Run's usage with its own `runId` and `complete: false` when `replacesUsage` is set (design D11); verify with tests that a Continue reply's usage aggregates only the Continue Run, records `complete: false`, and that the effective-context action resolves the Continue Run's receipts.
-- [ ] 3.8 Extend the reference page with the Continue rules and add a dated `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
+- [ ] 3.8 Add a `docs/product/reference/` page for the follow-up route, its admission rules, and the Continue rules, and a dated `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
 - [ ] 3.9 SR: run the multi-agent code review, the `$simplify` pass, and the `$ponytail-review` pass on the draft PR diff; fix accepted findings; mark the PR ready.
 - [ ] 3.10 GR: drive current-head CI green after ready; process bot reviews and surviving mutants before `web` is created.
 
