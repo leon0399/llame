@@ -91,8 +91,8 @@ Q16-A placed the Regenerate notice at the start of the new reply. This change st
 triggering user message as an accepted-turn item instead (design D9). The reply reset writes no
 parts, the in-Run carrier does not run for a Run without tools, and the rail rules require a
 turn-level item inside the triggering user message. The user message also keeps the notice for a
-later Regenerate of the same turn, which a reply part would lose. Leo, confirm this change or ask
-for a rail rule that allows a reply-leading item.
+later Regenerate of the same turn, which a reply part would lose. Leo approved this placement on
+2026-10-27, before the merge of the stack.
 
 ## Capabilities
 
@@ -163,6 +163,11 @@ Deliberately unchanged:
 - Web: the action row on the latest assistant turn, the Regenerate split button and confirmation,
   the transport route for follow-up Runs, and the notice display. Stories and a focused E2E test.
 - Docs: a reference page for the two actions; `CHANGELOG.md` in each shipping layer.
+- Tenancy: the route takes a Chat id and a user message id from the caller. The owner comes only
+  from authentication, and the admission reads the Chat under that owner's tenant scope before any
+  job-state read, stuck-Run expiry, Run creation, or message change. Another owner's ids answer the
+  current not-found response and change nothing; the integration suites carry that negative test,
+  and `latestRun` follows the same owner scope as the history read.
 
 ## Non-Goals
 
