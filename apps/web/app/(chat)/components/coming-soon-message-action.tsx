@@ -27,9 +27,14 @@ export function ComingSoonMessageAction({
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex" />}>
-        <Button type="button" variant="ghost" size="xs" disabled>
-          <Icon data-icon="inline-start" aria-hidden="true" />
-          <span className="text-trim-cap">{label}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={label}
+          disabled
+        >
+          <Icon aria-hidden="true" />
         </Button>
       </TooltipTrigger>
       <TooltipContent>{`${label} — coming soon`}</TooltipContent>

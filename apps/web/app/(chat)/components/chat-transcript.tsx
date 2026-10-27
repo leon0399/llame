@@ -19,6 +19,7 @@ import {
 } from "@workspace/ui/components/ai-elements/conversation";
 import {
   Alert,
+  AlertAction,
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert";
@@ -230,20 +231,24 @@ function ChatTranscriptFailedTurn({
   if (!needsFailedTurnRow({ messages: displayMessages, latestRun, status })) {
     return null;
   }
+  const failed = latestRun.error !== null;
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 md:px-6">
-      <span className="text-muted-foreground text-sm">
-        {latestRun.error === null
-          ? "This turn ended without an answer."
-          : `This turn failed: ${latestRun.error}`}
-      </span>
-      <TurnActions
-        chatId={chatId}
-        latestRun={latestRun}
-        reply={null}
-        status={status}
-        onFollowUp={onFollowUp}
-      />
+    <div className="mx-auto w-full max-w-3xl md:px-6">
+      <Alert>
+        <AlertTitle>
+          {failed ? "This turn failed" : "This turn ended without an answer"}
+        </AlertTitle>
+        {failed && <AlertDescription>{latestRun.error}</AlertDescription>}
+        <AlertAction>
+          <TurnActions
+            chatId={chatId}
+            latestRun={latestRun}
+            reply={null}
+            status={status}
+            onFollowUp={onFollowUp}
+          />
+        </AlertAction>
+      </Alert>
     </div>
   );
 }

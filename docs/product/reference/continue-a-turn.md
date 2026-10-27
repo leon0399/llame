@@ -158,11 +158,13 @@ still offers Regenerate. The row shows why the turn failed, with the error of
 the latest Run, and it stays visible without a hover. The empty reply row keeps
 its own footer, without a second Regenerate.
 
-Regenerate is a split button. A plain click repeats the latest Run's model, the
-effort it ran with, and the permission mode it was accepted with, whatever the
-composer shows. The menu beside it holds the composer's model, effort, and
-permission-mode selectors: a pick sets the composer, and the menu's submit sends
-those values.
+Every action in a message's row is an icon whose name shows as a tooltip, so
+the row stays on one line on a narrow screen. Regenerate is a split button: a
+plain click repeats the latest Run's model, the effort it ran with, and the
+permission mode it was accepted with, whatever the composer shows. The chevron
+beside it opens "Regenerate with": the composer's model, effort, and
+permission-mode selectors, where a pick sets the composer, and a Regenerate
+button that sends those values.
 
 Before a Regenerate discards a call whose effects outlive the reply, the web
 asks first. The dialog names each such tool, and says that their effects stay

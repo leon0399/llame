@@ -4,12 +4,13 @@ import { useState } from "react";
 import { PlayIcon, RefreshCwIcon } from "lucide-react";
 
 import type { ChatStatus } from "ai";
-import { Button } from "@workspace/ui/components/button";
+import { ButtonGroup } from "@workspace/ui/components/button-group";
 
 import { useChatContext } from "@/contexts/chat-context";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 
+import { MessageActionButton } from "./message-action-button";
 import { RegenerateConfirmDialog } from "./regenerate-confirm-dialog";
 import { RegenerateMenu } from "./regenerate-menu";
 import {
@@ -46,25 +47,22 @@ function repeatRequest(latestRun: ChatLatestRunResponse): FollowUpRunRequest {
   };
 }
 
-/** Regenerate and its menu trigger, side by side as one split button. */
+/** Regenerate and its settings trigger, joined as one split button: the two
+ *  ghost cells share a hover block, so the pair reads as one action. */
 function RegenerateSplitButton({
   chatId,
   latestRun,
   requestFollowUp,
 }: RegenerateSplitButtonProps) {
   return (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="xs"
+    <ButtonGroup>
+      <MessageActionButton
+        label="Regenerate"
+        icon={RefreshCwIcon}
         onClick={() => requestFollowUp(repeatRequest(latestRun))}
-      >
-        <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
-        <span className="text-trim-cap">Regenerate</span>
-      </Button>
+      />
       <RegenerateMenu chatId={chatId} requestFollowUp={requestFollowUp} />
-    </>
+    </ButtonGroup>
   );
 }
 
@@ -78,20 +76,16 @@ type ContinueButtonProps = {
 function ContinueButton({ chatId, onFollowUp }: ContinueButtonProps) {
   const { getPermissionMode } = useChatContext();
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="xs"
+    <MessageActionButton
+      label="Continue"
+      icon={PlayIcon}
       onClick={() =>
         onFollowUp({
           action: "continue",
           permissionMode: getPermissionMode(chatId),
         })
       }
-    >
-      <PlayIcon data-icon="inline-start" aria-hidden="true" />
-      <span className="text-trim-cap">Continue</span>
-    </Button>
+    />
   );
 }
 

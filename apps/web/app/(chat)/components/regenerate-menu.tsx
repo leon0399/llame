@@ -1,14 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
+import { ButtonGroup } from "@workspace/ui/components/button-group";
+import { Field, FieldTitle } from "@workspace/ui/components/field";
 import {
   Popover,
   PopoverContent,
+  PopoverHeader,
+  PopoverTitle,
   PopoverTrigger,
 } from "@workspace/ui/components/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
 
 import { useChatContext, type ChatContextType } from "@/contexts/chat-context";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
@@ -61,19 +70,7 @@ export function RegenerateMenu({
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            aria-label="Regenerate with other settings"
-            aria-expanded={open}
-          />
-        }
-      >
-        <ChevronDownIcon data-icon="inline-start" aria-hidden="true" />
-      </PopoverTrigger>
+      <RegenerateMenuTrigger open={open} />
       <RegenerateMenuContent
         chatId={chatId}
         request={request}
@@ -86,46 +83,89 @@ export function RegenerateMenu({
   );
 }
 
+/** The split button's tail: a narrow chevron that opens the menu, named by
+ *  its tooltip like the row's icon actions. */
+function RegenerateMenuTrigger({ open }: { open: boolean }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                // Narrower than its icon cell: it is the split button's tail.
+                className="w-5"
+                aria-label="Regenerate with other settings"
+                aria-expanded={open}
+              />
+            }
+          />
+        }
+      >
+        <ChevronDownIcon aria-hidden="true" />
+      </TooltipTrigger>
+      <TooltipContent>Regenerate with other settings</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** The composer's selectors as labelled rows: the model joined with its
+ *  effort, as in the composer, then the permission mode. */
+function RegenerateSettings({ chatId }: { chatId: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Field orientation="horizontal">
+        <FieldTitle>Model</FieldTitle>
+        {/* The effort cell only renders for a model that declares an effort
+            vocabulary. */}
+        <ButtonGroup>
+          <ModelSelector />
+          <EffortSelector />
+        </ButtonGroup>
+      </Field>
+      <Field orientation="horizontal">
+        <FieldTitle>Permissions</FieldTitle>
+        <PermissionModeSelector chatId={chatId} />
+      </Field>
+    </div>
+  );
+}
+
 type RegenerateMenuContentProps = {
   chatId: string;
   request: FollowUpRunRequest | null;
   onSubmit: (request: FollowUpRunRequest) => void;
 };
 
-/** The menu body: the composer's selectors, then the submit that regenerates
- *  with them. Split out of `RegenerateMenu` to keep both within the line
- *  budget. */
+/** The menu body: a title, the composer's settings, then the submit that
+ *  regenerates with them. */
 function RegenerateMenuContent({
   chatId,
   request,
   onSubmit,
 }: RegenerateMenuContentProps) {
   return (
-    <PopoverContent
-      // Base UI renders the popover with role=dialog, which needs its own
-      // accessible name — the trigger's label does not carry over.
-      aria-label="Regenerate settings"
-      side="top"
-      align="end"
-      className="w-80"
-    >
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-1">
-          <ModelSelector />
-          <EffortSelector />
-          <PermissionModeSelector chatId={chatId} />
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          disabled={request === null}
-          onClick={() => {
-            if (request !== null) onSubmit(request);
-          }}
-        >
-          Regenerate with these settings
-        </Button>
-      </div>
+    // Base UI names the role=dialog popup from its `PopoverTitle`.
+    <PopoverContent side="top" align="start" className="w-auto min-w-72">
+      <PopoverHeader>
+        <PopoverTitle>Regenerate with</PopoverTitle>
+      </PopoverHeader>
+      <RegenerateSettings chatId={chatId} />
+      <Button
+        type="button"
+        size="sm"
+        className="self-end"
+        disabled={request === null}
+        onClick={() => {
+          if (request !== null) onSubmit(request);
+        }}
+      >
+        <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
+        Regenerate
+      </Button>
     </PopoverContent>
   );
 }

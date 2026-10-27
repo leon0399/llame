@@ -1,5 +1,7 @@
 "use client";
 
+import { RefreshCwIcon } from "lucide-react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -8,8 +10,10 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog";
+import { Badge } from "@workspace/ui/components/badge";
 
 type RegenerateConfirmDialogProps = {
   /** The tool names a Regenerate would leave behind; empty = nothing to ask. */
@@ -19,17 +23,18 @@ type RegenerateConfirmDialogProps = {
   onCancel: () => void;
 };
 
-/** The calls the dialog names, each quoted by its tool name. */
+/** The calls the dialog names, one badge per tool name. */
 function DiscardedCalls({ names }: { names: ReadonlyArray<string> }) {
   return (
-    <>
-      {names.map((name, index) => (
-        <span key={name}>
-          {index > 0 && (index === names.length - 1 ? " and " : ", ")}
-          <span className="font-mono">{name}</span>
-        </span>
+    <ul aria-label="Calls that already ran" className="flex flex-wrap gap-1">
+      {names.map((name) => (
+        <li key={name}>
+          <Badge variant="secondary">
+            <code>{name}</code>
+          </Badge>
+        </li>
       ))}
-    </>
+    </ul>
   );
 }
 
@@ -56,12 +61,16 @@ export function RegenerateConfirmDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
+          <AlertDialogMedia>
+            <RefreshCwIcon aria-hidden="true" />
+          </AlertDialogMedia>
           <AlertDialogTitle>Regenerate this answer?</AlertDialogTitle>
           <AlertDialogDescription>
-            This answer ran <DiscardedCalls names={discarded} />. Their effects
-            stay, and the new answer will not see them.
+            This answer ran the calls below. Their effects stay, and the new
+            answer will not see them.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <DiscardedCalls names={discarded} />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction onClick={onConfirm}>Regenerate</AlertDialogAction>

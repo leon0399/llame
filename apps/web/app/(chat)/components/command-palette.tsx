@@ -188,7 +188,7 @@ function CommandPaletteSearchInput({
         <Button
           type="button"
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           className="absolute top-1/2 right-9 -translate-y-1/2"
           onClick={() => onQueryChange("")}
         >

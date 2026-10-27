@@ -1,6 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
-import { vi } from "vitest";
+import {
+  expect,
+  fn,
+  mocked,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "storybook/test";
 import type { UIMessage } from "ai";
 
 import { ChatProvider } from "@/contexts/chat-context";
@@ -11,10 +18,10 @@ import * as permissionModeQueries from "@/lib/services/permission-modes/queries"
 
 // Import via the REAL specifiers: sb.mock (preview.tsx) redirects them to the
 // __mocks__ modules, so these are the SAME hooks the selector reads.
-const useModelsQueryMock = vi.mocked(modelQueries.useModelsQuery, {
+const useModelsQueryMock = mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
-const usePermissionModesQueryMock = vi.mocked(
+const usePermissionModesQueryMock = mocked(
   permissionModeQueries.usePermissionModesQuery,
   { partial: true },
 );
@@ -1918,14 +1925,14 @@ export const RegenerateMenuSetsTheComposer: Story = {
   },
   play: async ({ canvas, args }) => {
     args.onFollowUp.mockClear();
-    const trigger = canvas.getByRole("button", {
+    const trigger = await canvas.findByRole("button", {
       name: "Regenerate with other settings",
     });
     trigger.focus();
     await userEvent.click(trigger);
 
     const menu = await screen.findByRole("dialog", {
-      name: "Regenerate settings",
+      name: "Regenerate with",
     });
     await userEvent.click(
       within(menu).getByRole("combobox", { name: /Select model/ }),
@@ -1943,7 +1950,7 @@ export const RegenerateMenuSetsTheComposer: Story = {
 
     await userEvent.click(
       within(menu).getByRole("button", {
-        name: "Regenerate with these settings",
+        name: "Regenerate",
       }),
     );
     await expect(args.onFollowUp).toHaveBeenCalledWith({

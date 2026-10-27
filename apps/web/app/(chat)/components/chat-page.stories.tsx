@@ -2415,9 +2415,7 @@ export const FailedTurnWithoutReply: Story = {
       OPEN_CHAT_ROUTES.length,
       "Search my conversations for budget notes.",
     );
-    expect(
-      canvas.getByText("This turn ended without an answer."),
-    ).toBeVisible();
+    expect(canvas.getByText("This turn ended without an answer")).toBeVisible();
     await expect(
       canvas.getByRole("button", { name: "Regenerate" }),
     ).toBeVisible();
@@ -2460,14 +2458,17 @@ export const FailedTurnWithEmptyReply: Story = {
       OPEN_CHAT_ROUTES.length,
       "Search my conversations for budget notes.",
     );
+    expect(canvas.getByText("This turn failed")).toBeVisible();
     expect(
-      canvas.getByText("This turn failed: This model is unavailable for free."),
+      canvas.getByText("This model is unavailable for free."),
     ).toBeVisible();
     const regenerate = canvas.getByRole("button", { name: "Regenerate" });
     await expect(regenerate).toBeVisible();
     // The failed-turn row is not the hover-revealed action row: it must paint
     // without a hover or a focus.
-    expect(getComputedStyle(regenerate.parentElement!).opacity).toBe("1");
+    const row = regenerate.closest<HTMLElement>('[data-slot="alert"]');
+    expect(row).not.toBeNull();
+    expect(getComputedStyle(row!).opacity).toBe("1");
     expect(canvas.getAllByRole("button", { name: "Regenerate" })).toHaveLength(
       1,
     );

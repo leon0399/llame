@@ -2,7 +2,6 @@
 
 import { FileSearchIcon, LoaderCircleIcon } from "lucide-react";
 
-import { Button } from "@workspace/ui/components/button";
 import {
   Sheet,
   SheetContent,
@@ -16,12 +15,15 @@ import {
   type RunContextReceipt,
 } from "@/lib/services/chat/runs";
 
+import { MessageActionButton } from "./message-action-button";
+
 export function EffectiveContextAction({ onClick }: { onClick: () => void }) {
   return (
-    <Button type="button" variant="ghost" size="xs" onClick={onClick}>
-      <FileSearchIcon data-icon="inline-start" aria-hidden="true" />
-      <span className="text-trim-cap">System prompt</span>
-    </Button>
+    <MessageActionButton
+      label="System prompt"
+      icon={FileSearchIcon}
+      onClick={onClick}
+    />
   );
 }
 
