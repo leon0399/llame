@@ -7,6 +7,11 @@ import {
 } from './chain';
 import { removalFor } from '../../testing/web-search-removal';
 import { createAggregateEngine, type AggregateChild } from './aggregate';
+import { createDeepseekEngine } from './deepseek';
+import { createParallelEngine } from './parallel';
+import { ENGINE_LIMITS } from './limits';
+import { type VendorFetch } from './http';
+import { jsonResponse, requestUrl } from '../../testing/web-search-fetch';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
@@ -236,6 +241,86 @@ it('fails unsupported when every child skips the query', async () => {
     failureClass: 'unsupported',
   });
   expect(started).toBe(0);
+});
+
+it('skips a real deepseek child that a real parallel child accepts', async () => {
+  const started: Array<string> = [];
+  const fetch: VendorFetch = (input) => {
+    const url = new URL(requestUrl(input));
+    started.push(url.hostname);
+    return Promise.resolve(
+      jsonResponse(
+        JSON.stringify({
+          results: [
+            {
+              title: 'Result',
+              url: `https://example.test/${url.hostname}`,
+              excerpts: ['snippet'],
+            },
+          ],
+        }),
+      ),
+    );
+  };
+  const engine = createAggregateEngine([
+    {
+      id: 'deepseek',
+      timeoutSeconds: 60,
+      limits: ENGINE_LIMITS.deepseek,
+      engine: createDeepseekEngine({ key: 'secret' }, { fetch }),
+    },
+    {
+      id: 'parallel',
+      timeoutSeconds: 60,
+      limits: ENGINE_LIMITS.parallel,
+      engine: createParallelEngine({ key: 'secret', mode: 'fast' }, { fetch }),
+    },
+  ]);
+
+  // 150 code points is over DeepSeek's 128 and within Parallel's 200.
+  await expect(
+    engine(request(undefined, 10, { query: 'x'.repeat(150) })),
+  ).resolves.toStrictEqual({
+    kind: 'results',
+    results: [
+      result('https://example.test/api.parallel.ai', {
+        title: 'Result',
+        snippet: 'snippet',
+      }),
+    ],
+    notes: ['deepseek: unsupported'],
+  });
+  expect(started).toStrictEqual(['api.parallel.ai']);
+});
+
+it('skips two real children and fails unsupported without a request', async () => {
+  const started: Array<string> = [];
+  const fetch: VendorFetch = (input) => {
+    started.push(requestUrl(input));
+    return Promise.reject(new Error('no request expected'));
+  };
+  const engine = createAggregateEngine([
+    {
+      id: 'deepseek',
+      timeoutSeconds: 60,
+      limits: ENGINE_LIMITS.deepseek,
+      engine: createDeepseekEngine({ key: 'secret' }, { fetch }),
+    },
+    {
+      id: 'parallel',
+      timeoutSeconds: 60,
+      limits: ENGINE_LIMITS.parallel,
+      engine: createParallelEngine({ key: 'secret', mode: 'fast' }, { fetch }),
+    },
+  ]);
+
+  await expect(
+    engine(request(undefined, 10, { query: 'x'.repeat(250) })),
+  ).rejects.toMatchObject({
+    name: 'EngineFailure',
+    failureClass: 'unsupported',
+  });
+  expect(started).toStrictEqual([]);
 });
 
 it('stays an upstream failure when a skip mixes with a sent failure', async () => {

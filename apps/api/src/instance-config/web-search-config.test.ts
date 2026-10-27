@@ -719,4 +719,134 @@ describe('loadInstanceConfig — webSearch', () => {
       timeoutSeconds: 15,
     });
   });
+
+  it('loads a DeepSeek engine with an interpolated key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            { id: 'deepseek', type: 'deepseek', key: '{env:DEEPSEEK_API_KEY}' },
+          ],
+          chain: ['deepseek'],
+        },
+      }),
+    );
+
+    expect(
+      loadInstanceConfig({ DEEPSEEK_API_KEY: 'deepseek-secret' }).webSearch,
+    ).toStrictEqual({
+      engines: [
+        {
+          id: 'deepseek',
+          type: 'deepseek',
+          key: 'deepseek-secret',
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['deepseek'],
+    });
+  });
+
+  it('rejects a missing DeepSeek key and names the key path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'deepseek', type: 'deepseek' }],
+          chain: ['deepseek'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/0.*required property 'key'/u,
+    );
+  });
+
+  it('defaults a Parallel engine mode to fast', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'parallel', type: 'parallel', key: 'parallel-key' }],
+          chain: ['parallel'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toStrictEqual({
+      engines: [
+        {
+          id: 'parallel',
+          type: 'parallel',
+          key: 'parallel-key',
+          mode: 'fast',
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['parallel'],
+    });
+  });
+
+  it('loads a Parallel engine with an explicit mode', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            {
+              id: 'parallel',
+              type: 'parallel',
+              key: '{env:PARALLEL_API_KEY}',
+              mode: 'advanced',
+            },
+          ],
+          chain: ['parallel'],
+        },
+      }),
+    );
+
+    expect(
+      loadInstanceConfig({ PARALLEL_API_KEY: 'parallel-secret' }).webSearch
+        ?.engines[0],
+    ).toStrictEqual({
+      id: 'parallel',
+      type: 'parallel',
+      key: 'parallel-secret',
+      mode: 'advanced',
+      timeoutSeconds: 60,
+    });
+  });
+
+  it('rejects an unknown Parallel mode and names the mode path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            {
+              id: 'parallel',
+              type: 'parallel',
+              key: 'parallel-key',
+              mode: 'deep',
+            },
+          ],
+          chain: ['parallel'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(/webSearch\/engines\/0\/mode/u);
+  });
+
+  it('rejects a missing Parallel key and names the key path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'parallel', type: 'parallel' }],
+          chain: ['parallel'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/0.*required property 'key'/u,
+    );
+  });
 });

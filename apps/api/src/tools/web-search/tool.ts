@@ -4,7 +4,7 @@ import { type Tool, type ToolContext, type ToolResult } from '../types';
 import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
-} from '../../instance-config/llame-config';
+} from '../../instance-config/web-search-config';
 import { createAggregateEngine } from './aggregate';
 import {
   createEngine,

@@ -44,12 +44,42 @@
               "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
             },
             "type": {
-              "enum": ["brave", "exa", "perplexity"],
+              "enum": ["brave", "deepseek", "exa", "perplexity"],
               "description": "API-backed web-search engine implementation."
             },
             "key": {
               "$ref": "#/$defs/nullableString",
               "description": "Required vendor credential. It may use a whole or embedded {env:...}/{path:...} interpolation token and must resolve to a nonblank string."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A configured Parallel Search API engine.",
+          "required": ["id", "type", "key"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "parallel",
+              "description": "Parallel Search API called with the operator's key."
+            },
+            "key": {
+              "$ref": "#/$defs/nullableString",
+              "description": "Required Parallel credential. It may use a whole or embedded {env:...}/{path:...} interpolation token and must resolve to a nonblank string."
+            },
+            "mode": {
+              "enum": ["turbo", "fast", "basic", "advanced"],
+              "description": "Vendor search mode. Defaults to `fast`."
             },
             "timeoutSeconds": {
               "$ref": "#/$defs/numberOrToken",

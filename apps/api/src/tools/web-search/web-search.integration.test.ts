@@ -35,8 +35,8 @@ import type { CompactionCapability } from '../../compaction/compaction.service';
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
-  type WebSearchConfig,
 } from '../../instance-config/llame-config';
+import { type WebSearchConfig } from '../../instance-config/web-search-config';
 import type { InstanceConfigReader } from '../../instance-config/instance-config.service';
 import { MemoryService } from '../../memory/memory.service';
 import type { ModelClient, ModelStreamInput } from '../../models/model-client';

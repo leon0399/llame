@@ -11,7 +11,7 @@ import { createAggregateEngine } from './aggregate';
 import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
-} from '../../instance-config/llame-config';
+} from '../../instance-config/web-search-config';
 import { type VendorFetch } from './http';
 import { requestUrl, captureFetch } from '../../testing/web-search-fetch';
 import { type ModelClient } from '../../models/model-client';
@@ -81,6 +81,33 @@ const factoryCases: ReadonlyArray<FactoryCase> = [
       results: [{ title: 'Result', url: 'https://example.test/a' }],
     }),
     expectedUrl: 'https://api.exa.ai/search',
+  },
+  {
+    name: 'deepseek',
+    config: {
+      id: 'deepseek',
+      type: 'deepseek',
+      key: 'key',
+      timeoutSeconds: 60,
+    },
+    body: JSON.stringify({
+      results: [{ title: 'Result', url: 'https://example.test/a' }],
+    }),
+    expectedUrl: 'https://api.deepseek.com/v1/tools/search',
+  },
+  {
+    name: 'parallel',
+    config: {
+      id: 'parallel',
+      type: 'parallel',
+      key: 'key',
+      mode: 'fast',
+      timeoutSeconds: 60,
+    },
+    body: JSON.stringify({
+      results: [{ title: 'Result', url: 'https://example.test/a' }],
+    }),
+    expectedUrl: 'https://api.parallel.ai/v1/search',
   },
   {
     name: 'perplexity',

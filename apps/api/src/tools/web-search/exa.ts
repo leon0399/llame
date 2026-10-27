@@ -2,18 +2,9 @@ import { z } from 'zod';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
 import { fetchVendorJson, type VendorFetch } from './http';
 import { vendorCount } from './limits';
-import { splitSiteFilters } from './query';
+import { recencyStart, splitSiteFilters } from './query';
 
 export const EXA_SEARCH_URL = 'https://api.exa.ai/search';
-const DAY_MS = 24 * 60 * 60 * 1000;
-const RECENCY_MS: Readonly<
-  Record<NonNullable<EngineRequest['recency']>, number>
-> = {
-  day: DAY_MS,
-  week: 7 * DAY_MS,
-  month: 30 * DAY_MS,
-  year: 365 * DAY_MS,
-};
 const ExaResultSchema = z.object({
   title: z.string(),
   url: z.string(),
@@ -50,9 +41,7 @@ function requestBody(request: EngineRequest) {
     ...(filters.include.length > 0 && { includeDomains: filters.include }),
     ...(filters.exclude.length > 0 && { excludeDomains: filters.exclude }),
     ...(request.recency !== undefined && {
-      startPublishedDate: new Date(
-        Date.now() - RECENCY_MS[request.recency],
-      ).toISOString(),
+      startPublishedDate: recencyStart(request.recency).toISOString(),
     }),
     contents: { highlights: true },
   };

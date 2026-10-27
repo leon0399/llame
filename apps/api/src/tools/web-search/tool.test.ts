@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { type WebSearchConfig } from '../../instance-config/llame-config';
+import { type WebSearchConfig } from '../../instance-config/web-search-config';
 import {
   type ModelClient,
   type ModelStreamInput,

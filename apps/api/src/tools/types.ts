@@ -10,10 +10,8 @@ import {
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
-import {
-  type WebAdapterConfig,
-  type WebSearchConfig,
-} from '../instance-config/llame-config';
+import { type WebAdapterConfig } from '../instance-config/llame-config';
+import { type WebSearchConfig } from '../instance-config/web-search-config';
 import { type CompiledPolicy } from './permissions/types';
 import { type PermissionMode } from './permissions/permission-mode';
 import { type WorkspaceRootCell } from './workspace-path';

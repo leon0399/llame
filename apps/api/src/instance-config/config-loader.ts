@@ -18,8 +18,6 @@ import {
   type LlameConfig,
   type KnowledgeConfig,
   type SkillsConfig,
-  type WebSearchConfig,
-  type WebSearchEngineConfig,
   type McpRemoteServerConfig,
   type McpServerConfig,
   type McpStdioServerConfig,
@@ -34,10 +32,14 @@ import {
   type RawMcpServerEntry,
   type RawModelEntry,
   type RawWebAdapterEntry,
-  type RawWebSearchConfig,
-  type RawWebSearchEngineEntry,
   type WebAdapterConfig,
 } from './llame-config';
+import type {
+  RawWebSearchConfig,
+  RawWebSearchEngineEntry,
+  WebSearchConfig,
+  WebSearchEngineConfig,
+} from './web-search-config';
 import type { MachineHostConfig } from './machines-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type { RequestHeaderTemplates } from '../models/request-headers';
@@ -731,11 +733,21 @@ function resolveWebSearchResultEngine(
   if (entry.type === 'duckduckgo') {
     return { ...base, type: entry.type };
   }
-  return {
-    ...base,
-    type: entry.type,
-    key: requireNonBlankString(`${entryPath}.key`, entry.key, env),
-  };
+  return resolveKeyedEngine(entry, entryPath, base, env);
+}
+
+function resolveKeyedEngine(
+  entry: Extract<
+    RawWebSearchEngineEntry,
+    { type: 'brave' | 'deepseek' | 'exa' | 'perplexity' | 'parallel' }
+  >,
+  entryPath: string,
+  base: { id: string; timeoutSeconds: number },
+  env: NodeJS.ProcessEnv,
+): WebSearchEngineConfig {
+  const key = requireNonBlankString(`${entryPath}.key`, entry.key, env);
+  if (entry.type !== 'parallel') return { ...base, type: entry.type, key };
+  return { ...base, type: entry.type, key, mode: entry.mode ?? 'fast' };
 }
 
 function resolveSearxngBaseUrl(

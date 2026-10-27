@@ -19,6 +19,9 @@ async function classifyStatus(response: Response): Promise<void> {
   if (response.status === 401 || response.status === 403)
     throw new EngineFailure('auth');
   if (response.status === 429) throw new EngineFailure('rate_limited');
+  // DeepSeek and Parallel document both as a synchronous read timeout.
+  if (response.status === 408 || response.status === 504)
+    throw new EngineFailure('timeout');
   throw new EngineFailure('upstream_error');
 }
 
