@@ -1382,6 +1382,117 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
     }
   });
 
+  it('replays the kept parts of a Continue Run before the first new part', () => {
+    const t = createRunEventTranslator('run-1');
+
+    expect(
+      t.translate({
+        eventType: 'run.created',
+        payload: { chatId: 'c', messageId: 'm' },
+      }),
+    ).toEqual([]);
+    expect(
+      t.translate({
+        eventType: 'run.continued',
+        payload: {
+          sourceRunId: 'run-0',
+          steps: { 'call-1': 0 },
+          parts: [
+            { type: 'reasoning', text: 'thinking first' },
+            { type: 'text', text: 'reading' },
+            {
+              type: 'tool-read',
+              toolCallId: 'call-1',
+              state: 'output-available',
+              input: { path: '/tmp/file.txt' },
+              output: { status: 'success', text: 'file body' },
+              outcome: 'success',
+            },
+            // A kept in-Run item has no chunk of its own.
+            {
+              type: 'data-context',
+              data: {
+                v: 1,
+                producer: 'instructions',
+                runId: '00000000-0000-4000-8000-000000000009',
+                payload: {},
+                text: 'kept item',
+              },
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-1' },
+      { type: 'reasoning-start', id: 'reasoning-1' },
+      { type: 'reasoning-delta', id: 'reasoning-1', delta: 'thinking first' },
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      { type: 'text-start', id: 'text-1' },
+      { type: 'text-delta', id: 'text-1', delta: 'reading' },
+      { type: 'text-end', id: 'text-1' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: { path: '/tmp/file.txt' },
+        dynamic: true,
+      },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'call-1',
+        output: { status: 'success', text: 'file body' },
+        dynamic: true,
+      },
+    ]);
+
+    // The new parts continue the kept numbering rather than restarting it.
+    expect(
+      t.translate({ eventType: 'model.delta', payload: { text: 'done' } }),
+    ).toEqual([
+      { type: 'text-start', id: 'text-2' },
+      { type: 'text-delta', id: 'text-2', delta: 'done' },
+    ]);
+  });
+
+  it('replays a kept failed call as its recorded error', () => {
+    const t = createRunEventTranslator('run-1');
+
+    expect(
+      t.translate({
+        eventType: 'run.continued',
+        payload: {
+          sourceRunId: 'run-0',
+          steps: {},
+          parts: [
+            {
+              type: 'tool-bash',
+              toolCallId: 'call-2',
+              state: 'output-error',
+              input: { command: 'ls' },
+              errorText: 'the command timed out',
+              outcome: 'timeout',
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-1' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'call-2',
+        toolName: 'bash',
+        input: { command: 'ls' },
+        dynamic: true,
+      },
+      {
+        type: 'tool-output-error',
+        toolCallId: 'call-2',
+        errorText: 'the command timed out',
+        dynamic: true,
+      },
+    ]);
+  });
+
   it('emits nothing for an empty reasoning delta', () => {
     const t = createRunEventTranslator('run-1');
     t.translate({ eventType: 'run.started', payload: null });

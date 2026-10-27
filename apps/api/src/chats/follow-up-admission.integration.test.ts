@@ -411,6 +411,33 @@ describeIfDb('follow-up admission', () => {
       expect(events[1]?.payload).toEqual({
         sourceRunId: fixture.runId,
         parts: settledCall('call-1'),
+        // The source Run recorded no step number, so the projection takes its
+        // consecutive-call fallback (turn-actions D6).
+        steps: {},
+      });
+    });
+
+    it('records the step of each kept call from the source Run events', async () => {
+      const fixture = await seedTurn({
+        status: 'failed',
+        replyParts: settledCall('call-1'),
+      });
+      await api.tenantDb.runAs(api.userId, (tx) =>
+        new RunEventsRepository(tx).append(fixture.runId, 'tool.requested', {
+          toolCallId: 'call-1',
+          toolName: 'read',
+          input: { path: '/tmp/file.txt' },
+          stepNumber: 2,
+        }),
+      );
+
+      const admitted = await admit(fixture, { action: 'continue' });
+
+      const events = await eventsOfRun(admitted.runId);
+      expect(events[1]?.payload).toEqual({
+        sourceRunId: fixture.runId,
+        parts: settledCall('call-1'),
+        steps: { 'call-1': 2 },
       });
     });
 
