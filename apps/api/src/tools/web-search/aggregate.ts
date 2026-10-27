@@ -3,6 +3,7 @@ import {
   canonicalizeCitations,
   canonicalizeResults,
   isFailureClass,
+  isGrounded,
   runOne,
   throwAbort,
   type Engine,
@@ -63,9 +64,9 @@ function classifyOutcome(
     return { child, kind: 'empty', notes: outcome.notes };
   if (outcome.kind === 'answer') {
     const citations = canonicalizeCitations(outcome.citations);
-    // A grounded answer cites at least one URL; the rest is a failed child, so
-    // the aggregate can still answer from its result children.
-    if (outcome.answer.trim() === '' || citations.length === 0)
+    // The rest is a failed child, so the aggregate can still answer from its
+    // result children.
+    if (!isGrounded(outcome.answer, citations))
       return { child, kind: 'failure', failureClass: 'ungrounded' };
     return {
       child,

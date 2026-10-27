@@ -174,27 +174,24 @@ export function canonicalizeCitations(
   });
 }
 
-function canonicalizeAnswers(
-  answers: ReadonlyArray<RawAnswer> | undefined,
-): ReadonlyArray<RawAnswer> | undefined {
-  if (answers === undefined) return undefined;
-  return answers.map((answer) => ({
-    ...answer,
-    citations: canonicalizeCitations(answer.citations),
-  }));
+/**
+ * Whether a hosted answer is grounded: it has visible text and cites at least
+ * one URL. An attached answer's citations are already canonicalized by the
+ * aggregate that produced it and again by the output layer.
+ */
+export function isGrounded(
+  answer: string,
+  citations: ReadonlyArray<RawCitation>,
+): boolean {
+  return answer.trim() !== '' && citations.length > 0;
 }
 
 function canonicalizeOutcome(
   outcome: ResultOutcome | AnswerOutcome,
 ): ResultOutcome | AnswerOutcome {
-  if (outcome.kind === 'answer')
-    return { ...outcome, citations: canonicalizeCitations(outcome.citations) };
-  const answers = canonicalizeAnswers(outcome.answers);
-  return {
-    ...outcome,
-    results: canonicalizeResults(outcome.results),
-    ...(answers !== undefined && { answers }),
-  };
+  return outcome.kind === 'results'
+    ? { ...outcome, results: canonicalizeResults(outcome.results) }
+    : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
 }
 
 /**
@@ -328,6 +325,22 @@ function withoutRemovedTargets(answer: string, removal: ResultRemoval): string {
       },
     )
     .replace(BARE_URL, (url) => (removal.removes(url) ? '' : url));
+}
+
+/** One span of answer text that a cut must not split: a link or a bare URL. */
+export type AnswerLinkRange = { readonly start: number; readonly end: number };
+
+/**
+ * The Markdown links and bare URLs of answer text, as source offsets, so a
+ * bounded or trimmed answer never ends inside a link target.
+ */
+export function answerLinkRanges(text: string): Array<AnswerLinkRange> {
+  return [MARKDOWN_LINK, BARE_URL].flatMap((pattern) =>
+    [...text.matchAll(pattern)].map((match) => {
+      const start = match.index ?? 0;
+      return { start, end: start + match[0].length };
+    }),
+  );
 }
 
 /**
@@ -467,7 +480,7 @@ function classifyOutcome(
   }
   if (
     success.kind === 'answer' &&
-    (success.answer.trim() === '' || success.citations.length === 0)
+    !isGrounded(success.answer, success.citations)
   ) {
     notes.push(`${id}: ungrounded`);
     return { kind: 'continue' };
