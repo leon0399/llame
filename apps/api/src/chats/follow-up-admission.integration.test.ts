@@ -570,40 +570,57 @@ describeIfDb('follow-up admission', () => {
       expect(await chatUpdatedAt(fixture.chatId)).toBe(recencyBefore);
     });
 
-    it("reveals nothing about another owner's Chat and reads no job state", async () => {
-      const otherUserId = crypto.randomUUID();
-      await api.sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Other', ${`other-${otherUserId}@test.com`})`;
-      try {
-        const foreign = await seedTurn({
-          ownerUserId: otherUserId,
-          status: 'running_model',
-          runningAttempt: true,
-        });
-        const before = await runsOfChat(foreign.chatId, otherUserId);
+    it.each([
+      ['continue', { action: 'continue' } as const],
+      ['regenerate', { action: 'regenerate', modelId: MODEL_ID } as const],
+    ])(
+      "reveals nothing about another owner's Chat for a %s request",
+      async (_name, request) => {
+        const otherUserId = crypto.randomUUID();
+        await api.sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Other', ${`other-${otherUserId}@test.com`})`;
+        try {
+          const foreign = await seedTurn({
+            ownerUserId: otherUserId,
+            status: 'running_model',
+            runningAttempt: true,
+          });
+          const before = await runsOfChat(foreign.chatId, otherUserId);
+          const replyBefore = await replyOf(foreign, otherUserId);
+
+          await expect(admit(foreign, request)).rejects.toBeInstanceOf(
+            NotFoundException,
+          );
+          expect(api.jobState).not.toHaveBeenCalled();
+          expect(await runsOfChat(foreign.chatId, otherUserId)).toEqual(before);
+          // The foreign reply keeps its parts, its usage, and its evidence.
+          expect(await replyOf(foreign, otherUserId)).toEqual(replyBefore);
+          expect(replyBefore?.revisedAt).toBeNull();
+        } finally {
+          await api.sql`DELETE FROM users WHERE id = ${otherUserId}`;
+        }
+      },
+    );
+
+    it.each([
+      ['continue', { action: 'continue' } as const],
+      ['regenerate', { action: 'regenerate', modelId: MODEL_ID } as const],
+    ])(
+      "answers 404 for another owner's message id on an owned Chat for a %s request",
+      async (_name, request) => {
+        const fixture = await seedTurn({ status: 'failed' });
 
         await expect(
-          admit(foreign, { action: 'continue' }),
+          api.admission.admitFollowUpRun({
+            chatId: fixture.chatId,
+            userId: api.userId,
+            userMessageId: crypto.randomUUID(),
+            request,
+          }),
         ).rejects.toBeInstanceOf(NotFoundException);
-        expect(api.jobState).not.toHaveBeenCalled();
-        expect(await runsOfChat(foreign.chatId, otherUserId)).toEqual(before);
-      } finally {
-        await api.sql`DELETE FROM users WHERE id = ${otherUserId}`;
-      }
-    });
-
-    it("answers 404 for another owner's message id on an owned Chat", async () => {
-      const fixture = await seedTurn({ status: 'failed' });
-
-      await expect(
-        api.admission.admitFollowUpRun({
-          chatId: fixture.chatId,
-          userId: api.userId,
-          userMessageId: crypto.randomUUID(),
-          request: { action: 'continue' },
-        }),
-      ).rejects.toBeInstanceOf(NotFoundException);
-      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
-    });
+        expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
+        expect((await replyOf(fixture))?.revisedAt).toBeNull();
+      },
+    );
 
     it('still refuses a chat send that reuses the message id', async () => {
       const fixture = await seedTurn({ status: 'failed' });
@@ -773,6 +790,21 @@ describeIfDb('follow-up admission', () => {
   });
 
   describe('task 4.1 — the regenerate action', () => {
+    /** A stored `bash` call: what a reply that changed state holds. */
+    const bashPart = (
+      classification: 'execute_code' | null,
+      state: 'output-available' | 'output-error' = 'output-available',
+    ) => ({
+      type: 'tool-bash',
+      toolCallId: 'call-1',
+      state,
+      input: { command: 'make' },
+      ...(state === 'output-available'
+        ? { output: { status: 'success' }, outcome: 'success' }
+        : { errorText: 'rejected', outcome: 'permission_denied' }),
+      classification,
+    });
+
     /** The notice an earlier Run of the turn stored, as the producer writes it. */
     const storedNotice = (runId: string) => ({
       type: 'data-context',
@@ -784,18 +816,6 @@ describeIfDb('follow-up admission', () => {
         payload: { reason: 'non_read_only_calls' },
         text: '<system-reminder producer="regenerate" form="notice">\nInserted by llame; not written by the user.\nAn earlier attempt at this turn was discarded.\n</system-reminder>',
       },
-    });
-
-    it('rejects a Regenerate without a model before any write', async () => {
-      const fixture = await seedTurn({ status: 'completed' });
-
-      await expect(
-        admit(fixture, { action: 'regenerate' }),
-      ).rejects.toMatchObject({
-        constructor: BadRequestException,
-        message: 'A regenerate request must name a model',
-      });
-      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
     });
 
     it('validates a Regenerate like a chat send', async () => {
@@ -885,17 +905,7 @@ describeIfDb('follow-up admission', () => {
       const fixture = await seedTurn({
         status: 'completed',
         replyUsageStatus: 'completed',
-        replyParts: [
-          {
-            type: 'tool-bash',
-            toolCallId: 'call-1',
-            state: 'output-available',
-            input: { command: 'make' },
-            output: { status: 'success' },
-            outcome: 'success',
-            classification: 'execute_code',
-          },
-        ],
+        replyParts: [bashPart('execute_code')],
       });
 
       const admitted = await admit(fixture, {
@@ -912,17 +922,7 @@ describeIfDb('follow-up admission', () => {
         status: 'completed',
         replyUsageStatus: 'completed',
         triggerItems: [storedNotice(crypto.randomUUID())],
-        replyParts: [
-          {
-            type: 'tool-bash',
-            toolCallId: 'call-1',
-            state: 'output-available',
-            input: { command: 'make' },
-            output: { status: 'success' },
-            outcome: 'success',
-            classification: 'execute_code',
-          },
-        ],
+        replyParts: [bashPart('execute_code')],
       });
 
       const admitted = await admit(fixture, {
@@ -938,17 +938,7 @@ describeIfDb('follow-up admission', () => {
       const fixture = await seedTurn({
         status: 'completed',
         replyUsageStatus: 'completed',
-        replyParts: [
-          {
-            type: 'tool-bash',
-            toolCallId: 'call-1',
-            state: 'output-error',
-            input: { command: 'make' },
-            errorText: 'rejected',
-            outcome: 'permission_denied',
-            classification: null,
-          },
-        ],
+        replyParts: [bashPart(null, 'output-error')],
       });
 
       const admitted = await admit(fixture, {

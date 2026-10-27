@@ -9,11 +9,7 @@
  * tool-less Regenerate receives it in its initial request.
  */
 
-import {
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { isRecord } from '@workspace/runtime-safety';
 
 import { TOOL_REGISTRY } from '../tools/registry';
 import { loadPackagedTemplate } from '../prompts/template-engine';
@@ -25,13 +21,13 @@ import {
   isExactRecord,
 } from './context-item-shared';
 
-/** The closed reasons a `regenerate` notice can state. */
-export const REGENERATE_NOTICE_REASONS = ['non_read_only_calls'] as const;
-
-export type RegenerateNoticeReason = (typeof REGENERATE_NOTICE_REASONS)[number];
-
+/**
+ * The one reason this notice states: the attempt it replaced ran a call whose
+ * effects stay. The payload carries it so an owner-facing reader can tell why
+ * the item exists without parsing its prose.
+ */
 export interface RegenerateNoticePayload extends Record<string, unknown> {
-  readonly reason: RegenerateNoticeReason;
+  readonly reason: 'non_read_only_calls';
 }
 
 export function isRegenerateNoticePayload(
@@ -39,7 +35,7 @@ export function isRegenerateNoticePayload(
 ): value is RegenerateNoticePayload {
   return (
     isExactRecord(value, ['reason']) &&
-    REGENERATE_NOTICE_REASONS.some((reason) => reason === value['reason'])
+    value['reason'] === 'non_read_only_calls'
   );
 }
 
@@ -65,13 +61,6 @@ export function createRegenerateNoticeItem(input: {
   });
 }
 
-/** The tool name a stored tool part names, or undefined for any other part. */
-function storedToolName(part: UnknownRecord): string | undefined {
-  const type = part['type'];
-  if (!isString(type) || !type.startsWith(TOOL_PART_PREFIX)) return undefined;
-  return type.slice(TOOL_PART_PREFIX.length);
-}
-
 /**
  * Whether a stored tool part is a call whose effects outlive the reply.
  *
@@ -91,18 +80,8 @@ export function discardsNonReadOnlyCall(
   // A rejected call never ran, so it discarded nothing.
   if (classification === null) return false;
   if (classification !== undefined) return classification !== 'read_only';
-  const toolName = storedToolName(record);
-  if (toolName === undefined) return false;
+  // The guard above proved the type names a tool.
+  const toolName = part.type.slice(TOOL_PART_PREFIX.length);
   if (toolName.startsWith('mcp__')) return true;
   return TOOL_REGISTRY.get(toolName)?.classification !== 'read_only';
-}
-
-/**
- * Whether a replaced reply holds a call the new attempt cannot see the effects
- * of.
- */
-export function replyDiscardsNonReadOnlyCalls(
-  parts: ReadonlyArray<unknown>,
-): boolean {
-  return parts.some((part) => discardsNonReadOnlyCall(part));
 }

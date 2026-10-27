@@ -10,8 +10,7 @@
  */
 
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { streamText, type ModelMessage, type ToolResultPart } from 'ai';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import type { ModelMessage, ToolResultPart } from 'ai';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { eq } from 'drizzle-orm';
@@ -28,7 +27,6 @@ import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { isContextItemPart } from '../chats/context-item';
 import { createTemporalItem } from '../chats/context-item-producers';
 import { type MessagePart } from '../chats/context-builder';
-import { RecencyDigestService } from '../chats/recency-digest.service';
 import { createRunForMessage } from '../chats/run-creation';
 import type { ToolResult } from '../tools/types';
 
@@ -37,57 +35,30 @@ import {
   type ContinuedEvent,
 } from '../chats/continue-projection';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
-import { type CompactionCapability } from '../compaction/compaction.service';
-import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { MemoryService } from '../memory/memory.service';
+import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { type ModelClient } from '../models/model-client';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type ModelSelectionValidator } from '../models/models.service';
-import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
-import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
-import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { getRegisteredToolIds } from '../tools/registry';
-import { type KnowledgeToolResolver } from '../tools/types';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import {
+  answerChunks,
+  catalogEntry,
+  catalogValidator,
+  makeRunExecutionService,
+  scriptedClient,
+  scriptedModel,
+} from '../testing/run-execution-integration-fixture';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 const MODEL_ID = 'mock';
 const OTHER_MODEL_ID = 'mock-previous';
+const MODEL_ENTRY = catalogEntry(MODEL_ID);
 const USER_TEXT = 'Continue the work';
 const KEPT_TEXT = 'reading the file';
 const KEPT_RESULT = 'file body';
 const CALL_ID = 'call-kept';
-
-const MODEL_ENTRY: SystemModelCatalogEntry = {
-  id: MODEL_ID,
-  source: 'system',
-  contextWindowTokens: 128_000,
-  provider: 'mock',
-  providerModelId: MODEL_ID,
-  billing: 'subscription',
-  systemPromptTemplate: 'Test prompt',
-  systemPromptSource: 'model_override',
-  referencesSkills: false,
-  input: ['text'],
-};
-
-const knowledgeResolver: KnowledgeToolResolver = {
-  listForOwnerPage: () => Promise.resolve({ spaces: [] }),
-  resolveBindingForOwnerById: () => Promise.resolve(undefined),
-  createAdapter: () => ({
-    search: () => Promise.resolve([]),
-    resolveHostPath: () =>
-      Promise.reject(new Error('Knowledge adapter is not exercised')),
-    isInsideSpace: () => Promise.resolve(true),
-  }),
-};
 
 /** A settled `read` call, as the failed reply stored it. */
 const keptParts: Array<MessagePart> = [
@@ -103,23 +74,6 @@ const keptParts: Array<MessagePart> = [
   },
 ];
 
-function answerChunks(text: string): Array<LanguageModelV3StreamPart> {
-  return [
-    { type: 'stream-start', warnings: [] },
-    { type: 'text-start', id: 'text' },
-    { type: 'text-delta', id: 'text', delta: text },
-    { type: 'text-end', id: 'text' },
-    {
-      type: 'finish',
-      finishReason: { unified: 'stop', raw: undefined },
-      usage: {
-        inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-        outputTokens: { total: 1, text: 1, reasoning: 0 },
-      },
-    },
-  ];
-}
-
 function failureChunks(afterText: string): Array<LanguageModelV3StreamPart> {
   return [
     { type: 'stream-start', warnings: [] },
@@ -128,53 +82,6 @@ function failureChunks(afterText: string): Array<LanguageModelV3StreamPart> {
     { type: 'text-end', id: 'text' },
     { type: 'error', error: new Error('provider dropped the stream') },
   ];
-}
-
-function scriptedModel(
-  chunks: Array<LanguageModelV3StreamPart>,
-): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
-    doStream: () =>
-      Promise.resolve({ stream: simulateReadableStream({ chunks }) }),
-  });
-}
-
-/**
- * A client over a scripted model, recording every request the Run sends so a
- * test can read what reached the model.
- */
-function scriptedClient(
-  model: MockLanguageModelV3,
-  options: {
-    requests?: Array<Parameters<ModelClient['streamText']>[0]>;
-    contextWindowTokens?: number;
-  } = {},
-): ModelClient {
-  return {
-    model: MODEL_ID,
-    provider: 'mock',
-    contextWindowTokens: options.contextWindowTokens ?? 128_000,
-    streamText(input) {
-      options.requests?.push(input);
-      return streamText({
-        model,
-        system: input.system,
-        messages: input.messages,
-        abortSignal: input.abortSignal,
-        onChunk: ({ chunk }) => {
-          if (chunk.type === 'text-delta') input.onTextDelta?.(chunk.text);
-        },
-        onError: input.onError,
-        onFinish: (event) =>
-          input.onFinish?.({
-            text: event.text,
-            usage: event.usage,
-            finishReason: event.finishReason,
-            stepCount: event.steps.length,
-          }),
-      });
-    },
-  };
 }
 
 describeIfDb('a Continue Run', () => {
@@ -206,38 +113,11 @@ describeIfDb('a Continue Run', () => {
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Continue run', ${`continue-run-${userId}@test.com`})`;
 
-    const models: ModelSelectionValidator = {
-      validateModelSelection: () => MODEL_ENTRY,
-      resolveEffortSelection: () => undefined,
-    };
-    // Every seeded turn fits the model's window unless a test narrows it, so a
-    // window summary request would be a scenario this suite does not exercise.
-    const noopCompaction: CompactionCapability = {
-      summarizeCheckpoint: (request) =>
-        request.variant === 'window'
-          ? Promise.reject(new Error('window summarization is not exercised'))
-          : Promise.resolve(null),
-    };
-    runExecution = new RunExecutionService(
+    runExecution = makeRunExecutionService({
       tenantDb,
-      noopCompaction,
-      { maybeGenerateTitle: async () => {} },
       instanceConfig,
-      { reindexChat: () => Promise.resolve() },
-      noopReindexDispatch(),
-      knowledgeResolver,
-      noopSkillCatalog(),
-      noopEmbedDispatch(),
-      noopQueryEmbedder(),
-      compileTestPermissionPolicy(getRegisteredToolIds()),
-      models,
-      new SystemPromptsService(),
-      { resolvePromptUser: () => Promise.resolve(undefined) },
-      { resolve: () => Promise.resolve([]) },
-      { snapshotCandidates: () => [] },
-      new MemoryService(tenantDb),
-      new RecencyDigestService(tenantDb),
-    );
+      models: catalogValidator([MODEL_ENTRY]),
+    });
   });
 
   afterAll(async () => {
@@ -577,7 +457,9 @@ describeIfDb('a Continue Run', () => {
 
     await execute(
       turn,
-      scriptedClient(scriptedModel(answerChunks('done')), { requests }),
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
+        requests,
+      }),
     );
 
     // One request: the history through the trigger, then the kept step.
@@ -643,7 +525,7 @@ describeIfDb('a Continue Run', () => {
 
     await execute(
       turn,
-      scriptedClient(scriptedModel(failureChunks('partial'))),
+      scriptedClient(scriptedModel(failureChunks('partial')), MODEL_ID),
     );
 
     const reply = await replyOf(turn);
@@ -665,7 +547,7 @@ describeIfDb('a Continue Run', () => {
     await expect(
       execute(
         turn,
-        scriptedClient(scriptedModel(answerChunks('done')), {
+        scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
           requests,
           contextWindowTokens: 8,
         }),
@@ -695,7 +577,10 @@ describeIfDb('a Continue Run', () => {
       previousReplyModelId: OTHER_MODEL_ID,
     });
 
-    await execute(turn, scriptedClient(scriptedModel(answerChunks('done'))));
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID),
+    );
 
     const items = await contextItemsOf(turn);
     expect(
@@ -720,7 +605,10 @@ describeIfDb('a Continue Run', () => {
     // Run carries that item and authors no second one (turn-actions D8).
     const turn = await seedContinuedTurn({ skillActivationItem: 'demo' });
 
-    await execute(turn, scriptedClient(scriptedModel(answerChunks('done'))));
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID),
+    );
 
     const items = await contextItemsOf(turn);
     expect(
@@ -765,7 +653,9 @@ describeIfDb('a Continue Run', () => {
 
     await execute(
       turn,
-      scriptedClient(scriptedModel(answerChunks('done')), { requests }),
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
+        requests,
+      }),
     );
 
     const sent = requests[0]?.messages ?? [];
@@ -858,7 +748,10 @@ describeIfDb('a Continue Run', () => {
   it('reuses the stored prompt-imports item and stores no second one', async () => {
     const turn = await seedContinuedTurn({ promptImportsItem: true });
 
-    await execute(turn, scriptedClient(scriptedModel(answerChunks('done'))));
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID),
+    );
 
     const items = await contextItemsOf(turn);
     expect(

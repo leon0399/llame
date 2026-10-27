@@ -11037,17 +11037,22 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     ).toEqual([]);
   });
 
-  it("replaces the stored model-switch item on a Regenerate's first dispatch", async () => {
+  /**
+   * A Regenerate attempt over a turn whose earlier Run dispatched and stored a
+   * model switch and a notice: `turnToolAvailability` is `null` for this Run's
+   * first dispatch and `[]` once it has dispatched.
+   */
+  async function executeRegenerate(
+    turnToolAvailability: Run['turnToolAvailability'],
+  ) {
     const repositories = mockNormalExecutionRepositories();
     repositories.findLatestReplyModelId.mockImplementation(
       replyModelBefore(1, 'other-model'),
     );
-    // A Regenerate Run that has not dispatched yet: the earlier Run of its own
-    // turn stored the switch item this attempt replaces (turn-actions D8).
     repositories.findById.mockResolvedValue({
       ...run,
       followUpAction: 'regenerate',
-      turnToolAvailability: null,
+      turnToolAvailability,
     });
     // The earlier Run of this same turn dispatched, which is the baseline a
     // follow-up Run compares against.
@@ -11079,6 +11084,13 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       followUpAction: 'regenerate',
     });
     await expect(result.text).resolves.toBe('answer');
+    return repositories;
+  }
+
+  it("replaces the stored model-switch item on a Regenerate's first dispatch", async () => {
+    // A Regenerate Run that has not dispatched yet: the earlier Run of its own
+    // turn stored the switch item this attempt replaces (turn-actions D8).
+    const repositories = await executeRegenerate(null);
 
     // The new comparison is authored even though an earlier Run dispatched.
     const [modelChange] = stagedItemsOf(
@@ -11104,45 +11116,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
   });
 
   it("keeps a retry's stored switch item and notice on a Regenerate", async () => {
-    const repositories = mockNormalExecutionRepositories();
-    repositories.findLatestReplyModelId.mockImplementation(
-      replyModelBefore(1, 'other-model'),
-    );
     // This Run already dispatched once, so its stored items stay in place and
     // its first dispatch's switch item is not replaced again.
-    repositories.findById.mockResolvedValue({
-      ...run,
-      followUpAction: 'regenerate',
-      turnToolAvailability: [],
-    });
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findDispatchedBaselineForTurn',
-    ).mockResolvedValue({
-      run: { ...run, status: 'completed' },
-      triggeringUserSeq: 1,
-    });
-    vi.spyOn(
-      RunEventsRepository.prototype,
-      'findFirstByType',
-    ).mockImplementation((_runId, _userId, eventType) =>
-      Promise.resolve(
-        eventType === 'run.created'
-          ? {
-              ...event,
-              eventType: 'run.created',
-              payload: { chatId, messageId, notice: true },
-            }
-          : undefined,
-      ),
-    );
-    const execution = makeExecutionService(createFakeModelClient(['answer']));
-
-    const result = await execution.service.executeRun({
-      ...executionInput(execution.client),
-      followUpAction: 'regenerate',
-    });
-    await expect(result.text).resolves.toBe('answer');
+    const repositories = await executeRegenerate([]);
 
     expect(
       stagedItemsOf(repositories.storeAtDispatch, 'effective-context-change'),

@@ -92,10 +92,12 @@ export type ToolActivityPart = {
   /**
    * The classification of the tool that ran the call, from its `tool.started`
    * event. `null` for a call that never started — the availability gate or the
-   * permission policy rejected it (turn-actions D10). The history response
-   * carries it; model replay, public shares, exports, and search never do.
+   * permission policy rejected it — and absent for a call that started before
+   * the event recorded the field, where readers fall back to the tool catalog
+   * (turn-actions D10, D9). The history response carries it; model replay,
+   * public shares, exports, and search never do.
    */
-  classification: ToolClassification | null;
+  classification?: ToolClassification | null;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -320,8 +322,11 @@ export type ToolActivityPartInput = {
   readonly result: ToolResult;
   readonly permission?: PermissionDecision;
   readonly derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
-  /** The executing tool's classification, or `null` when the call never started. */
-  readonly classification: ToolClassification | null;
+  /**
+   * The executing tool's classification, `null` when the call never started,
+   * and absent when the event that started it recorded none.
+   */
+  readonly classification?: ToolClassification | null;
 };
 
 /**
@@ -359,6 +364,9 @@ export function toolActivityPart(
 /** The settled state a call's result stores, before its decision metadata. */
 function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
   const { toolCallId, toolName, input, result, classification } = call;
+  // Absent means the call started before the event recorded a classification;
+  // `null` means it never started at all.
+  const known = classification === undefined ? {} : { classification };
   return result.status === 'success'
     ? {
         type: `tool-${toolName}`,
@@ -367,7 +375,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
         input,
         output: result,
         outcome: 'success',
-        classification,
+        ...known,
       }
     : {
         type: `tool-${toolName}`,
@@ -376,7 +384,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
         input,
         errorText: result.message,
         outcome: normalizeToolObservationOutcome(result.type, 'error'),
-        classification,
+        ...known,
         ...(result.type === 'cancelled' && {
           resultProviderMetadata: {
             llame: { cancelled: true as const },
@@ -600,10 +608,13 @@ class DurableAssistantReconstructor {
   private readonly seenToolCallIds = new Set<string>();
   private readonly completedToolCallIds = new Set<string>();
   /**
-   * The classification each started call recorded. A call with no
-   * `tool.started` never ran, so it is absent here and its part stores `null`
-   * (turn-actions D10).
+   * The calls that recorded a `tool.started`. A call without one never ran, so
+   * its part stores `null`; a call with one but no recorded classification
+   * started under an earlier revision, so its part omits the field and readers
+   * fall back to the tool catalog (turn-actions D10, D9).
    */
+  private readonly startedToolCallIds = new Set<string>();
+  /** The classification each started call recorded, when it recorded one. */
   private readonly startedClassifications = new Map<
     string,
     ToolClassification
@@ -680,9 +691,24 @@ class DurableAssistantReconstructor {
 
   private applyToolStarted(event: RunEvent): void {
     const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+    if (!toolCallId) return;
+    this.startedToolCallIds.add(toolCallId);
     const classification = eventPayloadField(event.payload, 'classification');
-    if (!toolCallId || !isToolClassification(classification)) return;
-    this.startedClassifications.set(toolCallId, classification);
+    if (isToolClassification(classification)) {
+      this.startedClassifications.set(toolCallId, classification);
+    }
+  }
+
+  /**
+   * What a completed call's part records: `null` when it never started, the
+   * classification it recorded, or nothing when it started without one.
+   */
+  private recordedClassification(
+    toolCallId: string,
+  ): ToolClassification | null | undefined {
+    return this.startedToolCallIds.has(toolCallId)
+      ? this.startedClassifications.get(toolCallId)
+      : null;
   }
 
   private applyToolCompleted(event: RunEvent): void {
@@ -710,7 +736,7 @@ class DurableAssistantReconstructor {
         input: request.toolInput,
         result,
         permission: request.permission,
-        classification: this.startedClassifications.get(toolCallId) ?? null,
+        classification: this.recordedClassification(toolCallId),
         // The call decision rides on the request; the derived-locator
         // decisions only exist once the call settled, so they are read from
         // this completion payload.

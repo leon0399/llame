@@ -52,7 +52,7 @@ import { toRunUserMessage } from './chat-message-parts';
 import { continueKeptParts } from './continue-kept-parts';
 import { isContextItemPart } from './context-item';
 import { type MessagePart } from './context-builder';
-import { replyDiscardsNonReadOnlyCalls } from './regenerate-notice';
+import { discardsNonReadOnlyCall } from './regenerate-notice';
 import {
   continuedRecords,
   continueStateFromEvents,
@@ -200,35 +200,25 @@ export class FollowUpAdmissionService {
   private validateFollowUpRequest(
     request: FollowUpRequestInput,
   ): ValidatedFollowUp {
-    if (request.action === 'continue') return this.validateContinue(request);
+    if (request.action === 'continue') {
+      if (request.modelId !== undefined) {
+        throw new BadRequestException(
+          'A continue request does not name a model',
+        );
+      }
+      if (request.effort !== undefined) {
+        throw new BadRequestException(
+          'A continue request does not name an effort',
+        );
+      }
+      return {
+        action: 'continue',
+        permissionMode: this.permissionMode(request),
+      };
+    }
     if (request.action !== 'regenerate') {
       throw new BadRequestException('action must be continue or regenerate');
     }
-    return this.validateRegenerate(request);
-  }
-
-  /** A Continue names neither a model nor an effort; it takes both from its Run. */
-  private validateContinue(
-    request: FollowUpRequestInput,
-  ): Extract<ValidatedFollowUp, { action: 'continue' }> {
-    if (request.modelId !== undefined) {
-      throw new BadRequestException('A continue request does not name a model');
-    }
-    if (request.effort !== undefined) {
-      throw new BadRequestException(
-        'A continue request does not name an effort',
-      );
-    }
-    return {
-      action: 'continue',
-      permissionMode: this.requestPermissionMode(request),
-    };
-  }
-
-  /** A Regenerate names its model, then its effort, as a chat send does. */
-  private validateRegenerate(
-    request: FollowUpRequestInput,
-  ): Extract<ValidatedFollowUp, { action: 'regenerate' }> {
     if (request.modelId === undefined) {
       throw new BadRequestException('A regenerate request must name a model');
     }
@@ -237,12 +227,12 @@ export class FollowUpAdmissionService {
       action: 'regenerate',
       modelId: request.modelId,
       effort: this.models.resolveEffortSelection(model, request.effort),
-      permissionMode: this.requestPermissionMode(request),
+      permissionMode: this.permissionMode(request),
     };
   }
 
   /** The mode the operator enabled; absent means `default`, as on a chat send. */
-  private requestPermissionMode(request: FollowUpRequestInput): PermissionMode {
+  private permissionMode(request: FollowUpRequestInput): PermissionMode {
     return resolvePermissionMode(
       request.permissionMode,
       this.instanceConfig.config.tools.permissionModes,
@@ -404,13 +394,7 @@ export class FollowUpAdmissionService {
     userMessage: Message,
   ): Promise<RegenerateDecision> {
     try {
-      const latestRun = await new RunsRepository(tx).findLatestByChatId(
-        input.chatId,
-        input.userId,
-      );
-      if (latestRun?.messageId !== userMessage.id) {
-        throw new ConflictException('The message has no Run to follow up');
-      }
+      const latestRun = await this.latestTurnRun(tx, input, userMessage);
       if (!isTerminalRunStatus(latestRun.status)) {
         throw new ConflictException(
           `A ${latestRun.status} Run cannot be regenerated`,
@@ -427,21 +411,18 @@ export class FollowUpAdmissionService {
         // call whose effects stay, and the trigger has to hold no notice yet.
         notice:
           reply !== undefined &&
-          replyDiscardsNonReadOnlyCalls(reply.parts) &&
-          !this.holdsRegenerateNotice(userMessage),
+          reply.parts.some((part) => discardsNonReadOnlyCall(part)) &&
+          // Once per turn: the trigger must hold no notice yet.
+          !userMessage.parts.some(
+            (part) =>
+              isContextItemPart(part) && part.data.producer === 'regenerate',
+          ),
         replacesUsage: reply !== undefined && reply.usage !== null,
       };
     } catch (error) {
       if (!isFollowUpRefusal(error)) throw error;
       return { refusal: error };
     }
-  }
-
-  /** Whether the triggering user message already carries a `regenerate` item. */
-  private holdsRegenerateNotice(userMessage: Message): boolean {
-    return userMessage.parts.some(
-      (part) => isContextItemPart(part) && part.data.producer === 'regenerate',
-    );
   }
 
   /**
@@ -541,6 +522,26 @@ export class FollowUpAdmissionService {
   }
 
   /**
+   * The message's latest Run, or a 409 when the message has none. The turn
+   * check has already refused every later turn, so the Chat's newest Run is
+   * this message's Run whenever the message has one.
+   */
+  private async latestTurnRun(
+    tx: Db,
+    input: { chatId: string; userId: string },
+    userMessage: Message,
+  ): Promise<Run> {
+    const latestRun = await new RunsRepository(tx).findLatestByChatId(
+      input.chatId,
+      input.userId,
+    );
+    if (latestRun?.messageId !== userMessage.id) {
+      throw new ConflictException('The message has no Run to follow up');
+    }
+    return latestRun;
+  }
+
+  /**
    * The message's latest Run and the reply it continues. The turn check has
    * already refused every later turn, so the Chat's newest Run is this
    * message's Run whenever the message has one.
@@ -550,13 +551,7 @@ export class FollowUpAdmissionService {
     input: { chatId: string; userId: string },
     userMessage: Message,
   ): Promise<{ latestRun: Run; source: Message }> {
-    const latestRun = await new RunsRepository(tx).findLatestByChatId(
-      input.chatId,
-      input.userId,
-    );
-    if (latestRun?.messageId !== userMessage.id) {
-      throw new ConflictException('The message has no Run to follow up');
-    }
+    const latestRun = await this.latestTurnRun(tx, input, userMessage);
     const reply = await new MessagesRepository(tx).findReply(
       input.chatId,
       input.userId,

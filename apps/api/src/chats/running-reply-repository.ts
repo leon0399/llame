@@ -32,13 +32,12 @@ export function replaceableReplyGuard(input: {
 }
 
 /**
- * The `revised_at` a reset writes: the moment a `completed` reply is replaced,
- * and the row's own value on every other reset. A reply that was never
- * completed was never eligible evidence, so it takes no mark.
+ * The `revised_at` a Regenerate's reset writes: the moment a `completed` reply
+ * is replaced, and the row's own value on every other reset. A reply that was
+ * never completed was never eligible evidence, so it takes no mark
+ * (turn-actions D7).
  */
-export function revisedAtOnReset(): SQL {
-  return sql`case when (${messages.usage} ->> 'status') = 'completed' then now() else ${messages.revisedAt} end`;
-}
+const revisedAtOnReset = sql`case when (${messages.usage} ->> 'status') = 'completed' then now() else ${messages.revisedAt} end`;
 
 export class RunningReplyRepository {
   constructor(private readonly db: Db) {}
@@ -78,7 +77,7 @@ export class RunningReplyRepository {
             set: {
               parts: [],
               usage: sql`excluded.usage`,
-              ...(regenerate && { revisedAt: revisedAtOnReset() }),
+              ...(regenerate && { revisedAt: revisedAtOnReset }),
             },
             setWhere: replaceableReplyGuard({
               runId: input.usage.runId,

@@ -1527,101 +1527,63 @@ describe('stored tool-part classification (turn-actions D10)', () => {
   const reconstruct = (events: Array<RunEvent>) =>
     reconstructDurableAssistant(events).collector.parts();
 
-  it('records the classification of a call that started', () => {
-    const parts = reconstruct([
-      event('tool.requested', {
-        toolCallId: 'call-1',
-        toolName: 'bash',
-        input: { command: 'make' },
-      }),
-      event('tool.started', {
-        toolCallId: 'call-1',
-        toolName: 'bash',
-        classification: 'execute_code',
-      }),
-      event('tool.completed', {
-        toolCallId: 'call-1',
-        output: { status: 'success', value: 'built' },
-      }),
-    ]);
+  /** requested -> started (with `started`) -> completed, one `bash` call. */
+  const bashCall = (started: { classification?: string } | undefined) => [
+    event('tool.requested', {
+      toolCallId: 'call-1',
+      toolName: 'bash',
+      input: { command: 'make' },
+    }),
+    ...(started === undefined
+      ? []
+      : [
+          event('tool.started', {
+            toolCallId: 'call-1',
+            toolName: 'bash',
+            ...started,
+          }),
+        ]),
+    event('tool.completed', {
+      toolCallId: 'call-1',
+      output: { status: 'success', value: 'built' },
+    }),
+  ];
 
-    expect(parts).toEqual([
-      expect.objectContaining({
-        toolCallId: 'call-1',
-        classification: 'execute_code',
-      }),
-    ]);
-  });
+  it.each([
+    ['a started call', { classification: 'execute_code' }, 'execute_code'],
+    ['an MCP call', { classification: 'unverified' }, 'unverified'],
+    ['a call whose started event recorded no classification', {}, undefined],
+    [
+      'a malformed recorded classification',
+      { classification: 'not-a-classification' },
+      undefined,
+    ],
+  ])('records %s as %s', (_name, started, expected: string | undefined) => {
+    const [part] = reconstruct(bashCall(started));
 
-  it('records an MCP call as unverified', () => {
-    const parts = reconstruct([
-      event('tool.requested', {
-        toolCallId: 'call-1',
-        toolName: 'mcp__demo__lookup',
-        input: {},
-      }),
-      event('tool.started', {
-        toolCallId: 'call-1',
-        toolName: 'mcp__demo__lookup',
-        classification: 'unverified',
-      }),
-      event('tool.completed', {
-        toolCallId: 'call-1',
-        output: { status: 'success', value: 'found' },
-      }),
-    ]);
-
-    expect(parts).toEqual([
-      expect.objectContaining({ classification: 'unverified' }),
-    ]);
+    // An absent field is the legacy fallback, not "never started": only a
+    // call with no `tool.started` records `null`.
+    expect(part).toEqual(
+      expect.objectContaining(
+        expected === undefined ? {} : { classification: expected },
+      ),
+    );
+    if (expected === undefined) {
+      expect(part).not.toHaveProperty('classification');
+    }
   });
 
   it('records no classification for a call that never started', () => {
     // A gate-rejected or permission-denied call emits requested then
     // completed, with no `tool.started`: nothing ran, so the part says so.
-    const parts = reconstruct([
-      event('tool.requested', {
-        toolCallId: 'call-1',
-        toolName: 'bash',
-        input: { command: 'make' },
-      }),
-      event('tool.completed', {
-        toolCallId: 'call-1',
-        output: {
-          status: 'error',
-          type: 'permission_denied',
-          message: 'rejected',
-        },
-      }),
-    ]);
+    const parts = reconstruct(bashCall(undefined));
 
     expect(parts).toEqual([
       expect.objectContaining({
-        state: 'output-error',
+        state: 'output-available',
         classification: null,
       }),
     ]);
-  });
-
-  it('ignores a malformed or unknown recorded classification', () => {
-    const parts = reconstruct([
-      event('tool.requested', {
-        toolCallId: 'call-1',
-        toolName: 'bash',
-        input: { command: 'make' },
-      }),
-      event('tool.started', {
-        toolCallId: 'call-1',
-        toolName: 'bash',
-        classification: 'not-a-classification',
-      }),
-      event('tool.completed', {
-        toolCallId: 'call-1',
-        output: { status: 'success', value: 'built' },
-      }),
-    ]);
-
-    expect(parts).toEqual([expect.objectContaining({ classification: null })]);
   });
 
   it('keeps the classification out of the model-facing replay', () => {

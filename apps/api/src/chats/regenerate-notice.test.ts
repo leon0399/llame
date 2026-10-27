@@ -9,7 +9,6 @@ import {
   createRegenerateNoticeItem,
   discardsNonReadOnlyCall,
   isRegenerateNoticePayload,
-  replyDiscardsNonReadOnlyCalls,
 } from './regenerate-notice';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -86,31 +85,6 @@ describe('discardsNonReadOnlyCall', () => {
   });
 });
 
-describe('replyDiscardsNonReadOnlyCalls', () => {
-  it('is true when any stored part is a non-read-only call', () => {
-    expect(
-      replyDiscardsNonReadOnlyCalls([
-        { type: 'text', text: 'done' },
-        toolPart('read', 'read_only'),
-        toolPart('bash', 'execute_code'),
-      ]),
-    ).toBe(true);
-  });
-
-  it('is false for a reply of read-only calls only', () => {
-    expect(
-      replyDiscardsNonReadOnlyCalls([
-        toolPart('read', 'read_only'),
-        toolPart('grep', 'read_only'),
-      ]),
-    ).toBe(false);
-  });
-
-  it('is false for an empty reply', () => {
-    expect(replyDiscardsNonReadOnlyCalls([])).toBe(false);
-  });
-});
-
 describe('createRegenerateNoticeItem', () => {
   it('renders the packaged notice as one recognized rail item', () => {
     const item = createRegenerateNoticeItem({ runId: RUN_ID });
@@ -132,7 +106,7 @@ describe('createRegenerateNoticeItem', () => {
     );
   });
 
-  it('accepts only the closed reason vocabulary', () => {
+  it('accepts only the exact payload', () => {
     expect(isRegenerateNoticePayload({ reason: 'non_read_only_calls' })).toBe(
       true,
     );

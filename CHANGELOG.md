@@ -7,9 +7,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   "regenerate", "modelId": …}` starts a Run that discards the turn's answer —
   also a completed one — and asks the model again from the user message. The
   replaced answer leaves search, `conversation_read`, and timeline discovery for
-  good, and a discarded attempt that ran a tool which can change state leaves
-  one notice on the user message telling the new attempt to check the current
-  state first. A stored model-switch reminder is replaced by the new attempt's
+  good — the new answer is stored in that same row, so it is not evidence
+  either — and a discarded attempt that ran a tool which can change state
+  leaves one notice on the user message telling the new attempt to check the
+  current state first. A stored model-switch reminder is replaced by the new attempt's
   own comparison. Stored tool parts now record the classification of the tool
   that ran, so a client can tell a read-only call from one whose effects stay.
   The web app does not offer the action yet; see

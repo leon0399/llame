@@ -9,39 +9,32 @@
  * .integration suites.
  */
 
-import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { streamText } from 'ai';
-import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { findConversationMessage } from '../chats/conversation-message-lookup';
 import { isContextItemPart } from '../chats/context-item';
 import { createTemporalItem } from '../chats/context-item-producers';
 import { type MessagePart } from '../chats/context-builder';
-import { RecencyDigestService } from '../chats/recency-digest.service';
 import { createRunForMessage } from '../chats/run-creation';
-import { type CompactionCapability } from '../compaction/compaction.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { MemoryService } from '../memory/memory.service';
 import { type ModelClient } from '../models/model-client';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type ModelSelectionValidator } from '../models/models.service';
-import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
-import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
-import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { getRegisteredToolIds } from '../tools/registry';
-import { type KnowledgeToolResolver } from '../tools/types';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import {
+  answerChunks,
+  catalogEntry,
+  catalogValidator,
+  makeRunExecutionService,
+  scriptedClient,
+  scriptedModel,
+} from '../testing/run-execution-integration-fixture';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -49,96 +42,9 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 const MODEL_A = 'mock-a';
 const MODEL_B = 'mock-b';
 const MODEL_C = 'mock-c';
+const MODEL_ENTRIES = [MODEL_A, MODEL_B, MODEL_C].map((id) => catalogEntry(id));
 const USER_TEXT = 'Do the work';
 const OLD_TEXT = 'the old answer';
-
-function catalogEntry(id: string): SystemModelCatalogEntry {
-  return {
-    id,
-    source: 'system',
-    contextWindowTokens: 128_000,
-    provider: 'mock',
-    providerModelId: id,
-    billing: 'subscription',
-    systemPromptTemplate: 'Test prompt',
-    systemPromptSource: 'model_override',
-    referencesSkills: false,
-    input: ['text'],
-  };
-}
-
-const knowledgeResolver: KnowledgeToolResolver = {
-  listForOwnerPage: () => Promise.resolve({ spaces: [] }),
-  resolveBindingForOwnerById: () => Promise.resolve(undefined),
-  createAdapter: () => ({
-    search: () => Promise.resolve([]),
-    resolveHostPath: () =>
-      Promise.reject(new Error('Knowledge adapter is not exercised')),
-    isInsideSpace: () => Promise.resolve(true),
-  }),
-};
-
-function answerChunks(text: string): Array<LanguageModelV3StreamPart> {
-  return [
-    { type: 'stream-start', warnings: [] },
-    { type: 'text-start', id: 'text' },
-    { type: 'text-delta', id: 'text', delta: text },
-    { type: 'text-end', id: 'text' },
-    {
-      type: 'finish',
-      finishReason: { unified: 'stop', raw: undefined },
-      usage: {
-        inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-        outputTokens: { total: 1, text: 1, reasoning: 0 },
-      },
-    },
-  ];
-}
-
-function scriptedModel(
-  chunks: Array<LanguageModelV3StreamPart>,
-): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
-    doStream: () =>
-      Promise.resolve({ stream: simulateReadableStream({ chunks }) }),
-  });
-}
-
-/** A client over a scripted model, recording every request the Run sends. */
-function scriptedClient(
-  model: MockLanguageModelV3,
-  modelId: string,
-  options: {
-    requests?: Array<Parameters<ModelClient['streamText']>[0]>;
-    contextWindowTokens?: number;
-  } = {},
-): ModelClient {
-  return {
-    model: modelId,
-    provider: 'mock',
-    contextWindowTokens: options.contextWindowTokens ?? 128_000,
-    streamText(input) {
-      options.requests?.push(input);
-      return streamText({
-        model,
-        system: input.system,
-        messages: input.messages,
-        abortSignal: input.abortSignal,
-        onChunk: ({ chunk }) => {
-          if (chunk.type === 'text-delta') input.onTextDelta?.(chunk.text);
-        },
-        onError: input.onError,
-        onFinish: (event) =>
-          input.onFinish?.({
-            text: event.text,
-            usage: event.usage,
-            finishReason: event.finishReason,
-            stepCount: event.steps.length,
-          }),
-      });
-    },
-  };
-}
 
 /** The model-switch item an earlier Run of the turn stored, A to B. */
 function storedSwitchItem(runId: string): MessagePart {
@@ -164,11 +70,7 @@ describeIfDb('a Regenerate Run', () => {
   const instanceConfig: InstanceConfigReader = {
     config: {
       ...BUILT_IN_DEFAULTS,
-      models: [
-        catalogEntry(MODEL_A),
-        catalogEntry(MODEL_B),
-        catalogEntry(MODEL_C),
-      ],
+      models: MODEL_ENTRIES,
       runs: { ...BUILT_IN_DEFAULTS.runs, timeoutSeconds: 300 },
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
@@ -186,42 +88,11 @@ describeIfDb('a Regenerate Run', () => {
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Regenerate run', ${`regenerate-run-${userId}@test.com`})`;
 
-    const models: ModelSelectionValidator = {
-      validateModelSelection: (modelId) => {
-        const entry = [MODEL_A, MODEL_B, MODEL_C].find(
-          (known) => known === modelId,
-        );
-        if (entry === undefined) throw new Error(`Unknown model ${modelId}`);
-        return catalogEntry(entry);
-      },
-      resolveEffortSelection: () => undefined,
-    };
-    const noopCompaction: CompactionCapability = {
-      summarizeCheckpoint: (request) =>
-        request.variant === 'window'
-          ? Promise.reject(new Error('window summarization is not exercised'))
-          : Promise.resolve(null),
-    };
-    runExecution = new RunExecutionService(
+    runExecution = makeRunExecutionService({
       tenantDb,
-      noopCompaction,
-      { maybeGenerateTitle: async () => {} },
       instanceConfig,
-      { reindexChat: () => Promise.resolve() },
-      noopReindexDispatch(),
-      knowledgeResolver,
-      noopSkillCatalog(),
-      noopEmbedDispatch(),
-      noopQueryEmbedder(),
-      compileTestPermissionPolicy(getRegisteredToolIds()),
-      models,
-      new SystemPromptsService(),
-      { resolvePromptUser: () => Promise.resolve(undefined) },
-      { resolve: () => Promise.resolve([]) },
-      { snapshotCandidates: () => [] },
-      new MemoryService(tenantDb),
-      new RecencyDigestService(tenantDb),
-    );
+      models: catalogValidator(MODEL_ENTRIES),
+    });
   });
 
   afterAll(async () => {
@@ -231,6 +102,47 @@ describeIfDb('a Regenerate Run', () => {
     }
   });
 
+  /**
+   * A completed turn before the trigger, whose reply records the model a
+   * Regenerate compares against.
+   */
+  async function seedEarlierTurn(
+    tx: Db,
+    chatId: string,
+    modelId: string,
+  ): Promise<void> {
+    const messagesRepo = new MessagesRepository(tx);
+    const runsRepo = new RunsRepository(tx);
+    const earlier = await messagesRepo.create({
+      chatId,
+      role: 'user',
+      senderUserId: userId,
+      parts: [{ type: 'text', text: 'An earlier turn' }],
+    });
+    await messagesRepo.createAssistantReplyIfAbsent({
+      chatId,
+      inReplyTo: earlier.id,
+      parts: [{ type: 'text', text: 'An earlier answer' }],
+      usage: {
+        status: 'completed',
+        complete: true,
+        runId: crypto.randomUUID(),
+        modelId,
+      },
+    });
+    const previousRun = await runsRepo.create({
+      chatId,
+      messageId: earlier.id,
+      userId,
+      modelId,
+    });
+    await runsRepo.markFinished(previousRun.id, userId, 'completed');
+    await tx
+      .update(schema.runs)
+      .set({ turnToolAvailability: [] })
+      .where(eq(schema.runs.id, previousRun.id));
+  }
+
   type RegeneratedTurn = {
     chatId: string;
     messageId: string;
@@ -238,14 +150,55 @@ describeIfDb('a Regenerate Run', () => {
     seq: number;
     sourceRunId: string;
     replyId: string;
+    replySeq: number;
   };
 
   /**
-   * A turn whose completed reply a Regenerate Run replaces, plus the Run
-   * admission would create for it — the same transaction path a follow-up
-   * request uses, so the event log is real.
+   * The reply a Regenerate replaces. One that names this Run is the salvaged
+   * answer its own earlier attempt stored, which its dispatch must refuse to
+   * reset (turn-actions D7).
    */
-  async function seedRegeneratedTurn(options?: {
+  async function seedReplacedReply(
+    tx: Db,
+    input: {
+      chatId: string;
+      messageId: string;
+      runId: string;
+      sourceRunId: string;
+      options: RegenerateSeedOptions | undefined;
+    },
+  ): Promise<Message> {
+    const { options } = input;
+    const salvaged = options?.replyOfThisRun === true;
+    const reply = await new MessagesRepository(tx).createAssistantReplyIfAbsent(
+      {
+        chatId: input.chatId,
+        inReplyTo: input.messageId,
+        parts: salvaged
+          ? [{ type: 'text', text: 'salvaged answer' }]
+          : (options?.replyParts ?? [{ type: 'text', text: OLD_TEXT }]),
+        usage: salvaged
+          ? {
+              status: 'completed',
+              complete: false,
+              runId: input.runId,
+              modelId: options?.modelId ?? MODEL_C,
+            }
+          : {
+              status: options?.replyUsageStatus ?? 'completed',
+              complete: options?.replyUsageStatus === undefined,
+              runId: input.sourceRunId,
+              modelId: options?.previousReplyModelId ?? MODEL_A,
+            },
+      },
+    );
+    if (reply === undefined) {
+      throw new Error('the seeded turn left no reply');
+    }
+    return reply;
+  }
+
+  type RegenerateSeedOptions = {
     /** The model the replaced reply recorded, when a prior turn has one. */
     previousReplyModelId?: string;
     /** The model the Regenerate request names. */
@@ -260,7 +213,18 @@ describeIfDb('a Regenerate Run', () => {
     dispatched?: boolean;
     /** Whether the replaced reply is the Run's own salvaged answer. */
     replyOfThisRun?: boolean;
-  }): Promise<RegeneratedTurn> {
+    /** The usage status the replaced reply recorded. */
+    replyUsageStatus?: 'completed' | 'error';
+  };
+
+  /**
+   * A turn whose completed reply a Regenerate Run replaces, plus the Run
+   * admission would create for it — the same transaction path a follow-up
+   * request uses, so the event log is real.
+   */
+  async function seedRegeneratedTurn(
+    options?: RegenerateSeedOptions,
+  ): Promise<RegeneratedTurn> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     return tenantDb.runAs(userId, async (tx) => {
@@ -273,34 +237,7 @@ describeIfDb('a Regenerate Run', () => {
         title: 'Regenerate Run',
       });
       if (options?.previousReplyModelId !== undefined) {
-        const earlier = await messagesRepo.create({
-          chatId,
-          role: 'user',
-          senderUserId: userId,
-          parts: [{ type: 'text', text: 'An earlier turn' }],
-        });
-        await messagesRepo.createAssistantReplyIfAbsent({
-          chatId,
-          inReplyTo: earlier.id,
-          parts: [{ type: 'text', text: 'An earlier answer' }],
-          usage: {
-            status: 'completed',
-            complete: true,
-            runId: crypto.randomUUID(),
-            modelId: options.previousReplyModelId,
-          },
-        });
-        const previousRun = await runsRepo.create({
-          chatId,
-          messageId: earlier.id,
-          userId,
-          modelId: options.previousReplyModelId,
-        });
-        await runsRepo.markFinished(previousRun.id, userId, 'completed');
-        await tx
-          .update(schema.runs)
-          .set({ turnToolAvailability: [] })
-          .where(eq(schema.runs.id, previousRun.id));
+        await seedEarlierTurn(tx, chatId, options.previousReplyModelId);
       }
       const sourceRunId = crypto.randomUUID();
       const trigger = await messagesRepo.create({
@@ -351,33 +288,13 @@ describeIfDb('a Regenerate Run', () => {
           .set({ turnToolAvailability: [] })
           .where(eq(schema.runs.id, run.id));
       }
-      // A reply of this Run is the salvaged answer it already stored: the
-      // dispatch must refuse to reset it (turn-actions D7).
-      const reply = await messagesRepo.createAssistantReplyIfAbsent({
+      const reply = await seedReplacedReply(tx, {
         chatId,
-        inReplyTo: messageId,
-        parts:
-          options?.replyOfThisRun === true
-            ? [{ type: 'text', text: 'salvaged answer' }]
-            : (options?.replyParts ?? [{ type: 'text', text: OLD_TEXT }]),
-        usage:
-          options?.replyOfThisRun === true
-            ? {
-                status: 'completed',
-                complete: false,
-                runId: run.id,
-                modelId: options?.modelId ?? MODEL_C,
-              }
-            : {
-                status: 'completed',
-                complete: true,
-                runId: sourceRun.id,
-                modelId: options?.previousReplyModelId ?? MODEL_A,
-              },
+        messageId,
+        runId: run.id,
+        sourceRunId: sourceRun.id,
+        options,
       });
-      if (reply === undefined) {
-        throw new Error('the seeded turn left no reply');
-      }
       return {
         chatId,
         messageId,
@@ -385,6 +302,7 @@ describeIfDb('a Regenerate Run', () => {
         seq: trigger.seq,
         sourceRunId: sourceRun.id,
         replyId: reply.id,
+        replySeq: reply.seq,
       };
     });
   }
@@ -465,7 +383,6 @@ describeIfDb('a Regenerate Run', () => {
     // old reply reaches it.
     expect(requests).toHaveLength(1);
     const sent = requests[0]?.messages ?? [];
-    expect(sent.filter(({ role }) => role === 'user')).toHaveLength(1);
     expect(sent.map(({ role }) => role)).toEqual(['user']);
     expect(JSON.stringify(sent)).not.toContain(OLD_TEXT);
 
@@ -507,6 +424,27 @@ describeIfDb('a Regenerate Run', () => {
     expect(reply?.usage).toEqual(before?.usage);
     // The old reply was never replaced, so it stays eligible evidence.
     expect(reply?.revisedAt).toBeNull();
+  });
+
+  it('marks no revised row when it replaces a failed reply', async () => {
+    // The most common Regenerate follows a failed turn. Its answer is the only
+    // one the row ever holds, so it stays eligible evidence.
+    const turn = await seedRegeneratedTurn({ replyUsageStatus: 'error' });
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('the new answer')), MODEL_C),
+    );
+
+    const reply = await replyOf(turn);
+    expect(reply?.parts).toEqual([{ type: 'text', text: 'the new answer' }]);
+    expect(reply?.revisedAt).toBeNull();
+    // Search and reads still address it: a revised mark would hide it.
+    await expect(
+      tenantDb.runAs(userId, (tx) =>
+        findConversationMessage(tx, turn.chatId, userId, turn.replySeq),
+      ),
+    ).resolves.toMatchObject({ role: 'assistant' });
   });
 
   it('never resets the answer its own earlier attempt salvaged', async () => {
@@ -566,31 +504,6 @@ describeIfDb('a Regenerate Run', () => {
     expect(JSON.stringify(trigger)).toContain(
       'An earlier attempt at this turn was discarded',
     );
-  });
-
-  it('carries the notice in a tool-less Regenerate request', async () => {
-    const turn = await seedRegeneratedTurn({ notice: true });
-    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
-
-    await execute(
-      turn,
-      scriptedClient(scriptedModel(answerChunks('done')), MODEL_C, {
-        requests,
-      }),
-    );
-
-    const userMessages = (requests[0]?.messages ?? []).filter(
-      ({ role }) => role === 'user',
-    );
-    expect(userMessages).toHaveLength(1);
-    expect(JSON.stringify(userMessages[0])).toContain(
-      'An earlier attempt at this turn was discarded',
-    );
-    expect(
-      (await contextItemsOf(turn)).filter(
-        ({ data }) => data.producer === 'regenerate',
-      ),
-    ).toHaveLength(1);
   });
 
   it('replaces a stored model-switch item with its own comparison', async () => {

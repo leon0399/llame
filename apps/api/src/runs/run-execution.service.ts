@@ -3716,28 +3716,6 @@ export class RunExecutionService {
   }
 
   /**
-   * Whether this Run's `run.created` recorded `replacesUsage`, the flag a
-   * follow-up admission sets when the reply it acted on already recorded usage
-   * (turn-actions D11).
-   */
-  private async createdReplacesUsage(
-    tx: Db,
-    runId: string,
-    userId: string,
-  ): Promise<boolean> {
-    return (await this.createdFlags(tx, runId, userId)).replacesUsage;
-  }
-
-  /**
-   * Whether admission recorded that this Regenerate Run owes the turn its
-   * notice (turn-actions D9). It decided once per turn, from the reply it
-   * replaces, so every attempt of the Run reads the same answer.
-   */
-  private async createdNotice(tx: Db, run: ExecuteRunInput): Promise<boolean> {
-    return (await this.createdFlags(tx, run.runId, run.userId)).notice;
-  }
-
-  /**
    * The two facts admission records in `run.created` and a later writer reads
    * back: whether the reply it replaced had usage (D11), and whether it owes
    * the turn the Regenerate notice (D9).
@@ -3794,7 +3772,7 @@ export class RunExecutionService {
         inReplyTo,
       )) ||
       (run?.followUpAction != null &&
-        (await this.createdReplacesUsage(tx, input.runId, input.userId)));
+        (await this.createdFlags(tx, input.runId, input.userId)).replacesUsage);
     telemetry.complete =
       telemetry.complete === true &&
       run?.status === 'completed' &&
@@ -5001,13 +4979,15 @@ export class RunExecutionService {
       if (modelChange !== undefined) stagedParts.push(modelChange);
     }
     // The notice a Regenerate owes the turn follows the switch that names the
-    // model making the new attempt, and its admission recorded whether it is
-    // owed at all (turn-actions D9). Its own first dispatch is what stores it,
-    // so a retry keeps the stored copy instead of authoring a second one.
-    if (
+    // model making the new attempt. Admission decided once per turn and recorded
+    // the answer in `run.created`, so every attempt reads the same value; its
+    // own first dispatch stores it, so a retry keeps the stored copy
+    // (turn-actions D9).
+    const owesNotice =
       regenerateFirstDispatch &&
-      (await this.createdNotice(input.tx, input.input))
-    ) {
+      (await this.createdFlags(input.tx, input.input.runId, input.input.userId))
+        .notice;
+    if (owesNotice) {
       stagedParts.push(
         createRegenerateNoticeItem({ runId: input.input.runId }),
       );

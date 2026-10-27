@@ -112,22 +112,21 @@ describeIfDb('a revised reply', () => {
   const timelineOf = (userId: string) =>
     tenantDb.runAs(userId, (tx) => timelineByOwner(tx, userId, { limit: 10 }));
 
-  it('is eligible evidence until a Regenerate replaces it', async () => {
-    const seeded = await seedAnsweredChat();
-
-    // Before the replacement the completed reply is addressable and indexed.
-    await expect(readOf(seeded.chatId, seeded.replySeq)).resolves.toMatchObject(
-      { role: 'assistant' },
+  /** Mark the reply revised, as a Regenerate dispatch does. */
+  const markRevised = (replyId: string) =>
+    tenantDb.runAs(owner, (tx) =>
+      tx
+        .update(schema.messages)
+        .set({ revisedAt: new Date() })
+        .where(eq(schema.messages.id, replyId)),
     );
-    expect(await projectionText(seeded.chatId)).toContain(OLD_ANSWER);
-  });
 
   it('leaves the projection when the Regenerate finalizes and reindex runs', async () => {
     const seeded = await seedAnsweredChat();
 
-    await tenantDb.runAs(owner, async (tx) => {
-      // The dispatch of a Regenerate Run resets the reply and marks it revised.
-      await tx
+    // The dispatch of a Regenerate Run resets the reply and marks it revised.
+    await tenantDb.runAs(owner, (tx) =>
+      tx
         .update(schema.messages)
         .set({
           parts: [{ type: 'text', text: NEW_ANSWER }],
@@ -139,14 +138,15 @@ describeIfDb('a revised reply', () => {
             modelId: 'model-b',
           },
         })
-        .where(eq(schema.messages.id, seeded.replyId));
-    });
+        .where(eq(schema.messages.id, seeded.replyId)),
+    );
     // The finalization path rebuilds the lexical projection synchronously.
     await new SearchIndexService(tenantDb).reindexChat(seeded.chatId, owner);
 
     const text = await projectionText(seeded.chatId);
     expect(text).not.toContain(OLD_ANSWER);
-    // The revised row is excluded entirely, the new answer included.
+    // The revised row is excluded entirely, the new answer with it: the mark
+    // stays on the row the new answer is stored in.
     expect(text).not.toContain(NEW_ANSWER);
     // The user message of the turn stays canonical.
     expect(text).toContain('ask the question');
@@ -154,12 +154,7 @@ describeIfDb('a revised reply', () => {
 
   it('cannot be addressed by conversation_read, and skips it as a neighbour', async () => {
     const seeded = await seedAnsweredChat();
-    await tenantDb.runAs(owner, (tx) =>
-      tx
-        .update(schema.messages)
-        .set({ revisedAt: new Date() })
-        .where(eq(schema.messages.id, seeded.replyId)),
-    );
+    await markRevised(seeded.replyId);
 
     await expect(
       readOf(seeded.chatId, seeded.replySeq),
@@ -178,12 +173,7 @@ describeIfDb('a revised reply', () => {
     );
     expect(before?.messageCount).toBe(2);
 
-    await tenantDb.runAs(owner, (tx) =>
-      tx
-        .update(schema.messages)
-        .set({ revisedAt: new Date() })
-        .where(eq(schema.messages.id, seeded.replyId)),
-    );
+    await markRevised(seeded.replyId);
 
     const after = (await timelineOf(owner)).find(
       ({ chatId }) => chatId === seeded.chatId,
@@ -191,9 +181,13 @@ describeIfDb('a revised reply', () => {
     expect(after?.messageCount).toBe(1);
   });
 
-  it('reveals nothing to another owner', async () => {
+  it('reveals nothing to another owner, revised or not', async () => {
     const seeded = await seedAnsweredChat();
+    await markRevised(seeded.replyId);
 
+    await expect(
+      readOf(seeded.chatId, seeded.replySeq, otherOwner),
+    ).resolves.toBeUndefined();
     await expect(
       readOf(seeded.chatId, seeded.userSeq, otherOwner),
     ).resolves.toBeUndefined();
