@@ -327,7 +327,8 @@ function stepMessages(step: KeptStep): Array<ModelMessage> {
     ...step.calls,
   ];
   const messages: Array<ModelMessage> = [
-    { role: 'assistant', content },
+    // A step whose only content is an item carries no assistant turn.
+    ...(content.length > 0 ? [{ role: 'assistant' as const, content }] : []),
     ...(step.results.length > 0
       ? [{ role: 'tool' as const, content: step.results }]
       : []),

@@ -2722,12 +2722,13 @@ export class RunExecutionService {
       runId: input.runId,
     };
     // A follow-up Run reuses the item an earlier Run of the turn stored and
-    // reads no target again (turn-actions D8).
+    // reads no target again, so it asks for any Run of the message rather than
+    // this one (turn-actions D8).
     const stored = await this.tenantDb.runAs(input.userId, (tx) =>
       new PromptImportPartsRepository(tx).find({
-        ...message,
-        // A follow-up Run reuses whatever the turn already stored.
-        ...(!step.followUp && { runId: input.runId }),
+        id: message.id,
+        chatId: message.chatId,
+        ...(!step.followUp && { runId: message.runId }),
       }),
     );
     // Presence is authoritative even when an older reader cannot decode payload.

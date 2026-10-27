@@ -765,6 +765,25 @@ describe('ActivationPartsRepository.resolvedSkills', () => {
       runId: RUN_ID,
     });
 
+  it('reads every Run of the message when no Run is named', async () => {
+    const resolved = await new ActivationPartsRepository(
+      fakeDb([
+        activation('pdf', 'activation'),
+        createContextItemPart({
+          producer: 'skill-activation',
+          form: 'notice',
+          runId: '22222222-3333-4444-8555-666666666666',
+          payload: { kind: 'activation', skill: 'other-run' },
+          text: 'other run',
+        }),
+      ]).db,
+    ).resolvedSkills({ id: MESSAGE_ID, chatId: CHAT_ID });
+
+    // A follow-up Run activates no skill an earlier Run of the turn already
+    // did, so it reads the whole message rather than one Run's items.
+    expect([...resolved].sort()).toEqual(['other-run', 'pdf']);
+  });
+
   it('ignores another Run and another producer', async () => {
     const resolved = await resolve([
       createContextItemPart({

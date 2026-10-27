@@ -33,6 +33,7 @@ import {
   FollowUpAdmissionService,
   type FollowUpRequestInput,
 } from './follow-up-admission.service';
+import { type RunEvent } from '../db/schema';
 
 type Savepoint = {
   transaction: <T>(callback: (inner: Db) => Promise<T>) => Promise<T>;
@@ -354,6 +355,49 @@ describe('FollowUpAdmissionService', () => {
       steps: {},
       results: {},
     });
+  });
+
+  it('reads only the tool events of the source Run, and its own chain', async () => {
+    const { service, listByRunId, append } = makeService();
+    const continued: RunEvent = {
+      sequence: 7,
+      runId: sourceRun.id,
+      eventType: 'run.continued',
+      payload: {
+        sourceRunId: 'run-earlier',
+        parts: [],
+        steps: { 'call-1': 1 },
+        results: {},
+      },
+      createdAt: now,
+    };
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue(continued);
+    listByRunId.mockResolvedValue([
+      {
+        sequence: 8,
+        runId: sourceRun.id,
+        eventType: 'tool.requested',
+        payload: { toolCallId: 'call-1', stepNumber: 0 },
+        createdAt: now,
+      },
+    ]);
+
+    const admitted = await admit(service);
+
+    expect(listByRunId).toHaveBeenCalledWith(sourceRun.id, chat.ownerUserId, {
+      eventTypes: ['tool.requested', 'tool.completed'],
+    });
+    // The call keeps the step its chain recorded, not the step the source Run
+    // numbered it with when it made it.
+    expect(append).toHaveBeenNthCalledWith(
+      2,
+      admitted.runId,
+      'run.continued',
+      expect.objectContaining({ steps: { 'call-1': 1 } }),
+    );
   });
 
   it('rejects an action other than continue before any transaction', async () => {

@@ -4,7 +4,9 @@ import {
   toolActivityPart,
   type ToolActivityPart,
 } from './assistant-transcript';
+import { asDouble } from '../testing/support';
 import { createContextItemPart } from '../chats/context-item';
+import { type MessagePart } from '../chats/context-builder';
 import { projectToolObservations } from '../chats/tool-observation-part';
 import {
   REJECTED_HOP_MESSAGE,
@@ -283,6 +285,53 @@ describe('AssistantPartCollector in-Run context items (D1)', () => {
     // The settlement fills the reserved slot in place, so the item keeps its
     // position after the tool part the step's results triggered.
     expect(collector.parts()).toEqual([successToolPart('c1'), item]);
+  });
+});
+
+describe('AssistantPartCollector seeding (Continue runs)', () => {
+  it('starts the transcript from the kept parts, in order', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.seed([
+      { type: 'reasoning', text: 'kept thinking' },
+      { type: 'text', text: 'kept answer' },
+      successToolPart('c1'),
+    ]);
+    collector.text('new answer');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: 'kept thinking' },
+      { type: 'text', text: 'kept answer' },
+      successToolPart('c1'),
+      { type: 'text', text: 'new answer' },
+    ]);
+  });
+
+  it('counts a seeded call as settled, so a late settlement cannot replace it', () => {
+    const collector = createAssistantPartCollector();
+    const kept = successToolPart('c1');
+    collector.seed([kept]);
+
+    collector.tool({ ...successToolPart('c1'), output: { late: true } });
+
+    expect(collector.parts()).toEqual([kept]);
+  });
+
+  it('ignores a seeded entry that is not a message part', () => {
+    const collector = createAssistantPartCollector();
+
+    // Stored jsonb is untrusted; a malformed entry contributes nothing and
+    // does not stop the rest of the seed.
+    // The seed receives the reply's stored jsonb, which a malformed writer can
+    // leave holding anything; these values are that shape.
+    const malformed = [
+      null,
+      'not a part',
+      { type: 'text', text: 'kept answer' },
+    ];
+    collector.seed(asDouble<ReadonlyArray<MessagePart>>(malformed));
+
+    expect(collector.parts()).toEqual([{ type: 'text', text: 'kept answer' }]);
   });
 });
 

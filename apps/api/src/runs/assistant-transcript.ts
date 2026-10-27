@@ -129,9 +129,12 @@ class AssistantPartCollectorImpl {
    * seeded part.
    */
   seed(parts: ReadonlyArray<MessagePart>): void {
-    this.collected.push(...parts);
     for (const part of parts) {
-      if (isRecord(part) && isString(part['toolCallId'])) {
+      // Stored jsonb is untrusted: an entry that is not an object contributes
+      // nothing, and must not break the transcript the Run writes.
+      if (!isRecord(part)) continue;
+      this.collected.push(part);
+      if (isString(part['toolCallId'])) {
         this.settledToolCallIds.add(part['toolCallId']);
       }
     }

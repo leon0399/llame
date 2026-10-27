@@ -18,6 +18,8 @@ type ActiveRunSummary = {
 
 type QueryRows =
   | ReadonlyArray<Run>
+  | ReadonlyArray<{ runId: string }>
+  | ReadonlyArray<{ seq: number }>
   | ReadonlyArray<RunEvent>
   | ReadonlyArray<{ runs: Run; triggeringSeq: number }>
   | ReadonlyArray<{ run_events: RunEvent }>
@@ -424,5 +426,127 @@ describe('RunEventsRepository', () => {
       eventType: event.eventType,
       payload: event.payload,
     });
+  });
+});
+
+describe('RunsRepository.findCompletedReplyRunBefore', () => {
+  const completedRun: Run = {
+    ...run,
+    id: 'run-named',
+    status: 'completed',
+    completedAttemptId: 'attempt-1',
+    messageId: 'message-trigger',
+  };
+
+  it('answers the completed Run the reply names, with its trigger sequence', async () => {
+    const { db } = makeDb({
+      select: [[{ runId: completedRun.id }], [completedRun], [{ seq: 4 }]],
+    });
+
+    await expect(
+      new RunsRepository(db).findCompletedReplyRunBefore(
+        run.chatId,
+        run.userId,
+        { beforeSeq: 10 },
+      ),
+    ).resolves.toEqual({ run: completedRun, triggeringUserSeq: 4 });
+  });
+
+  it('falls back to the newest completed turn when the named Run is not completed', async () => {
+    const previous: Run = { ...run, id: 'run-previous' };
+    const { db } = makeDb({
+      select: [
+        [{ runId: completedRun.id }],
+        [{ ...completedRun, status: 'failed' }],
+        [{ runs: previous, triggeringSeq: 3 }],
+      ],
+    });
+
+    await expect(
+      new RunsRepository(db).findCompletedReplyRunBefore(
+        run.chatId,
+        run.userId,
+        { beforeSeq: 10 },
+      ),
+    ).resolves.toEqual({ run: previous, triggeringUserSeq: 3 });
+  });
+
+  it('falls back when the reply names no Run', async () => {
+    const previous: Run = { ...run, id: 'run-previous' };
+    const { db } = makeDb({
+      select: [[], [{ runs: previous, triggeringSeq: 3 }]],
+    });
+
+    await expect(
+      new RunsRepository(db).findCompletedReplyRunBefore(
+        run.chatId,
+        run.userId,
+        { beforeSeq: 10 },
+      ),
+    ).resolves.toEqual({ run: previous, triggeringUserSeq: 3 });
+  });
+
+  it('falls back when the named Run has no trigger row', async () => {
+    const previous: Run = { ...run, id: 'run-previous' };
+    const { db } = makeDb({
+      select: [
+        [{ runId: completedRun.id }],
+        [completedRun],
+        [],
+        [{ runs: previous, triggeringSeq: 3 }],
+      ],
+    });
+
+    await expect(
+      new RunsRepository(db).findCompletedReplyRunBefore(
+        run.chatId,
+        run.userId,
+        { beforeSeq: 10 },
+      ),
+    ).resolves.toEqual({ run: previous, triggeringUserSeq: 3 });
+  });
+
+  it('selects the run id from the reply usage and bounds it by sequence', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunsRepository(db)
+      .findCompletedReplyRunBefore('chat-bound', 'owner-bound', {
+        beforeSeq: 10,
+      })
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain("->> 'runId'");
+    expect(queries[0]?.sql).toContain('"messages"."role" = $');
+    expect(queries[0]?.sql).toContain('"messages"."seq" < $');
+  });
+});
+
+describe('RunEventsRepository reads', () => {
+  it('answers no event when the Run holds none of the requested type', async () => {
+    const { db } = makeDb({ select: [[]] });
+
+    await expect(
+      new RunEventsRepository(db).findFirstByType(
+        run.id,
+        run.userId,
+        'run.continued',
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('filters by event type only when the caller asks for types', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunEventsRepository(db)
+      .listByRunId(run.id, run.userId, {
+        eventTypes: ['tool.requested', 'tool.completed'],
+      })
+      .catch(() => undefined);
+    await new RunEventsRepository(db)
+      .listByRunId(run.id, run.userId)
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"run_events"."event_type" in (');
+    expect(queries[1]?.sql).not.toContain('"run_events"."event_type" in (');
   });
 });

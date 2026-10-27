@@ -346,6 +346,54 @@ describe('finalizeRunReply', () => {
     );
   });
 
+  it('rebuilds a Continue reply from its kept parts and places only its own item', async () => {
+    const keptItem = createContextItemPart({
+      producer: 'instructions',
+      runId: '55555555-5555-4555-8555-555555555555',
+      payload: {},
+      text: 'kept item',
+    });
+    const ownItem = contextItem('own item');
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'a',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+    const { update } = serve({
+      log: [
+        event(1, 'run.continued', {
+          sourceRunId: '55555555-5555-4555-8555-555555555555',
+          parts: [toolPart('t1'), keptItem],
+          steps: {},
+          results: {},
+        }),
+        requested(2, 'a'),
+        event(3, 'model.delta', { text: 'half' }),
+      ],
+      reply: reply({
+        usage: running,
+        parts: [toolPart('t1'), keptItem, ownItem],
+      }),
+    });
+
+    await finalizeRunReply(tx, { run, status: 'failed', models });
+
+    // The kept parts once, then the attempt's own item — no rebuilt part holds
+    // a kept call id, so it goes first among them — then its output.
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          toolPart('t1'),
+          keptItem,
+          ownItem,
+          { type: 'text', text: 'half' },
+        ],
+      }),
+    );
+  });
+
   it("rebuilds the named attempt's reply around its stored items with that attempt's identity", async () => {
     const item = contextItem('rules');
     const running = runningReplyUsage({

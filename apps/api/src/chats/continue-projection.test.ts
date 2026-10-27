@@ -9,6 +9,7 @@ import type { AssistantContent, ModelMessage, ToolResultPart } from 'ai';
 
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 
+import { isContextItemPart } from './context-item';
 import { composeStepMessages } from '../models/step-composer';
 import { neutralizeToolResult } from './tool-observation-neutralizer';
 import { fakeResolver } from '../media/media-fixtures';
@@ -16,6 +17,7 @@ import type { MessagePart } from './context-builder';
 import {
   continueStateFromEvents,
   continuedRecords,
+  ownSnapshotParts,
   projectContinueParts,
   type ContinueState,
 } from './continue-projection';
@@ -335,6 +337,123 @@ describe('the Continue projection', () => {
     expect(JSON.stringify(output)).toContain('file body');
   });
 
+  it('emits a step that holds only text as one assistant message', () => {
+    const messages = projectContinueParts(
+      state([{ type: 'text', text: 'an answer with no call' }]),
+    );
+
+    expect(messages).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'an answer with no call' }],
+      },
+    ]);
+  });
+
+  it('emits a step that holds only reasoning, and one that holds only an item', () => {
+    expect(
+      projectContinueParts(
+        state([{ type: 'reasoning', text: 'thinking only' }]),
+      ),
+    ).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'reasoning', text: 'thinking only' }],
+      },
+    ]);
+    expect(
+      projectContinueParts(
+        state([contextItem('<system-reminder>x</system-reminder>')]),
+      ),
+    ).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<system-reminder>x</system-reminder>' },
+        ],
+      },
+    ]);
+  });
+
+  it('joins the text parts of one step with a newline', () => {
+    const messages = projectContinueParts(
+      state([
+        { type: 'text', text: 'first paragraph' },
+        { type: 'text', text: 'second paragraph' },
+        toolPart(CALL_ID, 'done'),
+      ]),
+    );
+
+    expect(assistantContent(messages, 0)).toEqual([
+      { type: 'text', text: 'first paragraph\nsecond paragraph' },
+      expect.objectContaining({ type: 'tool-call', toolCallId: CALL_ID }),
+    ]);
+  });
+
+  it('keeps a legacy step open across a call whose step the source Run did not number', () => {
+    const messages = projectContinueParts(
+      state([toolPart(CALL_ID, 'first'), toolPart(CALL_ID_2, 'second')], {
+        [CALL_ID]: 0,
+      }),
+    );
+
+    // The second call carries no step number, so it belongs to the open step.
+    expect(messages).toHaveLength(2);
+    expect(toolResults(messages, 1)).toHaveLength(2);
+  });
+
+  it('starts a step when a numbered call follows an unnumbered group', () => {
+    const messages = projectContinueParts(
+      state([toolPart('call-0', 'first'), toolPart(CALL_ID, 'second')], {
+        [CALL_ID]: 0,
+      }),
+    );
+
+    // The unnumbered call states no step, so the numbered one opens its own.
+    expect(messages.map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+    ]);
+  });
+
+  it('keeps a numbered call after an unnumbered one that followed a numbered step', () => {
+    const messages = projectContinueParts(
+      state(
+        [
+          toolPart(CALL_ID, 'first'),
+          toolPart('call-middle', 'middle'),
+          toolPart(CALL_ID_2, 'third'),
+        ],
+        { [CALL_ID]: 0, [CALL_ID_2]: 0 },
+      ),
+    );
+
+    // The unnumbered middle call neither closes the step nor erases the step
+    // number the open one recorded, so the third call joins the same step.
+    expect(messages).toHaveLength(2);
+    expect(toolResults(messages, 1)).toHaveLength(3);
+  });
+
+  it('starts a new step when a legacy call follows an item', () => {
+    const messages = projectContinueParts(
+      state([
+        toolPart(CALL_ID, 'first'),
+        contextItem('<system-reminder>step one</system-reminder>'),
+        toolPart(CALL_ID_2, 'second'),
+      ]),
+    );
+
+    expect(messages.map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'user',
+      'assistant',
+      'tool',
+    ]);
+  });
+
   it('adds no message after the last kept tool result of its own', () => {
     const messages = projectContinueParts(state([toolPart(CALL_ID, 'done')]));
 
@@ -449,6 +568,99 @@ describe('the Continue state of a Run', () => {
     ).toEqual({ [CALL_ID]: 0, 'call-0': 1, [CALL_ID_2]: 2 });
   });
 
+  it('re-reads a recorded error result with its refused locator', () => {
+    const state = continueStateFromEvents([
+      {
+        eventType: 'run.continued',
+        payload: {
+          parts,
+          steps: {},
+          results: {
+            [CALL_ID]: {
+              status: 'error',
+              type: 'permission_denied',
+              message: 'the target was refused',
+              rejectedUrl: 'https://elsewhere.example/x',
+              permission: { ignored: true },
+            },
+            // Unreadable entries contribute nothing.
+            [CALL_ID_2]: { status: 'error', message: 7 },
+          },
+        },
+      },
+    ]);
+
+    expect(state?.results.get(CALL_ID)).toEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: 'the target was refused',
+      rejectedUrl: 'https://elsewhere.example/x',
+    });
+    expect(state?.results.has(CALL_ID_2)).toBe(false);
+  });
+
+  it('ignores a result or a step recorded on another event type', () => {
+    const records = continuedRecords({
+      keptParts: parts,
+      sourceEvents: [
+        {
+          eventType: 'model.delta',
+          payload: { toolCallId: CALL_ID, stepNumber: 3 },
+        },
+        {
+          eventType: 'run.failed',
+          payload: { toolCallId: CALL_ID, output: { status: 'success' } },
+        },
+      ],
+    });
+
+    expect(records).toEqual({ steps: {}, results: {} });
+  });
+
+  it('drops a chained step of a call the boundary kept nothing of', () => {
+    expect(
+      continuedRecords({
+        keptParts: parts,
+        sourceContinued: {
+          parts: [],
+          stepNumbers: new Map([
+            [CALL_ID, 0],
+            ['not-kept', 1],
+          ]),
+          results: new Map(),
+        },
+        sourceEvents: [],
+      }).steps,
+    ).toEqual({ [CALL_ID]: 0 });
+  });
+
+  it('offsets two of the source Run own steps after its chain', () => {
+    expect(
+      continuedRecords({
+        keptParts: [
+          toolPart(CALL_ID, 'chained'),
+          toolPart('call-own-1', 'own first'),
+          toolPart('call-own-2', 'own second'),
+        ],
+        sourceContinued: {
+          parts: [],
+          stepNumbers: new Map([[CALL_ID, 2]]),
+          results: new Map(),
+        },
+        sourceEvents: [
+          {
+            eventType: 'tool.requested',
+            payload: { toolCallId: 'call-own-1', stepNumber: 0 },
+          },
+          {
+            eventType: 'tool.requested',
+            payload: { toolCallId: 'call-own-2', stepNumber: 1 },
+          },
+        ],
+      }).steps,
+    ).toEqual({ [CALL_ID]: 2, 'call-own-1': 3, 'call-own-2': 4 });
+  });
+
   it('records the model-facing result of each kept call', () => {
     const output = {
       status: 'success',
@@ -475,5 +687,22 @@ describe('the Continue state of a Run', () => {
         ],
       }).results,
     ).toEqual({ [CALL_ID]: output });
+  });
+});
+
+describe('the snapshot parts a Continue rebuild owns', () => {
+  it("keeps every non-item part and only this Run's items", () => {
+    const ownRunId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+    const foreignItem = contextItem('foreign');
+    const own = contextItem('own');
+    if (!isContextItemPart(own)) throw new TypeError('expected an item');
+    const ownItem = { ...own, data: { ...own.data, runId: ownRunId } };
+
+    expect(
+      ownSnapshotParts(
+        [toolPart(CALL_ID, 'done'), foreignItem, ownItem],
+        ownRunId,
+      ),
+    ).toEqual([toolPart(CALL_ID, 'done'), ownItem]);
   });
 });
