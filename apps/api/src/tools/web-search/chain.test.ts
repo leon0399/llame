@@ -285,6 +285,76 @@ it.each(fallthroughCases)(
   },
 );
 
+it('runs the engines the call selects instead of the chain', async () => {
+  const called: Array<string> = [];
+  const output = await executeSearchChain(
+    config(['brave', 'exa']),
+    request(undefined, { engines: ['exa'] }),
+    lookup({
+      brave: () => {
+        called.push('brave');
+        return Promise.resolve(hit);
+      },
+      exa: () => {
+        called.push('exa');
+        return Promise.resolve(hit);
+      },
+    }),
+  );
+  expect(output).toMatchObject({ kind: 'results', engine: 'exa' });
+  expect(called).toStrictEqual(['exa']);
+});
+
+it('falls back only among the selected engines', async () => {
+  const called: Array<string> = [];
+  const output = await executeSearchChain(
+    config(['brave', 'empty', 'backup']),
+    request(undefined, { engines: ['empty', 'backup'] }),
+    lookup({
+      brave: () => {
+        called.push('brave');
+        return Promise.resolve(hit);
+      },
+      empty: () => {
+        called.push('empty');
+        return Promise.resolve({ kind: 'empty' });
+      },
+      backup: () => {
+        called.push('backup');
+        return Promise.resolve(hit);
+      },
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'backup',
+    notes: ['empty: empty'],
+  });
+  expect(called).toStrictEqual(['empty', 'backup']);
+});
+
+it('does not fall back to the chain when a selected engine fails', async () => {
+  const called: Array<string> = [];
+  const configured = config(['brave', 'yandex']);
+  const output = await executeSearchChain(
+    { engines: configured.engines, chain: ['brave'] },
+    request(undefined, { engines: ['yandex'] }),
+    lookup({
+      brave: () => {
+        called.push('brave');
+        return Promise.resolve(hit);
+      },
+      yandex: () => Promise.reject(new EngineFailure('rate_limited')),
+    }),
+  );
+  expect(output).toStrictEqual({
+    status: 'error',
+    type: 'web_search_failed',
+    message: 'All web search engines failed: yandex: rate_limited',
+  });
+  expect(called).toStrictEqual([]);
+});
+
 it('falls through an answer with no canonical citations', async () => {
   const output = await executeSearchChain(
     config(['answer', 'backup']),

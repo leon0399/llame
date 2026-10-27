@@ -65,6 +65,39 @@ describe('web search tool declaration', () => {
     ).toBe(false);
   });
 
+  it('accepts 1 to 20 unique engine ids and refuses duplicates', () => {
+    expect(
+      webSearchInputSchema.parse({ query: 'llame', engines: ['brave', 'exa'] }),
+    ).toEqual({ query: 'llame', engines: ['brave', 'exa'], limit: 10 });
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        engines: ['brave', 'brave'],
+      }).success,
+    ).toBe(false);
+    expect(
+      webSearchInputSchema.safeParse({ query: 'llame', engines: [] }).success,
+    ).toBe(false);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        engines: Array.from({ length: 21 }, (_unused, index) => `e${index}`),
+      }).success,
+    ).toBe(false);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        engines: Array.from({ length: 20 }, (_unused, index) => `e${index}`),
+      }).success,
+    ).toBe(true);
+    expect(
+      webSearchInputSchema.safeParse({
+        query: 'llame',
+        engines: ['x'.repeat(65)],
+      }).success,
+    ).toBe(false);
+  });
+
   it('uses the stable read-only declaration and fixed unconfigured error', async () => {
     const context: ToolContext = {
       userId: 'user',
@@ -378,6 +411,104 @@ it('skips an over-long aggregate child and calls only the other engine', async (
       results: [{ title: 'Result', url: 'https://example.test/a' }],
       notes: ['brave: unsupported'],
     });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('refuses an unknown selected engine before any request', async () => {
+  const fetch = vi.fn<VendorFetch>(() =>
+    Promise.reject(new Error('no request expected')),
+  );
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          { id: 'brave', type: 'brave', key: 'brave-key', timeoutSeconds: 60 },
+          { id: 'exa', type: 'exa', key: 'exa-key', timeoutSeconds: 60 },
+        ],
+        chain: ['brave'],
+      },
+    };
+    await expect(
+      webSearchTool.execute(context, {
+        query: 'llame',
+        engines: ['bing'],
+        limit: 10,
+      }),
+    ).resolves.toStrictEqual({
+      status: 'error',
+      type: 'web_search_failed',
+      message:
+        'Unknown web search engine "bing". Configured engines: brave, exa.',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('runs only the engine the call selects, also an aggregate child', async () => {
+  const keys: Array<string | null> = [];
+  const fetch = vi.fn<VendorFetch>((_input, init) => {
+    keys.push(new Headers(init?.headers).get('X-Subscription-Token'));
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          web: {
+            results: [{ title: 'Result', url: 'https://example.test/a' }],
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    );
+  });
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          {
+            id: 'first',
+            type: 'brave',
+            key: 'first-key',
+            timeoutSeconds: 60,
+          },
+          {
+            id: 'second',
+            type: 'brave',
+            key: 'second-key',
+            timeoutSeconds: 60,
+          },
+          { id: 'mix', type: 'aggregate', engines: ['first', 'second'] },
+        ],
+        chain: ['mix'],
+      },
+    };
+    await expect(
+      webSearchTool.execute(context, {
+        query: 'llame',
+        engines: ['second'],
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      status: 'success',
+      kind: 'results',
+      engine: 'second',
+      results: [{ title: 'Result', url: 'https://example.test/a' }],
+    });
+    expect(keys).toStrictEqual(['second-key']);
   } finally {
     vi.unstubAllGlobals();
   }
