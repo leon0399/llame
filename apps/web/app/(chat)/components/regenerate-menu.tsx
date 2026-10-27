@@ -19,7 +19,7 @@ import { PermissionModeSelector } from "./permission-mode-selector";
 
 type RegenerateMenuProps = {
   chatId: string;
-  requestRegenerate: (request: FollowUpRunRequest) => void;
+  requestFollowUp: (request: FollowUpRunRequest) => void;
 };
 
 /** The follow-up request the composer's own selections produce. */
@@ -34,12 +34,11 @@ function composerRegenerateRequest(
   // Regenerate always names a model; until the catalog resolved one there is
   // nothing to submit.
   if (selectedModel === undefined) return null;
-  const permissionMode = getPermissionMode(chatId);
   return {
     action: "regenerate",
     modelId: selectedModel,
-    ...(selectedEffort !== undefined && { effort: selectedEffort }),
-    ...(permissionMode === "bypass" && { permissionMode }),
+    effort: selectedEffort,
+    permissionMode: getPermissionMode(chatId),
   };
 }
 
@@ -54,7 +53,7 @@ function composerRegenerateRequest(
  */
 export function RegenerateMenu({
   chatId,
-  requestRegenerate,
+  requestFollowUp,
 }: RegenerateMenuProps) {
   const [open, setOpen] = useState(false);
   const composer = useChatContext();
@@ -80,7 +79,7 @@ export function RegenerateMenu({
         request={request}
         onSubmit={(submitted) => {
           setOpen(false);
-          requestRegenerate(submitted);
+          requestFollowUp(submitted);
         }}
       />
     </Popover>

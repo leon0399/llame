@@ -2424,10 +2424,30 @@ export const FailedTurnWithoutReply: Story = {
   },
 };
 
+/** The resumed stream of a queued follow-up Run: it starts under the Run's own
+ *  id, streams one token, and never finishes, so the reply stays live. */
+function resumedFollowUpStream() {
+  return createUIMessageStreamResponse({
+    stream: createUIMessageStream({
+      execute: async ({ writer }) => {
+        writer.write({ type: "start", messageId: NEXT_TURN_RUN_ID });
+        writer.write({ type: "text-start", id: "text-1" });
+        writer.write({
+          type: "text-delta",
+          id: "text-1",
+          delta: "resumed stream",
+        });
+        await new Promise<void>(() => {});
+      },
+    }),
+  });
+}
+
 /**
  * A reload while a follow-up Run of the latest turn is still queued shows one
- * reply: the replaced answer is hidden, because the api keeps it until that
- * Run dispatches.
+ * reply: the replaced answer stays hidden once the resumed stream attaches as
+ * a new message after it, because the hide is keyed on the turn rather than on
+ * the last row.
  *
  * @summary a queued follow-up Run hides the reply it replaces
  */
@@ -2442,14 +2462,23 @@ export const QueuedFollowUpHidesTheReplacedReply: Story = {
       permissionMode: "default",
     }),
   } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [RESUME_ROUTE]: () => Promise.resolve(resumedFollowUpStream()),
+    });
+  },
   play: async ({ canvasElement }) => {
-    const canvas = await settledTurnChat(
-      canvasElement,
-      OPEN_CHAT_ROUTES.length,
-      "Search my conversations for budget notes.",
+    const canvas = within(canvasElement);
+    (await chunkLoad(1)).resolve(RENDERERS);
+    // The held resume stream keeps the turn live, so the post-probe history
+    // re-read never runs: wait on the transcript, not the settled route list.
+    await waitFor(() =>
+      expect(canvas.getByText("resumed stream")).toBeVisible(),
     );
+    // The resumed stream is the only reply on screen: the replaced answer is
+    // gone even though it sits before the new message.
     await expect(canvas.queryByText("I found the budget notes.")).toBeNull();
-    // No turn-level action either: the Run it would act on is still queued.
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
     await expect(
       canvas.queryByRole("button", { name: "Regenerate" }),
     ).toBeNull();

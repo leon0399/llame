@@ -313,7 +313,7 @@ function ChatSessionMain({
       availableModels={transcript.availableModels}
       status={status}
       latestRun={transcript.latestRun}
-      onRegenerate={transcript.onRegenerate}
+      onFollowUp={transcript.onFollowUp}
       displayedError={transcript.displayedError}
       onInspectContext={onInspectContext}
       targetSeq={targetSeq}

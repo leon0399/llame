@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PlayIcon, RefreshCwIcon } from "lucide-react";
 
+import type { ChatStatus } from "ai";
 import { Button } from "@workspace/ui/components/button";
 
 import { useChatContext } from "@/contexts/chat-context";
@@ -14,7 +15,6 @@ import { RegenerateMenu } from "./regenerate-menu";
 import {
   discardedCallNames,
   turnActionVisibility,
-  type TurnActionVisibility,
   type TurnReply,
 } from "./turn-action-rules";
 
@@ -24,25 +24,25 @@ type TurnActionsProps = {
   latestRun: ChatLatestRunResponse | null;
   /** The reply these actions judge, or null for a turn that left none. */
   reply: TurnReply | null;
-  onRegenerate: (request: FollowUpRunRequest) => void;
+  status: ChatStatus;
+  onFollowUp: (request: FollowUpRunRequest) => void;
 };
 
 type RegenerateSplitButtonProps = {
   chatId: string;
   latestRun: ChatLatestRunResponse;
-  requestRegenerate: (request: FollowUpRunRequest) => void;
+  requestFollowUp: (request: FollowUpRunRequest) => void;
 };
 
 /** The plain Regenerate click: a repeat of the latest Run's own model, effort,
- *  and accepted permission mode, whatever the composer shows (D13). */
+ *  and accepted permission mode, whatever the composer shows (D13). The
+ *  transport drops the fields the wire body does not take. */
 function repeatRequest(latestRun: ChatLatestRunResponse): FollowUpRunRequest {
   return {
     action: "regenerate",
     modelId: latestRun.modelId,
-    ...(latestRun.effort !== null && { effort: latestRun.effort }),
-    ...(latestRun.permissionMode === "bypass" && {
-      permissionMode: latestRun.permissionMode,
-    }),
+    effort: latestRun.effort ?? undefined,
+    permissionMode: latestRun.permissionMode,
   };
 }
 
@@ -50,7 +50,7 @@ function repeatRequest(latestRun: ChatLatestRunResponse): FollowUpRunRequest {
 function RegenerateSplitButton({
   chatId,
   latestRun,
-  requestRegenerate,
+  requestFollowUp,
 }: RegenerateSplitButtonProps) {
   return (
     <>
@@ -58,35 +58,34 @@ function RegenerateSplitButton({
         type="button"
         variant="ghost"
         size="xs"
-        onClick={() => requestRegenerate(repeatRequest(latestRun))}
+        onClick={() => requestFollowUp(repeatRequest(latestRun))}
       >
         <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
         <span className="text-trim-cap">Regenerate</span>
       </Button>
-      <RegenerateMenu chatId={chatId} requestRegenerate={requestRegenerate} />
+      <RegenerateMenu chatId={chatId} requestFollowUp={requestFollowUp} />
     </>
   );
 }
 
 type ContinueButtonProps = {
   chatId: string;
-  onRegenerate: (request: FollowUpRunRequest) => void;
+  onFollowUp: (request: FollowUpRunRequest) => void;
 };
 
 /** Continue resumes the reply's completed steps; the permission mode is the
  *  composer's, because the Run's own mode is not resumable state (D13). */
-function ContinueButton({ chatId, onRegenerate }: ContinueButtonProps) {
+function ContinueButton({ chatId, onFollowUp }: ContinueButtonProps) {
   const { getPermissionMode } = useChatContext();
-  const permissionMode = getPermissionMode(chatId);
   return (
     <Button
       type="button"
       variant="ghost"
       size="xs"
       onClick={() =>
-        onRegenerate({
+        onFollowUp({
           action: "continue",
-          ...(permissionMode === "bypass" && { permissionMode }),
+          permissionMode: getPermissionMode(chatId),
         })
       }
     >
@@ -100,9 +99,9 @@ function ContinueButton({ chatId, onRegenerate }: ContinueButtonProps) {
  * The latest turn's turn-level actions (turn-actions D13). Continue appears
  * only on a reply its own terminal Run left unfinished with a settled tool
  * part to resume from; Regenerate appears whenever that Run is terminal — also
- * on a turn that left no reply at all. A Regenerate that would discard a call
- * whose effects stay asks first, naming those calls, and a cancel sends
- * nothing.
+ * on a turn that left no reply at all. Neither appears while a request is in
+ * flight. A Regenerate that would discard a call whose effects stay asks
+ * first, naming those calls, and a cancel sends nothing.
  *
  * @summary Continue and the split Regenerate button for the latest turn
  */
@@ -110,74 +109,42 @@ export function TurnActions({
   chatId,
   latestRun,
   reply,
-  onRegenerate,
+  status,
+  onFollowUp,
 }: TurnActionsProps) {
   const [pending, setPending] = useState<FollowUpRunRequest | null>(null);
-  const visibility = turnActionVisibility({ latestRun, reply });
+  const visibility = turnActionVisibility({ latestRun, reply, status });
+
+  if (visibility === null || latestRun === null) return null;
   const discarded = reply === null ? [] : discardedCallNames(reply.parts);
 
-  if (latestRun === null) return null;
-  if (!visibility.continueTurn && !visibility.regenerate) return null;
-
-  const requestRegenerate = (request: FollowUpRunRequest) => {
+  const requestFollowUp = (request: FollowUpRunRequest) => {
     if (discarded.length > 0) {
       setPending(request);
       return;
     }
-    onRegenerate(request);
+    onFollowUp(request);
   };
 
   return (
     <>
-      <TurnActionButtons
+      {visibility.continueTurn && (
+        <ContinueButton chatId={chatId} onFollowUp={onFollowUp} />
+      )}
+      <RegenerateSplitButton
         chatId={chatId}
         latestRun={latestRun}
-        visibility={visibility}
-        onContinue={onRegenerate}
-        requestRegenerate={requestRegenerate}
+        requestFollowUp={requestFollowUp}
       />
       <RegenerateConfirmDialog
         discarded={discarded}
         open={pending !== null}
         onConfirm={() => {
-          if (pending !== null) onRegenerate(pending);
+          if (pending !== null) onFollowUp(pending);
           setPending(null);
         }}
         onCancel={() => setPending(null)}
       />
-    </>
-  );
-}
-
-type TurnActionButtonsProps = {
-  chatId: string;
-  latestRun: ChatLatestRunResponse;
-  visibility: TurnActionVisibility;
-  onContinue: (request: FollowUpRunRequest) => void;
-  requestRegenerate: (request: FollowUpRunRequest) => void;
-};
-
-/** The visible controls: Continue (when offered) beside the Regenerate split
- *  button. Split out of `TurnActions` to keep both within the line budget. */
-function TurnActionButtons({
-  chatId,
-  latestRun,
-  visibility,
-  onContinue,
-  requestRegenerate,
-}: TurnActionButtonsProps) {
-  return (
-    <>
-      {visibility.continueTurn && (
-        <ContinueButton chatId={chatId} onRegenerate={onContinue} />
-      )}
-      {visibility.regenerate && (
-        <RegenerateSplitButton
-          chatId={chatId}
-          latestRun={latestRun}
-          requestRegenerate={requestRegenerate}
-        />
-      )}
     </>
   );
 }

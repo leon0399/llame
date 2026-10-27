@@ -334,7 +334,7 @@ type ChatMessageActionProps = {
   /** The Chat's newest Run, which decides the latest turn's turn-level
    *  actions, and the follow-up sender those actions call. */
   latestRun: ChatLatestRunResponse | null;
-  onRegenerate: (request: FollowUpRunRequest) => void;
+  onFollowUp: (request: FollowUpRunRequest) => void;
 };
 
 /**
@@ -405,7 +405,7 @@ function AssistantMessageFooter({
   onForked,
   onInspectContext,
   latestRun,
-  onRegenerate,
+  onFollowUp,
   isLast,
 }: ChatMessageFooterProps) {
   return (
@@ -415,8 +415,9 @@ function AssistantMessageFooter({
         <TurnActions
           chatId={chatId}
           latestRun={latestRun}
-          reply={{ metadata: message.metadata, parts: message.parts }}
-          onRegenerate={onRegenerate}
+          reply={message}
+          status={status}
+          onFollowUp={onFollowUp}
         />
       )}
       <MessageForkAction

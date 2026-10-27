@@ -25,7 +25,7 @@ import {
   useChatRefresh,
   useChatSendTransport,
 } from "./use-chat-engine";
-import { replacedReplyIndex } from "./turn-action-rules";
+import { hiddenFollowUpReplyIndex } from "./turn-action-rules";
 import { usePendingStop } from "./use-pending-stop";
 import {
   attachmentFileParts,
@@ -250,12 +250,13 @@ function deriveChatTranscript(
   );
   // A follow-up Run of the latest turn that has not settled replaced its
   // reply: hide that reply so a reload before the dispatch shows the resumed
-  // stream alone (turn-actions D13).
-  const replaced = replacedReplyIndex(merged, latestRun);
+  // stream alone (turn-actions D13). It keeps its stored position, because the
+  // resumed stream attaches after it.
+  const hidden = hiddenFollowUpReplyIndex(merged, latestRun);
   const displayMessages =
-    replaced === null
+    hidden === null
       ? merged
-      : merged.filter((_message, index) => index !== replaced);
+      : [...merged.slice(0, hidden), ...merged.slice(hidden + 1)];
   // SAFETY: `UIMessage["metadata"]` is generic/unknown-shaped at the type
   // level; every message here is one this app persisted, so its metadata is
   // always this app's own `{ seq?: number }` shape (or absent).
@@ -346,34 +347,29 @@ function buildTranscriptState(
   setup: ReturnType<typeof useChatSetup>,
   actions: ReturnType<typeof useChatActions>,
   engineState: ReturnType<typeof useChatEngineState>,
-  turn: TurnState,
 ) {
   return {
     displayMessages: engineState.displayMessages,
     compactionIndex: engineState.compactionIndex,
     availableModels: setup.availableModels,
     displayedError: actions.sendError ?? engineState.engine.error,
-    latestRun: turn.latestRun,
-    onRegenerate: turn.onRegenerate,
   };
 }
 
-/** The latest Run the turn-level actions judge, and the sender they call. */
-type TurnState = {
-  latestRun: ChatLatestRunResponse | null;
-  onRegenerate: (request: FollowUpRunRequest) => void;
-};
-
 /** The follow-up sender: `regenerate()` with a body naming the action, which
- *  the transport routes to the follow-up Run (turn-actions D13). */
-function useTurnRegenerate(
+ *  the transport routes to the follow-up Run (turn-actions D13). It marks the
+ *  send like the composer does, so a follow-up in a target view still clears
+ *  its tracking and refreshes history when it finishes. */
+export function useFollowUpRun(
   regenerate: ReturnType<typeof useChat>["regenerate"],
+  onSendStarted: () => void,
 ) {
   return useCallback(
     (request: FollowUpRunRequest) => {
+      onSendStarted();
       void regenerate({ body: request });
     },
-    [regenerate],
+    [regenerate, onSendStarted],
   );
 }
 
@@ -411,15 +407,19 @@ export function useChatConversation(args: UseChatConversationArgs) {
     onSendStarted,
     onSendFailed,
   });
-  const onRegenerate = useTurnRegenerate(engineState.engine.regenerate);
+  const onFollowUp = useFollowUpRun(
+    engineState.engine.regenerate,
+    onSendStarted,
+  );
 
   return {
     status: engineState.engine.status,
     composer: buildComposerState(setup, actions),
-    transcript: buildTranscriptState(setup, actions, engineState, {
+    transcript: {
+      ...buildTranscriptState(setup, actions, engineState),
       latestRun: args.latestRun,
-      onRegenerate,
-    }),
+      onFollowUp,
+    },
     dialog: { inspectedRunId, setInspectedRunId },
   };
 }

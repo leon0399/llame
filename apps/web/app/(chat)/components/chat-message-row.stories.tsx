@@ -176,7 +176,7 @@ const meta = {
     status: "ready",
     availableModels: [],
     latestRun: null,
-    onRegenerate: fn(),
+    onFollowUp: fn(),
     onForked: fn(),
     onInspectContext: fn(),
   },
@@ -1587,7 +1587,11 @@ function failedReply(parts: UIMessage["parts"]): UIMessage {
  *  actions: focus the first turn-level button so the row is painted before it
  *  is queried. */
 async function revealTurnActions(canvas: PlayContext["canvas"]) {
-  const regenerate = canvas.getByRole("button", { name: "Regenerate" });
+  const regenerate = await waitFor(
+    () => canvas.getByRole("button", { name: "Regenerate" }),
+    // The row withholds the transcript until the markdown renderers load.
+    { timeout: 15_000 },
+  );
   regenerate.focus();
   await waitFor(() => expect(regenerate).toBeVisible());
   return regenerate;
@@ -1616,9 +1620,41 @@ export const LatestTurnActions: Story = {
     const continueTurn = canvas.getByRole("button", { name: "Continue" });
     await expect(continueTurn).toBeVisible();
     await userEvent.click(continueTurn);
-    await expect(args.onRegenerate).toHaveBeenCalledWith({
+    await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "continue",
+      permissionMode: "default",
     });
+  },
+};
+
+/**
+ * A request in flight hides both actions: `regenerate()` has no in-flight
+ * guard of its own, so a second request would race the stream that is still
+ * writing into the transcript.
+ *
+ * @summary no actions while a request is in flight
+ */
+export const LatestTurnActionsHiddenWhileStreaming: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    status: "streaming",
+    message: failedReply([SEARCH_TOOL_PART]),
+    latestRun: turnRun({ status: "completed" }),
+  },
+  play: async ({ canvas }) => {
+    await waitFor(
+      async () =>
+        await expect(
+          canvas.getByRole("button", { name: "Fork from here" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
   },
 };
 
@@ -1695,7 +1731,7 @@ export const RegenerateRepeatsLatestRun: Story = {
   play: async ({ canvas, args }) => {
     const regenerate = await revealTurnActions(canvas);
     await userEvent.click(regenerate);
-    await expect(args.onRegenerate).toHaveBeenCalledWith({
+    await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
       modelId: "system:openai:gpt-5.4-mini",
       effort: "xhigh",
@@ -1724,7 +1760,7 @@ export const RegenerateConfirmsDiscardedCalls: Story = {
     latestRun: turnRun({ status: "completed" }),
   },
   play: async ({ canvas, args }) => {
-    args.onRegenerate.mockClear();
+    args.onFollowUp.mockClear();
     const regenerate = await revealTurnActions(canvas);
     await userEvent.click(regenerate);
 
@@ -1739,7 +1775,7 @@ export const RegenerateConfirmsDiscardedCalls: Story = {
       within(dialog).getByRole("button", { name: "Cancel" }),
     );
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-    await expect(args.onRegenerate).not.toHaveBeenCalled();
+    await expect(args.onFollowUp).not.toHaveBeenCalled();
   },
 };
 
@@ -1761,7 +1797,7 @@ export const RegenerateConfirmedSends: Story = {
     latestRun: turnRun({ status: "completed" }),
   },
   play: async ({ canvas, args }) => {
-    args.onRegenerate.mockClear();
+    args.onFollowUp.mockClear();
     const regenerate = await revealTurnActions(canvas);
     await userEvent.click(regenerate);
 
@@ -1769,10 +1805,11 @@ export const RegenerateConfirmedSends: Story = {
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Regenerate" }),
     );
-    await expect(args.onRegenerate).toHaveBeenCalledWith({
+    await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
       modelId: "system:openai:gpt-5.4-mini",
       effort: "low",
+      permissionMode: "default",
     });
   },
 };
@@ -1795,14 +1832,15 @@ export const RegenerateReadOnlySkipsDialog: Story = {
     latestRun: turnRun({ status: "completed" }),
   },
   play: async ({ canvas, args }) => {
-    args.onRegenerate.mockClear();
+    args.onFollowUp.mockClear();
     const regenerate = await revealTurnActions(canvas);
     await userEvent.click(regenerate);
     await expect(screen.queryByRole("alertdialog")).toBeNull();
-    await expect(args.onRegenerate).toHaveBeenCalledWith({
+    await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
       modelId: "system:openai:gpt-5.4-mini",
       effort: "low",
+      permissionMode: "default",
     });
   },
 };
@@ -1878,7 +1916,7 @@ export const RegenerateMenuSetsTheComposer: Story = {
     latestRun: turnRun({ status: "completed" }),
   },
   play: async ({ canvas, args }) => {
-    args.onRegenerate.mockClear();
+    args.onFollowUp.mockClear();
     const trigger = canvas.getByRole("button", {
       name: "Regenerate with other settings",
     });
@@ -1907,9 +1945,10 @@ export const RegenerateMenuSetsTheComposer: Story = {
         name: "Regenerate with these settings",
       }),
     );
-    await expect(args.onRegenerate).toHaveBeenCalledWith({
+    await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
       modelId: "system:openai:model-three",
+      permissionMode: "default",
     });
   },
 };

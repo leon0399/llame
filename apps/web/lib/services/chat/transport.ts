@@ -142,17 +142,16 @@ function prepareFollowUpRun(
 function prepareChatSend(
   options: Pick<
     ChatTransportRequestOptions,
-    "modelId" | "effort" | "permissionMode"
+    "chatId" | "modelId" | "effort" | "permissionMode"
   >,
   message: Pick<UIMessage, "id" | "parts">,
-  api: string,
 ): PreparedChatRequest {
   const { modelId, effort, permissionMode } = options;
   if (modelId === undefined || modelId.trim().length === 0) {
     throw new Error(NO_MODEL_SELECTED_ERROR);
   }
   return {
-    api,
+    api: buildChatMessagesUrl(options.chatId),
     body: {
       modelId,
       // Omitted, never sent as null or "": the api rejects a blank effort with
@@ -173,9 +172,5 @@ export function prepareSendMessagesRequest(
   }
   return options.trigger === "regenerate-message"
     ? prepareFollowUpRun(options, lastMessage.id)
-    : prepareChatSend(
-        options,
-        lastMessage,
-        buildChatMessagesUrl(options.chatId),
-      );
+    : prepareChatSend(options, lastMessage);
 }

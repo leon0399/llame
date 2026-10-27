@@ -72,9 +72,7 @@ function isCompaction(
 
 /** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
 export function normalizeChatMessagesResponse(
-  response: Pick<GeneratedChatMessagesResponse, "messages"> & {
-    latestRun?: ChatLatestRunResponse | null;
-  },
+  response: Pick<GeneratedChatMessagesResponse, "messages" | "latestRun">,
 ): ChatMessagesResponse {
   const messages: Array<ChatMessageResponse> = response.messages.map(
     (message) => ({
@@ -91,7 +89,7 @@ export function normalizeChatMessagesResponse(
   return {
     compaction: compaction ?? null,
     messages,
-    latestRun: response.latestRun ?? null,
+    latestRun: response.latestRun,
   };
 }
 

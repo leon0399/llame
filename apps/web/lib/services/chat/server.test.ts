@@ -150,7 +150,11 @@ describe("fetchDraftChatMessages", () => {
     const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(
         new Response(
-          JSON.stringify({ messages: firstPageMessages, compaction: null }),
+          JSON.stringify({
+            messages: firstPageMessages,
+            compaction: null,
+            latestRun: null,
+          }),
           {
             status: 200,
             headers: { "content-type": "application/json" },
@@ -190,10 +194,13 @@ describe("fetchDraftChatMessages", () => {
   it("returns an empty history when the draft exists without messages", async () => {
     const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(
-        new Response(JSON.stringify({ messages: [], compaction: null }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ messages: [], compaction: null, latestRun: null }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);

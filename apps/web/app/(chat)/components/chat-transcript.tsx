@@ -27,8 +27,8 @@ import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ChatMessageRow } from "./chat-message-row";
 import { messageBoundaries } from "./message-boundaries";
-import { FailedTurnRow } from "./failed-turn-row";
-import { needsFailedTurnRow } from "./turn-action-rules";
+import { carriesTurnActions, needsFailedTurnRow } from "./turn-action-rules";
+import { TurnActions } from "./turn-actions";
 import {
   messageRenderKey,
   messageSeqFromMetadata,
@@ -48,7 +48,7 @@ type ChatTranscriptMessageProps = {
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
   latestRun: ChatLatestRunResponse | null;
-  onRegenerate: (request: FollowUpRunRequest) => void;
+  onFollowUp: (request: FollowUpRunRequest) => void;
   onInspectContext: (runId: string) => void;
   onForked: (forkedChatId: string) => void;
 };
@@ -128,7 +128,7 @@ type ChatTranscriptMessagesProps = {
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
   latestRun: ChatLatestRunResponse | null;
-  onRegenerate: (request: FollowUpRunRequest) => void;
+  onFollowUp: (request: FollowUpRunRequest) => void;
   onInspectContext: (runId: string) => void;
 };
 
@@ -147,10 +147,17 @@ export function ChatTranscriptMessageList({
   availableModels,
   status,
   latestRun,
-  onRegenerate,
+  onFollowUp,
   onInspectContext,
   onForked,
 }: ChatTranscriptMessageListProps) {
+  // Only the latest turn's reply row may read the Run (turn-actions D13): the
+  // other rows get a stable null, so a refetched Run cannot break their memo.
+  const actions = carriesTurnActions({
+    messages: displayMessages,
+    latestRun,
+    status,
+  });
   return displayMessages.map((message, index) => (
     <ChatTranscriptMessage
       key={`message-${messageRenderKey(message)}`}
@@ -162,8 +169,10 @@ export function ChatTranscriptMessageList({
       compactionIndex={compactionIndex}
       availableModels={availableModels}
       status={status}
-      latestRun={latestRun}
-      onRegenerate={onRegenerate}
+      latestRun={
+        actions && index === displayMessages.length - 1 ? latestRun : null
+      }
+      onFollowUp={onFollowUp}
       onInspectContext={onInspectContext}
       onForked={onForked}
     />
@@ -206,21 +215,33 @@ function useForkedChatNavigation(): (forkedChatId: string) => void {
 }
 
 /** The latest turn's Regenerate when its Run left no reply to sit under
- *  (turn-actions D13). Render-nothing for every other transcript. */
+ *  (turn-actions D13): there is no answer row, so this row carries the action
+ *  and says only that the turn ended. Render-nothing for every other
+ *  transcript. */
 function ChatTranscriptFailedTurn({
   chatId,
   displayMessages,
+  status,
   latestRun,
-  onRegenerate,
+  onFollowUp,
 }: ChatTranscriptMessagesProps) {
   if (latestRun === null) return null;
-  if (!needsFailedTurnRow(displayMessages, latestRun)) return null;
+  if (!needsFailedTurnRow({ messages: displayMessages, latestRun, status })) {
+    return null;
+  }
   return (
-    <FailedTurnRow
-      chatId={chatId}
-      latestRun={latestRun}
-      onRegenerate={onRegenerate}
-    />
+    <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 md:px-6">
+      <span className="text-muted-foreground text-sm">
+        This turn ended without an answer.
+      </span>
+      <TurnActions
+        chatId={chatId}
+        latestRun={latestRun}
+        reply={null}
+        status={status}
+        onFollowUp={onFollowUp}
+      />
+    </div>
   );
 }
 
@@ -248,7 +269,7 @@ type ChatTranscriptProps = {
   availableModels: ReadonlyArray<AvailableModel>;
   status: ChatStatus;
   latestRun: ChatLatestRunResponse | null;
-  onRegenerate: (request: FollowUpRunRequest) => void;
+  onFollowUp: (request: FollowUpRunRequest) => void;
   displayedError: Error | undefined;
   onInspectContext: (runId: string) => void;
 };

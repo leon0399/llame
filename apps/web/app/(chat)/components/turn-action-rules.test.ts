@@ -1,13 +1,18 @@
+/**
+ * The latest turn's action rules (turn-actions D13). Pure derivations — no
+ * render needed; the row and the transcript only paint what they say.
+ */
+
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 
 import {
+  carriesTurnActions,
   discardedCallNames,
-  isTerminalRunStatus,
+  hiddenFollowUpReplyIndex,
   needsFailedTurnRow,
-  replacedReplyIndex,
   turnActionVisibility,
   type TurnReply,
 } from "./turn-action-rules";
@@ -58,25 +63,22 @@ function assistantMessage(overrides: Partial<UIMessage> = {}): UIMessage {
   };
 }
 
-describe("isTerminalRunStatus", () => {
-  it("accepts every status a Run cannot leave on its own", () => {
-    for (const status of ["completed", "failed", "cancelled", "expired"]) {
-      expect(isTerminalRunStatus(status)).toBe(true);
-    }
-  });
-
-  it("rejects the statuses of a Run that still executes", () => {
-    for (const status of ["queued", "running_model", "running_tool"]) {
-      expect(isTerminalRunStatus(status)).toBe(false);
-    }
-  });
-});
+function userMessage(
+  id: string,
+  overrides: Partial<UIMessage> = {},
+): UIMessage {
+  return { id, role: "user", parts: [ANSWER], ...overrides };
+}
 
 describe("turnActionVisibility", () => {
   it("offers both actions on a failed turn that settled a tool call", () => {
     expect(
-      turnActionVisibility({ latestRun: latestRun(), reply: reply() }),
-    ).toEqual({ continueTurn: true, regenerate: true });
+      turnActionVisibility({
+        latestRun: latestRun(),
+        reply: reply(),
+        status: "ready",
+      }),
+    ).toEqual({ continueTurn: true });
   });
 
   it("offers Continue on a cancelled and on an expired Run", () => {
@@ -85,8 +87,9 @@ describe("turnActionVisibility", () => {
         turnActionVisibility({
           latestRun: latestRun({ status }),
           reply: reply(),
-        }).continueTurn,
-      ).toBe(true);
+          status: "ready",
+        }),
+      ).toEqual({ continueTurn: true });
     }
   });
 
@@ -95,8 +98,9 @@ describe("turnActionVisibility", () => {
       turnActionVisibility({
         latestRun: latestRun(),
         reply: reply({ parts: [ANSWER] }),
+        status: "ready",
       }),
-    ).toEqual({ continueTurn: false, regenerate: true });
+    ).toEqual({ continueTurn: false });
   });
 
   it("hides Continue when the reply's usage completed", () => {
@@ -106,41 +110,118 @@ describe("turnActionVisibility", () => {
         reply: reply({
           metadata: { seq: 2, usage: { runId: RUN_ID, status: "completed" } },
         }),
+        status: "ready",
       }),
-    ).toEqual({ continueTurn: false, regenerate: true });
+    ).toEqual({ continueTurn: false });
   });
 
   it("hides Continue when another Run produced the reply", () => {
-    expect(
-      turnActionVisibility({
-        latestRun: latestRun(),
-        reply: reply({
-          metadata: { seq: 2, usage: { runId: NEXT_RUN_ID, status: "error" } },
-        }),
-      }).continueTurn,
-    ).toBe(false);
-  });
-
-  it("hides both actions while the latest Run is still executing", () => {
-    expect(
-      turnActionVisibility({
-        latestRun: latestRun({ status: "running_model" }),
-        reply: reply(),
+    const visibility = turnActionVisibility({
+      latestRun: latestRun(),
+      reply: reply({
+        metadata: { seq: 2, usage: { runId: NEXT_RUN_ID, status: "error" } },
       }),
-    ).toEqual({ continueTurn: false, regenerate: false });
+      status: "ready",
+    });
+    expect(visibility).toEqual({ continueTurn: false });
   });
 
   it("offers Regenerate alone on a terminal turn with no reply", () => {
     expect(
-      turnActionVisibility({ latestRun: latestRun(), reply: null }),
-    ).toEqual({ continueTurn: false, regenerate: true });
+      turnActionVisibility({
+        latestRun: latestRun(),
+        reply: null,
+        status: "ready",
+      }),
+    ).toEqual({ continueTurn: false });
   });
 
-  it("hides both actions when the Chat has no Run", () => {
-    expect(turnActionVisibility({ latestRun: null, reply: reply() })).toEqual({
-      continueTurn: false,
-      regenerate: false,
-    });
+  it("offers nothing while a request is in flight", () => {
+    for (const status of ["submitted", "streaming"] as const) {
+      expect(
+        turnActionVisibility({
+          latestRun: latestRun(),
+          reply: reply(),
+          status,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it("offers nothing while the latest Run still executes", () => {
+    expect(
+      turnActionVisibility({
+        latestRun: latestRun({ status: "running_model" }),
+        reply: reply(),
+        status: "ready",
+      }),
+    ).toBeNull();
+  });
+
+  it("offers nothing when the Chat has no Run", () => {
+    expect(
+      turnActionVisibility({
+        latestRun: null,
+        reply: reply(),
+        status: "ready",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("carriesTurnActions", () => {
+  it("puts the actions on the reply of the Run's own turn", () => {
+    expect(
+      carriesTurnActions({
+        messages: [userMessage("user-1"), assistantMessage()],
+        latestRun: latestRun({ status: "completed" }),
+        status: "ready",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps them off an older turn's reply", () => {
+    expect(
+      carriesTurnActions({
+        messages: [
+          userMessage("user-1"),
+          assistantMessage(),
+          userMessage("user-2"),
+          assistantMessage({ id: "assistant-2" }),
+        ],
+        latestRun: latestRun({ messageId: "user-2", status: "completed" }),
+        status: "ready",
+      }),
+    ).toBe(true);
+    // The same window, but the Run names no turn in it: a `#msg-N` view of an
+    // older turn ends on an older reply.
+    expect(
+      carriesTurnActions({
+        messages: [userMessage("user-1"), assistantMessage()],
+        latestRun: latestRun({ messageId: "user-9", status: "completed" }),
+        status: "ready",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps them off a turn that left no reply", () => {
+    expect(
+      carriesTurnActions({
+        messages: [userMessage("user-1")],
+        latestRun: latestRun({ status: "completed" }),
+        status: "ready",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps them off while a request is in flight", () => {
+    expect(
+      carriesTurnActions({
+        messages: [userMessage("user-1"), assistantMessage()],
+        latestRun: latestRun({ status: "completed" }),
+        status: "streaming",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -235,15 +316,11 @@ describe("discardedCallNames", () => {
   });
 });
 
-describe("replacedReplyIndex", () => {
-  it("hides the reply a queued follow-up Run has not replaced yet", () => {
-    const messages = [
-      { id: "user-1", role: "user" as const, parts: [] },
-      assistantMessage(),
-    ];
+describe("hiddenFollowUpReplyIndex", () => {
+  it("hides the reply of the turn a queued follow-up Run replaces", () => {
     expect(
-      replacedReplyIndex(
-        messages,
+      hiddenFollowUpReplyIndex(
+        [userMessage("user-1"), assistantMessage()],
         latestRun({
           id: NEXT_RUN_ID,
           status: "queued",
@@ -253,29 +330,46 @@ describe("replacedReplyIndex", () => {
     ).toBe(1);
   });
 
-  it("keeps the reply once the follow-up Run settled", () => {
-    const messages = [
-      { id: "user-1", role: "user" as const, parts: [] },
-      assistantMessage(),
-    ];
+  it("hides it once the resumed stream has attached after it", () => {
+    // The SDK pushes the resumed stream as a new message (its id is the Run's)
+    // rather than replacing the durable reply.
     expect(
-      replacedReplyIndex(
-        messages,
+      hiddenFollowUpReplyIndex(
+        [
+          userMessage("user-1"),
+          assistantMessage(),
+          { id: NEXT_RUN_ID, role: "assistant", parts: [] },
+        ],
+        latestRun({
+          id: NEXT_RUN_ID,
+          status: "running_model",
+          followUpAction: "continue",
+        }),
+      ),
+    ).toBe(1);
+  });
+
+  it("keeps the reply once the follow-up Run settled", () => {
+    expect(
+      hiddenFollowUpReplyIndex(
+        [userMessage("user-1"), assistantMessage()],
         latestRun({ status: "failed", followUpAction: "continue" }),
       ),
     ).toBeNull();
   });
 
   it("keeps a reply the follow-up Run itself wrote", () => {
-    const messages = [
-      { id: "user-1", role: "user" as const, parts: [] },
-      assistantMessage({
-        metadata: { seq: 2, usage: { runId: NEXT_RUN_ID, status: "running" } },
-      }),
-    ];
     expect(
-      replacedReplyIndex(
-        messages,
+      hiddenFollowUpReplyIndex(
+        [
+          userMessage("user-1"),
+          assistantMessage({
+            metadata: {
+              seq: 2,
+              usage: { runId: NEXT_RUN_ID, status: "running" },
+            },
+          }),
+        ],
         latestRun({
           id: NEXT_RUN_ID,
           status: "running_model",
@@ -286,64 +380,90 @@ describe("replacedReplyIndex", () => {
   });
 
   it("keeps a live placeholder, which holds no durable seq", () => {
-    const messages = [
-      { id: "user-1", role: "user" as const, parts: [] },
-      { id: RUN_ID, role: "assistant" as const, parts: [] },
-    ];
     expect(
-      replacedReplyIndex(
-        messages,
+      hiddenFollowUpReplyIndex(
+        [userMessage("user-1"), { id: RUN_ID, role: "assistant", parts: [] }],
         latestRun({ status: "queued", followUpAction: "continue" }),
       ),
     ).toBeNull();
   });
 
-  it("hides nothing for a chat send or a chat with no Run", () => {
-    const messages = [
-      { id: "user-1", role: "user" as const, parts: [] },
-      assistantMessage(),
-    ];
+  it("hides nothing for a chat send, a settled Run, or another turn", () => {
+    const messages = [userMessage("user-1"), assistantMessage()];
     expect(
-      replacedReplyIndex(messages, latestRun({ status: "running_model" })),
+      hiddenFollowUpReplyIndex(
+        messages,
+        latestRun({ status: "running_model" }),
+      ),
     ).toBeNull();
-    expect(replacedReplyIndex(messages, null)).toBeNull();
+    expect(hiddenFollowUpReplyIndex(messages, null)).toBeNull();
+    // A `#msg-N` view of an older turn must not hide its target row.
+    expect(
+      hiddenFollowUpReplyIndex(
+        messages,
+        latestRun({
+          messageId: "user-9",
+          status: "queued",
+          followUpAction: "regenerate",
+        }),
+      ),
+    ).toBeNull();
   });
 });
 
 describe("needsFailedTurnRow", () => {
   it("asks for the row when the latest turn left no reply", () => {
     expect(
-      needsFailedTurnRow(
-        [{ id: "user-1", role: "user", parts: [] }],
-        latestRun(),
-      ),
+      needsFailedTurnRow({
+        messages: [userMessage("user-1")],
+        latestRun: latestRun(),
+        status: "ready",
+      }),
+    ).toBe(true);
+  });
+
+  it("asks for it beside the empty placeholder a pickup failure leaves", () => {
+    expect(
+      needsFailedTurnRow({
+        messages: [
+          userMessage("user-1"),
+          { id: RUN_ID, role: "assistant", parts: [] },
+        ],
+        latestRun: latestRun(),
+        status: "ready",
+      }),
     ).toBe(true);
   });
 
   it("keeps the row away from a turn that has a reply", () => {
     expect(
-      needsFailedTurnRow(
-        [{ id: "user-1", role: "user", parts: [] }, assistantMessage()],
-        latestRun(),
-      ),
+      needsFailedTurnRow({
+        messages: [userMessage("user-1"), assistantMessage()],
+        latestRun: latestRun(),
+        status: "ready",
+      }),
     ).toBe(false);
   });
 
-  it("keeps the row away from a Run the latest turn does not own", () => {
+  it("keeps the row away from a Run the window does not name", () => {
     expect(
-      needsFailedTurnRow(
-        [{ id: "user-2", role: "user", parts: [] }],
-        latestRun(),
-      ),
+      needsFailedTurnRow({
+        messages: [userMessage("user-2")],
+        latestRun: latestRun(),
+        status: "ready",
+      }),
     ).toBe(false);
   });
 
-  it("keeps the row away while the Run is still executing", () => {
-    expect(
-      needsFailedTurnRow(
-        [{ id: "user-1", role: "user", parts: [] }],
-        latestRun({ status: "queued" }),
-      ),
-    ).toBe(false);
+  it("keeps the row away while a request is in flight", () => {
+    for (const status of ["submitted", "streaming"] as const) {
+      expect(
+        needsFailedTurnRow({
+          messages: [userMessage("user-1")],
+          latestRun: latestRun({ status: "queued" }),
+          status,
+        }),
+      ).toBe(false);
+    }
   });
 });

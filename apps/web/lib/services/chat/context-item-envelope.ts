@@ -100,8 +100,9 @@ function isNoticeEnvelopeOf(
 /** The envelope every `data-context` notice this app renders shares: exact
  *  key set (`text` optional), `v: 1`, the expected `producer`, form
  *  `notice`, a UUID `runId`, and `text` a string when present. Returns the
- *  still-unvalidated `payload` once the envelope holds — each caller owns
- *  validating that payload — or `undefined` when it does not. */
+ *  envelope once it holds — its `payload` still unvalidated, which is each
+ *  caller's own guard's job, because returning the bare payload would expose an
+ *  `unknown` to every caller — or `undefined` when it does not. */
 export function contextItemEnvelope(
   value: unknown,
   producer: NoticeProducer,

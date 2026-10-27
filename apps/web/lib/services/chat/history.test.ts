@@ -48,6 +48,7 @@ describe("normalizeChatMessagesResponse", () => {
 
   it("takes the newest checkpoint row on the page as the transcript boundary", () => {
     const response = normalizeChatMessagesResponse({
+      latestRun: null,
       messages: [
         wireRow("user-1", 1),
         checkpointRow(3, 2),
@@ -81,6 +82,7 @@ describe("normalizeChatMessagesResponse", () => {
 
       expect(
         normalizeChatMessagesResponse({
+          latestRun: null,
           messages: [checkpointRow(3, 2), incomplete],
         }).compaction,
       ).toMatchObject({ absorbedThroughSeq: 2 });
@@ -89,8 +91,10 @@ describe("normalizeChatMessagesResponse", () => {
 
   it("reports no transcript boundary for a page without a checkpoint row", () => {
     expect(
-      normalizeChatMessagesResponse({ messages: [wireRow("user-1", 1)] })
-        .compaction,
+      normalizeChatMessagesResponse({
+        latestRun: null,
+        messages: [wireRow("user-1", 1)],
+      }).compaction,
     ).toBeNull();
   });
 });
@@ -924,6 +928,7 @@ describe("prompt-imports context items", () => {
 
     const [message] = toChatUiMessages(
       normalizeChatMessagesResponse({
+        latestRun: null,
         messages: [
           {
             id: "user-1",
