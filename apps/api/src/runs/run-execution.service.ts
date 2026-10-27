@@ -313,6 +313,7 @@ import {
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
 import { isToolPromptId } from '../prompts/tool-descriptions';
+import { renderEngineCatalog } from '../tools/web-search/catalog';
 import {
   resolveTurnSkillState,
   type SkillTurnState,
@@ -785,6 +786,13 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
   private readonly toolPromptRenderer: ToolPromptRenderer;
+  /**
+   * The generated `web_search` engine catalog, built once from the resolved
+   * configuration: the declared description is the rendered template plus this
+   * text, so the provider prompt cache changes only when the operator edits
+   * engines (design D5). Absent when no engine is configured.
+   */
+  private readonly webSearchCatalog: string | undefined;
   /** The process-wide `ssh://` transport; absent without the `ssh` section. */
   private readonly sshClient: SshClient | undefined;
 
@@ -869,6 +877,9 @@ export class RunExecutionService {
       instancePromptFiles: this.instanceConfig.config.tools.promptFiles,
       models: this.instanceConfig.config.models,
     });
+    this.webSearchCatalog = renderEngineCatalog(
+      this.instanceConfig.config.webSearch,
+    );
     // One generated SSH configuration per worker process, written only when a
     // call actually resolves or runs (ssh-locator D1). Without the `ssh`
     // section there is no client, so `ssh://` stays an unknown scheme.
@@ -4709,7 +4720,14 @@ export class RunExecutionService {
           admittedToolIds,
         });
         disclosures.push(rendered.chatsDisclosure);
-        return rendered.text;
+        if (this.webSearchCatalog === undefined || id !== 'web_search')
+          return rendered.text;
+        // The catalog never stands in for an empty template: the declared
+        // description is empty exactly when the template renders empty, so the
+        // attempt fails here rather than after the append (design D5).
+        if (rendered.text.trim().length === 0)
+          throw new ToolDescriptionRenderError(id);
+        return `${rendered.text}\n\n${this.webSearchCatalog}`;
       },
     });
   }

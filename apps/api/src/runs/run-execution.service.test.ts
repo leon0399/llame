@@ -182,6 +182,7 @@ import {
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { SshConfig } from '../instance-config/ssh-settings';
+import type { WebSearchConfig } from '../instance-config/web-search-config';
 import type { SshClient, SshClientFactory } from '../ssh/ssh-client';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import {
@@ -436,6 +437,8 @@ type ExecutionServiceOptions = {
   ssh?: SshConfig;
   /** The seam that builds the `ssh://` transport from that section. */
   sshClientFactory?: SshClientFactory;
+  /** The resolved `webSearch` section the declared description renders from. */
+  webSearch?: WebSearchConfig;
 };
 
 function makeExecutionService(
@@ -481,6 +484,9 @@ function makeExecutionService(
           ? BUILT_IN_DEFAULTS.knowledge
           : { root: options.knowledgeRoot },
       ...(options.ssh !== undefined && { ssh: options.ssh }),
+      ...(options.webSearch !== undefined && {
+        webSearch: options.webSearch,
+      }),
     },
   };
   // Held separately so tests can rescript it with its inferred Mock type
@@ -7505,6 +7511,75 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(
       capturing.streamOptions().tools?.['bash']?.description ?? '',
     ).not.toContain('{{');
+  });
+
+  const webSearch: WebSearchConfig = {
+    engines: [
+      { id: 'brave', type: 'brave', key: 'test-key', timeoutSeconds: 60 },
+      { id: 'exa', type: 'exa', key: 'test-key', timeoutSeconds: 60 },
+    ],
+    chain: ['brave'],
+  };
+
+  it('appends the engine catalog after a web_search description override', async () => {
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'web-search-catalog-'));
+    const overridePath = path.join(tmpDir, 'web-search-override.md');
+    writeFileSync(overridePath, 'Search the web, briefly.');
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['web_search'],
+        configPath: path.join(tmpDir, 'llame.config.json'),
+        toolPromptFiles: { web_search: 'web-search-override.md' },
+        webSearch,
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    const description =
+      capturing.streamOptions().tools?.['web_search']?.description ?? '';
+    expect(
+      description.startsWith('Search the web, briefly.\n\n<engines>\n'),
+    ).toBe(true);
+    expect(description).toContain(
+      '- brave [brave]: brave; results; first in the default chain;',
+    );
+    expect(description).toContain(
+      '- exa [exa]: exa; results; not in the default chain;',
+    );
+    expect(description.endsWith('\n</engines>')).toBe(true);
+    // The declared catalog carries no credential.
+    expect(description).not.toContain('test-key');
+  });
+
+  it('fails an empty rendered web_search template before appending its catalog', async () => {
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'web-search-catalog-'));
+    writeFileSync(
+      path.join(tmpDir, 'web-search-gated.md'),
+      '{{#if tools.edit}}Use edit for the fetched page.{{/if}}',
+    );
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['web_search'],
+        configPath: path.join(tmpDir, 'llame.config.json'),
+        toolPromptFiles: { web_search: 'web-search-gated.md' },
+        webSearch,
+      },
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow('Tool "web_search" description rendered empty.');
   });
 });
 

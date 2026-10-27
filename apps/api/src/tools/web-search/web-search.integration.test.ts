@@ -1233,4 +1233,34 @@ describeIfDb('web search through the real tool loop', () => {
       costUsd: 0.0057,
     });
   });
+  it('declares the web_search description as its template followed by the engine catalog', async () => {
+    fixture.configure('success');
+    const seeded = await seedRun('catalog');
+    const calls: Array<ModelStreamInput> = [];
+    const model = modelFor((turn) =>
+      turn === 1
+        ? toolResponse('catalog-call', 'web_search', { query: FIXTURE_QUERY })
+        : textResponse('Search completed.'),
+    );
+    await execute(
+      seeded,
+      service({ allowed: ['web_search'], permissionPolicy: ALLOW_SEARCH }),
+      model,
+      { calls },
+    );
+    await waitStatus(seeded.run.id, 'completed');
+
+    const description = calls.at(0)?.tools?.['web_search']?.description ?? '';
+    // The packaged template renders first, then the generated catalog, whose
+    // last line closes the section.
+    expect(description).toContain(
+      'Search the public web for current information.',
+    );
+    expect(description).toContain(
+      '- brave [brave]: brave; results; first in the default chain;',
+    );
+    expect(description.endsWith('\n</engines>')).toBe(true);
+    // The engine's configured key never reaches the declared description.
+    expect(description).not.toContain(SENTINEL_KEY);
+  });
 });
