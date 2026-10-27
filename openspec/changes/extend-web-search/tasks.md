@@ -115,7 +115,7 @@ budget at its own boundary.
 - [x] 6.3 Bound attached answers and apply the trim order in `output.ts`; verify by output unit tests for every scenario of "Attached answers fit the result cap after results", including the whole-answer drop
 - [x] 6.4 Render `answers` after the results in the web search renderer with engine id, Markdown answer, and citation links under the existing link safety; add stories for an aggregate with answers and for a stored part without `answers`; verify with Storybook MCP story tests and preview URLs, or the Storybook CLI fallback, for "The chat renders attached answers"
 - [x] 6.5 Document hosted aggregate children, their latency, and the output shape in the runbook and reference page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the `packages/ui` and `apps/web` checks; exercise an aggregate with a hosted child in a browser live and after reload; this layer's PR carries `Closes #1438`
+- [x] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the `packages/ui` and `apps/web` checks; exercise an aggregate with a hosted child in a browser live and after reload; this layer's PR carries `Closes #1438`
 - [x] 6.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
