@@ -18,8 +18,9 @@ results included. The system MUST project
 each image reference in portable history for the declared input of the target model, as the
 `media-attachments` capability defines. The target model can declare `image` input, and the epoch
 image window can attach the reference. Then the reference is an image part, and in other cases it
-is its placeholder text. The attached set MUST NOT depend on which vision model the request targets. A switch MUST NOT
-change a stored part. An earlier model can receive an image as a placeholder. That image MUST reach
+is its placeholder text. Two target models can declare the same `image` and `pdf` input and the same
+context window. Then the attached set MUST NOT depend on which of them the request targets. A switch
+MUST NOT change a stored part. An earlier model can receive an image as a placeholder. That image MUST reach
 a later vision model as an image part when the epoch image window of that request attaches it.
 
 The system MUST NOT make, change, or bind again the provider-native thinking, signature, or cache
@@ -139,7 +140,7 @@ again, or persist a historical tool catalog.
 #### Scenario: A switch between vision models keeps the attached set
 
 - **WHEN** a turn switches from one model that declares `image` input to another within the same
-  epoch
+  epoch, and both models declare the same `image` and `pdf` input and the same context window
 - **THEN** the target's request attaches exactly the references the same turn's request would
   attach on the previous model
 - **AND** every reference beyond the epoch's bounds keeps the limit placeholder
