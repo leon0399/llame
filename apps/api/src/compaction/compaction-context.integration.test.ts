@@ -1357,6 +1357,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           chatId: turn.chatId,
           runId: turn.runId,
           item: createPromptImportsItem({
+            retainedBefore: 0,
             runId: turn.runId,
             outcomes: [{ locator: '/srv/private/notes.md', outcome: 'denied' }],
             omitted: [],

@@ -423,6 +423,7 @@ describe('buildContext', () => {
       const imported = '0192f3a4-5b6c-7d8e-9f01-000000000004';
       const owner = '0192f3a4-5b6c-7d8e-9f01-000000000005';
       const item = createPromptImportsItem({
+        retainedBefore: 0,
         runId,
         retained: new Map([
           [

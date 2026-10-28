@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { RETAINED_MESSAGE_BOUND } from '../media/retained-media';
+import {
+  RETAINED_MESSAGE_BOUND,
+  retainedPartsBase64,
+} from '../media/retained-media';
 
 import {
   createPromptImportsItem,
@@ -34,6 +37,7 @@ const IMAGE_BODY = JSON.stringify({
 describe('prompt imports item', () => {
   it('neutralizes reserved delimiters in an imported body', () => {
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         {
@@ -54,6 +58,7 @@ describe('prompt imports item', () => {
 
   it('keeps bodies out of payload metadata', () => {
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         {
@@ -86,6 +91,7 @@ describe('prompt imports item', () => {
 
   it('records an unstored image entry thumbnail and size privately beside the envelope body', () => {
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         {
@@ -116,6 +122,7 @@ describe('prompt imports item', () => {
   it('records an unstored image entry over the thumbnail cap by its size alone', () => {
     const { thumbnail: _thumbnail, ...original } = UNSTORED;
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         {
@@ -136,6 +143,7 @@ describe('prompt imports item', () => {
 
   it('records a stored image locator without image fields', () => {
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         {
@@ -161,6 +169,7 @@ describe('prompt imports item', () => {
 
   it('lists no image references for another producer or an invalid payload', () => {
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         {
@@ -204,6 +213,7 @@ describe('prompt imports item', () => {
     } as const;
     const retained = 'A'.repeat(RETAINED_MESSAGE_BOUND);
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         {
@@ -253,6 +263,65 @@ describe('prompt imports item', () => {
     expect(item.data.text).toContain('first.pdf');
     expect(item.data.text).toContain('second.pdf');
     expect(item.data.text).not.toContain('AAAA');
+  });
+
+  it("counts an earlier Run's item on the same message toward the bound", () => {
+    // A Regenerate Run appends its own item beside the first Run's item, so
+    // the message, not the item, carries the bound.
+    const pdf = {
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 15,
+      byteSize: 2_215_244,
+    } as const;
+    const outcomes = [
+      {
+        locator: 'paper.pdf',
+        outcome: 'imported',
+        body: '{"status":"success","kind":"pdf"}',
+        attachment: pdf,
+      },
+    ] as const;
+    const first = createPromptImportsItem({
+      retainedBefore: 0,
+      runId: RUN_ID,
+      outcomes,
+      omitted: [],
+      retained: new Map([
+        [
+          promptImportMediaKey(RUN_ID, 'paper.pdf'),
+          {
+            locator: 'paper.pdf',
+            pages: pdf.pages,
+            data: 'A'.repeat(RETAINED_MESSAGE_BOUND - 8),
+          },
+        ],
+      ]),
+    });
+    const regenerated = '99999999-2222-4333-8444-555555555555';
+    const second = createPromptImportsItem({
+      retainedBefore: retainedPartsBase64([{ type: 'text', text: 'x' }, first]),
+      runId: regenerated,
+      outcomes,
+      omitted: [],
+      retained: new Map([
+        [
+          promptImportMediaKey(regenerated, 'paper.pdf'),
+          { locator: 'paper.pdf', pages: pdf.pages, data: 'JVBERi0xLjQK' },
+        ],
+      ]),
+    });
+
+    expect(second.data.payload).toEqual({
+      imports: [
+        {
+          locator: 'paper.pdf',
+          outcome: 'imported',
+          ...pdf,
+          retainedMedia: { exceeded: true },
+        },
+      ],
+    });
   });
 
   it('keys unstored entries by their Run and locator', () => {
@@ -651,6 +720,7 @@ describe('PDF import metadata', () => {
       path: '/repo/paper.pdf',
     });
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [
         { locator: 'paper.pdf', outcome: 'imported', body, attachment: pdf },

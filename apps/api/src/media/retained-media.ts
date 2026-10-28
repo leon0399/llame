@@ -8,6 +8,7 @@
  * names the bytes by a byte-free marker and loads them from this map, so no
  * estimator, replay budget, or provider adapter ever sees them.
  */
+import { isRecord } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
 import { PDF_MEDIA_TYPE } from './pdf-preparation';
@@ -76,6 +77,33 @@ export function parseRetainedMedia(
 ): RetainedMediaJson | undefined {
   const parsed = retainedMediaSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * The retained base64 that `parts` of one stored message already hold: each
+ * part's own record and each prompt-import entry's. The per-message bound
+ * counts them before a new read or import may keep bytes.
+ */
+export function retainedPartsBase64(parts: ReadonlyArray<unknown>): number {
+  const records = parts.flatMap((part) => {
+    if (!isRecord(part)) return [];
+    const data = part['data'];
+    const imports =
+      isRecord(data) && isRecord(data['payload'])
+        ? data['payload']['imports']
+        : undefined;
+    const entries = Array.isArray(imports) ? imports.filter(isRecord) : [];
+    return [part, ...entries].map((holder) =>
+      parseRetainedMedia(holder[RETAINED_MEDIA_KEY]),
+    );
+  });
+  return records.reduce(
+    (total, record) =>
+      record !== undefined && 'data' in record
+        ? total + record.data.length
+        : total,
+    0,
+  );
 }
 
 /** The marker key of a stored `tool-read` part: its row identity and index. */

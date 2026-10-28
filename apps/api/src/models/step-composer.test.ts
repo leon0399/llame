@@ -441,6 +441,7 @@ describe('composeStepMessages', () => {
     ] as const;
     /** An item whose unstored PDF entry keeps its original. */
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId,
       outcomes: [...outcomes],
       omitted: [],
@@ -448,6 +449,7 @@ describe('composeStepMessages', () => {
     });
     /** An item stored before retention kept any bytes. */
     const legacyItem = createPromptImportsItem({
+      retainedBefore: 0,
       runId,
       outcomes: [...outcomes],
       omitted: [],
@@ -619,6 +621,7 @@ describe('composeStepMessages', () => {
     ] as const;
     /** An item whose unstored image entry keeps its model variant. */
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN,
       outcomes: [...outcomes],
       omitted: [],
@@ -626,6 +629,7 @@ describe('composeStepMessages', () => {
     });
     /** An item stored before retention kept any bytes. */
     const legacyItem = createPromptImportsItem({
+      retainedBefore: 0,
       runId: RUN,
       outcomes: [...outcomes],
       omitted: [],
@@ -772,6 +776,7 @@ describe('composeStepMessages', () => {
       const resolver = nearlyFull();
       const large = largeShot();
       const largeItem = createPromptImportsItem({
+        retainedBefore: 0,
         runId: RUN,
         outcomes: [...outcomes],
         omitted: [],

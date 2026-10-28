@@ -722,6 +722,10 @@ function mockNormalExecutionRepositories() {
   );
   vi.spyOn(
     PromptImportPartsRepository.prototype,
+    'retainedBase64',
+  ).mockResolvedValue(0);
+  vi.spyOn(
+    PromptImportPartsRepository.prototype,
     'appendForRun',
   ).mockResolvedValue({ applied: true });
   // The dispatch transaction's told-state write for staged Workspace items.
@@ -8433,6 +8437,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       const ids = triggerIds(6);
       const triggerParts = [{ type: 'text', text: 'look at these' }];
       const item = createPromptImportsItem({
+        retainedBefore: 0,
         runId,
         outcomes: ids.map((id, n) => ({
           locator: `shot${n}.png`,
@@ -8462,6 +8467,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // row holds none, so no row exists for compaction to absorb.
       const ids = triggerIds(2);
       const item = createPromptImportsItem({
+        retainedBefore: 0,
         runId,
         outcomes: ids.map((id) => ({
           locator: `media://${id}`,
@@ -13523,6 +13529,7 @@ describe('RunExecutionService instruction files', () => {
     options: { readonly payload?: 'missing' } = {},
   ): void {
     const item = createPromptImportsItem({
+      retainedBefore: 0,
       runId,
       outcomes,
       omitted: [],
@@ -14137,6 +14144,7 @@ describe('RunExecutionService prompt imports', () => {
   /** The item a prior attempt of this Run persisted for `README.md`. */
   function storedImportItem(root: string) {
     return createPromptImportsItem({
+      retainedBefore: 0,
       runId,
       outcomes: [
         {
@@ -14456,6 +14464,7 @@ describe('RunExecutionService prompt imports', () => {
         const { find, append, events } = serveRepositories();
         bindChat(root);
         const stored = createPromptImportsItem({
+          retainedBefore: 0,
           runId,
           outcomes: [
             {
@@ -14726,6 +14735,7 @@ describe('RunExecutionService prompt imports', () => {
         const { find, append, events } = serveRepositories();
         bindChat(root);
         const stored = createPromptImportsItem({
+          retainedBefore: 0,
           runId,
           outcomes: [
             {

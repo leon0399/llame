@@ -106,8 +106,7 @@ import {
   type RetainedSettlement,
 } from '../media/attempt-media';
 import {
-  parseRetainedMedia,
-  RETAINED_MEDIA_KEY,
+  retainedPartsBase64,
   type RetainedMediaJson,
 } from '../media/retained-media';
 import { createToolMediaStore } from '../media/tool-media-store';
@@ -1324,7 +1323,7 @@ export class RunExecutionService {
     // The retained base64 this reply's message already holds: the kept parts
     // of a Continue Run, which the settled reads below add to. A read past the
     // rest of the bound keeps no bytes and records that instead (D5).
-    let retainedBytesUsed = seededRetainedBytes(continued);
+    let retainedBytesUsed = retainedPartsBase64(continued?.parts ?? []);
     // In-Run rail items for this attempt: staged at step boundaries, written
     // onto the running reply with the collector's snapshot before the step's
     // request, and spliced into every later step by the model client's step
@@ -2813,12 +2812,19 @@ export class RunExecutionService {
     // A follow-up Run reuses the item an earlier Run of the turn stored and
     // reads no target again, so it asks for any Run of the message rather than
     // this one (turn-actions D8).
-    const stored = await this.tenantDb.runAs(input.userId, (tx) =>
-      new PromptImportPartsRepository(tx).find({
-        id: message.id,
-        chatId: message.chatId,
-        ...(!step.followUp && { runId: message.runId }),
-      }),
+    const { stored, retainedBefore } = await this.tenantDb.runAs(
+      input.userId,
+      async (tx) => {
+        const repository = new PromptImportPartsRepository(tx);
+        return {
+          stored: await repository.find({
+            id: message.id,
+            chatId: message.chatId,
+            ...(!step.followUp && { runId: message.runId }),
+          }),
+          retainedBefore: await repository.retainedBase64(message),
+        };
+      },
     );
     // Presence is authoritative even when an older reader cannot decode payload.
     if (stored !== undefined) return;
@@ -2833,6 +2839,7 @@ export class RunExecutionService {
       outcomes,
       omitted,
       retained: step.retainedMedia,
+      retainedBefore,
     });
     // An omitted target's read may have kept its bytes before the output bound
     // dropped it, and nothing in the item names them.
@@ -5428,18 +5435,6 @@ function triggerRefCount(parts: ReadonlyArray<unknown>): number {
     0,
   );
   return fileMediaIds(parts).length + imports;
-}
-
-/** The retained base64 the kept parts of a Continue Run already hold. */
-function seededRetainedBytes(continued: ContinueState | undefined): number {
-  return (continued?.parts ?? []).reduce((total, part) => {
-    const record = isRecord(part)
-      ? parseRetainedMedia(part[RETAINED_MEDIA_KEY])
-      : undefined;
-    return record === undefined || !('data' in record)
-      ? total
-      : total + record.data.length;
-  }, 0);
 }
 
 /**

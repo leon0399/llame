@@ -393,15 +393,17 @@ function renderPromptImports(
 /**
  * Creates the single persisted prompt-imports notice for one accepted turn,
  * recording each unstored entry's retained bytes from the attempt's map under
- * the item's own bound.
+ * what `retainedBefore`, the base64 the message already holds, leaves of the
+ * per-message bound.
  */
 export function createPromptImportsItem(input: {
   readonly runId: string;
   readonly outcomes: ReadonlyArray<PromptImportOutcome>;
   readonly omitted: ReadonlyArray<string>;
   readonly retained: ReadonlyMap<string, RetainedMedia>;
+  readonly retainedBefore: number;
 }): AuthoredContextItemPart {
-  let used = 0;
+  let used = input.retainedBefore;
   const imports = input.outcomes.map((outcome) => {
     const bounded = importRetainedMedia(input, outcome, used);
     used = bounded.used;
