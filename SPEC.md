@@ -201,17 +201,21 @@ the process has accepted native host authority or has a configured
 `knowledge.root`, and an absolute path on a process without accepted native
 authority fails closed with `executor_unavailable`. A `read` of a host,
 `kb://`, or `skill://` regular file whose leading bytes are a PNG, JPEG, GIF, or
-WebP image decodes it without storing it and returns an image result with its
-format, dimensions, and a display-only thumbnail instead of text; its model
-variant lives only in the reading Run attempt's memory. A regular file
-starting with `%PDF-` is validated in the bounded PDF child without storing
-it and returns a PDF envelope with its page count and byte size. Its original
-is retained only when the attempt's model declares PDF input; image and PDF
-bytes share the epoch media window. Releasing bytes preserves sizing metadata,
-and a later attempt sees a not-retained placeholder. Every selector on an
-image or PDF is refused. `media://<id>` reads an image or PDF the Run owner
-uploaded without an executor and can replay it across attempts; it is
-read-only, takes no selector, and another owner's id is `not_found`.
+WebP image decodes it without creating a media object and returns an image
+result with its format, dimensions, and a display-only thumbnail instead of
+text; its model variant is kept in the stored part and replayed under the epoch
+media window by every later request of the epoch, until a compaction absorbs the
+row. A regular file starting with `%PDF-` is validated in the bounded PDF child
+without creating a media object and returns a PDF envelope with its page count
+and byte size; its original is kept in the stored part the same way, and image
+and PDF bytes share the epoch media window. One stored message keeps at most
+29,360,128 bytes of retained base64; a read past that bound keeps its normal
+result and records that the bound is exceeded, and each later request carries
+the limit placeholder for it. Retained bytes never reach a client response, a
+stream frame, model-facing text, or a queue job. Every selector on an image or
+PDF is refused. `media://<id>` reads an image or PDF the Run owner uploaded
+without an executor and can replay it across attempts; it is read-only, takes no
+selector, and another owner's id is `not_found`.
 
 The native host also exposes `enter_workspace({ path, worktree? })` and
 `exit_workspace({})` when both tools are allowlisted with their own permission

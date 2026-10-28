@@ -8,6 +8,10 @@ import { asDouble } from '../testing/support';
 import { createContextItemPart } from '../chats/context-item';
 import { type MessagePart } from '../chats/context-builder';
 import { projectToolObservations } from '../chats/tool-observation-part';
+
+/** The later-turn projection of one assistant row's parts. */
+const project = (parts: Parameters<typeof projectToolObservations>[0]) =>
+  projectToolObservations(parts, 'msg-1');
 import {
   REJECTED_HOP_MESSAGE,
   REJECTED_URL_BOUND,
@@ -1119,9 +1123,9 @@ describe('reconstructDurableAssistant', () => {
     expect(part).toMatchObject({ derivedDecisions: [decision] });
     expect(JSON.stringify(part).split('policy-instance-7c1f')).toHaveLength(2);
     // Model replay projects its own closed shape from the stored parts.
-    expect(
-      JSON.stringify(projectToolObservations(result.collector.parts())),
-    ).not.toContain('policy-instance-7c1f');
+    expect(JSON.stringify(project(result.collector.parts()))).not.toContain(
+      'policy-instance-7c1f',
+    );
   });
 
   it('reloads a refused address decision from durable completion metadata', () => {
@@ -1183,9 +1187,7 @@ describe('reconstructDurableAssistant', () => {
     ]);
     // The next turn replays the part: the model reads the fixed message plus
     // the target it names, so the blocked locator stays identifiable.
-    const serialized = JSON.stringify(
-      projectToolObservations(result.collector.parts()),
-    );
+    const serialized = JSON.stringify(project(result.collector.parts()));
     expect(serialized).toContain(REJECTED_HOP_MESSAGE);
     expect(serialized).toContain(`rejectedUrl: ${refusedUrl}`);
   });
@@ -1264,9 +1266,9 @@ describe('reconstructDurableAssistant', () => {
         expect(part).toHaveProperty('errorRejectedUrl', rejectedUrl);
       } else {
         expect(part).not.toHaveProperty('errorRejectedUrl');
-        expect(
-          JSON.stringify(projectToolObservations(result.collector.parts())),
-        ).not.toContain('rejectedUrl');
+        expect(JSON.stringify(project(result.collector.parts()))).not.toContain(
+          'rejectedUrl',
+        );
       }
     },
   );
@@ -1292,9 +1294,9 @@ describe('reconstructDurableAssistant', () => {
       const [part] = result.collector.parts();
 
       expect(part).not.toHaveProperty('errorRejectedUrl');
-      expect(
-        JSON.stringify(projectToolObservations(result.collector.parts())),
-      ).not.toContain('rejectedUrl');
+      expect(JSON.stringify(project(result.collector.parts()))).not.toContain(
+        'rejectedUrl',
+      );
     },
   );
 
@@ -1317,9 +1319,7 @@ describe('reconstructDurableAssistant', () => {
     const [part] = result.collector.parts();
 
     expect(part).not.toHaveProperty('errorRejectedUrl');
-    const serialized = JSON.stringify(
-      projectToolObservations(result.collector.parts()),
-    );
+    const serialized = JSON.stringify(project(result.collector.parts()));
     expect(serialized).toContain('Tool timed out.');
     expect(serialized).not.toContain('rejectedUrl');
   });
@@ -1617,7 +1617,7 @@ describe('stored tool-part classification (turn-actions D10)', () => {
       }),
     ]);
 
-    const projection = projectToolObservations(parts);
+    const projection = project(parts);
     expect(JSON.stringify(projection)).not.toContain('execute_code');
   });
 });

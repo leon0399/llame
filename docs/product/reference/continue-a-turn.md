@@ -80,9 +80,10 @@ The projection adds no user text of its own, so the request ends with the kept
 results.
 
 A kept result's media follows the same rules as a live step: a stored
-`media://` reference replays from the media store, while an image the earlier Run
-read without storing it replays as a not-retained placeholder, because a new Run
-holds no unstored media.
+`media://` reference replays from the media store, and an image or PDF the
+earlier Run read without storing it replays from the bytes the kept part
+retained, under the same media window. A kept part without retained bytes
+replays as its result text only.
 
 ## Persistence
 

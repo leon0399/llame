@@ -14,7 +14,7 @@ import { isString } from '@workspace/runtime-safety';
 import sharp from 'sharp';
 import { z } from 'zod';
 
-import type { HeldMedia } from '../media/attempt-media';
+import type { RetainedMedia } from '../media/attempt-media';
 import { type MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
@@ -1809,7 +1809,7 @@ describe('web image reads over loopback fixtures', () => {
 
   let fixture: AddressFixture;
   let images: Images;
-  let memory: Map<string, HeldMedia>;
+  let memory: Map<string, RetainedMedia>;
 
   /** The owner's store: a web image never reaches it, so any lookup fails the
    *  test. */
@@ -1928,10 +1928,7 @@ describe('web image reads over loopback fixtures', () => {
     execute(
       webContext({
         permissionPolicy: ADMIT_EVERY_LOCATOR,
-        media: createToolMediaStore(mediaService, 'owner', memory, [
-          'text',
-          'image',
-        ]),
+        media: createToolMediaStore(mediaService, 'owner', memory),
         toolCallId: CALL_ID,
         ...overrides,
       }),
@@ -1984,7 +1981,7 @@ describe('web image reads over loopback fixtures', () => {
     // The attempt keeps the model variant under the call id; nothing else
     // holds the image.
     const entry = memory.get(CALL_ID);
-    if (entry === undefined || 'pages' in entry)
+    if (entry === undefined || 'pages' in entry || 'exceeded' in entry)
       throw new Error('Expected a retained image');
     const { model, ...held } = entry;
     expect(held).toStrictEqual({
@@ -2167,7 +2164,7 @@ describe('web PDF reads over loopback fixtures', () => {
   let largePdf: Buffer;
   let encrypted: Buffer;
   let tooManyPages: Buffer;
-  let memory: Map<string, HeldMedia>;
+  let memory: Map<string, RetainedMedia>;
   const mediaService: Pick<MediaService, 'findOwned'> = {
     findOwned: () =>
       Promise.reject(new Error('An unstored PDF looked up the media store.')),
@@ -2185,10 +2182,7 @@ describe('web PDF reads over loopback fixtures', () => {
     execute(
       webContext({
         permissionPolicy: ADMIT_EVERY_LOCATOR,
-        media: createToolMediaStore(mediaService, 'owner', memory, [
-          'text',
-          'pdf',
-        ]),
+        media: createToolMediaStore(mediaService, 'owner', memory),
         toolCallId: CALL_ID,
         ...overrides,
       }),
@@ -2275,7 +2269,7 @@ describe('web PDF reads over loopback fixtures', () => {
     if (fixture) await fixture.close();
   });
 
-  it('returns an unstored PDF and keeps its original only in attempt memory', async () => {
+  it('returns an unstored PDF and retains its original as base64', async () => {
     const url = urlOf('/paper.pdf');
     const result = await read(url);
     expect(result).toEqual({
@@ -2291,8 +2285,7 @@ describe('web PDF reads over loopback fixtures', () => {
     expect(memory.get(CALL_ID)).toEqual({
       locator: url,
       pages: 15,
-      byteSize: pdf.byteLength,
-      bytes: pdf,
+      data: pdf.toString('base64'),
     });
   });
 
@@ -2304,10 +2297,8 @@ describe('web PDF reads over loopback fixtures', () => {
       pages: 15,
       byteSize: 12 * 1024 * 1024,
     });
-    const { bytes } = z
-      .object({ bytes: z.instanceof(Buffer) })
-      .parse(memory.get(CALL_ID));
-    expect(bytes.equals(largePdf)).toBe(true);
+    const { data } = z.object({ data: z.string() }).parse(memory.get(CALL_ID));
+    expect(Buffer.from(data, 'base64').equals(largePdf)).toBe(true);
   });
 
   it.each(['/declared-large.pdf', '/streamed-large.pdf'])(
@@ -2349,16 +2340,6 @@ describe('web PDF reads over loopback fixtures', () => {
       method: 'pdf',
     });
     expect(memory.get(CALL_ID)?.locator).toBe(path);
-  });
-
-  it('returns metadata without retaining PDF bytes for a text-only model', async () => {
-    const path = urlOf('/paper.pdf');
-    expect(
-      await read(path, {
-        media: createToolMediaStore(mediaService, 'owner', memory, ['text']),
-      }),
-    ).toMatchObject({ status: 'success', kind: 'pdf', pages: 15 });
-    expect(memory.get(CALL_ID)).toEqual({ locator: path, pages: 15 });
   });
 
   it('disqualifies PDF alternate, suffix, and llms.txt candidates', async () => {

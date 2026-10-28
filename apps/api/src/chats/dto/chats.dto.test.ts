@@ -562,6 +562,100 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
 
     expect(toChatMessageResponse(message).parts).toEqual(parts);
   });
+
+  it('omits retained read bytes from a tool part and a prompt-import entry, changing nothing else', () => {
+    const retainedMedia = {
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+    };
+    const toolPart = {
+      type: 'tool-read',
+      toolCallId: 'call-1',
+      state: 'output-available',
+      input: { path: '/work/shot.png' },
+      output: {
+        kind: 'image',
+        mediaType: 'image/png',
+        width: 1600,
+        height: 900,
+        path: '/work/shot.png',
+        thumbnail: 'data:image/webp;base64,AAAA',
+      },
+      retainedMedia,
+    };
+    const importsPart = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'prompt-imports',
+        form: 'notice',
+        text: 'Imported 1 target.',
+        payload: {
+          imports: [
+            {
+              locator: 'shot.png',
+              outcome: 'imported',
+              width: 1600,
+              height: 900,
+              mediaType: 'image/png',
+              retainedMedia,
+            },
+          ],
+        },
+      },
+    };
+    const message: Message = {
+      id: 'm-assistant',
+      chatId: 'chat-owner',
+      seq: 8,
+      absorbedThroughSeq: null,
+      role: 'assistant',
+      senderUserId: null,
+      parts: [toolPart, importsPart],
+      attachments: [],
+      usage: null,
+      inReplyTo: 'm-owner',
+      createdAt: new Date('2026-08-25T00:00:01.000Z'),
+      revisedAt: null,
+    };
+
+    const response = toChatMessageResponse(message);
+
+    expect(response.parts).toEqual([
+      {
+        type: 'tool-read',
+        toolCallId: 'call-1',
+        state: 'output-available',
+        input: { path: '/work/shot.png' },
+        output: toolPart.output,
+      },
+      {
+        type: 'data-context',
+        data: {
+          v: 1,
+          producer: 'prompt-imports',
+          form: 'notice',
+          text: 'Imported 1 target.',
+          payload: {
+            imports: [
+              {
+                locator: 'shot.png',
+                outcome: 'imported',
+                width: 1600,
+                height: 900,
+                mediaType: 'image/png',
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    expect(JSON.stringify(response)).not.toContain(retainedMedia.data);
+    // The stored row keeps its bytes: a later request replays them.
+    expect(JSON.stringify(message)).toContain(retainedMedia.data);
+  });
 });
 
 it('adds checkpoint boundary, payload summary, count, and usage stats to owner rows', () => {

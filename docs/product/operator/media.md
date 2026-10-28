@@ -1,11 +1,12 @@
 ---
-summary: "Media store: owner images and PDFs in Postgres, ingest bounds, PDF parsing bounds, upload and fetch routes, message file parts, models[].input, the media window, sharp, growth, and the no-deletion gap"
+summary: "Media store: owner images and PDFs in Postgres, ingest bounds, PDF parsing bounds, upload and fetch routes, message file parts, models[].input, the media window, retained read media, sharp, growth, and the no-deletion gap"
 read_when:
   - you are deploying a release that ships the media store or building its production image
-  - you are sizing the database or backups for stored images
+  - you are sizing the database or backups for stored images or retained reads
   - you are declaring which models accept images or PDFs
   - you are troubleshooting an image or PDF upload or fetch
   - you are sending images or PDFs in a chat message through the API
+  - you are rolling back a release whose reads retained their bytes in chat rows
 ---
 
 # Media store
@@ -15,10 +16,10 @@ one media object owned by exactly one owner, addressed as `media://<id>`, and
 kept in the same Postgres database as the rest of the application state. This
 release ships the store, its upload and fetch routes, image and PDF
 attachments on owner messages, the per-model input declaration, and image and
-PDF reads through `read`: local, `kb://`, and `skill://` files are prepared
-without storing them, with model bytes kept only in the reading Run attempt's
-memory. `media://<id>` reads an uploaded image or PDF across turns; see
-[media://](../reference/locators/media.md).
+PDF reads through `read`: local, `kb://`, `skill://`, and web files are prepared
+without creating a media object, and their bytes stay in the chat row under
+[retained read media](#retained-read-media). `media://<id>` reads an uploaded
+image or PDF across turns; see [media://](../reference/locators/media.md).
 
 There is nothing to enable: the store has no configuration keys, and its bounds
 are fixed by the application. Models opt into receiving images and PDFs with
@@ -110,8 +111,8 @@ refused as well. So is a PDF whose parse exceeds a bound in
 
 Ingest stores only a PDF's original and builds no model variant: an attached
 PDF reaches a model as its original (see [PDF attachments](#pdf-attachments)).
-`read` also returns a stored PDF from its `media://` locator; unstored PDF
-reads retain bytes only in the reading attempt. See
+`read` also returns a stored PDF from its `media://` locator; an unstored PDF
+read keeps its original in the chat row. See
 [PDF reads](../reference/tools/read.md#pdf-result).
 
 ### Model variant
@@ -338,22 +339,24 @@ while three bounds hold together:
   reserve `runs.maxOutputTokens` (0 when unset). With no reserve that is 53
   pages on a 200,000-token model, 34 on 128,000, and 100 from 375,000 up.
 
-The page bound alone depends on configuration. Only a reference whose
-kind the request's model declares counts: an image on a model without `image`
-input and a PDF on a model without `pdf` input take the omitted placeholder
-and consume no budget. The first reference past any bound, and every newer one
-in that epoch, reaches the model as
+The page bound alone depends on configuration. A reference is an owner
+attachment, a `media://` object, or a read or import entry that kept its bytes
+under [retained read media](#retained-read-media); a result without retained
+bytes is none. Only a reference whose kind the request's model declares counts:
+an image on a model without `image` input and a PDF on a model without `pdf`
+input take the omitted placeholder and consume no budget. The first reference
+past any bound, and every newer one in that epoch, reaches the model as
 `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`
 or `[pdf media://<id> <name> <P> pages, not attached: this context's PDF limit is reached]`.
 Attachment never changes for an earlier reference, so the request prefix
 stays stable for provider prompt caching.
 
 Before a Run's first step, unattached images or PDFs count as reaching the
-compaction threshold when an earlier message carries a stored reference of a
-kind the model declares. The summary keeps the locator of every image or PDF
-it mentions, `media://` or the path or URL it was read from, and the new epoch
-attaches media again from the start. A failed compaction never fails the Run;
-the placeholders stay until a later compaction succeeds.
+compaction threshold when an earlier message carries a stored or retained
+reference of a kind the model declares. The summary keeps the locator of every
+image or PDF it mentions, `media://` or the path or URL it was read from, and
+the new epoch attaches media again from the start. A failed compaction never
+fails the Run; the placeholders stay until a later compaction succeeds.
 
 Admission and compaction estimates leave image and PDF bytes out. Each image
 is charged `ceil(width × height / 750)` tokens on its model variant's
@@ -361,6 +364,38 @@ dimensions, so a 2000×1125 variant counts as 3,000 tokens, and each attached
 PDF 3,000 tokens per page, so a 15-page PDF counts as 45,000 tokens. Because
 the page bound leaves 20% of the window and the output reserve free, attached
 PDFs alone never make a request too large for its model.
+
+### Retained read media
+
+An image or PDF that `read` returns, and an image or PDF that a `@` import
+brings in, keeps its bytes in the chat: the model variant of an image and the
+original of a PDF, base64-encoded in the `retainedMedia` field beside the
+result of the stored part, the stored import entry, and the Run's server-side
+`tool.completed` and `run.continued` events. The chat owns them as it owns any
+other part: deleting the chat deletes them, an owner fork copies them with the
+rows it copies, and no media object is created, so the media list and the media
+tables do not grow.
+
+Every request of the epoch replays them under the [media window](#media-window)
+until a compaction absorbs the row, and the request's model must declare the
+kind to receive it; otherwise the read takes the placeholder of its kind.
+Because the bytes sit in the row, a later turn costs the image's tokens again
+rather than a re-read.
+
+One stored message keeps at most 28 MiB (29,360,128 bytes) of retained base64
+across its parts, the window's own byte bound. A read settles in order against
+the rest of that bound, seeded from the kept parts of a Continue Run: a read
+past it still succeeds, keeps no bytes, and records that the bound is exceeded,
+so each later request carries the limit placeholder for it. Postgres loads a
+row's parts whole, so history pages and forks detoast these rows; the API strips
+`retainedMedia` from every client response, stream frame, and queue job, so the
+bytes never leave the server except as an attached image or PDF in a provider
+request.
+
+Before a rollback to a release that predates retention, strip `retainedMedia`
+from `messages.parts` and `run_events.payload`. The earlier code sends whatever
+the row holds to the owner's browser and rejects a `prompt-imports` entry it
+does not recognize.
 
 ### Text-only views
 

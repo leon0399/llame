@@ -6,6 +6,7 @@ import { type MediaDescriber } from '../media/media.service';
 import { BadRequestException } from '@nestjs/common';
 import { type ClientMessagePart } from './context-item';
 import { type MessagePart } from './context-builder';
+import { withoutRetainedMedia } from './retained-media-egress';
 import { type RunUserMessage } from '../runs/run-execution.service';
 
 /*
@@ -37,7 +38,10 @@ export function toRunUserMessage(message: Message): RunUserMessage {
   return {
     id: message.id,
     seq: message.seq,
-    parts: toMessageParts(message.parts),
+    // A queue job never carries retained read bytes (retain-read-media D4): the
+    // worker reads the triggering row from the database and replays its media
+    // from there.
+    parts: toMessageParts(withoutRetainedMedia(message.parts)),
   };
 }
 

@@ -39,6 +39,7 @@ import {
 } from '../../tools/permissions/permission-mode';
 import { ChatLatestRunResponse } from './latest-run.dto';
 import { CreateMessageBodyDto } from './message-parts.dto';
+import { withoutRetainedMedia } from '../retained-media-egress';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
@@ -524,7 +525,7 @@ export function toChatMessageResponse(
     seq: message.seq,
     role: message.role,
     senderUserId: message.senderUserId,
-    parts: message.parts,
+    parts: withoutRetainedMedia(message.parts),
     attachments: message.attachments,
     usage: isRecord(message.usage) ? message.usage : null,
     inReplyTo: message.inReplyTo,

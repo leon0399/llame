@@ -364,6 +364,141 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(anonymousRead.status).toBe(401);
   });
 
+  it('omits retained read bytes from the owner history and reveals nothing to another owner', async () => {
+    const retainedChatId = await createChat(userAId, 'Retained read API Chat');
+    // Base64 of "RETAINEDBYTES": a marker no other response field can produce.
+    const retainedData = 'UkVUQUlORURCWVRFUw==';
+    const retainedMedia = {
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      data: retainedData,
+    };
+    const imports = {
+      locator: 'shot.png',
+      outcome: 'imported',
+      width: 1600,
+      height: 900,
+      mediaType: 'image/png',
+      retainedMedia,
+    };
+    const toolPart = {
+      type: 'tool-read',
+      toolCallId: 'call-1',
+      state: 'output-available',
+      input: { path: '/work/shot.png' },
+      output: {
+        kind: 'image',
+        mediaType: 'image/png',
+        width: 1600,
+        height: 900,
+        path: '/work/shot.png',
+        thumbnail: 'data:image/webp;base64,AAAA',
+      },
+      retainedMedia,
+    };
+    let userMessageId = '';
+
+    await tenantDb.runAs(userAId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      const userMessage = await messagesRepo.create({
+        chatId: retainedChatId,
+        role: 'user',
+        senderUserId: userAId,
+        parts: [
+          { type: 'text', text: 'look at @shot.png' },
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'prompt-imports',
+              form: 'notice',
+              text: 'Imported 1 target.',
+              payload: { imports: [imports] },
+            },
+          },
+        ],
+      });
+      userMessageId = userMessage.id;
+      await messagesRepo.create({
+        chatId: retainedChatId,
+        role: 'assistant',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'It is an image.' }, toolPart],
+        attachments: [],
+        inReplyTo: userMessageId,
+      });
+    });
+
+    const ownerRead = await request(http)
+      .get(`/api/v1/chats/${retainedChatId}/messages`)
+      .set('Cookie', cookieA);
+
+    expect(ownerRead.status).toBe(200);
+    expect(ownerRead.text).not.toContain(retainedData);
+    expect(ownerRead.body).toMatchObject({
+      messages: [
+        {
+          role: 'user',
+          parts: [
+            { type: 'text', text: 'look at @shot.png' },
+            {
+              type: 'data-context',
+              data: {
+                v: 1,
+                producer: 'prompt-imports',
+                form: 'notice',
+                text: 'Imported 1 target.',
+                payload: {
+                  imports: [
+                    {
+                      locator: 'shot.png',
+                      outcome: 'imported',
+                      width: 1600,
+                      height: 900,
+                      mediaType: 'image/png',
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          parts: [
+            { type: 'text', text: 'It is an image.' },
+            {
+              type: 'tool-read',
+              toolCallId: 'call-1',
+              state: 'output-available',
+              input: { path: '/work/shot.png' },
+              output: toolPart.output,
+            },
+          ],
+        },
+      ],
+    });
+
+    const foreignRead = await request(http)
+      .get(`/api/v1/chats/${retainedChatId}/messages`)
+      .set('Cookie', cookieB);
+
+    expect(foreignRead.status).toBe(404);
+    expect(foreignRead.text).not.toContain(retainedData);
+    expect(foreignRead.body).not.toHaveProperty('messages');
+
+    // The stored row keeps its bytes: the next request replays them.
+    const stored = await tenantDb.runAs(userAId, (tx) =>
+      new MessagesRepository(tx).findById(
+        retainedChatId,
+        userAId,
+        userMessageId,
+      ),
+    );
+    expect(JSON.stringify(stored?.parts)).toContain(retainedData);
+  });
+
   it('reports the latest Run of the Chat from the same read as its messages', async () => {
     const runChatId = await createChat(userAId, 'Latest run API Chat');
     const userMessageId = crypto.randomUUID();

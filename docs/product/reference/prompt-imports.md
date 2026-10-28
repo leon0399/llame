@@ -162,21 +162,19 @@ A target whose `read` returns an image, such as `@shot.png` or
 and path, never the image bytes or its thumbnail. An image `read` refuses,
 such as one over 40 megapixels, is reported as not imported.
 
-An image read from a file, Knowledge, a skill, or a URL is not stored. The
-worker decodes it and keeps the model variant only in the memory of the Run
-attempt that imported it. Right after the notice's text, a
+An image read from a file, Knowledge, a skill, or a URL creates no media
+object. The worker decodes it and keeps the model variant with the import entry
+in the stored message. Right after the notice's text, a
 [vision model](../operator/media.md#model-input) receives it as an image
-part in that attempt's requests, if the epoch image window admits it when the
-attempt's first request is composed (after any compaction); otherwise it gets
-the `not attached` placeholder. Every later request, whether a later turn, a
-retry or resume, a compaction, or a fork, gets
-`[image "shot.png" W×H, not retained]`, naming the locator as you wrote it as a
-JSON string literal. A text-only model always gets
-`[image "shot.png" W×H, omitted: this model has no image input]`.
+part in this attempt's requests and in every later request of the epoch — a
+later turn, a retry or resume, a compaction, or an owner fork — if the epoch
+image window admits it; otherwise it gets the `not attached` placeholder naming
+the locator as you wrote it as a JSON string literal. A text-only model always
+gets `[image "shot.png" W×H, omitted: this model has no image input]`.
 
 An `@media://<id>` import names an image you
-[stored](locators/media.md) and stores nothing new. A vision model receives it
-from the store in that turn and every later one, under the same window; a
+[stored](locators/media.md) and creates no media object. A vision model receives
+it from the store in that turn and every later one, under the same window; a
 text-only model, or an image outside the window, gets the matching
 `[image media://<id> …]` placeholder.
 
@@ -189,11 +187,11 @@ or oversized PDF that `read` refuses is reported only as not imported.
 For a PDF imported from a host file, Knowledge, a skill, or the web, a model
 declaring `pdf` input receives the original as a native file part immediately
 after the notice's text, if the shared media window admits it. The original
-stays only in that importing attempt's memory; no media object is created.
-Outside the window the model gets
-`[pdf "paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`;
-a later turn, retry, or resumed attempt gets
-`[pdf "paper.pdf" 15 pages, not retained]`. A model without PDF input always gets
+stays with the entry in the stored message, and no media object is created, so
+every later request of the epoch replays it under the same window. Outside the
+window the model gets
+`[pdf "paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`.
+A model without PDF input always gets
 `[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]`.
 The quoted locator is the marker's locator encoded as a JSON string.
 
@@ -226,9 +224,9 @@ further read: a target cut off that way is omitted, never reported as failed.
 A retry or worker resumption reuses the stored item and reads nothing that
 completed, in the original order; a target whose read started but did not
 complete is admitted and read afresh. A file edited after the turn is not read
-again. Image and PDF entries are reused as stored, so a new attempt gets the
-not-retained placeholder for media that was not stored, and a `media://`
-entry still replays from the store.
+again. Image and PDF entries are reused as stored, so a new attempt replays
+their retained bytes under the same window, and a `media://` entry still replays
+from the store.
 
 Imports run after the attempt's Workspace binding re-check. An attempt that
 detaches the Workspace imports nothing and its markers stay prose; an item an

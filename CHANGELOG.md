@@ -1,5 +1,31 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-28
+
+- **BREAKING: an unstored image or PDF read is now kept until compaction.**
+  `read` used to keep a read image or PDF only in the reading attempt's
+  memory: the rest of the turn saw it, and every later request — a later turn,
+  a retry or resume, a Continue, a compaction, or a fork — got
+  `[image "<path>" W×H, not retained]` or `[pdf "<path>" <P> pages, not
+  retained]` and had to read the locator again. Those placeholders are gone.
+  The model variant of an image and the original of a PDF now stay in the
+  chat: in a `retainedMedia` field beside the `tool-read` part's result, in the
+  `tool.completed` and `run.continued` events of the Run, and in an unstored
+  `prompt-imports` entry. Every request of the epoch replays them under the
+  epoch media window, as it replays a stored `media://` object, and a result
+  stored before this release replays as its result text only. A read past its
+  message's bound of 29,360,128 base64 bytes still succeeds, keeps no bytes,
+  and takes the limit placeholder. No byte reaches a client: the history
+  response, the run event stream, and the Continue and Regenerate job payloads
+  strip `retainedMedia`, and an owner fork still copies the rows' bytes with
+  the chat. Operators: the bytes now count toward chat-row and run-event
+  storage rather than only memory, they are deleted with the chat, an owner
+  fork's inserts are chunked by part size so one statement stays under 256 MiB,
+  and a rollback needs a strip of `retainedMedia` from `messages.parts` and
+  `run_events.payload` first. See
+  [Media store](docs/product/operator/media.md#retained-read-media) and
+  [read](docs/product/reference/tools/read.md#image-result).
+
 # 2026-10-27
 
 - The latest turn's answer now offers Continue and Regenerate in the web. Continue

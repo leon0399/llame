@@ -3,7 +3,11 @@ import type { FilePart, ImagePart, ModelMessage, ToolResultPart } from 'ai';
 import { z } from 'zod';
 
 import type { ModelInput } from '../models/model-catalog';
-import type { HeldMedia, UnstoredMedia } from './attempt-media';
+import {
+  retainedEntrySize,
+  type RetainedMedia,
+  type UnstoredMedia,
+} from './attempt-media';
 import type { MediaDescriptor, RunMediaResolver } from './media-descriptors';
 import { mediaLocator, parseMediaLocator } from './media-locator';
 import { PDF_MAX_PAGES } from './pdf-preparation';
@@ -61,50 +65,42 @@ export function pdfPageBound(ctx: MediaAdmissionContext): number {
 }
 
 /**
- * An unstored reference's modality and size, independent of whether its bytes
- * have been released. Keeping the size re-derives append-only window admission.
+ * A retained reference as the window sees it: the exact base64 size its entry
+ * holds, its pages for a PDF, or the record of a read past its message bound,
+ * which latches the window without costing anything.
  */
-export type UnstoredMediaRef =
-  | { readonly unstored: 'not-retained'; readonly kind: 'image' | 'pdf' }
+export type RetainedMediaRef =
+  | { readonly retained: 'image'; readonly byteSize: number }
   | {
-      readonly unstored: 'held';
-      readonly kind: 'image';
-      readonly modelByteSize: number;
-    }
-  | {
-      readonly unstored: 'held';
-      readonly kind: 'pdf';
+      readonly retained: 'pdf';
       readonly byteSize: number;
       readonly pages: number;
-    };
+    }
+  | { readonly retained: 'exceeded'; readonly kind: 'image' | 'pdf' };
 
-/** One media reference of a request: a `media://` id or an unstored media. */
-export type EpochMediaRef = string | UnstoredMediaRef;
+/** One media reference of a request: a `media://` id or a retained media. */
+export type EpochMediaRef = string | RetainedMediaRef;
 
 /** A stored id or an attempt-local reference keyed by its tool call or import. */
 export type MediaRef = string | UnstoredRef;
 
-export type MediaAdmission =
-  | 'attached'
-  | 'limit'
-  | 'omitted'
-  | 'unavailable'
-  | 'not-retained';
+export type MediaAdmission = 'attached' | 'limit' | 'omitted' | 'unavailable';
 
 /** What one attachable reference counts toward the window's bounds. */
 type WindowCost = { bytes: number; images: number; pages: number };
 
 /**
  * The epoch media window (vision-media D6, Q22; pdf-media D5): references in
- * request order, oldest first, a repeated id counting again. Only attachable
- * references count: one of a kind `ctx.input` declares, and either a
- * `media://` id the owner's store resolves or an unstored image the attempt's
- * memory holds an entry for. An unresolvable id is `unavailable`, a resolvable
- * reference of an undeclared kind `omitted`, and an unstored image without an
- * entry `not-retained`; none counts toward anything. Attachable references
- * attach while at most 100 images, 28 MiB of base64 (an image's model variant,
- * a PDF's original), and `pdfPageBound(ctx)` PDF pages hold; the first one
- * that would exceed any bound, and every later attachable one, is `limit`.
+ * request order, oldest first, a repeated reference counting again. Only
+ * attachable references count: one of a kind `ctx.input` declares, and either a
+ * `media://` id the owner's store resolves or a retained entry the attempt holds
+ * bytes for. An unresolvable id is `unavailable` and a reference of an
+ * undeclared kind `omitted`; neither counts toward anything. Attachable
+ * references attach while at most 100 images, 28 MiB of base64 (an image's
+ * model variant, a PDF's original), and `pdfPageBound(ctx)` PDF pages hold; the
+ * first one that would exceed any bound, and every later attachable one, is
+ * `limit`. A read past its message bound is the first such reference: it
+ * latches the window and adds no cost.
  *
  * Append-only: the statuses of a prefix of `refs` never depend on what follows
  * it, so a request prefix keeps its attachments as turns and steps are added.
@@ -119,6 +115,10 @@ export function admitEpochMedia(
   let full = false;
   return refs.map((ref) => {
     const cost = windowCost(ref, descriptors, ctx.input);
+    if (cost === 'exceeded') {
+      full = true;
+      return 'limit';
+    }
     if (isString(cost)) return cost;
     full ||=
       used.images + cost.images > EPOCH_MAX_IMAGES ||
@@ -140,13 +140,15 @@ function windowCost(
   ref: EpochMediaRef,
   descriptors: ReadonlyMap<string, MediaDescriptor>,
   input: ReadonlyArray<ModelInput>,
-): WindowCost | 'unavailable' | 'omitted' | 'not-retained' {
+): WindowCost | 'unavailable' | 'omitted' | 'exceeded' {
   if (!isString(ref)) {
-    if (!input.includes(ref.kind)) return 'omitted';
-    if (ref.unstored === 'not-retained') return 'not-retained';
-    return ref.kind === 'pdf'
-      ? { bytes: base64Size(ref.byteSize), images: 0, pages: ref.pages }
-      : { bytes: base64Size(ref.modelByteSize), images: 1, pages: 0 };
+    if (ref.retained === 'exceeded') {
+      return input.includes(ref.kind) ? 'exceeded' : 'omitted';
+    }
+    if (!input.includes(ref.retained)) return 'omitted';
+    return ref.retained === 'pdf'
+      ? { bytes: ref.byteSize, images: 0, pages: ref.pages }
+      : { bytes: ref.byteSize, images: 1, pages: 0 };
   }
   const d = descriptors.get(ref);
   if (d === undefined) return 'unavailable';
@@ -201,7 +203,15 @@ const mediaReadResultSchema = z.union([
   }),
 ]);
 
-const unstoredMediaSchema = z.union([unstoredImageSchema, unstoredPdfSchema]);
+/**
+ * An unstored media reference of a request, keyed by the marker that names it:
+ * a stored part's `<message id>:<part index>`, a Continue kept part's
+ * `continued:<part index>`, a prompt import's entry key, or a live read's tool
+ * call id. The marker carries its key, so a request loads its bytes from the
+ * attempt's map without knowing which row produced it.
+ */
+export type UnstoredRef = UnstoredMedia & { key: string };
+
 const unstoredRefSchema = z.union([
   unstoredImageSchema.extend({ key: z.string() }),
   unstoredPdfSchema.extend({ key: z.string() }),
@@ -239,25 +249,36 @@ export function userImagePart(ref: MediaRef): ImagePart {
 }
 
 /**
- * The unstored media a tool output's `custom` reference part names, or
+ * The retained media a tool output's `custom` reference part names, or
  * undefined. The part is llame's own: the step composer replaces it on every
  * step, so it never reaches a provider adapter.
  */
 export function toolOutputUnstoredMedia(
   part: ToolContentPart,
-): UnstoredMedia | undefined {
+): UnstoredRef | undefined {
   if (part.type !== 'custom') return undefined;
-  const parsed = unstoredMediaSchema.safeParse(
+  const parsed = unstoredRefSchema.safeParse(
     part.providerOptions?.[UNSTORED_MEDIA_OPTION],
   );
   return parsed.success ? parsed.data : undefined;
 }
 
 /**
- * The media a `read` result names: a stored image id or typed PDF id, or an
- * unstored file's submitted locator and dimensions or page count.
+ * The media a `read` result names before a marker gives it a key: a stored
+ * image id or typed PDF id, or an unstored file's submitted locator and
+ * dimensions or page count.
  */
-export type ToolMediaRef = string | { kind: 'pdf'; id: string } | UnstoredMedia;
+export type ReadMediaRef = string | { kind: 'pdf'; id: string } | UnstoredMedia;
+
+/** A request's media reference: a stored object, or retained bytes by key. */
+export type ToolMediaRef = string | { kind: 'pdf'; id: string } | UnstoredRef;
+
+/** Whether a reference names retained bytes rather than a stored object. */
+export function isUnstoredMedia(
+  ref: ReadMediaRef | undefined,
+): ref is UnstoredMedia {
+  return ref !== undefined && !isString(ref) && !('id' in ref);
+}
 
 /** The locator a native `read` call submitted, or undefined. */
 export function submittedLocator(input: unknown): string | undefined {
@@ -273,7 +294,7 @@ export function submittedLocator(input: unknown): string | undefined {
 export function mediaResultRef(
   result: unknown,
   locator: string | undefined,
-): ToolMediaRef | undefined {
+): ReadMediaRef | undefined {
   const parsed = mediaReadResultSchema.safeParse(result);
   if (!parsed.success) return undefined;
   const metadata = parsed.data;
@@ -319,23 +340,13 @@ export function toolResultOutput(
 }
 
 /**
- * An unstored media reference of a request, keyed by its tool call id or its
- * prompt-import entry.
- */
-export type UnstoredRef = UnstoredMedia & { key: string };
-
-/**
- * The reference one item of the tool result with call id `key` carries: a
- * `media://` id, an unstored image or PDF, or undefined.
+ * The reference one item of a tool result carries: a `media://` id, a retained
+ * image or PDF, or undefined.
  */
 export function toolItemRef(
   item: ToolContentPart,
-  key: string,
 ): string | UnstoredRef | undefined {
-  const unstored = toolOutputUnstoredMedia(item);
-  return unstored === undefined
-    ? toolOutputMediaRef(item)
-    : { ...unstored, key };
+  return toolOutputUnstoredMedia(item) ?? toolOutputMediaRef(item);
 }
 
 /**
@@ -364,7 +375,7 @@ export function collectMediaRefs(
     return message.content.flatMap((part) =>
       part.type === 'tool-result' && part.output.type === 'content'
         ? part.output.value.flatMap((item) => {
-            const image = toolItemRef(item, part.toolCallId);
+            const image = toolItemRef(item);
             return image === undefined ? [] : [image];
           })
         : [],
@@ -384,15 +395,15 @@ export function collectMediaRefs(
  */
 export type MediaSizing = {
   descriptors: ReadonlyMap<string, MediaDescriptor>;
-  held: ReadonlyMap<string, HeldMedia>;
+  retained: ReadonlyMap<string, RetainedMedia>;
   statuses: ReadonlyArray<MediaAdmission>;
   context: MediaAdmissionContext;
 };
 
 /**
- * Collect `messages`' references, describe the stored ones, look the unstored
- * ones up in the attempt's memory, and admit them under `context`; `refs` are
- * the references `statuses` are aligned with.
+ * Collect `messages`' references, describe the stored ones, look the retained
+ * ones up in the attempt's map, and admit them under `context`; `refs` are the
+ * references `statuses` are aligned with.
  */
 export async function loadMediaSizing(
   messages: ReadonlyArray<ModelMessage>,
@@ -401,18 +412,18 @@ export async function loadMediaSizing(
 ): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
   const refs = collectMediaRefs(messages);
   const descriptors = await resolver.describe(refs.filter(isString));
-  const held = new Map<string, HeldMedia>();
+  const retained = new Map<string, RetainedMedia>();
   for (const ref of refs) {
     if (isString(ref)) continue;
-    const entry = resolver.heldMedia.get(ref.key);
-    if (entry !== undefined) held.set(ref.key, entry);
+    const entry = resolver.retainedMedia.get(ref.key);
+    if (entry !== undefined) retained.set(ref.key, entry);
   }
   return {
     refs,
     descriptors,
-    held,
+    retained,
     statuses: admitEpochMedia(
-      refs.map((ref) => epochRef(ref, held)),
+      refs.map((ref) => epochRef(ref, retained)),
       descriptors,
       context,
     ),
@@ -421,29 +432,24 @@ export async function loadMediaSizing(
 }
 
 /**
- * A request reference as the epoch window sees it. Released entries retain
- * sizing, so the append-only window re-derives their refusal. An entry that
- * never held bytes for its modality is `not-retained`.
+ * A request reference as the epoch window sees it. Every marker names an entry
+ * — its producer emits one only for a part or entry that keeps bytes — so a
+ * marker without one is a defect, not a state to describe.
  */
 function epochRef(
   ref: string | UnstoredRef,
-  held: ReadonlyMap<string, HeldMedia>,
+  retained: ReadonlyMap<string, RetainedMedia>,
 ): EpochMediaRef {
   if (isString(ref)) return ref;
-  const kind = 'pages' in ref ? 'pdf' : 'image';
-  const entry = held.get(ref.key);
-  if (entry === undefined) return { unstored: 'not-retained', kind };
-  if (kind === 'pdf' && 'pages' in entry) {
-    const byteSize = entry.bytes?.byteLength ?? entry.byteSize;
-    return byteSize === undefined
-      ? { unstored: 'not-retained', kind }
-      : { unstored: 'held', kind: 'pdf', byteSize, pages: entry.pages };
+  const entry = retained.get(ref.key);
+  if (entry === undefined) {
+    throw new Error(`Retained media entry missing for ${ref.key}`);
   }
-  if (kind === 'image' && !('pages' in entry)) {
-    const modelByteSize = entry.model?.bytes.byteLength ?? entry.modelByteSize;
-    return modelByteSize === undefined
-      ? { unstored: 'not-retained', kind }
-      : { unstored: 'held', kind: 'image', modelByteSize };
+  if ('exceeded' in entry) {
+    return { retained: 'exceeded', kind: 'pages' in ref ? 'pdf' : 'image' };
   }
-  return { unstored: 'not-retained', kind };
+  const byteSize = retainedEntrySize(entry);
+  return 'pages' in entry
+    ? { retained: 'pdf', byteSize, pages: entry.pages }
+    : { retained: 'image', byteSize };
 }

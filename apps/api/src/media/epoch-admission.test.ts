@@ -191,13 +191,13 @@ describe('admitEpochMedia', () => {
     expect(statuses).toEqual(['omitted', ...range(5).map(() => 'attached')]);
   });
 
-  it('omits an image on a model without image input, held or not', () => {
+  it('omits a retained image on a model without image input, exceeded or not', () => {
     const id = mediaId(1);
     const statuses = admit(
       [
         id,
-        { unstored: 'held', kind: 'image', modelByteSize: 3 },
-        { unstored: 'not-retained', kind: 'image' },
+        { retained: 'image', byteSize: 3 },
+        { retained: 'exceeded', kind: 'image' },
       ],
       [descriptor(id)],
       model(['text', 'pdf']),
@@ -257,35 +257,61 @@ describe('admitEpochMedia', () => {
     expect(statuses[101]).toBe('unavailable');
   });
 
-  it('never counts a not-retained read: 99 attachments, an earlier read, and one more attach all 100', () => {
+  it('counts a retained read as one image: 99 attachments, a read, and one more', () => {
     const owner = range(100).map(mediaId);
     const statuses = admit(
       [
         ...owner.slice(0, 99),
-        { unstored: 'not-retained', kind: 'image' },
+        { retained: 'image', byteSize: 4 },
         ...owner.slice(99),
       ],
       owner.map((id) => descriptor(id)),
     );
 
-    expect(statuses[99]).toBe('not-retained');
+    expect(statuses[99]).toBe('attached');
     expect(statuses.filter((status) => status === 'attached')).toHaveLength(
       100,
     );
+    expect(statuses[100]).toBe('limit');
   });
 
-  it('sizes an unstored image held with bytes like a stored one', () => {
-    const held = {
-      unstored: 'held',
-      kind: 'image',
-      modelByteSize: FIVE_MIB_BASE64_RAW,
+  it('sizes a retained image by its exact base64 length', () => {
+    const fiveMiB = 5 * 2 ** 20;
+    const retained = {
+      retained: 'image',
+      byteSize: fiveMiB,
     } as const;
     const statuses = admit(
-      range(6).map(() => held),
+      range(6).map(() => retained),
       [],
     );
 
     expect(statuses).toEqual([...range(5).map(() => 'attached'), 'limit']);
+  });
+
+  it('sizes a retained PDF by its exact base64 length and its pages', () => {
+    const retained = {
+      retained: 'pdf',
+      byteSize: 5 * 2 ** 20,
+      pages: 10,
+    } as const;
+    const statuses = admit(
+      range(6).map(() => retained),
+      [],
+      VISION_PDF,
+    );
+
+    expect(statuses).toEqual([...range(5).map(() => 'attached'), 'limit']);
+  });
+
+  it('latches the window at a read past its message bound without costing anything', () => {
+    const [image = '', later = ''] = range(2).map(mediaId);
+    const statuses = admit(
+      [image, { retained: 'exceeded', kind: 'image' }, later],
+      [descriptor(image), descriptor(later)],
+    );
+
+    expect(statuses).toEqual(['attached', 'limit', 'limit']);
   });
 });
 
@@ -385,7 +411,7 @@ describe('collectMediaRefs', () => {
             type: 'tool-result',
             toolCallId: 'c3',
             toolName: 'read',
-            output: toolResultOutput('envelope', SHOT),
+            output: toolResultOutput('envelope', { ...SHOT, key: 'c3' }),
           },
         ],
       },
@@ -508,16 +534,20 @@ describe('loadMediaSizing', () => {
     expect(loads).toEqual([]);
   });
 
-  it("admits unstored references by what the attempt's memory holds for them", async () => {
+  it('admits retained references by the entries the attempt holds', async () => {
     const { resolver } = fakeResolver([]);
-    const variant = {
-      bytes: Buffer.alloc((EPOCH_MAX_BASE64_BYTES * 3) / 4),
-      mediaType: 'image/png' as const,
-      width: 1600,
-      height: 900,
+    const variant = Buffer.alloc((EPOCH_MAX_BASE64_BYTES * 3) / 4);
+    const entry = {
+      ...SHOT,
+      model: {
+        mediaType: 'image/png' as const,
+        width: 1600,
+        height: 900,
+        data: variant.toString('base64'),
+      },
     };
-    resolver.heldMedia.set('c1', { ...SHOT, model: variant });
-    resolver.heldMedia.set('c2', { ...SHOT, model: variant });
+    resolver.retainedMedia.set('c1', entry);
+    resolver.retainedMedia.set('c2', entry);
     const result = (toolCallId: string): ModelMessage => ({
       role: 'tool',
       content: [
@@ -525,28 +555,55 @@ describe('loadMediaSizing', () => {
           type: 'tool-result',
           toolCallId,
           toolName: 'read',
-          output: toolResultOutput('envelope', SHOT),
+          output: toolResultOutput('envelope', { ...SHOT, key: toolCallId }),
         },
       ],
     });
 
     const sizing = await loadMediaSizing(
-      [result('c0'), result('c1'), result('c2')],
+      [result('c1'), result('c2')],
       resolver,
       VISION,
     );
 
-    expect(sizing.statuses).toEqual(['not-retained', 'attached', 'limit']);
-    expect([...sizing.held.keys()]).toEqual(['c1', 'c2']);
+    expect(sizing.statuses).toEqual(['attached', 'limit']);
+    expect([...sizing.retained.keys()]).toEqual(['c1', 'c2']);
   });
 
-  it('keeps a released PDF beyond the append-only byte window', async () => {
+  it('throws for a marker the attempt holds no entry for', async () => {
+    const { resolver } = fakeResolver([]);
+
+    await expect(
+      loadMediaSizing(
+        [
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'c1',
+                toolName: 'read',
+                output: toolResultOutput('envelope', { ...SHOT, key: 'c1' }),
+              },
+            ],
+          },
+        ],
+        resolver,
+        VISION,
+      ),
+    ).rejects.toThrow('Retained media entry missing for c1');
+  });
+
+  it('keeps a retained PDF beyond the append-only byte window', async () => {
     const byteSize = 12 * 1024 * 1024;
     const { resolver } = fakeResolver([
       pdfDescriptor(mediaId(1), { pages: 1, byteSize }),
     ]);
-    const ref = { locator: '/work/second.pdf', pages: 1 };
-    resolver.heldMedia.set('c2', { ...ref, byteSize });
+    resolver.retainedMedia.set('c2', {
+      locator: '/work/second.pdf',
+      pages: 1,
+      data: Buffer.alloc(byteSize).toString('base64'),
+    });
     const sizing = await loadMediaSizing(
       [
         {
@@ -562,7 +619,11 @@ describe('loadMediaSizing', () => {
               type: 'tool-result',
               toolCallId: 'c2',
               toolName: 'read',
-              output: toolResultOutput('', ref),
+              output: toolResultOutput('', {
+                locator: '/work/second.pdf',
+                pages: 1,
+                key: 'c2',
+              }),
             },
           ],
         },

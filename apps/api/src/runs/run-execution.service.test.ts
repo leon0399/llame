@@ -1,4 +1,5 @@
 import type {
+  LanguageModelV3Message,
   LanguageModelV3StreamPart,
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
@@ -98,7 +99,11 @@ import {
   AcceptedTurnPartsRepository,
   placeAcceptedTurnItems,
 } from '../chats/accepted-turn-parts.repository';
-import { userPartsToModelContent } from '../chats/context-builder';
+import {
+  buildContext,
+  userPartsToModelContent,
+  type StoredMessage,
+} from '../chats/context-builder';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import {
@@ -150,10 +155,13 @@ import type { MediaDescriptor } from '../media/media-descriptors';
 import {
   descriptor,
   descriptorRow,
+  fakeResolver,
   pdfDescriptor,
   randomPng,
   storedPdfRow,
 } from '../media/media-fixtures';
+import { mergeRetainedMedia } from '../media/attempt-media';
+import { RETAINED_MESSAGE_BOUND } from '../media/retained-media';
 import { composeStepMessages } from '../models/step-composer';
 
 import type { TitleCapability } from '../titles/title.service';
@@ -712,6 +720,10 @@ function mockNormalExecutionRepositories() {
   vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue(
     undefined,
   );
+  vi.spyOn(
+    PromptImportPartsRepository.prototype,
+    'retainedBase64',
+  ).mockResolvedValue(0);
   vi.spyOn(
     PromptImportPartsRepository.prototype,
     'appendForRun',
@@ -5089,6 +5101,7 @@ function providerText(text: string) {
 }
 function createToolLoopClient(
   responses: ReadonlyArray<ReturnType<typeof providerResponse>>,
+  input?: ReadonlyArray<ModelInput>,
 ) {
   let responseIndex = 0;
   const model = new MockLanguageModelV3({
@@ -5112,6 +5125,9 @@ function createToolLoopClient(
       userAgent: 'llame/test',
       requestHeaders: {},
       baseUrl: 'https://example.test/v1',
+      // The real model catalog's declared input; the step composer and the
+      // admission read it to attach or omit media.
+      ...(input !== undefined && { input }),
     },
     {
       createOpenAICompatible: () => provider,
@@ -8358,7 +8374,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // What the composer the clients install makes of the sent request.
       const composed = await composeStepMessages(sent.messages, {
         resolver: {
-          heldMedia: media.heldMedia,
+          retainedMedia: media.retainedMedia,
           describe: (ids) => media.describe(ids),
           loadModelBytes: (ids) =>
             Promise.resolve(
@@ -8421,6 +8437,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       const ids = triggerIds(6);
       const triggerParts = [{ type: 'text', text: 'look at these' }];
       const item = createPromptImportsItem({
+        retainedBefore: 0,
         runId,
         outcomes: ids.map((id, n) => ({
           locator: `shot${n}.png`,
@@ -8429,6 +8446,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           attachment: { media: `media://${id}` },
         })),
         omitted: [],
+        retained: new Map(),
       });
 
       const { execution } = await executeTriggerCase({
@@ -8449,6 +8467,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // row holds none, so no row exists for compaction to absorb.
       const ids = triggerIds(2);
       const item = createPromptImportsItem({
+        retainedBefore: 0,
         runId,
         outcomes: ids.map((id) => ({
           locator: `media://${id}`,
@@ -8464,6 +8483,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           },
         })),
         omitted: [],
+        retained: new Map(),
       });
       const triggerParts = [item, { type: 'text', text: 'read both' }];
       const capturing = triggerClient();
@@ -13508,7 +13528,13 @@ describe('RunExecutionService instruction files', () => {
     outcomes: ImportOutcomes,
     options: { readonly payload?: 'missing' } = {},
   ): void {
-    const item = createPromptImportsItem({ runId, outcomes, omitted: [] });
+    const item = createPromptImportsItem({
+      retainedBefore: 0,
+      runId,
+      outcomes,
+      omitted: [],
+      retained: new Map(),
+    });
     const payload = item.data.payload;
     if (!isPromptImportsPayload(payload)) {
       throw new Error('the stored item must carry a valid payload');
@@ -14118,6 +14144,7 @@ describe('RunExecutionService prompt imports', () => {
   /** The item a prior attempt of this Run persisted for `README.md`. */
   function storedImportItem(root: string) {
     return createPromptImportsItem({
+      retainedBefore: 0,
       runId,
       outcomes: [
         {
@@ -14128,6 +14155,7 @@ describe('RunExecutionService prompt imports', () => {
         },
       ],
       omitted: [],
+      retained: new Map(),
     });
   }
 
@@ -14264,6 +14292,15 @@ describe('RunExecutionService prompt imports', () => {
           byteSize: bytes.byteLength,
           path: pdfPath,
         });
+        // A system-origin read keeps its bytes in the import's own entry, so
+        // its completion event records none beside the result.
+        const completion = importEvents(events).find(
+          ({ type }) => type === 'tool.completed',
+        )?.payload;
+        expect(completion).not.toHaveProperty('retainedMedia');
+        expect(isRecord(output) && Object.hasOwn(output, 'retainedMedia')).toBe(
+          false,
+        );
         const item = append.mock.calls[0]?.[0].item;
         expect(item?.data.payload).toEqual({
           imports: [
@@ -14275,17 +14312,22 @@ describe('RunExecutionService prompt imports', () => {
               mediaType: 'application/pdf',
               pages: 15,
               byteSize: bytes.byteLength,
+              retainedMedia: {
+                mediaType: 'application/pdf',
+                data: bytes.toString('base64'),
+              },
             },
           ],
         });
-        // The item records metadata alone: no PDF bytes, no encoded copy.
+        // The item's text records metadata alone: no PDF bytes, no encoded copy.
         expect(item?.data.text).not.toContain('%PDF-');
         expect(item?.data.text).not.toContain('JVBERi0');
         // No media object: the importing attempt's memory alone holds it.
         expect(ingest).not.toHaveBeenCalled();
+        // The retained original crosses as the base64 string the entry holds.
         expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
           type: 'file',
-          data: bytes,
+          data: bytes.toString('base64'),
           mediaType: 'application/pdf',
           filename: 'paper.pdf',
         });
@@ -14319,15 +14361,25 @@ describe('RunExecutionService prompt imports', () => {
               mediaType: 'application/pdf',
               pages: 15,
               byteSize: bytes.byteLength,
+              retainedMedia: {
+                mediaType: 'application/pdf',
+                data: bytes.toString('base64'),
+              },
             },
           ],
         });
-        // A model that declares no PDF input retains no bytes: its entry
-        // carries the page count alone.
+        // A model that declares no PDF input keeps the original all the same,
+        // so a later vision or PDF turn replays it.
         const sent = stream.mock.calls[0]?.[0];
         expect(
-          sent?.media?.heldMedia.get(promptImportMediaKey(runId, 'paper.pdf')),
-        ).toEqual({ locator: pdfPath, pages: 15 });
+          sent?.media?.retainedMedia.get(
+            promptImportMediaKey(runId, 'paper.pdf'),
+          ),
+        ).toEqual({
+          locator: 'paper.pdf',
+          pages: 15,
+          data: bytes.toString('base64'),
+        });
         expect((await afterItemText(stream, ['text'])).next).toEqual({
           type: 'text',
           text: '[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]',
@@ -14405,13 +14457,14 @@ describe('RunExecutionService prompt imports', () => {
       }
     });
 
-    it('reuses the persisted PDF entry on recovery, sending the not-retained placeholder', async () => {
+    it("reuses the persisted PDF entry on recovery, sending the first import's original", async () => {
       const root = repoRoot();
       try {
         const { pdfPath, bytes } = addPaperPdf(root);
         const { find, append, events } = serveRepositories();
         bindChat(root);
         const stored = createPromptImportsItem({
+          retainedBefore: 0,
           runId,
           outcomes: [
             {
@@ -14428,6 +14481,16 @@ describe('RunExecutionService prompt imports', () => {
             },
           ],
           omitted: [],
+          retained: new Map([
+            [
+              promptImportMediaKey(runId, 'paper.pdf'),
+              {
+                locator: pdfPath,
+                pages: 15,
+                data: bytes.toString('base64'),
+              },
+            ],
+          ]),
         });
         const payload = stored.data.payload;
         if (!isPromptImportsPayload(payload)) {
@@ -14459,8 +14522,10 @@ describe('RunExecutionService prompt imports', () => {
         expect(append).not.toHaveBeenCalled();
         expect(importEvents(events)).toEqual([]);
         expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
-          type: 'text',
-          text: '[pdf "paper.pdf" 15 pages, not retained]',
+          type: 'file',
+          data: Buffer.from(bytes).toString('base64'),
+          mediaType: 'application/pdf',
+          filename: 'paper.pdf',
         });
       } finally {
         rmSync(root, { recursive: true, force: true });
@@ -14547,28 +14612,36 @@ describe('RunExecutionService prompt imports', () => {
         });
         const thumbnail = isRecord(output) ? output['thumbnail'] : undefined;
         const item = append.mock.calls[0]?.[0].item;
-        expect(item?.data.payload).toEqual({
-          imports: [
-            {
-              locator: 'shot.png',
-              resolved: `${root}/shot.png`,
-              outcome: 'imported',
-              thumbnail,
+        const payload: unknown = item?.data.payload;
+        if (!isPromptImportsPayload(payload)) {
+          throw new Error('the stored item must carry a valid payload');
+        }
+        expect(payload.imports).toMatchObject([
+          {
+            locator: 'shot.png',
+            resolved: `${root}/shot.png`,
+            outcome: 'imported',
+            thumbnail,
+            width: 160,
+            height: 90,
+            mediaType: 'image/png',
+            retainedMedia: {
+              mediaType: 'image/png',
               width: 160,
               height: 90,
-              mediaType: 'image/png',
             },
-          ],
-        });
+          },
+        ]);
         expect(item?.data.text).not.toContain('data:image/webp');
         const { next, composed } = await afterItemText(stream, [
           'text',
           'image',
         ]);
-        const anyBytes: unknown = expect.any(Uint8Array);
+        // The retained variant crosses as the base64 string the entry holds.
+        const anyBase64: unknown = expect.any(String);
         expect(next).toEqual({
           type: 'image',
-          image: anyBytes,
+          image: anyBase64,
           mediaType: 'image/png',
         });
         expect(JSON.stringify(composed)).not.toContain('data:image/webp');
@@ -14584,11 +14657,14 @@ describe('RunExecutionService prompt imports', () => {
 
         const sent = stream.mock.calls[0]?.[0];
         expect(
-          sent?.media?.heldMedia.get(promptImportMediaKey(runId, 'shot.png')),
-        ).toEqual({
-          locator: `${root}/shot.png`,
+          sent?.media?.retainedMedia.get(
+            promptImportMediaKey(runId, 'shot.png'),
+          ),
+        ).toMatchObject({
+          locator: 'shot.png',
           width: 160,
           height: 90,
+          model: { mediaType: 'image/png', width: 160, height: 90 },
         });
         expect((await afterItemText(stream, ['text'])).next).toEqual({
           type: 'text',
@@ -14652,13 +14728,14 @@ describe('RunExecutionService prompt imports', () => {
       }
     });
 
-    it('reuses the persisted entry on recovery, sending the not-retained placeholder', async () => {
+    it("reuses the persisted entry on recovery, sending the first import's variant", async () => {
       const root = repoRoot();
       try {
         writeFileSync(path.join(root, 'shot.png'), await randomPng(160, 90));
         const { find, append, events } = serveRepositories();
         bindChat(root);
         const stored = createPromptImportsItem({
+          retainedBefore: 0,
           runId,
           outcomes: [
             {
@@ -14675,6 +14752,22 @@ describe('RunExecutionService prompt imports', () => {
             },
           ],
           omitted: [],
+          retained: new Map([
+            [
+              promptImportMediaKey(runId, 'shot.png'),
+              {
+                locator: 'shot.png',
+                width: 160,
+                height: 90,
+                model: {
+                  mediaType: 'image/png' as const,
+                  width: 160,
+                  height: 90,
+                  data: Buffer.from([0x73]).toString('base64'),
+                },
+              },
+            ],
+          ]),
         });
         const payload = stored.data.payload;
         if (!isPromptImportsPayload(payload)) {
@@ -14702,8 +14795,9 @@ describe('RunExecutionService prompt imports', () => {
         expect(append).not.toHaveBeenCalled();
         expect(importEvents(events)).toEqual([]);
         expect((await afterItemText(stream, ['text', 'image'])).next).toEqual({
-          type: 'text',
-          text: '[image "shot.png" 160×90, not retained]',
+          type: 'image',
+          image: Buffer.from([0x73]).toString('base64'),
+          mediaType: 'image/png',
         });
       } finally {
         rmSync(root, { recursive: true, force: true });
@@ -15032,6 +15126,595 @@ describe('RunExecutionService prompt imports', () => {
       expect(importEvents(events)).toEqual([]);
       expect(JSON.stringify(stream.mock.calls[0]?.[0].messages)).toContain(
         'stored body',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Retained read media (`media-attachments`): a model's own read of an unstored
+ * image or PDF keeps its bytes beside the result — on the persisted tool part
+ * and on the model-origin completion event — bounded once per stored message,
+ * while a system-origin (prompt-import) read keeps none there. A later request
+ * replays each read's own bytes.
+ */
+describe('RunExecutionService retained read media', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function repoRoot(): string {
+    return realpathSync(mkdtempSync(path.join(tmpdir(), 'retained-media-')));
+  }
+
+  function bindChat(root: string): void {
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+    });
+  }
+
+  /** The Run's repositories plus the durable event order it appended. */
+  function serveRepositories() {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    const events = recordAppendedEvents();
+    replayAppendedEvents(events);
+    return { repositories, events };
+  }
+
+  /**
+   * Serves `nativeReadTool.execute` from the real files through the attempt's
+   * own media hook, so each read keeps exactly what the product's read keeps.
+   * `afterRead` runs once the read settled, before the next one.
+   */
+  function serveMediaReads(afterRead?: () => void) {
+    return vi
+      .spyOn(nativeReadTool, 'execute')
+      .mockImplementation(async (context, input) => {
+        const bytes = readFileSync(input.path);
+        const media = context.media?.readMedia(input.path, context.toolCallId);
+        if (media === undefined) {
+          throw new Error('the read has no media store');
+        }
+        const result = await media({
+          kind: input.path.endsWith('.pdf') ? 'pdf' : 'image',
+          byteSize: bytes.byteLength,
+          readBytes: () => Promise.resolve(bytes),
+        });
+        afterRead?.();
+        return result.status === 'success'
+          ? { ...result, path: input.path }
+          : result;
+      });
+  }
+
+  /** A model that reads each of `files` in its own step, then answers. */
+  function readThenAnswerModel(
+    files: ReadonlyArray<string>,
+    input: ReadonlyArray<ModelInput>,
+  ) {
+    return createToolLoopClient(
+      [
+        ...files.map((file, index) =>
+          providerResponse(
+            [
+              {
+                type: 'tool-call',
+                toolCallId: `read-${index + 1}`,
+                toolName: 'read',
+                input: JSON.stringify({ path: file }),
+              },
+            ],
+            'tool-calls',
+          ),
+        ),
+        providerText('answer'),
+      ],
+      input,
+    );
+  }
+
+  /** The completion payload one tool call recorded. */
+  function completionOf(
+    events: ReadonlyArray<{ type: string; payload: unknown }>,
+    toolCallId: string,
+  ): UnknownRecord {
+    const completion = events.find(
+      (event) =>
+        event.type === 'tool.completed' &&
+        isRecord(event.payload) &&
+        event.payload['toolCallId'] === toolCallId,
+    );
+    if (completion === undefined || !isRecord(completion.payload)) {
+      throw new Error(`the run recorded no completion for ${toolCallId}`);
+    }
+    return completion.payload;
+  }
+
+  /** The retained record a payload or part carries. */
+  function retainedRecordOf(value: UnknownRecord): UnknownRecord {
+    const record = value['retainedMedia'];
+    if (!isRecord(record)) {
+      throw new Error('the value carries no retained record');
+    }
+    return record;
+  }
+
+  /** The base64 data a retained record keeps. */
+  function retainedDataOf(record: UnknownRecord): string {
+    const data = record['data'];
+    if (!isString(data)) throw new Error('the record keeps no bytes');
+    return data;
+  }
+
+  /** Every tool part of the given type and optional call, in stored order. */
+  function storedToolParts(
+    parts: ReadonlyArray<unknown>,
+    type: string,
+    toolCallId?: string,
+  ): Array<UnknownRecord> {
+    return parts.filter(
+      (part): part is UnknownRecord =>
+        isRecord(part) &&
+        part['type'] === type &&
+        (toolCallId === undefined || part['toolCallId'] === toolCallId),
+    );
+  }
+
+  /**
+   * A request the provider received: the SDK wire prompt, or the SDK messages
+   * a composition produced in a test.
+   */
+  type RequestPrompt = ReadonlyArray<LanguageModelV3Message | ModelMessage>;
+
+  /**
+   * Every base64 image or file payload the provider received, in request
+   * order. The walker reads the SDK's prompt JSON, whose content parts nest
+   * inside tool results and moved media messages.
+   */
+  function receivedMediaBase64(
+    prompt: RequestPrompt | undefined,
+  ): Array<string> {
+    const found: Array<string> = [];
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (!isRecord(value)) return;
+      const type = value['type'];
+      const data = value['data'];
+      if ((type === 'file' || type === 'image') && isString(data)) {
+        found.push(data);
+      }
+      if ((type === 'file' || type === 'image') && data instanceof Uint8Array) {
+        found.push(Buffer.from(data).toString('base64'));
+      }
+      if (type === 'image-data' && isString(data)) found.push(data);
+      if (type === 'file-data' && isString(data)) found.push(data);
+      for (const nested of Object.values(value)) visit(nested);
+    };
+    visit(prompt);
+    return found;
+  }
+
+  /** Every string the request carries. */
+  function promptStrings(prompt: RequestPrompt | undefined): Array<string> {
+    const found: Array<string> = [];
+    const visit = (value: unknown): void => {
+      if (isString(value)) {
+        found.push(value);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (isRecord(value))
+        for (const nested of Object.values(value)) visit(nested);
+    };
+    visit(prompt);
+    return found;
+  }
+
+  /**
+   * A valid one-page PDF whose single content stream is `streamBytes` bytes of
+   * a PDF comment: the page count parses, and the file is large enough for a
+   * read to keep a 20 MiB-class original.
+   */
+  function paddedPdf(streamBytes: number): Buffer {
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>',
+    ];
+    let body = '%PDF-1.4\n';
+    const offsets: Array<number> = [];
+    for (const [index, object] of objects.entries()) {
+      offsets.push(body.length);
+      body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    }
+    const stream = '%'.repeat(streamBytes);
+    offsets.push(body.length);
+    body += `4 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\n`;
+    const xref = body.length;
+    body += `xref\n0 5\n0000000000 65535 f \n${offsets
+      .map((offset) => `${offset.toString().padStart(10, '0')} 00000 n \n`)
+      .join(
+        '',
+      )}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(body, 'latin1');
+  }
+
+  it("keeps a model's image read beside its result and its completion event", async () => {
+    const root = repoRoot();
+    try {
+      const shot = path.join(root, 'shot.png');
+      writeFileSync(shot, await randomPng(160, 90));
+      const { repositories, events } = serveRepositories();
+      bindChat(root);
+      serveMediaReads();
+      const { client, model } = readThenAnswerModel([shot], ['text', 'image']);
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const completion = completionOf(events, 'read-1');
+      expect(completion['status']).toBe('success');
+      const output = completion['output'];
+      expect(output).toMatchObject({
+        status: 'success',
+        kind: 'image',
+        width: 160,
+        height: 90,
+      });
+      // The bytes sit beside the result, never inside it.
+      expect(isRecord(output) && Object.hasOwn(output, 'retainedMedia')).toBe(
+        false,
+      );
+      const record = retainedRecordOf(completion);
+      expect(record).toMatchObject({
+        mediaType: 'image/png',
+        width: 160,
+        height: 90,
+      });
+      const data = retainedDataOf(record);
+
+      // The persisted part keeps the same record in the same place.
+      const [readPart] = storedToolParts(
+        repositories.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts ??
+          [],
+        'tool-read',
+        'read-1',
+      );
+      expect(readPart?.['retainedMedia']).toEqual(record);
+      const partOutput = readPart?.['output'];
+      expect(
+        isRecord(partOutput) && Object.hasOwn(partOutput, 'retainedMedia'),
+      ).toBe(false);
+      expect(readPart?.['output']).toMatchObject({
+        status: 'success',
+        kind: 'image',
+      });
+
+      // The next step's request carries the variant the record holds.
+      expect(receivedMediaBase64(model.doStreamCalls[1]?.prompt)).toEqual([
+        data,
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records a read past the message bound as exceeded and keeps it out of the next step', async () => {
+    const root = repoRoot();
+    try {
+      // Two 15 MiB originals are 20 MiB of base64 each: the first fits the
+      // message bound, the second would cross it.
+      const pdf = paddedPdf(15 * 1024 * 1024);
+      const first = path.join(root, 'first.pdf');
+      const second = path.join(root, 'second.pdf');
+      writeFileSync(first, pdf);
+      writeFileSync(second, pdf);
+      const { repositories, events } = serveRepositories();
+      bindChat(root);
+      serveMediaReads();
+      const { client, model } = readThenAnswerModel(
+        [first, second],
+        ['text', 'pdf'],
+      );
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const kept = completionOf(events, 'read-1');
+      expect(kept['status']).toBe('success');
+      expect(retainedRecordOf(kept)).toEqual({
+        mediaType: 'application/pdf',
+        data: pdf.toString('base64'),
+      });
+
+      // The read itself succeeds; only its bytes are left out.
+      const exceeded = completionOf(events, 'read-2');
+      expect(exceeded['status']).toBe('success');
+      expect(exceeded['output']).toMatchObject({
+        status: 'success',
+        kind: 'pdf',
+        pages: 1,
+      });
+      expect(exceeded['retainedMedia']).toEqual({ exceeded: true });
+
+      const retainedParts = storedToolParts(
+        repositories.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts ??
+          [],
+        'tool-read',
+      );
+      expect(retainedParts.map((part) => part['retainedMedia'])).toEqual([
+        { mediaType: 'application/pdf', data: pdf.toString('base64') },
+        { exceeded: true },
+      ]);
+
+      // The next step carries the first original and the limit for the second.
+      const prompt = model.doStreamCalls[2]?.prompt;
+      expect(receivedMediaBase64(prompt)).toEqual([pdf.toString('base64')]);
+      // A tool result's text parts join into one output string.
+      expect(promptStrings(prompt).join('\n')).toContain(
+        `[pdf ${JSON.stringify(second)} 1 pages, not attached: this context's PDF limit is reached]`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("counts a Continue Run's kept bytes toward the message bound", async () => {
+    const root = repoRoot();
+    try {
+      const shot = path.join(root, 'shot.png');
+      const seeded = path.join(root, 'seeded.png');
+      writeFileSync(shot, await randomPng(160, 90));
+      // The kept step already holds all but the last 128 bytes of the bound.
+      const keptRead = {
+        type: 'tool-read',
+        toolCallId: 'kept-read',
+        state: 'output-available',
+        input: { path: seeded },
+        output: {
+          status: 'success',
+          kind: 'image',
+          mediaType: 'image/png',
+          width: 160,
+          height: 90,
+          path: seeded,
+        },
+        retainedMedia: {
+          mediaType: 'image/png',
+          width: 160,
+          height: 90,
+          data: 'A'.repeat(RETAINED_MESSAGE_BOUND - 128),
+        },
+        outcome: 'success',
+      };
+      const { repositories, events } = serveRepositories();
+      bindChat(root);
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'findFirstByType',
+      ).mockImplementation((_runId, _userId, eventType) =>
+        Promise.resolve(
+          eventType === 'run.created'
+            ? {
+                sequence: 1,
+                runId,
+                eventType,
+                payload: { chatId, messageId, replacesUsage: true },
+                createdAt: now,
+              }
+            : {
+                sequence: 2,
+                runId,
+                eventType,
+                payload: {
+                  sourceRunId: runId,
+                  parts: [keptRead],
+                  steps: { 'kept-read': 0 },
+                  results: {},
+                },
+                createdAt: now,
+              },
+        ),
+      );
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'again' }] },
+      ]);
+      vi.spyOn(
+        RunsRepository.prototype,
+        'findDispatchedBaselineForTurn',
+      ).mockResolvedValue(undefined);
+      vi.spyOn(
+        MessagesRepository.prototype,
+        'updateAssistantReply',
+      ).mockResolvedValue(undefined);
+      serveMediaReads();
+      const { client, model } = readThenAnswerModel([shot], ['text', 'image']);
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(client),
+        userMessage: {
+          id: messageId,
+          seq: 2,
+          parts: [{ type: 'text' as const, text: 'again' }],
+        },
+        followUpAction: 'continue',
+      });
+      await expect(result.text).resolves.toBe('answer');
+
+      const completion = completionOf(events, 'read-1');
+      expect(completion['status']).toBe('success');
+      expect(completion['retainedMedia']).toEqual({ exceeded: true });
+      const [readPart] = storedToolParts(
+        repositories.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts ??
+          [],
+        'tool-read',
+        'read-1',
+      );
+      expect(readPart?.['retainedMedia']).toEqual({ exceeded: true });
+      expect(
+        promptStrings(model.doStreamCalls[1]?.prompt).join('\n'),
+      ).toContain(
+        `[image ${JSON.stringify(shot)} 160×90, not attached: this context's image limit is reached]`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('replays each read of a changed file with its own bytes in a later request', async () => {
+    const root = repoRoot();
+    try {
+      const shot = path.join(root, 'shot.png');
+      const first = await randomPng(160, 90);
+      const second = await randomPng(320, 180);
+      writeFileSync(shot, first);
+      const { repositories } = serveRepositories();
+      bindChat(root);
+      // The file changes on disk between the two reads.
+      serveMediaReads(() => writeFileSync(shot, second));
+      const { client } = readThenAnswerModel([shot, shot], ['text', 'image']);
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const parts = (
+        repositories.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts ??
+        []
+      ).filter(isRecord);
+      const readParts = storedToolParts(parts, 'tool-read');
+      expect(readParts).toHaveLength(2);
+      const [firstRecord, secondRecord] = readParts.map((part) =>
+        retainedRecordOf(part),
+      );
+      expect(firstRecord).toMatchObject({ width: 160, height: 90 });
+      expect(secondRecord).toMatchObject({ width: 320, height: 180 });
+      const firstData = retainedDataOf(firstRecord);
+      const secondData = retainedDataOf(secondRecord);
+      expect(firstData).not.toBe(secondData);
+
+      // A later turn's request replays each stored part's own variant.
+      const built = buildContext(
+        [
+          {
+            id: messageId,
+            chatId,
+            seq: 1,
+            role: 'user',
+            senderUserId: userId,
+            parts: [{ type: 'text', text: 'what changed?' }],
+            attachments: [],
+            createdAt: now,
+          },
+          {
+            id: 'reply-1',
+            chatId,
+            seq: 2,
+            role: 'assistant',
+            senderUserId: null,
+            parts,
+            attachments: [],
+            createdAt: now,
+          },
+        ] satisfies Array<StoredMessage>,
+        { systemPrompt: '', requestKind: 'continuation' },
+      );
+      const { resolver } = fakeResolver([]);
+      mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
+      expect([...built.retainedMedia.keys()]).toHaveLength(2);
+      const composed = await composeStepMessages(built.messages, {
+        resolver,
+        context: {
+          input: ['text', 'image'],
+          contextWindowTokens: 128_000,
+          reservedOutputTokens: null,
+        },
+      });
+      expect(receivedMediaBase64(composed)).toEqual([firstData, secondData]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps no bytes for a read that settles without a result', async () => {
+    const root = repoRoot();
+    try {
+      const shot = path.join(root, 'shot.png');
+      writeFileSync(shot, await randomPng(160, 90));
+      const { repositories, events } = serveRepositories();
+      bindChat(root);
+      // The media hook keeps the bytes before the read settles, so a read that
+      // then fails must record none: no marker names them (media-attachments:
+      // each successful image or PDF read result).
+      vi.spyOn(nativeReadTool, 'execute').mockImplementation(
+        async (context, input) => {
+          const bytes = readFileSync(input.path);
+          await context.media?.readMedia(
+            input.path,
+            context.toolCallId,
+          )?.({
+            kind: 'image',
+            byteSize: bytes.byteLength,
+            readBytes: () => Promise.resolve(bytes),
+          });
+          return {
+            status: 'error',
+            type: 'media_too_large',
+            message: 'The read failed after its bytes were prepared.',
+          };
+        },
+      );
+      const { client, model } = readThenAnswerModel([shot], ['text', 'image']);
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const completion = completionOf(events, 'read-1');
+      expect(completion['status']).toBe('error');
+      expect(completion).not.toHaveProperty('retainedMedia');
+      const [readPart] = storedToolParts(
+        repositories.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts ??
+          [],
+        'tool-read',
+        'read-1',
+      );
+      expect(readPart).toBeDefined();
+      expect(readPart).not.toHaveProperty('retainedMedia');
+
+      // The failed read names no bytes, so the next request carries the error
+      // text alone, never the image or a placeholder that would claim it.
+      const prompt = model.doStreamCalls[1]?.prompt;
+      expect(receivedMediaBase64(prompt)).toEqual([]);
+      expect(promptStrings(prompt).join('\n')).toContain(
+        'The read failed after its bytes were prepared.',
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

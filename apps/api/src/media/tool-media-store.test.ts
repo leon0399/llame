@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { HeldMedia } from './attempt-media';
+import type { RetainedMedia } from './attempt-media';
 import { MEDIA_MAX_BYTES } from './media-ingest';
 import type { MediaService } from './media.service';
-import { storedPdfRow } from './media-fixtures';
+import { randomPng, storedPdfRow } from './media-fixtures';
 import { createToolMediaStore } from './tool-media-store';
 
 const OWNER = 'owner';
@@ -22,63 +22,88 @@ describe('createToolMediaStore', () => {
         }),
       ),
     );
-    const store = createToolMediaStore({ findOwned }, OWNER, new Map(), [
-      'pdf',
-    ]);
+    const store = createToolMediaStore({ findOwned }, OWNER, new Map());
 
     await expect(store.findMedia(PDF_ID)).resolves.toEqual({
       status: 'success',
       kind: 'pdf',
       media: `media://${PDF_ID}`,
-      mediaType: 'application/pdf',
       pages: 15,
+      mediaType: 'application/pdf',
       byteSize: 1024,
     });
   });
 
-  it.each([true, false])(
-    'keeps unstored PDF bytes only for a PDF-capable model: %s',
-    async (pdfInput) => {
-      const bytes = readFileSync(
-        path.join(__dirname, 'testing/pdf/fifteen-pages.pdf'),
-      );
-      const held = new Map<string, HeldMedia>();
-      const store = createToolMediaStore(
-        { findOwned: vi.fn() },
-        OWNER,
-        held,
-        pdfInput ? ['text', 'pdf'] : ['text', 'image'],
-      );
-      const result = await store.readMedia(
-        '/work/report.pdf',
-        'call-1',
-      )({
-        kind: 'pdf',
-        byteSize: bytes.byteLength,
-        readBytes: () => Promise.resolve(bytes),
-      });
+  it("keeps an unstored PDF's original as base64 in the attempt's map", async () => {
+    const bytes = readFileSync(
+      path.join(__dirname, 'testing/pdf/fifteen-pages.pdf'),
+    );
+    const retained = new Map<string, RetainedMedia>();
+    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
 
-      expect(result).toEqual({
-        status: 'success',
-        kind: 'pdf',
-        mediaType: 'application/pdf',
-        pages: 15,
-        byteSize: bytes.byteLength,
-      });
-      expect(held.get('call-1')).toEqual({
-        locator: '/work/report.pdf',
-        pages: 15,
-        ...(pdfInput && { bytes, byteSize: bytes.byteLength }),
-      });
-    },
-  );
+    const result = await store.readMedia(
+      '/work/report.pdf',
+      'call-1',
+    )({
+      kind: 'pdf',
+      byteSize: bytes.byteLength,
+      readBytes: () => Promise.resolve(bytes),
+    });
+
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 15,
+      byteSize: bytes.byteLength,
+    });
+    expect(retained.get('call-1')).toEqual({
+      locator: '/work/report.pdf',
+      pages: 15,
+      data: bytes.toString('base64'),
+    });
+  });
+
+  it("keeps an unstored image's model variant with its own dimensions", async () => {
+    const bytes = await randomPng(400, 300);
+    const retained = new Map<string, RetainedMedia>();
+    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
+
+    const result = await store.readMedia(
+      '/work/shot.png',
+      'call-1',
+    )({
+      kind: 'image',
+      byteSize: bytes.byteLength,
+      readBytes: () => Promise.resolve(bytes),
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'image',
+      mediaType: 'image/png',
+      width: 400,
+      height: 300,
+    });
+    expect(result).not.toHaveProperty('media');
+    const entry = retained.get('call-1');
+    expect(entry).toMatchObject({
+      locator: '/work/shot.png',
+      width: 400,
+      height: 300,
+      model: { mediaType: 'image/png', width: 400, height: 300 },
+    });
+    // Base64 of the model variant, not of the original: the entry carries the
+    // bytes a request would attach.
+    expect(entry && 'model' in entry ? entry.model.data : '').toMatch(
+      /^[A-Za-z0-9+/]+={0,2}$/u,
+    );
+  });
 
   it('refuses an oversized PDF before loading its bytes', async () => {
-    const held = new Map<string, HeldMedia>();
+    const retained = new Map<string, RetainedMedia>();
     const readBytes = vi.fn<() => Promise<Buffer>>();
-    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, held, [
-      'pdf',
-    ]);
+    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
 
     await expect(
       store.readMedia(
@@ -91,17 +116,15 @@ describe('createToolMediaStore', () => {
       }),
     ).resolves.toMatchObject({ status: 'error', type: 'media_too_large' });
     expect(readBytes).not.toHaveBeenCalled();
-    expect(held.has('call-1')).toBe(false);
+    expect(retained.has('call-1')).toBe(false);
   });
 
   it('refuses an encrypted PDF without retaining it', async () => {
     const bytes = readFileSync(
       path.join(__dirname, 'testing/pdf/owner-password.pdf'),
     );
-    const held = new Map<string, HeldMedia>();
-    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, held, [
-      'pdf',
-    ]);
+    const retained = new Map<string, RetainedMedia>();
+    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
 
     await expect(
       store.readMedia(
@@ -116,19 +139,17 @@ describe('createToolMediaStore', () => {
       status: 'error',
       type: 'unsupported_media_type',
     });
-    expect(held.has('call-1')).toBe(false);
+    expect(retained.has('call-1')).toBe(false);
   });
 
   it('retains nothing when the read is abandoned during preparation', async () => {
     const bytes = readFileSync(
       path.join(__dirname, 'testing/pdf/one-page.pdf'),
     );
-    const held = new Map<string, HeldMedia>();
+    const retained = new Map<string, RetainedMedia>();
     const controller = new AbortController();
     const reason = new Error('read abandoned');
-    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, held, [
-      'pdf',
-    ]);
+    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
 
     await expect(
       store.readMedia(
@@ -144,7 +165,7 @@ describe('createToolMediaStore', () => {
         },
       }),
     ).rejects.toBe(reason);
-    expect(held.has('call-1')).toBe(false);
+    expect(retained.has('call-1')).toBe(false);
   });
 
   it('reports a cancelled read, not the refusal it would otherwise take', async () => {
@@ -153,12 +174,10 @@ describe('createToolMediaStore', () => {
     const bytes = readFileSync(
       path.join(__dirname, 'testing/pdf/owner-password.pdf'),
     );
-    const held = new Map<string, HeldMedia>();
+    const retained = new Map<string, RetainedMedia>();
     const controller = new AbortController();
     const reason = new Error('read abandoned');
-    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, held, [
-      'pdf',
-    ]);
+    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
 
     await expect(
       store.readMedia(
@@ -174,6 +193,6 @@ describe('createToolMediaStore', () => {
         },
       }),
     ).rejects.toBe(reason);
-    expect(held.has('call-1')).toBe(false);
+    expect(retained.has('call-1')).toBe(false);
   });
 });

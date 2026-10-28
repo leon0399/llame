@@ -38,10 +38,14 @@ import {
   type PromptReasoningPart,
 } from './context-builder';
 import {
+  isUnstoredMedia,
   mediaResultRef,
   submittedLocator,
   toolResultOutput,
+  type ToolMediaRef,
 } from '../media/epoch-admission';
+import type { RetainedMedia } from '../media/attempt-media';
+import { continuedMediaKey } from '../media/retained-media';
 import { neutralizeToolResult } from './tool-observation-neutralizer';
 import {
   isNativeToolName,
@@ -167,19 +171,26 @@ function toolResultFromRecord(value: unknown): ToolResult | undefined {
  * native file tool sends its serialized result and its media reference; every
  * other tool sends its neutralized result as JSON. No untrusted framing, no
  * budget — the model reads exactly what the source Run sent it.
+ *
+ * A kept result that names media without a stored locator is a reference only
+ * when its kept part keeps the retained bytes: a reply from before retention
+ * replays as its result text, exactly as a later turn replays it.
  */
 function keptToolOutput(
   toolName: string,
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- the call's stored input, which the media locator reader parses before use.
   input: unknown,
   result: ToolResult,
+  retainedRef: ToolMediaRef | undefined,
 ): ToolResultPart['output'] {
-  return isNativeToolName(toolName)
-    ? toolResultOutput(
-        serializeNativeModelOutput(result),
-        mediaResultRef(result, submittedLocator(input)),
-      )
-    : { type: 'json', value: jsonOutputOf(neutralizeToolResult(result)) };
+  if (!isNativeToolName(toolName)) {
+    return { type: 'json', value: jsonOutputOf(neutralizeToolResult(result)) };
+  }
+  const named = mediaResultRef(result, submittedLocator(input));
+  return toolResultOutput(
+    serializeNativeModelOutput(result),
+    isUnstoredMedia(named) ? retainedRef : named,
+  );
 }
 
 /**
@@ -192,17 +203,28 @@ function jsonOutputOf(result: ToolResult): JSONValue {
   return jsonSchema.parse(result);
 }
 
-/** One kept call's pair: its call as stored, its result as the live loop sent it. */
+/**
+ * One kept call's pair: its call as stored, its result as the live loop sent
+ * it, and its retained entry when the kept part keeps bytes.
+ */
 function keptPair(
   part: MessagePart,
   partIndex: number,
   results: ReadonlyMap<string, ToolResult>,
+  retainedMedia: Map<string, RetainedMedia>,
 ): ProjectedToolObservationPair | undefined {
-  const stored = projectStoredToolPart(part, partIndex);
+  const stored = projectStoredToolPart(
+    part,
+    partIndex,
+    continuedMediaKey(partIndex),
+  );
   if (stored === undefined) return undefined;
-  const { toolCallPart } = stored;
+  if (stored.retained !== undefined) {
+    retainedMedia.set(stored.retained.key, stored.retained.entry);
+  }
+  const { toolCallPart } = stored.pair;
   const result = results.get(toolCallPart.toolCallId);
-  if (result === undefined) return stored;
+  if (result === undefined) return stored.pair;
   return {
     partIndex,
     toolCallPart,
@@ -210,7 +232,12 @@ function keptPair(
       type: 'tool-result',
       toolCallId: toolCallPart.toolCallId,
       toolName: toolCallPart.toolName,
-      output: keptToolOutput(toolCallPart.toolName, toolCallPart.input, result),
+      output: keptToolOutput(
+        toolCallPart.toolName,
+        toolCallPart.input,
+        result,
+        stored.media,
+      ),
     },
   };
 }
@@ -272,7 +299,10 @@ function startsNewStep(
  * differs from the open one — or one that follows an item, whichever Run
  * recorded it.
  */
-function groupSteps(state: ContinueState): Array<KeptStep> {
+function groupSteps(
+  state: ContinueState,
+  retainedMedia: Map<string, RetainedMedia>,
+): Array<KeptStep> {
   const steps: Array<KeptStep> = [];
   let current = newStep();
   let currentStepNumber: number | undefined;
@@ -282,10 +312,17 @@ function groupSteps(state: ContinueState): Array<KeptStep> {
     current = newStep();
     currentStepNumber = undefined;
   };
+  const openStep = () => ({
+    openStepNumber: currentStepNumber,
+    openCallCount: current.calls.length,
+    openItemCount: current.items.length,
+  });
 
   for (const [index, part] of state.parts.entries()) {
-    const pair = keptPair(part, index, state.results);
+    const pair = keptPair(part, index, state.results, retainedMedia);
     if (pair === undefined) {
+      // A text or reasoning part after the open step's calls begins the next
+      // response, whatever step number the source Run recorded.
       if (
         (isTextPart(part) || isReasoningPart(part)) &&
         current.calls.length > 0
@@ -296,15 +333,7 @@ function groupSteps(state: ContinueState): Array<KeptStep> {
       continue;
     }
     const stepNumber = state.stepNumbers.get(pair.toolCallPart.toolCallId);
-    const opensNext = startsNewStep(
-      {
-        openStepNumber: currentStepNumber,
-        openCallCount: current.calls.length,
-        openItemCount: current.items.length,
-      },
-      stepNumber,
-    );
-    if (opensNext) flush();
+    if (startsNewStep(openStep(), stepNumber)) flush();
     if (stepNumber !== undefined) currentStepNumber = stepNumber;
     current.calls.push(pair.toolCallPart);
     current.results.push(pair.toolResultPart);
@@ -340,14 +369,22 @@ function stepMessages(step: KeptStep): Array<ModelMessage> {
   return messages;
 }
 
+/** The kept parts as messages, with the retained entry behind each marker. */
+type ContinueProjection = {
+  /** Empty when nothing was kept. */
+  readonly messages: Array<ModelMessage>;
+  readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
+};
+
 /**
  * The kept parts as the messages a Continue Run sends after the history
- * through its trigger. Empty when nothing was kept.
+ * through its trigger, with the retained entry each of their media markers
+ * names.
  */
-export function projectContinueParts(
-  state: ContinueState,
-): Array<ModelMessage> {
-  return groupSteps(state).flatMap(stepMessages);
+export function projectContinueParts(state: ContinueState): ContinueProjection {
+  const retainedMedia = new Map<string, RetainedMedia>();
+  const messages = groupSteps(state, retainedMedia).flatMap(stepMessages);
+  return { messages, retainedMedia };
 }
 
 /**

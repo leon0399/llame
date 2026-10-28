@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { mediaBlobs, mediaObjects } from '../db/schema';
 import type { MediaObject } from '../db/schema/media';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
-import type { HeldMedia, UnstoredMedia } from './attempt-media';
+import { type RetainedMedia, type UnstoredMedia } from './attempt-media';
 import {
   isCanonicalMediaId,
   mediaLocator,
@@ -162,11 +162,11 @@ function descriptorOf(row: DescriptorRow): MediaDescriptor | undefined {
  * `ModelStreamInput.media` and built anew for each attempt, so a retry or a
  * resume shares nothing with the attempt it supersedes. Every read runs in its
  * own short owner-scoped transaction, never one held across a model stream.
- * It also holds the attempt's memory of the unstored images it read (R1.4).
+ * It also holds the attempt's retained media, keyed by marker key.
  */
 export type RunMediaResolver = {
-  /** The attempt's unstored images, keyed by tool call id or import entry. */
-  readonly heldMedia: Map<string, HeldMedia>;
+  /** The attempt's retained media, keyed by the marker that names it. */
+  readonly retainedMedia: Map<string, RetainedMedia>;
   /** Owned descriptors among `ids`; unknown and foreign ids are absent. */
   describe(
     ids: ReadonlyArray<string>,
@@ -195,8 +195,9 @@ export function createRunMediaResolver(
 ): RunMediaResolver {
   const known = new Map<string, MediaDescriptor | undefined>();
   const bytes = new Map<string, Uint8Array>();
+  const retained = new Map<string, RetainedMedia>();
   return {
-    heldMedia: new Map(),
+    retainedMedia: retained,
     async describe(ids) {
       const missing = ids.filter((id) => !known.has(id));
       if (missing.length > 0) {
@@ -360,17 +361,6 @@ export function unavailablePlaceholder(id: string, kind: MediaKind): string {
 /** A resolvable reference sent to a model that does not declare its kind. */
 export function omittedPlaceholder(s: MediaSubject): string {
   return `[${describe(s)}, omitted: this model has no ${KIND_NAME[s.kind]} input]`;
-}
-
-/**
- * An unstored image the current attempt's memory holds no entry for, on a
- * model that declares `image` input. It names the image and carries no
- * directive: a compaction request or a step without `read` could not act on
- * one, and the `read` description already tells the model to read an image
- * again to view it in a later turn.
- */
-export function notRetainedPlaceholder(s: MediaSubject): string {
-  return `[${describe(s)}, not retained]`;
 }
 
 /** A resolvable reference the epoch media window does not attach. */

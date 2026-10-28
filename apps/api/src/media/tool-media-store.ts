@@ -4,8 +4,7 @@ import type {
 } from '@workspace/native-file-tools';
 
 import type { MediaObject } from '../db/schema';
-import type { ModelInput } from '../models/model-catalog';
-import type { HeldMedia } from './attempt-media';
+import type { RetainedMedia } from './attempt-media';
 import { imageColumns } from './media-descriptors';
 import {
   encodeThumbnail,
@@ -46,11 +45,12 @@ export type StoredPdf = {
 export type ToolMediaStore = {
   /**
    * The media hook of one read of `locator`, as the model submitted it.
-   * It prepares the file without storing it;
-   * the attempt's memory keeps an entry under `key`, the read's tool call id.
-   * A file over the byte bound is refused before it is read; every
-   * preparation refusal is the read's structured failure. A read the caller
-   * cancels rejects with the signal's reason instead, keeping nothing.
+   * It prepares the file without storing it and keeps its bytes as base64 in
+   * the attempt's map under `key` — a tool call id, or a prompt import's
+   * entry key — whatever the model declares as input. A file over the byte
+   * bound is refused before it is read; every preparation refusal is the
+   * read's structured failure. A read the caller cancels rejects with the
+   * signal's reason instead, keeping nothing.
    */
   readonly readMedia: (
     locator: string,
@@ -89,12 +89,11 @@ function storedOf(stored: MediaObject): StoredImage | StoredPdf | undefined {
   };
 }
 
-type PreparedRead = { result: MediaDecodeSuccess; entry: HeldMedia };
+type PreparedRead = { result: MediaDecodeSuccess; entry: RetainedMedia };
 
 async function preparePdfRead(
   bytes: Buffer,
   locator: string,
-  retain: boolean,
   signal?: AbortSignal,
 ): Promise<PreparedRead> {
   const pages = await preparePdf(bytes, undefined, signal);
@@ -106,18 +105,13 @@ async function preparePdfRead(
       pages,
       byteSize: bytes.byteLength,
     },
-    entry: {
-      locator,
-      pages,
-      ...(retain && { bytes, byteSize: bytes.byteLength }),
-    },
+    entry: { locator, pages, data: bytes.toString('base64') },
   };
 }
 
 async function prepareImageRead(
   bytes: Buffer,
   locator: string,
-  retain: boolean,
 ): Promise<PreparedRead> {
   const { original, model } = await prepareMedia(bytes);
   const thumbnail = await encodeThumbnail(model.bytes);
@@ -131,14 +125,23 @@ async function prepareImageRead(
       height,
       ...(thumbnail !== undefined && { thumbnail }),
     },
-    entry: { locator, width, height, ...(retain && { model }) },
+    entry: {
+      locator,
+      width,
+      height,
+      model: {
+        mediaType: model.mediaType,
+        width: model.width,
+        height: model.height,
+        data: model.bytes.toString('base64'),
+      },
+    },
   };
 }
 
-/** Prepare one read; abandoned reads retain nothing in the attempt. */
+/** Prepare one read; an abandoned read keeps nothing in the attempt. */
 function unstoredRead(
-  held: Map<string, HeldMedia>,
-  input: ReadonlyArray<ModelInput>,
+  retained: Map<string, RetainedMedia>,
   locator: string,
   key: string | undefined,
 ): MediaReadHook {
@@ -153,10 +156,10 @@ function unstoredRead(
       }
       const bytes = await readBytes();
       const prepared = await (kind === 'pdf'
-        ? preparePdfRead(bytes, locator, input.includes(kind), signal)
-        : prepareImageRead(bytes, locator, input.includes(kind)));
+        ? preparePdfRead(bytes, locator, signal)
+        : prepareImageRead(bytes, locator));
       signal?.throwIfAborted();
-      if (key !== undefined) held.set(key, prepared.entry);
+      if (key !== undefined) retained.set(key, prepared.entry);
       return prepared.result;
     } catch (error) {
       if (!(error instanceof MediaIngestError)) throw error;
@@ -165,15 +168,14 @@ function unstoredRead(
   };
 }
 
-/** The store of one attempt, reading into `held`. */
+/** The store of one attempt, reading into `retained`. */
 export function createToolMediaStore(
   media: Pick<MediaService, 'findOwned'>,
   ownerUserId: string,
-  held: Map<string, HeldMedia>,
-  input: ReadonlyArray<ModelInput>,
+  retained: Map<string, RetainedMedia>,
 ): ToolMediaStore {
   return {
-    readMedia: (locator, key) => unstoredRead(held, input, locator, key),
+    readMedia: (locator, key) => unstoredRead(retained, locator, key),
     async findMedia(id) {
       const stored = await media.findOwned(ownerUserId, id);
       return stored && storedOf(stored);

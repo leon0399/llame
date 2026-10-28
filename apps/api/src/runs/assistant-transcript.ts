@@ -42,6 +42,11 @@ import {
   type DerivedDecisionRecord,
 } from '../tools/web-read/admission';
 import { isSystemOriginPayload } from './tool-activity-origin';
+import {
+  parseRetainedMedia,
+  RETAINED_MEDIA_KEY,
+  type RetainedMediaJson,
+} from '../media/retained-media';
 
 /**
  * A persisted tool-activity part (design D5, AI SDK tool-part vocabulary):
@@ -98,6 +103,13 @@ export type ToolActivityPart = {
    * public shares, exports, and search never do.
    */
   classification?: ToolClassification | null;
+  /**
+   * The bytes an unstored `read` keeps beside its result
+   * (`media-attachments`): the model variant of an image or the original of a
+   * PDF, already base64, or the record of a read past its message bound. Never
+   * part of the result, the thumbnail, or any model-facing text.
+   */
+  retainedMedia?: RetainedMediaJson;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -327,6 +339,13 @@ export type ToolActivityPartInput = {
    * and absent when the event that started it recorded none.
    */
   readonly classification?: ToolClassification | null;
+  /**
+   * The retained bytes the call's read keeps, or the record that its message
+   * bound is exceeded. Absent for every result that keeps none: a stored
+   * `media://` result, a refused read, and a system-origin read such as a
+   * prompt import, whose bytes live in the import's own entry.
+   */
+  readonly retainedMedia?: RetainedMediaJson;
 };
 
 /**
@@ -351,6 +370,7 @@ export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
   const part = toolPartBody(call);
+  if (call.retainedMedia !== undefined) part.retainedMedia = call.retainedMedia;
   if (call.permission !== undefined) part.permission = call.permission;
   if (call.derivedDecisions !== undefined && call.derivedDecisions.length > 0) {
     part.derivedDecisions = call.derivedDecisions;
@@ -729,6 +749,9 @@ class DurableAssistantReconstructor {
     }
     this.completedToolCallIds.add(toolCallId);
     this.openToolCalls.delete(toolCallId);
+    const retainedMedia = parseRetainedMedia(
+      eventPayloadField(event.payload, RETAINED_MEDIA_KEY),
+    );
     this.collector.tool(
       toolActivityPart({
         toolCallId,
@@ -739,8 +762,9 @@ class DurableAssistantReconstructor {
         classification: this.recordedClassification(toolCallId),
         // The call decision rides on the request; the derived-locator
         // decisions only exist once the call settled, so they are read from
-        // this completion payload.
+        // this completion payload, as are the bytes the read keeps.
         derivedDecisions: derivedDecisionsFromPayload(event.payload),
+        retainedMedia,
       }),
     );
   }

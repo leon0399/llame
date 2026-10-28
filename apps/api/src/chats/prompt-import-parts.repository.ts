@@ -10,6 +10,7 @@
 
 import { messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { retainedPartsBase64 } from '../media/retained-media';
 import {
   CONTEXT_ITEM_PRODUCERS,
   isContextItemPart,
@@ -82,6 +83,19 @@ export class PromptImportPartsRepository {
     if (stored === undefined) return undefined;
     if (isPromptImportsPartPayload(stored)) return stored;
     return { ...stored, data: { ...stored.data, payload: undefined } };
+  }
+
+  /**
+   * The retained base64 the message already holds, so a Regenerate Run's new
+   * item keeps bytes only within what earlier Runs' items left of the
+   * per-message bound.
+   */
+  async retainedBase64(input: { id: string; chatId: string }): Promise<number> {
+    const [row] = await this.db
+      .select({ parts: messages.parts })
+      .from(messages)
+      .where(messageOwner(input));
+    return Array.isArray(row?.parts) ? retainedPartsBase64(row.parts) : 0;
   }
 
   /**

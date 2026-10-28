@@ -682,17 +682,14 @@ describe('native file authority and durable effects', () => {
     const media = new MediaService(tenantDb);
     const ownerContext: ToolContext = {
       ...context,
-      media: createToolMediaStore(media, owner, new Map(), ['text', 'image']),
+      media: createToolMediaStore(media, owner, new Map()),
     };
     const otherContext: ToolContext = {
       userId: otherOwner,
       chatId: randomUUID(),
       tenantDb,
       permissionPolicy: compileTestPermissionPolicy(),
-      media: createToolMediaStore(media, otherOwner, new Map(), [
-        'text',
-        'image',
-      ]),
+      media: createToolMediaStore(media, otherOwner, new Map()),
     };
     const ownedObjects = () =>
       tenantDb.runAs(owner, (tx) =>

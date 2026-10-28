@@ -668,10 +668,7 @@ describe('/api/v1/media (HTTP)', () => {
 
     it('reads an owned stored PDF and refuses the same locator for another owner', async () => {
       const media = new MediaService(tenantDb);
-      const store = createToolMediaStore(media, userAId, new Map(), [
-        'text',
-        'pdf',
-      ]);
+      const store = createToolMediaStore(media, userAId, new Map());
 
       expect(
         await executeMediaRead(store, 'read', pdf.locator, undefined),
@@ -684,10 +681,7 @@ describe('/api/v1/media (HTTP)', () => {
         pages: 1,
         byteSize: onePage.byteLength,
       });
-      const foreign = createToolMediaStore(media, userBId, new Map(), [
-        'text',
-        'pdf',
-      ]);
+      const foreign = createToolMediaStore(media, userBId, new Map());
       await expect(
         executeMediaRead(foreign, 'read', pdf.locator, undefined),
       ).resolves.toMatchObject({ status: 'error', type: 'not_found' });

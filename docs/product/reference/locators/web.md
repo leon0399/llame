@@ -128,25 +128,25 @@ native read object — `content`, the requested and shown range or ranges,
 
 A page whose response, after any redirects, declares `image/png`, `image/jpeg`,
 `image/gif`, or `image/webp` is not rendered: its body is decoded like a local
-image and stored nowhere, so it creates no media object and gets no `media://`
-id. The read returns the [image result](../tools/read.md#image-result), with
-its display-only `thumbnail` and no `media` field, plus `path`, `finalUrl`,
-`method: "image"`, and `notes` only when non-empty, and no content or range
-fields. The decoded image lives only in the memory of the Run attempt that read
-it; later requests replay the result with the not-retained placeholder. The
-bytes decide the format, so a JPEG declared as `image/png` reports
-`image/jpeg`, and bytes that are no PNG, JPEG, GIF, or WebP image fail with
-`unsupported_media_type`. Any selector on an image, `:raw` included, fails with
-`invalid_selector`. An adapter response or an alternate, suffix, or `llms.txt`
-probe with an image type is a refused content type, never an image.
+image and creates no media object, so it gets no `media://` id. The read returns
+the [image result](../tools/read.md#image-result), with its display-only
+`thumbnail` and no `media` field, plus `path`, `finalUrl`, `method: "image"`,
+and `notes` only when non-empty, and no content or range fields. The decoded
+image stays in the chat row beside the result, and later requests of the epoch
+replay it under the media window. The bytes decide the format, so a JPEG
+declared as `image/png` reports `image/jpeg`, and bytes that are no PNG, JPEG,
+GIF, or WebP image fail with `unsupported_media_type`. Any selector on an image,
+`:raw` included, fails with `invalid_selector`. An adapter response or an
+alternate, suffix, or `llms.txt` probe with an image type is a refused content
+type, never an image.
 
 A page response declaring `application/pdf` and starting with `%PDF-` returns
 the [PDF result](../tools/read.md#pdf-result), with `path`, `finalUrl`,
 `method: "pdf"`, and `notes` only when non-empty. It has no content, range fields,
-thumbnail, embedded data, or `media` locator. The original is unstored and
-available only in the reading attempt to models with PDF input. Any selector
-is refused. Adapter responses and alternate, suffix, and `llms.txt` probes
-remain text-only; a PDF response disqualifies their candidate.
+thumbnail, embedded data, or `media` locator. The original stays in the chat row
+beside the result, and models with PDF input receive it under the media window.
+Any selector is refused. Adapter responses and alternate, suffix, and `llms.txt`
+probes remain text-only; a PDF response disqualifies their candidate.
 
 The web adapter stage runs after the source locator passes `read` permission
 admission and before the source is fetched: a claimed URL whose adapter renders

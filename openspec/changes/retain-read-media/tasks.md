@@ -50,45 +50,45 @@ Budget:
 
 Create `retain-read-media/inline-parts` from `retain-read-media/proposal` with `$gh-stack`.
 
-- [ ] 2.1 Make the media hook keep every image's model variant and every PDF's original as base64,
+- [x] 2.1 Make the media hook keep every image's model variant and every PDF's original as base64,
       whatever the model's input; delete `releaseMedia`, the released-size fields, and the release loop
       in the composer; verify with the tool-media-store and step-composer unit tests.
-- [ ] 2.2 Add `retainedMedia` to the `tool-read` part and to the model-origin `tool.completed`
+- [x] 2.2 Add `retainedMedia` to the `tool-read` part and to the model-origin `tool.completed`
       payload beside `output`, and copy it in the event-log rebuild; verify that a live part and a
       rebuilt part both keep the bytes, that a system-origin event carries none, and that a UI stream
       chunk carries none.
-- [ ] 2.3 Apply the per-message bound in `recordToolCompleted` before the event, from the seeded
+- [x] 2.3 Apply the per-message bound in `recordToolCompleted` before the event, from the seeded
       kept parts and the settled reads, and in the prompt-import pass; verify that a read past the bound
       succeeds, records `{ "exceeded": true }` in the part and the event, takes the limit placeholder in
       the live step and on replay, and that a Continue counts its kept parts.
-- [ ] 2.4 Add `retainedMedia` to prompt-import image and PDF entries and to the API payload
+- [x] 2.4 Add `retainedMedia` to prompt-import image and PDF entries and to the API payload
       validator; verify with the prompt-imports-item validator tests for each closed-set scenario.
-- [ ] 2.5 Load `retainedMedia` from epoch rows, Continue kept parts, and the compaction prefix into
+- [x] 2.5 Load `retainedMedia` from epoch rows, Continue kept parts, and the compaction prefix into
       the attempt's map under row-identity keys; emit a marker only for a part or entry with
       `retainedMedia`, in the stored replay, the Continue projection, the import marker, and the live
       output; verify that a later turn, a Continue, an owner fork, and a compaction request attach the
       read, that the main build, the continuation estimate, and the compaction request resolve the same
       row, and that a legacy row and a Continue of a legacy reply replay as text.
-- [ ] 2.6 Delete the `not-retained` admission status and the not-retained placeholder; size retained
+- [x] 2.6 Delete the `not-retained` admission status and the not-retained placeholder; size retained
       references from their base64 length and attach only the attached ones, handing each entry's
       base64 to the SDK as is; verify with epoch-admission tests for the byte bound, two reads of one
       file, and a changed file.
-- [ ] 2.7 Count retained references in earlier rows for the overflow trigger, and skip Continue kept
+- [x] 2.7 Count retained references in earlier rows for the overflow trigger, and skip Continue kept
       references in the trigger slice and the continuation estimate; verify with compaction trigger
       tests, one of them a Continue whose kept reads overflow.
-- [ ] 2.8 Strip `retainedMedia` from the owner history response, the run event stream
+- [x] 2.8 Strip `retainedMedia` from the owner history response, the run event stream
       (`tool.completed` and `run.continued`), and the Continue and Regenerate job payloads; verify with
       chats and runs controller tests, a follow-up-admission test of the job data, and a negative test
       that another owner's history and events requests return no row and no bytes.
-- [ ] 2.9 Chunk the owner fork's message inserts by part bytes; verify with a fork test whose rows
+- [x] 2.9 Chunk the owner fork's message inserts by part bytes; verify with a fork test whose rows
       exceed one chunk.
-- [ ] 2.10 Update the packaged `read` description, `SPEC.md`, the `read`, locator, prompt-import,
+- [x] 2.10 Update the packaged `read` description, `SPEC.md`, the `read`, locator, prompt-import,
       Continue, and web-read references, the media operator page, and `CHANGELOG.md`; verify with
       `pnpm lint:markdown` and the prompt-render tests.
-- [ ] 2.11 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused unit tests, the
+- [x] 2.11 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused unit tests, the
       API integration suites for runs, chats, and prompt imports, `pnpm format:check`, and
       `git diff --check`.
-- [ ] 2.12 SR: self-review the draft diff, then run the code-review, simplification-review, and
+- [x] 2.12 SR: self-review the draft diff, then run the code-review, simplification-review, and
       ponytail-review passes; fix the accepted findings before ready.
 - [ ] 2.13 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
 

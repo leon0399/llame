@@ -38,6 +38,7 @@ function item(
 
 function promptImports(runId: string): AuthoredContextItemPart {
   return createPromptImportsItem({
+    retainedBefore: 0,
     runId,
     outcomes: [
       {
@@ -48,6 +49,7 @@ function promptImports(runId: string): AuthoredContextItemPart {
       },
     ],
     omitted: [],
+    retained: new Map(),
   });
 }
 

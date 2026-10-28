@@ -90,7 +90,7 @@ function continueRequest(metadata: ProviderMetadata): Array<ModelMessage> {
         ['call-2', 0],
       ]),
       results: new Map(),
-    }),
+    }).messages,
   ];
 }
 

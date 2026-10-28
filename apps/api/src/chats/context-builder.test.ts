@@ -8,6 +8,10 @@
  */
 
 import { contentText } from '../testing/support';
+
+/** The later-turn projection of one assistant row's parts. */
+const project = (parts: Array<MessagePart>) =>
+  projectToolObservations(parts, 'msg-1');
 import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildContext,
@@ -419,7 +423,24 @@ describe('buildContext', () => {
       const imported = '0192f3a4-5b6c-7d8e-9f01-000000000004';
       const owner = '0192f3a4-5b6c-7d8e-9f01-000000000005';
       const item = createPromptImportsItem({
+        retainedBefore: 0,
         runId,
+        retained: new Map([
+          [
+            promptImportMediaKey(runId, 'shot.png'),
+            {
+              locator: 'shot.png',
+              width: 1600,
+              height: 900,
+              model: {
+                mediaType: 'image/png' as const,
+                width: 1600,
+                height: 900,
+                data: 'AAAA',
+              },
+            },
+          ],
+        ]),
         outcomes: [
           {
             locator: 'shot.png',
@@ -557,7 +578,7 @@ describe('buildContext', () => {
     /** The exact `[assistant tool-call, tool tool-result]` envelope the replay
      * budget measures, so a fixture can be sized against the real constant. */
     const pairEnvelopeSize = (part: MessagePart): number => {
-      const pair = projectToolObservations([part])?.pairs[0];
+      const pair = project([part])?.pairs[0];
       if (!pair) throw new Error('Expected a projected tool pair');
       return JSON.stringify([
         { role: 'assistant', content: [pair.toolCallPart] },
@@ -1914,9 +1935,7 @@ describe('buildContext', () => {
 
       // Reasoning and its metadata reach the provider only as reasoning
       // parts — the tool observation projection carries neither.
-      const projection = JSON.stringify(
-        projectToolObservations(assistant.parts),
-      );
+      const projection = JSON.stringify(project(assistant.parts));
       expect(projection).not.toContain('SECRET_REASONING');
       expect(projection).not.toContain('ENCRYPTED_2');
       expect(projection).not.toContain('PROVIDER_SECRET');
@@ -2018,7 +2037,7 @@ describe('buildContext', () => {
     });
 
     it('the live tool loop still observes its own results within the run (2.14)', () => {
-      const projected = projectToolObservations(toolParts);
+      const projected = project(toolParts);
       expect(projected).not.toBeNull();
       expect(projected!.toolResultParts).toHaveLength(1);
       expect(JSON.stringify(projected!.toolResultParts[0].output)).toContain(
@@ -2027,7 +2046,7 @@ describe('buildContext', () => {
     });
 
     it('keeps an incomplete Knowledge search as success while its payload remains', () => {
-      const projected = projectToolObservations([
+      const projected = project([
         {
           type: 'tool-knowledge_search',
           toolCallId: 'knowledge-incomplete-full',
@@ -2053,7 +2072,7 @@ describe('buildContext', () => {
     });
 
     it('marks an incomplete Knowledge search incomplete when replay clears its payload', () => {
-      const projected = projectToolObservations([
+      const projected = project([
         {
           type: 'tool-knowledge_search',
           toolCallId: 'knowledge-incomplete-cleared',
@@ -2112,7 +2131,7 @@ describe('buildContext', () => {
     ])(
       'ignores a record-shaped persisted tool part with an invalid required %s',
       (_field, part) => {
-        expect(projectToolObservations([part])).toBeNull();
+        expect(project([part])).toBeNull();
       },
     );
 
@@ -2340,7 +2359,7 @@ describe('buildContext', () => {
         },
       });
       try {
-        projected = projectToolObservations(parts);
+        projected = project(parts);
       } finally {
         Object.defineProperty(JSON, 'stringify', stringifyDescriptor);
       }
