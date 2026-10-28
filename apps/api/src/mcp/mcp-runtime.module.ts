@@ -22,6 +22,7 @@ export const EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS: Readonly<
 type MutableRemoteDefinition = {
   url: string;
   headers?: Readonly<Record<string, string>>;
+  protectedValues?: ReadonlyArray<string>;
 };
 
 function runtimeDefinitionFor(
@@ -48,6 +49,9 @@ function runtimeDefinitionFor(
   };
   if (definition.headers !== undefined) {
     remote.headers = Object.freeze({ ...definition.headers });
+  }
+  if (definition.protectedValues !== undefined) {
+    remote.protectedValues = definition.protectedValues;
   }
   return remote;
 }

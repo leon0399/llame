@@ -37,9 +37,18 @@ Remote entries are `{ type, url, headers? }`; `http` and `streamable-http` are
 aliases. URLs must be absolute HTTP(S) without userinfo. Unknown fields and
 transport-owned header overrides fail startup. Use interpolated headers for
 credentials. Config, allowlists, and secrets must match every process after
-restart; accepted Runs retain their bound declarations. Resolved headers and
-session IDs remain transport-only and never enter model input, receipts,
-persistence, errors, or logs.
+restart; accepted Runs retain their bound declarations. Protected header
+values and session IDs remain transport-only and never enter model input,
+receipts, persistence, errors, or logs.
+
+llame redacts a remote server's protected values from its declarations, call
+arguments, results, and errors: every `{env:…}`/`{path:…}` substitution in
+`url` and `headers`, the whole value of an `Authorization`,
+`Proxy-Authorization`, or `Cookie` header even when literal, and the session
+ID. Other literal header values, such as `"X-MCP-Readonly": "true"`, are not
+secrets and are not redacted; protected values match as substrings, so
+protecting `true` would rewrite every `true` in tool results. Interpolate any
+secret carried in another header.
 
 ## Configure local stdio
 
@@ -140,8 +149,10 @@ reports each server's state; unavailable servers contribute no callable tools.
 
 Protected values are tracked per Workspace server. Every non-empty remote URL
 interpolation substitution and remote header interpolation substitution is
-protected. Every non-empty final remote header value is protected, whether
-literal or interpolated. Resolved interpolation substitutions in stdio
+protected, except a literal supplied only as a header's `${VAR:-default}`
+fallback. The whole value of an `Authorization`, `Proxy-Authorization`, or
+`Cookie` header is protected, whether literal or interpolated; other literal
+header values are not. Resolved interpolation substitutions in stdio
 `command`, `args`, `env`, and `cwd` are protected. A literal supplied only as
 a `${VAR:-default}` fallback is excluded in stdio `command`, `args`, and `env`;
 the fallback in `cwd` remains protected. A literal stdio `env` value is not

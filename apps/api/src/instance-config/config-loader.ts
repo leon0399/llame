@@ -79,6 +79,7 @@ import {
   isProviderOptionRecord,
 } from '../models/provider-options';
 import {
+  credentialHeaderValues,
   isNumber,
   isRecord,
   isString,
@@ -1819,16 +1820,10 @@ function asciiCaseFold(value: string): string {
   return value.replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase());
 }
 
-function resolveRemoteMcpServer(
-  serverPath: string,
-  entry: Extract<RawMcpServerEntry, { type: 'http' | 'streamable-http' }>,
-  env: NodeJS.ProcessEnv,
-): McpRemoteServerConfig {
-  const urlPath = `${serverPath}.url`;
-  const resolvedUrl = resolvePrivateMcpString(entry.url, urlPath, env);
+function assertRemoteMcpUrl(urlPath: string, value: string): void {
   let parsedUrl: URL;
   try {
-    parsedUrl = new URL(resolvedUrl);
+    parsedUrl = new URL(value);
   } catch {
     throw new InstanceConfigError(
       `${urlPath}: must be an absolute http or https URL without userinfo`,
@@ -1843,13 +1838,46 @@ function resolveRemoteMcpServer(
       `${urlPath}: must be an absolute http or https URL without userinfo`,
     );
   }
+}
 
-  const headers = resolveMcpHeaders(serverPath, entry.headers, env);
+/**
+ * Resolves a remote entry. Its protected values are what the `{env:…}` /
+ * `{path:…}` tokens in `url` and `headers` resolved to, plus the whole value
+ * of every credential header (`Authorization`, `Proxy-Authorization`,
+ * `Cookie`) even when written literally. Other literal header text, such as
+ * `X-MCP-Readonly: true`, is not protected.
+ */
+function resolveRemoteMcpServer(
+  serverPath: string,
+  entry: Extract<RawMcpServerEntry, { type: 'http' | 'streamable-http' }>,
+  env: NodeJS.ProcessEnv,
+): McpRemoteServerConfig {
+  const urlPath = `${serverPath}.url`;
+  const { value: resolvedUrl, substituted } = resolvePrivateMcpValue(
+    entry.url,
+    urlPath,
+    env,
+  );
+  assertRemoteMcpUrl(urlPath, resolvedUrl);
+  const protectedValues = [...substituted];
+
+  const headers = resolveMcpHeaders(
+    serverPath,
+    entry.headers,
+    env,
+    protectedValues,
+  );
   const remoteConfig: McpRemoteServerConfig = {
     type: 'streamable-http',
     url: resolvedUrl,
   };
-  if (headers !== undefined) remoteConfig.headers = headers;
+  if (headers !== undefined) {
+    remoteConfig.headers = headers;
+    protectedValues.push(...credentialHeaderValues(headers));
+  }
+  if (protectedValues.length > 0) {
+    remoteConfig.protectedValues = Object.freeze([...new Set(protectedValues)]);
+  }
   return remoteConfig;
 }
 
@@ -1874,14 +1902,6 @@ function resolveMcpServers(
   }
 
   return resolved;
-}
-
-function resolvePrivateMcpString(
-  raw: string,
-  configPath: string,
-  env: NodeJS.ProcessEnv,
-): string {
-  return resolvePrivateMcpValue(raw, configPath, env).value;
 }
 
 /**
@@ -1964,13 +1984,10 @@ function resolveStdioServer(
   return config;
 }
 
-function resolveMcpHeaders(
+function assertMcpHeaderNames(
   serverPath: string,
-  rawHeaders: Record<string, string> | undefined,
-  env: NodeJS.ProcessEnv,
-): Readonly<Record<string, string>> | undefined {
-  if (rawHeaders === undefined) return undefined;
-
+  rawHeaders: Record<string, string>,
+): void {
   const namesByFold = new Map<string, string>();
   for (const name of Object.keys(rawHeaders)) {
     const headerPath = `${serverPath}.headers.${name}`;
@@ -1988,13 +2005,30 @@ function resolveMcpHeaders(
     }
     namesByFold.set(folded, name);
   }
+}
+
+function resolveMcpHeaders(
+  serverPath: string,
+  rawHeaders: Record<string, string> | undefined,
+  env: NodeJS.ProcessEnv,
+  protectedValues: Array<string>,
+): Readonly<Record<string, string>> | undefined {
+  if (rawHeaders === undefined) return undefined;
+  assertMcpHeaderNames(serverPath, rawHeaders);
 
   // Same null-prototype construction as `resolveStdioServer`'s `childEnv`.
   const headers: Record<string, string> = {};
   Object.setPrototypeOf(headers, null);
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
     const headerPath = `${serverPath}.headers.${name}`;
-    const value = resolvePrivateMcpString(rawValue, headerPath, env);
+    const { value, substituted } = resolvePrivateMcpValue(
+      rawValue,
+      headerPath,
+      env,
+    );
+    // Trimmed as the HTTP runtime sends it; the trimmed form is a substring
+    // of the untrimmed one, so redacting it covers both spellings.
+    protectedValues.push(...substituted.map((secret) => secret.trim()));
     if (value.trim() === '') {
       throw new InstanceConfigError(
         `${headerPath}: must resolve to a non-empty string`,

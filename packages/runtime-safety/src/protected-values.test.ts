@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PROTECTED_VALUE_REDACTION_MARKER,
   containsProtectedValueJson,
+  credentialHeaderValues,
   normalizeProtectedValues,
   redactProtectedString,
   sanitizeProtectedValueJson,
@@ -27,6 +28,22 @@ describe("protected values", () => {
 
   it("uses the stable public redaction marker", () => {
     expect(PROTECTED_VALUE_REDACTION_MARKER).toBe("[REDACTED]");
+  });
+
+  it("takes trimmed credential header values by case-insensitive name only", () => {
+    expect(
+      credentialHeaderValues({
+        Authorization: "  Bearer token  ",
+        "PROXY-AUTHORIZATION": "Basic proxy",
+        cookie: "session=abc",
+        "X-MCP-Readonly": "true",
+        "X-Api-Key": "literal",
+      }),
+    ).toEqual(["Bearer token", "Basic proxy", "session=abc"]);
+  });
+
+  it("drops a credential header value that is only whitespace", () => {
+    expect(credentialHeaderValues({ Authorization: "   " })).toEqual([]);
   });
 
   it("orders overlapping values longest first and equal lengths lexically", () => {

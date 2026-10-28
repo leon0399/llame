@@ -627,6 +627,8 @@ describe('operator-configured MCP production acceptance', () => {
             type: 'streamable-http',
             url: fixture.url,
             headers: { authorization: HEADER_SENTINEL },
+            // As the config loader resolves a literal credential header.
+            protectedValues: [HEADER_SENTINEL],
           },
         },
       } as const;
@@ -934,6 +936,7 @@ describe('operator-configured MCP production acceptance', () => {
       expect(definitions['web']).toEqual({
         url: fixture.url,
         headers: { authorization: HEADER_SENTINEL },
+        protectedValues: [HEADER_SENTINEL],
       });
       expect(definitions['web']).not.toHaveProperty('type');
     } finally {
