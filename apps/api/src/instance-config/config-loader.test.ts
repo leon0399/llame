@@ -1259,6 +1259,22 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     expect(headers!.__proto__).toBe('header-value');
   });
 
+  it('protects nothing for a remote with only literal non-credential headers', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "github": {
+          "type": "http",
+          "url": "https://example.test/mcp",
+          "headers": { "X-MCP-Readonly": "true", "X-MCP-Lockdown": "true" }
+        }
+      }
+    }`);
+
+    expect(loadInstanceConfig().mcpServers.github).not.toHaveProperty(
+      'protectedValues',
+    );
+  });
+
   it('rejects the noncanonical top-level servers alias', () => {
     writeConfig(`{
       "servers": {

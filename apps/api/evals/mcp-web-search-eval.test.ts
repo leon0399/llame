@@ -274,6 +274,9 @@ d(
           serverId: 'real_search',
           url: config.url,
           headers: { [config.authHeader]: config.authValue },
+          // The header name is operator-chosen, so protect the credential
+          // explicitly rather than by credential-header name.
+          protectedValues: [config.authValue],
         });
         const catalog = await client.discover();
         assertCredentialAbsent(catalog, config.authValue);
