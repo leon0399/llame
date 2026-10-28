@@ -4,6 +4,7 @@ import { tool, type ToolSet } from 'ai';
 import { TenantDbService } from '../db/tenant-db.service';
 import { toFlexibleSchema } from '../tools/schema-utils';
 import { type ModelClient } from '../models/model-client';
+import { mergeRetainedMedia } from '../media/attempt-media';
 import type { RunMediaResolver } from '../media/media-descriptors';
 import { loadMediaSizing } from '../media/epoch-admission';
 import {
@@ -201,6 +202,11 @@ export class CompactionService {
       previous,
       absorb: input.plan.absorb,
     });
+    // The prefix's retained bytes live in its rows: the summarizer projects
+    // them from this attempt's map like any request of the epoch.
+    if (input.media !== undefined) {
+      mergeRetainedMedia(input.media.retainedMedia, request.retainedMedia);
+    }
     let inference: SummaryInference;
     try {
       inference = await this.summarize({
@@ -296,6 +302,9 @@ export class CompactionService {
       previous,
       absorb: input.plan.absorb,
     });
+    if (input.media !== undefined) {
+      mergeRetainedMedia(input.media.retainedMedia, request.retainedMedia);
+    }
     if (
       !requestFitsContextWindow({
         system: request.system,

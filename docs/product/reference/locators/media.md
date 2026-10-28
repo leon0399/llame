@@ -24,11 +24,11 @@ read results carry it. Media read from any other source has no `media://` locato
 
 `read({ path: "media://<id>" })` returns the stored object's image result: `kind:
 "image"`, `media` and `path` both equal to the locator, and the stored
-original's `mediaType`, `width`, and `height`, with no `thumbnail`. It stores
-nothing, changes nothing, and triggers no instruction chain. It is the only
-image read kept across turns: a later turn replays the image from the store
-under the epoch image window, where an image read from a path is not retained;
-see [read](../tools/read.md#image-result).
+original's `mediaType`, `width`, and `height`, with no `thumbnail`. It creates
+no media object, changes nothing, and triggers no instruction chain. A later
+turn replays the image from the store under the epoch image window, as it
+replays the retained bytes of an image read from a path; see
+[read](../tools/read.md#image-result).
 
 A stored PDF instead returns `kind: "pdf"`, `mediaType: "application/pdf"`,
 `pages`, and `byteSize`, with `media` and `path` both equal to its locator.

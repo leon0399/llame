@@ -20,7 +20,7 @@ function toolPart(overrides: UnknownRecord = {}): MessagePart {
 
 /** The model-facing text of the one projected tool result for `part`. */
 function projectedOutput(part: MessagePart): string {
-  const projection = projectToolObservations([part]);
+  const projection = projectToolObservations([part], 'msg-1');
   if (projection === null) throw new Error('Expected a tool projection');
   const output = projection.toolResultParts[0]?.output;
   if (!isRecord(output) || output.type !== 'text' || !isString(output.value)) {

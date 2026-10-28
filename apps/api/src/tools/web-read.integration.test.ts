@@ -14,7 +14,7 @@ import { isString } from '@workspace/runtime-safety';
 import sharp from 'sharp';
 import { z } from 'zod';
 
-import type { HeldMedia } from '../media/attempt-media';
+import type { RetainedMedia } from '../media/attempt-media';
 import { type MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
@@ -1809,7 +1809,7 @@ describe('web image reads over loopback fixtures', () => {
 
   let fixture: AddressFixture;
   let images: Images;
-  let memory: Map<string, HeldMedia>;
+  let memory: Map<string, RetainedMedia>;
 
   /** The owner's store: a web image never reaches it, so any lookup fails the
    *  test. */
@@ -1928,10 +1928,7 @@ describe('web image reads over loopback fixtures', () => {
     execute(
       webContext({
         permissionPolicy: ADMIT_EVERY_LOCATOR,
-        media: createToolMediaStore(mediaService, 'owner', memory, [
-          'text',
-          'image',
-        ]),
+        media: createToolMediaStore(mediaService, 'owner', memory),
         toolCallId: CALL_ID,
         ...overrides,
       }),
@@ -1984,7 +1981,7 @@ describe('web image reads over loopback fixtures', () => {
     // The attempt keeps the model variant under the call id; nothing else
     // holds the image.
     const entry = memory.get(CALL_ID);
-    if (entry === undefined || 'pages' in entry)
+    if (entry === undefined || 'pages' in entry || 'exceeded' in entry)
       throw new Error('Expected a retained image');
     const { model, ...held } = entry;
     expect(held).toStrictEqual({
@@ -2167,7 +2164,7 @@ describe('web PDF reads over loopback fixtures', () => {
   let largePdf: Buffer;
   let encrypted: Buffer;
   let tooManyPages: Buffer;
-  let memory: Map<string, HeldMedia>;
+  let memory: Map<string, RetainedMedia>;
   const mediaService: Pick<MediaService, 'findOwned'> = {
     findOwned: () =>
       Promise.reject(new Error('An unstored PDF looked up the media store.')),
@@ -2185,10 +2182,7 @@ describe('web PDF reads over loopback fixtures', () => {
     execute(
       webContext({
         permissionPolicy: ADMIT_EVERY_LOCATOR,
-        media: createToolMediaStore(mediaService, 'owner', memory, [
-          'text',
-          'pdf',
-        ]),
+        media: createToolMediaStore(mediaService, 'owner', memory),
         toolCallId: CALL_ID,
         ...overrides,
       }),
@@ -2355,7 +2349,7 @@ describe('web PDF reads over loopback fixtures', () => {
     const path = urlOf('/paper.pdf');
     expect(
       await read(path, {
-        media: createToolMediaStore(mediaService, 'owner', memory, ['text']),
+        media: createToolMediaStore(mediaService, 'owner', memory),
       }),
     ).toMatchObject({ status: 'success', kind: 'pdf', pages: 15 });
     expect(memory.get(CALL_ID)).toEqual({ locator: path, pages: 15 });

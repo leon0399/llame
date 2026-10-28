@@ -26,6 +26,7 @@ import {
 import type { Request } from 'express';
 
 import { CurrentUser } from '../auth/auth-context';
+import { withoutRetainedMediaPayload } from '../chats/retained-media-egress';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
@@ -354,19 +355,22 @@ function formatSseEvent(event: RunEvent): string {
   return `id: ${event.sequence}\ndata: ${data}\n\n`;
 }
 
-/** Keep the resolved host cwd durable, but do not expose it in owner output. */
+/**
+ * The owner's view of a stored event: no resolved host cwd, and no retained
+ * read bytes — those stay on the server (retain-read-media D4).
+ */
 function ownerEventForSse(event: RunEvent): RunEvent {
-  if (
-    event.eventType !== 'native.attempt' ||
-    !isRecord(event.payload) ||
-    event.payload.operation !== 'bash'
-  ) {
+  if (!isRecord(event.payload)) {
     return event;
   }
 
-  const payload = { ...event.payload };
-  delete payload.path;
-  return { ...event, payload };
+  let payload = withoutRetainedMediaPayload(event.eventType, event.payload);
+  if (event.eventType === 'native.attempt' && payload['operation'] === 'bash') {
+    payload = { ...payload };
+    delete payload['path'];
+  }
+
+  return payload === event.payload ? event : { ...event, payload };
 }
 
 function sleep(ms: number): Promise<void> {

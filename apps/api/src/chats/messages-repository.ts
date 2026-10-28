@@ -36,6 +36,7 @@ import {
   type ConversationMessageLookup,
 } from './conversation-message-lookup';
 import { type ContextItemPart } from './context-item';
+import { messageInsertChunks } from './message-insert-chunks';
 
 /** A checkpoint row; the repository guarantees its boundary is present. */
 export type CheckpointMessage = Message & { absorbedThroughSeq: number };
@@ -279,8 +280,9 @@ export class MessagesRepository {
    * one-based `seq` values in input order, while
    * chunking keeps any one statement's parameter count well under Postgres's
    * limit for arbitrarily large batches (a fork copies a conversation of any
-   * length, #143 — no upper bound). Chunks are awaited in order, not via
-   * `Promise.all`, so cross-chunk `seq` order is preserved too.
+   * length, #143 — no upper bound). A chunk also ends at 256 MiB of serialized
+   * `parts`, since a retained read keeps its bytes there. Chunks are awaited in
+   * order, not via `Promise.all`, so `seq` order survives too.
    *
    * `createdAt`/`usage` are the owner fork's verbatim copy of a source row's
    * time and price (complete-owner-forks D2). The shared fork passes neither,
@@ -303,9 +305,8 @@ export class MessagesRepository {
       usage?: unknown;
     }>,
   ): Promise<void> {
-    const CHUNK_SIZE = 500;
-    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-      await this.db.insert(messages).values(rows.slice(i, i + CHUNK_SIZE));
+    for (const chunk of messageInsertChunks(rows)) {
+      await this.db.insert(messages).values(chunk);
     }
   }
 

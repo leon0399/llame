@@ -48,6 +48,7 @@ function promptImports(runId: string): AuthoredContextItemPart {
       },
     ],
     omitted: [],
+    retained: new Map(),
   });
 }
 

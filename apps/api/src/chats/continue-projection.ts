@@ -38,10 +38,14 @@ import {
   type PromptReasoningPart,
 } from './context-builder';
 import {
+  isUnstoredMedia,
   mediaResultRef,
   submittedLocator,
   toolResultOutput,
+  type ToolMediaRef,
 } from '../media/epoch-admission';
+import type { RetainedMedia } from '../media/attempt-media';
+import { continuedMediaKey } from '../media/retained-media';
 import { neutralizeToolResult } from './tool-observation-neutralizer';
 import {
   isNativeToolName,
@@ -167,19 +171,26 @@ function toolResultFromRecord(value: unknown): ToolResult | undefined {
  * native file tool sends its serialized result and its media reference; every
  * other tool sends its neutralized result as JSON. No untrusted framing, no
  * budget — the model reads exactly what the source Run sent it.
+ *
+ * A kept result that names media without a stored locator is a reference only
+ * when its kept part keeps the retained bytes: a reply from before retention
+ * replays as its result text, exactly as a later turn replays it.
  */
 function keptToolOutput(
   toolName: string,
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- the call's stored input, which the media locator reader parses before use.
   input: unknown,
   result: ToolResult,
+  retainedRef: ToolMediaRef | undefined,
 ): ToolResultPart['output'] {
-  return isNativeToolName(toolName)
-    ? toolResultOutput(
-        serializeNativeModelOutput(result),
-        mediaResultRef(result, submittedLocator(input)),
-      )
-    : { type: 'json', value: jsonOutputOf(neutralizeToolResult(result)) };
+  if (!isNativeToolName(toolName)) {
+    return { type: 'json', value: jsonOutputOf(neutralizeToolResult(result)) };
+  }
+  const named = mediaResultRef(result, submittedLocator(input));
+  return toolResultOutput(
+    serializeNativeModelOutput(result),
+    isUnstoredMedia(named) ? retainedRef : named,
+  );
 }
 
 /**
@@ -192,17 +203,27 @@ function jsonOutputOf(result: ToolResult): JSONValue {
   return jsonSchema.parse(result);
 }
 
-/** One kept call's pair: its call as stored, its result as the live loop sent it. */
+/**
+ * One kept call's pair: its call as stored, its result as the live loop sent
+ * it, and its retained entry when the kept part keeps bytes.
+ */
 function keptPair(
   part: MessagePart,
   partIndex: number,
   results: ReadonlyMap<string, ToolResult>,
+  retainedMedia: Map<string, RetainedMedia>,
 ): ProjectedToolObservationPair | undefined {
-  const stored = projectStoredToolPart(part, partIndex);
+  const stored = projectStoredToolPart(
+    part,
+    partIndex,
+    continuedMediaKey(partIndex),
+  );
   if (stored === undefined) return undefined;
-  const { toolCallPart } = stored;
+  for (const [key, entry] of stored.retainedMedia)
+    retainedMedia.set(key, entry);
+  const { toolCallPart } = stored.pair;
   const result = results.get(toolCallPart.toolCallId);
-  if (result === undefined) return stored;
+  if (result === undefined) return stored.pair;
   return {
     partIndex,
     toolCallPart,
@@ -210,7 +231,12 @@ function keptPair(
       type: 'tool-result',
       toolCallId: toolCallPart.toolCallId,
       toolName: toolCallPart.toolName,
-      output: keptToolOutput(toolCallPart.toolName, toolCallPart.input, result),
+      output: keptToolOutput(
+        toolCallPart.toolName,
+        toolCallPart.input,
+        result,
+        stored.media,
+      ),
     },
   };
 }
@@ -244,6 +270,13 @@ function appendContent(part: MessagePart, step: KeptStep): boolean {
   return true;
 }
 
+/** The step left open while the kept parts are grouped. */
+type StepsOpen = {
+  readonly openStepNumber: number | undefined;
+  readonly openCallCount: number;
+  readonly openItemCount: number;
+};
+
 /**
  * Whether this call starts a new step. An unnumbered call never does, so a
  * legacy run of consecutive calls stays one step; an item closes its step, and
@@ -251,11 +284,7 @@ function appendContent(part: MessagePart, step: KeptStep): boolean {
  * (or of an unnumbered one).
  */
 function startsNewStep(
-  step: {
-    readonly openStepNumber: number | undefined;
-    readonly openCallCount: number;
-    readonly openItemCount: number;
-  },
+  step: StepsOpen,
   callStepNumber: number | undefined,
 ): boolean {
   if (step.openItemCount > 0) return true;
@@ -272,7 +301,10 @@ function startsNewStep(
  * differs from the open one — or one that follows an item, whichever Run
  * recorded it.
  */
-function groupSteps(state: ContinueState): Array<KeptStep> {
+function groupSteps(
+  state: ContinueState,
+  retainedMedia: Map<string, RetainedMedia>,
+): Array<KeptStep> {
   const steps: Array<KeptStep> = [];
   let current = newStep();
   let currentStepNumber: number | undefined;
@@ -283,9 +315,17 @@ function groupSteps(state: ContinueState): Array<KeptStep> {
     currentStepNumber = undefined;
   };
 
+  const open = (): StepsOpen => ({
+    openStepNumber: currentStepNumber,
+    openCallCount: current.calls.length,
+    openItemCount: current.items.length,
+  });
+
   for (const [index, part] of state.parts.entries()) {
-    const pair = keptPair(part, index, state.results);
+    const pair = keptPair(part, index, state.results, retainedMedia);
     if (pair === undefined) {
+      // A text or reasoning part after the open step's calls begins the next
+      // response, whatever step number the source Run recorded.
       if (
         (isTextPart(part) || isReasoningPart(part)) &&
         current.calls.length > 0
@@ -296,15 +336,7 @@ function groupSteps(state: ContinueState): Array<KeptStep> {
       continue;
     }
     const stepNumber = state.stepNumbers.get(pair.toolCallPart.toolCallId);
-    const opensNext = startsNewStep(
-      {
-        openStepNumber: currentStepNumber,
-        openCallCount: current.calls.length,
-        openItemCount: current.items.length,
-      },
-      stepNumber,
-    );
-    if (opensNext) flush();
+    if (startsNewStep(open(), stepNumber)) flush();
     if (stepNumber !== undefined) currentStepNumber = stepNumber;
     current.calls.push(pair.toolCallPart);
     current.results.push(pair.toolResultPart);
@@ -340,14 +372,22 @@ function stepMessages(step: KeptStep): Array<ModelMessage> {
   return messages;
 }
 
+/** The kept parts as messages, with the retained entry behind each marker. */
+export type ContinueProjection = {
+  /** Empty when nothing was kept. */
+  readonly messages: Array<ModelMessage>;
+  readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
+};
+
 /**
  * The kept parts as the messages a Continue Run sends after the history
- * through its trigger. Empty when nothing was kept.
+ * through its trigger, with the retained entry each of their media markers
+ * names.
  */
-export function projectContinueParts(
-  state: ContinueState,
-): Array<ModelMessage> {
-  return groupSteps(state).flatMap(stepMessages);
+export function projectContinueParts(state: ContinueState): ContinueProjection {
+  const retainedMedia = new Map<string, RetainedMedia>();
+  const messages = groupSteps(state, retainedMedia).flatMap(stepMessages);
+  return { messages, retainedMedia };
 }
 
 /**

@@ -75,7 +75,8 @@ A multi-range read reports the plural `requestedRanges` (the merged request) and
 A host, `file://`, `machine://`, Workspace-relative, `kb://`, or `skill://`
 regular file whose leading bytes are a PNG, JPEG, GIF, or WebP image is not
 decoded as text: the worker decodes it with the same preparation as an upload,
-stores nothing, and the read returns an image result instead of `content`:
+creates no media object, and the read returns an image result instead of
+`content`:
 
 | Field       | Meaning                                                             |
 | ----------- | ------------------------------------------------------------------- |
@@ -98,23 +99,25 @@ budget.
 
 An `http(s)://` page whose response, after redirects, declares `image/png`,
 `image/jpeg`, `image/gif`, or `image/webp` within the 5 MiB web body bound is
-decoded the same way and stored nowhere, and returns the image result plus
-`finalUrl`, `method: "image"`, and `notes` only when non-empty; `path` is the
-requested URL. The bytes still decide the format, `:raw` is refused like any
+decoded the same way and creates no media object, and returns the image result
+plus `finalUrl`, `method: "image"`, and `notes` only when non-empty; `path` is
+the requested URL. The bytes still decide the format, `:raw` is refused like any
 selector, and `image/svg+xml` stays text; see
 [web](../locators/web.md#behavior).
 
-The decoded model variant lives only in the memory of the Run attempt that read
-it. A model that declares image input receives the image with the result in
-that attempt's later steps, as the epoch image window in
-[media](../../operator/media.md) admits it. Any later request, whether a later
-turn, a retry or resume, a compaction, or a fork, replays the result with
-`[image "<path>" W×H, not retained]`, the path being the one the model
-submitted, as a JSON string literal; reading it again makes the image available
-in that attempt. A model without image input receives the omitted placeholder
-instead. A [`media://`](../locators/media.md) read returns a stored object with
-its `media` locator and no `thumbnail`, and is the only image read kept across
-turns.
+The decoded model variant stays in the chat row beside the result. A model that
+declares image input receives the image with the result in that attempt's later
+steps, and in every later request of the epoch — a later turn, a retry or
+resume, a Continue, a compaction, or an owner fork — as the epoch image window
+in [media](../../operator/media.md#media-window) admits it. When the window does
+not admit it, the result instead carries
+`[image "<path>" W×H, not attached: this context's image limit is reached]`, the
+path being the one the model submitted, as a JSON string literal. A model
+without image input receives the omitted placeholder instead. A read that would
+pass its message's retained-media bound keeps no bytes and takes the limit
+placeholder too. A [`media://`](../locators/media.md) read returns a stored
+object with its `media` locator and no `thumbnail`, and replays from the store
+the same way.
 
 ### PDF result
 
@@ -130,14 +133,16 @@ An [`http(s)://`](../locators/web.md#behavior) page declaring
 `finalUrl`, `method: "pdf"`, and `notes` only when non-empty. Its body bound is
 20 MiB; it is also unstored and takes no selector.
 
-The worker validates the original without storing it. Only a model with PDF
-input receives its bytes in the reading attempt's later steps, under the
-shared [media window](../../operator/media.md#media-window). On a later
-turn, retry, resume, compaction, or fork, the result instead carries
-`[pdf "<path>" <P> pages, not retained]`; read the locator again to view it.
+The worker validates the original without storing it. The original stays in the
+chat row beside the result, so a model that declares PDF input receives its
+bytes in the reading attempt's later steps, and in every later request of the
+epoch — a later turn, a retry or resume, a Continue, a compaction, or an owner
+fork — under the shared [media window](../../operator/media.md#media-window).
+When the window does not admit it, the result instead carries
+`[pdf "<path>" <P> pages, not attached: this context's PDF limit is reached]`.
 A model without PDF input receives an omitted placeholder. A
 [`media://`](../locators/media.md) PDF result also carries its stored `media`
-locator and can replay from the store across turns.
+locator and replays from the store across turns.
 
 ## Behavior
 

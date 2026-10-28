@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { RETAINED_MESSAGE_BOUND } from '../media/retained-media';
+
 import {
   createPromptImportsItem,
   isPromptImportsPayload,
@@ -41,6 +43,7 @@ describe('prompt imports item', () => {
         },
       ],
       omitted: [],
+      retained: new Map(),
     });
 
     expect(item.data.text).toContain(
@@ -63,6 +66,7 @@ describe('prompt imports item', () => {
         { locator: '/private/notes.md', outcome: 'failed' },
       ],
       omitted: ['@later.md'],
+      retained: new Map(),
     });
 
     expect(item.data.payload).toEqual({
@@ -93,6 +97,7 @@ describe('prompt imports item', () => {
         },
       ],
       omitted: [],
+      retained: new Map(),
     });
 
     expect(item.data.payload).toEqual({
@@ -121,6 +126,7 @@ describe('prompt imports item', () => {
         },
       ],
       omitted: [],
+      retained: new Map(),
     });
 
     expect(item.data.payload).toEqual({
@@ -142,6 +148,7 @@ describe('prompt imports item', () => {
         { locator: 'notes.md', outcome: 'imported', body: 'Notes.' },
       ],
       omitted: [],
+      retained: new Map(),
     });
 
     expect(item.data.payload).toEqual({
@@ -164,13 +171,14 @@ describe('prompt imports item', () => {
         },
       ],
       omitted: [],
+      retained: new Map(),
     });
 
     expect(
       promptImportMediaParts({
         ...item,
         data: { ...item.data, producer: 'instructions' },
-      }),
+      }).parts,
     ).toEqual([]);
     expect(
       promptImportMediaParts({
@@ -183,8 +191,68 @@ describe('prompt imports item', () => {
             ],
           },
         },
-      }),
+      }).parts,
     ).toEqual([]);
+  });
+
+  it('records the entry past the item bound as exceeded and keeps the read', () => {
+    const pdf = {
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 15,
+      byteSize: 2_215_244,
+    } as const;
+    const retained = 'A'.repeat(RETAINED_MESSAGE_BOUND);
+    const item = createPromptImportsItem({
+      runId: RUN_ID,
+      outcomes: [
+        {
+          locator: 'first.pdf',
+          outcome: 'imported',
+          body: '{"status":"success","kind":"pdf"}',
+          attachment: pdf,
+        },
+        {
+          locator: 'second.pdf',
+          outcome: 'imported',
+          body: '{"status":"success","kind":"pdf"}',
+          attachment: pdf,
+        },
+      ],
+      omitted: [],
+      retained: new Map([
+        [
+          promptImportMediaKey(RUN_ID, 'first.pdf'),
+          { locator: 'first.pdf', pages: pdf.pages, data: retained },
+        ],
+        [
+          promptImportMediaKey(RUN_ID, 'second.pdf'),
+          { locator: 'second.pdf', pages: pdf.pages, data: 'JVBERi0xLjQK' },
+        ],
+      ]),
+    });
+
+    expect(item.data.payload).toEqual({
+      imports: [
+        {
+          locator: 'first.pdf',
+          outcome: 'imported',
+          ...pdf,
+          retainedMedia: { mediaType: 'application/pdf', data: retained },
+        },
+        {
+          locator: 'second.pdf',
+          outcome: 'imported',
+          ...pdf,
+          retainedMedia: { exceeded: true },
+        },
+      ],
+    });
+    expect(isPromptImportsPayload(item.data.payload)).toBe(true);
+    // The bounded entry still imports; only its bytes are left out.
+    expect(item.data.text).toContain('first.pdf');
+    expect(item.data.text).toContain('second.pdf');
+    expect(item.data.text).not.toContain('AAAA');
   });
 
   it('keys unstored entries by their Run and locator', () => {
@@ -408,6 +476,165 @@ describe('prompt imports payload validation', () => {
   });
 });
 
+describe('retained media entry payloads', () => {
+  const PNG_DATA = 'iVBORw0KGgoAAAANSUhEUg==';
+  const PDF_DATA = 'JVBERi0xLjQK';
+  /** An unstored image entry whose dimensions the retained variant repeats. */
+  const shot = {
+    locator: 'shot.png',
+    outcome: 'imported',
+    ...UNSTORED,
+  } as const;
+  const png = {
+    mediaType: 'image/png',
+    width: 2000,
+    height: 1125,
+    data: PNG_DATA,
+  } as const;
+  const pdfEntry = {
+    locator: 'paper.pdf',
+    outcome: 'imported',
+    kind: 'pdf',
+    mediaType: 'application/pdf',
+    pages: 15,
+    byteSize: 2_215_244,
+  } as const;
+
+  it.each([
+    ['a PNG variant', { ...shot, retainedMedia: png }],
+    [
+      'a JPEG variant',
+      {
+        ...shot,
+        mediaType: 'image/jpeg',
+        retainedMedia: { ...png, mediaType: 'image/jpeg' },
+      },
+    ],
+    ['a variant beside the thumbnail', { ...shot, retainedMedia: png }],
+    ['the exceeded record', { ...shot, retainedMedia: { exceeded: true } }],
+    [
+      'a PDF original',
+      {
+        ...pdfEntry,
+        retainedMedia: { mediaType: 'application/pdf', data: PDF_DATA },
+      },
+    ],
+    [
+      'the PDF exceeded record',
+      { ...pdfEntry, retainedMedia: { exceeded: true } },
+    ],
+  ] as const)('accepts an imported entry carrying %s', (_case, entry) => {
+    expect(isPromptImportsPayload({ imports: [entry] })).toBe(true);
+  });
+
+  it.each([
+    [
+      'a media locator beside the image record',
+      { ...shot, media: MEDIA, retainedMedia: png },
+    ],
+    [
+      'a GIF variant',
+      {
+        ...shot,
+        retainedMedia: { ...png, mediaType: 'image/gif' },
+      },
+    ],
+    [
+      'a PDF record on an image entry',
+      {
+        ...shot,
+        retainedMedia: { mediaType: 'application/pdf', data: PDF_DATA },
+      },
+    ],
+    ['an empty data string', { ...shot, retainedMedia: { ...png, data: '' } }],
+    [
+      'data that is not base64',
+      { ...shot, retainedMedia: { ...png, data: 'not base64!' } },
+    ],
+    [
+      'padding inside the data',
+      { ...shot, retainedMedia: { ...png, data: 'AA==AA' } },
+    ],
+    ['a zero width', { ...shot, retainedMedia: { ...png, width: 0 } }],
+    [
+      'a record key outside the closed set',
+      { ...shot, retainedMedia: { ...png, extra: 1 } },
+    ],
+    [
+      'an image record without its dimensions',
+      {
+        locator: 'shot.png',
+        outcome: 'imported',
+        mediaType: 'image/png',
+        retainedMedia: png,
+      },
+    ],
+    [
+      'the exceeded record without dimensions',
+      {
+        locator: 'shot.png',
+        outcome: 'imported',
+        mediaType: 'image/png',
+        retainedMedia: { exceeded: true },
+      },
+    ],
+    [
+      'a record on an entry that was not imported',
+      { ...shot, outcome: 'failed', retainedMedia: png },
+    ],
+    [
+      'a media locator beside the PDF record',
+      {
+        ...pdfEntry,
+        media: MEDIA,
+        retainedMedia: { mediaType: 'application/pdf', data: PDF_DATA },
+      },
+    ],
+    [
+      'a PNG record on a PDF entry',
+      {
+        ...pdfEntry,
+        retainedMedia: png,
+      },
+    ],
+    [
+      'PDF data that is not base64',
+      {
+        ...pdfEntry,
+        retainedMedia: { mediaType: 'application/pdf', data: '*not*' },
+      },
+    ],
+    [
+      'a PDF record key outside the closed set',
+      {
+        ...pdfEntry,
+        retainedMedia: {
+          mediaType: 'application/pdf',
+          data: PDF_DATA,
+          extra: 1,
+        },
+      },
+    ],
+    [
+      'the exceeded record with data',
+      {
+        ...pdfEntry,
+        retainedMedia: { exceeded: true, data: PDF_DATA },
+      },
+    ],
+    [
+      'a PDF record on an entry that was truncated',
+      {
+        ...pdfEntry,
+        truncated: false,
+        retainedMedia: { mediaType: 'application/pdf', data: PDF_DATA },
+      },
+    ],
+  ] as const)('rejects an entry carrying %s', (_case, entry) => {
+    expect(isPromptImportsPayload({ imports: [entry] })).toBe(false);
+  });
+});
+
 describe('PDF import metadata', () => {
   const pdf = {
     kind: 'pdf',
@@ -435,6 +662,7 @@ describe('PDF import metadata', () => {
         },
       ],
       omitted: [],
+      retained: new Map(),
     });
 
     expect(item.data.payload).toEqual({

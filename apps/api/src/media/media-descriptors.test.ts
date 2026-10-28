@@ -8,7 +8,6 @@ import {
   createRunMediaResolver,
   fileAttachmentLines,
   limitPlaceholder,
-  notRetainedPlaceholder,
   omittedPlaceholder,
   storedSubject,
   unavailablePlaceholder,
@@ -302,18 +301,38 @@ describe('createRunMediaResolver loadModelBytes', () => {
   });
 });
 
-describe('createRunMediaResolver images', () => {
-  it('starts every attempt with empty memory, shared with no other attempt', () => {
+describe('createRunMediaResolver retained media', () => {
+  it('starts every attempt with an empty map, shared with no other attempt', () => {
     const first = scriptedResolver([]).resolver;
     const second = scriptedResolver([]).resolver;
-    first.heldMedia.set('call-1', {
+    first.retainedMedia.set('call-1', {
       locator: '/work/shot.png',
       width: 1600,
       height: 900,
+      model: {
+        mediaType: 'image/png',
+        width: 1600,
+        height: 900,
+        data: 'AAAA',
+      },
     });
 
-    expect(first.heldMedia.get('call-1')).toBeDefined();
-    expect(second.heldMedia.get('call-1')).toBeUndefined();
+    expect(first.retainedMedia.get('call-1')).toBeDefined();
+    expect(second.retainedMedia.get('call-1')).toBeUndefined();
+  });
+
+  it('decodes an entry once and keeps the bytes for later steps', () => {
+    const resolver = scriptedResolver([]).resolver;
+    resolver.retainedMedia.set('call-1', {
+      locator: '/work/paper.pdf',
+      pages: 1,
+      data: Buffer.from('pdf').toString('base64'),
+    });
+
+    const first = resolver.retainedBytes('call-1');
+    expect(Buffer.from(first ?? [])).toEqual(Buffer.from('pdf'));
+    expect(resolver.retainedBytes('call-1')).toBe(first);
+    expect(resolver.retainedBytes('call-2')).toBeUndefined();
   });
 });
 
@@ -332,10 +351,10 @@ describe('unstoredSubject', () => {
   it('never cuts a long locator', () => {
     const locator = `/work/${'a'.repeat(394)}`;
     expect(
-      notRetainedPlaceholder(
-        unstoredSubject({ locator, width: 1600, height: 900 }),
-      ),
-    ).toBe(`[image "${locator}" 1600×900, not retained]`);
+      limitPlaceholder(unstoredSubject({ locator, width: 1600, height: 900 })),
+    ).toBe(
+      `[image "${locator}" 1600×900, not attached: this context's image limit is reached]`,
+    );
   });
 });
 

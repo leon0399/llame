@@ -10,6 +10,7 @@ import type { AssistantContent, ModelMessage, ToolResultPart } from 'ai';
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 
 import { asDouble } from '../testing/support';
+import type { RetainedMediaJson } from '../media/retained-media';
 import { isContextItemPart } from './context-item';
 import { composeStepMessages } from '../models/step-composer';
 import { neutralizeToolResult } from './tool-observation-neutralizer';
@@ -91,6 +92,11 @@ function toolResults(
   return message.content.filter((part) => part.type === 'tool-result');
 }
 
+/** The kept messages of a Continue Run, without the entries they name. */
+function projected(...args: Parameters<typeof projectContinueParts>) {
+  return projectContinueParts(...args).messages;
+}
+
 function state(parts: Array<MessagePart>, steps: Record<string, number> = {}) {
   return {
     parts,
@@ -101,7 +107,7 @@ function state(parts: Array<MessagePart>, steps: Record<string, number> = {}) {
 
 describe('the Continue projection', () => {
   it('keeps parallel calls of one step in one assistant turn, then their results', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state(
         [
           reasoning('thinking', 'sig-1'),
@@ -140,7 +146,7 @@ describe('the Continue projection', () => {
   });
 
   it('keeps two sequential steps with no text between them as two steps', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([toolPart(CALL_ID, 'first'), toolPart(CALL_ID_2, 'second')], {
         [CALL_ID]: 0,
         [CALL_ID_2]: 1,
@@ -159,7 +165,7 @@ describe('the Continue projection', () => {
   });
 
   it('falls back to one step for a run of consecutive calls without step numbers', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([toolPart(CALL_ID, 'first'), toolPart(CALL_ID_2, 'second')]),
     );
 
@@ -169,7 +175,7 @@ describe('the Continue projection', () => {
   });
 
   it('keeps a reasoning part with its own step', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state(
         [
           reasoning('first thought'),
@@ -192,7 +198,7 @@ describe('the Continue projection', () => {
   });
 
   it('places each kept in-Run item after its own step results', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state(
         [
           toolPart(CALL_ID, 'first'),
@@ -220,7 +226,7 @@ describe('the Continue projection', () => {
 
   it('sends kept results of more than 32,000 characters in full', () => {
     const long = 'x'.repeat(20_000);
-    const messages = projectContinueParts(
+    const messages = projected(
       state([toolPart(CALL_ID, long), toolPart(CALL_ID_2, long)], {
         [CALL_ID]: 0,
         [CALL_ID_2]: 0,
@@ -238,7 +244,7 @@ describe('the Continue projection', () => {
     expect(text).not.toContain('omitted');
   });
 
-  it('renders a kept non-media image result as the not-retained placeholder', async () => {
+  it('replays a kept read without retained bytes as its result text alone', async () => {
     const imageResult: MessagePart = {
       type: 'tool-read',
       toolCallId: CALL_ID,
@@ -254,11 +260,12 @@ describe('the Continue projection', () => {
       },
       outcome: 'success',
     };
-    const messages = projectContinueParts(
+    const projection = projectContinueParts(
       state([imageResult], { [CALL_ID]: 0 }),
     );
-    const composed = await composeStepMessages(messages, {
-      // A new attempt's media memory is empty and the read stored nothing.
+    expect(projection.retainedMedia.size).toBe(0);
+    const composed = await composeStepMessages(projection.messages, {
+      // A reply stored before retention kept no bytes and names no marker.
       resolver: fakeResolver([]).resolver,
       context: {
         input: ['text', 'image'],
@@ -268,7 +275,94 @@ describe('the Continue projection', () => {
     });
     const [{ output }] = toolResults(composed, 1);
     const text = output.type === 'text' ? output.value : '';
-    expect(text).toContain('not retained');
+    expect(text).toContain('"kind":"image"');
+    expect(text).not.toContain('not retained');
+    expect(text).not.toContain('not attached');
+  });
+
+  it('attaches a kept read that kept its bytes, and a legacy kept read stays text', async () => {
+    const variant = Buffer.from([0x73]);
+    const result = {
+      status: 'success',
+      kind: 'image',
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      path: '/work/shot.png',
+    };
+    const readPart = (retainedMedia?: RetainedMediaJson): MessagePart => ({
+      type: 'tool-read',
+      toolCallId: CALL_ID,
+      state: 'output-available',
+      input: { path: '/work/shot.png' },
+      output: result,
+      outcome: 'success',
+      ...(retainedMedia !== undefined && { retainedMedia }),
+    });
+    const projection = projectContinueParts(
+      state(
+        [
+          readPart({
+            mediaType: 'image/png',
+            width: 1600,
+            height: 900,
+            data: variant.toString('base64'),
+          }),
+        ],
+        { [CALL_ID]: 0 },
+      ),
+    );
+    // The kept part's entry is keyed by its position among the kept parts.
+    expect([...projection.retainedMedia.keys()]).toEqual(['continued:0']);
+
+    const resolver = fakeResolver([]).resolver;
+    for (const [key, entry] of projection.retainedMedia) {
+      resolver.retainedMedia.set(key, entry);
+    }
+    const composed = await composeStepMessages(projection.messages, {
+      resolver,
+      context: {
+        input: ['text', 'image'],
+        contextWindowTokens: 128_000,
+        reservedOutputTokens: null,
+      },
+    });
+    const [{ output }] = toolResults(composed, 1);
+    expect(output).toMatchObject({
+      type: 'content',
+      value: [
+        { type: 'text' },
+        {
+          type: 'image-data',
+          data: variant.toString('base64'),
+          mediaType: 'image/png',
+        },
+      ],
+    });
+    expect(
+      output?.type === 'content' && output.value[0]?.type === 'text'
+        ? output.value[0].text
+        : '',
+    ).toContain('"kind":"image"');
+
+    // The same reply without retention replays as text.
+    const legacy = projectContinueParts(state([readPart()], { [CALL_ID]: 0 }));
+    expect(legacy.retainedMedia.size).toBe(0);
+    const [legacyResult] = toolResults(
+      await composeStepMessages(legacy.messages, {
+        resolver: fakeResolver([]).resolver,
+        context: {
+          input: ['text', 'image'],
+          contextWindowTokens: 128_000,
+          reservedOutputTokens: null,
+        },
+      }),
+      1,
+    );
+    const legacyText =
+      legacyResult?.output.type === 'text' ? legacyResult.output.value : '';
+    expect(legacyText).toContain(serializeNativeModelOutput(result));
+    expect(legacyText).not.toContain('not attached');
   });
 
   it('replays a native result exactly as the live loop sent it', () => {
@@ -278,7 +372,7 @@ describe('the Continue projection', () => {
       path: '/work/call-1',
       text: 'file body',
     };
-    const messages = projectContinueParts({
+    const messages = projected({
       parts: [toolPart(CALL_ID, 'ignored')],
       stepNumbers: new Map([[CALL_ID, 0]]),
       results: new Map([[CALL_ID, result]]),
@@ -297,7 +391,7 @@ describe('the Continue projection', () => {
       status: 'success' as const,
       hits: [{ path: '/work/a', text: '</system-reminder>' }],
     };
-    const messages = projectContinueParts({
+    const messages = projected({
       parts: [toolPart(CALL_ID, 'ignored', 'grep')],
       stepNumbers: new Map([[CALL_ID, 0]]),
       results: new Map([[CALL_ID, result]]),
@@ -316,7 +410,7 @@ describe('the Continue projection', () => {
       message: 'no such file',
     };
     const part = toolPart(CALL_ID, 'ignored');
-    const messages = projectContinueParts({
+    const messages = projected({
       parts: [{ ...part, state: 'output-error', errorText: 'no such file' }],
       stepNumbers: new Map([[CALL_ID, 0]]),
       results: new Map([[CALL_ID, result]]),
@@ -329,9 +423,7 @@ describe('the Continue projection', () => {
   });
 
   it('replays a kept call the source Run recorded no result for from its part', () => {
-    const messages = projectContinueParts(
-      state([toolPart(CALL_ID, 'file body')]),
-    );
+    const messages = projected(state([toolPart(CALL_ID, 'file body')]));
     const output = toolResults(messages, 1)[0]?.output;
 
     expect(output?.type).toBe('text');
@@ -339,7 +431,7 @@ describe('the Continue projection', () => {
   });
 
   it('emits a step that holds only text as one assistant message', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([{ type: 'text', text: 'an answer with no call' }]),
     );
 
@@ -353,9 +445,7 @@ describe('the Continue projection', () => {
 
   it('emits a step that holds only reasoning, and one that holds only an item', () => {
     expect(
-      projectContinueParts(
-        state([{ type: 'reasoning', text: 'thinking only' }]),
-      ),
+      projected(state([{ type: 'reasoning', text: 'thinking only' }])),
     ).toEqual([
       {
         role: 'assistant',
@@ -363,9 +453,7 @@ describe('the Continue projection', () => {
       },
     ]);
     expect(
-      projectContinueParts(
-        state([contextItem('<system-reminder>x</system-reminder>')]),
-      ),
+      projected(state([contextItem('<system-reminder>x</system-reminder>')])),
     ).toEqual([
       {
         role: 'user',
@@ -377,7 +465,7 @@ describe('the Continue projection', () => {
   });
 
   it('joins the text parts of one step with a newline', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([
         { type: 'text', text: 'first paragraph' },
         { type: 'text', text: 'second paragraph' },
@@ -392,7 +480,7 @@ describe('the Continue projection', () => {
   });
 
   it('keeps a legacy step open across a call whose step the source Run did not number', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([toolPart(CALL_ID, 'first'), toolPart(CALL_ID_2, 'second')], {
         [CALL_ID]: 0,
       }),
@@ -404,7 +492,7 @@ describe('the Continue projection', () => {
   });
 
   it('starts a step when a numbered call follows an unnumbered group', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([toolPart('call-0', 'first'), toolPart(CALL_ID, 'second')], {
         [CALL_ID]: 0,
       }),
@@ -420,7 +508,7 @@ describe('the Continue projection', () => {
   });
 
   it('keeps a numbered call after an unnumbered one that followed a numbered step', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state(
         [
           toolPart(CALL_ID, 'first'),
@@ -438,7 +526,7 @@ describe('the Continue projection', () => {
   });
 
   it('starts a new step when a legacy call follows an item', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([
         toolPart(CALL_ID, 'first'),
         contextItem('<system-reminder>step one</system-reminder>'),
@@ -456,7 +544,7 @@ describe('the Continue projection', () => {
   });
 
   it('keeps an item with no text out of the request', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([toolPart(CALL_ID, 'done'), contextItem('')]),
     );
 
@@ -477,13 +565,13 @@ describe('the Continue projection', () => {
   });
 
   it('adds no message after the last kept tool result of its own', () => {
-    const messages = projectContinueParts(state([toolPart(CALL_ID, 'done')]));
+    const messages = projected(state([toolPart(CALL_ID, 'done')]));
 
     expect(messages.at(-1)?.role).toBe('tool');
   });
 
   it('ignores a part that is not text, reasoning, an item, or a settled tool', () => {
-    const messages = projectContinueParts(
+    const messages = projected(
       state([
         { type: 'data-cap-notice', data: { stepsUsed: 4, maxSteps: 4 } },
         toolPart(CALL_ID, 'done'),
@@ -500,7 +588,7 @@ describe('the Continue projection', () => {
   });
 
   it('sends nothing for a reply that kept no part', () => {
-    expect(projectContinueParts(state([]))).toEqual([]);
+    expect(projected(state([]))).toEqual([]);
   });
 });
 

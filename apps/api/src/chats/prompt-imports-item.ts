@@ -20,6 +20,20 @@ import { z } from 'zod';
 
 import { userImagePart, type MediaRef } from '../media/epoch-admission';
 import {
+  retainedEntry,
+  retainedEntrySize,
+  retainedMediaJson,
+  type RetainedMedia,
+  type UnstoredMedia,
+} from '../media/attempt-media';
+import {
+  parseRetainedMedia,
+  RETAINED_MESSAGE_BOUND,
+  type RetainedMediaJson,
+  retainedImageRecordSchema,
+  retainedPdfRecordSchema,
+} from '../media/retained-media';
+import {
   isThumbnailDataUrl,
   ORIGINAL_MEDIA_TYPES,
 } from '../media/media-ingest';
@@ -73,6 +87,7 @@ const unstoredImageFields = {
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   mediaType: z.enum(ORIGINAL_MEDIA_TYPES),
+  retainedMedia: retainedImageRecordSchema.exactOptional(),
 };
 const pdfFields = {
   kind: z.literal('pdf'),
@@ -80,8 +95,14 @@ const pdfFields = {
   pages: z.number().int().min(1).max(100),
   byteSize: z.number().int().positive(),
   media: storedImageFields.media.exactOptional(),
+  retainedMedia: retainedPdfRecordSchema.exactOptional(),
 };
-const promptImportPdfSchema = z.strictObject(pdfFields);
+const promptImportPdfSchema = z
+  .strictObject(pdfFields)
+  .refine(
+    (entry) =>
+      !(entry.media !== undefined && entry.retainedMedia !== undefined),
+  );
 
 const promptImportMediaSchema = z.union([
   z.strictObject(storedImageFields),
@@ -97,6 +118,21 @@ const textEntryFields = {
   ...entryFields,
   truncated: z.boolean().exactOptional(),
 };
+
+/**
+ * A PDF entry names the store or keeps the original's bytes, never both, and
+ * carries no image field.
+ */
+const payloadPdfEntrySchema = z
+  .strictObject({
+    ...entryFields,
+    outcome: z.literal('imported'),
+    ...pdfFields,
+  })
+  .refine(
+    (entry) =>
+      !(entry.media !== undefined && entry.retainedMedia !== undefined),
+  );
 
 /** Exact persisted text, image, and PDF entry forms. */
 const payloadEntrySchema = z.union([
@@ -114,11 +150,7 @@ const payloadEntrySchema = z.union([
     outcome: z.literal('imported'),
     ...unstoredImageFields,
   }),
-  z.strictObject({
-    ...entryFields,
-    outcome: z.literal('imported'),
-    ...pdfFields,
-  }),
+  payloadPdfEntrySchema,
 ]);
 
 /** Projects native read metadata without copying binary or source fields. */
@@ -184,6 +216,7 @@ export function isPromptImportsPayload(
 
 function toPayloadEntry(
   outcome: PromptImportOutcome,
+  retainedMedia: RetainedMediaJson | undefined,
 ): PromptImportsPayloadEntry {
   return {
     locator: outcome.locator,
@@ -192,58 +225,117 @@ function toPayloadEntry(
     ...(outcome.outcome === 'imported' &&
       outcome.truncated !== undefined && { truncated: outcome.truncated }),
     ...(outcome.outcome === 'imported' && outcome.attachment),
+    ...(retainedMedia !== undefined && { retainedMedia }),
   };
 }
 
+/** The record one import entry keeps, and the item's used size after it. */
+type EntryRetainedMedia = {
+  readonly record?: RetainedMediaJson;
+  readonly used: number;
+};
+
 /**
- * The attempt-memory key of an unstored import: the importing Run and its
- * entry's locator, which is unique among the item's entries. No tool call id
- * has this form.
+ * The retained record an unstored import entry keeps, under the item's own
+ * bound: the entries share one stored message, so their bytes are summed in
+ * entry order and an entry past the bound records `{ exceeded: true }` and
+ * keeps none. A stored locator names the store, and an entry without a kept
+ * entry has no bytes, so neither takes a record.
+ */
+function importRetainedMedia(
+  importStep: {
+    readonly runId: string;
+    readonly retained: ReadonlyMap<string, RetainedMedia>;
+  },
+  outcome: PromptImportOutcome,
+  used: number,
+): EntryRetainedMedia {
+  if (outcome.outcome !== 'imported') return { used };
+  const { attachment } = outcome;
+  if (attachment === undefined || 'media' in attachment) return { used };
+  const entry = importStep.retained.get(
+    promptImportMediaKey(importStep.runId, outcome.locator),
+  );
+  if (entry === undefined) return { used };
+  const size = retainedEntrySize(entry);
+  return used + size > RETAINED_MESSAGE_BOUND
+    ? { record: { exceeded: true }, used }
+    : { record: retainedMediaJson(entry), used: used + size };
+}
+
+/**
+ * The marker key of an unstored import: the importing Run and its entry's
+ * locator, which is unique among the item's entries. No tool call id has this
+ * form.
  */
 export function promptImportMediaKey(runId: string, locator: string): string {
   return `prompt-import:${runId}:${locator}`;
 }
 
+/** The reference markers of one item, with the entry each one names. */
+export type PromptImportMediaParts = {
+  readonly parts: Array<ImagePart>;
+  readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
+};
+
 /**
  * Reference markers in entry order, retaining a PDF's media type even if its
- * stored descriptor disappears; none for another producer or invalid payload.
+ * stored descriptor disappears, with the entry each marker names; none for
+ * another producer or invalid payload, and none for an entry without a locator
+ * or retained bytes — such an entry replays as the item's text alone.
  */
 export function promptImportMediaParts(
   part: ContextItemPart,
-): Array<ImagePart> {
+): PromptImportMediaParts {
   const { producer, payload, runId } = part.data;
   if (producer !== 'prompt-imports' || !isPromptImportsPayload(payload)) {
-    return [];
+    return { parts: [], retainedMedia: new Map() };
   }
-  return payload.imports.flatMap((entry): Array<ImagePart> => {
-    const id =
+  const parts: Array<ImagePart> = [];
+  const retainedMedia = new Map<string, RetainedMedia>();
+  for (const entry of payload.imports) {
+    const ref =
       'media' in entry && entry.media !== undefined
         ? parseMediaLocator(entry.media)
-        : undefined;
-    const { locator } = entry;
-    let ref: MediaRef;
-    if (id !== undefined) {
-      ref = id;
-    } else if ('kind' in entry) {
-      ref = {
-        locator,
-        pages: entry.pages,
-        key: promptImportMediaKey(runId, locator),
-      };
-    } else if ('width' in entry) {
-      ref = {
-        locator,
-        width: entry.width,
-        height: entry.height,
-        key: promptImportMediaKey(runId, locator),
-      };
-    } else {
-      return [];
-    }
+        : unstoredEntryRef(entry, runId, retainedMedia);
+    if (ref === undefined) continue;
     const marker = userImagePart(ref);
     if ('kind' in entry) marker.mediaType = entry.mediaType;
-    return [marker];
-  });
+    parts.push(marker);
+  }
+  return { parts, retainedMedia };
+}
+
+/**
+ * The marker reference an unstored entry names, adding its retained entry to
+ * `retainedMedia`; undefined for an entry whose record names no bytes.
+ */
+function unstoredEntryRef(
+  entry: PromptImportsPayloadEntry,
+  runId: string,
+  retainedMedia: Map<string, RetainedMedia>,
+): MediaRef | undefined {
+  const subject: UnstoredMedia | undefined =
+    'kind' in entry
+      ? { locator: entry.locator, pages: entry.pages }
+      : 'width' in entry
+        ? {
+            locator: entry.locator,
+            width: entry.width,
+            height: entry.height,
+          }
+        : undefined;
+  if (subject === undefined) return undefined;
+  const record =
+    'retainedMedia' in entry
+      ? parseRetainedMedia(entry.retainedMedia)
+      : undefined;
+  const retained =
+    record === undefined ? undefined : retainedEntry(record, subject);
+  if (retained === undefined) return undefined;
+  const key = promptImportMediaKey(runId, entry.locator);
+  retainedMedia.set(key, retained);
+  return { ...subject, key };
 }
 
 type PromptImportsTemplateValues = {
@@ -301,14 +393,25 @@ function renderPromptImports(
   });
 }
 
-/** Creates the single persisted prompt-imports notice for one accepted turn. */
+/**
+ * Creates the single persisted prompt-imports notice for one accepted turn,
+ * recording each unstored entry's retained bytes from the attempt's map under
+ * the item's own bound.
+ */
 export function createPromptImportsItem(input: {
   readonly runId: string;
   readonly outcomes: ReadonlyArray<PromptImportOutcome>;
   readonly omitted: ReadonlyArray<string>;
+  readonly retained: ReadonlyMap<string, RetainedMedia>;
 }): AuthoredContextItemPart {
+  let used = 0;
+  const imports = input.outcomes.map((outcome) => {
+    const bounded = importRetainedMedia(input, outcome, used);
+    used = bounded.used;
+    return toPayloadEntry(outcome, bounded.record);
+  });
   const payload: PromptImportsPayload = {
-    imports: input.outcomes.map(toPayloadEntry),
+    imports,
     ...(input.omitted.length > 0 && { omitted: [...input.omitted] }),
   };
   if (!isPromptImportsPayload(payload)) {

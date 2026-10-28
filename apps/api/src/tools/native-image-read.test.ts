@@ -11,7 +11,7 @@ import type { MediaObject } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
-import type { HeldMedia } from '../media/attempt-media';
+import type { RetainedMedia } from '../media/attempt-media';
 import {
   MEDIA_MAX_BYTES,
   MEDIA_REFUSAL,
@@ -125,7 +125,7 @@ const STORED_IMAGE = {
 describe('native media reads', () => {
   let directory: string;
   let media: FakeMedia;
-  let memory: Map<string, HeldMedia>;
+  let memory: Map<string, RetainedMedia>;
   let shot: Buffer;
 
   function context(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -142,30 +142,26 @@ describe('native media reads', () => {
         runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
           callback(db),
       },
-      media: createToolMediaStore(media.service, 'owner', memory, [
-        'text',
-        'image',
-        'pdf',
-      ]),
+      media: createToolMediaStore(media.service, 'owner', memory),
       ...overrides,
     };
   }
 
-  /** The attempt memory's entry for `key`, its variant summarized. */
+  /** The attempt's retained entry for `key`, its base64 summarized. */
   function held(key = 'call') {
     const entry = memory.get(key);
-    if (entry === undefined || 'pages' in entry) return undefined;
+    if (entry === undefined || 'pages' in entry || 'exceeded' in entry) {
+      return undefined;
+    }
     const { model, ...image } = entry;
     return {
       ...image,
-      ...(model && {
-        model: {
-          mediaType: model.mediaType,
-          width: model.width,
-          height: model.height,
-          retained: model.bytes.length > 0,
-        },
-      }),
+      model: {
+        mediaType: model.mediaType,
+        width: model.width,
+        height: model.height,
+        base64: model.data.length > 0,
+      },
     };
   }
 
@@ -204,16 +200,16 @@ describe('native media reads', () => {
         mediaType: 'image/png',
         width: 160,
         height: 90,
-        retained: true,
+        base64: true,
       },
     });
   });
 
-  it('returns the same envelope to a model without image input and holds no variant', async () => {
+  it('returns the same envelope and keeps the variant for a model without image input', async () => {
     const path = join(directory, 'shot.png');
     await writeFile(path, shot);
     const textOnly = context({
-      media: createToolMediaStore(media.service, 'owner', memory, ['text']),
+      media: createToolMediaStore(media.service, 'owner', memory),
     });
 
     const result = await runTool(nativeReadTool, { path }, textOnly, 5);
@@ -223,6 +219,12 @@ describe('native media reads', () => {
       locator: path,
       width: 160,
       height: 90,
+      model: {
+        mediaType: 'image/png',
+        width: 160,
+        height: 90,
+        base64: true,
+      },
     });
   });
 
@@ -383,10 +385,10 @@ describe('native media reads', () => {
         byteSize: bytes.byteLength,
         path,
       });
-      expect(memory.get('call')).toMatchObject({
+      expect(memory.get('call')).toEqual({
+        locator,
         pages: 15,
-        bytes,
-        byteSize: bytes.byteLength,
+        data: bytes.toString('base64'),
       });
     },
   );
@@ -479,7 +481,11 @@ describe('native media reads', () => {
         knowledgeSpaceName: 'Personal',
         notice: KNOWLEDGE_CONTENT_NOTICE,
       });
-      expect(memory.get('call')).toMatchObject({ locator, pages: 15, bytes });
+      expect(memory.get('call')).toEqual({
+        locator,
+        pages: 15,
+        data: bytes.toString('base64'),
+      });
     });
 
     it("decodes nothing for another owner's Space", async () => {
@@ -559,7 +565,11 @@ describe('native media reads', () => {
         resolvedPath: join(skillDirectory, 'paper.pdf'),
         skillDirectory,
       });
-      expect(memory.get('call')).toMatchObject({ locator, pages: 15, bytes });
+      expect(memory.get('call')).toEqual({
+        locator,
+        pages: 15,
+        data: bytes.toString('base64'),
+      });
     });
   });
 
@@ -611,10 +621,7 @@ describe('native media reads', () => {
           nativeReadTool,
           { path: `media://${id}` },
           mediaContext({
-            media: createToolMediaStore(media.service, 'other', memory, [
-              'text',
-              'image',
-            ]),
+            media: createToolMediaStore(media.service, 'other', memory),
           }),
           5,
         ),
@@ -726,10 +733,7 @@ describe('native media reads', () => {
 
   describe('tool media store', () => {
     it('decodes an image of exactly the byte bound', async () => {
-      const store = createToolMediaStore(media.service, 'owner', memory, [
-        'text',
-        'image',
-      ]);
+      const store = createToolMediaStore(media.service, 'owner', memory);
 
       expect(
         shown(
@@ -753,10 +757,7 @@ describe('native media reads', () => {
     });
 
     it('holds nothing for a read without a tool call id', async () => {
-      const store = createToolMediaStore(media.service, 'owner', memory, [
-        'text',
-        'image',
-      ]);
+      const store = createToolMediaStore(media.service, 'owner', memory);
 
       await store.readMedia(
         'shot.png',
@@ -771,10 +772,7 @@ describe('native media reads', () => {
     });
 
     it('holds nothing for a read aborted while it decodes', async () => {
-      const store = createToolMediaStore(media.service, 'owner', memory, [
-        'text',
-        'image',
-      ]);
+      const store = createToolMediaStore(media.service, 'owner', memory);
       const abort = new AbortController();
       const reason = new Error('read timed out');
 
@@ -797,10 +795,7 @@ describe('native media reads', () => {
 
     it('propagates a failure that is not a preparation refusal', async () => {
       const failure = new Error('disk unavailable');
-      const store = createToolMediaStore(media.service, 'owner', memory, [
-        'text',
-        'image',
-      ]);
+      const store = createToolMediaStore(media.service, 'owner', memory);
 
       await expect(
         store.readMedia(

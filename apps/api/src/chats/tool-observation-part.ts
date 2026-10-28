@@ -20,11 +20,17 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import type { MessagePart } from './context-builder';
 import {
+  isUnstoredMedia,
   mediaResultRef,
   submittedLocator,
   toolResultOutput,
   type ToolMediaRef,
 } from '../media/epoch-admission';
+import {
+  parseRetainedMedia,
+  storedToolPartMediaKey,
+} from '../media/retained-media';
+import { retainedEntry, type RetainedMedia } from '../media/attempt-media';
 
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8000;
@@ -99,6 +105,12 @@ interface StoredToolPart {
   errorRejectedUrl?: unknown;
   outcome?: unknown;
   resultProviderMetadata?: unknown;
+  /**
+   * The retained bytes of an unstored `read`, stored beside the result and
+   * never in model text (`media-attachments`). A part with no valid record is
+   * not a media reference, so it replays as its result text.
+   */
+  retainedMedia?: unknown;
 }
 
 export interface ProjectedToolObservationPair {
@@ -113,6 +125,12 @@ export interface ToolObservationProjection {
   toolResultParts: Array<SdkToolResultPart>;
   omittedCount: number;
   omissionPartIndex: number | null;
+  /**
+   * The retained entry behind each media marker the projection emits, keyed by
+   * the marker's key, so the caller merges them into the attempt's map before
+   * sizing or composing the request.
+   */
+  retainedMedia: ReadonlyMap<string, RetainedMedia>;
 }
 
 interface ObservationPayload {
@@ -124,13 +142,15 @@ interface ObservationPayload {
   resultBody: string | null;
   clearedOutcome: string;
   /**
-   * The image a `read` image result names: its media id, or for an unstored
-   * image its submitted locator and dimensions. It replays only beside the
-   * retained payload, as a reference the step composer projects, so the
-   * budgets measure the text without the `thumbnail` and never the image
-   * (vision-media D6).
+   * The image or PDF a `read` result names: its media id, or for an unstored
+   * file its submitted locator, dimensions or page count, and marker key. It
+   * replays only beside the retained payload, as a reference the step composer
+   * projects, so the budgets measure the text without the `thumbnail` and never
+   * the bytes (vision-media D6).
    */
   media: ToolMediaRef | undefined;
+  /** The entry `media` names, when the reference is retained. */
+  retained: { readonly key: string; readonly entry: RetainedMedia } | undefined;
 }
 
 interface PairCandidate {
@@ -444,6 +464,7 @@ function projectionFromBounded(input: {
   pairs: Array<ProjectedToolObservationPair>;
   omittedCount: number;
   omittedPartIndexes: Array<number>;
+  retainedMedia: ReadonlyMap<string, RetainedMedia>;
 }): ToolObservationProjection {
   return {
     pairs: input.pairs,
@@ -456,13 +477,37 @@ function projectionFromBounded(input: {
         : input.omittedCount > 0
           ? -1
           : null,
+    retainedMedia: input.retainedMedia,
   };
+}
+
+/**
+ * The media reference a settled `read` part replays, with the entry it names.
+ * A `media://` result names the store; any other image or PDF result names its
+ * retained bytes, and only when the part keeps a valid record — a legacy result
+ * is not a reference at all.
+ */
+function readObservationRef(
+  part: StoredToolPart,
+  mediaKey: string,
+): Pick<ObservationPayload, 'media' | 'retained'> {
+  const named = mediaResultRef(part.output, submittedLocator(part.input));
+  if (!isUnstoredMedia(named)) return { media: named, retained: undefined };
+  const record = parseRetainedMedia(part.retainedMedia);
+  const entry = record === undefined ? undefined : retainedEntry(record, named);
+  return entry === undefined
+    ? { media: undefined, retained: undefined }
+    : {
+        media: { ...named, key: mediaKey },
+        retained: { key: mediaKey, entry },
+      };
 }
 
 /** One stored tool part as the observation the projection works from. */
 function storedObservation(
   part: MessagePart,
   partIndex: number,
+  mediaKey: string,
 ): ObservationPayload | undefined {
   // eslint-disable-next-line anti-slop/no-known-value-widening -- stored parts are the open `MessagePart` union, so the guard must accept it whole and narrow it itself.
   if (!isToolActivityPart(part)) return undefined;
@@ -489,45 +534,75 @@ function storedObservation(
       isNativeToolName(toolName),
       isHopRejection(toolName, outcome),
     ),
-    media:
-      toolName === READ_TOOL_NAME && part.state === 'output-available'
-        ? mediaResultRef(part.output, submittedLocator(part.input))
-        : undefined,
+    ...(toolName === READ_TOOL_NAME && part.state === 'output-available'
+      ? readObservationRef(part, mediaKey)
+      : { media: undefined, retained: undefined }),
   };
 }
 
-function storedObservations(
-  parts: Array<MessagePart>,
-): Array<ObservationPayload> {
-  return parts.flatMap((part, partIndex) => {
-    const observation = storedObservation(part, partIndex);
-    return observation === undefined ? [] : [observation];
-  });
+/** The retained entries the given observations name, keyed by marker. */
+function retainedEntriesOf(
+  observations: ReadonlyArray<ObservationPayload>,
+): ReadonlyMap<string, RetainedMedia> {
+  return new Map(
+    observations.flatMap(({ retained }) =>
+      retained === undefined ? [] : [[retained.key, retained.entry] as const],
+    ),
+  );
 }
+
+/** A kept part as its unbudgeted call and result pair, with its media. */
+export type StoredToolObservation = {
+  readonly pair: ProjectedToolObservationPair;
+  /** The reference its result names, when the part keeps the bytes. */
+  readonly media: ToolMediaRef | undefined;
+  /** The entry `media` names, keyed by marker. */
+  readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
+};
 
 /**
  * One stored tool part as its model-facing call and result pair, unbudgeted:
  * the Continue projection sends every kept result the way the live loop sent
  * it (turn-actions D6), so it shares this file's serialization instead of the
- * later-turn projection's clearing and omission. Undefined for a part that is
- * not a settled tool part.
+ * later-turn projection's clearing and omission. `mediaKey` is the marker key
+ * the Continue projection loads the part's retained bytes under. Undefined for
+ * a part that is not a settled tool part.
  */
 export function projectStoredToolPart(
   part: MessagePart,
   partIndex: number,
-): ProjectedToolObservationPair | undefined {
-  const observation = storedObservation(part, partIndex);
-  return observation === undefined ? undefined : makePair(observation, false);
+  mediaKey: string,
+): StoredToolObservation | undefined {
+  const observation = storedObservation(part, partIndex, mediaKey);
+  if (observation === undefined) return undefined;
+  return {
+    pair: makePair(observation, false),
+    media: observation.media,
+    retainedMedia: retainedEntriesOf([observation]),
+  };
 }
 
+/**
+ * `parts` as the later-turn projection, with `messageId` naming the row its
+ * retained markers load their bytes under.
+ */
 export function projectToolObservations(
   parts: Array<MessagePart>,
+  messageId: string,
 ): ToolObservationProjection | null {
-  const observations = storedObservations(parts);
+  const observations = parts.flatMap((part, partIndex) => {
+    const observation = storedObservation(
+      part,
+      partIndex,
+      storedToolPartMediaKey(messageId, partIndex),
+    );
+    return observation === undefined ? [] : [observation];
+  });
   if (observations.length === 0) return null;
-  return projectionFromBounded(
-    boundCandidates(candidatesFromObservations(observations)),
-  );
+  return projectionFromBounded({
+    ...boundCandidates(candidatesFromObservations(observations)),
+    retainedMedia: retainedEntriesOf(observations),
+  });
 }
 
 export { neutralizeToolResult } from './tool-observation-neutralizer';

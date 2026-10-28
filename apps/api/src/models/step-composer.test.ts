@@ -13,10 +13,10 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import type { HeldMedia, RetainedVariant } from '../media/attempt-media';
+import type { RetainedMedia } from '../media/attempt-media';
+import { mergeRetainedMedia } from '../media/attempt-media';
 import {
   EPOCH_MAX_BASE64_BYTES,
-  loadMediaSizing,
   toolResultOutput,
   type MediaAdmissionContext,
 } from '../media/epoch-admission';
@@ -69,9 +69,12 @@ const pdfRef = (id: string) =>
     filename: 'paper.pdf',
   }) as const;
 
-function heldImageModel(resolver: RunMediaResolver, key: string) {
-  const entry = resolver.heldMedia.get(key);
-  return entry !== undefined && !('pages' in entry) ? entry.model : undefined;
+/** The image variant an attempt's entry holds, if it holds one. */
+function retainedImageModel(resolver: RunMediaResolver, key: string) {
+  const entry = resolver.retainedMedia.get(key);
+  return entry !== undefined && !('pages' in entry) && !('exceeded' in entry)
+    ? entry.model
+    : undefined;
 }
 
 describe('composeStepMessages', () => {
@@ -407,86 +410,103 @@ describe('composeStepMessages', () => {
       pages: 15,
       byteSize: bytes.byteLength,
     } as const;
+    /** The importing attempt's entry for `@paper.pdf`, as it keeps it. */
+    const entry: RetainedMedia = {
+      locator: '/repo/paper.pdf',
+      pages: 15,
+      data: bytes.toString('base64'),
+    };
+    const outcomes = [
+      {
+        locator,
+        resolved: '/repo/paper.pdf',
+        outcome: 'imported',
+        body: JSON.stringify({
+          status: 'success',
+          ...metadata,
+          path: '/repo/paper.pdf',
+        }),
+        attachment: metadata,
+      },
+      {
+        locator: `media://${A}`,
+        outcome: 'imported',
+        body: JSON.stringify({
+          status: 'success',
+          ...metadata,
+          media: `media://${A}`,
+        }),
+        attachment: { ...metadata, media: `media://${A}` },
+      },
+    ] as const;
+    /** An item whose unstored PDF entry keeps its original. */
     const item = createPromptImportsItem({
       runId,
-      outcomes: [
-        {
-          locator,
-          resolved: '/repo/paper.pdf',
-          outcome: 'imported',
-          body: JSON.stringify({
-            status: 'success',
-            ...metadata,
-            path: '/repo/paper.pdf',
-          }),
-          attachment: metadata,
-        },
-        {
-          locator: `media://${A}`,
-          outcome: 'imported',
-          body: JSON.stringify({
-            status: 'success',
-            ...metadata,
-            media: `media://${A}`,
-          }),
-          attachment: { ...metadata, media: `media://${A}` },
-        },
-      ],
+      outcomes: [...outcomes],
       omitted: [],
+      retained: new Map([[promptImportMediaKey(runId, locator), entry]]),
     });
-    const stored: StoredMessage = {
-      id: 'pdf-import-message',
+    /** An item stored before retention kept any bytes. */
+    const legacyItem = createPromptImportsItem({
+      runId,
+      outcomes: [...outcomes],
+      omitted: [],
+      retained: new Map(),
+    });
+    const storedMessage = (parts: StoredMessage['parts'], id: string) => ({
+      id,
       chatId: 'chat-1',
       seq: 1,
-      role: 'user',
+      role: 'user' as const,
       senderUserId: 'user-1',
       attachments: [],
       createdAt: new Date(0),
-      parts: [item, { type: 'text', text: 'summarize' }],
-    };
-    const messages = () =>
-      buildContext([stored], {
+      parts,
+    });
+    const stored = storedMessage(
+      [item, { type: 'text', text: 'summarize' }],
+      'pdf-1',
+    );
+    /** The stored row's messages, with the entries its markers name. */
+    const replay = (
+      resolver: RunMediaResolver,
+      message: StoredMessage = stored,
+    ) => {
+      const built = buildContext([message], {
         systemPrompt: 'system',
         requestKind: 'continuation',
-      }).messages;
+      });
+      mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
+      return built.messages;
+    };
     const itemText = { type: 'text', text: item.data.text };
     const paper = () => pdfDescriptor(A, { name: 'archive.pdf', pages: 15 });
+    const filePart = (data: Uint8Array, filename: string) => ({
+      type: 'file',
+      mediaType: 'application/pdf',
+      data,
+      filename,
+    });
 
-    it('places unstored and stored native PDFs immediately after their item text', async () => {
+    it('places the retained and the stored native PDFs immediately after their item text', async () => {
       const { resolver } = fakeResolver([paper()]);
-      resolver.heldMedia.set(promptImportMediaKey(runId, locator), {
-        locator: '/repo/paper.pdf',
-        pages: 15,
-        bytes,
-        byteSize: bytes.byteLength,
-      });
 
-      const composed = await composeStepMessages(messages(), {
+      const composed = await composeStepMessages(replay(resolver), {
         resolver,
         context: VISION_PDF,
       });
 
       expect(composed[0]?.content).toEqual([
         itemText,
-        {
-          type: 'file',
-          mediaType: 'application/pdf',
-          data: bytes,
-          filename: 'paper.pdf',
-        },
-        {
-          type: 'file',
-          mediaType: 'application/pdf',
-          data: new Uint8Array([0x61]),
-          filename: 'archive.pdf',
-        },
+        filePart(bytes, 'paper.pdf'),
+        filePart(new Uint8Array([0x61]), 'archive.pdf'),
         { type: 'text', text: 'summarize' },
       ]);
     });
 
     it('keeps the PDF kind when a stored import has no descriptor', async () => {
       const { resolver } = fakeResolver([]);
-      const composed = await composeStepMessages(messages(), {
+      const composed = await composeStepMessages(replay(resolver), {
         resolver,
         context: VISION_PDF,
       });
@@ -498,16 +518,8 @@ describe('composeStepMessages', () => {
 
     it.each([
       {
-        name: 'a new attempt',
-        context: VISION_PDF,
-        retain: false,
-        placeholder: '[pdf "paper.pdf" 15 pages, not retained]',
-        storedAttached: true,
-      },
-      {
         name: 'a model without PDF input',
         context: TEXT_ONLY,
-        retain: false,
         placeholder:
           '[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]',
         storedAttached: false,
@@ -515,24 +527,16 @@ describe('composeStepMessages', () => {
       {
         name: 'a PDF beyond the page window',
         context: { ...VISION_PDF, contextWindowTokens: 50_000 },
-        retain: true,
-        placeholder: `[pdf "paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`,
+        placeholder:
+          '[pdf "paper.pdf" 15 pages, not attached: this context\'s PDF limit is reached]',
         storedAttached: false,
       },
     ] as const)(
       'uses the correct placeholder for $name while replaying stored media independently',
-      async ({ context, retain, placeholder, storedAttached }) => {
+      async ({ context, placeholder, storedAttached }) => {
         const { resolver, loads } = fakeResolver([paper()]);
-        if (retain) {
-          resolver.heldMedia.set(promptImportMediaKey(runId, locator), {
-            locator: '/repo/paper.pdf',
-            pages: 15,
-            bytes,
-            byteSize: bytes.byteLength,
-          });
-        }
 
-        const composed = await composeStepMessages(messages(), {
+        const composed = await composeStepMessages(replay(resolver), {
           resolver,
           context,
         });
@@ -548,87 +552,137 @@ describe('composeStepMessages', () => {
         }
       },
     );
+
+    it('replays an entry stored before retention as the item text alone', async () => {
+      const { resolver, loads } = fakeResolver([paper()]);
+
+      const composed = await composeStepMessages(
+        replay(
+          resolver,
+          storedMessage(
+            [legacyItem, { type: 'text', text: 'summarize' }],
+            'pdf-legacy',
+          ),
+        ),
+        { resolver, context: VISION_PDF },
+      );
+
+      expect(composed[0]?.content).toEqual([
+        itemText,
+        filePart(new Uint8Array([0x61]), 'archive.pdf'),
+        { type: 'text', text: 'summarize' },
+      ]);
+      expect(JSON.stringify(composed)).not.toContain('not retained');
+      expect(replay(resolver).length).toBe(1);
+      expect(loads).toEqual([A]);
+    });
   });
 
   describe('prompt-import images', () => {
     const RUN = '11111111-2222-4333-8444-555555555555';
     const KEY = promptImportMediaKey(RUN, 'shot.png');
     const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
+    const shotBytes = Buffer.from([0x73]);
+    /** The importing attempt's entry for `@shot.png`, as it keeps it. */
+    const shotEntry = (bytes = shotBytes, locator = '/repo/shot.png') => ({
+      locator,
+      width: 1600,
+      height: 900,
+      model: {
+        mediaType: 'image/png' as const,
+        width: 1600,
+        height: 900,
+        data: bytes.toString('base64'),
+      },
+    });
+    const outcomes = [
+      {
+        locator: 'shot.png',
+        resolved: '/repo/shot.png',
+        outcome: 'imported',
+        body: '{"status":"success","kind":"image","path":"/repo/shot.png"}',
+        attachment: {
+          thumbnail: THUMBNAIL,
+          width: 1600,
+          height: 900,
+          mediaType: 'image/png',
+        },
+      },
+      {
+        locator: `media://${A}`,
+        resolved: `media://${A}`,
+        outcome: 'imported',
+        body: '{"status":"success","kind":"image"}',
+        attachment: { media: `media://${A}` },
+      },
+    ] as const;
+    /** An item whose unstored image entry keeps its model variant. */
     const item = createPromptImportsItem({
       runId: RUN,
-      outcomes: [
-        {
-          locator: 'shot.png',
-          resolved: '/repo/shot.png',
-          outcome: 'imported',
-          body: '{"status":"success","kind":"image","path":"/repo/shot.png"}',
-          attachment: {
-            thumbnail: THUMBNAIL,
-            width: 1600,
-            height: 900,
-            mediaType: 'image/png',
-          },
-        },
-        {
-          locator: `media://${A}`,
-          resolved: `media://${A}`,
-          outcome: 'imported',
-          body: '{"status":"success","kind":"image"}',
-          attachment: { media: `media://${A}` },
-        },
-      ],
+      outcomes: [...outcomes],
       omitted: [],
+      retained: new Map([[KEY, shotEntry()]]),
+    });
+    /** An item stored before retention kept any bytes. */
+    const legacyItem = createPromptImportsItem({
+      runId: RUN,
+      outcomes: [...outcomes],
+      omitted: [],
+      retained: new Map(),
+    });
+    const storedMessage = (
+      parts: StoredMessage['parts'],
+      id: string,
+      seq = 1,
+    ): StoredMessage => ({
+      id,
+      chatId: 'chat-1',
+      seq,
+      role: 'user',
+      senderUserId: 'user-1',
+      attachments: [],
+      createdAt: new Date(0),
+      parts,
     });
     /**
      * A stored user message whose prompt imported `@shot.png` unstored and
      * `@media://A`, beside an owner file B.
      */
-    const stored: StoredMessage = {
-      id: 'msg-1',
-      chatId: 'chat-1',
-      seq: 1,
-      role: 'user',
-      senderUserId: 'user-1',
-      attachments: [],
-      createdAt: new Date(0),
-      parts: [
+    const stored = storedMessage(
+      [
         item,
         { type: 'file', mediaType: 'image/png', url: `media://${B}` },
         { type: 'text', text: 'compare' },
       ],
-    };
-    const replay = (messages: Array<StoredMessage>) =>
-      buildContext(messages, {
+      'msg-1',
+    );
+    /** `rows` as messages, with the entries their markers name. */
+    const replay = (
+      resolver: RunMediaResolver,
+      rows: Array<StoredMessage> = [stored],
+    ) => {
+      const built = buildContext(rows, {
         systemPrompt: 'system',
         requestKind: 'continuation',
-      }).messages;
+      });
+      mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
+      return built.messages;
+    };
     const itemText = { type: 'text', text: item.data.text } as const;
     const shotImage = (bytes: Uint8Array) =>
       ({ type: 'image', image: bytes, mediaType: 'image/png' }) as const;
-    /** The importing attempt's entry for `@shot.png`, with its variant. */
-    const holdShot = (resolver: RunMediaResolver, bytes: Buffer | undefined) =>
-      resolver.heldMedia.set(KEY, {
-        locator: '/repo/shot.png',
-        width: 1600,
-        height: 900,
-        ...(bytes && {
-          model: { bytes, mediaType: 'image/png', width: 1600, height: 900 },
-        }),
-      });
 
-    it('sends the item text followed by its images, the unstored one from the attempt memory', async () => {
+    it('sends the item text followed by its images, the unstored one from its retained entry', async () => {
       const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
-      const shot = Buffer.from([0x73]);
-      holdShot(resolver, shot);
 
-      const composed = await composeStepMessages(replay([stored]), {
+      const composed = await composeStepMessages(replay(resolver), {
         resolver,
         context: VISION,
       });
 
       expect(composed[0]?.content).toEqual([
         itemText,
-        shotImage(shot),
+        shotImage(shotBytes),
         shotImage(new Uint8Array([0x61])),
         { type: 'text', text: `Image 1 (media://${B}):` },
         shotImage(new Uint8Array([0x62])),
@@ -645,9 +699,8 @@ describe('composeStepMessages', () => {
         descriptor(A, { name: 'stored.png' }),
         descriptor(B),
       ]);
-      holdShot(resolver, undefined);
 
-      const composed = await composeStepMessages(replay([stored]), {
+      const composed = await composeStepMessages(replay(resolver), {
         resolver,
         context: TEXT_ONLY,
       });
@@ -669,66 +722,63 @@ describe('composeStepMessages', () => {
       expect(loads).toEqual([]);
     });
 
-    it('gives a later turn the not-retained placeholder and the media import from the store', async () => {
+    it('replays an entry stored before retention as the item text and the stored import alone', async () => {
       const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
 
-      const composed = await composeStepMessages(replay([stored]), {
-        resolver,
-        context: VISION,
-      });
+      const composed = await composeStepMessages(
+        replay(resolver, [
+          storedMessage(
+            [legacyItem, { type: 'text', text: 'compare' }],
+            'msg-legacy',
+          ),
+        ]),
+        { resolver, context: VISION },
+      );
 
-      expect(composed[0]?.content.slice(0, 3)).toEqual([
-        itemText,
-        {
-          type: 'text',
-          text: '[image "shot.png" 1600×900, not retained]',
-        },
+      expect(composed[0]?.content).toEqual([
+        { type: 'text', text: legacyItem.data.text },
         shotImage(new Uint8Array([0x61])),
+        { type: 'text', text: 'compare' },
       ]);
-    });
-
-    it('gives a later text-only turn the omitted placeholder, never the not-retained one', async () => {
-      const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
-
-      const composed = await composeStepMessages(replay([stored]), {
-        resolver,
-        context: TEXT_ONLY,
-      });
-
-      expect(composed[0]?.content[1]).toEqual({
-        type: 'text',
-        text: '[image "shot.png" 1600×900, omitted: this model has no image input]',
-      });
       expect(JSON.stringify(composed)).not.toContain('not retained');
     });
 
     /** An earlier turn whose one owner file fills most of the byte budget. */
-    const earlier: StoredMessage = {
-      ...stored,
-      id: 'msg-0',
-      seq: 0,
-      parts: [
+    const earlier = storedMessage(
+      [
         { type: 'file', mediaType: 'image/png', url: `media://${B}` },
         { type: 'text', text: 'look' },
       ],
-    };
-    const trigger: StoredMessage = {
-      ...stored,
-      parts: [item, { type: 'text', text: 'and this?' }],
-    };
+      'msg-0',
+      0,
+    );
     const nearlyFull = () =>
       fakeResolver([
         descriptor(A),
         descriptor(B, { modelByteSize: EPOCH_MAX_BASE64_BYTES * 0.7 }),
       ]).resolver;
     // 4 MiB of base64: past what the earlier file leaves.
-    const shotBytes = () => Buffer.alloc(3_145_728);
+    const largeShot = () => shotEntry(Buffer.alloc(3_145_728));
 
-    it('drops the bytes of an import the window refuses as the first request is composed', async () => {
+    it('keeps the entry the window refuses, projecting the limit placeholder', async () => {
       const resolver = nearlyFull();
-      holdShot(resolver, shotBytes());
+      const large = largeShot();
+      const largeItem = createPromptImportsItem({
+        runId: RUN,
+        outcomes: [...outcomes],
+        omitted: [],
+        retained: new Map([[KEY, large]]),
+      });
+      const messages = replay(resolver, [
+        earlier,
+        storedMessage(
+          [largeItem, { type: 'text', text: 'and this?' }],
+          'msg-large',
+          1,
+        ),
+      ]);
 
-      const composed = await composeStepMessages(replay([earlier, trigger]), {
+      const composed = await composeStepMessages(messages, {
         resolver,
         context: VISION,
       });
@@ -737,34 +787,9 @@ describe('composeStepMessages', () => {
         type: 'text',
         text: `[image "shot.png" 1600×900, not attached: this context's image limit is reached]`,
       });
-      expect(heldImageModel(resolver, KEY)).toBeUndefined();
-    });
-
-    it('admits the import of a compacting attempt in the new epoch', async () => {
-      const resolver = nearlyFull();
-      const shot = shotBytes();
-      holdShot(resolver, shot);
-
-      // The pre-step estimate sees the overflow but drops nothing.
-      const estimate = await loadMediaSizing(
-        replay([earlier, trigger]),
-        resolver,
-        VISION,
-      );
-      expect(estimate.statuses).toEqual(['attached', 'limit', 'limit']);
-      expect(heldImageModel(resolver, KEY)?.bytes).toBe(shot);
-      // Compaction absorbed the earlier turn: the first request carries the
-      // import as an image and the attempt keeps it.
-      const composed = await composeStepMessages(replay([trigger]), {
-        resolver,
-        context: VISION,
+      expect(resolver.retainedMedia.get(KEY)).toMatchObject({
+        model: { data: large.model.data },
       });
-
-      const content = composed[0]?.content;
-      const sent = Array.isArray(content) ? content[1] : undefined;
-      expect(sent).toMatchObject({ type: 'image', mediaType: 'image/png' });
-      expect(sent?.type === 'image' && sent.image).toBe(shot);
-      expect(heldImageModel(resolver, KEY)?.bytes).toBe(shot);
     });
   });
 
@@ -1175,6 +1200,26 @@ describe('composeStepMessages', () => {
   describe('unstored read PDFs', () => {
     const ENVELOPE = '{"status":"success","kind":"pdf","path":"report.pdf"}';
     const bytes = Buffer.from('%PDF-opaque-test-bytes');
+    const entry = (locator: string): RetainedMedia => ({
+      locator,
+      pages: 1,
+      data: bytes.toString('base64'),
+    });
+    const readMessage = (
+      locator: string,
+      toolCallId: string,
+      key = toolCallId,
+    ): ModelMessage => ({
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId,
+          toolName: 'read',
+          output: toolResultOutput(ENVELOPE, { locator, pages: 1, key }),
+        },
+      ],
+    });
 
     it.each([
       [
@@ -1192,27 +1237,10 @@ describe('composeStepMessages', () => {
       'attaches %s with the derived filename',
       async (_, locator, filename) => {
         const { resolver } = fakeResolver([]);
-        resolver.heldMedia.set('call-1', {
-          locator,
-          pages: 1,
-          bytes,
-          byteSize: bytes.byteLength,
-        });
+        resolver.retainedMedia.set('call-1', entry(locator));
 
         const [composed] = await composeStepMessages(
-          [
-            {
-              role: 'tool',
-              content: [
-                {
-                  type: 'tool-result',
-                  toolCallId: 'call-1',
-                  toolName: 'read',
-                  output: toolResultOutput(ENVELOPE, { locator, pages: 1 }),
-                },
-              ],
-            },
-          ],
+          [readMessage(locator, 'call-1')],
           { resolver, context: VISION_PDF },
         );
 
@@ -1240,22 +1268,31 @@ describe('composeStepMessages', () => {
     const ENVELOPE =
       '{"status":"success","kind":"image","path":"/work/shot.png"}';
     const SHOT = { locator: '/work/shot.png', width: 1600, height: 900 };
-    const NOT_RETAINED = '[image "/work/shot.png" 1600×900, not retained]';
     const OMITTED =
       '[image "/work/shot.png" 1600×900, omitted: this model has no image input]';
-    const variant = (byteLength = 3): RetainedVariant => ({
-      bytes: Buffer.alloc(byteLength, 7),
-      mediaType: 'image/png',
+    const LIMIT =
+      '[image "/work/shot.png" 1600×900, not attached: this context\'s image limit is reached]';
+    /** The image variant a retained entry holds, `byteLength` bytes long. */
+    const variant = (byteLength = 3) => ({
+      mediaType: 'image/png' as const,
       width: 1600,
       height: 900,
+      data: Buffer.alloc(byteLength, 7).toString('base64'),
     });
-    const held = (
-      model: RetainedVariant | undefined,
-      image = SHOT,
-    ): HeldMedia => ({ ...image, ...(model && { model }) });
+    const entry = (image = SHOT, byteLength = 3): RetainedMedia => ({
+      ...image,
+      model: variant(byteLength),
+    });
+    const exceeded = (image = SHOT): RetainedMedia => ({
+      locator: image.locator,
+      width: image.width,
+      height: image.height,
+      exceeded: true,
+    });
     const unstoredResult = (
       toolCallId: string,
       image = SHOT,
+      key = toolCallId,
     ): ModelMessage => ({
       role: 'tool',
       content: [
@@ -1263,7 +1300,7 @@ describe('composeStepMessages', () => {
           type: 'tool-result',
           toolCallId,
           toolName: 'read',
-          output: toolResultOutput(ENVELOPE, image),
+          output: toolResultOutput(ENVELOPE, { ...image, key }),
         },
       ],
     });
@@ -1273,9 +1310,9 @@ describe('composeStepMessages', () => {
         : undefined;
     const vision = { context: VISION } as const;
 
-    it('attaches a read image from the attempt memory without any store read', async () => {
+    it("attaches a read image from the attempt's retained entry without any store read", async () => {
       const { resolver, loads } = fakeResolver([]);
-      resolver.heldMedia.set('call-1', held(variant()));
+      resolver.retainedMedia.set('call-1', entry());
 
       const [composed] = await composeStepMessages([unstoredResult('call-1')], {
         resolver,
@@ -1289,44 +1326,32 @@ describe('composeStepMessages', () => {
           { type: 'text', text: ENVELOPE },
           {
             type: 'image-data',
-            data: Buffer.from(variant().bytes).toString('base64'),
+            data: variant().data,
             mediaType: 'image/png',
           },
         ],
       });
     });
 
-    it('gives an image the attempt holds no entry for the not-retained placeholder', async () => {
-      const [composed] = await composeStepMessages([unstoredResult('call-1')], {
-        resolver: fakeResolver([]).resolver,
-        ...vision,
-      });
-
-      expect(outputOf(composed)).toEqual({
-        type: 'text',
-        value: `${ENVELOPE}\n${NOT_RETAINED}`,
-      });
-    });
-
-    it('gives a text-only model the omitted placeholder whether or not the attempt holds the image', async () => {
+    it('gives a text-only model the omitted placeholder while keeping the entry', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.heldMedia.set('call-1', held(undefined));
+      resolver.retainedMedia.set('call-1', entry());
 
-      const composed = await composeStepMessages(
-        [unstoredResult('call-1'), unstoredResult('call-2')],
-        { resolver, context: TEXT_ONLY },
-      );
+      const composed = await composeStepMessages([unstoredResult('call-1')], {
+        resolver,
+        context: TEXT_ONLY,
+      });
 
       expect(composed.map(outputOf)).toEqual([
         { type: 'text', value: `${ENVELOPE}\n${OMITTED}` },
-        { type: 'text', value: `${ENVELOPE}\n${OMITTED}` },
       ]);
-      expect(JSON.stringify(composed)).not.toContain('not retained');
+      expect(retainedImageModel(resolver, 'call-1')).toEqual(variant());
     });
 
-    it('moves a held read image, labelled by its submitted locator, into the image message and keeps the not-retained placeholder in place on a Chat Completions wire', async () => {
+    it('moves a retained read image, labelled by its submitted locator, into the image message and keeps an exceeded read in place on a Chat Completions wire', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.heldMedia.set('call-1', held(variant()));
+      resolver.retainedMedia.set('call-1', entry());
+      resolver.retainedMedia.set('call-2', exceeded());
 
       const composed = await composeStepMessages(
         [unstoredResult('call-1'), unstoredResult('call-2')],
@@ -1335,7 +1360,7 @@ describe('composeStepMessages', () => {
 
       expect(composed.map(outputOf)).toEqual([
         { type: 'text', value: ENVELOPE },
-        { type: 'text', value: `${ENVELOPE}\n${NOT_RETAINED}` },
+        { type: 'text', value: `${ENVELOPE}\n${LIMIT}` },
         undefined,
       ]);
       expect(composed[2]).toEqual({
@@ -1343,7 +1368,11 @@ describe('composeStepMessages', () => {
         content: [
           { type: 'text', text: 'Files from tool results:' },
           { type: 'text', text: 'Image from read "/work/shot.png":' },
-          { type: 'image', image: variant().bytes, mediaType: 'image/png' },
+          {
+            type: 'image',
+            image: Buffer.from(variant().data, 'base64'),
+            mediaType: 'image/png',
+          },
         ],
       });
     });
@@ -1353,36 +1382,28 @@ describe('composeStepMessages', () => {
       ['a 400-character path', `/work/${'a'.repeat(390)}.png`],
     ])('names %s by one exact, uncut JSON literal', async (_, locator) => {
       const image = { ...SHOT, locator };
+      const { resolver } = fakeResolver([]);
+      resolver.retainedMedia.set('call-1', exceeded(image));
       const [composed] = await composeStepMessages(
         [unstoredResult('call-1', image)],
-        { resolver: fakeResolver([]).resolver, ...vision },
+        { resolver, ...vision },
       );
       const literal = JSON.stringify(locator);
 
       expect(outputOf(composed)).toEqual({
         type: 'text',
-        value: `${ENVELOPE}\n[image ${literal} 1600×900, not retained]`,
+        value: `${ENVELOPE}\n[image ${literal} 1600×900, not attached: this context's image limit is reached]`,
       });
       expect(literal).not.toMatch(/[\n\r]/u);
       expect(JSON.parse(literal)).toBe(locator);
     });
 
-    it('re-reads a bracketed path from its placeholder into the window', async () => {
+    it('attaches each read of one file from its own entry', async () => {
       const bracketed = { ...SHOT, locator: 'app/[slug]/shot.png' };
       const { resolver } = fakeResolver([]);
-      const [replayed] = await composeStepMessages(
-        [unstoredResult('call-1', bracketed)],
-        { resolver, ...vision },
-      );
-      const literal = '"app/[slug]/shot.png"';
-      expect(outputOf(replayed)).toEqual({
-        type: 'text',
-        value: `${ENVELOPE}\n[image ${literal} 1600×900, not retained]`,
-      });
-      expect(JSON.parse(literal)).toBe(bracketed.locator);
+      resolver.retainedMedia.set('call-1', entry(bracketed, 3));
+      resolver.retainedMedia.set('call-2', entry(bracketed, 6));
 
-      // A read of the locator the literal parses to is held and attached.
-      resolver.heldMedia.set('call-2', held(variant(), bracketed));
       const composed = await composeStepMessages(
         [
           unstoredResult('call-1', bracketed),
@@ -1391,17 +1412,27 @@ describe('composeStepMessages', () => {
         { resolver, ...vision },
       );
 
+      expect(outputOf(composed[0])).toMatchObject({
+        type: 'content',
+        value: [
+          { type: 'text' },
+          { type: 'image-data', data: variant(3).data },
+        ],
+      });
       expect(outputOf(composed[1])).toMatchObject({
         type: 'content',
-        value: [{ type: 'text' }, { type: 'image-data' }],
+        value: [
+          { type: 'text' },
+          { type: 'image-data', data: variant(6).data },
+        ],
       });
     });
 
-    it('drops for good the bytes of a read the window refuses on entry', async () => {
+    it('keeps an entry the window refuses and projects the limit placeholder on every request', async () => {
       const { resolver } = fakeResolver([]);
-      const half = variant((EPOCH_MAX_BASE64_BYTES * 3) / 8 + 3);
-      resolver.heldMedia.set('call-1', held(half));
-      resolver.heldMedia.set('call-2', held(half));
+      const half = entry(SHOT, (EPOCH_MAX_BASE64_BYTES * 3) / 8 + 3);
+      resolver.retainedMedia.set('call-1', half);
+      resolver.retainedMedia.set('call-2', half);
       const messages = [unstoredResult('call-1'), unstoredResult('call-2')];
 
       const first = await composeStepMessages(messages, {
@@ -1413,75 +1444,27 @@ describe('composeStepMessages', () => {
         ...vision,
       });
 
-      expect(heldImageModel(resolver, 'call-1')).toBe(half);
-      // The released entry keeps the size the window refused, not the bytes.
-      expect(resolver.heldMedia.get('call-2')).toEqual({
-        ...SHOT,
-        modelByteSize: half.bytes.byteLength,
-      });
+      expect(retainedImageModel(resolver, 'call-1')).toEqual(
+        variant((EPOCH_MAX_BASE64_BYTES * 3) / 8 + 3),
+      );
+      expect(resolver.retainedMedia.get('call-2')).toEqual(half);
       for (const composed of [first, again]) {
         expect(outputOf(composed[0])).toMatchObject({ type: 'content' });
         expect(outputOf(composed[1])).toEqual({
           type: 'text',
-          value: `${ENVELOPE}\n[image "/work/shot.png" 1600×900, not attached: this context's image limit is reached]`,
+          value: `${ENVELOPE}\n${LIMIT}`,
         });
       }
     });
 
-    it('gives an attached entry without bytes the not-retained placeholder rather than failing', async () => {
-      const { resolver } = fakeResolver([]);
-      resolver.heldMedia.set('call-1', { ...SHOT, modelByteSize: 3 });
-
-      const [composed] = await composeStepMessages([unstoredResult('call-1')], {
-        resolver,
-        ...vision,
-      });
-
-      expect(outputOf(composed)).toEqual({
-        type: 'text',
-        value: `${ENVELOPE}\n${NOT_RETAINED}`,
-      });
-    });
-
-    it('holds none of a superseded attempt in a new one, even in the same process', async () => {
-      const failed = fakeResolver([]).resolver;
-      failed.heldMedia.set('call-1', held(variant()));
-      const retry = fakeResolver([]).resolver;
-      const messages = [unstoredResult('call-1')];
-
-      const [inFailed] = await composeStepMessages(messages, {
-        resolver: failed,
-        ...vision,
-      });
-      const [inRetry] = await composeStepMessages(messages, {
-        resolver: retry,
-        ...vision,
-      });
-      retry.heldMedia.set('call-2', held(variant()));
-      const reread = await composeStepMessages(
-        [...messages, unstoredResult('call-2')],
-        { resolver: retry, ...vision },
-      );
-
-      expect(outputOf(inFailed)).toMatchObject({ type: 'content' });
-      expect(outputOf(inRetry)).toEqual({
-        type: 'text',
-        value: `${ENVELOPE}\n${NOT_RETAINED}`,
-      });
-      expect(outputOf(reread[0])).toEqual(outputOf(inRetry));
-      expect(outputOf(reread[1])).toMatchObject({
-        type: 'content',
-        value: [{ type: 'text' }, { type: 'image-data' }],
-      });
-    });
-
-    it("frees a failed attempt's window space for the retry's own read", async () => {
+    it('counts an image the window refuses as unattached without dropping its bytes', async () => {
       const owner = Array.from(
         { length: 99 },
         (_, n) => `0192f3a4-5b6c-7d8e-9f01-${String(n).padStart(12, '0')}`,
       );
       const { resolver } = fakeResolver(owner.map((id) => descriptor(id)));
-      resolver.heldMedia.set('call-2', held(variant()));
+      resolver.retainedMedia.set('call-2', entry());
+      resolver.retainedMedia.set('call-1', entry());
 
       const composed = await composeStepMessages(
         [
@@ -1495,69 +1478,77 @@ describe('composeStepMessages', () => {
       expect(
         JSON.stringify(composed[0]).match(/"type":"image"/gu),
       ).toHaveLength(99);
-      expect(outputOf(composed[1])).toEqual({
-        type: 'text',
-        value: `${ENVELOPE}\n${NOT_RETAINED}`,
-      });
-      expect(outputOf(composed[2])).toMatchObject({
+      // 99 attachments plus the first read fill the hundred-image window; the
+      // second read is past it and latches.
+      expect(outputOf(composed[1])).toMatchObject({
         type: 'content',
         value: [{ type: 'text' }, { type: 'image-data' }],
       });
+      expect(outputOf(composed[2])).toEqual({
+        type: 'text',
+        value: `${ENVELOPE}\n${LIMIT}`,
+      });
+      expect(retainedImageModel(resolver, 'call-2')).toEqual(variant());
     });
 
-    it.each([
-      [true, VISION, NOT_RETAINED],
-      [false, TEXT_ONLY, OMITTED],
-    ])(
-      'replays a stored read image of an earlier turn to a model with image input %s as its placeholder, without the thumbnail',
-      async (_, context, placeholder) => {
-        const stored: StoredMessage = {
-          id: 'msg-1',
-          chatId: 'chat-1',
-          seq: 1,
-          role: 'assistant',
-          senderUserId: null,
-          attachments: [],
-          createdAt: new Date(0),
-          parts: [
-            {
-              type: 'tool-read',
-              toolCallId: 'call-1',
-              state: 'output-available',
-              input: { path: '/work/shot.png' },
-              output: {
-                status: 'success',
-                kind: 'image',
-                mediaType: 'image/png',
-                width: 1600,
-                height: 900,
-                path: '/work/shot.png',
-                thumbnail: 'data:image/webp;base64,UklGRg==',
-              },
-              outcome: 'success',
-            },
-          ],
-        };
-        const { messages } = buildContext([stored], {
-          systemPrompt: 'system',
-          requestKind: 'continuation',
-        });
-        const composed = await composeStepMessages(messages, {
-          resolver: fakeResolver([]).resolver,
-          context,
-        });
-        const output = outputOf(
-          composed.find((message) => message.role === 'tool'),
-        );
+    it('throws when a marker names no retained entry', async () => {
+      const { resolver } = fakeResolver([]);
 
-        expect(output?.type).toBe('text');
-        expect(JSON.stringify(output)).toContain(
-          JSON.stringify(placeholder).slice(1, -1),
-        );
-        expect(JSON.stringify(composed)).not.toContain('thumbnail');
-        expect(JSON.stringify(composed)).not.toContain('UklGRg');
-      },
-    );
+      await expect(
+        composeStepMessages([unstoredResult('call-1')], {
+          resolver,
+          ...vision,
+        }),
+      ).rejects.toThrow('Retained media entry missing for call-1');
+    });
+
+    it('replays a stored read image without retained bytes as its text alone', async () => {
+      const stored: StoredMessage = {
+        id: 'msg-legacy',
+        chatId: 'chat-1',
+        seq: 1,
+        role: 'assistant',
+        senderUserId: null,
+        attachments: [],
+        createdAt: new Date(0),
+        parts: [
+          {
+            type: 'tool-read',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { path: '/work/shot.png' },
+            output: {
+              status: 'success',
+              kind: 'image',
+              mediaType: 'image/png',
+              width: 1600,
+              height: 900,
+              path: '/work/shot.png',
+              thumbnail: 'data:image/webp;base64,UklGRg==',
+            },
+            outcome: 'success',
+          },
+        ],
+      };
+      const { resolver } = fakeResolver([]);
+      const { messages } = buildContext([stored], {
+        systemPrompt: 'system',
+        requestKind: 'continuation',
+      });
+      const composed = await composeStepMessages(messages, {
+        resolver,
+        context: VISION,
+      });
+      const output = outputOf(
+        composed.find((message) => message.role === 'tool'),
+      );
+
+      expect(output?.type).toBe('text');
+      expect(JSON.stringify(output)).not.toContain('not retained');
+      expect(JSON.stringify(composed)).not.toContain('not attached');
+      expect(JSON.stringify(composed)).not.toContain('thumbnail');
+      expect(JSON.stringify(composed)).not.toContain('UklGRg');
+    });
   });
 });
 
@@ -1778,37 +1769,40 @@ describe('installStepPreparation', () => {
       expect(toolOutputs(prompts[5] ?? [])).toEqual(last.slice(0, 5));
     });
 
-    it('retains only the reads the window admits, and the next turn retains none', async () => {
+    it('keeps every read the window refuses, so each later step projects the same prefix', async () => {
       const { resolver } = fakeResolver([]);
       const { model, prompts } = recordingModel(
         Array.from({ length: 10 }, () => 'tool' as const),
       );
-      const image = (toolCallId: string) => ({
-        locator: `/work/${toolCallId}.png`,
-        width: 1600,
-        height: 900,
-      });
+      const locator = (toolCallId: string) => `/work/${toolCallId}.png`;
       const input: ModelStreamInput = {
         chat: CHAT,
         messages: [{ role: 'user', content: 'read them' }],
         tools: {
           noop: tool({
             inputSchema: z.object({}),
-            // What the read hook does: hold the decoded variant in the attempt.
+            // What the read hook does: keep the decoded variant in the attempt.
             execute: (_, { toolCallId }) => {
-              resolver.heldMedia.set(toolCallId, {
-                ...image(toolCallId),
+              resolver.retainedMedia.set(toolCallId, {
+                locator: locator(toolCallId),
+                width: 1600,
+                height: 900,
                 model: {
-                  bytes: Buffer.alloc(modelByteSize),
                   mediaType: 'image/png',
                   width: 1600,
                   height: 900,
+                  data: Buffer.alloc(modelByteSize).toString('base64'),
                 },
               });
               return 'read';
             },
             toModelOutput: ({ toolCallId }) =>
-              toolResultOutput('envelope', image(toolCallId)),
+              toolResultOutput('envelope', {
+                locator: locator(toolCallId),
+                width: 1600,
+                height: 900,
+                key: toolCallId,
+              }),
           }),
         },
         media: resolver,
@@ -1827,18 +1821,12 @@ describe('installStepPreparation', () => {
       await expect(result.text).resolves.toBe('ok');
 
       const calls = Array.from({ length: 10 }, (_, n) => `call-${n + 1}`);
-      const retained = calls.filter(
-        (call) => heldImageModel(resolver, call) !== undefined,
-      );
-      expect(retained).toEqual(calls.slice(0, 5));
-      const retainedBase64 = retained.map(
-        (call) =>
-          4 *
-          Math.ceil((heldImageModel(resolver, call)?.bytes.length ?? 0) / 3),
-      );
-      expect(retainedBase64.reduce((sum, size) => sum + size, 0)).toBe(
-        5 * 5 * 2 ** 20,
-      );
+      // Every read keeps its entry: the window bounds what a request carries,
+      // not what the reply stores.
+      expect(
+        calls.every((call) => retainedImageModel(resolver, call) !== undefined),
+      ).toBe(true);
+      expect(resolver.retainedMedia.size).toBe(10);
       const last = toolOutputs(prompts[10] ?? []);
       expect(last.slice(0, 5).map((output) => output.type)).toEqual(
         calls.slice(0, 5).map(() => 'content'),
@@ -1849,17 +1837,7 @@ describe('installStepPreparation', () => {
           value: `envelope\n[image "/work/${call}.png" 1600×900, not attached: this context's image limit is reached]`,
         })),
       );
-
-      // The next turn is another attempt: every read is not retained.
-      const next = await composeStepMessages(
-        [...input.messages, ...(await result.response).messages],
-        {
-          resolver: fakeResolver([]).resolver,
-          context: VISION,
-        },
-      );
-      expect(JSON.stringify(next).match(/not retained/gu)).toHaveLength(10);
-      expect(JSON.stringify(next)).not.toContain('image-data');
+      expect(toolOutputs(prompts[9] ?? [])).toEqual(last.slice(0, 9));
     });
 
     it('sends each read in the window in one image message after its tool message on a Chat Completions wire', async () => {

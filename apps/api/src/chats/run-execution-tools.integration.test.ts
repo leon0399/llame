@@ -77,6 +77,7 @@ import {
   isTextPart,
   type StoredMessage,
 } from './context-builder';
+import { mergeRetainedMedia } from '../media/attempt-media';
 import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { createToolPromptRenderer } from '../instance-config/prompt-loader';
@@ -5747,7 +5748,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         const thumbnail: unknown = expect.stringMatching(
           /^data:image\/webp;base64,/,
         );
-        expect(item.data.payload).toEqual({
+        expect(item.data.payload).toMatchObject({
           imports: [
             {
               locator,
@@ -5757,9 +5758,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
               width: 160,
               height: 90,
               mediaType: 'image/png',
+              retainedMedia: {
+                mediaType: 'image/png',
+                width: 160,
+                height: 90,
+              },
             },
           ],
         });
+        // The entry keeps the model variant's base64, never the original.
+        expect(item.data.text).not.toContain('iVBORw0KGgo');
         // The import stored nothing for the owner.
         const owned = await tenantDb.runAs(userId, (tx) =>
           tx
@@ -5775,6 +5783,24 @@ describeIfDb('executeRun tool-loop persistence', () => {
         const sent = calls[0];
         if (sent?.media === undefined) throw new Error('no media resolver');
         const itemThen = async (resolver: RunMediaResolver, image: boolean) => {
+          // The stored row's markers name their bytes: the loader hands them
+          // back and the caller puts them in the attempt's map.
+          const built = buildContext(
+            [
+              {
+                id: 'trigger',
+                chatId: seeded.chatId,
+                seq: 1,
+                role: 'user',
+                senderUserId: userId,
+                parts: [item, { type: 'text' as const, text: 'see it' }],
+                attachments: [],
+                createdAt: new Date(0),
+              },
+            ],
+            { systemPrompt: 'system', requestKind: 'continuation' },
+          );
+          mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
           const composed = await composeStepMessages(sent.messages, {
             resolver,
             context: {

@@ -410,6 +410,102 @@ describe('RunsController context receipt', () => {
     ]);
   });
 
+  it('strips retained read bytes from the tool.completed and run.continued frames without changing stored events', async () => {
+    const retainedMedia = {
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+    };
+    const output = {
+      kind: 'image',
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      path: '/work/shot.png',
+    };
+    const keptToolPart = {
+      type: 'tool-read',
+      toolCallId: 'call-1',
+      state: 'output-available',
+      input: { path: '/work/shot.png' },
+      output,
+      retainedMedia,
+    };
+    const events: Array<RunEvent> = [
+      {
+        runId: run.id,
+        sequence: 7,
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'call-1',
+          toolName: 'read',
+          output,
+          retainedMedia,
+        },
+        createdAt: new Date('2026-07-18T10:00:01.000Z'),
+      },
+      {
+        runId: run.id,
+        sequence: 8,
+        eventType: 'run.continued',
+        payload: {
+          runId: run.id,
+          parts: [keptToolPart, { type: 'text', text: 'kept' }],
+        },
+        createdAt: new Date('2026-07-18T10:00:01.500Z'),
+      },
+    ];
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValueOnce(events)
+      .mockResolvedValueOnce([]);
+    const sse = response();
+
+    await controller().streamRunEvents(
+      'owner',
+      run.id,
+      {},
+      request(),
+      sse.value,
+    );
+
+    expect(sse.writes).toEqual([
+      `id: 7\ndata: ${JSON.stringify({
+        sequence: 7,
+        eventType: 'tool.completed',
+        payload: { toolCallId: 'call-1', toolName: 'read', output },
+        createdAt: events[0].createdAt,
+      })}\n\n`,
+      `id: 8\ndata: ${JSON.stringify({
+        sequence: 8,
+        eventType: 'run.continued',
+        payload: {
+          runId: run.id,
+          parts: [
+            {
+              type: 'tool-read',
+              toolCallId: 'call-1',
+              state: 'output-available',
+              input: { path: '/work/shot.png' },
+              output,
+            },
+            { type: 'text', text: 'kept' },
+          ],
+        },
+        createdAt: events[1].createdAt,
+      })}\n\n`,
+      'data: [DONE]\n\n',
+    ]);
+    expect(JSON.stringify(sse.writes)).not.toContain(retainedMedia.data);
+    // The stored events keep their bytes: the next attempt replays them.
+    expect(events[0].payload).toHaveProperty('retainedMedia');
+    expect(events[1].payload).toEqual({
+      runId: run.id,
+      parts: [keptToolPart, { type: 'text', text: 'kept' }],
+    });
+  });
+
   it.each([
     { header: undefined, query: 3, expected: 3 },
     { header: '', query: 4, expected: 4 },

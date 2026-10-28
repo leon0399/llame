@@ -104,22 +104,26 @@ export function normalizeCompactionSummary(value: unknown): string | null {
 /**
  * Whether a prepared request's media overflow counts as reaching the
  * compaction threshold (vision-media D6, pdf-media D5): some reference is not
- * attached because the epoch window is full, and a stored reference of a kind
- * the request's model declares sits in a row before the triggering user
- * message, attached or refused by the window. Before a Run's first step, an
- * unstored image in an earlier row is not-retained, and a reference of an
- * undeclared kind is omitted, so neither counts. Overflow inside that message
- * alone does not count: compaction cannot absorb it. `triggerRefCount` is how
- * many references the triggering message carries, which are the request's
- * last ones.
+ * attached because the epoch window is full, and a stored or retained
+ * reference of a kind the request's model declares sits in a row before the
+ * triggering user message, attached or refused by the window. A result without
+ * retained bytes is no reference, and a reference of an undeclared kind is
+ * omitted, so neither counts. Overflow inside that message alone does not
+ * count: compaction cannot absorb it.
+ *
+ * `triggerRefCount` is how many references the triggering message carries and
+ * `keptRefCount` how many the kept steps of a Continue Run add after it; both
+ * groups follow the earlier rows in request order, so neither is one of them.
  */
 export function mediaOverflowCompacts(
   media: MediaSizing,
   triggerRefCount: number,
+  keptRefCount: number,
 ): boolean {
   if (!media.statuses.includes('limit')) return false;
+  const earlierRows = media.statuses.length - triggerRefCount - keptRefCount;
   return media.statuses
-    .slice(0, Math.max(0, media.statuses.length - triggerRefCount))
+    .slice(0, Math.max(0, earlierRows))
     .some((status) => status === 'attached' || status === 'limit');
 }
 
@@ -143,18 +147,39 @@ function estimateProjectionTokens(
     tools: ReadonlyArray<ModelToolDeclaration>;
   },
   media: MediaSizing | undefined,
+  skipTailRefs = 0,
 ): number {
   let mediaTokens = 0;
   const messages =
     media === undefined
       ? projection.messages
-      : projectSizedText(projection.messages, media, (attached) => {
-          mediaTokens +=
-            attached.kind === 'pdf'
-              ? PDF_PAGE_TOKENS * attached.pages
-              : Math.ceil((attached.modelWidth * attached.modelHeight) / 750);
-        });
-  const sized = messages.map((message) => {
+      : projectSizedText(
+          projection.messages,
+          media,
+          (attached) => {
+            mediaTokens +=
+              attached.kind === 'pdf'
+                ? PDF_PAGE_TOKENS * attached.pages
+                : Math.ceil((attached.modelWidth * attached.modelHeight) / 750);
+          },
+          skipTailRefs,
+        );
+  return (
+    Math.ceil(
+      JSON.stringify({
+        system: projection.system,
+        messages: withoutReasoningMetadata(messages),
+        tools: projection.tools,
+      }).length / 4,
+    ) + mediaTokens
+  );
+}
+
+/** `messages` with each reasoning part's opaque provider metadata removed. */
+function withoutReasoningMetadata(
+  messages: ReadonlyArray<ModelMessage>,
+): ReadonlyArray<ModelMessage> {
+  return messages.map((message) => {
     if (message.role !== 'assistant' || !Array.isArray(message.content)) {
       return message;
     }
@@ -165,15 +190,6 @@ function estimateProjectionTokens(
       ),
     };
   });
-  return (
-    Math.ceil(
-      JSON.stringify({
-        system: projection.system,
-        messages: sized,
-        tools: projection.tools,
-      }).length / 4,
-    ) + mediaTokens
-  );
 }
 
 /**
@@ -188,14 +204,23 @@ export function estimateContinuationTokens(input: {
   rows: Array<StoredMessage>;
   railText: string;
   media?: MediaSizing;
+  /**
+   * How many references follow these rows in the request: a Continue Run's
+   * kept steps. They are the tail of `media.statuses`, so the estimate's
+   * alignment skips them.
+   */
+  keptRefCount?: number;
 }): number {
   const { messages } = buildContext(input.rows, {
     systemPrompt: '',
     requestKind: 'continuation',
   });
   return (
-    estimateProjectionTokens({ system: '', messages, tools: [] }, input.media) +
-    Math.ceil(input.railText.length / 4)
+    estimateProjectionTokens(
+      { system: '', messages, tools: [] },
+      input.media,
+      input.keptRefCount ?? 0,
+    ) + Math.ceil(input.railText.length / 4)
   );
 }
 
@@ -367,7 +392,7 @@ export function buildCompactionRequest(input: {
   previous: ContextCheckpoint | undefined;
   absorb: Array<StoredMessage>;
 }): ModelRequestContext {
-  const { system, messages } = buildContext(input.absorb, {
+  const context = buildContext(input.absorb, {
     systemPrompt: input.system,
     // Summarization input, not a continuation: reasoning the absorbed turns
     // persisted must not be folded into the checkpoint (D16).
@@ -375,10 +400,10 @@ export function buildCompactionRequest(input: {
     ...(input.previous !== undefined && { checkpoint: input.previous }),
   });
 
-  messages.push({
+  context.messages.push({
     role: 'user',
     content: COMPACTION_INSTRUCTION,
   });
 
-  return { system, messages };
+  return context;
 }

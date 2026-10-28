@@ -14,8 +14,9 @@ Enabling `http(s)://` reads and the permission boundary around them. Adapters:
 [web adapters](web-adapters.md). Model-visible behavior: [web
 locators](../reference/locators/web.md).
 
-Image and PDF pages are decoded and stored nowhere: they add nothing to the
-media store and live only in the reading Run attempt's memory ([web
+Image and PDF pages are decoded and create no media object, so they add
+nothing to the media store; their bytes stay in the chat row with the read's
+result ([web
 locators](../reference/locators/web.md#behavior)). Response snapshots and any
 cache remain deferred (#915). See [what is not
 read](../reference/locators/web.md#what-is-not-read).

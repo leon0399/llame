@@ -23,6 +23,8 @@ import type {
   ProviderMetadata,
 } from 'ai';
 
+import type { RetainedMedia } from '../media/attempt-media';
+import { mergeRetainedMedia } from '../media/attempt-media';
 import { storedFilePartSchema } from '../media/media-descriptors';
 import { parseMediaLocator } from '../media/media-locator';
 import { isContextItemPart, type ContextItemPart } from './context-item';
@@ -185,6 +187,13 @@ export function partsToText(parts: ReadonlyArray<unknown>): string {
 export interface ModelRequestContext {
   system: string;
   messages: Array<ModelMessage>;
+  /**
+   * The retained entry behind each media marker in `messages`, keyed by marker.
+   * The caller merges them into its attempt's map before it sizes or composes
+   * the request: a marker names its bytes, and only the row that produced it
+   * holds them.
+   */
+  retainedMedia: ReadonlyMap<string, RetainedMedia>;
 }
 
 /**
@@ -201,6 +210,7 @@ export interface ModelRequestContext {
  */
 export function userPartsToModelContent(
   parts: ReadonlyArray<unknown>,
+  retained?: Map<string, RetainedMedia>,
 ): Array<TextPart | FilePart | ImagePart> {
   const content: Array<TextPart | FilePart | ImagePart> = [];
   const files: Array<FilePart> = [];
@@ -211,10 +221,7 @@ export function userPartsToModelContent(
       continue;
     }
     if (isContextItemPart(part)) {
-      const text = part.data.text;
-      if (text !== undefined && text.length > 0) {
-        content.push({ type: 'text', text }, ...promptImportMediaParts(part));
-      }
+      content.push(...contextItemContent(part, retained));
       afterLastItem = content.length;
       continue;
     }
@@ -231,6 +238,24 @@ export function userPartsToModelContent(
   }
   content.splice(afterLastItem, 0, ...files);
   return content;
+}
+
+/**
+ * One stored `data-context` part as its model content: its text, then one media
+ * marker per import entry that names a stored locator or kept bytes. Empty for
+ * an item without text, so it contributes nothing.
+ */
+function contextItemContent(
+  part: ContextItemPart,
+  retained: Map<string, RetainedMedia> | undefined,
+): Array<TextPart | ImagePart> {
+  const text = part.data.text;
+  if (text === undefined || text.length === 0) return [];
+  const media = promptImportMediaParts(part);
+  if (retained !== undefined) {
+    mergeRetainedMedia(retained, media.retainedMedia);
+  }
+  return [{ type: 'text', text }, ...media.parts];
 }
 
 /**
@@ -374,7 +399,8 @@ function pushAssistantHistory(
   parts: Array<MessagePart>,
   projection: ToolObservationProjection | null,
   requestKind: ContextRequestKind,
-): void {
+): ReadonlyMap<string, RetainedMedia> | undefined {
+  const retained = projection?.retainedMedia;
   // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
   // this projector; stored assistant parts currently omit multi-step boundaries.
   const pairsByPartIndex = new Map(
@@ -411,6 +437,7 @@ function pushAssistantHistory(
   emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
   emitter.flushPendingText();
   emitter.flushPendingReasoning();
+  return retained;
 }
 
 /**
@@ -444,6 +471,7 @@ export function buildContext(
   const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
   const result: Array<ModelMessage> = [];
+  const retained = new Map<string, RetainedMedia>();
 
   if (checkpoint !== undefined) {
     result.push({
@@ -454,20 +482,21 @@ export function buildContext(
 
   for (const m of ordered) {
     if (m.role === 'user') {
-      appendUserMessage(result, m);
+      appendUserMessage(result, m, retained);
     } else {
-      appendAssistantMessage(result, m, requestKind);
+      appendAssistantMessage(result, m, requestKind, retained);
     }
   }
 
-  return { system: systemPrompt, messages: result };
+  return { system: systemPrompt, messages: result, retainedMedia: retained };
 }
 
 function appendUserMessage(
   result: Array<ModelMessage>,
   m: StoredMessage,
+  retained: Map<string, RetainedMedia>,
 ): void {
-  const content = userPartsToModelContent(m.parts);
+  const content = userPartsToModelContent(m.parts, retained);
   if (content.length > 0) {
     result.push({ role: 'user', content });
   }
@@ -477,10 +506,11 @@ function appendAssistantMessage(
   result: Array<ModelMessage>,
   m: StoredMessage,
   requestKind: ContextRequestKind,
+  retained: Map<string, RetainedMedia>,
 ): void {
   const visibleText = partsToText(m.parts);
   const projected =
-    m.role === 'assistant' ? projectToolObservations(m.parts) : null;
+    m.role === 'assistant' ? projectToolObservations(m.parts, m.id) : null;
   // The one reuse of persisted reasoning: a request continuing this Chat
   // re-sends the turn's reasoning where it occurred (D15). A compaction
   // request summarizes the same turns with no reasoning in reach (D16).
@@ -498,7 +528,13 @@ function appendAssistantMessage(
   }
 
   if (projected || hasReasoning || hasContextText) {
-    pushAssistantHistory(result, m.parts, projected, requestKind);
+    const entries = pushAssistantHistory(
+      result,
+      m.parts,
+      projected,
+      requestKind,
+    );
+    if (entries !== undefined) mergeRetainedMedia(retained, entries);
     return;
   }
 

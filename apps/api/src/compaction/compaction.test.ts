@@ -39,8 +39,10 @@ import {
   type ToolResultOutput,
 } from '../media/epoch-admission';
 import { composeStepMessages } from '../models/step-composer';
+import { storedToolPartMediaKey } from '../media/retained-media';
 import { createToolAvailabilityItem } from '../chats/context-item-producers';
-import type { StoredMessage } from '../chats/context-builder';
+import { buildContext, type StoredMessage } from '../chats/context-builder';
+import { mergeRetainedMedia } from '../media/attempt-media';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import type { Message } from '../db/schema';
 
@@ -621,7 +623,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
   it('charges a 2000×1125 variant 3,000 tokens and admits it on a 200,000-token model', () => {
     const media = {
       descriptors: new Map([[A, screenshot(3_700_000)]]),
-      held: new Map(),
+      retained: new Map(),
       statuses: ['attached' as const],
       context: VISION,
     };
@@ -653,7 +655,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         ...request(withImage),
         media: {
           descriptors: new Map([[A, screenshot(bytes)]]),
-          held: new Map(),
+          retained: new Map(),
           statuses: ['attached'],
           context: VISION,
         },
@@ -668,7 +670,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         ...request(withImage),
         media: {
           descriptors: new Map([[A, screenshot(1000)]]),
-          held: new Map(),
+          retained: new Map(),
           statuses: ['attached'],
           context: TEXT_ONLY,
         },
@@ -701,7 +703,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         railText: '',
         media: {
           descriptors,
-          held: new Map(),
+          retained: new Map(),
           statuses: ['attached', 'limit'],
           context: VISION,
         },
@@ -758,7 +760,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         railText: '',
         media: {
           descriptors: new Map([[A, descriptor(A, variant)]]),
-          held: new Map(),
+          retained: new Map(),
           statuses: ['attached'],
           context: VISION,
         },
@@ -806,6 +808,12 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
             path: SHOT.locator,
             thumbnail: `data:image/webp;base64,${'A'.repeat(60_000)}`,
           },
+          retainedMedia: {
+            mediaType: 'image/png',
+            width: 2000,
+            height: 1125,
+            data: Buffer.alloc(1024).toString('base64'),
+          },
           outcome: 'success',
         },
       ],
@@ -814,22 +822,23 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       width: number;
       height: number;
       bytes: number;
-    }) =>
-      estimateContinuationTokens({
-        rows: [msg('look'), readRow()],
+    }) => {
+      const row = readRow();
+      return estimateContinuationTokens({
+        rows: [msg('look'), row],
         railText: '',
         media: {
           descriptors: new Map(),
-          held: new Map([
+          retained: new Map([
             [
-              'call-1',
+              storedToolPartMediaKey(row.id, 0),
               {
                 ...SHOT,
                 model: {
-                  bytes: Buffer.alloc(model.bytes),
                   mediaType: 'image/png',
                   width: model.width,
                   height: model.height,
+                  data: Buffer.alloc(model.bytes).toString('base64'),
                 },
               },
             ],
@@ -838,6 +847,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
           context: VISION,
         },
       });
+    };
 
     it('charges the image by its retained variant dimensions, never its bytes or thumbnail', () => {
       const large = estimateWith({
@@ -890,7 +900,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
           ]),
           media: {
             descriptors: new Map([[A, screenshot(1000)]]),
-            held: new Map(),
+            retained: new Map(),
             statuses: ['attached'],
             context: VISION,
           },
@@ -940,7 +950,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         ...request(withPdf),
         media: {
           descriptors: new Map([[A, paper(pages, byteSize)]]),
-          held: new Map(),
+          retained: new Map(),
           statuses: ['attached'],
           context: VISION_PDF,
         },
@@ -964,7 +974,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
           ...request(withPdf),
           media: {
             descriptors: new Map([[A, paper(64)]]),
-            held: new Map(),
+            retained: new Map(),
             statuses: ['limit'],
             context: VISION_PDF,
           },
@@ -1031,13 +1041,13 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
   describe('mediaOverflowCompacts', () => {
     const sizing = (statuses: Array<MediaAdmission>) => ({
       descriptors: new Map([[A, screenshot(1000)]]),
-      held: new Map(),
+      retained: new Map(),
       statuses,
       context: VISION,
     });
 
     it('compacts when an image in an earlier row precedes the overflow', () => {
-      expect(mediaOverflowCompacts(sizing(['attached', 'limit']), 1)).toBe(
+      expect(mediaOverflowCompacts(sizing(['attached', 'limit']), 1, 0)).toBe(
         true,
       );
     });
@@ -1047,26 +1057,42 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         mediaOverflowCompacts(
           sizing(['attached', 'attached', 'attached', 'attached', 'limit']),
           5,
+          0,
         ),
       ).toBe(false);
     });
 
-    it('does not count an unresolvable, not-retained, or omitted earlier reference', () => {
-      for (const earlier of [
-        'unavailable',
-        'not-retained',
-        'omitted',
-      ] as const) {
-        expect(mediaOverflowCompacts(sizing([earlier, 'limit']), 1)).toBe(
+    it('ignores the kept steps of a Continue Run after the trigger', () => {
+      // Two earlier rows attach, then the trigger overflows and keeps one more.
+      expect(
+        mediaOverflowCompacts(
+          sizing(['attached', 'attached', 'limit', 'limit']),
+          1,
+          1,
+        ),
+      ).toBe(true);
+      // The first status is an earlier row, so its overflow already counts.
+      expect(
+        mediaOverflowCompacts(sizing(['attached', 'limit', 'limit']), 1, 1),
+      ).toBe(true);
+      // Without one, only the trigger and the kept step follow.
+      expect(mediaOverflowCompacts(sizing(['limit', 'limit']), 1, 1)).toBe(
+        false,
+      );
+    });
+
+    it('does not count an unresolvable or omitted earlier reference', () => {
+      for (const earlier of ['unavailable', 'omitted'] as const) {
+        expect(mediaOverflowCompacts(sizing([earlier, 'limit']), 1, 0)).toBe(
           false,
         );
       }
     });
 
     it('never compacts without an overflow', () => {
-      expect(mediaOverflowCompacts(sizing(['attached', 'attached']), 1)).toBe(
-        false,
-      );
+      expect(
+        mediaOverflowCompacts(sizing(['attached', 'attached']), 1, 0),
+      ).toBe(false);
     });
 
     /** A request whose earlier row stores `earlier` and whose trigger stores `trigger`. */
@@ -1099,7 +1125,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       );
 
       expect(media.statuses).toEqual(['attached', 'limit']);
-      expect(mediaOverflowCompacts(media, 1)).toBe(true);
+      expect(mediaOverflowCompacts(media, 1, 0)).toBe(true);
     });
 
     it('compacts when the earlier stored PDF itself took the limit placeholder', async () => {
@@ -1111,7 +1137,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       );
 
       expect(media.statuses).toEqual(['limit']);
-      expect(mediaOverflowCompacts(media, 0)).toBe(true);
+      expect(mediaOverflowCompacts(media, 0, 0)).toBe(true);
     });
 
     it('does not compact image overflow when the only earlier reference is a PDF the model cannot take', async () => {
@@ -1144,7 +1170,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         'attached',
         'limit',
       ]);
-      expect(mediaOverflowCompacts(media, images.length)).toBe(false);
+      expect(mediaOverflowCompacts(media, images.length, 0)).toBe(false);
     });
   });
 });
@@ -1355,6 +1381,154 @@ describe('buildCompactionRequest', () => {
       { role: 'assistant', content: 'assistant answer' },
       { role: 'user', content: COMPACTION_INSTRUCTION },
     ]);
+  });
+});
+
+describe('a stored retained read across the builds of one attempt', () => {
+  const SHOT = '/work/shot.png';
+  /** The model variant a settled image read keeps beside its result. */
+  const VARIANT = {
+    mediaType: 'image/png',
+    width: 2000,
+    height: 1125,
+    data: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64'),
+  } as const;
+  const CONTEXT: MediaAdmissionContext = {
+    input: ['text', 'image'],
+    contextWindowTokens: 200_000,
+    reservedOutputTokens: null,
+  };
+
+  /** One stored `tool-read` of an unstored image, with `record` beside it. */
+  const readRow = (
+    record: typeof VARIANT | { exceeded: true },
+  ): StoredMessage => ({
+    ...msg('', 'assistant'),
+    parts: [
+      {
+        type: 'tool-read',
+        toolCallId: 'call-1',
+        state: 'output-available',
+        input: { path: SHOT },
+        output: {
+          status: 'success',
+          kind: 'image',
+          mediaType: 'image/png',
+          width: 4000,
+          height: 2250,
+          path: SHOT,
+        },
+        retainedMedia: record,
+        outcome: 'success',
+      },
+    ],
+  });
+
+  /** The composed image payloads, base64, in request order. */
+  function attachedBase64(
+    messages: ReadonlyArray<ModelMessage>,
+  ): Array<string> {
+    const images: Array<string> = [];
+    // Tool-result media sits inside the result's content value; a user
+    // message's image is its own content part.
+    const visit = (part: unknown): void => {
+      if (!isRecord(part)) return;
+      const image = part['image'];
+      if (part['type'] === 'image' && image instanceof Uint8Array) {
+        images.push(Buffer.from(image).toString('base64'));
+      }
+      // A tool result's attached media is the SDK's `image-data` content part.
+      const data = part['data'];
+      if (part['type'] === 'image-data' && isString(data)) images.push(data);
+      const output = part['output'];
+      if (isRecord(output) && Array.isArray(output['value'])) {
+        output['value'].forEach(visit);
+      }
+    };
+    for (const message of messages) {
+      if (Array.isArray(message.content)) message.content.forEach(visit);
+    }
+    return images;
+  }
+
+  it("resolves one row's retained entry in the main build, the estimate, and the compaction request", async () => {
+    const row = readRow(VARIANT);
+    const rows = [msg('look'), row];
+    // The key every producer names is the row's own identity and part index.
+    expect(storedToolPartMediaKey(row.id, 0)).toBe(`${row.id}:0`);
+    const { resolver } = fakeResolver([]);
+
+    // The main build emits the marker and returns the entry it names.
+    const main = buildContext(rows, {
+      systemPrompt: '',
+      requestKind: 'continuation',
+    });
+    expect([...main.retainedMedia.keys()]).toEqual([
+      storedToolPartMediaKey(row.id, 0),
+    ]);
+    mergeRetainedMedia(resolver.retainedMedia, main.retainedMedia);
+    const mainSizing = await loadMediaSizing(main.messages, resolver, CONTEXT);
+    expect(mainSizing.statuses).toEqual(['attached']);
+    expect(
+      attachedBase64(
+        await composeStepMessages(main.messages, {
+          resolver,
+          context: CONTEXT,
+        }),
+      ),
+    ).toEqual([VARIANT.data]);
+
+    // The continuation estimate re-derives the same rows and charges the entry
+    // the request's sizing resolves; a drifted key would project the limit
+    // placeholder instead of the attached variant.
+    const limitedRow = readRow({ exceeded: true });
+    const limitedRows = [msg('look'), limitedRow];
+    const { resolver: limitedResolver } = fakeResolver([]);
+    const limited = buildContext(limitedRows, {
+      systemPrompt: '',
+      requestKind: 'continuation',
+    });
+    mergeRetainedMedia(limitedResolver.retainedMedia, limited.retainedMedia);
+    const limitedSizing = await loadMediaSizing(
+      limited.messages,
+      limitedResolver,
+      CONTEXT,
+    );
+    expect(limitedSizing.statuses).toEqual(['limit']);
+    expect(
+      estimateContinuationTokens({ rows, railText: '', media: mainSizing }),
+    ).toBeGreaterThan(
+      estimateContinuationTokens({
+        rows: limitedRows,
+        railText: '',
+        media: limitedSizing,
+      }),
+    );
+
+    // The compaction request resolves the same row's entry and attaches it.
+    const request = buildCompactionRequest({
+      system: 'system',
+      previous: undefined,
+      absorb: rows,
+    });
+    expect([...request.retainedMedia.keys()]).toEqual([
+      storedToolPartMediaKey(row.id, 0),
+    ]);
+    mergeRetainedMedia(resolver.retainedMedia, request.retainedMedia);
+    const compactionSizing = await loadMediaSizing(
+      request.messages,
+      resolver,
+      CONTEXT,
+    );
+    expect(compactionSizing.statuses).toEqual(['attached']);
+    expect(
+      attachedBase64(
+        await composeStepMessages(request.messages, {
+          resolver,
+          context: CONTEXT,
+        }),
+      ),
+    ).toEqual([VARIANT.data]);
   });
 });
 

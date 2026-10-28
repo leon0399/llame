@@ -1360,6 +1360,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
             runId: turn.runId,
             outcomes: [{ locator: '/srv/private/notes.md', outcome: 'denied' }],
             omitted: [],
+            retained: new Map(),
           }),
         }),
       );

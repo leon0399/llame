@@ -5,14 +5,13 @@ import { join } from 'node:path';
 import { Response } from 'undici';
 import { type Mock, vi } from 'vitest';
 
-import type { HeldMedia } from '../media/attempt-media';
+import type { RetainedMedia } from '../media/attempt-media';
 import type { MediaService } from '../media/media.service';
 import * as pdfPreparation from '../media/pdf-preparation';
 import {
   createToolMediaStore,
   type ToolMediaStore,
 } from '../media/tool-media-store';
-import type { ModelInput } from '../models/model-catalog';
 import {
   nativeEditTool,
   nativeReadTool,
@@ -905,7 +904,7 @@ describe('web locator dispatch', () => {
         Promise.reject(new Error('An unstored PDF looked up the media store.')),
     };
     let paper: Buffer;
-    let held: Map<string, HeldMedia>;
+    let retained: Map<string, RetainedMedia>;
 
     const fixture = (name: string): Buffer =>
       readFileSync(join(PDF_FIXTURES, name));
@@ -919,11 +918,10 @@ describe('web locator dispatch', () => {
     const readPdf = (
       path: string = PDF_URL,
       overrides: Partial<ToolContext> = {},
-      modelInput: ReadonlyArray<ModelInput> = ['text', 'pdf'],
     ): Promise<ToolResult> =>
       webReadExecutor()(
         webContext({
-          media: createToolMediaStore(mediaService, 'owner', held, modelInput),
+          media: createToolMediaStore(mediaService, 'owner', retained),
           toolCallId: CALL_ID,
           ...overrides,
         }),
@@ -935,7 +933,7 @@ describe('web locator dispatch', () => {
     });
 
     beforeEach(() => {
-      held = new Map<string, HeldMedia>();
+      retained = new Map<string, RetainedMedia>();
     });
 
     it('parses the page count and holds the original under the submitted locator', async () => {
@@ -953,18 +951,17 @@ describe('web locator dispatch', () => {
         finalUrl: PDF_URL,
         method: 'pdf',
       });
-      expect(held.get(CALL_ID)).toStrictEqual({
+      expect(retained.get(CALL_ID)).toStrictEqual({
         locator: PDF_URL,
         pages: 15,
-        byteSize: paper.byteLength,
-        bytes: paper,
+        data: paper.toString('base64'),
       });
     });
 
-    it('counts the pages for a model with no PDF input and holds no bytes', async () => {
+    it('keeps the pages and the original for a model with no PDF input', async () => {
       fetchDouble.mockImplementationOnce(() => Promise.resolve(pdfPage(paper)));
 
-      const result = await readPdf(PDF_URL, {}, ['text']);
+      const result = await readPdf(PDF_URL);
 
       expect(result).toStrictEqual({
         status: 'success',
@@ -976,7 +973,11 @@ describe('web locator dispatch', () => {
         finalUrl: PDF_URL,
         method: 'pdf',
       });
-      expect(held.get(CALL_ID)).toStrictEqual({ locator: PDF_URL, pages: 15 });
+      expect(retained.get(CALL_ID)).toStrictEqual({
+        locator: PDF_URL,
+        pages: 15,
+        data: paper.toString('base64'),
+      });
     });
 
     it('refuses a page whose head carries markup before the PDF header', async () => {
@@ -994,7 +995,7 @@ describe('web locator dispatch', () => {
         status: 'error',
         type: 'unsupported_media_type',
       });
-      expect(held.size).toBe(0);
+      expect(retained.size).toBe(0);
     });
 
     it.each([':raw', ':1-5', ':outline'])(
@@ -1010,7 +1011,7 @@ describe('web locator dispatch', () => {
           status: 'error',
           type: 'invalid_selector',
         });
-        expect(held.size).toBe(0);
+        expect(retained.size).toBe(0);
       },
     );
 
@@ -1027,7 +1028,7 @@ describe('web locator dispatch', () => {
         const result = await readPdf();
 
         expect(result).toMatchObject({ status: 'error', type });
-        expect(held.size).toBe(0);
+        expect(retained.size).toBe(0);
       },
     );
 
@@ -1043,7 +1044,7 @@ describe('web locator dispatch', () => {
       const result = await readPdf();
 
       expect(result).toMatchObject({ status: 'error', type: 'body_too_large' });
-      expect(held.size).toBe(0);
+      expect(retained.size).toBe(0);
     });
 
     it('refuses the PDF when the read was built without a media store', async () => {
@@ -1109,12 +1110,12 @@ describe('web locator dispatch', () => {
             // The read is answered and the attempt is empty while the
             // preparation is still running.
             expect(observed).toMatchObject({ status: 'error', type });
-            expect(held.size).toBe(0);
+            expect(retained.size).toBe(0);
 
             preparation.finish(15);
             await vi.advanceTimersByTimeAsync(0);
 
-            expect(held.size).toBe(0);
+            expect(retained.size).toBe(0);
           } finally {
             preparation.finish(15);
             await settled;

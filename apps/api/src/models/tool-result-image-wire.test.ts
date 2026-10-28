@@ -147,10 +147,10 @@ const HELD_BASE64 = HELD_BYTES.toString('base64');
 const HELD_IMAGE = {
   ...SHOT,
   model: {
-    bytes: HELD_BYTES,
     mediaType: 'image/png' as const,
     width: 1600,
     height: 900,
+    data: HELD_BASE64,
   },
 };
 const unstoredMessages: Array<ModelMessage> = messages.map((message) =>
@@ -162,7 +162,10 @@ const unstoredMessages: Array<ModelMessage> = messages.map((message) =>
             type: 'tool-result',
             toolCallId: 'call-1',
             toolName: 'read',
-            output: toolResultOutput(UNSTORED_ENVELOPE, SHOT),
+            output: toolResultOutput(UNSTORED_ENVELOPE, {
+              ...SHOT,
+              key: 'call-1',
+            }),
           },
         ],
       }
@@ -198,7 +201,7 @@ async function sentBody(
     const resolver =
       scenario.media ??
       fakeResolver([descriptor(ID), descriptor(ID2)]).resolver;
-    if (scenario.held) resolver.heldMedia.set('call-1', HELD_IMAGE);
+    if (scenario.held) resolver.retainedMedia.set('call-1', HELD_IMAGE);
     await expect(
       build(input).streamText({
         chat: CHAT,
@@ -385,7 +388,16 @@ describe('a replayed read image on each wire', () => {
 
 describe('an unstored read image on each wire', () => {
   const held = { messages: unstoredMessages, held: true };
-  const notHeld = { messages: unstoredMessages, held: false };
+  /** An attempt whose read recorded that its message bound is exceeded. */
+  const exceededEntry = {
+    messages: unstoredMessages,
+    media: (() => {
+      const resolver = fakeResolver([descriptor(ID), descriptor(ID2)]).resolver;
+      resolver.retainedMedia.set('call-1', { ...SHOT, exceeded: true });
+      return resolver;
+    })(),
+    held: false,
+  };
 
   it.each([
     [
@@ -456,19 +468,19 @@ describe('an unstored read image on each wire', () => {
     });
   });
 
-  it('sends the not-retained placeholder when the attempt holds no entry', async () => {
+  it('sends the limit placeholder for a read past its message bound', async () => {
     const body = await sentBody(
       (input) => createOpenAIModelClient({ ...base, input }),
       RESPONSES_STREAM,
       VISION,
-      notHeld,
+      exceededEntry,
     );
 
     expect(body.input).toContainEqual(
       expect.objectContaining({
         type: 'function_call_output',
         call_id: 'call-1',
-        output: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not retained]`,
+        output: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not attached: this context's image limit is reached]`,
       }),
     );
   });
@@ -513,14 +525,19 @@ describe('an unstored read image on each wire', () => {
       expect(JSON.stringify(body)).not.toContain('llameUnstoredMedia');
     });
 
-    it('keeps the not-retained placeholder in the tool message and adds no image message', async () => {
-      const body = await sentBody(build, COMPLETIONS_STREAM, VISION, notHeld);
+    it('keeps the limit placeholder in the tool message and adds no image message', async () => {
+      const body = await sentBody(
+        build,
+        COMPLETIONS_STREAM,
+        VISION,
+        exceededEntry,
+      );
 
       expect(Array.isArray(body.messages) && body.messages.slice(2)).toEqual([
         {
           role: 'tool',
           tool_call_id: 'call-1',
-          content: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not retained]`,
+          content: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not attached: this context's image limit is reached]`,
         },
       ]);
       const serialized = JSON.stringify(body);
@@ -692,11 +709,10 @@ describe('an owner PDF attachment on each wire', () => {
     });
     const read = (): Scenario => {
       const media = paperResolver();
-      media.heldMedia.set('call-1', {
+      media.retainedMedia.set('call-1', {
         locator,
         pages: 1,
-        bytes: PDF_BYTES,
-        byteSize: PDF_BYTES.length,
+        data: PDF_BYTES.toString('base64'),
       });
       return {
         media,
@@ -710,7 +726,11 @@ describe('an owner PDF attachment on each wire', () => {
                 type: 'tool-result',
                 toolCallId: 'call-1',
                 toolName: 'read',
-                output: toolResultOutput(envelope, { locator, pages: 1 }),
+                output: toolResultOutput(envelope, {
+                  locator,
+                  pages: 1,
+                  key: 'call-1',
+                }),
               },
             ],
           },
