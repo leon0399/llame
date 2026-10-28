@@ -1195,7 +1195,7 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
   });
 
   it.each(['http', 'streamable-http'] as const)(
-    'maps the %s alias to Streamable HTTP and resolves private headers',
+    'maps the %s alias to Streamable HTTP and protects interpolated and credential values',
     (type) => {
       const secretFile = path.join(tmpDir, 'mcp-token.secret');
       writeFileSync(secretFile, 'path-token');
@@ -1203,27 +1203,38 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
         "mcpServers": {
           "Web_Server-1": {
             "type": ${JSON.stringify(type)},
-            "url": "https://example.test/mcp",
+            "url": "https://example.test/mcp?key={env:MCP_URL_KEY}",
             "headers": {
               "Authorization": "Bearer {env:MCP_TOKEN}",
-              "X-Path-Token": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}"
+              "X-Path-Token": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}",
+              "X-MCP-Readonly": "true"
             }
           }
         }
       }`);
 
-      expect(loadInstanceConfig({ MCP_TOKEN: 'env-token' }).mcpServers).toEqual(
-        {
-          'Web_Server-1': {
-            type: 'streamable-http',
-            url: 'https://example.test/mcp',
-            headers: {
-              Authorization: 'Bearer env-token',
-              'X-Path-Token': 'path-token',
-            },
+      expect(
+        loadInstanceConfig({ MCP_TOKEN: 'env-token', MCP_URL_KEY: 'url-key' })
+          .mcpServers,
+      ).toEqual({
+        'Web_Server-1': {
+          type: 'streamable-http',
+          url: 'https://example.test/mcp?key=url-key',
+          headers: {
+            Authorization: 'Bearer env-token',
+            'X-Path-Token': 'path-token',
+            'X-MCP-Readonly': 'true',
           },
+          // A literal non-credential header value such as `true` is not a
+          // secret: protecting it would redact every `true` in tool traffic.
+          protectedValues: [
+            'url-key',
+            'env-token',
+            'path-token',
+            'Bearer env-token',
+          ],
         },
-      );
+      });
     },
   );
 

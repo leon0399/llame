@@ -7,6 +7,7 @@ import {
   type WorkspaceInterpolationResult,
 } from '@workspace/config-interpolation';
 import {
+  credentialHeaderValues,
   isRecord,
   isString,
   type UnknownRecord,
@@ -230,7 +231,7 @@ async function resolveStdio(
   }
   const command = await resolveString(rawCommand, root, env);
   const protectedValues = new Set<string>();
-  addStdioSubstitutions(protectedValues, command.substitutions);
+  addInterpolatedSubstitutions(protectedValues, command.substitutions);
   const args = await resolveStdioArgs(raw, root, env, protectedValues);
   const childEnv = await resolveStdioEnv(raw, root, env, protectedValues);
   const cwd = await resolveStdioCwd(raw, root, env);
@@ -296,7 +297,7 @@ async function resolveArgs(
   const args: Array<string> = [];
   for (const value of raw) {
     const resolved = await resolveString(value, root, env);
-    addStdioSubstitutions(protectedValues, resolved.substitutions);
+    addInterpolatedSubstitutions(protectedValues, resolved.substitutions);
     args.push(resolved.value);
   }
   return Object.freeze(args);
@@ -315,7 +316,7 @@ async function resolveEnv(
       throw new WorkspaceConfigError(`env.${name} must be a string`);
     }
     const resolved = await resolveString(value, root, env);
-    addStdioSubstitutions(protectedValues, resolved.substitutions);
+    addInterpolatedSubstitutions(protectedValues, resolved.substitutions);
     childEnv[name] = resolved.value;
   }
   return Object.freeze(childEnv);
@@ -347,6 +348,9 @@ async function resolveRemote(
       throw new WorkspaceConfigError('headers must be an object');
     }
     headers = await resolveHeaders(rawHeaders, root, env, protectedValues);
+    for (const value of credentialHeaderValues(headers)) {
+      addProtected(protectedValues, value);
+    }
   }
   const definition: MutableRemoteDefinition = { url: url.value };
   if (headers !== undefined) definition.headers = headers;
@@ -411,8 +415,7 @@ async function resolveHeaders(
     if (resolved.value.trim().length === 0) {
       throw new WorkspaceConfigError(`header ${name} must be non-empty`);
     }
-    addAllSubstitutions(protectedValues, resolved.substitutions);
-    addProtected(protectedValues, resolved.value);
+    addInterpolatedSubstitutions(protectedValues, resolved.substitutions);
     headers[name] = resolved.value;
     folded.set(lower, name);
   }
@@ -427,7 +430,7 @@ function addAllSubstitutions(
   }
 }
 
-function addStdioSubstitutions(
+function addInterpolatedSubstitutions(
   protectedValues: Set<string>,
   substitutions: ResolvedString['substitutions'],
 ): void {

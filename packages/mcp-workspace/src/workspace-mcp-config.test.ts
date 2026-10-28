@@ -152,11 +152,10 @@ describe('readWorkspaceMcpConfig', () => {
       '${INNER}',
       'cwd-secret',
     ]);
+    // Literal and fallback text in a non-credential header is not a secret.
     expect(remote.protectedValues).toEqual([
       'env-secret-value',
       'Bearer env-secret-value',
-      'literal-header',
-      'remote-default',
     ]);
   });
 
@@ -381,7 +380,7 @@ describe('readWorkspaceMcpConfig', () => {
     expect(local.definition.args).toEqual(['']);
   });
 
-  it('protects literal Authorization and accepts valid HTTP URLs', async () => {
+  it('protects literal credential headers only and accepts valid HTTP URLs', async () => {
     const root = await workspace();
     await writeJson(path.join(root, '.mcp.json'), {
       mcpServers: {
@@ -389,7 +388,12 @@ describe('readWorkspaceMcpConfig', () => {
         remote: {
           type: 'http',
           url: 'https://example.test/mcp',
-          headers: { Authorization: 'literal-authorization' },
+          headers: {
+            Authorization: 'literal-authorization',
+            'proxy-authorization': ' literal-proxy ',
+            Cookie: 'session=literal-cookie',
+            'X-MCP-Readonly': 'true',
+          },
         },
       },
     });
@@ -400,10 +404,17 @@ describe('readWorkspaceMcpConfig', () => {
     });
     expect(configured(entries, 'remote').definition).toEqual({
       url: 'https://example.test/mcp',
-      headers: { Authorization: 'literal-authorization' },
+      headers: {
+        Authorization: 'literal-authorization',
+        'proxy-authorization': ' literal-proxy ',
+        Cookie: 'session=literal-cookie',
+        'X-MCP-Readonly': 'true',
+      },
     });
     expect(configured(entries, 'remote').protectedValues).toEqual([
       'literal-authorization',
+      'literal-proxy',
+      'session=literal-cookie',
     ]);
   });
 });

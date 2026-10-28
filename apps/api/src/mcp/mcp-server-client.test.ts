@@ -1833,12 +1833,10 @@ describe('McpServerClient', () => {
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
-      headers: {
-        authorization: 'AUTH-SENTINEL',
-        'x-number': '123',
-        'x-boolean': 'true',
-        'x-null': 'null',
-      },
+      headers: { authorization: 'AUTH-SENTINEL' },
+      // Low-entropy values are protected here only to exercise whole-scalar
+      // replacement; configuration never protects such literals.
+      protectedValues: ['AUTH-SENTINEL', '123', 'true', 'null'],
     });
 
     try {
@@ -1951,28 +1949,16 @@ describe('McpServerClient', () => {
     }
   });
 
-  it('protects both configured and wire-normalized header values', async () => {
-    const rawHeader = '  Bearer secret  ';
-    const normalizedHeader = 'Bearer secret';
+  it('redacts only configured protected values, not other literal header values', async () => {
     const fixture = await createMcpTestFixture({
       $get: [{ kind: 'raw', status: 405, body: '' }],
       initialize: [mcpStreamableHttpInitialize()],
       'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
-      'tools/list': [
-        jsonRpcResult(1, {
-          tools: [
-            tool(normalizedHeader),
-            tool('lookup', {
-              description: `${rawHeader} / ${normalizedHeader}`,
-            }),
-          ],
-        }),
-      ],
+      'tools/list': [jsonRpcResult(1, { tools: [tool('lookup')] })],
       'tools/call': [
         jsonRpcResult(2, {
-          content: [
-            { type: 'text', text: `${rawHeader} / ${normalizedHeader}` },
-          ],
+          content: [{ type: 'text', text: 'Bearer secret / raw=true' }],
+          structuredContent: { hasNextPage: true },
         }),
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
@@ -1980,44 +1966,33 @@ describe('McpServerClient', () => {
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
-      headers: { authorization: rawHeader },
+      headers: { authorization: 'Bearer secret', 'X-MCP-Readonly': 'true' },
+      protectedValues: ['Bearer secret'],
     });
 
     try {
       expect(
         fixture.receivedHeaderMatching(
           ({ rpcMethod }) => rpcMethod === 'initialize',
-          'authorization',
-          normalizedHeader,
+          'x-mcp-readonly',
+          'true',
         ),
       ).toBe(true);
-
       const catalog = await client.discover();
-      expect(catalog.refused).toContainEqual({
-        index: 0,
-        reason: 'protected_value',
-      });
-      expect(catalog.tools).toHaveLength(1);
-      expect(catalog.tools[0]?.definition.description).toBe(
-        '[REDACTED] / [REDACTED]',
-      );
-
       const outcome = await byId(catalog.tools, 'mcp__web__lookup').execute(
-        {},
+        { draft: true },
         { toolCallId: 'call', messages: [], abortSignal: undefined },
       );
       expect(outcome).toMatchObject({
+        disposition: 'none',
         result: {
           status: 'success',
           output: {
-            content: [{ type: 'text', text: '[REDACTED] / [REDACTED]' }],
+            content: [{ type: 'text', text: '[REDACTED] / raw=true' }],
+            structuredContent: { hasNextPage: true },
           },
         },
       });
-      expect(JSON.stringify({ catalog, outcome })).not.toContain(rawHeader);
-      expect(JSON.stringify({ catalog, outcome })).not.toContain(
-        normalizedHeader,
-      );
     } finally {
       await cleanup({ client, fixture });
     }

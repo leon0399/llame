@@ -115,11 +115,16 @@ export type ProviderConfig =
   | OpenAICodexProviderConfig
   | OpenCodeGoProviderConfig;
 
-/** Resolved private Streamable HTTP server configuration. */
+/**
+ * Resolved private Streamable HTTP server configuration. `protectedValues`
+ * holds what the `url` and `headers` interpolation tokens resolved to, plus
+ * every credential header's whole value; other literal header text is absent.
+ */
 export type McpRemoteServerConfig = {
   type: 'streamable-http';
   url: string;
   headers?: Readonly<Record<string, string>>;
+  protectedValues?: ReadonlyArray<string>;
 };
 
 /**

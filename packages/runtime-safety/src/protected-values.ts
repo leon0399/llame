@@ -29,6 +29,31 @@ export function normalizeProtectedValues(
   );
 }
 
+const CREDENTIAL_HEADER_NAMES = {
+  authorization: true,
+  "proxy-authorization": true,
+  cookie: true,
+} as const;
+
+/**
+ * The values of the configured headers whose name means the value is a
+ * credential, whether written literally or interpolated. Other literal header
+ * values are not secrets: protecting a value such as `true` would redact every
+ * occurrence of it from tool traffic. The value is trimmed as the HTTP
+ * runtime sends it; the trimmed text is a substring of the configured text, so
+ * both spellings are covered.
+ */
+export function credentialHeaderValues(
+  headers: Readonly<Record<string, string>>,
+): ReadonlyArray<string> {
+  return Object.entries(headers)
+    .filter(([name]) =>
+      Object.hasOwn(CREDENTIAL_HEADER_NAMES, name.toLowerCase()),
+    )
+    .map(([, value]) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
 function containsProtectedString(
   value: string,
   protectedValues: ReadonlyArray<string>,

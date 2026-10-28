@@ -140,13 +140,13 @@ Descriptions and schema-description prose supplied by an MCP server SHALL be tre
 
 #### Scenario: Secret-bearing remote identity is refused
 
-- **WHEN** a remote tool name or declaration object key contains a configured header value or active session id
+- **WHEN** a remote tool name or declaration object key contains a protected value or active session id
 - **THEN** that tool is refused before id generation, canonicalization, persistence, or advertisement
 - **AND** safe sibling declarations remain eligible
 
 #### Scenario: Secret-bearing declaration prose is redacted
 
-- **WHEN** a tool or schema description contains a configured header value or active session id
+- **WHEN** a tool or schema description contains a protected value or active session id
 - **THEN** the protected value is replaced before authored-text neutralization and canonicalization
 - **AND** the raw prose reaches no receipt, provider request, durable state, diagnostic, or test output
 
@@ -343,7 +343,7 @@ Within an attempt, source-declaration equality and executor/lifecycle checks SHA
 
 ### Requirement: MCP credentials and secret-bearing payloads never escape
 
-Instance administrators MAY authenticate an MCP server with static headers whose values use llame's existing `{env:…}` and `{path:…}` interpolation. Configured MCP headers and session identifiers SHALL remain transport-only and SHALL NOT be disclosed to end users or models. Each server's private protected-value set SHALL contain every non-empty resolved header value plus its active session id. Those values MUST NOT appear in public tool identities, declarations, logs, diagnostics, context receipts, run events, persisted errors, model-facing content, or test output.
+Instance administrators MAY authenticate an MCP server with static headers whose values use llame's existing `{env:…}` and `{path:…}` interpolation. Configured MCP headers and session identifiers SHALL remain transport-only and SHALL NOT be disclosed to end users or models. Each remote server's private protected-value set SHALL contain the non-empty resolved value of every `{env:…}` / `{path:…}` token in its `url` and `headers`, the non-empty trimmed whole value of every `Authorization`, `Proxy-Authorization`, or `Cookie` header (names matched ASCII case-insensitively) whether literal or interpolated, and its active session id. Other literal header text SHALL NOT be protected: protected values are matched as substrings across tool traffic, so protecting a non-secret literal such as `X-MCP-Readonly: true` would redact every occurrence of `true` from results and refuse calls whose arguments contain it. Protected values MUST NOT appear in public tool identities, declarations, logs, diagnostics, context receipts, run events, persisted errors, model-facing content, or test output.
 
 Before any MCP declaration, call argument, result, or error object from either transport enters a logging, persistence, or model-context path, llame SHALL apply the protected-value boundary. String leaves SHALL replace direct occurrences; a non-string JSON scalar whose canonical JSON spelling exactly equals a protected value SHALL be replaced as a whole with the same JSON-string redaction marker. This replacement SHALL preserve object/array container topology and safe keys but MAY change the matching scalar leaf type; secrecy SHALL take precedence over fidelity to the server's output schema after redaction. Redaction SHALL occur before truncation or serialization so no alternate typed representation preserves a direct secret echo.
 
@@ -361,16 +361,22 @@ An object key containing a protected value SHALL NOT be rewritten. A declaration
 
 #### Scenario: Secret-bearing object key fails the containing unit
 
-- **WHEN** a declaration, call argument, result, or error object has a key containing a configured header value or active session id
+- **WHEN** a declaration, call argument, result, or error object has a key containing a protected value or active session id
 - **THEN** llame refuses that declaration, rejects that argument before execution, or settles that result/error as generic `execution_failed` according to its stage
 - **AND** the raw key and containing payload reach no durable, diagnostic, model-facing, or test surface
 - **AND** safe sibling tools and a healthy server remain available
 
 #### Scenario: Typed scalar echo is redacted
 
-- **WHEN** a configured header value such as `123`, `true`, or `null` is echoed as the corresponding JSON scalar inside a structured result
+- **WHEN** an interpolated protected value such as `123`, `true`, or `null` is echoed as the corresponding JSON scalar inside a structured result
 - **THEN** the matching leaf becomes the JSON-string redaction marker before serialization even though its scalar type changes
 - **AND** the containing object/array topology and keys remain intact while the secret reaches no durable or model-facing surface
+
+#### Scenario: Literal non-credential header value is not protected
+
+- **WHEN** a remote server is configured with a literal non-credential header such as `X-MCP-Readonly: true` and its results contain `true` as text or as a JSON boolean
+- **THEN** that header value is not in the server's protected-value set
+- **AND** those results reach the model and durable state unredacted, and calls whose arguments contain `true` are not refused
 
 #### Scenario: Session id remains private
 
@@ -471,7 +477,7 @@ Where a token is only part of a field's text, the protected value SHALL be the r
 
 A protected value SHALL NOT appear in model input, user-visible receipts, run events, persisted errors, or logs. For an operator-configured stdio entry, startup failures concerning these fields SHALL name only the configuration path. Workspace entries SHALL follow `Workspace MCP configuration is portable and protects interpolated values`: an unresolvable token makes that server unavailable with a diagnostic naming the variable or file location but never the resolved value.
 
-This rule deliberately differs from the remote-header rule, under which every configured header value is protected regardless of origin. Arguments and environment values legitimately carry non-secret text — flags, paths, and ports — and protected values are matched as substrings across tool traffic, so protecting a low-entropy literal would refuse legitimate tool calls and corrupt legitimate results. `args` interpolation SHALL therefore remain permitted rather than restricted to `env`: a mechanical restriction cannot distinguish a legitimately interpolated non-secret argument from a credential, and llame's own protected-value redaction still applies equally to a secret resolved into either field. Three consequences SHALL be documented for operators rather than left to be discovered:
+This rule deliberately differs from the remote-header rule, under which a credential header's whole value is protected regardless of origin. Arguments and environment values legitimately carry non-secret text — flags, paths, and ports — and protected values are matched as substrings across tool traffic, so protecting a low-entropy literal would refuse legitimate tool calls and corrupt legitimate results. `args` interpolation SHALL therefore remain permitted rather than restricted to `env`: a mechanical restriction cannot distinguish a legitimately interpolated non-secret argument from a credential, and llame's own protected-value redaction still applies equally to a secret resolved into either field. Three consequences SHALL be documented for operators rather than left to be discovered:
 
 - Interpolating a low-entropy value, such as a per-deployment directory, makes that string protected everywhere, which can refuse tool calls naming it and redact it from results. Writing such a value literally is the remedy.
 - A secret written literally instead of interpolated is not protected, and would therefore not be redacted from that server's diagnostic output. Secrets are always to be interpolated, never inlined.
@@ -630,7 +636,7 @@ A bound Workspace SHALL load its MCP server entries from `<root>/.mcp.json`, wit
 
 Workspace server string values SHALL support `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation. These tokens SHALL resolve from the executing process's environment and filesystem, including llame's own process environment. A relative `{path:LOCATION}` SHALL resolve from the Workspace root; an absolute location SHALL resolve as written. `${VAR:-default}` SHALL use the literal default when `VAR` is unset or empty. Interpolation SHALL be single-pass and non-recursive: a resolved value SHALL NOT be scanned again for tokens. An unset variable without a default or an unreadable file SHALL make the affected server unavailable, with a diagnostic naming the variable or file location but never the resolved value. Command and argument fields SHALL be passed as literal text and SHALL NOT be shell-interpreted. Reading llame's ambient environment through these tokens, and passing a selected value to a Workspace server, is an accepted risk of permitting entry into an audited Workspace.
 
-Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback in a stdio `command`, `args`, or `env` field. Every non-empty value supplied in a Workspace remote `headers` entry SHALL also be added to the protected-value set, whether literal or interpolated, including a non-empty `:-default` fallback. Literal stdio `command`, `args`, and `env` text SHALL NOT be added to the protected-value set solely because it is literal. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
+Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback in a stdio `command`, `args`, or `env` field or in a remote `headers` entry. The non-empty trimmed whole value of a Workspace remote `Authorization`, `Proxy-Authorization`, or `Cookie` header (names matched ASCII case-insensitively) SHALL also be added to the protected-value set, whether literal or interpolated. Literal stdio `command`, `args`, and `env` text and literal text of any other remote header SHALL NOT be added to the protected-value set solely because it is literal. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
 
 A malformed Workspace MCP file, invalid server name or entry, unsupported transport, or unresolvable interpolation SHALL NOT fail Workspace entry. Each affected Workspace MCP server SHALL instead be reported as unavailable and SHALL contribute no callable tools.
 
@@ -701,6 +707,12 @@ A malformed Workspace MCP file, invalid server name or entry, unsupported transp
 - **WHEN** a Workspace remote server has a non-empty literal `Authorization` header and echoes that header value in a result
 - **THEN** the header value is protected for that Workspace server
 - **AND** the echoed value is redacted before it reaches diagnostics, receipts, persisted errors, or model-facing content
+
+#### Scenario: Literal Workspace non-credential header is not protected
+
+- **WHEN** a Workspace remote server has a literal non-credential header such as `X-MCP-Readonly: true`
+- **THEN** that value is not added to the Workspace server's protected-value set
+- **AND** results containing it are neither refused nor redacted solely because of that literal
 
 #### Scenario: Workspace commands and arguments are not shell-interpreted
 

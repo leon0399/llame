@@ -156,6 +156,7 @@ async function connectStub(
   overrides: StubScript,
   config: {
     readonly headers?: Readonly<Record<string, string>>;
+    readonly protectedValues?: ReadonlyArray<string>;
     readonly onDisconnect?: () => void;
   } = {},
 ) {
@@ -242,7 +243,7 @@ describe('McpServerClient transport protocol', () => {
     }
   });
 
-  it('omits every refusal id that would echo a configured header value', async () => {
+  it('omits every refusal id that would echo a protected value', async () => {
     const secret = 'Bearer sentinel-credential';
     const { client } = await connectStub(
       {
@@ -259,7 +260,7 @@ describe('McpServerClient transport protocol', () => {
           }),
         ],
       },
-      { headers: { authorization: secret } },
+      { headers: { authorization: secret }, protectedValues: [secret] },
     );
 
     try {

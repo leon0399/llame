@@ -137,9 +137,10 @@ export type McpServerClientConfig = {
   readonly url: string;
   readonly headers?: Readonly<Record<string, string>>;
   /**
-   * Workspace interpolation values, including URL/header substitutions and
-   * complete configured header values, that must be redacted at the client
-   * boundary.
+   * Values the configuration layer resolved from URL/header interpolation,
+   * plus every credential header's whole value. Other literal header values
+   * are deliberately absent: protected values are substring-matched across
+   * tool traffic, so protecting a value such as `true` would corrupt results.
    */
   readonly protectedValues?: ReadonlyArray<string>;
   readonly fetch?: typeof globalThis.fetch;
@@ -884,21 +885,19 @@ function createProtocolGuardedFetch(
   };
 }
 
-/** Normalize `config.headers` into both the literal transport headers and
- *  the protected-value set redaction scans against — a config-time failure
- *  here is reported through the same taxonomy as any other connect-stage
- *  failure. */
+/** Normalize `config.headers` into the literal transport headers and the
+ *  configured protected-value set redaction scans against — a config-time
+ *  failure here is reported through the same taxonomy as any other
+ *  connect-stage failure. */
 function resolveTransportHeaders(config: McpServerClientConfig) {
   try {
     const transportHeaders =
       config.headers === undefined
         ? undefined
         : Object.fromEntries(new Headers(config.headers));
-    const configuredProtectedValues = normalizeProtectedValues([
-      ...(config.protectedValues ?? []),
-      ...Object.values(config.headers ?? {}),
-      ...Object.values(transportHeaders ?? {}),
-    ]);
+    const configuredProtectedValues = normalizeProtectedValues(
+      config.protectedValues ?? [],
+    );
     return { transportHeaders, configuredProtectedValues };
   } catch (error) {
     throw safeOperationError('initialize', error);

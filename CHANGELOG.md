@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-28
 
+- MCP tool results no longer lose literal header values to redaction. Every
+  configured remote header value used to be treated as a secret, so a server
+  configured with `"X-MCP-Readonly": "true"` had every `true` in its results
+  replaced by `[REDACTED]` (`hasNextPage: [REDACTED]`, `?raw=[REDACTED]`), and
+  any call whose arguments contained `true` was refused. A remote server's
+  protected values are now its `{env:…}`/`{path:…}` substitutions in `url` and
+  `headers` — operator URL substitutions are newly covered — plus the whole
+  value of an `Authorization`, `Proxy-Authorization`, or `Cookie` header, even
+  when literal. A secret written literally into any other header is no longer
+  redacted: interpolate it. Workspace `.mcp.json` remotes follow the same rule.
+  See [MCP tools](docs/product/operator/mcp-tools.md#configure-remote-http).
+
 - **BREAKING: an unstored image or PDF read is now kept until compaction.**
   `read` used to keep a read image or PDF only in the reading attempt's
   memory: the rest of the turn saw it, and every later request — a later turn,
