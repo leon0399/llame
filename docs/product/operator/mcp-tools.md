@@ -37,9 +37,9 @@ Remote entries are `{ type, url, headers? }`; `http` and `streamable-http` are
 aliases. URLs must be absolute HTTP(S) without userinfo. Unknown fields and
 transport-owned header overrides fail startup. Use interpolated headers for
 credentials. Config, allowlists, and secrets must match every process after
-restart; accepted Runs retain their bound declarations. Resolved headers and
-session IDs remain transport-only and never enter model input, receipts,
-persistence, errors, or logs.
+restart; accepted Runs retain their bound declarations. Protected header
+values and session IDs remain transport-only and never enter model input,
+receipts, persistence, errors, or logs.
 
 llame redacts a remote server's protected values from its declarations, call
 arguments, results, and errors: every `{env:…}`/`{path:…}` substitution in
