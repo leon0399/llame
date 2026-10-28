@@ -320,20 +320,6 @@ describe('createRunMediaResolver retained media', () => {
     expect(first.retainedMedia.get('call-1')).toBeDefined();
     expect(second.retainedMedia.get('call-1')).toBeUndefined();
   });
-
-  it('decodes an entry once and keeps the bytes for later steps', () => {
-    const resolver = scriptedResolver([]).resolver;
-    resolver.retainedMedia.set('call-1', {
-      locator: '/work/paper.pdf',
-      pages: 1,
-      data: Buffer.from('pdf').toString('base64'),
-    });
-
-    const first = resolver.retainedBytes('call-1');
-    expect(Buffer.from(first ?? [])).toEqual(Buffer.from('pdf'));
-    expect(resolver.retainedBytes('call-1')).toBe(first);
-    expect(resolver.retainedBytes('call-2')).toBeUndefined();
-  });
 });
 
 describe('unstoredSubject', () => {

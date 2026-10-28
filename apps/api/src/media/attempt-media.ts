@@ -6,20 +6,23 @@
  * compaction absorbs its row, so admission is append-only across attempts.
  */
 import type { ModelMediaType } from './media-ingest';
-import type { RetainedMediaJson } from './retained-media';
+import {
+  RETAINED_MESSAGE_BOUND,
+  type RetainedMediaJson,
+} from './retained-media';
 
 /**
  * An unstored image as a request names it: the locator submitted to `read`, and
  * the original's dimensions.
  */
-export type UnstoredImage = {
+type UnstoredImage = {
   locator: string;
   width: number;
   height: number;
 };
 
 /** An unstored PDF's attribution and page count, without its bytes. */
-export type UnstoredPdf = {
+type UnstoredPdf = {
   locator: string;
   pages: number;
 };
@@ -27,7 +30,7 @@ export type UnstoredPdf = {
 export type UnstoredMedia = UnstoredImage | UnstoredPdf;
 
 /** An unstored image's model variant as base64, with its own dimensions. */
-export type RetainedImage = UnstoredImage & {
+type RetainedImage = UnstoredImage & {
   model: {
     mediaType: ModelMediaType;
     width: number;
@@ -37,14 +40,14 @@ export type RetainedImage = UnstoredImage & {
 };
 
 /** An unstored PDF's original as base64. */
-export type RetainedPdf = UnstoredPdf & { data: string };
+type RetainedPdf = UnstoredPdf & { data: string };
 
 /**
  * A read whose bytes would have crossed the message bound of its stored
  * message: the reference keeps its attribution and dimensions or page count, so
  * the window and the placeholder still name it, but it carries no bytes.
  */
-export type RetainedExceeded = UnstoredMedia & { exceeded: true };
+type RetainedExceeded = UnstoredMedia & { exceeded: true };
 
 export type RetainedMedia = RetainedImage | RetainedPdf | RetainedExceeded;
 
@@ -79,8 +82,8 @@ export function retainedEntry(
   return { ...subject, model: { mediaType, width, height, data } };
 }
 
-/** The record an entry past its message bound keeps: its attribution, no bytes. */
-export function exceededEntry(entry: RetainedMedia): RetainedExceeded {
+/** The entry an entry past its message bound keeps: its attribution, no bytes. */
+export function exceededEntry(entry: RetainedMedia): RetainedMedia {
   return 'pages' in entry
     ? { locator: entry.locator, pages: entry.pages, exceeded: true }
     : {
@@ -91,21 +94,32 @@ export function exceededEntry(entry: RetainedMedia): RetainedExceeded {
       };
 }
 
-/** The bytes an entry attaches, decoded, or undefined for an exceeded record. */
-export function retainedEntryBytes(
-  entry: RetainedMedia,
-): Uint8Array | undefined {
-  if ('exceeded' in entry) return undefined;
-  return Buffer.from(
-    'pages' in entry ? entry.data : entry.model.data,
-    'base64',
-  );
-}
-
 /** The base64 bytes an entry counts toward a message's retained bound. */
 export function retainedEntrySize(entry: RetainedMedia): number {
   if ('exceeded' in entry) return 0;
   return ('pages' in entry ? entry.data : entry.model.data).length;
+}
+
+/** One settled entry's record, and the bound's used size after it. */
+export type RetainedSettlement = {
+  readonly record?: RetainedMediaJson;
+  readonly used: number;
+};
+
+/**
+ * Settle one entry against a message's retained bound (`media-attachments`):
+ * while its base64 fits what the message already holds, it keeps its record and
+ * the bound grows by its size; past it, it records `{ exceeded: true }`, which
+ * the window latches at the limit, and the bound does not move.
+ */
+export function boundRetained(
+  entry: RetainedMedia,
+  used: number,
+): RetainedSettlement {
+  const size = retainedEntrySize(entry);
+  return used + size <= RETAINED_MESSAGE_BOUND
+    ? { record: retainedMediaJson(entry), used: used + size }
+    : { record: { exceeded: true }, used };
 }
 
 /**

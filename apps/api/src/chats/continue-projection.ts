@@ -219,8 +219,9 @@ function keptPair(
     continuedMediaKey(partIndex),
   );
   if (stored === undefined) return undefined;
-  for (const [key, entry] of stored.retainedMedia)
-    retainedMedia.set(key, entry);
+  if (stored.retained !== undefined) {
+    retainedMedia.set(stored.retained.key, stored.retained.entry);
+  }
   const { toolCallPart } = stored.pair;
   const result = results.get(toolCallPart.toolCallId);
   if (result === undefined) return stored.pair;
@@ -270,13 +271,6 @@ function appendContent(part: MessagePart, step: KeptStep): boolean {
   return true;
 }
 
-/** The step left open while the kept parts are grouped. */
-type StepsOpen = {
-  readonly openStepNumber: number | undefined;
-  readonly openCallCount: number;
-  readonly openItemCount: number;
-};
-
 /**
  * Whether this call starts a new step. An unnumbered call never does, so a
  * legacy run of consecutive calls stays one step; an item closes its step, and
@@ -284,7 +278,11 @@ type StepsOpen = {
  * (or of an unnumbered one).
  */
 function startsNewStep(
-  step: StepsOpen,
+  step: {
+    readonly openStepNumber: number | undefined;
+    readonly openCallCount: number;
+    readonly openItemCount: number;
+  },
   callStepNumber: number | undefined,
 ): boolean {
   if (step.openItemCount > 0) return true;
@@ -314,8 +312,7 @@ function groupSteps(
     current = newStep();
     currentStepNumber = undefined;
   };
-
-  const open = (): StepsOpen => ({
+  const openStep = () => ({
     openStepNumber: currentStepNumber,
     openCallCount: current.calls.length,
     openItemCount: current.items.length,
@@ -336,7 +333,7 @@ function groupSteps(
       continue;
     }
     const stepNumber = state.stepNumbers.get(pair.toolCallPart.toolCallId);
-    if (startsNewStep(open(), stepNumber)) flush();
+    if (startsNewStep(openStep(), stepNumber)) flush();
     if (stepNumber !== undefined) currentStepNumber = stepNumber;
     current.calls.push(pair.toolCallPart);
     current.results.push(pair.toolResultPart);
@@ -373,7 +370,7 @@ function stepMessages(step: KeptStep): Array<ModelMessage> {
 }
 
 /** The kept parts as messages, with the retained entry behind each marker. */
-export type ContinueProjection = {
+type ContinueProjection = {
   /** Empty when nothing was kept. */
   readonly messages: Array<ModelMessage>;
   readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;

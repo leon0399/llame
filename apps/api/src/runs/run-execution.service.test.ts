@@ -8371,7 +8371,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       const composed = await composeStepMessages(sent.messages, {
         resolver: {
           retainedMedia: media.retainedMedia,
-          retainedBytes: (key) => media.retainedBytes(key),
           describe: (ids) => media.describe(ids),
           loadModelBytes: (ids) =>
             Promise.resolve(
@@ -14317,9 +14316,10 @@ describe('RunExecutionService prompt imports', () => {
         expect(item?.data.text).not.toContain('JVBERi0');
         // No media object: the importing attempt's memory alone holds it.
         expect(ingest).not.toHaveBeenCalled();
+        // The retained original crosses as the base64 string the entry holds.
         expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
           type: 'file',
-          data: bytes,
+          data: bytes.toString('base64'),
           mediaType: 'application/pdf',
           filename: 'paper.pdf',
         });
@@ -14514,7 +14514,7 @@ describe('RunExecutionService prompt imports', () => {
         expect(importEvents(events)).toEqual([]);
         expect((await afterItemText(stream, ['text', 'pdf'])).next).toEqual({
           type: 'file',
-          data: Buffer.from(bytes),
+          data: Buffer.from(bytes).toString('base64'),
           mediaType: 'application/pdf',
           filename: 'paper.pdf',
         });
@@ -14628,10 +14628,11 @@ describe('RunExecutionService prompt imports', () => {
           'text',
           'image',
         ]);
-        const anyBytes: unknown = expect.any(Uint8Array);
+        // The retained variant crosses as the base64 string the entry holds.
+        const anyBase64: unknown = expect.any(String);
         expect(next).toEqual({
           type: 'image',
-          image: anyBytes,
+          image: anyBase64,
           mediaType: 'image/png',
         });
         expect(JSON.stringify(composed)).not.toContain('data:image/webp');
@@ -14785,7 +14786,7 @@ describe('RunExecutionService prompt imports', () => {
         expect(importEvents(events)).toEqual([]);
         expect((await afterItemText(stream, ['text', 'image'])).next).toEqual({
           type: 'image',
-          image: Buffer.from([0x73]),
+          image: Buffer.from([0x73]).toString('base64'),
           mediaType: 'image/png',
         });
       } finally {
@@ -15280,6 +15281,9 @@ describe('RunExecutionService retained read media', () => {
       if (!isRecord(value)) return;
       const type = value['type'];
       const data = value['data'];
+      if ((type === 'file' || type === 'image') && isString(data)) {
+        found.push(data);
+      }
       if ((type === 'file' || type === 'image') && data instanceof Uint8Array) {
         found.push(Buffer.from(data).toString('base64'));
       }
@@ -15642,6 +15646,66 @@ describe('RunExecutionService retained read media', () => {
         },
       });
       expect(receivedMediaBase64(composed)).toEqual([firstData, secondData]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps no bytes for a read that settles without a result', async () => {
+    const root = repoRoot();
+    try {
+      const shot = path.join(root, 'shot.png');
+      writeFileSync(shot, await randomPng(160, 90));
+      const { repositories, events } = serveRepositories();
+      bindChat(root);
+      // The media hook keeps the bytes before the read settles, so a read that
+      // then fails must record none: no marker names them (media-attachments:
+      // each successful image or PDF read result).
+      vi.spyOn(nativeReadTool, 'execute').mockImplementation(
+        async (context, input) => {
+          const bytes = readFileSync(input.path);
+          await context.media?.readMedia(
+            input.path,
+            context.toolCallId,
+          )?.({
+            kind: 'image',
+            byteSize: bytes.byteLength,
+            readBytes: () => Promise.resolve(bytes),
+          });
+          return {
+            status: 'error',
+            type: 'media_too_large',
+            message: 'The read failed after its bytes were prepared.',
+          };
+        },
+      );
+      const { client, model } = readThenAnswerModel([shot], ['text', 'image']);
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const completion = completionOf(events, 'read-1');
+      expect(completion['status']).toBe('error');
+      expect(completion).not.toHaveProperty('retainedMedia');
+      const [readPart] = storedToolParts(
+        repositories.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts ??
+          [],
+        'tool-read',
+        'read-1',
+      );
+      expect(readPart).toBeDefined();
+      expect(readPart).not.toHaveProperty('retainedMedia');
+
+      // The failed read names no bytes, so the next request carries the error
+      // text alone, never the image or a placeholder that would claim it.
+      const prompt = model.doStreamCalls[1]?.prompt;
+      expect(receivedMediaBase64(prompt)).toEqual([]);
+      expect(promptStrings(prompt).join('\n')).toContain(
+        'The read failed after its bytes were prepared.',
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

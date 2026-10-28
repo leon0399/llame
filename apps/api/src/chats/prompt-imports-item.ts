@@ -20,15 +20,13 @@ import { z } from 'zod';
 
 import { userImagePart, type MediaRef } from '../media/epoch-admission';
 import {
+  boundRetained,
   retainedEntry,
-  retainedEntrySize,
-  retainedMediaJson,
   type RetainedMedia,
+  type RetainedSettlement,
   type UnstoredMedia,
 } from '../media/attempt-media';
 import {
-  parseRetainedMedia,
-  RETAINED_MESSAGE_BOUND,
   type RetainedMediaJson,
   retainedImageRecordSchema,
   retainedPdfRecordSchema,
@@ -87,7 +85,6 @@ const unstoredImageFields = {
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   mediaType: z.enum(ORIGINAL_MEDIA_TYPES),
-  retainedMedia: retainedImageRecordSchema.exactOptional(),
 };
 const pdfFields = {
   kind: z.literal('pdf'),
@@ -95,14 +92,8 @@ const pdfFields = {
   pages: z.number().int().min(1).max(100),
   byteSize: z.number().int().positive(),
   media: storedImageFields.media.exactOptional(),
-  retainedMedia: retainedPdfRecordSchema.exactOptional(),
 };
-const promptImportPdfSchema = z
-  .strictObject(pdfFields)
-  .refine(
-    (entry) =>
-      !(entry.media !== undefined && entry.retainedMedia !== undefined),
-  );
+const promptImportPdfSchema = z.strictObject(pdfFields);
 
 const promptImportMediaSchema = z.union([
   z.strictObject(storedImageFields),
@@ -128,6 +119,7 @@ const payloadPdfEntrySchema = z
     ...entryFields,
     outcome: z.literal('imported'),
     ...pdfFields,
+    retainedMedia: retainedPdfRecordSchema.exactOptional(),
   })
   .refine(
     (entry) =>
@@ -149,6 +141,7 @@ const payloadEntrySchema = z.union([
     ...textEntryFields,
     outcome: z.literal('imported'),
     ...unstoredImageFields,
+    retainedMedia: retainedImageRecordSchema.exactOptional(),
   }),
   payloadPdfEntrySchema,
 ]);
@@ -229,12 +222,6 @@ function toPayloadEntry(
   };
 }
 
-/** The record one import entry keeps, and the item's used size after it. */
-type EntryRetainedMedia = {
-  readonly record?: RetainedMediaJson;
-  readonly used: number;
-};
-
 /**
  * The retained record an unstored import entry keeps, under the item's own
  * bound: the entries share one stored message, so their bytes are summed in
@@ -249,18 +236,14 @@ function importRetainedMedia(
   },
   outcome: PromptImportOutcome,
   used: number,
-): EntryRetainedMedia {
+): RetainedSettlement {
   if (outcome.outcome !== 'imported') return { used };
   const { attachment } = outcome;
   if (attachment === undefined || 'media' in attachment) return { used };
   const entry = importStep.retained.get(
     promptImportMediaKey(importStep.runId, outcome.locator),
   );
-  if (entry === undefined) return { used };
-  const size = retainedEntrySize(entry);
-  return used + size > RETAINED_MESSAGE_BOUND
-    ? { record: { exceeded: true }, used }
-    : { record: retainedMediaJson(entry), used: used + size };
+  return entry === undefined ? { used } : boundRetained(entry, used);
 }
 
 /**
@@ -273,7 +256,7 @@ export function promptImportMediaKey(runId: string, locator: string): string {
 }
 
 /** The reference markers of one item, with the entry each one names. */
-export type PromptImportMediaParts = {
+type PromptImportMediaParts = {
   readonly parts: Array<ImagePart>;
   readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
 };
@@ -307,6 +290,23 @@ export function promptImportMediaParts(
 }
 
 /**
+ * How many media markers `part` names, without building them: one per import
+ * entry that names a stored locator or keeps retained bytes. The request's
+ * reference counts read this instead of the markers themselves.
+ */
+export function promptImportMarkerCount(part: ContextItemPart): number {
+  const { producer, payload } = part.data;
+  if (producer !== 'prompt-imports' || !isPromptImportsPayload(payload)) {
+    return 0;
+  }
+  return payload.imports.filter(
+    (entry) =>
+      ('media' in entry && entry.media !== undefined) ||
+      'retainedMedia' in entry,
+  ).length;
+}
+
+/**
  * The marker reference an unstored entry names, adding its retained entry to
  * `retainedMedia`; undefined for an entry whose record names no bytes.
  */
@@ -326,10 +326,7 @@ function unstoredEntryRef(
           }
         : undefined;
   if (subject === undefined) return undefined;
-  const record =
-    'retainedMedia' in entry
-      ? parseRetainedMedia(entry.retainedMedia)
-      : undefined;
+  const record = 'retainedMedia' in entry ? entry.retainedMedia : undefined;
   const retained =
     record === undefined ? undefined : retainedEntry(record, subject);
   if (retained === undefined) return undefined;

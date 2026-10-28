@@ -3,7 +3,11 @@ import type { FilePart, ImagePart, ModelMessage, ToolResultPart } from 'ai';
 import { z } from 'zod';
 
 import type { ModelInput } from '../models/model-catalog';
-import type { RetainedMedia, UnstoredMedia } from './attempt-media';
+import {
+  retainedEntrySize,
+  type RetainedMedia,
+  type UnstoredMedia,
+} from './attempt-media';
 import type { MediaDescriptor, RunMediaResolver } from './media-descriptors';
 import { mediaLocator, parseMediaLocator } from './media-locator';
 import { PDF_MAX_PAGES } from './pdf-preparation';
@@ -276,11 +280,6 @@ export function isUnstoredMedia(
   return ref !== undefined && !isString(ref) && !('id' in ref);
 }
 
-/** `ref` as the marker key `key` loads it, for a producer that owns the key. */
-export function keyedRef(ref: ReadMediaRef, key: string): ToolMediaRef {
-  return isUnstoredMedia(ref) ? { ...ref, key } : ref;
-}
-
 /** The locator a native `read` call submitted, or undefined. */
 export function submittedLocator(input: unknown): string | undefined {
   if (!isRecord(input)) return undefined;
@@ -413,18 +412,18 @@ export async function loadMediaSizing(
 ): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
   const refs = collectMediaRefs(messages);
   const descriptors = await resolver.describe(refs.filter(isString));
-  const held = new Map<string, RetainedMedia>();
+  const retained = new Map<string, RetainedMedia>();
   for (const ref of refs) {
     if (isString(ref)) continue;
     const entry = resolver.retainedMedia.get(ref.key);
-    if (entry !== undefined) held.set(ref.key, entry);
+    if (entry !== undefined) retained.set(ref.key, entry);
   }
   return {
     refs,
     descriptors,
-    retained: held,
+    retained,
     statuses: admitEpochMedia(
-      refs.map((ref) => epochRef(ref, held)),
+      refs.map((ref) => epochRef(ref, retained)),
       descriptors,
       context,
     ),
@@ -439,18 +438,18 @@ export async function loadMediaSizing(
  */
 function epochRef(
   ref: string | UnstoredRef,
-  held: ReadonlyMap<string, RetainedMedia>,
+  retained: ReadonlyMap<string, RetainedMedia>,
 ): EpochMediaRef {
   if (isString(ref)) return ref;
-  const entry = held.get(ref.key);
+  const entry = retained.get(ref.key);
   if (entry === undefined) {
     throw new Error(`Retained media entry missing for ${ref.key}`);
   }
   if ('exceeded' in entry) {
     return { retained: 'exceeded', kind: 'pages' in ref ? 'pdf' : 'image' };
   }
-  if ('pages' in entry) {
-    return { retained: 'pdf', byteSize: entry.data.length, pages: entry.pages };
-  }
-  return { retained: 'image', byteSize: entry.model.data.length };
+  const byteSize = retainedEntrySize(entry);
+  return 'pages' in entry
+    ? { retained: 'pdf', byteSize, pages: entry.pages }
+    : { retained: 'image', byteSize };
 }

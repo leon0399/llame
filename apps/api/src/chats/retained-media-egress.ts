@@ -11,8 +11,7 @@
 
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
-/** The stored field that carries the bytes; it never leaves the server. */
-const RETAINED_MEDIA_KEY = 'retainedMedia';
+import { RETAINED_MEDIA_KEY } from '../media/retained-media';
 
 /** The part that holds a prompt-imports item. */
 const DATA_CONTEXT_PART = 'data-context';
@@ -71,13 +70,19 @@ export function withoutRetainedMediaPayload(
     return payload;
   }
 
-  const stripped = { ...payload };
-  delete stripped[RETAINED_MEDIA_KEY];
+  const stripped = omitRetained(payload);
   if (partsChanged) {
     stripped['parts'] = strippedParts;
   }
 
   return stripped;
+}
+
+/** `record` without its retained field. */
+function omitRetained(record: UnknownRecord): UnknownRecord {
+  const rest = { ...record };
+  delete rest[RETAINED_MEDIA_KEY];
+  return rest;
 }
 
 /**
@@ -98,8 +103,7 @@ function stripRetainedMedia(part: unknown) {
     return part;
   }
 
-  const stripped = { ...part };
-  delete stripped[RETAINED_MEDIA_KEY];
+  const stripped = omitRetained(part);
   if (data !== undefined) {
     stripped['data'] = data;
   }
@@ -131,22 +135,17 @@ function stripPromptImportData(data: unknown): UnknownRecord | undefined {
   }
 
   const imports: Array<unknown> = storedImports;
-  const strippedImports: Array<unknown> = [];
-  let strippedAny = false;
-  for (const entry of imports) {
-    if (isRecord(entry) && Object.hasOwn(entry, RETAINED_MEDIA_KEY)) {
-      const entryWithoutBytes = { ...entry };
-      delete entryWithoutBytes[RETAINED_MEDIA_KEY];
-      strippedImports.push(entryWithoutBytes);
-      strippedAny = true;
+  let stripped: Array<unknown> | undefined;
+  for (let index = 0; index < imports.length; index += 1) {
+    const entry = imports[index];
+    if (!isRecord(entry) || !Object.hasOwn(entry, RETAINED_MEDIA_KEY)) {
       continue;
     }
-    strippedImports.push(entry);
+    stripped ??= imports.slice();
+    stripped[index] = omitRetained(entry);
   }
 
-  if (!strippedAny) {
-    return undefined;
-  }
-
-  return { ...data, payload: { ...payload, imports: strippedImports } };
+  return stripped === undefined
+    ? undefined
+    : { ...data, payload: { ...payload, imports: stripped } };
 }

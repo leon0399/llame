@@ -46,7 +46,7 @@ const retainedExceededSchema = z.strictObject({ exceeded: z.literal(true) });
  * The image form holds the model variant — the bytes a request attaches — with
  * its format and dimensions; the PDF form holds the original.
  */
-export const retainedMediaSchema = z.union([
+const retainedMediaSchema = z.union([
   retainedImageSchema,
   retainedPdfSchema,
   retainedExceededSchema,
@@ -64,17 +64,7 @@ export const retainedPdfRecordSchema = z.union([
   retainedExceededSchema,
 ]);
 
-export type RetainedImageJson = z.infer<typeof retainedImageSchema>;
-export type RetainedPdfJson = z.infer<typeof retainedPdfSchema>;
-/** The record of a read whose bytes would have crossed the message bound. */
-export type RetainedExceededJson = z.infer<typeof retainedExceededSchema>;
 export type RetainedMediaJson = z.infer<typeof retainedMediaSchema>;
-
-export function isExceededJson(
-  value: RetainedMediaJson,
-): value is RetainedExceededJson {
-  return 'exceeded' in value;
-}
 
 /**
  * A stored retained record, or undefined for an absent or malformed one. Stored
@@ -86,14 +76,6 @@ export function parseRetainedMedia(
 ): RetainedMediaJson | undefined {
   const parsed = retainedMediaSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
-}
-
-/**
- * The base64 bytes a record holds: its exact length, so admission sizes a
- * reference without decoding it, or 0 for an exceeded record.
- */
-export function retainedBase64Size(value: RetainedMediaJson): number {
-  return 'data' in value ? value.data.length : 0;
 }
 
 /** The marker key of a stored `tool-read` part: its row identity and index. */

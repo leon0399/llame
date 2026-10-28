@@ -48,17 +48,25 @@ export type ComposeStepOptions = {
 
 export type UserContentPart = Exclude<UserContent, string>[number];
 
-/** What one media reference projects to, in either message role. */
+/**
+ * What one media reference projects to, in either message role. The bytes are
+ * the form the SDK accepts: a stored blob as its bytes, a retained entry as the
+ * base64 string it already holds, so a kept read is never decoded and encoded
+ * again.
+ */
 export type ProjectedMedia =
   | { type: 'text'; text: string }
-  | { type: 'image'; image: Uint8Array; mediaType: string }
-  | { type: 'file'; data: Uint8Array; mediaType: string; filename: string };
+  | { type: 'image'; image: MediaData; mediaType: string }
+  | { type: 'file'; data: MediaData; mediaType: string; filename: string };
+
+/** Bytes, or the base64 form the SDK takes in their place. */
+type MediaData = Uint8Array | string;
 
 /**
  * A reference the epoch window attaches, and where its bytes come from: the
- * store for a stored object, or the attempt's memory for an unstored file.
- * An image carries its model variant's dimensions and format; a PDF its page
- * count and filename (pdf-media D4).
+ * store for a stored object, or the attempt's retained entry for an unstored
+ * file. An image carries its model variant's dimensions and format; a PDF its
+ * page count and filename (pdf-media D4).
  */
 export type AttachedMedia =
   | {
@@ -66,13 +74,13 @@ export type AttachedMedia =
       modelWidth: number;
       modelHeight: number;
       modelMediaType: string;
-      source: { id: string } | { key: string };
+      source: { id: string } | { base64: string };
     }
   | {
       kind: 'pdf';
       pages: number;
       filename: string;
-      source: { id: string } | { key: string };
+      source: { id: string } | { base64: string };
     };
 
 /** A resolvable reference: its subject, and its attachment when attachable. */
@@ -85,12 +93,12 @@ type ResolvedMedia = { subject: MediaSubject; attached?: AttachedMedia };
  * (media://<id>):` or `PDF n (media://<id>):` followed by its projection; a
  * tool result's media reference becomes its projection after the result's
  * text. The forms are those of `projectMediaRefs`; an attached image is the
- * model variant, loaded from the store for a `media://` reference and decoded
- * from the attempt's retained entry for an unstored one. An attached PDF uses
- * its original from the store or the retained entry as a named `file` part.
- * With `moveToolMedia`, tool-result media move out of the tool messages (see
- * `mapMediaRefs`). Only the stored bytes of attached references are loaded, and
- * only the retained bytes of attached references are decoded.
+ * model variant, loaded from the store for a `media://` reference and taken as
+ * the base64 string its retained entry holds for an unstored one. An attached
+ * PDF uses its original from the store or the retained entry as a named `file`
+ * part. With `moveToolMedia`, tool-result media move out of the tool messages
+ * (see `mapMediaRefs`). Only the stored bytes of attached references are
+ * loaded.
  *
  * Idempotent: the output carries no references, and a request without any is
  * returned as is; otherwise messages without any keep their identity.
@@ -115,7 +123,7 @@ export async function composeStepMessages(
   return projectMediaRefs(
     messages,
     sizing,
-    (media) => attachedBytes(media, bytes, resolver),
+    (media) => attachedBytes(media, bytes),
     { moveToolMedia },
   );
 }
@@ -128,13 +136,9 @@ export async function composeStepMessages(
 function attachedBytes(
   media: AttachedMedia,
   loaded: ReadonlyMap<string, Uint8Array>,
-  resolver: RunMediaResolver,
-): Array<ProjectedMedia> | undefined {
+): Array<ProjectedMedia> {
   const { source } = media;
-  if ('key' in source) {
-    const retained = resolver.retainedBytes(source.key);
-    return retained === undefined ? undefined : withBytes(media, retained);
-  }
+  if ('base64' in source) return withBytes(media, source.base64);
   const data = loaded.get(source.id);
   return data === undefined
     ? textOf(unavailablePlaceholder(source.id, media.kind))
@@ -144,7 +148,7 @@ function attachedBytes(
 /** An attached reference as the part its kind is sent as. */
 function withBytes(
   media: AttachedMedia,
-  data: Uint8Array,
+  data: Uint8Array | string,
 ): Array<ProjectedMedia> {
   return media.kind === 'pdf'
     ? [
@@ -172,7 +176,7 @@ function withBytes(
 function projectMediaRefs(
   messages: Array<ModelMessage>,
   sizing: MediaSizing,
-  attach: (media: AttachedMedia) => Array<ProjectedMedia> | undefined,
+  attach: (media: AttachedMedia) => Array<ProjectedMedia>,
   options: { readonly moveToolMedia: boolean; readonly skipTailRefs?: number },
 ): Array<ModelMessage> {
   const offset =
@@ -186,11 +190,9 @@ function projectMediaRefs(
     if (!sizing.context.input.includes(subject.kind)) {
       return textOf(omittedPlaceholder(subject));
     }
-    const projected =
-      status === 'attached' && attached !== undefined
-        ? attach(attached)
-        : undefined;
-    return projected ?? textOf(limitPlaceholder(subject));
+    return status === 'attached' && attached !== undefined
+      ? attach(attached)
+      : textOf(limitPlaceholder(subject));
   };
   const projectRef: ProjectRef = (ref, index, kind) => {
     const status = sizing.statuses[offset + index];
@@ -302,7 +304,7 @@ function unstoredMedia(
           kind: 'pdf',
           pages: entry.pages,
           filename: unstoredPdfFilename(ref.locator),
-          source: { key: ref.key },
+          source: { base64: entry.data },
         },
       }
     : {
@@ -312,7 +314,7 @@ function unstoredMedia(
           modelWidth: entry.model.width,
           modelHeight: entry.model.height,
           modelMediaType: entry.model.mediaType,
-          source: { key: ref.key },
+          source: { base64: entry.model.data },
         },
       };
 }
@@ -489,17 +491,22 @@ function mapToolResultRefs(
   };
 }
 
-/** An attached projection as a tool output part, its bytes base64-encoded. */
+/** An attached projection as a tool output part, its bytes base64. */
 function toolContentOf(
   projected: Exclude<ProjectedMedia, { type: 'text' }>,
 ): ToolContentPart {
   if (projected.type === 'image') {
-    const data = Buffer.from(projected.image).toString('base64');
+    const data = base64Of(projected.image);
     return { type: 'image-data', data, mediaType: projected.mediaType };
   }
   const { mediaType, filename } = projected;
-  const data = Buffer.from(projected.data).toString('base64');
+  const data = base64Of(projected.data);
   return { type: 'file-data', data, mediaType, filename };
+}
+
+/** `data` as base64: a retained entry already holds that form. */
+function base64Of(data: Uint8Array | string): string {
+  return isString(data) ? data : Buffer.from(data).toString('base64');
 }
 
 /**

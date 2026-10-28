@@ -126,9 +126,10 @@ export interface ToolObservationProjection {
   omittedCount: number;
   omissionPartIndex: number | null;
   /**
-   * The retained entry behind each media marker the projection emits, keyed by
-   * the marker's key, so the caller merges them into the attempt's map before
-   * sizing or composing the request.
+   * The retained entry behind each media marker in `pairs`, keyed by the
+   * marker's key, so the caller merges them into the attempt's map before
+   * sizing or composing the request. A cleared or omitted pair emits no
+   * marker, so the entry its part keeps stays unused.
    */
   retainedMedia: ReadonlyMap<string, RetainedMedia>;
 }
@@ -552,12 +553,14 @@ function retainedEntriesOf(
 }
 
 /** A kept part as its unbudgeted call and result pair, with its media. */
-export type StoredToolObservation = {
+type StoredToolObservation = {
   readonly pair: ProjectedToolObservationPair;
   /** The reference its result names, when the part keeps the bytes. */
   readonly media: ToolMediaRef | undefined;
-  /** The entry `media` names, keyed by marker. */
-  readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
+  /** The entry `media` names, under the key of the marker that names it. */
+  readonly retained:
+    | { readonly key: string; readonly entry: RetainedMedia }
+    | undefined;
 };
 
 /**
@@ -578,7 +581,7 @@ export function projectStoredToolPart(
   return {
     pair: makePair(observation, false),
     media: observation.media,
-    retainedMedia: retainedEntriesOf([observation]),
+    retained: observation.retained,
   };
 }
 

@@ -37,6 +37,7 @@ import {
 } from 'ai';
 
 import { canonicalJson, compareCodePoints } from '../canonical-json';
+import { errorMessageWithoutParams, loggableError } from '../db/loggable-error';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Chat,
@@ -89,7 +90,6 @@ import {
   submittedLocator,
   collectMediaRefs,
   isUnstoredMedia,
-  keyedRef,
   toolResultOutput,
   type MediaAdmissionContext,
   type MediaSizing,
@@ -99,17 +99,15 @@ import {
 import { mediaLocator, parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
 import {
+  boundRetained,
   exceededEntry,
   mergeRetainedMedia,
-  retainedEntrySize,
-  retainedMediaJson,
   type RetainedMedia,
+  type RetainedSettlement,
 } from '../media/attempt-media';
 import {
   parseRetainedMedia,
   RETAINED_MEDIA_KEY,
-  RETAINED_MESSAGE_BOUND,
-  retainedBase64Size,
   type RetainedMediaJson,
 } from '../media/retained-media';
 import { createToolMediaStore } from '../media/tool-media-store';
@@ -227,8 +225,8 @@ import {
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import {
   createPromptImportsItem,
+  promptImportMarkerCount,
   promptImportMediaKey,
-  promptImportMediaParts,
 } from '../chats/prompt-imports-item';
 import {
   PROMPT_IMPORT_KNOWLEDGE_CANCELLED,
@@ -498,6 +496,8 @@ type CompactionTriggerInput = {
   historyRows: ReadonlyArray<Message>;
   /** The kept steps a Continue request adds after the trigger (D5). */
   keptMessages: ReadonlyArray<ModelRequestContext['messages'][number]>;
+  /** The media references those kept steps add, counted from `keptMessages`. */
+  keptRefCount: number;
   boundarySeq: number;
   /** The prepared request's media sizing for the attempt model (vision-media D6). */
   media: MediaSizing | undefined;
@@ -1568,15 +1568,21 @@ export class RunExecutionService {
       // A model `read` of an unstored file keeps its bytes on the result's
       // part and event; the bound is decided here, once, before either is
       // written, so the live step, the event, the stored part, and a rebuilt
-      // reply all agree (D5).
+      // reply all agree (D5). A call that records no bytes names no marker:
+      // its entry (a failed read, a dropped import, an instruction read) would
+      // only hold base64 for the rest of the attempt.
       const retained = settleRetainedMedia({
         retainedMedia: media.retainedMedia,
         toolCallId,
         toolName,
         origin: open?.origin,
+        status: result.status,
         used: retainedBytesUsed,
       });
       retainedBytesUsed = retained.used;
+      if (retained.record === undefined) {
+        media.retainedMedia.delete(toolCallId);
+      }
       const payload: ToolCompletedEventPayload = {
         toolCallId,
         toolName,
@@ -1603,9 +1609,7 @@ export class RunExecutionService {
           permission,
           derivedDecisions,
           classification: open?.classification ?? null,
-          ...(retained.record !== undefined && {
-            retainedMedia: retained.record,
-          }),
+          retainedMedia: retained.record,
         }),
       );
     };
@@ -2167,7 +2171,7 @@ export class RunExecutionService {
           // this error can't reach an exception filter — log + record it.
           this.logger.error(
             `Stream error for chat ${input.chatId}`,
-            error instanceof Error ? error.stack : String(error),
+            loggableError(error),
           );
 
           const status = input.abortSignal?.aborted
@@ -2211,9 +2215,7 @@ export class RunExecutionService {
           const message =
             status === 'expired'
               ? expiredRunMessage(input.abortSignal)
-              : error instanceof Error
-                ? error.message
-                : String(error);
+              : errorMessageWithoutParams(error);
           // Settle before reading parts: a call still open here was rendered
           // as running live, and an unsettled part is filtered out of
           // history — so without this the live view and the reload disagree.
@@ -2395,7 +2397,7 @@ export class RunExecutionService {
       if (input.abortSignal?.aborted) {
         await this.settleAbortedRun(input, attemptId);
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessageWithoutParams(error);
       // This attempt holds the claim; a reclaim during the synchronous throw
       // must reject this write rather than let the superseded attempt publish.
       await this.finishRunWithoutCollector({
@@ -2832,6 +2834,11 @@ export class RunExecutionService {
       omitted,
       retained: step.retainedMedia,
     });
+    // An omitted target's read may have kept its bytes before the output bound
+    // dropped it, and nothing in the item names them.
+    for (const locator of omitted) {
+      step.retainedMedia.delete(promptImportMediaKey(input.runId, locator));
+    }
     await this.tenantDb.runAs(input.userId, (tx) =>
       new PromptImportPartsRepository(tx).appendForRun({ ...message, item }),
     );
@@ -3416,7 +3423,7 @@ export class RunExecutionService {
       mediaOverflowCompacts(
         input.media,
         triggerRefCount(triggerParts),
-        collectMediaRefs(input.keptMessages).length,
+        input.keptRefCount,
       )
     ) {
       return { variant: 'threshold', plan };
@@ -3478,7 +3485,7 @@ export class RunExecutionService {
           .map((part) => part.text)
           .join(''),
         media: input.media,
-        keptRefCount: collectMediaRefs(input.keptMessages).length,
+        keptRefCount: input.keptRefCount,
       }) +
       // The kept steps are not history rows, so the continuation estimate
       // cannot see them: a Continue Run measures them here, or its threshold
@@ -3648,7 +3655,7 @@ export class RunExecutionService {
     } catch (error) {
       this.logger.error(
         `Failed to record run progress for run ${runId}`,
-        error instanceof Error ? error.stack : String(error),
+        loggableError(error),
       );
       return false;
     }
@@ -3681,7 +3688,7 @@ export class RunExecutionService {
     } catch (error) {
       this.logger.error(
         `Failed to finish run ${input.runId}`,
-        error instanceof Error ? error.stack : String(error),
+        loggableError(error),
       );
       // The whole turn rolled back, including an answer the user already
       // watched stream. Atomicity is a guarantee about what readers can
@@ -3987,7 +3994,7 @@ export class RunExecutionService {
     } catch (error) {
       this.logger.error(
         `Failed to salvage the assistant turn for run ${input.runId}`,
-        error instanceof Error ? error.stack : String(error),
+        loggableError(error),
       );
       return undefined;
     }
@@ -4346,6 +4353,7 @@ export class RunExecutionService {
       stagedParts: estimatePass.stagedParts,
       historyRows: estimatePass.historyRows,
       keptMessages: kept.messages,
+      keptRefCount: collectMediaRefs(kept.messages).length,
       boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
       media:
         input.media &&
@@ -5408,13 +5416,6 @@ export class RunExecutionService {
   }
 }
 
-/** The retained record a stored part keeps, or undefined. */
-function retainedRecordOf(part: MessagePart): RetainedMediaJson | undefined {
-  return isRecord(part)
-    ? parseRetainedMedia(part[RETAINED_MEDIA_KEY])
-    : undefined;
-}
-
 /**
  * How many media references the triggering message's own parts carry: its
  * owner `file` parts and the marker of each import entry that keeps bytes or a
@@ -5423,9 +5424,7 @@ function retainedRecordOf(part: MessagePart): RetainedMediaJson | undefined {
 function triggerRefCount(parts: ReadonlyArray<unknown>): number {
   const imports = parts.reduce<number>(
     (count, part) =>
-      isContextItemPart(part)
-        ? count + promptImportMediaParts(part).parts.length
-        : count,
+      isContextItemPart(part) ? count + promptImportMarkerCount(part) : count,
     0,
   );
   return fileMediaIds(parts).length + imports;
@@ -5434,23 +5433,22 @@ function triggerRefCount(parts: ReadonlyArray<unknown>): number {
 /** The retained base64 the kept parts of a Continue Run already hold. */
 function seededRetainedBytes(continued: ContinueState | undefined): number {
   return (continued?.parts ?? []).reduce((total, part) => {
-    const record = retainedRecordOf(part);
-    return record === undefined ? total : total + retainedBase64Size(record);
+    const record = isRecord(part)
+      ? parseRetainedMedia(part[RETAINED_MEDIA_KEY])
+      : undefined;
+    return record === undefined || !('data' in record)
+      ? total
+      : total + record.data.length;
   }, 0);
 }
-
-/** One settled read's record, and the bound's used size after it. */
-type RetainedSettlement = {
-  readonly record?: RetainedMediaJson;
-  readonly used: number;
-};
 
 /**
  * Settle one model `read` of an unstored file against the message bound
  * (`media-attachments`): while its base64 fits what the reply already holds,
  * its entry stays and the result's part and event carry the bytes; past it, the
  * entry becomes the exceeded record, which the window latches at the limit, and
- * both carry `{ exceeded: true }`. The read itself always succeeds. A
+ * both carry `{ exceeded: true }`. Only a successful read keeps anything: a
+ * cancelled or failed one names no marker, so its entry is dropped. A
  * system-origin read keeps its bytes in its own item, and every other call has
  * no entry, so neither records anything here.
  */
@@ -5459,18 +5457,24 @@ function settleRetainedMedia(input: {
   readonly toolCallId: string;
   readonly toolName: string;
   readonly origin: ToolActivityOrigin | undefined;
+  readonly status: ToolResult['status'];
   readonly used: number;
 }): RetainedSettlement {
   const { retainedMedia, toolCallId, used } = input;
-  if (input.toolName !== 'read' || input.origin !== undefined) return { used };
+  if (
+    input.toolName !== 'read' ||
+    input.origin !== undefined ||
+    input.status !== 'success'
+  ) {
+    return { used };
+  }
   const entry = retainedMedia.get(toolCallId);
   if (entry === undefined) return { used };
-  const size = retainedEntrySize(entry);
-  if (used + size <= RETAINED_MESSAGE_BOUND) {
-    return { record: retainedMediaJson(entry), used: used + size };
+  const settled = boundRetained(entry, used);
+  if (settled.record !== undefined && 'exceeded' in settled.record) {
+    retainedMedia.set(toolCallId, exceededEntry(entry));
   }
-  retainedMedia.set(toolCallId, exceededEntry(entry));
-  return { record: { exceeded: true }, used };
+  return settled;
 }
 
 /**
@@ -5484,7 +5488,9 @@ function retainedReadRef(
   ref: ReadMediaRef | undefined,
 ): ToolMediaRef | undefined {
   if (ref === undefined || !isUnstoredMedia(ref)) return ref;
-  return retainedMedia.has(toolCallId) ? keyedRef(ref, toolCallId) : undefined;
+  return retainedMedia.has(toolCallId)
+    ? { ...ref, key: toolCallId }
+    : undefined;
 }
 
 /**

@@ -481,7 +481,7 @@ describe('composeStepMessages', () => {
     };
     const itemText = { type: 'text', text: item.data.text };
     const paper = () => pdfDescriptor(A, { name: 'archive.pdf', pages: 15 });
-    const filePart = (data: Uint8Array, filename: string) => ({
+    const filePart = (data: Uint8Array | string, filename: string) => ({
       type: 'file',
       mediaType: 'application/pdf',
       data,
@@ -496,9 +496,10 @@ describe('composeStepMessages', () => {
         context: VISION_PDF,
       });
 
+      // The retained original crosses as the base64 string its entry holds.
       expect(composed[0]?.content).toEqual([
         itemText,
-        filePart(bytes, 'paper.pdf'),
+        filePart(bytes.toString('base64'), 'paper.pdf'),
         filePart(new Uint8Array([0x61]), 'archive.pdf'),
         { type: 'text', text: 'summarize' },
       ]);
@@ -671,6 +672,13 @@ describe('composeStepMessages', () => {
     const itemText = { type: 'text', text: item.data.text } as const;
     const shotImage = (bytes: Uint8Array) =>
       ({ type: 'image', image: bytes, mediaType: 'image/png' }) as const;
+    /** An unstored entry's variant: the base64 string the entry holds. */
+    const retainedShot = (bytes: Uint8Array) =>
+      ({
+        type: 'image',
+        image: Buffer.from(bytes).toString('base64'),
+        mediaType: 'image/png',
+      }) as const;
 
     it('sends the item text followed by its images, the unstored one from its retained entry', async () => {
       const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
@@ -682,7 +690,7 @@ describe('composeStepMessages', () => {
 
       expect(composed[0]?.content).toEqual([
         itemText,
-        shotImage(shotBytes),
+        retainedShot(shotBytes),
         shotImage(new Uint8Array([0x61])),
         { type: 'text', text: `Image 1 (media://${B}):` },
         shotImage(new Uint8Array([0x62])),
@@ -1370,7 +1378,7 @@ describe('composeStepMessages', () => {
           { type: 'text', text: 'Image from read "/work/shot.png":' },
           {
             type: 'image',
-            image: Buffer.from(variant().data, 'base64'),
+            image: variant().data,
             mediaType: 'image/png',
           },
         ],

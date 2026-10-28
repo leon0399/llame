@@ -399,8 +399,7 @@ function pushAssistantHistory(
   parts: Array<MessagePart>,
   projection: ToolObservationProjection | null,
   requestKind: ContextRequestKind,
-): ReadonlyMap<string, RetainedMedia> | undefined {
-  const retained = projection?.retainedMedia;
+): void {
   // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
   // this projector; stored assistant parts currently omit multi-step boundaries.
   const pairsByPartIndex = new Map(
@@ -437,7 +436,6 @@ function pushAssistantHistory(
   emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
   emitter.flushPendingText();
   emitter.flushPendingReasoning();
-  return retained;
 }
 
 /**
@@ -528,13 +526,8 @@ function appendAssistantMessage(
   }
 
   if (projected || hasReasoning || hasContextText) {
-    const entries = pushAssistantHistory(
-      result,
-      m.parts,
-      projected,
-      requestKind,
-    );
-    if (entries !== undefined) mergeRetainedMedia(retained, entries);
+    pushAssistantHistory(result, m.parts, projected, requestKind);
+    if (projected) mergeRetainedMedia(retained, projected.retainedMedia);
     return;
   }
 

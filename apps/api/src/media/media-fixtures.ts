@@ -7,7 +7,6 @@ import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 
 import type { MediaObject } from '../db/schema';
-import { retainedEntryBytes } from './attempt-media';
 import type {
   ImageDescriptor,
   MediaDescriptor,
@@ -82,10 +81,6 @@ export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
   const loads: Array<string> = [];
   const resolver: RunMediaResolver = {
     retainedMedia: new Map(),
-    retainedBytes: (key) => {
-      const entry = resolver.retainedMedia.get(key);
-      return entry === undefined ? undefined : retainedEntryBytes(entry);
-    },
     describe: (ids) =>
       Promise.resolve(
         new Map(

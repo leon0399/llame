@@ -4,11 +4,7 @@ import { z } from 'zod';
 import { mediaBlobs, mediaObjects } from '../db/schema';
 import type { MediaObject } from '../db/schema/media';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
-import {
-  retainedEntryBytes,
-  type RetainedMedia,
-  type UnstoredMedia,
-} from './attempt-media';
+import { type RetainedMedia, type UnstoredMedia } from './attempt-media';
 import {
   isCanonicalMediaId,
   mediaLocator,
@@ -183,12 +179,6 @@ export type RunMediaResolver = {
   loadModelBytes(
     ids: ReadonlyArray<string>,
   ): Promise<ReadonlyMap<string, Uint8Array>>;
-  /**
-   * The decoded bytes of the retained entry `key`, or undefined for a key the
-   * attempt holds no bytes for. Decoded once per attempt: the composer asks on
-   * every step, and the set is bounded by the epoch image window.
-   */
-  retainedBytes(key: string): Uint8Array | undefined;
 };
 
 /**
@@ -206,7 +196,6 @@ export function createRunMediaResolver(
   const known = new Map<string, MediaDescriptor | undefined>();
   const bytes = new Map<string, Uint8Array>();
   const retained = new Map<string, RetainedMedia>();
-  const decoded = new Map<string, Uint8Array>();
   return {
     retainedMedia: retained,
     async describe(ids) {
@@ -231,25 +220,7 @@ export function createRunMediaResolver(
       }
       return pickKnown(bytes, ids);
     },
-    retainedBytes: (key) => decodeRetained(retained, decoded, key),
   };
-}
-
-/**
- * The bytes of the retained entry `key`, decoded once per attempt: the composer
- * asks on every step, and the set is bounded by the epoch image window.
- */
-function decodeRetained(
-  retained: ReadonlyMap<string, RetainedMedia>,
-  decoded: Map<string, Uint8Array>,
-  key: string,
-): Uint8Array | undefined {
-  const cached = decoded.get(key);
-  if (cached !== undefined) return cached;
-  const entry = retained.get(key);
-  const data = entry === undefined ? undefined : retainedEntryBytes(entry);
-  if (data !== undefined) decoded.set(key, data);
-  return data;
 }
 
 /** The entries of `cache` found for `ids`; absent and `undefined` ones skipped. */
