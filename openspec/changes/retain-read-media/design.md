@@ -108,9 +108,14 @@ prompt-import marker (`prompt-imports-item.ts:211-245`), and the live `toModelOu
 without a map entry is then a defect, and the composer throws. The `not-retained` status, the
 not-retained placeholder, and the released-size fields are deleted.
 
-A replayed marker takes a key minted for its own position in the request, not the provider's tool
-call id. Some OpenAI-compatible servers number calls `call_0`, `call_1` in each response, so two
-rows can share an id. A live marker keeps the tool call id, which is unique in its attempt.
+A marker carries its own key, and one key function serves the loader and every producer. A stored
+tool part's key is `<message id>:<part index>`, a Continue kept part's key is `continued:<part
+index>`, and a prompt-import entry keeps `prompt-import:<run id>:<locator>`. A key from row identity
+stays the same in every build of one attempt: the main request, the continuation estimate
+(`compaction.ts:192`), and the compaction request (`compaction.ts:370`) all share one map. The
+provider's tool call id is not unique across rows: some OpenAI-compatible servers number calls
+`call_0`, `call_1` in each response. A live marker keeps the tool call id, because the transcript
+already requires it to be unique in a Run (`assistant-transcript.ts:277-281`).
 
 ### D3: Every durable writer carries the bytes
 
@@ -148,18 +153,26 @@ prompt reaches a span.
 
 Postgres limits one `jsonb` value to 255 MiB. Ten 20 MiB PDF reads in one reply would exceed it,
 and the reply would fail to persist. So each message keeps at most 29,360,128 bytes of retained
-base64, the window's own byte bound. The collector and the import pass track the sum. A read past
-it keeps no bytes and replays as text, and the read itself succeeds.
+base64, the window's own byte bound.
 
-A reference past that sum could never attach on a model that declares every kind, because the
-window admits oldest first and latches. On a model that omits PDFs, an image after large PDFs can
-lose its bytes although the window could take it. That case is accepted for one simple bound.
+`recordToolCompleted` decides before it writes the event (`run-execution.service.ts:1541-1556`).
+It runs inside the tool's `execute`, before the SDK calls `toModelOutput`
+(`run-execution.service.ts:1771-1776`), so the live step, the event, the part, and a rebuilt reply
+agree. The running sum starts from the seeded Continue kept parts (`run-execution.service.ts:1299`)
+and adds each settled read in settlement order. A read past it removes its map entry, and both the
+event and the part record `retainedMedia: { "exceeded": true }`. The prompt-import pass applies the
+same sum to the entries of its item.
+
+An exceeded record takes the limit placeholder, or the omitted placeholder on a model without its
+kind, and it latches the window as the first reference past a bound does. That is what the window
+gives such a read today, so the canonical `The byte bound applies within a Run` scenario stays true.
+A reference past the sum could never attach on a model that declares every kind, because the window
+admits oldest first and latches. On a model that omits PDFs, an image after large PDFs can take the
+limit placeholder although the window could fit it. That case is accepted for one simple bound.
 
 Rejected: a read that fails past the bound. It turns a storage limit into a tool error that the
-model cannot act on.
-
-The bound also caps a `run.continued` payload and the in-Run reply snapshot. A `tool.completed`
-payload holds one item.
+model cannot act on. Rejected: plain text with no placeholder. The model then gets no signal that it
+did not see the content.
 
 ### D6: Admission sizes retained references from their bytes
 
@@ -171,6 +184,12 @@ entry leaves it at an attempt boundary.
 
 `mediaOverflowCompacts` treats a retained reference in an earlier row like a stored one. Otherwise a
 retained read past the bounds keeps the limit placeholder and never compacts.
+
+Continue kept messages follow the trigger (`run-execution.service.ts:5384`). Today their unstored
+references are `not-retained` and count nothing, so the trigger's slice of the last
+`triggerRefCount` statuses (`compaction.ts:108-124`) and the continuation estimate's alignment to
+the end (`step-composer.ts:184`) ignore them. With retention they count, so both consumers take an
+explicit kept-reference count and skip it.
 
 ### D8: Rows without bytes replay as text
 
@@ -215,6 +234,13 @@ first request.
   entries. A blob table is the later fix if rows grow past what history loads tolerate.
 - [The stream bridge reads the whole `run.continued` payload on each connection] -> The
   per-message bound caps it at about 28 MiB.
+- [An owner fork copies every row in chunks of 500 (`messages-repository.ts:306-309`), and 37 rows
+  at the bound exceed the 1 GiB statement limit] -> The fork copy chunks its inserts by part bytes,
+  at most 256 MiB for each statement.
+- [Kinds that the model omits never reach the window limit, so their retained bytes accumulate in
+  the epoch until the token threshold fires. The worst case is 100 turns of 28 MiB, about 2.8 GB
+  loaded per attempt] -> Accepted under D6: the case needs a text-only or image-only model that
+  reads many PDFs without compaction. A blob table removes it.
 - [Retained media costs tokens on every later request] -> The epoch window bounds it, and overflow
   compaction absorbs it.
 - [Host, Knowledge, skill, machine, and web media persist in chat rows and backups] -> The rows keep

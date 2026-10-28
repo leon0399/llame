@@ -9,9 +9,10 @@ placement follows below. It MUST omit declared display-only parts, except reason
 
 Request assembly MUST map each remaining `data-context` part on a user message to one ordinary SDK
 text part that contains `data.text`. `prompt-imports` can attach image and PDF entries to that
-item. After the text part, each image entry MUST map to one image part or to the image placeholder
-text part. The image part is built from the image's model variant. Each PDF entry MUST map to one
-file part, built from the PDF's original, or to the PDF placeholder text part. The form of each
+item. After the text part, each image entry with `retainedMedia` or `media` MUST map to one image part or
+to the image placeholder text part. The image part is built from the image's model variant. Each such PDF entry MUST map to
+one file part, built from the PDF's original, or to the PDF placeholder text part. An entry without
+either key adds no part. The form of each
 entry follows from three things, as `media-attachments` requires. These are the availability of the
 variant or original, the epoch image window, and the declared input of the request model.
 
@@ -47,22 +48,23 @@ requires.
 
 A stored tool part whose result is an image result (`kind: "image"`) MUST map to a tool output of
 type `content`. `media-attachments` can select an image part for that reference. Then the output
-carries the result's text and then one image part built from the image's model variant. In other
-cases, the output MUST carry the result's text and then the image placeholder, with no image part.
-For a `media://` result or image entry, the model variant is the stored object's. For each other
-image, it is the retained model variant in the stored part. A result without retained bytes is not
-a reference, so its output MUST carry only the result's text. The display-only `thumbnail` of an
+carries the result's text and then one image part built from the image's model variant. A result
+without `retainedMedia` and without `media` is not a reference, so its output MUST carry only the
+result's text. For each other result, the output MUST carry the result's text and then the image
+placeholder in all other cases, with no image part. For a `media://` result or image entry, the
+model variant is the stored object's. For each other image, it is the retained model variant in the
+stored part. The display-only `thumbnail` of an
 image result or image entry MUST NOT cross the boundary. Its retained bytes MUST cross it only as an
 attached image part.
 
 A stored tool part whose result is a PDF result (`kind: "pdf"`) MUST map to a tool output of type
 `content`. `media-attachments` can select a file part for that reference. Then the output carries
-the result's text and then one file part built from the PDF's original. In other cases, the output
-MUST carry the result's text and then the PDF placeholder, with no file part. For a `media://`
-result or PDF entry, the original is the stored object's. For each other PDF, it is the retained
-original in the stored part. A result without retained bytes is not a reference, so its output MUST
-carry only the result's text. `media-attachments` specifies the transport of image and PDF outputs
-on Chat Completions wires.
+the result's text and then one file part built from the PDF's original. A result without
+`retainedMedia` and without `media` is not a reference, so its output MUST carry only the result's
+text. For each other result, the output MUST carry the result's text and then the PDF placeholder
+in all other cases, with no file part. For a `media://` result or PDF entry, the original is the
+stored object's. For each other PDF, it is the retained original in the stored part.
+`media-attachments` specifies the transport of image and PDF outputs on Chat Completions wires.
 
 Media references MUST resolve only in the media of the Run owner. A `media://` reference that does
 not resolve for that owner MUST add no byte or descriptor field of a media object to the request. It
@@ -152,7 +154,7 @@ different stored form of superseded history.
 #### Scenario: An earlier turn's image read result carries the not-retained placeholder
 
 - **WHEN** a later turn on a model that declares `image` input replays a stored `read` tool part
-  whose result is an image result with no `media` field and no retained bytes
+  whose result is an image result with no `media` field and no `retainedMedia`
 - **THEN** the tool output carries only the result's text
 - **AND** it carries no image part and no placeholder
 
@@ -213,7 +215,7 @@ different stored form of superseded history.
 #### Scenario: An earlier turn's PDF read result carries the not-retained placeholder
 
 - **WHEN** a later turn on a model that declares `pdf` input replays a stored `read` tool part whose
-  result is a PDF result with no `media` field and no retained bytes
+  result is a PDF result with no `media` field and no `retainedMedia`
 - **THEN** the tool output carries only the result's text
 - **AND** it carries no file part and no placeholder
 

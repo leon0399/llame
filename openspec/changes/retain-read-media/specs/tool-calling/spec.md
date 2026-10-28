@@ -44,7 +44,7 @@ The ordinary projection MUST stay:
 The system MUST clear payloads, oldest first, only when this makes the envelope smaller. When pairs
 that cannot shrink more still go above a limit, the system MUST drop the oldest complete pairs
 atomically until the projection fits. It adds one bounded omission count and marker. The system
-MUST never emit a call or a result with no match.
+MUST NOT emit a call or a result with no match.
 
 The system MUST store an image in a tool result in the tool part as the native image result that
 made it. The result MUST NOT carry the `media-store` media descriptor, image bytes, or base64 model
@@ -60,9 +60,10 @@ true. The model of the request declares `image` input, its model variant is avai
 epoch image window of `media-attachments` attaches that reference. For a `media://` result, the
 model variant is available from the media store. For each other image result, it is available from
 the retained bytes in its stored tool part. This applies in a later step, a later turn, a Continue
-Run, a compaction request, and a fork. A result without retained bytes MUST replay as its text
-only, with no image and no placeholder. For each other result, when the three conditions are not
-all true, the replayed result MUST carry the image placeholder of `media-attachments` in its text. A `media://` reference that does not resolve to media
+Run, an owner fork, and a compaction request. It also applies to a reply rebuilt from the event log. A result without
+`retainedMedia` MUST replay as its text only, with no image and no placeholder. For each other
+result, when the three conditions are not all true, the replayed result MUST carry the image
+placeholder of `media-attachments` in its text. A `media://` reference that does not resolve to media
 of the Run owner MUST replay as the unavailable placeholder. These placeholders MUST NOT fail the
 request. Image content MUST NOT count toward the UTF-16 budgets. An image MUST replay only with its
 kept result payload. When the system clears a payload or drops a pair, it also removes the image
@@ -225,7 +226,7 @@ The live tool loop MUST continue to observe its own results in the turn that pro
 
 #### Scenario: An earlier turn's image read replays as not retained
 
-- **WHEN** a later turn on a model that declares `image` input replays the stored image result of `read("/work/shot.png")` for a 1600×900 image, and that tool part has no retained bytes
+- **WHEN** a later turn on a model that declares `image` input replays the stored image result of `read("/work/shot.png")` for a 1600×900 image, and that tool part has no `retainedMedia`
 - **THEN** the text of the replayed result carries the fields of the result and no placeholder
 - **AND** the request carries no image content for that result
 
@@ -279,7 +280,7 @@ retained original of an unstored PDF beside the result, as `media-attachments` d
 its text MUST follow the ordinary projection. The PDF MUST become provider file content, built from
 its original at request time, only when three conditions are true. The request's model declares
 `pdf` input, the original is available, and the epoch image window attaches it. A result without
-retained bytes MUST replay as its text only, with no file content and no placeholder. For each other
+`retainedMedia` MUST replay as its text only, with no file content and no placeholder. For each other
 result, when the three conditions are not all true, its text MUST carry the matching PDF
 placeholder.
 
@@ -316,7 +317,7 @@ placeholder.
 
 - **WHEN** a later turn, a Continue Run, a compaction request, or a fork on a model that declares
   `pdf` input replays the stored PDF result of `read("/work/paper.pdf")` for a 15-page PDF, and
-  that tool part has no retained bytes
+  that tool part has no `retainedMedia`
 - **THEN** the replayed result's text carries the fields of the result and no placeholder
 - **AND** the request carries no file content for that result and does not fail
 

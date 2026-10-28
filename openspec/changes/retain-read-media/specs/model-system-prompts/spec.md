@@ -162,13 +162,13 @@ the window variant whether or not the measured context size also reaches the
 threshold, because a request that does not fit is also over the default
 threshold and only the window variant can summarize it. Otherwise a measured
 context size at or above the Run model's threshold MUST select the threshold
-variant. No request MUST be compacted by both variants.
+variant. A request MUST NOT be compacted by both variants.
 
 A prepared request MUST also count as at the Run model's threshold when two conditions are true.
 First, it carries an image or PDF reference that `media-attachments` does not attach because the
 epoch's bounds are reached. Second, a row before the triggering user message holds a stored or
 retained reference of a kind that the Run model declares as input. That is an image when the model
-declares `image`, and a PDF when it declares `pdf`. A result without retained bytes in an earlier
+declares `image`, and a PDF when it declares `pdf`. A result without `retainedMedia` in an earlier
 row never counts. Image or PDF overflow MUST therefore select the threshold variant on the
 attempt's own model, because that request fits. A request that also does not fit MUST select the
 window variant as above.
@@ -251,7 +251,7 @@ by owner UI and by later summarization, and exactly one checkpoint message: the
 rendered checkpoint envelope as a persisted literal, the raw summary, the
 summarization usage, and the sequence through which the summary absorbed history.
 The checkpoint message MUST carry no tool record, no retained tail, and no forward
-pointer, and no replacement history MUST exist.
+pointer, and replacement history MUST NOT exist.
 
 The next attempt MUST assemble its freshly resolved top-level prompt and tools,
 the latest checkpoint whose absorbed-through sequence is below the triggering
@@ -264,8 +264,8 @@ part from the summary. The raw summary remains separate; replay MUST NOT parse
 it out of the checkpoint text.
 
 A later compaction MUST consume the previous checkpoint as user text plus newly
-absorbed messages and write a wholly new checkpoint message. No legacy checkpoint
-renderer or compatibility fallback MUST exist. A checkpoint without valid
+absorbed messages and write a wholly new checkpoint message. A legacy checkpoint
+renderer or compatibility fallback MUST NOT exist. A checkpoint without valid
 non-empty stored checkpoint text MUST fail closed rather than silently discard
 or regenerate history.
 

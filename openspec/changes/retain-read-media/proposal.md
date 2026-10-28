@@ -36,8 +36,9 @@ accumulation failures Claude Code reports. The decisions come from a grilling ro
   retained bytes. Request-size estimates, replay budgets, and result truncation exclude them, and
   media keeps its dimension and page charges.
 - **A per-message bound.** One stored message keeps at most 28 MiB (29,360,128 bytes) of retained
-  base64, the window's own byte bound. A read past it succeeds but keeps no bytes. This keeps each
-  row and event far below the Postgres `jsonb` limit.
+  base64, the window's own byte bound. A read past it succeeds, keeps no bytes, and takes the limit
+  placeholder, as the window gives it today. This keeps each row and event far below the Postgres
+  `jsonb` limit.
 - **No media objects.** Retained media is not written to the media store, has no `media://` id, and
   does not appear in the gallery. It is deleted with its chat, and an owner fork copies it with the
   rows.
@@ -104,7 +105,7 @@ None.
   - Removed: the attempt-memory, release, not-retained, attempt-boundary, and byte-free-part
     requirements, for images and PDFs.
   - Added: retention, replay, per-read bytes, server-only bytes, budgets, legacy replay, storage
-    and deletion, request-built data, and the per-message bound.
+    and deletion, request-built data, the per-message bound, and the limit placeholder past it.
 - `tool-calling`: `Tool observations survive into later turns as stored UI parts` and `PDF tool
   observations are stored and replayed like image results` change the stored form and replay.
 - `prompt-imports`: the two unstored-entry requirements are replaced by retained-entry
@@ -112,8 +113,8 @@ None.
   `retainedMedia`.
 - `context-injection`: `Stored parts cross a minimal SDK conversion boundary` names the stored part
   as the byte source.
-- `native-file-tools`: `Image reads are decoded without being stored` and `PDF reads are parsed
-  without being stored`.
+- `native-file-tools`: `Image reads are decoded without being stored`, `PDF reads are parsed
+  without being stored`, and `Web reads accept text and image bodies`.
 - `media-store`: `Image preparation is shared with unstored image reads` and `PDF preparation is
   shared with unstored PDF reads` stop saying that a read writes no bytes anywhere.
 - `model-system-prompts`: `A model switch replaces the top-level prompt and preserves portable
@@ -123,11 +124,12 @@ None.
 Deliberately unchanged: the epoch window's bounds, the placeholder forms other than not-retained,
 the thumbnail rules, uploads, and owner attachments.
 
-Named exception to the Simplified Technical English rule: the `Compaction publishes a summary-only
-checkpoint` block has 146 prose lines. It changes one paragraph, which is rewritten in STE. The
-rest of the block changes `SHALL` to `MUST` and keeps its sentences, so the diff stays reviewable.
-The unchanged scenarios of the `tool-calling` and `context-injection` blocks keep their canonical
-wording for the same reason.
+Named exception to the Simplified Technical English rule: two long blocks change only a few lines.
+`Compaction publishes a summary-only checkpoint` (146 prose lines) changes one paragraph, and `Web
+reads accept text and image bodies` (123 lines) changes two scenario lines. Those lines are in STE.
+The rest of each block changes `SHALL` to `MUST` and keeps its sentences, so the diff stays
+reviewable. The unchanged scenarios of the `tool-calling` and `context-injection` blocks keep their
+canonical wording for the same reason.
 
 ## Impact
 

@@ -17,8 +17,8 @@ no `media://` locator. Its stored part keeps the model variant as the retained b
 
 ### Requirement: PDF preparation is shared with unstored PDF reads
 
-The `%PDF-` magic-byte check, the structural parse, and the 20 MiB and 100-page bounds MUST form one
-PDF preparation with the refusal of unopenable and encrypted PDFs. Ingest MUST apply it before it
+The `%PDF-` magic-byte check, the structural parse, and the 20 MiB and 100-page bounds MUST be part
+of one PDF preparation. The refusal of unopenable and encrypted PDFs MUST be part of it too. Ingest MUST apply it before it
 stores an upload. A `read` or prompt import of a PDF that is not a `media://` locator MUST apply the
 same preparation. It MUST create no media object, MUST write no bytes to the media store, and MUST
 give no `media://` locator. Its stored part keeps the original as the retained bytes that

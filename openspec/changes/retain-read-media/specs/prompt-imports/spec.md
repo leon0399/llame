@@ -201,7 +201,8 @@ carries `kind` with a different value.
   `width` and `height` only as positive integers, and `mediaType` only as `image/png`,
   `image/jpeg`, `image/gif`, or `image/webp`
 - **AND** it accepts `retainedMedia` only as an object of a `mediaType` of `image/png` or
-  `image/jpeg`, positive integer `width` and `height`, and non-empty base64 `data`
+  `image/jpeg`, positive integer `width` and `height`, and non-empty base64 `data`, or as the
+  exceeded-bound record `{ "exceeded": true }`
 - **AND** it requires `width`, `height`, and `mediaType` together when one of the five keys is
   present, accepts those three with or without `thumbnail` and `retainedMedia`, and rejects an
   entry that carries `media` with one of the five as malformed
@@ -213,7 +214,7 @@ carries `kind` with a different value.
   `imported`, `kind` `pdf`, `mediaType` `application/pdf`, `pages` as an integer from 1 through 100,
   `byteSize` as a positive integer, and either optional `media` or optional `retainedMedia`
 - **AND** it accepts `retainedMedia` only as an object of `mediaType` `application/pdf` and
-  non-empty base64 `data`
+  non-empty base64 `data`, or as the exceeded-bound record `{ "exceeded": true }`
 - **AND** it rejects as malformed a PDF entry without one of its required keys, or one that carries
   both `media` and `retainedMedia`, `truncated`, `thumbnail`, `width`, `height`, or another key
 

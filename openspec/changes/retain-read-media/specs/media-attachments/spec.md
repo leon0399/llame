@@ -2,8 +2,9 @@
 
 ### Requirement: Unstored images and PDFs are retained in their stored part
 
-The stored part of each successful image or PDF `read` result without a `media` locator MUST keep
-its retained bytes in `retainedMedia`. Each such prompt-import entry MUST do the same. For an
+Each successful image or PDF `read` result without a `media` locator MUST keep its retained bytes
+in `retainedMedia` in its stored part, under the per-message bound. Each such prompt-import entry
+MUST do the same. For an
 image, the retained bytes are the model variant, with its media type and dimensions. For a PDF,
 they are the original. Retention MUST NOT depend on the locator scheme or the declared input.
 
@@ -178,30 +179,30 @@ charge, and an attached PDF MUST keep its page charge.
 
 ### Requirement: A result without retained bytes replays as its text
 
-Some image or PDF results and import entries have no `media` locator and no retained bytes. Each of
-them MUST reach each request as its result text only. It MUST carry no image part, no file part, and no
-placeholder. It MUST NOT count toward the epoch image window, and it MUST NOT fail the request.
-It is not an image or PDF reference. Results stored before retention have this form.
+Some image or PDF results and import entries have no `media` locator and no `retainedMedia`. Each
+of them MUST reach each request as its result text only. It MUST carry no image part, no file part,
+and no placeholder. It MUST NOT count toward the epoch image window, and it MUST NOT fail the
+request. It MUST NOT be an image or PDF reference. Results stored before retention have this form.
 
 #### Scenario: An earlier result without retained bytes replays as text
 
 - **WHEN** a later turn on a model that declares `image` input replays an image `read` result of
-  `/work/shot.png` that has no retained bytes
+  `/work/shot.png` that has no `retainedMedia`
 - **THEN** the request carries that result's text, which names `kind` `image`, its dimensions, and
   its path
 - **AND** the request carries no image part and no placeholder for it, and the Run continues
 
 #### Scenario: An import entry without retained bytes replays as text
 
-- **WHEN** a later turn replays a `prompt-imports` item whose image entry has no retained bytes
+- **WHEN** a later turn replays a `prompt-imports` item whose image entry has no `retainedMedia`
 - **THEN** the request carries the item's text and no image part or placeholder for that entry
 
 ### Requirement: Retained bytes live and end with their chat
 
 Retained bytes MUST be stored only in the chat's message parts and in the server-side run events of
 the chat's Runs. A queue job MUST NOT carry them. The system MUST NOT create a media object for
-them, and the media list MUST NOT show them. Deletion of the chat MUST delete them. An owner fork MUST copy them with the rows that it
-copies.
+them, and the media list MUST NOT show them. Deletion of the chat MUST delete them. An owner fork
+MUST copy them with the rows that it copies.
 
 #### Scenario: A retained read creates no media object
 
@@ -240,16 +241,18 @@ part carries MUST be the display-only `thumbnail` and the retained bytes.
 
 ### Requirement: Retained bytes are bounded in each stored message
 
-Each stored message MUST keep at most 29,360,128 bytes of retained base64 across all its parts. A
-read or import entry whose base64 would exceed the rest of that bound MUST keep no retained bytes.
-The read or import itself MUST succeed, and its result replays as its text.
+Each stored message MUST keep at most 29,360,128 bytes of retained base64 across all its parts. The
+system MUST count the reads of a reply in the order that it settles them. A read or import entry
+whose base64 would exceed the rest of that bound MUST keep no bytes. Its `retainedMedia` MUST then
+be the record `{ "exceeded": true }`. The read or import itself MUST succeed.
 
 #### Scenario: A read past the message bound keeps no bytes
 
-- **WHEN** a Run reads ten 20 MiB PDFs in one reply
-- **THEN** the first read keeps its retained original, because its 27,962,028 base64 bytes fit
-- **AND** the second and later reads keep no retained bytes, return their normal results, and
-  replay as their text
+- **WHEN** a Run on a model that declares `pdf` input settles ten reads of 20 MiB PDFs in one reply
+- **THEN** the first settled read keeps its retained original, because its 27,962,028 base64 bytes
+  fit
+- **AND** the other nine reads keep no bytes, return their normal results, and record that the
+  bound is exceeded
 
 #### Scenario: A small read after a large one can still fit
 
@@ -257,6 +260,40 @@ The read or import itself MUST succeed, and its result replays as its text.
   whose model variant is 300,000 bytes
 - **THEN** that image keeps its retained bytes, because its 400,000 base64 bytes fit the rest of
   the bound
+
+#### Scenario: The bound includes the kept parts of a Continue Run
+
+- **WHEN** a Continue Run keeps a reply part that holds 27,962,028 retained base64 bytes, and the Run
+  then reads a 20 MiB PDF
+- **THEN** that read keeps no bytes and records that the bound is exceeded
+
+#### Scenario: The live step, the event, and the stored part agree
+
+- **WHEN** a read exceeds the bound in a live attempt
+- **THEN** the next step of that attempt, its `tool.completed` event, its stored part, and a reply
+  rebuilt from the event log all treat it as past the bound
+
+### Requirement: A read past the message bound takes the limit placeholder
+
+A result or import entry whose `retainedMedia` records an exceeded bound MUST reach each request as
+the limit placeholder of its kind. On a model that does not declare its kind, it MUST reach the
+request as the omitted placeholder. On a model that declares its kind, the window MUST treat it as
+the first reference past a bound. So the window attaches no later reference of that epoch. It MUST count as
+an unattached reference for the overflow trigger.
+
+#### Scenario: A sixth large read takes the limit placeholder
+
+- **WHEN** a Run on a vision model reads six images in one reply, each with a 5 MiB base64 model
+  variant
+- **THEN** the sixth read records that the bound is exceeded
+- **AND** each later request of the epoch carries the sixth read as
+  `[image "<locator>" <width>×<height>, not attached: this context's image limit is reached]`
+
+#### Scenario: A text-only model receives the omitted placeholder for a read past the bound
+
+- **WHEN** a request on a model that does not declare `pdf` input replays a PDF read that records an
+  exceeded bound
+- **THEN** the read reaches the model as the PDF omitted placeholder
 
 ## MODIFIED Requirements
 
@@ -285,7 +322,7 @@ entry, the system uses the retained variant in its stored part.
 
 An image placeholder MUST NOT direct the model to read the image again. A compaction request, the
 step at the step cap, and a Run whose `tools.allowed` omits `read` cannot act on such a directive.
-The placeholder of an unstored image names the exact locator of a later `read`.
+The placeholder of an unstored image MUST name the exact locator of a later `read`.
 
 #### Scenario: A compaction request carries no re-read directive
 
@@ -297,8 +334,8 @@ The placeholder of an unstored image names the exact locator of a later `read`.
 
 ### Requirement: Each image reference takes exactly one model-facing form
 
-Each image reference MUST reach the model as exactly one form. A result without retained bytes is
-not a reference. The system MUST select the first form that applies, in this order:
+Each image reference MUST reach the model as exactly one form. A result without `retainedMedia` MUST
+NOT be a reference. The system MUST select the first form that applies, in this order:
 
 - the unavailable placeholder, for a `media://` reference that does not resolve;
 - the omitted placeholder, when the request's model does not declare `image` input;
@@ -392,19 +429,19 @@ sum MUST be independent of the dimension-based and page-based token estimates.
 An attachable reference MUST be an owner file part, a `media://` tool result or prompt-import
 entry, or a retained image or PDF. Its kind MUST be one that the request's model declares as
 input: `image` for an image and `pdf` for a PDF. An unavailable or omitted reference, and a result
-without retained bytes, MUST NOT count toward a bound of the epoch image window.
+without `retainedMedia`, MUST NOT count toward a bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
 - **WHEN** a vision-model epoch carries 99 attached owner attachments and an image `read` result
-  that has no retained bytes, and the owner sends a message that attaches one more image
+  that has no `retainedMedia`, and the owner sends a message that attaches one more image
 - **THEN** all 100 owner attachments are sent as images
 - **AND** the earlier read reaches the model as its result text only
 
 #### Scenario: A not-retained PDF read does not count
 
 - **WHEN** an epoch on a 400,000-token model that declares `pdf` input carries an 80-page PDF
-  `read` result that has no retained bytes, and the owner sends a message that attaches a stored
+  `read` result that has no `retainedMedia`, and the owner sends a message that attaches a stored
   80-page PDF
 - **THEN** the owner's PDF is sent as a PDF
 - **AND** the earlier read reaches the model as its result text only
@@ -550,7 +587,7 @@ attaches. It MUST carry placeholders for all other references.
 #### Scenario: A vision summarizer receives unstored images as not retained
 
 - **WHEN** a compaction on a model that declares `image` input summarizes a prefix that holds an
-  image `read` result of `/work/shot.png` with no retained bytes
+  image `read` result of `/work/shot.png` with no `retainedMedia`
 - **THEN** that result appears as its result text only
 - **AND** the request carries no image part for it
 
@@ -563,8 +600,8 @@ attaches. It MUST carry placeholders for all other references.
 
 ### Requirement: Each PDF reference takes exactly one model-facing form
 
-Each PDF reference MUST reach the model as exactly one form. A result without retained bytes is
-not a reference. The system MUST select the first form that applies, in this order:
+Each PDF reference MUST reach the model as exactly one form. A result without `retainedMedia` MUST
+NOT be a reference. The system MUST select the first form that applies, in this order:
 
 - `[pdf media://<id> unavailable]`, when the reference does not resolve;
 - `[pdf <subject> <P> pages, omitted: this model has no PDF input]`, when the request's model does
