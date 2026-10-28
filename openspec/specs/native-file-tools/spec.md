@@ -1510,46 +1510,46 @@ across all of its requests.
 
 ### Requirement: Web reads accept text and image bodies
 
-A web read SHALL accept only text bodies, image bodies, and PDF bodies. Text bodies are
+A web read MUST accept only text bodies, image bodies, and PDF bodies. Text bodies are
 `text/*` media types, `application/json`, `application/xml`, and any type whose
 subtype carries a `+json` or `+xml` suffix, so `image/svg+xml` is a text body.
-`text/markdown` SHALL be handled as Markdown. An image body is a page response,
+`text/markdown` MUST be handled as Markdown. An image body is a page response,
 after any redirects, whose declared media type is `image/png`, `image/jpeg`,
 `image/gif`, or `image/webp` and whose leading bytes match the PNG, JPEG, GIF,
-or WebP signature; the format the bytes match, not the declared type, SHALL
-decide the result's `mediaType`. An image body SHALL remain under the existing
-5 MiB body bound, SHALL end the ladder with `method` `image`, and SHALL be
+or WebP signature; the format the bytes match, not the declared type, MUST
+decide the result's `mediaType`. An image body MUST remain under the existing
+5 MiB body bound, MUST end the ladder with `method` `image`, and MUST be
 returned as the image result under the image read requirement, never as
 content. A body declared as one of those image types whose leading bytes match
-none of the four signatures SHALL fail with `unsupported_media_type`, SHALL
-decode no image, and its body SHALL NOT be returned as content. Any
-selector on an image body, `:raw` included, SHALL fail with `invalid_selector`
-and SHALL decode no image. A PDF body is a page response, after any redirects,
+none of the four signatures MUST fail with `unsupported_media_type`, MUST
+decode no image, and its body MUST NOT be returned as content. Any
+selector on an image body, `:raw` included, MUST fail with `invalid_selector`
+and MUST decode no image. A PDF body is a page response, after any redirects,
 whose declared media type is `application/pdf` and whose leading bytes are
-`%PDF-`. A PDF body SHALL remain under the 20 MiB body bound the fetch-bound
-requirement gives it, SHALL end the ladder with `method` `pdf`, and SHALL be
+`%PDF-`. A PDF body MUST remain under the 20 MiB body bound the fetch-bound
+requirement gives it, MUST end the ladder with `method` `pdf`, and MUST be
 returned as the PDF result under the PDF read requirement, never as content. A
-body declared `application/pdf` whose leading bytes are not `%PDF-` SHALL fail
-with `unsupported_media_type`, SHALL parse no PDF, and its body SHALL NOT be
-returned as content. A PDF body over 100 pages SHALL fail with
-`media_too_large`, and a PDF body that is encrypted or does not open SHALL fail
+body declared `application/pdf` whose leading bytes are not `%PDF-` MUST fail
+with `unsupported_media_type`, MUST parse no PDF, and its body MUST NOT be
+returned as content. A PDF body over 100 pages MUST fail with
+`media_too_large`, and a PDF body that is encrypted or does not open MUST fail
 with `unsupported_media_type`. Any selector on a PDF body, `:raw` included,
-SHALL fail with `invalid_selector` under the PDF selector requirement. Every
+MUST fail with `invalid_selector` under the PDF selector requirement. Every
 other content type, `application/octet-stream` and `application/zip`
-included, SHALL fail with `unsupported_content_type` naming the received type,
-and its body SHALL NOT be returned as content. An adapter response, or an
+included, MUST fail with `unsupported_content_type` naming the received type,
+and its body MUST NOT be returned as content. An adapter response, or an
 alternate, suffix, or `llms.txt` probe response, with an image type or
-`application/pdf` SHALL count as a refused content
+`application/pdf` MUST count as a refused content
 type. An adapter
-response with a refused content type SHALL disqualify that adapter with a
-bounded `content_type` note and SHALL not fail the source call. Only a
-declared HTML type — `text/html` or `application/xhtml+xml` — SHALL be
-rendered. A `text/plain` body SHALL be returned as served whatever it
+response with a refused content type MUST disqualify that adapter with a
+bounded `content_type` note and MUST not fail the source call. Only a
+declared HTML type — `text/html` or `application/xhtml+xml` — MUST be
+rendered. A `text/plain` body MUST be returned as served whatever it
 contains, because a conversion guesses at structure and guessing on a body
 the publisher declared as plain text costs more than it returns: a Markdown
 file that opens with a block of inline HTML was extracted as an article and
-lost every line after it. Any other accepted text body SHALL be returned as
-the content unchanged. Text SHALL be decoded with the
+lost every line after it. Any other accepted text body MUST be returned as
+the content unchanged. Text MUST be decoded with the
 charset from the `Content-Type`
 parameter when present, else with a `<meta charset>` declaration found in the
 first 2 KiB of the body, else as UTF-8.
@@ -1582,7 +1582,8 @@ first 2 KiB of the body, else as UTF-8.
 
 - **WHEN** a locator serves `image/png` and the body's leading bytes are a PNG image of 1600 by 900 pixels
 - **THEN** the read returns the image result with `method` `image`, `mediaType` `image/png`, `width` 1600, and `height` 900, and no `media` field
-- **AND** the result carries no `content`, and the body is decoded without being stored
+- **AND** the result carries no `content`, and the body is decoded without a media object
+- **AND** the stored tool part keeps the image's retained bytes
 
 #### Scenario: The bytes decide the image format
 
@@ -1617,7 +1618,8 @@ first 2 KiB of the body, else as UTF-8.
 
 - **WHEN** a locator serves `application/pdf` and the body is a 15-page PDF of 2,215,244 bytes that starts `%PDF-`
 - **THEN** the read returns the PDF result with `method` `pdf`, `mediaType` `application/pdf`, `pages` 15, and `byteSize` 2215244, and no `media` field
-- **AND** the result carries no `content`, and the body is parsed without being stored
+- **AND** the result carries no `content`, and the body is parsed without a media object
+- **AND** the stored tool part keeps the PDF's retained bytes
 
 #### Scenario: A declared PDF over other bytes is refused
 
@@ -4094,11 +4096,11 @@ and the PDF signature `%PDF-` before any UTF-8 decoding or line counting.
 
 ### Requirement: Image reads are decoded without being stored
 
-An image detected on any source other than `media://` SHALL be decoded by the worker with the
-`media-store` image preparation and SHALL NOT be written to the media store, whether the model or a
-prompt import reads it. The worker SHALL keep it only in the reading attempt's memory, as
-`media-attachments` defines. Every such read SHALL decode its bytes afresh and SHALL reuse no image
-or identifier from an earlier read.
+The worker MUST decode an image from a source other than `media://` with the `media-store` image
+preparation. The worker MUST NOT write it to the media store, for a model read and for a
+prompt-import read. The stored part MUST keep its model variant as the retained bytes that
+`media-attachments` defines. Each such read MUST decode its bytes again and MUST reuse no image or
+identifier from an earlier read.
 
 #### Scenario: A read image creates no media object
 
@@ -4109,14 +4111,15 @@ or identifier from an earlier read.
 #### Scenario: A prompt-import read is not stored either
 
 - **WHEN** a prompt import reads `/work/shot.png` through `read` with system origin `prompt-import`
-- **THEN** the result is the same image result a model `read` returns
+- **THEN** the result is the same image result that a model `read` returns
 - **AND** no media object is created
 
 #### Scenario: Re-reading an image decodes it again
 
 - **WHEN** the model reads `/work/shot.png` in one turn and again in a later turn
-- **THEN** the later read decodes the file afresh and returns an image result with no `media` field
+- **THEN** the later read decodes the file again and returns an image result with no `media` field
 - **AND** the later read's image is attachable in the later turn's Run
+- **AND** the earlier read keeps its own retained bytes
 
 ### Requirement: Image decode refusals fail the read
 
@@ -4277,7 +4280,11 @@ Only a `media://` read's PDF result SHALL carry `media`, the stored object's loc
 
 ### Requirement: PDF reads are parsed without being stored
 
-A PDF detected on any source other than `media://` SHALL be parsed by the worker with the preparation `media-store` applies to an uploaded PDF and SHALL NOT be written to the media store, whether the model or a prompt import reads it. The worker SHALL keep it only in the reading attempt's memory, as `media-attachments` defines. Every such read SHALL parse its bytes afresh and SHALL reuse no PDF or identifier from an earlier read.
+The worker MUST parse a PDF from a source other than `media://` with the preparation that
+`media-store` applies to an uploaded PDF. The worker MUST NOT write it to the media store, for a
+model read and for a prompt-import read. The stored part MUST keep its original as the retained
+bytes that `media-attachments` defines. Each such read MUST parse its bytes again and MUST reuse no
+PDF or identifier from an earlier read.
 
 #### Scenario: A read PDF creates no media object
 
@@ -4288,14 +4295,15 @@ A PDF detected on any source other than `media://` SHALL be parsed by the worker
 #### Scenario: A prompt-import PDF read is not stored either
 
 - **WHEN** a prompt import reads `/docs/paper.pdf` through `read` with system origin `prompt-import`
-- **THEN** the result is the same PDF result a model `read` returns
+- **THEN** the result is the same PDF result that a model `read` returns
 - **AND** no media object is created
 
 #### Scenario: Re-reading a PDF parses it again
 
 - **WHEN** the model reads `/docs/paper.pdf` in one turn and again in a later turn
-- **THEN** the later read parses the file afresh and returns a PDF result with no `media` field
+- **THEN** the later read parses the file again and returns a PDF result with no `media` field
 - **AND** the later read's PDF is attachable in the later turn's Run
+- **AND** the earlier read keeps its own retained bytes
 
 ### Requirement: A selector on a PDF is refused
 

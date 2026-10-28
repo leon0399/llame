@@ -1,9 +1,9 @@
 Track [#1422](https://github.com/leon0399/llame/issues/1422) and its PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Keep live status in the Project.
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Each layer is
 created and published with `$gh-stack` and implemented with `$openspec-apply-change`. Each layer is
-self-reviewed before it is marked ready and monitored per [CONTRIBUTING.md](../../../CONTRIBUTING.md).
+self-reviewed before it is marked ready and monitored per [CONTRIBUTING.md](../../../../CONTRIBUTING.md).
 The implementation layer also gets a code-review, a simplification-review, and a ponytail-review
 pass on its draft diff before ready.
 
@@ -42,9 +42,9 @@ Budget:
       `pnpm format:check`, and `git diff --check`.
 - [x] 1.3 Run two rounds of `$iterative-review-refinement` with two independent reviewers each;
       commit each round separately and record the finding counts in the PR body.
-- [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
+- [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../../REVIEW_GUIDE.md)
       before ready.
-- [ ] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
+- [x] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
 
 ## 2. Inline parts
 
@@ -90,16 +90,16 @@ Create `retain-read-media/inline-parts` from `retain-read-media/proposal` with `
       `git diff --check`.
 - [x] 2.12 SR: self-review the draft diff, then run the code-review, simplification-review, and
       ponytail-review passes; fix the accepted findings before ready.
-- [ ] 2.13 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
+- [x] 2.13 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
 
 ## 3. Finalize
 
 Enter `retain-read-media/finalize` from `retain-read-media/inline-parts` with `$gh-stack` before
 `$openspec-sync-specs` writes.
 
-- [ ] 3.1 Run `$openspec-sync-specs`, and update the `media-attachments` Purpose to name part
+- [x] 3.1 Run `$openspec-sync-specs`, and update the `media-attachments` Purpose to name part
       retention; verify with `pnpm exec openspec validate --specs --strict`.
-- [ ] 3.2 Confirm every task above is checked and `openspec status --change retain-read-media
+- [x] 3.2 Confirm every task above is checked and `openspec status --change retain-read-media
   --json` reports all artifacts done; verify with `pnpm exec openspec validate --all --strict`.
 
 ## Workflow follow-up

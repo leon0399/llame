@@ -2,10 +2,11 @@
 
 ## Purpose
 
-Lets an owner attach stored images to a chat message, defines how every image reference in a chat's
-history reaches a model as an image or as a placeholder, retains unstored tool-read and
-prompt-import images in the reading attempt's memory only, stores a display-only inline thumbnail for
-each unstored image, and keeps text-only surfaces free of image content.
+Lets an owner attach stored images and PDFs to a chat message, defines how every image and PDF
+reference in a chat's history reaches a model as media or as a placeholder, retains the model bytes
+of unstored tool-read and prompt-import media in their stored part until compaction, keeps those
+bytes on the server, stores a display-only inline thumbnail for each unstored image, and keeps
+text-only surfaces free of media content.
 
 ## Requirements
 
@@ -117,10 +118,11 @@ same kind from 1.
 
 ### Requirement: Tool-result and prompt-import images reach the model with their text
 
-A `read` result that carries an image SHALL reach the model as a tool output carrying the result's
-text followed by the image. An image entry of a prompt-imports item SHALL reach the model as an image
-after the item's text. Each image SHALL be the model variant: the stored one, read from storage at
-request time, for a `media://` result or entry, and otherwise the one the attempt's memory holds.
+A `read` result that carries an image MUST reach the model as a tool output that carries the
+result's text and then the image. An image entry of a prompt-imports item MUST reach the model as
+an image after the item's text. Each image MUST be the model variant. For a `media://` result or
+entry, the system reads the stored variant from storage at request time. For each other result or
+entry, the system uses the retained variant in its stored part.
 
 #### Scenario: A read image reaches the model as tool output
 
@@ -135,182 +137,372 @@ request time, for a `media://` result or entry, and otherwise the one the attemp
 - **THEN** that tool result's output carries the result's text and the stored model variant of
   `media://<id>`
 
-### Requirement: Unstored images are retained in attempt memory only
+### Requirement: Unstored images and PDFs are retained in their stored part
 
-For an image result or prompt-import image entry without a `media` locator, the worker SHALL keep an
-entry in the memory of the attempt that read it, keyed by the tool call id or by the item entry, and
-SHALL persist it nowhere. Later steps of that attempt SHALL attach a retained model variant under the
-epoch image window.
+Each successful image or PDF `read` result without a `media` locator MUST keep its retained bytes
+in `retainedMedia` in its stored part, under the per-message bound. Each such prompt-import entry
+MUST do the same. For an
+image, the retained bytes are the model variant, with its media type and dimensions. For a PDF,
+they are the original. Retention MUST NOT depend on the locator scheme or the declared input.
 
-#### Scenario: A read image is attached in the later steps of its Run
+#### Scenario: A read image is retained in its tool part
 
-- **WHEN** a Run on a vision model reads `/work/shot.png`, an image, and continues for two more
-  steps
-- **THEN** both later steps' requests carry its model variant as an image part when the epoch image
-  window attaches it
+- **WHEN** a Run on a model that declares `image` input reads `/work/shot.png`, a 1600×900 PNG
+- **THEN** the stored tool part keeps the model variant with its media type, width, and height
+- **AND** the result's `kind`, `mediaType`, `width`, `height`, `path`, and `thumbnail` stay as
+  `read` returned them
 
-### Requirement: Every attempt starts with empty image memory
+#### Scenario: A text-only model's read is retained
 
-Every attempt SHALL start with empty memory: a Run's first attempt, a retry, and a resume alike, on
-the same worker or another. An attempt's memory SHALL be dropped when the attempt ends, and attempts
-SHALL never share memory, a superseded attempt that is still running included.
+- **WHEN** a Run on a model that does not declare `image` input reads `/work/shot.png`
+- **THEN** the stored tool part keeps the model variant of the image
+- **AND** each request of that model carries the omitted placeholder for that read
 
-#### Scenario: A same-worker retry starts empty
+#### Scenario: Every locator scheme is retained
 
-- **WHEN** an attempt that read an image fails and the Run is retried on the same worker
-- **THEN** the retry attempt's memory holds no entry for that image
-- **AND** the retry's requests carry the same placeholder a retry on another worker would
+- **WHEN** the model reads an image from a host path, a `file://`, `machine://`, `kb://`, or
+  `skill://` locator, or an `http://` or `https://` locator
+- **THEN** each stored tool part keeps the model variant of the image that its read returned
 
-### Requirement: Attempt memory retains only the images the window attaches
+#### Scenario: A read PDF is retained
 
-An image entry SHALL hold the model variant's bytes and byte size when the attempt's model declares
-`image` input, and only the locator and original dimensions otherwise; holding an entry SHALL
-neither count nor cap anything. Each time a request is composed, the composer SHALL release the
-bytes of every unstored reference the epoch image window does not attach, so the attempt's retained
-bytes are those the window attached.
+- **WHEN** a Run reads `/work/paper.pdf`, a 15-page PDF
+- **THEN** the stored tool part keeps the original of the PDF
 
-#### Scenario: Retained bytes stay within the window's budget
+#### Scenario: A prompt-import entry is retained
 
-- **WHEN** a Run on a vision model whose epoch carries no images `read`s ten images in successive
-  steps, each with a 5 MiB base64 model variant
-- **THEN** after each step's request is composed, the attempt's memory retains the model variants of
-  the first five reads only, at most 28 MiB of base64 in sum
-- **AND** it keeps only the locator, dimensions, and model-variant byte size of the other five, which
-  reach the model as the limit placeholder
+- **WHEN** the owner's message imports `@shot.png`, a PNG, or `@paper.pdf`, a PDF
+- **THEN** the stored entry of the `prompt-imports` item keeps the image's model variant or the
+  PDF's original
 
-#### Scenario: A text-only model's read retains no bytes
+### Requirement: Retained media reaches every later request of its epoch
 
-- **WHEN** a Run on a model that does not declare `image` input reads `/work/shot.png`, a 1600×900
-  image
-- **THEN** the attempt's memory keeps only the read's locator and dimensions
-- **AND** that read reaches every later step as the omitted placeholder
+A request MUST project a retained image or PDF from its stored part, as it projects a stored
+object. This MUST apply to a later step, a later turn, a Continue Run, an owner fork, and a
+compaction request. It MUST also apply to a reply that a settler rebuilt from the event log. The epoch image window MUST
+select each retained reference as it selects each other reference.
 
-#### Scenario: A compacting attempt admits its prompt import in the new epoch
+#### Scenario: A later turn attaches a read image
 
-- **WHEN** a vision-model chat's epoch carries 100 attached owner attachments in earlier turns, and
-  the owner's next message imports `@shot.png`, so the attempt compacts before its first model step
-- **THEN** the import's model variant is retained
-- **AND** the attempt's first request sends it as an image under the new epoch
+- **WHEN** a turn on a model that declares `image` input follows a Run that read `/work/shot.png`,
+  and the epoch image window attaches that reference
+- **THEN** the request carries the retained model variant as an image part after that read's
+  result text
+- **AND** the later turn does not read the file again
 
-#### Scenario: The byte bound holds however many steps a Run takes
+#### Scenario: A later turn attaches a read PDF
 
-- **WHEN** any attempt composes requests across any number of steps
-- **THEN** after each compose the attempt's retained bytes stay at most 28 MiB of base64 in sum
+- **WHEN** a turn on a model that declares `pdf` input follows a Run that read `/work/paper.pdf`,
+  and the epoch image window attaches that reference
+- **THEN** the request carries the retained original as a PDF after that read's result text
 
-### Requirement: A released entry is sized and refused again
+#### Scenario: A Continue Run attaches a kept read
 
-Releasing an image entry's bytes SHALL keep its locator, dimensions, and model-variant byte size, so
-the epoch image window sizes the reference again at every later compose of the attempt and,
-admission being append-only, leaves it unattached again. A reference the window attaches whose entry
-holds no bytes SHALL reach the model as the not-retained placeholder; this is a guard that
-append-only admission within an attempt makes unreachable in practice.
+- **WHEN** a failed reply holds a `read` result of `/work/shot.png`, and the owner continues the
+  turn on a model that declares `image` input
+- **THEN** the Continue Run's requests carry the retained model variant of that kept read when the
+  epoch image window attaches it
 
-#### Scenario: A released read stays unattached in later steps
+#### Scenario: A rebuilt reply keeps its read
 
-- **WHEN** a Run on a vision model whose epoch carries no images `read`s six images in successive
-  steps, each with a 5 MiB base64 model variant, and then reads a small image
-- **THEN** the sixth read's entry keeps its 5 MiB base64 byte size after its bytes are released
-- **AND** every later step's request sends the first five reads as images and the sixth and seventh
-  as the limit placeholder
+- **WHEN** a settler without the live part collector rebuilds a reply from the event log, and that
+  reply holds a `read` result of `/work/shot.png`
+- **THEN** the rebuilt tool part keeps the retained model variant
+- **AND** a later turn on a model that declares `image` input attaches it when the epoch image
+  window attaches the reference
 
-### Requirement: An unstored image outside its attempt is not retained
+#### Scenario: An owner fork attaches a read image
 
-A request composed where the current attempt's memory holds no entry for an unstored image (a later
-turn, a retry or a resume, which starts a new attempt on any worker, a compaction request, or a
-fork) SHALL carry, in the image's position, the not-retained placeholder
-`[image <locator> <width>×<height>, not retained]` when the request's
-model declares `image` input, and the omitted placeholder otherwise.
+- **WHEN** the owner forks a chat whose copied rows hold a `read` result of `/work/shot.png`, and
+  the fork's next turn uses a model that declares `image` input
+- **THEN** the fork's request carries the retained model variant when the epoch image window
+  attaches the reference
 
-#### Scenario: A later turn receives the not-retained placeholder
+#### Scenario: A new attempt of the same Run reads again
 
-- **WHEN** a turn on a vision model follows a Run that read `/work/shot.png`, a 1600×900 image
-- **THEN** that read's result reaches the model as
-  `[image "/work/shot.png" 1600×900, not retained]`
-- **AND** the request carries no image part for it
+- **WHEN** an attempt reads `/work/shot.png`, its worker stops, and the same Run starts a new
+  attempt
+- **THEN** the new attempt's requests carry no output of the earlier attempt, as `durable-runs`
+  defines
+- **AND** an image that the new attempt reads is retained in its own tool part
 
-#### Scenario: A new attempt does not hold an earlier attempt's images
+#### Scenario: A switch to a vision model attaches an earlier read
 
-- **WHEN** a Run on a vision model read an image and is then retried or resumed as a new attempt, on
-  the same worker or another, while the superseded attempt may still be running in the same process
-- **THEN** each of the new attempt's requests carries the not-retained placeholder for that image
-- **AND** the image is attached again only after the new attempt's model reads it again
+- **WHEN** a turn on a text-only model read `/work/shot.png`, and the next turn of the same epoch
+  uses a model that declares `image` input
+- **THEN** the next request carries the retained model variant when the epoch image window
+  attaches the reference
 
-#### Scenario: A later text-only turn receives the omitted placeholder
+### Requirement: Each read retains the bytes it read
 
-- **WHEN** a turn on a model that does not declare `image` input follows a Run that read
-  `/work/shot.png`, a 1600×900 image
-- **THEN** that read's result reaches the model as
-  `[image "/work/shot.png" 1600×900, omitted: this model has no image input]`
+Each `read` call and each import entry MUST keep its own retained bytes. Two reads of one file MUST
+be two references, and the epoch image window MUST count each of them. When a file changes between
+two reads, each read MUST replay with the bytes of its own read time.
+
+#### Scenario: Two reads of one file attach twice
+
+- **WHEN** a Run on a model that declares `image` input reads the unchanged file `/work/shot.png`
+  in two steps, and the epoch image window attaches both references
+- **THEN** each later request carries two image parts, one after each result's text
+- **AND** the window counts two images
+
+#### Scenario: A changed file keeps each version
+
+- **WHEN** a Run reads `/work/shot.png`, the file then changes on disk, and a later step reads it
+  again
+- **THEN** each later request carries the first read's model variant after the first result
+- **AND** it carries the second read's model variant after the second result
+
+### Requirement: Retained bytes stay on the server
+
+Retained bytes MUST NOT be in a client response, a stream frame, model-facing text, or an
+application log. They MUST NOT be in a conversation read, a search index, a title input, or a
+recency digest. They MUST NOT be in a public share or a shared fork. The chat history response and
+the run event stream MUST remove them. Retained bytes leave the server only in an attached image or
+PDF part of a provider request.
+
+#### Scenario: The history response omits retained bytes
+
+- **WHEN** the owner reads the messages of a chat whose reply holds a retained `read` image
+- **THEN** the response carries the tool part with its result and its `thumbnail`
+- **AND** no part of the response carries the retained bytes
+
+#### Scenario: The stream omits retained bytes
+
+- **WHEN** a live or replayed Run stream reports a `read` call that retained an image or a PDF
+- **THEN** no stream frame carries the retained bytes
+
+#### Scenario: The run event stream omits retained bytes
+
+- **WHEN** the owner reads the events of a Run whose `tool.completed` or `run.continued` event holds
+  retained bytes
+- **THEN** each event frame carries its payload without the retained bytes
+
+#### Scenario: Model-facing text omits retained bytes
+
+- **WHEN** any request replays a retained `read` result or prompt-import entry
+- **THEN** the result text and the item text carry no part of the retained bytes
+
+#### Scenario: A prompt-import entry's bytes are not in the history response
+
+- **WHEN** the owner reads the messages of a chat whose user message imported `@shot.png`
+- **THEN** the image entry of the `prompt-imports` item carries its `thumbnail`, `width`, `height`,
+  and `mediaType`
+- **AND** it carries no retained bytes
+
+### Requirement: Retained bytes count toward no text budget
+
+The tool-result truncation cap, the replay budgets, the prompt-import output bound, and each
+request-size estimate MUST exclude retained bytes. An attached image MUST keep its dimension
+charge, and an attached PDF MUST keep its page charge.
+
+#### Scenario: A large retained PDF does not clear its pair
+
+- **WHEN** a later turn replays a `read` result whose retained original is 18 MiB, and the pair's
+  text fits its replay budget
+- **THEN** the system does not clear or drop the pair's payload because of the PDF
+
+#### Scenario: Truncation does not cut retained bytes
+
+- **WHEN** a `read` returns an image whose model variant is 3 MiB
+- **THEN** the tool result is not marked `truncated` because of the model variant
+- **AND** the retained bytes are complete
+
+#### Scenario: Retained bytes do not change the estimate
+
+- **WHEN** two otherwise identical requests each carry one retained 2000×1125 image, one model
+  variant of 200 KiB and one of 3.7 MiB
+- **THEN** both requests receive the same estimate
+
+### Requirement: A result without retained bytes replays as its text
+
+Some image or PDF results and import entries have no `media` locator and no `retainedMedia`. Each
+of them MUST reach each request as its result text only. It MUST carry no image part, no file part,
+and no placeholder. It MUST NOT count toward the epoch image window, and it MUST NOT fail the
+request. It MUST NOT be an image or PDF reference. Results stored before retention have this form.
+
+#### Scenario: An earlier result without retained bytes replays as text
+
+- **WHEN** a later turn on a model that declares `image` input replays an image `read` result of
+  `/work/shot.png` that has no `retainedMedia`
+- **THEN** the request carries that result's text, which names `kind` `image`, its dimensions, and
+  its path
+- **AND** the request carries no image part and no placeholder for it, and the Run continues
+
+#### Scenario: An import entry without retained bytes replays as text
+
+- **WHEN** a later turn replays a `prompt-imports` item whose image entry has no `retainedMedia`
+- **THEN** the request carries the item's text and no image part or placeholder for that entry
+
+### Requirement: Retained bytes live and end with their chat
+
+Retained bytes MUST be stored only in the chat's message parts and in the server-side run events of
+the chat's Runs. A queue job MUST NOT carry them. The system MUST NOT create a media object for
+them, and the media list MUST NOT show them. Deletion of the chat MUST delete them. An owner fork
+MUST copy them with the rows that it copies.
+
+#### Scenario: A retained read creates no media object
+
+- **WHEN** the model reads `/work/shot.png`, a PNG image
+- **THEN** the Run owner holds no media object for those bytes
+- **AND** the owner's media list does not change
+
+#### Scenario: Chat deletion deletes retained bytes
+
+- **WHEN** the owner deletes a chat whose replies hold retained reads
+- **THEN** no message part and no run event keeps those retained bytes
+
+#### Scenario: A queue job carries no retained bytes
+
+- **WHEN** the owner continues or regenerates a turn whose user message imported `@shot.png`
+- **THEN** the queued job's copy of that message carries no retained bytes
+- **AND** the Run's requests still attach the import from the stored message
+
+#### Scenario: A shared fork copies no retained bytes
+
+- **WHEN** another user forks a shared or public chat whose replies hold retained reads
+- **THEN** the fork's rows carry no tool part and no retained bytes
+
+### Requirement: Stored parts carry no request-built media data
+
+A stored part MUST name a stored object only by its `media://` locator. It MUST NOT carry a
+`data:` URL or base64 data that the system built for a request. The only media data that a stored
+part carries MUST be the display-only `thumbnail` and the retained bytes.
+
+#### Scenario: A completed vision Run stores no request data
+
+- **WHEN** a Run sends an attached stored image and a `read` image to a vision model and completes
+- **THEN** the stored user message part carries the attachment's `media://` locator and no bytes
+- **AND** the stored tool part carries the read's result, its `thumbnail`, and its retained bytes,
+  and no request-built `data:` URL
+
+### Requirement: Retained bytes are bounded in each stored message
+
+Each stored message MUST keep at most 29,360,128 bytes of retained base64 across all its parts. The
+system MUST count the reads of a reply in the order that it settles them. A read or import entry
+whose base64 would exceed the rest of that bound MUST keep no bytes. Its `retainedMedia` MUST then
+be the record `{ "exceeded": true }`. The read or import itself MUST succeed.
+
+#### Scenario: A read past the message bound keeps no bytes
+
+- **WHEN** a Run on a model that declares `pdf` input settles ten reads of 20 MiB PDFs in one reply
+- **THEN** the first settled read keeps its retained original, because its 27,962,028 base64 bytes
+  fit
+- **AND** the other nine reads keep no bytes, return their normal results, and record that the
+  bound is exceeded
+
+#### Scenario: A small read after a large one can still fit
+
+- **WHEN** a reply already keeps 27,962,028 base64 bytes, and the Run then reads a 400 KiB image
+  whose model variant is 300,000 bytes
+- **THEN** that image keeps its retained bytes, because its 400,000 base64 bytes fit the rest of
+  the bound
+
+#### Scenario: The bound includes the kept parts of a Continue Run
+
+- **WHEN** a Continue Run keeps a reply part that holds 27,962,028 retained base64 bytes, and the Run
+  then reads a 20 MiB PDF
+- **THEN** that read keeps no bytes and records that the bound is exceeded
+
+#### Scenario: The live step, the event, and the stored part agree
+
+- **WHEN** a read exceeds the bound in a live attempt
+- **THEN** the next step of that attempt, its `tool.completed` event, its stored part, and a reply
+  rebuilt from the event log all treat it as past the bound
+
+### Requirement: A read past the message bound takes the limit placeholder
+
+A result or import entry whose `retainedMedia` records an exceeded bound MUST reach each request as
+the limit placeholder of its kind. On a model that does not declare its kind, it MUST reach the
+request as the omitted placeholder. On a model that declares its kind, the window MUST treat it as
+the first reference past a bound. So the window attaches no later reference of that epoch. It MUST count as
+an unattached reference for the overflow trigger.
+
+#### Scenario: A sixth large read takes the limit placeholder
+
+- **WHEN** a Run on a vision model reads six images in one reply, each with a 5 MiB base64 model
+  variant
+- **THEN** the sixth read records that the bound is exceeded
+- **AND** each later request of the epoch carries the sixth read as
+  `[image "<locator>" <width>×<height>, not attached: this context's image limit is reached]`
+
+#### Scenario: A text-only model receives the omitted placeholder for a read past the bound
+
+- **WHEN** a request on a model that does not declare `pdf` input replays a PDF read that records an
+  exceeded bound
+- **THEN** the read reaches the model as the PDF omitted placeholder
 
 ### Requirement: No placeholder directs the model to read an image again
 
-No image placeholder SHALL direct the model to read the image again. A compaction request, the step
-at the step cap, and a Run whose `tools.allowed` omits `read` cannot act on such a directive, and
-the `read` tool description tells the model that an image read outside `media://` is read again in
-a later turn; the not-retained placeholder names the exact locator for that read.
+An image placeholder MUST NOT direct the model to read the image again. A compaction request, the
+step at the step cap, and a Run whose `tools.allowed` omits `read` cannot act on such a directive.
+The placeholder of an unstored image MUST name the exact locator of a later `read`.
 
 #### Scenario: A compaction request carries no re-read directive
 
 - **WHEN** a compaction request on a vision model summarizes a row whose `read` result is an
-  unstored 1600×900 image of `/work/shot.png`
-- **THEN** that result reaches the summarizer as `[image "/work/shot.png" 1600×900, not retained]`
+  unstored 1600×900 image of `/work/shot.png`, and the epoch image window does not attach it
+- **THEN** that result reaches the summarizer as
+  `[image "/work/shot.png" 1600×900, not attached: this context's image limit is reached]`
 - **AND** no placeholder in the request tells the model to read an image again
 
 ### Requirement: Each image reference takes exactly one model-facing form
 
-Each image reference SHALL reach the model as exactly one of these forms, chosen in this order: the
-unavailable placeholder for a `media://` reference that does not resolve; the omitted placeholder
-when the request's model does not declare `image` input; the not-retained placeholder for an
-unstored image whose attempt-memory entry is absent or, when the window attaches it, holds no
-bytes; an image part when the epoch image window attaches it; and the limit placeholder otherwise.
+Each image reference MUST reach the model as exactly one form. A result with neither `media` nor
+`retainedMedia` MUST NOT be a reference. The system MUST select the first form that applies, in this order:
+
+- the unavailable placeholder, for a `media://` reference that does not resolve;
+- the omitted placeholder, when the request's model does not declare `image` input;
+- an image part, when the epoch image window attaches the reference;
+- the limit placeholder, in all other cases.
 
 #### Scenario: Missing image input outranks retention
 
-- **WHEN** a text-only model's request replays an image `read` from an earlier turn
+- **WHEN** a text-only model's request replays a retained image `read` from an earlier turn
 - **THEN** that read reaches the model as the omitted placeholder
-- **AND** no placeholder in the request contains `not retained`
+- **AND** the request carries no image part for it
 
 ### Requirement: Image placeholders name the image by its locator
 
-A placeholder SHALL name a stored object by `media://<id> <name>`, with `<name>` its single-line
-source label that `media-store` defines, and an unstored image by its locator, the one the model
-submitted to `read` or the owner wrote in the import marker, written as a JSON string literal. Its
-dimensions SHALL be the original's.
+A placeholder MUST name a stored object by `media://<id> <name>`. `<name>` is its single-line
+source label, as `media-store` defines. A placeholder MUST name an unstored image by its locator,
+written as a JSON string literal. That locator is the one that the model gave to `read` or that the
+owner wrote in the import marker. The dimensions MUST be the original's.
 
 #### Scenario: A placeholder names the submitted locator
 
 - **WHEN** a Workspace-bound Run's model reads `docs/shot.png`, a 1600×900 image, and a later turn
-  replays that result on a vision model
+  replays that result on a text-only model
 - **THEN** the result reaches the model as
-  `[image "docs/shot.png" 1600×900, not retained]`
+  `[image "docs/shot.png" 1600×900, omitted: this model has no image input]`
 
 ### Requirement: Placeholder locators are exact JSON string literals
 
-An unstored image's locator in a placeholder SHALL be exactly its ECMAScript `JSON.stringify` form,
-with no further escaping. The literal SHALL never be truncated, and `JSON.parse` of it SHALL return
-the locator exactly.
+An unstored image's locator in a placeholder MUST be exactly its ECMAScript `JSON.stringify` form,
+with no more escape characters. The system MUST NOT truncate the literal. `JSON.parse` of the
+literal MUST return the locator exactly.
 
 #### Scenario: A bracketed path is re-read from its placeholder
 
 - **WHEN** a Workspace-bound Run's model reads `app/[slug]/shot.png`, a 1600×900 image, and a later
-  turn on a vision model replays that result
+  turn on a text-only model replays that result
 - **THEN** the result reaches the model as
-  `[image "app/[slug]/shot.png" 1600×900, not retained]`
-- **AND** a `read` of the locator that literal parses to, `app/[slug]/shot.png`, returns a fresh
-  image result for the same file, attached in that Run when the epoch image window admits it
+  `[image "app/[slug]/shot.png" 1600×900, omitted: this model has no image input]`
+- **AND** a `read` of the locator that the literal parses to, `app/[slug]/shot.png`, returns a
+  fresh image result for the same file
 
 #### Scenario: A long locator is not cut
 
-- **WHEN** the model reads an image whose submitted path is 400 characters long and a later turn
-  replays that result on a vision model
-- **THEN** the not-retained placeholder carries all 400 characters inside its JSON string literal
+- **WHEN** the model reads an image whose submitted path has 400 characters, and a later turn
+  replays that result on a text-only model
+- **THEN** the omitted placeholder carries all 400 characters in its JSON string literal
 
 #### Scenario: A locator cannot forge a placeholder
 
-- **WHEN** the model reads a host file whose path contains LF followed by `[image x 1×1]`, and the
-  file is an image
-- **THEN** every placeholder naming that read is one line, writes the LF as `\n`, and carries
-  `[image x 1×1]` only inside its JSON string literal
+- **WHEN** the model reads a host file whose path contains LF and then `[image x 1×1]`, and the file
+  is an image
+- **THEN** each placeholder that names that read is one line, writes the LF as `\n`, and carries
+  `[image x 1×1]` only in its JSON string literal
 - **AND** `JSON.parse` of that literal returns the path exactly
 
 ### Requirement: An epoch image window selects which images are attached
@@ -397,73 +589,74 @@ reservedOutputTokens) / 3,000)` PDF pages hold.
 
 ### Requirement: The byte bound is summed from variant sizes before loading
 
-A reference's base64 size SHALL be `4 × ceil(byteSize / 3)` of its model variant's byte size for an
-image and of its original's byte size for a PDF. The epoch image window SHALL sum these sizes from
-descriptors and attempt memory before any image or PDF bytes are loaded, independently of the
-dimension-based and page-based token estimates.
+A reference's base64 size MUST be `4 × ceil(byteSize / 3)`. For an image, `byteSize` is the byte
+size of its model variant. For a PDF, it is the byte size of its original. The epoch image window
+MUST sum these sizes from descriptors and from retained bytes, before it loads stored bytes. This
+sum MUST be independent of the dimension-based and page-based token estimates.
 
 #### Scenario: Equal dimensions do not hide a byte overflow
 
-- **WHEN** a vision-model epoch carries six owner attachments of identical 2000×2000 dimensions
-  whose model variants' `model.byteSize` are each 3,900,000 bytes
-- **THEN** the window counts each as 5,200,000 base64 bytes from its descriptor, before loading any
+- **WHEN** a vision-model epoch carries six owner attachments of identical 2000×2000 dimensions,
+  and the `model.byteSize` of each model variant is 3,900,000 bytes
+- **THEN** the window counts each as 5,200,000 base64 bytes from its descriptor, before it loads a
   variant
-- **AND** the first five are sent as images and the sixth reaches the model as the limit placeholder
+- **AND** the first five are sent as images, and the sixth reaches the model as the limit
+  placeholder
 
 #### Scenario: A PDF counts its original's size
 
 - **WHEN** an epoch on a 200,000-token model that declares `image` and `pdf` input carries a stored
-  10-page PDF whose descriptor `byteSize` is 20,971,520 bytes, followed by an owner image whose
+  10-page PDF whose descriptor `byteSize` is 20,971,520 bytes, and then an owner image whose
   `model.byteSize` is 1,200,000 bytes
 - **THEN** the window counts the PDF as 27,962,028 base64 bytes and the image as 1,600,000, before
-  loading either
-- **AND** the PDF is sent as a PDF and the image reaches the model as the limit placeholder
+  it loads either
+- **AND** the PDF is sent as a PDF, and the image reaches the model as the limit placeholder
 
 #### Scenario: Each reference kind reports the byte size the window sums
 
-- **WHEN** any request's epoch image window sums the base64 size of any media reference
-- **THEN** it takes the media descriptor's `model.byteSize` for a stored image, the descriptor's
-  `byteSize` for a stored PDF, and the byte size the attempt-memory entry records for an unstored
-  image or PDF, which the entry keeps after its bytes are released
+- **WHEN** the epoch image window of a request sums the base64 size of a media reference
+- **THEN** it takes the descriptor's `model.byteSize` for a stored image and the descriptor's
+  `byteSize` for a stored PDF
+- **AND** it takes the byte length of the retained model variant for an unstored image, and of the
+  retained original for an unstored PDF
 
 ### Requirement: Only attachable references count toward the window
 
-An attachable reference SHALL be an owner file part, a `media://` tool result or prompt-import entry,
-or an unstored image or PDF, of a kind the request's model declares as input (`image` for an image
-and `pdf` for a PDF). A not-retained, unavailable, or omitted reference SHALL NOT count toward any
-bound of the epoch image window.
+An attachable reference MUST be an owner file part, a `media://` tool result or prompt-import
+entry, or a retained image or PDF. Its kind MUST be one that the request's model declares as
+input: `image` for an image and `pdf` for a PDF. An unavailable or omitted reference, and a result
+with neither `media` nor `retainedMedia`, MUST NOT count toward a bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
-- **WHEN** a vision-model epoch carries 99 attached owner attachments and a `read` image from an
-  earlier turn, and the owner sends a message attaching one more image
+- **WHEN** a vision-model epoch carries 99 attached owner attachments and an image `read` result
+  that has no `retainedMedia`, and the owner sends a message that attaches one more image
 - **THEN** all 100 owner attachments are sent as images
-- **AND** the earlier read reaches the model as the not-retained placeholder
+- **AND** the earlier read reaches the model as its result text only
 
 #### Scenario: A not-retained PDF read does not count
 
-- **WHEN** an epoch on a 400,000-token model that declares `pdf` input carries an 80-page PDF `read`
-  from an earlier turn, and the owner sends a message attaching a stored 80-page PDF
+- **WHEN** an epoch on a 400,000-token model that declares `pdf` input carries an 80-page PDF
+  `read` result that has no `retainedMedia`, and the owner sends a message that attaches a stored
+  80-page PDF
 - **THEN** the owner's PDF is sent as a PDF
-- **AND** the earlier read reaches the model as the not-retained placeholder
+- **AND** the earlier read reaches the model as its result text only
 
 #### Scenario: A PDF on a model without PDF input does not count
 
 - **WHEN** an epoch on a model that declares `image` but not `pdf` input carries a stored 80-page
-  PDF and 99 attached owner image attachments, and the owner sends a message attaching one more
+  PDF and 99 attached owner image attachments, and the owner sends a message that attaches one more
   image
 - **THEN** all 100 owner images are sent as images
 - **AND** the PDF reaches the model as the omitted placeholder
 
 #### Scenario: Attachability covers every reference kind and its source
 
-- **WHEN** any request's epoch carries an owner file part, a `media://` tool result, a `media://`
-  prompt-import entry, an unstored image, or an unstored PDF
-- **THEN** a reference is attachable only when its kind is one the request's model declares as input,
+- **WHEN** the epoch of a request carries an owner file part, a `media://` tool result, a
+  `media://` prompt-import entry, a retained image, or a retained PDF
+- **THEN** a reference is attachable only when the request's model declares its kind as input,
   `image` for an image and `pdf` for a PDF
-- **AND** a `media://` reference is attachable only when it resolves, an unstored image only when the
-  current attempt's memory entry records a model-variant byte size, and an unstored PDF only when
-  that entry records its byte size, its bytes released or not
+- **AND** a `media://` reference is attachable only when it resolves
 
 ### Requirement: Adding an image never changes an earlier attachment
 
@@ -486,38 +679,6 @@ targets among models that declare the same `image` and `pdf` input and the same 
 - **THEN** the new model's request attaches exactly the references the same turn's request would
   attach on the previous model
 - **AND** every reference beyond the epoch's bounds keeps the limit placeholder
-
-### Requirement: Attempt boundaries release unstored images from the window
-
-Append-only admission SHALL have two exceptions: the end of an attempt, and the start of a new
-attempt, a retry or a resume on any worker, whose memory starts empty. At either, the unstored images
-and unstored PDFs an earlier attempt held SHALL become not-retained in later requests and leave the
-window, and the references after them SHALL be admitted again oldest first.
-
-#### Scenario: A Run's unstored images leave the window when it ends
-
-- **WHEN** a Run on a vision model attaches two owner attachments and then reads one image, and the
-  owner sends the next turn
-- **THEN** the next request sends both attachments as images in the same positions
-- **AND** the read reaches the model as the not-retained placeholder and does not count toward the
-  epoch's bounds
-
-#### Scenario: A retry frees the window space of the failed attempt's reads
-
-- **WHEN** a vision-model epoch carries 99 attached owner attachments, an attempt reads one image,
-  which is attached as the 100th, and then fails, and the retry attempt reads another image
-- **THEN** the retry's requests carry the failed attempt's read as the not-retained placeholder
-  without counting it
-- **AND** they send the retry's own read as an image
-
-#### Scenario: A retry frees the window space of the failed attempt's unstored PDF
-
-- **WHEN** an attempt on a 400,000-token model that declares `pdf` input, whose epoch carries no
-  PDFs, reads `/work/report.pdf`, an 80-page PDF, which is attached, then reads `media://<id>`, a
-  stored 30-page PDF, which takes the limit placeholder, and fails, and the Run is retried
-- **THEN** the retry's requests carry the 80-page read as the not-retained placeholder without
-  counting it
-- **AND** they send the stored 30-page PDF as a PDF
 
 ### Requirement: A text-only model receives an omitted placeholder for every image
 
@@ -569,41 +730,42 @@ SHALL instead take the PDF limit placeholder.
 
 ### Requirement: Image overflow compacts at the start of the next Run
 
-A request prepared before a Run's first model step SHALL count as reaching its compaction threshold
-when it carries an image or PDF reference the epoch image window leaves unattached because its
-epoch's bounds are reached, and a row before the triggering user message holds a stored
-reference attachable on the request's model, of a kind that model declares as input. A Run SHALL NOT
-compact after its first model step.
+A request prepared before a Run's first model step MUST count as at its compaction threshold when
+two conditions are true. First, it carries an image or PDF reference that the epoch image window
+does not attach because the epoch's bounds are reached. Second, a row before the triggering user
+message holds a stored or retained reference of a kind that the request's model declares. A Run
+MUST NOT compact after its first model step.
 
 #### Scenario: Image overflow triggers compaction at the next Run
 
 - **WHEN** a vision-model chat's epoch carries 100 attached owner attachments in earlier turns, the
-  request fits the model's window, and the owner sends a message attaching one more image
+  request fits the model's window, and the owner sends a message that attaches one more image
 - **THEN** the threshold-triggered compaction runs on the Run's own model before its first model
   step
-- **AND** the Run's request admits the triggering message's image under the new epoch and sends it as
-  an image
+- **AND** the Run's request admits the triggering message's image under the new epoch and sends it
+  as an image
 
 #### Scenario: Overflow in the triggering message alone does not compact
 
-- **WHEN** a vision-model chat's epoch carries no image or PDF before the triggering user message
+- **WHEN** a vision-model chat's epoch carries no image or PDF before the triggering user message,
   and that message attaches 10 images whose 5 MiB base64 model variants exceed the byte bound
 - **THEN** no compaction runs
-- **AND** the five oldest images are sent as images and the rest reach the model as the limit
+- **AND** the five oldest images are sent as images, and the others reach the model as the limit
   placeholder
 
 #### Scenario: An image read beyond the bounds inside a Run does not compact
 
 - **WHEN** a Run on a vision model reads an image after its epoch's bounds are reached
 - **THEN** that `read` result reaches the next step as the limit placeholder
-- **AND** no compaction runs before the Run ends, and the next turn carries that result as the
-  not-retained placeholder without counting it
+- **AND** no compaction runs before the Run ends
+- **AND** the next Run compacts before its first model step, because that read is a retained
+  reference in an earlier row
 
 #### Scenario: PDF overflow triggers compaction at the next Run
 
 - **WHEN** a chat on a 400,000-token model that declares `pdf` input carries a stored 80-page PDF
-  attached in an earlier turn of its epoch, the request fits the model's window, and the owner sends
-  a message attaching a stored 30-page PDF
+  that an earlier turn of its epoch attached, the request fits the model's window, and the owner
+  sends a message that attaches a stored 30-page PDF
 - **THEN** the threshold-triggered compaction runs on the Run's own model before its first model
   step
 - **AND** the Run's request admits the 30-page PDF under the new epoch and sends it as a PDF
@@ -611,23 +773,23 @@ compact after its first model step.
 #### Scenario: A stored PDF does not enable image overflow on a model without PDF input
 
 - **WHEN** a chat on a model that declares `image` but not `pdf` input carries only a stored PDF in
-  the rows before the triggering user message, and that message's own images exceed the epoch's
+  the rows before the triggering user message, and the images of that message exceed the epoch's
   bounds
 - **THEN** no compaction runs
-- **AND** the overflowing images reach the model as the limit placeholder
+- **AND** the images that overflow reach the model as the limit placeholder
 
 #### Scenario: A PDF over the model's page bound does not fail later turns
 
-- **WHEN** a chat on a 200,000-token model that declares `pdf` input has a first message attaching a
-  stored 64-page PDF, and the owner sends a second message that fits the model's window
-- **THEN** neither turn fails, and the first turn proceeds without compaction, its request carrying
-  the PDF as the PDF limit placeholder
+- **WHEN** a chat on a 200,000-token model that declares `pdf` input has a first message that
+  attaches a stored 64-page PDF, and the owner sends a second message that fits the model's window
+- **THEN** neither turn fails, and the first turn continues without compaction, with the PDF as
+  the PDF limit placeholder in its request
 - **AND** the second Run's threshold-triggered compaction runs before its first model step, because
   the PDF is a stored reference in an earlier row, and absorbs the first message's row
 
 #### Scenario: The overflow trigger selects the compaction variant for its Run
 
-- **WHEN** any request counts as reaching its compaction threshold from overflow
+- **WHEN** a request counts as at its compaction threshold because of overflow
 - **THEN** it triggers the compaction variant that `model-system-prompts` selects for it
 
 #### Scenario: An overflow compaction starts an epoch that admits oldest first again
@@ -637,9 +799,10 @@ compact after its first model step.
 
 #### Scenario: The stored reference must be of a declared input kind
 
-- **WHEN** an overflowing request's earlier rows hold a stored image or a stored PDF
-- **THEN** the stored image counts as that stored reference only on a model that declares `image`
-  input, and the stored PDF only on a model that declares `pdf` input
+- **WHEN** the earlier rows of a request that overflows hold a stored or retained image, or a
+  stored or retained PDF
+- **THEN** the image counts as that reference only on a model that declares `image` input
+- **AND** the PDF counts as that reference only on a model that declares `pdf` input
 
 ### Requirement: A failed overflow compaction never fails the Run
 
@@ -769,35 +932,19 @@ a request it has already transformed SHALL change nothing.
 - **THEN** the Run's next model step receives the image in a user-role message after the tool message
 - **AND** that step's request carries exactly one `Files from tool results:` message for that read
 
-### Requirement: Stored parts never carry model image bytes
-
-Persisted message parts, including user file parts, tool results, and context items, SHALL name
-images only by their `media://` locator or by their source attribution. Image bytes, base64 model
-variants, and `data:` URLs built for a request SHALL NOT be persisted to any message part; the only
-image data a part may carry is the display-only `thumbnail` of an unstored image.
-
-#### Scenario: A completed vision Run stores no model image data
-
-- **WHEN** a Run sends an attached image and a `read` image to a vision model and completes
-- **THEN** the stored user message part contains the attachment's `media://` locator and the stored
-  tool part contains the read's source attribution and its `thumbnail`
-- **AND** no stored part contains base64 model-variant data or a `data:` URL other than that
-  `thumbnail`
-
 ### Requirement: Image bytes join a request only when attached
 
-A Run's live tool outputs SHALL carry no image bytes: an unstored image's model variant SHALL stay in
-the attempt's memory outside the tool output until a step's request is composed, and a `media://`
-reference's bytes SHALL be loaded from storage only for the references the epoch image window
-attaches.
+A Run's model-facing tool outputs MUST carry no image bytes. The retained model variant of an
+unstored image MUST stay outside the tool output until the system composes a step's request. The
+system MUST load the bytes of a `media://` reference from storage only for the references that the
+epoch image window attaches.
 
 #### Scenario: Only attached references reach a step's request
 
-- **WHEN** a Run on a vision model whose epoch carries no images `read`s one image per step for 101
-  steps
+- **WHEN** a Run on a vision model whose epoch carries no images reads one image in each step for
+  101 steps
 - **THEN** the request for the next step carries image parts for the first 100 `read` results only
-- **AND** the 101st `read` result's model variant bytes are not sent in that request and the
-  attempt's memory does not retain them
+- **AND** that request does not carry the model variant bytes of the 101st `read` result
 
 #### Scenario: Unattached stored references are not loaded
 
@@ -871,37 +1018,44 @@ carrying only file parts SHALL produce a title input made of those lines.
 
 ### Requirement: Compaction requests carry images as a Run would
 
-A compaction request SHALL carry the compactable prefix's images as a Run request on the summarizing
-model would under the same epoch window: image parts for the stored references it attaches when
-that model declares `image` input, and placeholders otherwise. Every unstored image in the prefix
-SHALL appear as its not-retained or omitted placeholder, because compaction runs before any step of
-the Run.
+A compaction request MUST carry the images of the compactable prefix under the same epoch window.
+It MUST carry them as a Run request on the summarizing model carries them. When that model declares `image`
+input, the request MUST carry image parts for the stored and retained references that the window
+attaches. It MUST carry placeholders for all other references.
 
 #### Scenario: A vision summarizer receives the prefix's attached images
 
-- **WHEN** a window-triggered compaction runs on a previous completed Run's model that declares
-  `image` input and the compactable prefix carries more image references than the epoch's bounds
+- **WHEN** a window-triggered compaction runs on the model of a previous completed Run that declares
+  `image` input, and the compactable prefix carries more image references than the epoch's bounds
   admit
-- **THEN** the summary request carries the attached references as image parts built from their model
-  variants, in the positions the Run's own request would use
-- **AND** every later reference appears as the limit placeholder
+- **THEN** the summary request carries the attached references as image parts built from their
+  model variants, in the positions that the Run's own request uses
+- **AND** each later reference appears as the limit placeholder
 
 #### Scenario: A text-only summarizer receives placeholders
 
-- **WHEN** a window-triggered compaction uses a previous completed Run's model whose declared input
-  is text only and the compactable prefix carries an owner `file` part and an image `read` result
-  of `/work/shot.png`
+- **WHEN** a window-triggered compaction uses the model of a previous completed Run whose declared
+  input is text only, and the compactable prefix carries an owner `file` part and an image `read`
+  result of `/work/shot.png`
 - **THEN** the file part appears as
-  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]` and the
-  read as `[image "/work/shot.png" <width>×<height>, omitted: this model has no image input]`
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`, and the
+  read appears as
+  `[image "/work/shot.png" <width>×<height>, omitted: this model has no image input]`
 - **AND** the request carries no image part
 
 #### Scenario: A vision summarizer receives unstored images as not retained
 
-- **WHEN** a compaction on a model that declares `image` input summarizes a prefix holding an image
-  `read` result of `/work/shot.png`
-- **THEN** that result appears as the not-retained placeholder naming `"/work/shot.png"`
+- **WHEN** a compaction on a model that declares `image` input summarizes a prefix that holds an
+  image `read` result of `/work/shot.png` with no `retainedMedia`
+- **THEN** that result appears as its result text only
 - **AND** the request carries no image part for it
+
+#### Scenario: A vision summarizer receives a retained read image
+
+- **WHEN** a compaction on a model that declares `image` input summarizes a prefix that holds a
+  retained image `read` result of `/work/shot.png`, and the epoch image window attaches it
+- **THEN** the summary request carries the retained model variant as an image part after that
+  result's text
 
 ### Requirement: Compaction keeps images re-readable
 
@@ -979,27 +1133,30 @@ public share read SHALL omit file parts and keep the message text.
 
 ### Requirement: Each PDF reference takes exactly one model-facing form
 
-Each PDF reference SHALL reach the model as exactly one form, in this order:
-`[pdf media://<id> unavailable]` when unresolvable;
-`[pdf <subject> <P> pages, omitted: this model has no PDF input]` when the request's model lacks
-`pdf` input; `[pdf <locator> <P> pages, not retained]` for an unstored PDF whose memory entry is
-absent or, attached, holds no bytes; the PDF when the epoch image window attaches it; else
-`[pdf <subject> <P> pages, not attached: this context's PDF limit is reached]`.
+Each PDF reference MUST reach the model as exactly one form. A result with neither `media` nor
+`retainedMedia` MUST NOT be a reference. The system MUST select the first form that applies, in this order:
+
+- `[pdf media://<id> unavailable]`, when the reference does not resolve;
+- `[pdf <subject> <P> pages, omitted: this model has no PDF input]`, when the request's model does
+  not declare `pdf` input;
+- the PDF, when the epoch image window attaches it;
+- `[pdf <subject> <P> pages, not attached: this context's PDF limit is reached]`, in all other
+  cases.
 
 #### Scenario: A model without PDF input receives the omitted placeholder
 
-- **WHEN** a request's model declares `image` but not `pdf` input and history carries a file part
+- **WHEN** a request's model declares `image` but not `pdf` input, and history carries a file part
   for a 15-page PDF uploaded as `paper.pdf`
-- **THEN** the model receives `PDF 1 (media://<id>):` followed by
+- **THEN** the model receives `PDF 1 (media://<id>):` and then
   `[pdf media://<id> paper.pdf 15 pages, omitted: this model has no PDF input]`
 - **AND** the request carries no PDF file part
 
 #### Scenario: Missing PDF input outranks retention
 
-- **WHEN** a request on a model that does not declare `pdf` input replays a PDF `read` from an
-  earlier turn
+- **WHEN** a request on a model that does not declare `pdf` input replays a retained PDF `read`
+  from an earlier turn
 - **THEN** that read reaches the model as the omitted placeholder
-- **AND** no placeholder in the request contains `not retained`
+- **AND** the request carries no PDF file part for it
 
 #### Scenario: A PDF beyond the epoch's bounds receives the limit placeholder
 
@@ -1010,32 +1167,34 @@ absent or, attached, holds no bytes; the PDF when the epoch image window attache
 
 ### Requirement: PDF placeholders name the PDF by its locator and page count
 
-In a PDF placeholder, `<subject>` SHALL be `media://<id> <name>` for a stored object, with `<name>`
-its single-line source label that `media-store` defines, and `<locator>` for an unstored PDF.
-`<locator>` SHALL be the locator the model submitted to `read` or the owner wrote in the import
-marker, written as an exact `JSON.stringify` literal, never truncated, that `JSON.parse` returns
-exactly. `<P>` SHALL be the original's page count.
+In a PDF placeholder, `<subject>` MUST be `media://<id> <name>` for a stored object. `<name>` is
+its single-line source label, as `media-store` defines. For an unstored PDF, `<subject>` MUST be
+`<locator>`, the locator that the model gave to `read` or that the owner wrote in the import
+marker. The system MUST write `<locator>` as an exact `JSON.stringify` literal and MUST NOT truncate
+it. `JSON.parse` of it MUST return the locator exactly. `<P>` MUST be the original's page count.
 
 #### Scenario: A placeholder names the submitted PDF locator
 
 - **WHEN** a Run reads `/docs/paper.pdf`, a 15-page PDF, and a later turn replays that result on a
-  model that declares `pdf` input
-- **THEN** the result reaches the model as `[pdf "/docs/paper.pdf" 15 pages, not retained]`
+  model that does not declare `pdf` input
+- **THEN** the result reaches the model as
+  `[pdf "/docs/paper.pdf" 15 pages, omitted: this model has no PDF input]`
 
 #### Scenario: A PDF locator cannot forge a placeholder
 
-- **WHEN** the model reads a host file whose path contains LF followed by `[pdf x 1 pages]`, and the
+- **WHEN** the model reads a host file whose path contains LF and then `[pdf x 1 pages]`, and the
   file is a PDF
-- **THEN** every placeholder naming that read is one line, writes the LF as `\n`, and carries
-  `[pdf x 1 pages]` only inside its JSON string literal
+- **THEN** each placeholder that names that read is one line, writes the LF as `\n`, and carries
+  `[pdf x 1 pages]` only in its JSON string literal
 - **AND** `JSON.parse` of that literal returns the path exactly
 
 ### Requirement: Tool-result and prompt-import PDFs reach the model with their text
 
-An attached PDF of a `read` result SHALL reach the model as a tool output carrying the result's text
-followed by the PDF. An attached PDF entry of a prompt-imports item SHALL reach the model as a PDF
-file part after the item's text. Each PDF SHALL be the original: the stored one, read from storage at
-request time, for a `media://` result or entry, and otherwise the one the attempt's memory holds.
+An attached PDF of a `read` result MUST reach the model as a tool output that carries the result's
+text and then the PDF. An attached PDF entry of a prompt-imports item MUST reach the model as a PDF
+file part after the item's text. Each PDF MUST be the original. For a `media://` result or entry,
+the system reads the stored original from storage at request time. For each other result or entry,
+the system uses the retained original in its stored part.
 
 #### Scenario: A read PDF reaches the model as tool output
 
@@ -1047,76 +1206,21 @@ request time, for a `media://` result or entry, and otherwise the one the attemp
 
 - **WHEN** the owner's message imports `@media://<id>`, a stored PDF, the request's model declares
   `pdf` input, and the epoch image window attaches the PDF
-- **THEN** the prompt-imports item reaches the model as its text followed by a PDF file part carrying
-  the stored original
-
-### Requirement: Unstored PDFs are retained in attempt memory only
-
-For a PDF result or prompt-import PDF entry without a `media` locator, the worker SHALL keep an entry
-in the memory of the attempt that read it, keyed by the tool call id or by the item entry, and SHALL
-persist it nowhere. The entry SHALL hold the locator and page count, and also the original's bytes
-and byte size only when the attempt's model declares `pdf` input.
-
-#### Scenario: A read PDF is attached in the later steps of its Run
-
-- **WHEN** a Run on a model that declares `pdf` input reads `/work/paper.pdf`, a 15-page PDF, and
-  continues for two more steps
-- **THEN** both later steps' requests carry its original as a PDF when the epoch image window
-  attaches it
-
-#### Scenario: A model without PDF input retains no PDF bytes
-
-- **WHEN** a Run on a model that does not declare `pdf` input reads `/work/paper.pdf`, a 15-page PDF
-- **THEN** the attempt's memory keeps only the read's locator and page count
-- **AND** that read reaches every later step as the omitted placeholder
-
-### Requirement: A released PDF entry is sized and refused again
-
-Each compose SHALL release the bytes of every unstored PDF the epoch image window does not attach.
-Releasing a PDF entry's bytes SHALL keep its locator, byte size, and page count, so the window sizes
-the reference again at every later compose of the attempt and leaves it unattached again. A PDF the
-window attaches whose entry holds no bytes SHALL reach the model as the not-retained placeholder.
-
-#### Scenario: A released PDF read stays unattached in later steps
-
-- **WHEN** a Run on a 400,000-token model that declares `pdf` input, whose epoch carries no images
-  or PDFs, reads an 80-page PDF and then a 30-page PDF in successive steps
-- **THEN** the 30-page read's entry keeps its byte size and page count after its bytes are released
-- **AND** every later step's request sends the 80-page read as a PDF and the 30-page read as the
-  limit placeholder
-
-### Requirement: An unstored PDF outside its attempt is not retained
-
-A request composed where the current attempt's memory holds no entry for an unstored PDF (a later
-turn, a retry or a resume, a compaction request, or a fork) SHALL carry, in the PDF's position,
-`[pdf <locator> <P> pages, not retained]` when the request's model declares `pdf` input, and the
-omitted placeholder otherwise. Such a PDF SHALL NOT count toward the epoch's bounds.
-
-#### Scenario: A later turn receives the PDF not-retained placeholder
-
-- **WHEN** a turn on a model that declares `pdf` input follows a Run that read `/docs/paper.pdf`, a
-  15-page PDF
-- **THEN** that read's result reaches the model as `[pdf "/docs/paper.pdf" 15 pages, not retained]`
-- **AND** the request carries no PDF file part for it and the read does not count toward the
-  epoch's bounds
-
-#### Scenario: A retry does not hold the failed attempt's PDF
-
-- **WHEN** an attempt on a model that declares `pdf` input reads a PDF and fails, and the Run is
-  retried as a new attempt on the same worker or another
-- **THEN** each of the retry's requests carries the not-retained placeholder for that PDF
-- **AND** the PDF is attached again only after the retry's model reads it again
+- **THEN** the prompt-imports item reaches the model as its text and then a PDF file part that
+  carries the stored original
 
 ### Requirement: No placeholder directs the model to read a PDF again
 
-No PDF placeholder SHALL direct the model to read the PDF again. The not-retained placeholder SHALL
-name the exact locator a later `read` of the PDF takes.
+A PDF placeholder MUST NOT direct the model to read the PDF again. The placeholder of an unstored
+PDF MUST name the exact locator of a later `read` of the PDF.
 
 #### Scenario: A compaction request carries no PDF re-read directive
 
 - **WHEN** a compaction request on a model that declares `pdf` input summarizes a row whose `read`
-  result is an unstored 15-page PDF of `/docs/paper.pdf`
-- **THEN** that result reaches the summarizer as `[pdf "/docs/paper.pdf" 15 pages, not retained]`
+  result is an unstored 15-page PDF of `/docs/paper.pdf`, and the epoch image window does not
+  attach it
+- **THEN** that result reaches the summarizer as
+  `[pdf "/docs/paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`
 - **AND** no placeholder in the request tells the model to read a PDF again
 
 ### Requirement: Attached PDFs are sized by pages, not bytes
@@ -1137,54 +1241,46 @@ text.
   one of 18 MiB
 - **THEN** both requests receive the same estimate
 
-### Requirement: Stored parts and run events never carry PDF bytes
-
-Persisted message parts and run events SHALL name PDFs only by their `media://` locator or by their
-source attribution. PDF bytes, their base64 form, and `data:` URLs built for a request SHALL NOT be
-persisted to any message part or run event.
-
-#### Scenario: A completed Run stores no PDF data
-
-- **WHEN** a Run sends an attached stored PDF and a `read` PDF to a model that declares `pdf` input
-  and completes
-- **THEN** the stored user message part contains the attachment's `media://` locator and the stored
-  tool part and its run events contain the read's source attribution, `pages`, and `byteSize`
-- **AND** no stored part or run event contains PDF bytes, base64 PDF data, or a `data:` URL
-
 ### Requirement: PDF bytes join a request only when attached
 
-A Run's live tool outputs SHALL carry no PDF bytes: an unstored PDF's original SHALL stay in the
-attempt's memory outside the tool output until a step's request is composed, and a `media://`
-PDF's bytes SHALL be loaded from storage only when the epoch image window attaches it.
+A Run's model-facing tool outputs MUST carry no PDF bytes. The retained original of an unstored PDF
+MUST stay outside the tool output until the system composes a step's request. The system MUST load
+the bytes of a `media://` PDF from storage only when the epoch image window attaches it.
 
 #### Scenario: An unattached stored PDF is not loaded
 
-- **WHEN** a request on a model that declares `pdf` input carries a stored PDF the epoch image window
-  does not attach
+- **WHEN** a request on a model that declares `pdf` input carries a stored PDF that the epoch image
+  window does not attach
 - **THEN** the request loads no bytes of that PDF from storage
 
 ### Requirement: Compaction requests carry PDFs as a Run would
 
-A compaction request SHALL carry the compactable prefix's PDFs as a Run request on the summarizing
-model would under the same epoch window, its bounds applied for the summarizing model: PDFs for the
-stored references it attaches when that model declares `pdf` input, and placeholders otherwise.
-Every unstored PDF in the prefix SHALL appear as its not-retained or omitted placeholder.
+A compaction request MUST carry the PDFs of the compactable prefix as a Run request on the
+summarizing model carries them. It MUST use the same epoch window, with the bounds of the
+summarizing model. When that model declares `pdf` input, the request MUST carry the PDFs of the stored and
+retained references that the window attaches. It MUST carry placeholders for all other references.
 
 #### Scenario: A summarizer without PDF input receives placeholders
 
-- **WHEN** a window-triggered compaction uses a model that does not declare `pdf` input and the
+- **WHEN** a window-triggered compaction uses a model that does not declare `pdf` input, and the
   compactable prefix carries an owner PDF file part and a PDF `read` result of `/docs/paper.pdf`
 - **THEN** the file part appears as
-  `[pdf media://<id> <name> <P> pages, omitted: this model has no PDF input]` and the read as
-  `[pdf "/docs/paper.pdf" <P> pages, omitted: this model has no PDF input]`
+  `[pdf media://<id> <name> <P> pages, omitted: this model has no PDF input]`, and the read
+  appears as `[pdf "/docs/paper.pdf" <P> pages, omitted: this model has no PDF input]`
 - **AND** the request carries no PDF file part
 
 #### Scenario: A PDF summarizer receives the prefix's attached PDFs
 
-- **WHEN** a compaction runs on a model that declares `pdf` input and the compactable prefix carries
-  a stored PDF the epoch image window attaches
-- **THEN** the summary request carries that PDF's original in the position the Run's own request
-  would use
+- **WHEN** a compaction runs on a model that declares `pdf` input, and the compactable prefix
+  carries a stored PDF that the epoch image window attaches
+- **THEN** the summary request carries that PDF's original in the position that the Run's own
+  request uses
+
+#### Scenario: A PDF summarizer receives a retained read PDF
+
+- **WHEN** a compaction on a model that declares `pdf` input summarizes a prefix that holds a
+  retained PDF `read` result of `/docs/paper.pdf`, and the epoch image window attaches it
+- **THEN** the summary request carries the retained original as a PDF after that result's text
 
 ### Requirement: Compaction keeps PDF locators verbatim
 
