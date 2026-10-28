@@ -70,8 +70,9 @@ Create `retain-read-media/inline-parts` from `retain-read-media/proposal` with `
       read, that the main build, the continuation estimate, and the compaction request resolve the same
       row, and that a legacy row and a Continue of a legacy reply replay as text.
 - [ ] 2.6 Delete the `not-retained` admission status and the not-retained placeholder; size retained
-      references from their base64 length and decode only attached ones; verify with epoch-admission
-      tests for the byte bound, two reads of one file, and a changed file.
+      references from their base64 length and attach only the attached ones, handing each entry's
+      base64 to the SDK as is; verify with epoch-admission tests for the byte bound, two reads of one
+      file, and a changed file.
 - [ ] 2.7 Count retained references in earlier rows for the overflow trigger, and skip Continue kept
       references in the trigger slice and the continuation estimate; verify with compaction trigger
       tests, one of them a Continue whose kept reads overflow.

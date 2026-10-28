@@ -93,7 +93,8 @@ loads: epoch rows, Continue kept parts, and the compaction prefix. The rows are 
 so this adds no copy of the strings.
 
 Admission sizes an entry from its string length, which is its exact base64 size, so it decodes
-nothing. The composer decodes only the entries that the window attaches, at most 28 MiB per request.
+nothing. The composer attaches only the entries that the window attaches, and hands each entry's
+base64 string to the SDK as is (`DataContent`), so no attached byte is decoded or re-encoded either.
 
 Model messages keep their byte-free markers. `estimateProjectionTokens` serializes raw messages when
 no sizing is given (`compaction.ts:139-177`), so bytes on a marker would reach that estimate.
@@ -148,6 +149,11 @@ history response, both streams, the job payload, and model text.
 
 AI SDK telemetry is off: `agentTelemetry` sets only `functionId` (`model-client.ts:56-58`), so no
 prompt reaches a span.
+
+A failed `messages` or `run_events` write binds the bytes as query parameters, and drizzle's
+`DrizzleQueryError` message prints every parameter. Each catch that logs such a write therefore
+formats its error with `loggableError` (`db/loggable-error.ts`), which keeps the statement and the
+cause's own message and drops the `params:` line.
 
 ### D5: Each stored message keeps at most 28 MiB of retained base64
 
@@ -230,8 +236,9 @@ first request.
 - [Each Continue copies its kept media into a new `run.continued`] -> Bounded by the reply's own
   retained media. The same retention work applies.
 - [Each request loads its epoch rows with their base64 strings, and an owner fork loads every row
-  of the chat] -> The per-message bound caps each row, and the composer decodes only attached
-  entries. A blob table is the later fix if rows grow past what history loads tolerate.
+  of the chat] -> The per-message bound caps each row, and the composer attaches only attached
+  entries, as the base64 strings they already hold. A blob table is the later fix if rows grow past
+  what history loads tolerate.
 - [The stream bridge reads the whole `run.continued` payload on each connection] -> The
   per-message bound caps it at about 28 MiB.
 - [An owner fork copies every row in chunks of 500 (`messages-repository.ts:306-309`), and 37 rows
