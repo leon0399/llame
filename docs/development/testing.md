@@ -42,8 +42,11 @@ Tooling guards may live in the owning workspace's test directory.
    `*.spec.ts`; Nest does not scaffold tests.
 2. `.integration` means real Postgres. Plain tests have no external dependency.
 3. Integration global setup provisions a non-superuser, schema-owning Postgres
-   through Testcontainers, migrates, and provisions RLS. Docker is the only
-   prerequisite; `TEST_DATABASE_URL` overrides. Missing DB fails loudly.
+   through Testcontainers, migrates, provisions RLS, and clones the result into
+   one database per Vitest worker, so integration files run in parallel without
+   sharing rows, locks or notifications. Docker is the only prerequisite;
+   `TEST_DATABASE_URL` overrides and runs the files sequentially against that
+   one database. Missing DB fails loudly.
 4. Test gates are uncached. Unit/coverage disable Turbo cache; integration,
    eval, and E2E run outside Turbo.
 5. Component DOM/interaction assertions belong in story play functions. Keep
@@ -103,6 +106,12 @@ legacy debt is never measured, so it cannot fail a pull request, and no prior
 measurement, stored index, cache key or environment fingerprint is involved:
 the scope is computed from the pull request's own tree and cannot go stale.
 
+In CI the API's changed files are split across four shards by changed-line
+count, whole files only, and one gate job scores every shard's report together
+(`mutation-changed-lines.mjs run --shard 2/4`, then `gate <reports…>`). A shard
+prints its own score but never fails on it, and the gate fails if any shard
+did not finish.
+
 What this does not catch: coverage removed without changing a source line. A
 diff that only weakens or deletes a test changes no mutant, so review is the
 check that sees it. A full-corpus run (`pnpm test:mutation`) is available on a
@@ -131,7 +140,12 @@ Dockerized scanners, pinned by digest:
 
 - Schemathesis (`scripts/dast/schemathesis.toml`): every check, including
   `ignored_auth` and `object_level_authorization`, which replays one
-  registered user's reads as the second user.
+  registered user's reads as the second user. It runs as three legs, each on
+  its own stack: two fuzzing legs over complementary operation tags (the
+  second excludes the first's tags, so a new tag is still fuzzed) and one
+  stateful leg over every operation. Schemathesis repeats fuzzing and stateful
+  testing until its time budget is spent, so each leg gets 5 minutes on pull
+  requests and master and 15 minutes nightly.
 - ZAP's API scan (`scripts/dast/zap-plan.yaml`): OWASP passive and active
   rules, authenticated as the first user. It fails on Medium and High alerts.
 
@@ -152,30 +166,41 @@ stays red until its findings are fixed.
 
 ## CI mapping
 
+Each stage is a reusable workflow that `.github/workflows/ci.yml` calls:
+
 ```text
-typecheck ----> test (one leg per workspace) ----+
-typecheck ----> build ---------------------------+-> product e2e
-                build -> API DAST (Schemathesis, ZAP)
-typecheck ----> mutation
+typecheck
+test      (test.yml)      workspace legs; api shards -> api merge
+mutation  (mutation.yml)  API shards -> API gate; small workspaces
+build     (build.yml) --> product e2e (e2e.yml)
+                      --> API DAST (dast.yml: Schemathesis legs, ZAP)
 ```
+
+Only Product e2e and API DAST wait, for Build; every other stage starts at
+once.
 
 - Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
   jscpd, and Halstead difficulty.
 - Workflow lint: actionlint, zizmor, pinact.
-- CI: typecheck; a `test` matrix with one leg per workspace running its
+- CI: typecheck; a `test` stage with one leg per workspace running its
   `test:coverage` (thresholds, and CRAP where the script adds it), with the
-  api leg on Testcontainers and the `web`/`ui` legs in the Playwright image;
-  build plus generated-diff check; API DAST; mutation; production Playwright.
+  `web`/`ui` legs in the Playwright image; build plus generated-diff check; API
+  DAST; mutation; production Playwright.
+- The api suite runs as three Vitest shards (`test:coverage:shard`), each on
+  its own Testcontainers Postgres, with thresholds off. They upload blob
+  reports, and the `api` job merges them (`test:coverage:merge`), so
+  thresholds, CRAP, the Codecov flag and JUnit cover the whole suite. It fails
+  if any shard did not finish.
 - Each test leg uploads its report to Codecov as its own flag;
   `.github/codecov.yml` also groups paths into components by SPEC area.
   Codecov reports trends and pull request deltas; the thresholds stay the gate.
-- Each leg's `test:coverage` also writes JUnit to `coverage/junit.xml`, and the
-  leg uploads it to Codecov Test Analytics split by the [layers](#layers)
-  above: `scripts/split-junit-by-layer.mjs` sorts suites by file name, so an
-  upload carries the leg's flag plus `unit`, `integration`, or `component`.
-  Product E2E uploads Playwright's JUnit as `e2e`, and the
-  [API DAST](#api-dast) Schemathesis job uploads as `dast`, apart
-  from the layers. Test Analytics only reports; no gate reads it.
+- Each leg's `test:coverage` also writes JUnit to `coverage/junit.xml`, and
+  `.github/actions/upload-test-results` uploads it to Codecov Test Analytics
+  split by the [layers](#layers) above: `scripts/split-junit-by-layer.mjs`
+  sorts suites by file name, so an upload carries the leg's flag plus `unit`,
+  `integration`, or `component`. Product E2E uploads Playwright's JUnit as
+  `e2e`, and each [API DAST](#api-dast) Schemathesis leg uploads as `dast`,
+  apart from the layers. Test Analytics only reports; no gate reads it.
 - Evals never run in CI. The [compaction eval](compaction-eval.md) is a
   provider-backed script rather than a Vitest test and remains explicitly
   opt-in.

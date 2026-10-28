@@ -1,10 +1,10 @@
 name: API DAST
 
 # Dynamic scan of the API from apps/api/openapi.json against a throwaway stack
-# (.github/actions/dast-stack). Called by ci.yml after its build job, whose
-# api-build artifact it runs instead of compiling the API again. One job per
-# scanner, each on its own stack, so one's fuzzed data never shapes the
-# other's findings, and only ZAP holds security-events: write.
+# (.github/actions/dast-stack). Called by ci.yml after its build stage
+# (build.yml), whose api-build artifact it runs instead of compiling the API
+# again. One job per scanner leg, each on its own stack, so one's fuzzed data
+# never shapes another's findings, and only ZAP holds security-events: write.
 on:
   workflow_call:
     inputs:
@@ -17,8 +17,16 @@ permissions:
   contents: read
 
 jobs:
+  # Schemathesis fills its whole time budget: fuzzing and stateful testing
+  # repeat until it is spent. One 15-minute run therefore splits into legs of
+  # a third of the budget each with the same total scanning: two fuzzing legs
+  # over complementary operation tags, and one stateful leg over every
+  # operation, so the stateful phase gets its own budget instead of whatever
+  # fuzzing left over. The second fuzzing leg excludes the first leg's tags
+  # rather than naming its own, so an operation with a new tag is still
+  # fuzzed. Nightly and on-demand runs triple the budget.
   schemathesis:
-    name: Schemathesis
+    name: Schemathesis (${{ matrix.leg }})
     if: ${{ inputs.scan }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -26,6 +34,18 @@ jobs:
       contents: read
       # OIDC for the Test Analytics upload.
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: fuzzing-1
+            phases: examples,coverage,fuzzing
+            filter: --include-tag-regex
+          - leg: fuzzing-2
+            phases: examples,coverage,fuzzing
+            filter: --exclude-tag-regex
+          - leg: stateful
+            phases: stateful
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -41,6 +61,11 @@ jobs:
       - name: Run Schemathesis
         env:
           DAST_SEED: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '20261018' || '' }}
+          DAST_MAX_TIME: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '300' || '900' }}
+          DAST_PHASES: ${{ matrix.phases }}
+          DAST_FILTER: ${{ matrix.filter }}
+          # Roughly half of the fuzzed operations, by count.
+          DAST_TAGS: ^(chats|projects|media|runs|pins|streaming)$
         run: |
           # The default shell has no pipefail, so tee would hide a failure.
           set -o pipefail
@@ -53,27 +78,25 @@ jobs:
             --config-file /cfg/schemathesis.toml \
             run /spec/openapi.json --url http://localhost:4301 \
             ${DAST_SEED:+--seed "$DAST_SEED"} \
+            --max-time "$DAST_MAX_TIME" --phases "$DAST_PHASES" \
+            ${DAST_FILTER:+"$DAST_FILTER" "$DAST_TAGS"} \
             --report junit,html --report-dir /out --report-junit-path /out/junit.xml \
             2>&1 | tee dast-report/schemathesis/console.txt
 
       # Its own flag, apart from the unit/integration/component/e2e layers:
       # its failures are open findings, not flakes.
       - if: ${{ !cancelled() && hashFiles('dast-report/schemathesis/junit.xml') != '' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        uses: ./.github/actions/upload-test-results
         with:
-          use_oidc: true
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-          report_type: test_results
-          disable_search: true
-          flags: dast
-          name: schemathesis
-          files: dast-report/schemathesis/junit.xml
+          junit: dast-report/schemathesis/junit.xml
+          flag: dast
+          name: schemathesis-${{ matrix.leg }}
 
       # Schemathesis has no native SARIF output; its findings stay here.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dast-report-schemathesis
+          name: dast-report-schemathesis-${{ matrix.leg }}
           path: dast-report/
           retention-days: 14
 

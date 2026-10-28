@@ -1,21 +1,23 @@
-# The test pyramid, as a job graph (docs/development/testing.md is the contract).
+# The test pyramid, as a graph of stages (docs/development/testing.md is the
+# contract). Each stage is its own reusable workflow; this file only orders
+# them and owns the triggers.
 #
-#   typecheck -> test (one leg per workspace, coverage) --+
-#   typecheck -> build -----------------------------------+-> browser-e2e
-#                build -> dast (dast.yml: Schemathesis, ZAP)
-#   typecheck -> mutation
+#   typecheck
+#   test      (test.yml: one leg per workspace; api in shards + merge)
+#   mutation  (mutation.yml: API in shards + gate; small workspaces)
+#   build     (build.yml) -> e2e  (e2e.yml: Playwright)
+#                         -> dast (dast.yml: Schemathesis legs, ZAP)
 #
-# One job per concern, so a red X names what broke instead of hiding inside a
-# grab-bag. Cheap gates run first and unconditionally; each expensive layer
-# waits for the cheaper layer that would have caught the same breakage — a
-# type error never spends a runner on the full-stack browser suite, and the
-# browser suite never boots a stack whose api contract is already failing.
-# Build and mutation wait only for typecheck: no test leg catches a build
-# failure, and Stryker's own initial run fails on a red suite. The API DAST
-# jobs scan the API that build compiled, so they wait only for build.
+# Every stage starts at once except the two that boot the compiled stack:
+# Product e2e and API DAST wait for Build, so a broken build or a drifted
+# generated client never spends runners on a full-stack suite. Nothing else
+# waits for a cheaper gate: on these runners a red cheap gate costs only the
+# runners the parallel stages used, while waiting costs every green run the
+# gate's whole duration.
 #
 # The nightly schedule runs only typecheck, build and API DAST, with a fresh
-# Schemathesis seed, so unchanged code still gets new fuzzing inputs.
+# Schemathesis seed and a longer budget, so unchanged code still gets new
+# fuzzing inputs.
 #
 # Static checks (lint, format, workflow linting) live in lint.yml — they need
 # no build, browser or database, and report independently.
@@ -65,224 +67,35 @@ jobs:
       # `nest build` and Next's bundled check exclude. Emit stays on TS 5.x.
       - run: pnpm exec turbo run typecheck
 
-  # Every test suite runs once, with coverage: each leg runs one workspace's
-  # `test:coverage`, which enforces its Vitest thresholds (and CRAP where the
-  # script adds it), then uploads that report to Codecov as the leg's flag.
-  # Adding a leg means adding its flag to .github/codecov.yml and raising
-  # after_n_builds there.
   test:
-    name: Tests (${{ matrix.flag }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    needs: [typecheck]
+    name: Tests
     # Nightly and on-demand runs exist for API DAST only.
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    uses: ./.github/workflows/test.yml
     permissions:
       contents: read
-      # OIDC replaces a CODECOV_TOKEN secret; fork pull requests fall back to
-      # Codecov's tokenless upload inside the action.
+      # OIDC for the Codecov coverage and Test Analytics uploads.
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Self-provisioning (Testcontainers in the project's globalSetup): a
-          # throwaway Postgres owned by a NON-superuser role that runs the
-          # migrations — the worst-case single-role self-hosted deployment, so
-          # a green RLS suite proves FORCE constrains even the table owner.
-          # Needs host Docker, hence no container image for this leg.
-          - flag: api
-            dir: apps/api
-          # One Vitest run over node/jsdom tests plus stories in Chromium, so
-          # a single report spans the workspace.
-          - flag: web
-            dir: apps/web
-            browser: true
-          - flag: ui
-            dir: packages/ui
-            browser: true
-          - flag: storybook
-            dir: apps/storybook
-          - flag: bash-executor
-            dir: packages/bash-executor
-          - flag: config-interpolation
-            dir: packages/config-interpolation
-          - flag: native-file-tools
-            dir: packages/native-file-tools
-          - flag: machine
-            dir: apps/machine
-          - flag: machine-protocol
-            dir: packages/machine-protocol
-          - flag: mcp-workspace
-            dir: packages/mcp-workspace
-          - flag: oxlint-plugin-anti-slop
-            dir: packages/oxlint-plugin-anti-slop
-          - flag: runtime-safety
-            dir: packages/runtime-safety
-          # Root tooling scripts: node:test with Node's own coverage (lcov).
-          - flag: scripts
-            dir: .
-            filter: //
-            task: test:scripts:coverage
-            report: lcov.info
-    # Browser legs run in the Playwright image, which ships Chromium and its
-    # system libraries, so they skip `playwright install --with-deps`. An
-    # empty image runs the leg on the host, where the api leg's Docker is.
-    container:
-      # Pinned by digest, like every action here: a retag would otherwise
-      # change the browser and base image for an already-reviewed commit.
-      # Refresh with the catalog's playwright version:
-      #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
-      image: ${{ matrix.browser && 'mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c' || '' }}
-      # Chromium renderers allocate from /dev/shm, and Docker's default 64 MB
-      # segment is a known crash source under parallel story runs; --ipc=host
-      # is Playwright's documented mitigation for Chromium in containers.
-      options: --ipc=host
-    env:
-      # The image ships its browsers at /ms-playwright, but the step's HOME is
-      # /github/home, so Playwright would look in ~/.cache and find nothing.
-      # Host legs launch no browser.
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      # Same locale pinning as the browser-e2e job: Node >=21 derives
-      # navigator.language from the process locale, and an invalid tag makes
-      # `new Intl.Locale(...)` throw during SSR.
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      # No turbo-cache: test tasks are `cache: false` (turbo.json), so a cache
-      # here would be written and never read.
-      - uses: ./.github/actions/setup
-
-      # Through turbo, not pnpm directly: some packages' test:coverage
-      # depends on ^build, since their workspace imports resolve to dist/.
-      # Streamed, not grouped (turbo's CI default): grouped output prints a
-      # task only when it ends, so a 12-minute suite shows no progress.
-      - env:
-          TEST_FILTER: ${{ matrix.filter || format('./{0}', matrix.dir) }}
-          TEST_TASK: ${{ matrix.task || 'test:coverage' }}
-        run: pnpm exec turbo run "$TEST_TASK" --filter="$TEST_FILTER" --log-order=stream
-
-      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          # A fork PR gets no id-token, so the action falls back to a
-          # tokenless upload sharing Codecov's public rate limit. Only fail
-          # the leg on upload error for same-repo runs, so a rate-limited
-          # fork upload can't fail an external contributor's passing tests.
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-          disable_search: true
-          flags: ${{ matrix.flag }}
-          files: ${{ matrix.dir }}/coverage/${{ matrix.report || 'coverage-final.json' }}
-
-      # Test Analytics: every leg's test:coverage also writes JUnit, which is
-      # split by the layers in docs/development/testing.md so each upload
-      # carries the leg's flag and its layer. Uploads run after failing tests
-      # too, since failures are what Test Analytics tracks.
-      - name: Split JUnit by test layer
-        if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit.xml', matrix.dir)) != '' }}
-        env:
-          REPORT_DIR: ${{ matrix.dir }}/coverage
-        run: node scripts/split-junit-by-layer.mjs "$REPORT_DIR/junit.xml" "$REPORT_DIR/junit"
-
-      - if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit/junit-unit.xml', matrix.dir)) != '' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-          report_type: test_results
-          disable_search: true
-          flags: ${{ matrix.flag }},unit
-          name: ${{ matrix.flag }}-unit
-          files: ${{ matrix.dir }}/coverage/junit/junit-unit.xml
-
-      - if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit/junit-integration.xml', matrix.dir)) != '' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-          report_type: test_results
-          disable_search: true
-          flags: ${{ matrix.flag }},integration
-          name: ${{ matrix.flag }}-integration
-          files: ${{ matrix.dir }}/coverage/junit/junit-integration.xml
-
-      - if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit/junit-component.xml', matrix.dir)) != '' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-          report_type: test_results
-          disable_search: true
-          flags: ${{ matrix.flag }},component
-          name: ${{ matrix.flag }}-component
-          files: ${{ matrix.dir }}/coverage/junit/junit-component.xml
 
   build:
     name: Build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [typecheck]
-    outputs:
-      dast: ${{ steps.dast-scope.outputs.run }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          # A pull request checks out its merge commit; its first parent is
-          # the base, which the DAST scope below diffs against.
-          fetch-depth: 2
+    uses: ./.github/workflows/build.yml
 
-      - uses: ./.github/actions/setup
-        with:
-          turbo-cache: build
+  mutation:
+    name: Mutation testing
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    uses: ./.github/workflows/mutation.yml
 
-      - run: pnpm exec turbo run build --concurrency=1
+  e2e:
+    name: Product e2e
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    needs: [build]
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+      # OIDC for the Test Analytics upload.
+      id-token: write
 
-      # Regenerate the API schema and portable web client in dependency order;
-      # a drifted checked-in copy is a failure, not a silent fixup.
-      - run: pnpm generate:api-schema
-      - run: pnpm generate:web-client
-      - run: git diff --exit-code
-
-      # A pull request scans the API only when it changes what the API runs
-      # or how it is scanned; every other event always scans.
-      - id: dast-scope
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
-            apps/api packages/bash-executor packages/config-interpolation \
-            packages/git-executor packages/machine-protocol \
-            packages/mcp-workspace packages/native-file-tools \
-            packages/runtime-safety \
-            e2e/support scripts/dast .github/actions/dast-stack \
-            .github/workflows/ci.yml .github/workflows/dast.yml pnpm-lock.yaml; then
-            echo "run=true" >>"$GITHUB_OUTPUT"
-          fi
-
-      # The API and the workspace packages it imports from dist/; the DAST
-      # jobs run this build instead of compiling their own.
-      - if: ${{ steps.dast-scope.outputs.run == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: api-build
-          path: |
-            apps/api/dist/
-            packages/bash-executor/dist/
-            packages/config-interpolation/dist/
-            packages/git-executor/dist/
-            packages/machine-protocol/dist/
-            packages/mcp-workspace/dist/
-            packages/native-file-tools/dist/
-            packages/runtime-safety/dist/
-          retention-days: 1
-          if-no-files-found: error
-
-  # Dynamic scan of the API that build compiled (.github/workflows/dast.yml).
   # Always called after build: a pull request that does not change the API
   # reports the scanner jobs as skipped, which satisfies a required check,
   # where a skipped caller would leave them pending.
@@ -297,116 +110,3 @@ jobs:
       id-token: write
     with:
       scan: ${{ needs.build.outputs.dast == 'true' }}
-
-  # Mutate the lines this diff changed and require them to be detected. No
-  # stored index, no baseline restore, no environment fingerprint: the scope is
-  # computed from the diff against the pull request's own tree, so it cannot go
-  # stale and cannot refuse for want of a prior measurement. `coverageAnalysis:
-  # perTest` runs only the tests covering each mutant. See
-  # docs/development/mutation-gate-redesign.md.
-  mutation:
-    name: Mutation testing (${{ matrix.name }})
-    runs-on: ubuntu-latest
-    # The remote-Machines layers each change enough API lines that their
-    # mutation run passes 45 minutes (about 1,100 mutants in the tool layer);
-    # revert to 45 once those layers have merged.
-    timeout-minutes: ${{ matrix.timeout || 45 }}
-    needs: [typecheck]
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: API
-            workspace: apps/api
-            timeout: 90
-          - name: config-interpolation
-            workspace: packages/config-interpolation
-          - name: runtime-safety
-            workspace: packages/runtime-safety
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - uses: ./.github/actions/setup
-
-      - env:
-          MUTATION_WORKSPACE: ${{ matrix.workspace }}
-          # A pull request measures against its base. A trusted push measures
-          # against the commit it advanced from, so a merge is scored on the
-          # lines it introduced rather than re-scoring master.
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          node scripts/mutation-changed-lines.mjs run \
-            --workspace "$MUTATION_WORKSPACE" --base "$MUTATION_BASE"
-
-      - name: Upload mutation report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: mutation-report-${{ matrix.name }}
-          path: ${{ matrix.workspace }}/reports/mutation/
-          retention-days: 14
-          if-no-files-found: ignore
-
-  browser-e2e:
-    name: Product e2e (Playwright)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    # The top of the pyramid: everything below it has already passed, so a
-    # failure here is a genuine cross-stack defect rather than a unit-level
-    # bug wearing a browser costume. The generic build and every test leg,
-    # including real-Postgres integration, must pass first. Playwright then
-    # rebuilds the web app with its E2E API URL.
-    needs: [build, test]
-    permissions:
-      contents: read
-      # OIDC for the Test Analytics upload, as in the test matrix.
-      id-token: write
-    env:
-      # Node >=21 derives navigator.language from the process locale; with
-      # LANG=C/unset it reports an invalid tag and `new Intl.Locale(...)`
-      # throws during SSR (seen via TanStack Query devtools under Next).
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup
-
-      # Host runner (not the Playwright image): this suite boots a throwaway
-      # Postgres through the Docker CLI, which a container job cannot reach.
-      - run: pnpm exec playwright install --with-deps chromium
-
-      # Boots db + api + worker + the mock model server, builds and starts the
-      # production web app, then drives Chromium against the real stack. The
-      # ONLY place the browser suite runs — keep it green.
-      - run: pnpm test:e2e
-
-      - if: ${{ !cancelled() && hashFiles('test-results/junit.xml') != '' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          use_oidc: true
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-          report_type: test_results
-          disable_search: true
-          flags: e2e
-          name: e2e
-          files: test-results/junit.xml
-
-      # failure() || cancelled(), NOT !cancelled(): a timed-out or cancelled
-      # run is exactly when the trace is worth keeping. Playwright's CI config
-      # fails on flaky retries too, so their first-attempt evidence reaches
-      # this upload instead of being discarded behind an eventual exit 0.
-      - if: ${{ failure() || cancelled() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: playwright-report
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7

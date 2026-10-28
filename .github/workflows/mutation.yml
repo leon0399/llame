@@ -1,0 +1,126 @@
+name: Mutation testing
+
+# The mutation stage of CI (ci.yml). Mutate the lines this diff changed and
+# require them to be detected. No stored index, no baseline restore, no
+# environment fingerprint: the scope is computed from the diff against the pull
+# request's own tree, so it cannot go stale and cannot refuse for want of a
+# prior measurement. `coverageAnalysis: perTest` runs only the tests covering
+# each mutant. See docs/development/mutation-gate-redesign.md.
+#
+# Actions are pinned to commit SHAs (comment = the release tag they resolve to).
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  # The API scope is split by file across shards, since a change to a few
+  # hundred API lines spends half an hour on its mutants in one job. Each shard
+  # pays the ~5-minute Stryker start (build, instrumentation, initial test run),
+  # so more shards stop paying off quickly.
+  api-shard:
+    name: API (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      - env:
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          MUTATION_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: |
+          node scripts/mutation-changed-lines.mjs run \
+            --workspace apps/api --base "$MUTATION_BASE" --shard "$MUTATION_SHARD"
+
+      - name: Upload mutation report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report-API-${{ matrix.shard }}
+          path: apps/api/reports/mutation/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # The threshold applies to every shard's mutants together, so a shard that
+  # holds the weaker files of a passing change does not fail it.
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [api-shard]
+    if: ${{ !cancelled() }}
+    steps:
+      # A shard that crashed or timed out wrote no report, and an absent report
+      # reads as "no mutable line", so the score alone cannot prove coverage.
+      - env:
+          SHARDS: ${{ needs.api-shard.result }}
+        run: test "$SHARDS" = success
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: mutation-report-API-*
+          path: mutation-reports
+
+      # The gate script needs the Node that .node-version pins (fs.globSync).
+      - uses: ./.github/actions/setup
+
+      - run: |
+          shopt -s nullglob
+          node scripts/mutation-changed-lines.mjs gate mutation-reports/*/mutation.json
+
+  workspace:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: config-interpolation
+            workspace: packages/config-interpolation
+          - name: runtime-safety
+            workspace: packages/runtime-safety
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      - env:
+          MUTATION_WORKSPACE: ${{ matrix.workspace }}
+          # A pull request measures against its base. A trusted push measures
+          # against the commit it advanced from, so a merge is scored on the
+          # lines it introduced rather than re-scoring master.
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          node scripts/mutation-changed-lines.mjs run \
+            --workspace "$MUTATION_WORKSPACE" --base "$MUTATION_BASE"
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mutation-report-${{ matrix.name }}
+          path: ${{ matrix.workspace }}/reports/mutation/
+          retention-days: 14
+          if-no-files-found: ignore

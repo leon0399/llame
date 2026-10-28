@@ -1,6 +1,6 @@
-# Schemathesis configuration for the API DAST job (dast-schemathesis in
-# .github/workflows/ci.yml). The schema path, base URL, seed and report options
-# are passed on the command line.
+# Schemathesis configuration for the API DAST job (.github/workflows/dast.yml).
+# The schema path, base URL, seed, time budget, phases, operation filter and
+# report options are passed on the command line, since each job leg differs.
 
 # Every check, including the auth ones: ignored_auth (operations that answer
 # without or with invalid credentials) and object_level_authorization (bob
@@ -8,7 +8,6 @@
 checks.enabled = true
 workers = 2
 request-timeout = 10
-max-time = 900
 max-failures = 200
 
 # Postgres text cannot hold U+0000, so the API refuses it in any request value

@@ -1,0 +1,87 @@
+name: Upload test results
+description: >-
+  Upload a JUnit report to Codecov Test Analytics, optionally split by the
+  test layers in docs/development/testing.md so each upload carries its layer
+  as a second flag.
+
+# Callers run this after failing tests too (`if: !cancelled()`), since failures
+# are what Test Analytics tracks. The job needs `id-token: write`: OIDC replaces
+# a CODECOV_TOKEN secret, and a fork pull request, which gets no id-token, falls
+# back to a tokenless upload sharing Codecov's public rate limit. Only same-repo
+# runs fail on upload error, so a rate-limited fork upload cannot fail an
+# external contributor's passing tests.
+
+inputs:
+  junit:
+    description: Path of the JUnit report.
+    required: true
+  flag:
+    description: Codecov flag of the report, e.g. the workspace or scanner.
+    required: true
+  name:
+    description: Upload name; defaults to the flag.
+    required: false
+    default: ""
+  split-layers:
+    description: >-
+      "true" to split the report into unit, integration and component uploads
+      by test file name.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - if: ${{ inputs.split-layers != 'true' }}
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      with:
+        use_oidc: true
+        fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+        report_type: test_results
+        disable_search: true
+        flags: ${{ inputs.flag }}
+        name: ${{ inputs.name || inputs.flag }}
+        files: ${{ inputs.junit }}
+
+    - id: layers
+      if: ${{ inputs.split-layers == 'true' }}
+      shell: bash
+      env:
+        JUNIT: ${{ inputs.junit }}
+      run: |
+        dir="$(dirname "$JUNIT")/junit"
+        node scripts/split-junit-by-layer.mjs "$JUNIT" "$dir"
+        echo "dir=$dir" >>"$GITHUB_OUTPUT"
+
+    - if: ${{ inputs.split-layers == 'true' && hashFiles(format('{0}/junit-unit.xml', steps.layers.outputs.dir)) != '' }}
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      with:
+        use_oidc: true
+        fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+        report_type: test_results
+        disable_search: true
+        flags: ${{ inputs.flag }},unit
+        name: ${{ inputs.name || inputs.flag }}-unit
+        files: ${{ steps.layers.outputs.dir }}/junit-unit.xml
+
+    - if: ${{ inputs.split-layers == 'true' && hashFiles(format('{0}/junit-integration.xml', steps.layers.outputs.dir)) != '' }}
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      with:
+        use_oidc: true
+        fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+        report_type: test_results
+        disable_search: true
+        flags: ${{ inputs.flag }},integration
+        name: ${{ inputs.name || inputs.flag }}-integration
+        files: ${{ steps.layers.outputs.dir }}/junit-integration.xml
+
+    - if: ${{ inputs.split-layers == 'true' && hashFiles(format('{0}/junit-component.xml', steps.layers.outputs.dir)) != '' }}
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      with:
+        use_oidc: true
+        fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+        report_type: test_results
+        disable_search: true
+        flags: ${{ inputs.flag }},component
+        name: ${{ inputs.name || inputs.flag }}-component
+        files: ${{ steps.layers.outputs.dir }}/junit-component.xml

@@ -2,8 +2,9 @@
 # only tracks it over time and reports it on pull requests.
 #
 # Flags are per upload: each is one workspace's report, uploaded by its leg of
-# the `test` matrix in ci.yml. Components are path slices that follow SPEC.md's
-# areas and may span workspaces.
+# the test stage (.github/workflows/test.yml; api from its shard-merge job).
+# Components are path slices that follow SPEC.md's areas and may span
+# workspaces.
 # Validate edits: curl --data-binary @.github/codecov.yml https://codecov.io/validate
 
 codecov:

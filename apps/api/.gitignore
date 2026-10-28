@@ -17,6 +17,7 @@ lerna-debug.log*
 
 # Tests
 /coverage
+/.vitest-reports
 /reports/mutation/
 /.nyc_output
 

@@ -1,0 +1,82 @@
+name: Build
+
+# The build stage of CI (ci.yml): compile every workspace, prove the checked-in
+# API schema and web client are regenerated, and hand the compiled API to the
+# DAST stage (dast.yml) when the change can affect what it scans.
+#
+# Actions are pinned to commit SHAs (comment = the release tag they resolve to).
+
+on:
+  workflow_call:
+    outputs:
+      dast:
+        description: Whether the API DAST stage should scan this run.
+        value: ${{ jobs.build.outputs.dast }}
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      dast: ${{ steps.dast-scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # A pull request checks out its merge commit; its first parent is
+          # the base, which the DAST scope below diffs against.
+          fetch-depth: 2
+
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: build
+
+      - run: pnpm exec turbo run build --concurrency=1
+
+      # Regenerate the API schema and portable web client in dependency order;
+      # a drifted checked-in copy is a failure, not a silent fixup.
+      - run: pnpm generate:api-schema
+      - run: pnpm generate:web-client
+      - run: git diff --exit-code
+
+      # A pull request scans the API only when it changes what the API runs
+      # or how it is scanned; every other event always scans.
+      - id: dast-scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
+            apps/api packages/bash-executor packages/config-interpolation \
+            packages/git-executor packages/machine-protocol \
+            packages/mcp-workspace packages/native-file-tools \
+            packages/runtime-safety \
+            e2e/support scripts/dast .github/actions/dast-stack \
+            .github/workflows/ci.yml .github/workflows/build.yml \
+            .github/workflows/dast.yml pnpm-lock.yaml; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      # The API and the workspace packages it imports from dist/; the DAST
+      # jobs run this build instead of compiling their own.
+      - if: ${{ steps.dast-scope.outputs.run == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-build
+          path: |
+            apps/api/dist/
+            packages/bash-executor/dist/
+            packages/config-interpolation/dist/
+            packages/git-executor/dist/
+            packages/machine-protocol/dist/
+            packages/mcp-workspace/dist/
+            packages/native-file-tools/dist/
+            packages/runtime-safety/dist/
+          retention-days: 1
+          if-no-files-found: error

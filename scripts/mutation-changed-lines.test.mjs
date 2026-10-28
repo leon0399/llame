@@ -17,6 +17,7 @@ import {
   mutateRanges,
   mutationArguments,
   mutationSourceFiles,
+  shardEntries,
   writeScopeConfig,
 } from "./mutation-changed-lines.mjs";
 
@@ -345,4 +346,42 @@ test("mergeMutationReports rejects duplicate source files", () => {
     () => mergeMutationReports([report, report]),
     /Duplicate mutation report file: src\/a\.ts/u,
   );
+});
+
+test("shards cover every changed file exactly once, heaviest files spread first", () => {
+  const entries = [
+    { file: "src/a.ts", ranges: [[1, 100]] },
+    { file: "src/b.ts", ranges: [[1, 60]] },
+    {
+      file: "src/c.ts",
+      ranges: [
+        [1, 20],
+        [40, 59],
+      ],
+    },
+    { file: "src/d.ts", ranges: [[5, 5]] },
+    { file: "src/e.ts", ranges: [[1, 30]] },
+  ];
+  const shards = [1, 2, 3].map((index) => shardEntries(entries, index, 3));
+
+  assert.deepEqual(
+    shards.map((shard) => shard.map(({ file }) => file)),
+    [["src/a.ts"], ["src/b.ts", "src/d.ts"], ["src/c.ts", "src/e.ts"]],
+  );
+  assert.deepEqual(
+    shardEntries([...entries].reverse(), 2, 3),
+    shards[1],
+    "the partition must not depend on input order, or shards would disagree",
+  );
+  assert.deepEqual(shardEntries(entries, 1, 1), entries);
+});
+
+test("a shard outside its count is refused rather than silently empty", () => {
+  for (const [index, count] of [
+    [0, 3],
+    [4, 3],
+    [1, 0],
+    [Number.NaN, 2],
+  ])
+    assert.throws(() => shardEntries([], index, count), /Invalid shard/u);
 });
