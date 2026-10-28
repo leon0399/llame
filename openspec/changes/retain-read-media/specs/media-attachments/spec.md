@@ -334,8 +334,8 @@ The placeholder of an unstored image MUST name the exact locator of a later `rea
 
 ### Requirement: Each image reference takes exactly one model-facing form
 
-Each image reference MUST reach the model as exactly one form. A result without `retainedMedia` MUST
-NOT be a reference. The system MUST select the first form that applies, in this order:
+Each image reference MUST reach the model as exactly one form. A result with neither `media` nor
+`retainedMedia` MUST NOT be a reference. The system MUST select the first form that applies, in this order:
 
 - the unavailable placeholder, for a `media://` reference that does not resolve;
 - the omitted placeholder, when the request's model does not declare `image` input;
@@ -429,7 +429,7 @@ sum MUST be independent of the dimension-based and page-based token estimates.
 An attachable reference MUST be an owner file part, a `media://` tool result or prompt-import
 entry, or a retained image or PDF. Its kind MUST be one that the request's model declares as
 input: `image` for an image and `pdf` for a PDF. An unavailable or omitted reference, and a result
-without `retainedMedia`, MUST NOT count toward a bound of the epoch image window.
+with neither `media` nor `retainedMedia`, MUST NOT count toward a bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -600,8 +600,8 @@ attaches. It MUST carry placeholders for all other references.
 
 ### Requirement: Each PDF reference takes exactly one model-facing form
 
-Each PDF reference MUST reach the model as exactly one form. A result without `retainedMedia` MUST
-NOT be a reference. The system MUST select the first form that applies, in this order:
+Each PDF reference MUST reach the model as exactly one form. A result with neither `media` nor
+`retainedMedia` MUST NOT be a reference. The system MUST select the first form that applies, in this order:
 
 - `[pdf media://<id> unavailable]`, when the reference does not resolve;
 - `[pdf <subject> <P> pages, omitted: this model has no PDF input]`, when the request's model does

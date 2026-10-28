@@ -60,8 +60,8 @@ true. The model of the request declares `image` input, its model variant is avai
 epoch image window of `media-attachments` attaches that reference. For a `media://` result, the
 model variant is available from the media store. For each other image result, it is available from
 the retained bytes in its stored tool part. This applies in a later step, a later turn, a Continue
-Run, an owner fork, and a compaction request. It also applies to a reply rebuilt from the event log. A result without
-`retainedMedia` MUST replay as its text only, with no image and no placeholder. For each other
+Run, an owner fork, and a compaction request. It also applies to a reply rebuilt from the event log. A result with neither
+`media` nor `retainedMedia` MUST replay as its text only, with no image and no placeholder. For each other
 result, when the three conditions are not all true, the replayed result MUST carry the image
 placeholder of `media-attachments` in its text. A `media://` reference that does not resolve to media
 of the Run owner MUST replay as the unavailable placeholder. These placeholders MUST NOT fail the
@@ -279,8 +279,8 @@ MUST NOT carry a media descriptor, PDF bytes, or base64 content. The tool part M
 retained original of an unstored PDF beside the result, as `media-attachments` defines. On replay,
 its text MUST follow the ordinary projection. The PDF MUST become provider file content, built from
 its original at request time, only when three conditions are true. The request's model declares
-`pdf` input, the original is available, and the epoch image window attaches it. A result without
-`retainedMedia` MUST replay as its text only, with no file content and no placeholder. For each other
+`pdf` input, the original is available, and the epoch image window attaches it. A result with neither
+`media` nor `retainedMedia` MUST replay as its text only, with no file content and no placeholder. For each other
 result, when the three conditions are not all true, its text MUST carry the matching PDF
 placeholder.
 

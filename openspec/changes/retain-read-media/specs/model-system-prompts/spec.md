@@ -168,8 +168,8 @@ A prepared request MUST also count as at the Run model's threshold when two cond
 First, it carries an image or PDF reference that `media-attachments` does not attach because the
 epoch's bounds are reached. Second, a row before the triggering user message holds a stored or
 retained reference of a kind that the Run model declares as input. That is an image when the model
-declares `image`, and a PDF when it declares `pdf`. A result without `retainedMedia` in an earlier
-row never counts. Image or PDF overflow MUST therefore select the threshold variant on the
+declares `image`, and a PDF when it declares `pdf`. A result with neither `media` nor `retainedMedia`
+in an earlier row never counts. Image or PDF overflow MUST therefore select the threshold variant on the
 attempt's own model, because that request fits. A request that also does not fit MUST select the
 window variant as above.
 
