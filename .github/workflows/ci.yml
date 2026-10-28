@@ -1,19 +1,17 @@
-# The test pyramid, as a graph of stages (docs/development/testing.md is the
-# contract). Each stage is its own reusable workflow; this file only orders
+# The test pyramid, as a set of stages (docs/development/testing.md is the
+# contract). Each stage is its own reusable workflow; this file only lists
 # them and owns the triggers.
 #
 #   typecheck
 #   test      (test.yml: one leg per workspace; api in shards + merge)
 #   mutation  (mutation.yml: API in shards + gate; small workspaces)
-#   build     (build.yml) -> e2e  (e2e.yml: Playwright)
-#                         -> dast (dast.yml: Schemathesis legs, ZAP)
+#   build     (build.yml: every workspace + generated-diff check)
+#   e2e       (e2e.yml: Playwright; builds the web app itself)
+#   dast      (dast.yml: builds the API, then Schemathesis legs and ZAP)
 #
-# Every stage starts at once except the two that boot the compiled stack:
-# Product e2e and API DAST wait for Build, so a broken build or a drifted
-# generated client never spends runners on a full-stack suite. Nothing else
-# waits for a cheaper gate: on these runners a red cheap gate costs only the
-# runners the parallel stages used, while waiting costs every green run the
-# gate's whole duration.
+# Every stage starts at once; none waits for a cheaper gate. On these runners
+# a red cheap gate costs only the runners the parallel stages used, while
+# waiting costs every green run the gate's whole duration.
 #
 # The nightly schedule runs only typecheck, build and API DAST, with a fresh
 # Schemathesis seed and a longer budget, so unchanged code still gets new
@@ -89,24 +87,19 @@ jobs:
   e2e:
     name: Product e2e
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    needs: [build]
     uses: ./.github/workflows/e2e.yml
     permissions:
       contents: read
       # OIDC for the Test Analytics upload.
       id-token: write
 
-  # Always called after build: a pull request that does not change the API
-  # reports the scanner jobs as skipped, which satisfies a required check,
-  # where a skipped caller would leave them pending.
+  # Always called: a pull request that does not change the API reports the
+  # scanner jobs as skipped, rather than leaving them pending.
   dast:
     name: API DAST
-    needs: [build]
     uses: ./.github/workflows/dast.yml
     permissions:
       contents: read
       security-events: write
       # OIDC for the Schemathesis Test Analytics upload.
       id-token: write
-    with:
-      scan: ${{ needs.build.outputs.dast == 'true' }}

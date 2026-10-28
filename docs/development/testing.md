@@ -106,9 +106,9 @@ legacy debt is never measured, so it cannot fail a pull request, and no prior
 measurement, stored index, cache key or environment fingerprint is involved:
 the scope is computed from the pull request's own tree and cannot go stale.
 
-In CI the API's changed files are split across four shards by changed-line
+In CI the API's changed files are split across six shards by changed-line
 count, whole files only, and one gate job scores every shard's report together
-(`mutation-changed-lines.mjs run --shard 2/4`, then `gate <reports…>`). A shard
+(`mutation-changed-lines.mjs run --shard 2/6`, then `gate <reports…>`). A shard
 prints its own score but never fails on it, and the gate fails if any shard
 did not finish.
 
@@ -132,20 +132,21 @@ alternatives](../research/development-pipeline.md).
 
 ## API DAST
 
-The `API DAST` jobs (`.github/workflows/dast.yml`, called by CI after Build)
-download the API that Build compiled, boot it on a throwaway stack from the
+The `API DAST` jobs (`.github/workflows/dast.yml`) compile the API and the
+packages it imports once, boot that build on a throwaway stack from the
 e2e fixtures (`.github/actions/dast-stack`: Postgres, mock model, mock MCP),
 register two users, and scan it from `apps/api/openapi.json` with two
 Dockerized scanners, pinned by digest:
 
 - Schemathesis (`scripts/dast/schemathesis.toml`): every check, including
   `ignored_auth` and `object_level_authorization`, which replays one
-  registered user's reads as the second user. It runs as three legs, each on
-  its own stack: two fuzzing legs over complementary operation tags (the
-  second excludes the first's tags, so a new tag is still fuzzed) and one
-  stateful leg over every operation. Schemathesis repeats fuzzing and stateful
-  testing until its time budget is spent, so each leg gets 5 minutes on pull
-  requests and master and 15 minutes nightly.
+  registered user's reads as the second user. It runs as five legs, each on
+  its own stack: four fuzzing legs over disjoint operation tags (the last
+  excludes the others' tags, so a new tag is still fuzzed) and one stateful
+  leg over every operation. Schemathesis repeats fuzzing and stateful testing
+  until its time budget is spent; on pull requests and master each fuzzing
+  leg gets 165 seconds and the stateful leg 240, the same 15 minutes in total
+  as the single run they replace, and nightly runs triple every budget.
 - ZAP's API scan (`scripts/dast/zap-plan.yaml`): OWASP passive and active
   rules, authenticated as the first user. It fails on Medium and High alerts.
 
@@ -172,12 +173,12 @@ Each stage is a reusable workflow that `.github/workflows/ci.yml` calls:
 typecheck
 test      (test.yml)      workspace legs; api shards -> api merge
 mutation  (mutation.yml)  API shards -> API gate; small workspaces
-build     (build.yml) --> product e2e (e2e.yml)
-                      --> API DAST (dast.yml: Schemathesis legs, ZAP)
+build     (build.yml)     every workspace + generated-diff check
+e2e       (e2e.yml)       Playwright; builds the web app itself
+dast      (dast.yml)      build API -> Schemathesis legs, ZAP
 ```
 
-Only Product e2e and API DAST wait, for Build; every other stage starts at
-once.
+Every stage starts at once; only the scanners wait, for their own API build.
 
 - Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
   jscpd, and Halstead difficulty.
@@ -186,7 +187,7 @@ once.
   `test:coverage` (thresholds, and CRAP where the script adds it), with the
   `web`/`ui` legs in the Playwright image; build plus generated-diff check; API
   DAST; mutation; production Playwright.
-- The api suite runs as three Vitest shards (`test:coverage:shard`), each on
+- The api suite runs as four Vitest shards (`test:coverage:shard`), each on
   its own Testcontainers Postgres, with thresholds off. They upload blob
   reports, and the `api` job merges them (`test:coverage:merge`), so
   thresholds, CRAP, the Codecov flag and JUnit cover the whole suite. It fails

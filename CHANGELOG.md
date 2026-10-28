@@ -4,14 +4,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - CI is split into one reusable workflow per stage (`test.yml`, `build.yml`,
   `mutation.yml`, `e2e.yml`, `dast.yml`) behind `ci.yml`, and its slow paths
-  are parallel. The api suite runs as three Vitest shards, merged into a single
+  are parallel. The api suite runs as four Vitest shards, merged into a single
   report that still applies the coverage thresholds and CRAP. Integration files
   run in parallel, each Vitest worker on its own clone of the migrated test
-  database: 8m41s to 3m05s locally. API mutation splits across four shards
-  with one gate over their combined score. Schemathesis runs as two fuzzing
-  legs and one stateful leg of 5 minutes each, replacing one 15-minute run.
-  Only Product e2e and API DAST still wait for another stage. Required check
-  names change to `<Stage> / <job>`, for example `Tests / api`.
+  database: 8m41s to 3m05s locally. API mutation splits across six shards
+  with one gate over their combined score. Schemathesis runs as four fuzzing
+  legs and one stateful leg with the same 15-minute total budget, and API DAST
+  builds the API itself instead of waiting for Build. No stage waits for
+  another. Required check names change to `<Stage> / <job>`, for example
+  `Tests / api`.
 
 - MCP tool results no longer lose literal header values to redaction. Every
   configured remote header value used to be treated as a secret, so a server
