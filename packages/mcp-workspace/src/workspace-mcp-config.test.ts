@@ -417,4 +417,24 @@ describe('readWorkspaceMcpConfig', () => {
       'session=literal-cookie',
     ]);
   });
+
+  it('protects an interpolated header secret in the trimmed form the transport sends', async () => {
+    const root = await workspace();
+    await writeJson(path.join(root, '.mcp.json'), {
+      mcpServers: {
+        remote: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          headers: { 'X-Api-Key': '${MCP_TOKEN}' },
+        },
+      },
+    });
+
+    const entries = await readWorkspaceMcpConfig(root, {
+      MCP_TOKEN: '  padded-secret  ',
+    });
+    expect(configured(entries, 'remote').protectedValues).toEqual([
+      'padded-secret',
+    ]);
+  });
 });

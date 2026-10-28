@@ -415,7 +415,13 @@ async function resolveHeaders(
     if (resolved.value.trim().length === 0) {
       throw new WorkspaceConfigError(`header ${name} must be non-empty`);
     }
-    addInterpolatedSubstitutions(protectedValues, resolved.substitutions);
+    // The HTTP runtime trims a header value's outer whitespace before sending
+    // it, so the trimmed form is what the server can echo; it is a substring
+    // of the untrimmed one, so redacting it covers both spellings.
+    for (const substitution of resolved.substitutions) {
+      if (!substitution.fallback)
+        addProtected(protectedValues, substitution.value.trim());
+    }
     headers[name] = resolved.value;
     folded.set(lower, name);
   }

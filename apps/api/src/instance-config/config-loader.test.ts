@@ -1275,6 +1275,22 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     );
   });
 
+  it('protects an interpolated header secret in the trimmed form the transport sends', () => {
+    writeConfig(`{
+      "mcpServers": {
+        "web": {
+          "type": "http",
+          "url": "https://example.test/mcp",
+          "headers": { "X-Api-Key": "{env:MCP_TOKEN}" }
+        }
+      }
+    }`);
+
+    expect(
+      loadInstanceConfig({ MCP_TOKEN: '  padded-secret  ' }).mcpServers.web,
+    ).toMatchObject({ protectedValues: ['padded-secret'] });
+  });
+
   it('rejects the noncanonical top-level servers alias', () => {
     writeConfig(`{
       "servers": {

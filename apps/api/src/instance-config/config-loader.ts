@@ -2026,7 +2026,9 @@ function resolveMcpHeaders(
       headerPath,
       env,
     );
-    protectedValues.push(...substituted);
+    // Trimmed as the HTTP runtime sends it; the trimmed form is a substring
+    // of the untrimmed one, so redacting it covers both spellings.
+    protectedValues.push(...substituted.map((secret) => secret.trim()));
     if (value.trim() === '') {
       throw new InstanceConfigError(
         `${headerPath}: must resolve to a non-empty string`,
