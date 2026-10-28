@@ -254,9 +254,22 @@ first request.
 
 ## Migration Plan
 
-No schema migration: `parts` and `payload` are `jsonb`. New reads retain their bytes at deploy.
-Earlier results take the D7 form. Rollback is a redeploy of the earlier code after a strip of
-`retainedMedia` from parts and events.
+No schema migration: `parts` and `payload` are `jsonb`. Earlier results take the D8 form.
+
+The writer and the strip ship in one revision, but an older API process does not strip. So the
+revision boundary is every process that serves HTTP:
+
+1. Roll out the new revision to every API process (`dist/main.js`, including a co-located `all`
+   profile) before any process of the new revision runs a Run. In the co-located topology this is
+   one step: stop the old processes, after their 30-second drain (`scaling.md`), before the new ones
+   start. In the split topology, replace the `web` replicas first, then the `dist/worker.js`
+   replicas.
+2. Only then do new reads write `retainedMedia`. An old worker that is still draining writes none,
+   so its Runs keep the earlier attempt-memory behavior until they end.
+
+Rollback is the reverse: stop every new-revision worker, run a strip of `retainedMedia` from
+`messages.parts` and `run_events.payload`, then redeploy the earlier API and worker revision. The
+strip is required, because the earlier API returns parts and payloads as stored.
 
 ## Open Questions
 
