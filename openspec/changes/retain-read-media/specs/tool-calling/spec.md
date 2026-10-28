@@ -53,16 +53,16 @@ Each other image result has no `media` field. The system stores it with the disp
 that `media-attachments` defines, when one fits its cap. The tool part MUST also keep the retained
 bytes of that image beside the result, as `media-attachments` defines. The system MUST remove
 `thumbnail` and the retained bytes from the model-facing output and from each replayed result.
-`thumbnail` and the retained bytes MUST NOT count toward the UTF-16 budgets, and the system MUST
-never accept them from a client. On replay, the text of the result MUST follow the projection above.
+`thumbnail` and the retained bytes MUST NOT count toward the UTF-16 budgets, and the system MUST NOT
+accept them from a client. On replay, the text of the result MUST follow the projection above.
 The image MUST become provider image content, built at request time, only when three conditions are
 true. The model of the request declares `image` input, its model variant is available, and the
 epoch image window of `media-attachments` attaches that reference. For a `media://` result, the
 model variant is available from the media store. For each other image result, it is available from
 the retained bytes in its stored tool part. This applies in a later step, a later turn, a Continue
-Run, a compaction request, and a fork. In other cases, the replayed result MUST carry the image
-placeholder of `media-attachments` in its text. A result without retained bytes MUST replay as its
-text only, with no image and no placeholder. A `media://` reference that does not resolve to media
+Run, a compaction request, and a fork. A result without retained bytes MUST replay as its text
+only, with no image and no placeholder. For each other result, when the three conditions are not
+all true, the replayed result MUST carry the image placeholder of `media-attachments` in its text. A `media://` reference that does not resolve to media
 of the Run owner MUST replay as the unavailable placeholder. These placeholders MUST NOT fail the
 request. Image content MUST NOT count toward the UTF-16 budgets. An image MUST replay only with its
 kept result payload. When the system clears a payload or drops a pair, it also removes the image
@@ -278,9 +278,10 @@ MUST NOT carry a media descriptor, PDF bytes, or base64 content. The tool part M
 retained original of an unstored PDF beside the result, as `media-attachments` defines. On replay,
 its text MUST follow the ordinary projection. The PDF MUST become provider file content, built from
 its original at request time, only when three conditions are true. The request's model declares
-`pdf` input, the original is available, and the epoch image window attaches it. In other cases,
-its text MUST carry the matching PDF placeholder. A result without retained bytes MUST replay as its
-text only, with no file content and no placeholder.
+`pdf` input, the original is available, and the epoch image window attaches it. A result without
+retained bytes MUST replay as its text only, with no file content and no placeholder. For each other
+result, when the three conditions are not all true, its text MUST carry the matching PDF
+placeholder.
 
 #### Scenario: A PDF result is stored without PDF data
 

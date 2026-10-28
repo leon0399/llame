@@ -84,12 +84,16 @@ result.
 Rejected: a key in `output`. The 16,000-character truncation would cut it, the serializer would put
 it in model text, and an 8,000-unit replay budget would clear the pair on the next turn.
 
-### D2: The per-attempt map stays, as a byte index without release
+### D2: The per-attempt map stays, as a base64 index without release
 
-`HeldMedia` becomes `RetainedMedia`: every entry holds its bytes, and `releaseMedia` is deleted. The
-map has two writers. The media hook writes a live read, now whatever the model's input. Context
-assembly writes each `retainedMedia` of the rows it loads: epoch rows, Continue kept parts, and the
-compaction prefix. The composer reads it as it reads the map today.
+`HeldMedia` becomes `RetainedMedia`: every entry holds its base64 string, and `releaseMedia` is
+deleted. The map has two writers. The media hook writes a live read, now whatever the model's
+input, and encodes its bytes once. Context assembly writes each `retainedMedia` of the rows it
+loads: epoch rows, Continue kept parts, and the compaction prefix. The rows are already in memory,
+so this adds no copy of the strings.
+
+Admission sizes an entry from its string length, which is its exact base64 size, so it decodes
+nothing. The composer decodes only the entries that the window attaches, at most 28 MiB per request.
 
 Model messages keep their byte-free markers. `estimateProjectionTokens` serializes raw messages when
 no sizing is given (`compaction.ts:139-177`), so bytes on a marker would reach that estimate.
@@ -97,50 +101,84 @@ no sizing is given (`compaction.ts:139-177`), so bytes on a marker would reach t
 Rejected: the bytes on the marker itself. It removes the map but puts megabytes into every
 `JSON.stringify` of request messages.
 
-A marker exists only for an item with bytes. Replay emits a media reference only when the part or
-entry has `retainedMedia`, so a reference without a map entry is a defect, and the composer throws.
-The `not-retained` status, the not-retained placeholder, and the released-size fields are deleted.
+A marker exists only for an item with bytes. Each producer checks `retainedMedia` before it emits
+one: the replay of a stored part (`tool-observation-part.ts:463-497`), the Continue projection
+(`continue-projection.ts:171-184`, which today derives the marker from the recorded result), the
+prompt-import marker (`prompt-imports-item.ts:211-245`), and the live `toModelOutput`. A marker
+without a map entry is then a defect, and the composer throws. The `not-retained` status, the
+not-retained placeholder, and the released-size fields are deleted.
+
+A replayed marker takes a key minted for its own position in the request, not the provider's tool
+call id. Some OpenAI-compatible servers number calls `call_0`, `call_1` in each response, so two
+rows can share an id. A live marker keeps the tool call id, which is unique in its attempt.
 
 ### D3: Every durable writer carries the bytes
 
 - The live collector adds `retainedMedia` from the map when it builds a `tool-read` part.
-- `tool.completed` carries `retainedMedia` as a payload field beside `output`. The event-log
-  rebuild copies it into the part. This is the deviation from Q18-A that the proposal asks Leo to
-  confirm.
+- A model call's `tool.completed` carries `retainedMedia` as a payload field beside `output`. The
+  event-log rebuild copies it into the part. This is the deviation from Q18-A that the proposal
+  asks Leo to confirm. A system-origin read, such as a prompt import, keeps its bytes only in the
+  item entry, so its `tool.completed` carries none.
 - `run.continued` keeps the kept parts verbatim, `retainedMedia` included.
 - The prompt-import pass writes `retainedMedia` into the entry when it creates the item.
-
-The bridge and `keptPartEvents` build stream chunks only from `output`, so neither forwards the
-bytes. A test pins this.
 
 Rejected: byte-free events. A reply settled after a crash, a dead-letter expiry, or a claim-time
 cancel would lose its media, and each Continue of that reply would copy the loss.
 
-### D4: One egress projection strips the bytes
+### D4: Each egress strips the bytes
 
-`toChatMessageResponse` removes `retainedMedia` from each tool part and from each prompt-import
-entry. The web schemas stay unchanged, because the response is the same as today. The other
-consumers read text parts or `output` only (see Context), and tests pin the history response, the
-stream, and model text.
+One function removes `retainedMedia` from parts, prompt-import entries, and event payloads. Its
+callers:
 
-### D5: Admission sizes retained references from their bytes
+- `toChatMessageResponse`, for the history response (`chats.dto.ts:518-547`);
+- the run event stream, which writes stored payloads as SSE frames
+  (`runs.controller.ts:234-251`);
+- `toRunUserMessage`, for the Continue and Regenerate job payloads
+  (`chat-message-parts.ts:36-42`, `follow-up-admission.service.ts:328`, `:376`). The worker reads
+  the triggering row from the database (`run-execution.service.ts:2385`).
 
-A retained image costs `base64Size(model.bytes.length)` and one image. A retained PDF costs
-`base64Size(bytes.length)` and its pages. The window is now append-only across attempts, because no
+The UI stream bridge and `keptPartEvents` build chunks from `output` only, so neither forwards the
+bytes. The web schemas stay unchanged, because every response is the same as today. Tests pin the
+history response, both streams, the job payload, and model text.
+
+AI SDK telemetry is off: `agentTelemetry` sets only `functionId` (`model-client.ts:56-58`), so no
+prompt reaches a span.
+
+### D5: Each stored message keeps at most 28 MiB of retained base64
+
+Postgres limits one `jsonb` value to 255 MiB. Ten 20 MiB PDF reads in one reply would exceed it,
+and the reply would fail to persist. So each message keeps at most 29,360,128 bytes of retained
+base64, the window's own byte bound. The collector and the import pass track the sum. A read past
+it keeps no bytes and replays as text, and the read itself succeeds.
+
+A reference past that sum could never attach on a model that declares every kind, because the
+window admits oldest first and latches. On a model that omits PDFs, an image after large PDFs can
+lose its bytes although the window could take it. That case is accepted for one simple bound.
+
+Rejected: a read that fails past the bound. It turns a storage limit into a tool error that the
+model cannot act on.
+
+The bound also caps a `run.continued` payload and the in-Run reply snapshot. A `tool.completed`
+payload holds one item.
+
+### D6: Admission sizes retained references from their bytes
+
+A retained image costs the length of its base64 string and one image. A retained PDF costs the
+length of its string and its pages. The window is now append-only across attempts, because no
 entry leaves it at an attempt boundary.
 
-### D6: The overflow trigger counts retained references
+### D7: The overflow trigger counts retained references
 
 `mediaOverflowCompacts` treats a retained reference in an earlier row like a stored one. Otherwise a
 retained read past the bounds keeps the limit placeholder and never compacts.
 
-### D7: Rows without bytes replay as text
+### D8: Rows without bytes replay as text
 
 A `read` result or entry stored before this change has no `retainedMedia`. It emits no marker, so
 its serialized result text replays alone (Q10-B). No backfill is possible, because the bytes no
 longer exist.
 
-### D8: The tool description and docs change with the behavior
+### D9: The tool description and docs change with the behavior
 
 The packaged `read` description (`apps/api/src/prompts/tools/read.md:66-68`) stops saying that read
 media is not kept. `SPEC.md`, the `read`, locator, prompt-import, Continue, and web-read docs, and
@@ -151,13 +189,15 @@ the media operator page change in the same layer.
 Real admission constants: an image costs `ceil(w × h / 750)` tokens on its model variant, a PDF
 3,000 tokens per page, and the not-retained placeholder about 12 tokens.
 
-| Fixture                     |                 Before, each later request |                                   After, each later request |
-| --------------------------- | -----------------------------------------: | ----------------------------------------------------------: |
-| one 1600×900 screenshot     | 12 (+1,920 and one tool call when re-read) |                                                       1,920 |
-| one 2000×1125 screenshot    |                   12 (+3,000 when re-read) |                                                       3,000 |
-| one 15-page PDF             |                  12 (+45,000 when re-read) |                                                      45,000 |
-| 40 screenshots at 2000×1125 |                                        480 | 120,000, which triggers compaction on a 200,000-token model |
+| Fixture                                            |                 Before, each later request | After, each later request |
+| -------------------------------------------------- | -----------------------------------------: | ------------------------: |
+| one 1600×900 screenshot                            | 12 (+1,920 and one tool call when re-read) |                     1,920 |
+| one 2000×1125 screenshot                           |                   12 (+3,000 when re-read) |                     3,000 |
+| one 15-page PDF                                    |                  12 (+45,000 when re-read) |                    45,000 |
+| 40 screenshots at 2000×1125, 500,000-byte variants |                                        480 |                   120,000 |
 
+The last row fits the window: 40 × 666,668 base64 bytes is 26.7 MB. Its 120,000 tokens stay under
+the 160,000-token threshold of a 200,000-token model, so they stay until a later turn crosses it.
 The after column applies until a compaction absorbs the row. The window's append-only order keeps
 the prefix stable, so providers with prompt caching bill these tokens at the cached rate after the
 first request.
@@ -170,6 +210,11 @@ first request.
   `tool.completed` payloads of terminal Runs.
 - [Each Continue copies its kept media into a new `run.continued`] -> Bounded by the reply's own
   retained media. The same retention work applies.
+- [Each request loads its epoch rows with their base64 strings, and an owner fork loads every row
+  of the chat] -> The per-message bound caps each row, and the composer decodes only attached
+  entries. A blob table is the later fix if rows grow past what history loads tolerate.
+- [The stream bridge reads the whole `run.continued` payload on each connection] -> The
+  per-message bound caps it at about 28 MiB.
 - [Retained media costs tokens on every later request] -> The epoch window bounds it, and overflow
   compaction absorbs it.
 - [Host, Knowledge, skill, machine, and web media persist in chat rows and backups] -> The rows keep

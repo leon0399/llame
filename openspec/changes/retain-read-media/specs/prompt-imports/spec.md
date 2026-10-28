@@ -3,8 +3,8 @@
 ### Requirement: Unstored image entries are retained in their item
 
 A target other than `media://` MUST be imported without a media object. Its entry carries no
-`media` locator and MUST keep the retained bytes that `media-attachments` defines. The importing
-attempt and each later request of the epoch MUST carry the image's part or placeholder after the
+`media` locator and MUST keep the retained bytes that `media-attachments` defines. The attempt that
+imports it and each later request of the epoch MUST carry the image's part or placeholder after the
 item's text. The epoch image window selects the form.
 
 #### Scenario: A vision model receives the imported image after the item text
@@ -21,6 +21,28 @@ item's text. The epoch image window selects the form.
 - **THEN** the request carries, directly after the item's text, the placeholder
   `[image "shot.png" 1600×900, omitted: this model has no image input]`
 - **AND** the request carries no image part
+
+#### Scenario: An imported image beyond the window receives the limit placeholder
+
+- **WHEN** the Run's model declares `image` input, and the epoch image window does not attach the
+  imported `@shot.png`, a 1600×900 image
+- **THEN** the request carries, directly after the item's text,
+  `[image "shot.png" 1600×900, not attached: this context's image limit is reached]`
+- **AND** the request carries no image part for that entry
+
+#### Scenario: A compacting attempt admits its prompt import in the new epoch
+
+- **WHEN** a vision-model chat's epoch carries 100 attached owner attachments in earlier turns, and
+  the owner's next message imports `@shot.png`, so the attempt compacts before its first model step
+- **THEN** the attempt's first request sends the import's retained model variant as an image under
+  the new epoch
+
+#### Scenario: A later text-only turn receives the omitted placeholder
+
+- **WHEN** a later turn on a model that does not declare `image` input replays the user message
+  whose `prompt-imports` item imported `@shot.png`, a 1600×900 image
+- **THEN** the request carries, directly after the item's text,
+  `[image "shot.png" 1600×900, omitted: this model has no image input]`
 
 #### Scenario: A later turn receives the retained image
 
@@ -47,8 +69,8 @@ item's text. The epoch image window selects the form.
 ### Requirement: Unstored PDF entries are retained in their item
 
 A PDF target other than `media://` MUST be imported without a media object. Its entry carries no
-`media` locator and MUST keep the retained original that `media-attachments` defines. The importing
-attempt and each later request of the epoch MUST carry the PDF's file part or placeholder after the
+`media` locator and MUST keep the retained original that `media-attachments` defines. The attempt
+that imports it and each later request of the epoch MUST carry the PDF's file part or placeholder after the
 item's text. The epoch image window selects the form.
 
 #### Scenario: A PDF model receives the imported PDF after the item text
@@ -104,8 +126,8 @@ Each image entry's private payload entry MUST record outcome `imported` and one 
 entry imported without a media object MUST carry the original's `width`, `height`, and
 `mediaType`, and its `retainedMedia`. It MUST also carry `thumbnail`, the display-only thumbnail
 that `media-attachments` defines, when one fits its cap. An entry imported from a `media://` target
-MUST carry `media: "media://<id>"` and none of those five keys. A client MUST never supply any of
-these keys.
+MUST carry `media: "media://<id>"` and none of those five keys. A client MUST NOT supply any of these
+keys.
 
 #### Scenario: The payload records an unstored image's thumbnail and dimensions
 
@@ -200,7 +222,7 @@ carries `kind` with a different value.
 Each PDF entry's private payload entry MUST record outcome `imported`, `kind` `pdf`, `mediaType`
 `application/pdf`, `pages`, and `byteSize`. An entry imported from a `media://` target MUST also
 carry `media: "media://<id>"`. An entry imported without a media object MUST carry no `media` and
-MUST carry its `retainedMedia`. A PDF entry MUST NOT carry a `thumbnail`, and a client MUST never
+MUST carry its `retainedMedia`. A PDF entry MUST NOT carry a `thumbnail`, and a client MUST NOT
 supply any of these keys.
 
 #### Scenario: The payload records an unstored PDF's page count and size

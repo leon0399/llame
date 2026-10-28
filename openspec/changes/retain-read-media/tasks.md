@@ -27,8 +27,9 @@ Budget:
   each. A split publishes an incomplete contract.
 - `inline-parts` keeps storage, replay, and egress in one layer. A layer that writes bytes without
   the egress strip sends them to the browser, and a layer that strips without replay adds dead
-  data. Re-estimate at its boundary. If it exceeds the budget, move the prompt-import retention to
-  a second layer above it, and keep its attempt-memory path until that layer.
+  data. The attempt-memory deletion cannot move to a later layer either, because replay and the
+  live path share the map. Re-estimate at its boundary; above 2,000 authored lines it needs a named
+  exception with its measured size.
 - No generated output changes: the API contract and the web client stay the same.
 
 ## 1. Proposal

@@ -31,9 +31,13 @@ accumulation failures Claude Code reports. The decisions come from a grilling ro
   epoch: an attempt boundary no longer releases read media from the window.
 - **Overflow compaction counts retained media.** A retained reference in an earlier row enables the
   overflow trigger, as a stored reference does today.
-- **Bytes stay on the server.** No history response, stream frame, model text, conversation read,
-  search index, title input, share, or log carries retained bytes. Request-size estimates, replay
-  budgets, and result truncation exclude them, and media keeps its dimension and page charges.
+- **Bytes stay on the server.** No history response, run event stream, stream frame, queue job,
+  model text, conversation read, search index, title input, share, or application log carries
+  retained bytes. Request-size estimates, replay budgets, and result truncation exclude them, and
+  media keeps its dimension and page charges.
+- **A per-message bound.** One stored message keeps at most 28 MiB (29,360,128 bytes) of retained
+  base64, the window's own byte bound. A read past it succeeds but keeps no bytes. This keeps each
+  row and event far below the Postgres `jsonb` limit.
 - **No media objects.** Retained media is not written to the media store, has no `media://` id, and
   does not appear in the gallery. It is deleted with its chat, and an owner fork copies it with the
   rows.
@@ -51,7 +55,8 @@ accumulation failures Claude Code reports. The decisions come from a grilling ro
 - Compaction is the only eviction (Q4-A).
 - The model sees `path` only, with no id and no digest (Q20-A). The display thumbnail stays.
 - Rows stored before this change replay as their result text only (Q10-B).
-- The media store's no-deletion gap for uploads stays open, under a new follow-up issue (Q11-A).
+- The media store's no-deletion gap for uploads stays open, under
+  [#1469](https://github.com/leon0399/llame/issues/1469) (Q11-A).
 
 These follow from those decisions and were not asked separately:
 
@@ -59,6 +64,10 @@ These follow from those decisions and were not asked separately:
 - The overflow trigger counts retained references in earlier rows. Without this, retained media
   beyond the bounds keeps the limit placeholder and never compacts.
 - A reply that a settler rebuilds from the event log keeps its retained media.
+- The per-message bound. Without it, ten 20 MiB PDF reads in one reply exceed the 255 MiB `jsonb`
+  value limit, and the reply fails to persist where it succeeds today.
+- Continue and Regenerate jobs carry no retained bytes. The worker reads the triggering message
+  from its row, so the job does not need them.
 
 ## Deviation from the grilling record
 
@@ -83,16 +92,19 @@ None.
 
 ### Modified Capabilities
 
-- `media-attachments`: replaces attempt-memory retention with part retention. Modified: `Tool-result
-  and prompt-import images reach the model with their text`, `No placeholder directs the model to
-  read an image again`, `Each image reference takes exactly one model-facing form`, `Image
-  placeholders name the image by its locator`, `Placeholder locators are exact JSON string
-  literals`, `The byte bound is summed from variant sizes before loading`, `Only attachable
-  references count toward the window`, `Image overflow compacts at the start of the next Run`,
-  `Image bytes join a request only when attached`, `Compaction requests carry images as a Run
-  would`, and the PDF counterparts of the first five, of the two byte rules, and of the compaction
-  rule. Removed: the attempt-memory, release, not-retained, attempt-boundary, and byte-free-part
-  requirements. Added: retention, replay, per-read bytes, server-only bytes, and legacy replay.
+- `media-attachments`: replaces attempt-memory retention with part retention.
+  - Modified: `Tool-result and prompt-import images reach the model with their text`, `No
+    placeholder directs the model to read an image again`, `Each image reference takes exactly one
+    model-facing form`, `Image placeholders name the image by its locator`, `Placeholder locators
+    are exact JSON string literals`, `The byte bound is summed from variant sizes before loading`,
+    `Only attachable references count toward the window`, `Image overflow compacts at the start of
+    the next Run`, `Image bytes join a request only when attached`, `Compaction requests carry
+    images as a Run would`, and six PDF counterparts: the model-facing form, the placeholder
+    locator, the delivery with text, the re-read directive, the byte join, and compaction.
+  - Removed: the attempt-memory, release, not-retained, attempt-boundary, and byte-free-part
+    requirements, for images and PDFs.
+  - Added: retention, replay, per-read bytes, server-only bytes, budgets, legacy replay, storage
+    and deletion, request-built data, and the per-message bound.
 - `tool-calling`: `Tool observations survive into later turns as stored UI parts` and `PDF tool
   observations are stored and replayed like image results` change the stored form and replay.
 - `prompt-imports`: the two unstored-entry requirements are replaced by retained-entry
@@ -102,11 +114,20 @@ None.
   as the byte source.
 - `native-file-tools`: `Image reads are decoded without being stored` and `PDF reads are parsed
   without being stored`.
+- `media-store`: `Image preparation is shared with unstored image reads` and `PDF preparation is
+  shared with unstored PDF reads` stop saying that a read writes no bytes anywhere.
 - `model-system-prompts`: `A model switch replaces the top-level prompt and preserves portable
-  history` (the vision-model switch scenario).
+  history` (the vision-model switch scenario) and `Compaction publishes a summary-only checkpoint
+  before the Run's first model step` (the overflow trigger).
 
-Deliberately unchanged: `media-store` (no object is created), the epoch window's bounds, the
-placeholder forms other than not-retained, the thumbnail rules, and owner attachments.
+Deliberately unchanged: the epoch window's bounds, the placeholder forms other than not-retained,
+the thumbnail rules, uploads, and owner attachments.
+
+Named exception to the Simplified Technical English rule: the `Compaction publishes a summary-only
+checkpoint` block has 146 prose lines. It changes one paragraph, which is rewritten in STE. The
+rest of the block changes `SHALL` to `MUST` and keeps its sentences, so the diff stays reviewable.
+The unchanged scenarios of the `tool-calling` and `context-injection` blocks keep their canonical
+wording for the same reason.
 
 ## Impact
 

@@ -3,9 +3,9 @@
 ### Requirement: Unstored images and PDFs are retained in their stored part
 
 The stored part of each successful image or PDF `read` result without a `media` locator MUST keep
-the retained bytes. The same rule MUST apply to each such prompt-import entry. For an image, the
-retained bytes are the model variant, with its media type and dimensions. For a PDF, they are the
-original. Retention MUST NOT depend on the locator scheme or on the model's declared input.
+its retained bytes in `retainedMedia`. Each such prompt-import entry MUST do the same. For an
+image, the retained bytes are the model variant, with its media type and dimensions. For a PDF,
+they are the original. Retention MUST NOT depend on the locator scheme or the declared input.
 
 #### Scenario: A read image is retained in its tool part
 
@@ -80,6 +80,14 @@ select each retained reference as it selects each other reference.
 - **THEN** the fork's request carries the retained model variant when the epoch image window
   attaches the reference
 
+#### Scenario: A new attempt of the same Run reads again
+
+- **WHEN** an attempt reads `/work/shot.png`, its worker stops, and the same Run starts a new
+  attempt
+- **THEN** the new attempt's requests carry no output of the earlier attempt, as `durable-runs`
+  defines
+- **AND** an image that the new attempt reads is retained in its own tool part
+
 #### Scenario: A switch to a vision model attaches an earlier read
 
 - **WHEN** a turn on a text-only model read `/work/shot.png`, and the next turn of the same epoch
@@ -109,10 +117,11 @@ two reads, each read MUST replay with the bytes of its own read time.
 
 ### Requirement: Retained bytes stay on the server
 
-Retained bytes MUST NOT be in a client response, a stream frame, model-facing text, or a log.
-They MUST NOT be in a conversation read, a search index, a title input, or a recency digest. They
-MUST NOT be in a public share or a shared fork. The chat history response MUST remove them from each part. Only an attached image or PDF
-part of a provider request MUST carry them out of the server.
+Retained bytes MUST NOT be in a client response, a stream frame, model-facing text, or an
+application log. They MUST NOT be in a conversation read, a search index, a title input, or a
+recency digest. They MUST NOT be in a public share or a shared fork. The chat history response and
+the run event stream MUST remove them. Retained bytes leave the server only in an attached image or
+PDF part of a provider request.
 
 #### Scenario: The history response omits retained bytes
 
@@ -124,6 +133,12 @@ part of a provider request MUST carry them out of the server.
 
 - **WHEN** a live or replayed Run stream reports a `read` call that retained an image or a PDF
 - **THEN** no stream frame carries the retained bytes
+
+#### Scenario: The run event stream omits retained bytes
+
+- **WHEN** the owner reads the events of a Run whose `tool.completed` or `run.continued` event holds
+  retained bytes
+- **THEN** each event frame carries its payload without the retained bytes
 
 #### Scenario: Model-facing text omits retained bytes
 
@@ -166,7 +181,7 @@ charge, and an attached PDF MUST keep its page charge.
 Some image or PDF results and import entries have no `media` locator and no retained bytes. Each of
 them MUST reach each request as its result text only. It MUST carry no image part, no file part, and no
 placeholder. It MUST NOT count toward the epoch image window, and it MUST NOT fail the request.
-Results stored before retention have this form.
+It is not an image or PDF reference. Results stored before retention have this form.
 
 #### Scenario: An earlier result without retained bytes replays as text
 
@@ -184,8 +199,8 @@ Results stored before retention have this form.
 ### Requirement: Retained bytes live and end with their chat
 
 Retained bytes MUST be stored only in the chat's message parts and in the server-side run events of
-the chat's Runs. The system MUST NOT create a media object for them, and the media list MUST NOT
-show them. Deletion of the chat MUST delete them. An owner fork MUST copy them with the rows that it
+the chat's Runs. A queue job MUST NOT carry them. The system MUST NOT create a media object for
+them, and the media list MUST NOT show them. Deletion of the chat MUST delete them. An owner fork MUST copy them with the rows that it
 copies.
 
 #### Scenario: A retained read creates no media object
@@ -198,6 +213,12 @@ copies.
 
 - **WHEN** the owner deletes a chat whose replies hold retained reads
 - **THEN** no message part and no run event keeps those retained bytes
+
+#### Scenario: A queue job carries no retained bytes
+
+- **WHEN** the owner continues or regenerates a turn whose user message imported `@shot.png`
+- **THEN** the queued job's copy of that message carries no retained bytes
+- **AND** the Run's requests still attach the import from the stored message
 
 #### Scenario: A shared fork copies no retained bytes
 
@@ -216,6 +237,26 @@ part carries MUST be the display-only `thumbnail` and the retained bytes.
 - **THEN** the stored user message part carries the attachment's `media://` locator and no bytes
 - **AND** the stored tool part carries the read's result, its `thumbnail`, and its retained bytes,
   and no request-built `data:` URL
+
+### Requirement: Retained bytes are bounded in each stored message
+
+Each stored message MUST keep at most 29,360,128 bytes of retained base64 across all its parts. A
+read or import entry whose base64 would exceed the rest of that bound MUST keep no retained bytes.
+The read or import itself MUST succeed, and its result replays as its text.
+
+#### Scenario: A read past the message bound keeps no bytes
+
+- **WHEN** a Run reads ten 20 MiB PDFs in one reply
+- **THEN** the first read keeps its retained original, because its 27,962,028 base64 bytes fit
+- **AND** the second and later reads keep no retained bytes, return their normal results, and
+  replay as their text
+
+#### Scenario: A small read after a large one can still fit
+
+- **WHEN** a reply already keeps 27,962,028 base64 bytes, and the Run then reads a 400 KiB image
+  whose model variant is 300,000 bytes
+- **THEN** that image keeps its retained bytes, because its 400,000 base64 bytes fit the rest of
+  the bound
 
 ## MODIFIED Requirements
 
@@ -256,8 +297,8 @@ The placeholder of an unstored image names the exact locator of a later `read`.
 
 ### Requirement: Each image reference takes exactly one model-facing form
 
-Each image reference MUST reach the model as exactly one form. The system MUST select the first
-form that applies, in this order:
+Each image reference MUST reach the model as exactly one form. A result without retained bytes is
+not a reference. The system MUST select the first form that applies, in this order:
 
 - the unavailable placeholder, for a `media://` reference that does not resolve;
 - the omitted placeholder, when the request's model does not declare `image` input;
@@ -522,8 +563,8 @@ attaches. It MUST carry placeholders for all other references.
 
 ### Requirement: Each PDF reference takes exactly one model-facing form
 
-Each PDF reference MUST reach the model as exactly one form. The system MUST select the first form
-that applies, in this order:
+Each PDF reference MUST reach the model as exactly one form. A result without retained bytes is
+not a reference. The system MUST select the first form that applies, in this order:
 
 - `[pdf media://<id> unavailable]`, when the reference does not resolve;
 - `[pdf <subject> <P> pages, omitted: this model has no PDF input]`, when the request's model does
