@@ -760,88 +760,84 @@ remains required and SHALL NOT authorize rewriting conversation state.
 
 ### Requirement: Stored parts cross a minimal SDK conversion boundary
 
-Request assembly SHALL treat `messages.parts` as the durable application/UI
-history. It SHALL preserve model-bearing stored parts and their order, except
-for the placement of owner `file` parts stated below, omit declared display-only
-parts except reasoning parts, which `reasoning-output`
-returns to the provider for the Chat that stores them, and map each surviving
-`data-context` part on a user message to one
-ordinary SDK text part containing `data.text`, followed, for each image entry
-that `prompt-imports` attaches to that item, by either one image part built from
-the image's model variant or the image placeholder text part, chosen by the
-variant's availability, the epoch image window, and the request model's declared
-input as `media-attachments` requires, and, for each PDF entry, by either one
-file part built from the PDF's original or the PDF placeholder text part, chosen
-by the original's availability, the epoch image window, and the request model's
-declared input as `media-attachments` requires. A `data-context`
-part stored on an
-assistant message SHALL be mapped to one user-role message containing one text
-part with `data.text`, emitted directly after the tool-result message of the
-tool part that precedes it in stored order, or in its stored position when that
-tool pair was omitted by the replay budget; it SHALL NOT be merged into the
-assistant message's own content or into the tool-result message. A `data-context`
-part on a `checkpoint` row SHALL be mapped to one user-role message containing one
-text part with `data.text`, emitted in place of the rows through that checkpoint's
-absorbed-through sequence and ahead of every later user and assistant row.
-Selection is by that boundary rather than by the checkpoint row's own sequence: a
-Run SHALL take the latest checkpoint whose absorbed-through sequence is below the
-triggering user message's sequence, because a checkpoint published before the step
-sits above the user row it was published for. It SHALL then pass the ordered parts
-to the AI SDK rather than manually constructing a joined transcript.
+Request assembly MUST use `messages.parts` as the durable application and UI history. It MUST keep
+the model-bearing stored parts and their order. Owner `file` parts are the one exception, and their
+placement follows below. It MUST omit declared display-only parts, except reasoning parts.
+`reasoning-output` returns reasoning parts to the provider for the Chat that stores them.
 
-Each owner `file` part on a user message SHALL be mapped at request time from the
-media object it references; a stored part SHALL carry only its `media://`
-reference and never image or PDF bytes. Within that message, the mapped file parts SHALL
-be inserted, in their stored order, immediately after the last mapped
-`data-context` part, the temporal row included, or at the start of the message
-when it has none, while every other part keeps its stored relative order. Each
-image file part SHALL map to one text part `Image n (media://<id>):`, and each
-file part whose `mediaType` is `application/pdf` SHALL map to one text part
-`PDF n (media://<id>):`, with `n` counting that message's file parts of the same
-kind from 1. An image label SHALL be
-followed by either one image part built from the object's model variant or the
-image placeholder text part, and a PDF label by either one file part with
-`mediaType` `application/pdf` and the stored name as `filename`, built from the
-object's original, or the PDF placeholder text part, each chosen by the epoch
-image window and the request model's declared input as `media-attachments`
+Request assembly MUST map each remaining `data-context` part on a user message to one ordinary SDK
+text part that contains `data.text`. `prompt-imports` can attach image and PDF entries to that
+item. After the text part, each image entry with `retainedMedia` or `media` MUST map to one image part or
+to the image placeholder text part. The image part is built from the image's model variant. Each such PDF entry MUST map to
+one file part, built from the PDF's original, or to the PDF placeholder text part. An entry without
+either key adds no part. The form of each
+entry follows from three things, as `media-attachments` requires. These are the availability of the
+variant or original, the epoch image window, and the declared input of the request model.
+
+Request assembly MUST map a `data-context` part on an assistant message to one user-role message
+with one text part that contains `data.text`. It MUST emit that message directly after the
+tool-result message of the tool part before it in stored order. When the replay budget omitted that
+tool pair, it MUST emit the message in its stored position. It MUST NOT merge the text into the
+assistant message's own content or into the tool-result message.
+
+Request assembly MUST map a `data-context` part on a `checkpoint` row to one user-role message with
+one text part that contains `data.text`. It MUST emit that message in place of the rows through the
+checkpoint's absorbed-through sequence, before each later user and assistant row. That boundary
+selects the checkpoint, not the checkpoint row's own sequence. A Run MUST take the latest checkpoint
+whose absorbed-through sequence is below the sequence of the triggering user message. The reason is
+that a checkpoint published before the step sits above the user row that it was published for.
+Request assembly MUST then give the ordered parts to the AI SDK. It MUST NOT build a joined
+transcript manually.
+
+Request assembly MUST map each owner `file` part on a user message at request time from the media
+object that it references. A stored `file` part MUST carry only its `media://` reference and never
+image or PDF bytes. In that message, the mapped file parts MUST go, in their stored order, directly
+after the last mapped `data-context` part, the temporal row included. When the message has no such
+part, they MUST go at the start of the message. All other parts MUST keep their stored relative
+order. Each image file part MUST map to one text part `Image n (media://<id>):`. Each file part whose
+`mediaType` is `application/pdf` MUST map to one text part `PDF n (media://<id>):`. `n` counts the
+file parts of the same kind in that message, from 1. After an image label, request assembly MUST
+emit one image part built from the object's model variant, or the image placeholder text part.
+After a PDF label, it MUST emit one file part built from the object's original, or the PDF
+placeholder text part. That file part has `mediaType` `application/pdf` and the stored name as
+`filename`. The epoch image
+window and the declared input of the request model select each form, as `media-attachments`
 requires.
 
-A stored tool part whose result is an image result (`kind: "image"`) SHALL map to
-a tool output of type `content` carrying the result's text followed by one image
-part built from the image's model variant when `media-attachments` selects an
-image part for that reference; otherwise its output SHALL carry the result's text
-followed by the image placeholder and no image part. The model variant is the
-stored object's for a `media://` result or image entry, and for every other
-image the one the current attempt's memory holds, which is available only within
-the attempt that read it. The display-only `thumbnail` of an image result or
-image entry SHALL NOT cross the boundary.
+A stored tool part whose result is an image result (`kind: "image"`) MUST map to a tool output of
+type `content`. `media-attachments` can select an image part for that reference. Then the output
+carries the result's text and then one image part built from the image's model variant. A result
+without `retainedMedia` and without `media` is not a reference, so its output MUST carry only the
+result's text. For each other result, the output MUST carry the result's text and then the image
+placeholder in all other cases, with no image part. For a `media://` result or image entry, the
+model variant is the stored object's. For each other image, it is the retained model variant in the
+stored part. The display-only `thumbnail` of an
+image result or image entry MUST NOT cross the boundary. Its retained bytes MUST cross it only as an
+attached image part.
 
-A stored tool part whose result is a PDF result (`kind: "pdf"`) SHALL map to a
-tool output of type `content` carrying the result's text followed by one file
-part built from the PDF's original when `media-attachments` selects a file part
-for that reference; otherwise its output SHALL carry the result's text followed
-by the PDF placeholder and no file part. The original is the stored object's for
-a `media://` result or PDF entry, and for every other PDF the one the current
-attempt's memory holds, which is available only within the attempt that read it.
-The transport of image and PDF outputs on Chat Completions wires is specified by
-`media-attachments`.
+A stored tool part whose result is a PDF result (`kind: "pdf"`) MUST map to a tool output of type
+`content`. `media-attachments` can select a file part for that reference. Then the output carries
+the result's text and then one file part built from the PDF's original. A result without
+`retainedMedia` and without `media` is not a reference, so its output MUST carry only the result's
+text. For each other result, the output MUST carry the result's text and then the PDF placeholder
+in all other cases, with no file part. For a `media://` result or PDF entry, the original is the
+stored object's. For each other PDF, it is the retained original in the stored part.
+`media-attachments` specifies the transport of image and PDF outputs on Chat Completions wires.
 
-Media references SHALL resolve only within the Run owner's media. A `media://`
-reference that does not resolve for that owner SHALL contribute no byte or
-descriptor field of any media object to the request and SHALL map to the
-unavailable placeholder that `media-attachments` defines, or its PDF unavailable
+Media references MUST resolve only in the media of the Run owner. A `media://` reference that does
+not resolve for that owner MUST add no byte or descriptor field of a media object to the request. It
+MUST map to the unavailable placeholder that `media-attachments` defines, or to the PDF unavailable
 placeholder for a PDF reference.
 
-This SHALL be an application-level best-effort invariant, not a promise of
-provider-wire byte identity. SDK conversion, role grouping, and provider
-serialization MAY evolve. The current ordinary assistant/tool projection SHALL
-remain a documented exception pending #599 because stored parts do not prove
-step boundaries.
+This MUST be an application-level best-effort invariant. It is not a promise of byte identity on
+the provider wire. SDK conversion, role grouping, and provider serialization can change. The
+current ordinary assistant and tool projection MUST stay a documented exception until #599, because
+stored parts do not prove step boundaries.
 
-The current top-level system prompt is outside message history and MAY change.
-A checkpoint MAY replace only the prefix it explicitly supersedes, through the
-coverage boundary and replay-selection rule required by `model-system-prompts`;
-no other stored form of superseded history is replayed.
+The current top-level system prompt is outside message history and can change. A checkpoint can
+replace only the prefix that it explicitly supersedes. It does this through the coverage boundary
+and the replay-selection rule that `model-system-prompts` requires. The system MUST NOT replay a
+different stored form of superseded history.
 
 #### Scenario: A checkpoint row crosses the SDK boundary
 
@@ -904,7 +900,7 @@ no other stored form of superseded history is replayed.
 - **WHEN** a later step of the Run that read an image replays that `read` tool part, the request
   model declares `image` input, and the epoch image window attaches the reference
 - **THEN** the tool-result message carries an output of type `content` holding the result's text
-  followed by one image part built from the model variant that attempt's memory holds
+  followed by one image part built from the retained model variant in the stored tool part
 - **AND** the output carries no `thumbnail`
 
 #### Scenario: An image read result for a text-only model carries a placeholder
@@ -915,10 +911,18 @@ no other stored form of superseded history is replayed.
 
 #### Scenario: An earlier turn's image read result carries the not-retained placeholder
 
-- **WHEN** a later turn on a model declaring `image` input replays a stored `read` tool part whose
-  result is an image result without a `media` field
-- **THEN** the tool output carries the result's text followed by the not-retained placeholder
-- **AND** it carries no image part
+- **WHEN** a later turn on a model that declares `image` input replays a stored `read` tool part
+  whose result is an image result with no `media` field and no `retainedMedia`
+- **THEN** the tool output carries only the result's text
+- **AND** it carries no image part and no placeholder
+
+#### Scenario: An earlier turn's retained image read result crosses as tool content
+
+- **WHEN** a later turn on a model that declares `image` input replays a stored `read` tool part
+  that keeps retained bytes, and the epoch image window attaches the reference
+- **THEN** the tool output carries the result's text and then one image part built from the
+  retained model variant
+- **AND** the output text carries no `thumbnail` and no retained bytes
 
 #### Scenario: A prompt-import image crosses as an image part or a placeholder
 
@@ -964,14 +968,21 @@ no other stored form of superseded history is replayed.
 - **WHEN** a later step of the Run that read a PDF replays that `read` tool part, the request model
   declares `pdf` input, and the epoch image window attaches the reference
 - **THEN** the tool-result message carries an output of type `content` holding the result's text
-  followed by one file part built from the original that attempt's memory holds
+  followed by one file part built from the retained original in the stored tool part
 
 #### Scenario: An earlier turn's PDF read result carries the not-retained placeholder
 
-- **WHEN** a later turn on a model declaring `pdf` input replays a stored `read` tool part whose
-  result is a PDF result without a `media` field
-- **THEN** the tool output carries the result's text followed by the PDF not-retained placeholder
-- **AND** it carries no file part
+- **WHEN** a later turn on a model that declares `pdf` input replays a stored `read` tool part whose
+  result is a PDF result with no `media` field and no `retainedMedia`
+- **THEN** the tool output carries only the result's text
+- **AND** it carries no file part and no placeholder
+
+#### Scenario: An earlier turn's retained PDF read result crosses as tool content
+
+- **WHEN** a later turn on a model that declares `pdf` input replays a stored `read` tool part that
+  keeps retained bytes, and the epoch image window attaches the reference
+- **THEN** the tool output carries the result's text and then one file part built from the retained
+  original
 
 #### Scenario: A prompt-import PDF crosses as a file part or a placeholder
 

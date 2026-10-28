@@ -97,7 +97,7 @@ Create `retain-read-media/inline-parts` from `retain-read-media/proposal` with `
 Enter `retain-read-media/finalize` from `retain-read-media/inline-parts` with `$gh-stack` before
 `$openspec-sync-specs` writes.
 
-- [ ] 3.1 Run `$openspec-sync-specs`, and update the `media-attachments` Purpose to name part
+- [x] 3.1 Run `$openspec-sync-specs`, and update the `media-attachments` Purpose to name part
       retention; verify with `pnpm exec openspec validate --specs --strict`.
 - [ ] 3.2 Confirm every task above is checked and `openspec status --change retain-read-media
   --json` reports all artifacts done; verify with `pnpm exec openspec validate --all --strict`.

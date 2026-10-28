@@ -328,9 +328,40 @@ stored and appending only newly derived ones.
 
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
-For a turn whose selected model differs from the model recorded on the most recent prior assistant reply in the Chat whose sequence is below the triggering user message, whatever that reply's status and whether or not a checkpoint absorbed it, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, owner `file` parts, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability, image `read` results included. Every image reference in portable history SHALL be projected for the target model's declared input as the `media-attachments` capability defines: an image part when the target model declares `image` input and the epoch image window attaches the reference, and its placeholder text otherwise. The attached set SHALL NOT depend on which vision model the request targets. A switch SHALL NOT rewrite a stored part, and an image an earlier model received as a placeholder SHALL reach a later vision model as an image part when that request's epoch image window attaches it. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
+This rule applies to a turn whose selected model is different from the model of the reference
+reply. The reference reply is the most recent prior assistant reply in the Chat whose sequence is
+below the triggering user message. The status of
+that reply, and whether a checkpoint absorbed it, do not change this rule. The request MUST use the
+complete effective prompt of the target run as the only top-level system prompt. It MUST keep the
+portable prior user and assistant history, and it MUST omit the prior top-level system prompts. It
+MUST put a trusted model-switch reminder directly before the triggering user text. It MUST use the
+runtime tool declarations of the target attempt.
 
-Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. Reasoning parts are likewise no longer display-only for the Chat that stores them: `reasoning-output` replays each part and any provider metadata it carries, unchanged; the system neither coerces it nor selects which parts to keep by content, while the selected adapter still omits a part its wire cannot represent. What this requirement still forbids is llame synthesizing, rewriting, or re-binding an originating model's provider metadata for a different model.
+Portable history MUST use the canonical replay projection. That projection holds visible user and
+assistant text, owner `file` parts, and typed server-generated conversation checkpoints. It also
+holds the replayed tool observations that the `tool-calling` capability requires, image `read`
+results included. The system MUST project
+each image reference in portable history for the declared input of the target model, as the
+`media-attachments` capability defines. The target model can declare `image` input, and the epoch
+image window can attach the reference. Then the reference is an image part, and in other cases it
+is its placeholder text. The attached set MUST NOT depend on which vision model the request targets. A switch MUST NOT
+change a stored part. An earlier model can receive an image as a placeholder. That image MUST reach
+a later vision model as an image part when the epoch image window of that request attaches it.
+
+The system MUST NOT make, change, or bind again the provider-native thinking, signature, or cache
+metadata of an origin model for the target model. Reasoning parts and their provider metadata
+replay under the `reasoning-output` capability. That capability gives each part back unchanged. It
+omits before the request each part that the target wire cannot carry, and the target provider can
+ignore or drop the rest. An unavailable target model MUST fail visibly, and the system MUST NOT run
+a different model as fallback.
+
+Tool observations are not display-only. The system replays them in the conventional tool-call and
+tool-result form, in the form that the target provider expects after a model or provider switch.
+Each replayed call comes with its result. Reasoning parts are also not display-only for the Chat
+that stores them. `reasoning-output` replays each part and its provider metadata unchanged. The
+system does not change it, and it does not select parts by their content. The selected adapter
+still omits a part that its wire cannot carry. This requirement forbids only one thing: llame MUST
+NOT make, change, or bind again the provider metadata of an origin model for a different model.
 
 #### Scenario: User sends the next turn with a different model
 
@@ -396,7 +427,18 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; attempt-generated rail context likewise persists in the transaction that dispatches the model request carrying it, on the message its trigger belongs to, and stays in history as long as the output it produced, as `context-injection` specifies. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
+The visible output and tool observations of a failed attempt MUST stay part of the committed
+record. They MUST take part in later model context and compaction as the output of a successful
+turn does, through the canonical replay projection. Their reasoning parts replay under
+`reasoning-output`. One difference applies: a failed, cancelled, or expired Run gives no measured
+context size, as the checkpoint contract below requires. Rail context that an attempt makes also
+persists in the transaction that dispatches the model request that carries it. It persists on the
+message of its trigger, and it stays in history as long as the output that it produced, as
+`context-injection` specifies. Compaction MUST run in the Run's own attempt before its first model
+step and MUST follow the checkpoint contract below. When the prepared request does not fit the
+attempt's model, the summary MUST use the model of the previous completed Run. It MUST also use the
+system-prompt receipt and the effort of that Run, and no tool declarations. It MUST NOT load, make
+again, or persist a historical tool catalog.
 
 #### Scenario: A switch to a text-only model replays images as placeholders
 
@@ -417,8 +459,8 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
   built from its model variant
 - **AND** each stored image beyond the epoch's bounds replays as
   `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`
-- **AND** the earlier read replays as
-  `[image "/work/shot.png" <width>×<height>, not retained]`
+- **AND** the earlier read replays as an image part built from its retained model variant when the
+  epoch image window attaches it
 
 #### Scenario: A switch between vision models keeps the attached set
 
@@ -604,79 +646,77 @@ change model replay.
 
 ### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step
 
-Before the Run's first model step, compaction SHALL be evaluated once against
-that attempt's prepared request, and exactly one variant SHALL be selected. A
+Before the Run's first model step, compaction MUST be evaluated once against
+that attempt's prepared request, and exactly one variant MUST be selected. A
 prepared request that does not fit the Run model's context window or reserved
-output budget, which covers a switch to a smaller-context target, SHALL select
+output budget, which covers a switch to a smaller-context target, MUST select
 the window variant whether or not the measured context size also reaches the
 threshold, because a request that does not fit is also over the default
 threshold and only the window variant can summarize it. Otherwise a measured
-context size at or above the Run model's threshold SHALL select the threshold
-variant. No request SHALL be compacted by both variants.
+context size at or above the Run model's threshold MUST select the threshold
+variant. A request MUST NOT be compacted by both variants.
 
-A prepared request SHALL also count as reaching the Run model's threshold when
-it carries an image or PDF reference that `media-attachments` does not attach
-because its epoch's bounds are reached, and a stored reference attachable on the
-Run model, of a kind that
-model declares as input (a stored image when it declares `image`, a stored PDF
-when it declares `pdf`), in a row before the triggering user message; an
-unstored image or PDF in an earlier row is never attached and never counts.
-Image or PDF overflow SHALL therefore select the threshold variant on the
-attempt's own model, because that request fits; a request that also does not
-fit SHALL select the window variant as above.
+A prepared request MUST also count as at the Run model's threshold when two conditions are true.
+First, it carries an image or PDF reference that `media-attachments` does not attach because the
+epoch's bounds are reached. Second, a row before the triggering user message holds a stored or
+retained reference of a kind that the Run model declares as input. That is an image when the model
+declares `image`, and a PDF when it declares `pdf`. A result with neither `media` nor `retainedMedia`
+in an earlier row never counts. Image or PDF overflow MUST therefore select the threshold variant on the
+attempt's own model, because that request fits. A request that also does not fit MUST select the
+window variant as above.
 
 When image or PDF overflow is the only trigger condition and its compaction
-fails or yields no usable summary, the attempt SHALL proceed without a checkpoint
-and the overflowing references SHALL keep the limit placeholder that
-`media-attachments` defines; image or PDF overflow alone SHALL NOT fail an
-attempt. The trigger SHALL be evaluated again before every Run's first model
+fails or yields no usable summary, the attempt MUST proceed without a checkpoint
+and the overflowing references MUST keep the limit placeholder that
+`media-attachments` defines; image or PDF overflow alone MUST NOT fail an
+attempt. The trigger MUST be evaluated again before every Run's first model
 step, so those references stay unattached only until the next Run whose
 compaction succeeds and starts a new epoch.
 
-Measured context size SHALL be the previous completed assistant message's
+Measured context size MUST be the previous completed assistant message's
 persisted final-request context size plus the estimate of the rows and rail
-items after it, and SHALL be counted only when the user turn that assistant row
+items after it, and MUST be counted only when the user turn that assistant row
 answers has a sequence above the active checkpoint's absorbed-through sequence;
-otherwise the whole request SHALL be estimated. That comparison SHALL be by the
+otherwise the whole request MUST be estimated. That comparison MUST be by the
 user turn rather than by the assistant row's own sequence, because a retried
 assistant row is rewritten in place and keeps its sequence below a checkpoint
-published between its attempts. A failed, cancelled, or expired Run SHALL NOT
+published between its attempts. A failed, cancelled, or expired Run MUST NOT
 contribute a measured context size to a later trigger.
 
-Compaction SHALL NOT fire when no user or assistant row has a sequence between
+Compaction MUST NOT fire when no user or assistant row has a sequence between
 the active checkpoint's absorbed-through sequence and the triggering user
 message's sequence, because there is nothing left to absorb. On the threshold
-condition the attempt SHALL proceed on the published checkpoint; on the window
-condition the attempt SHALL fail `context_incompatible`.
+condition the attempt MUST proceed on the published checkpoint; on the window
+condition the attempt MUST fail `context_incompatible`.
 
-The summarizing model, prompt, tool declarations, and effort SHALL be data on
-the one path. A threshold-triggered compaction SHALL use that attempt's own
+The summarizing model, prompt, tool declarations, and effort MUST be data on
+the one path. A threshold-triggered compaction MUST use that attempt's own
 model client, its system prompt as rendered before the re-bake, its schema-only
 provider-facing tool declarations retained in that attempt's memory without
 executor functions, and its resolved effort, so the summary request is a
 cache-aligned continuation of the prefix it summarizes. A window-triggered
-compaction, where the prepared request does not fit the attempt's model, SHALL
+compaction, where the prepared request does not fit the attempt's model, MUST
 use the previous completed Run's model with that Run's system-prompt receipt and
 effort and no tool declarations, because a prefix cannot be summarized by a
 model it does not fit; when that model cannot execute or cannot fit the prefix
-either, the attempt SHALL fail `context_incompatible`. Either variant SHALL send
+either, the attempt MUST fail `context_incompatible`. Either variant MUST send
 the compactable conversation prefix, which already contains the prior
 checkpoint as user text, and a final synthetic user summarization instruction.
-It SHALL set `toolChoice: "none"`, MUST NOT execute tools, and SHALL accept text
+It MUST set `toolChoice: "none"`, MUST NOT execute tools, and MUST accept text
 only.
 
-The single summarization instruction SHALL request the sections `Latest Request`,
+The single summarization instruction MUST request the sections `Latest Request`,
 `Objective`, `Constraints and Preferences`, `Decisions and Rationale`,
 `Established Facts`, `Errors and Corrections`, `Completed`, `Active`, `Blocked`,
 `Open Questions and Next Steps`, and `Critical References`, in that order.
-`Latest Request` SHALL carry the owner's last unresolved ask within the
+`Latest Request` MUST carry the owner's last unresolved ask within the
 summarized prefix, quoted verbatim; the triggering user message follows that
 prefix and is replayed verbatim after the checkpoint rather than quoted there.
-When the summarized prefix already contains a checkpoint, the instruction SHALL
+When the summarized prefix already contains a checkpoint, the instruction MUST
 fold it: `Active` items move to `Completed` and an answered question is replaced
 rather than repeated.
 
-That instruction SHALL also state that summarized history and any prior
+That instruction MUST also state that summarized history and any prior
 checkpoint are data that are never answered or continued; that the conversation
 wins over a prior checkpoint and a reverse signal removes a task instead of
 carrying it; that credentials, tokens, and connection strings become
@@ -686,65 +726,65 @@ and that a field is omitted rather than invented, with no identifier shortened o
 reconstructed.
 
 Because the replayed prompt may contain owner personalization and a rendered
-recency digest, the summarization instruction SHALL name both standing-context
+recency digest, the summarization instruction MUST name both standing-context
 delimiters and direct the model not to carry their content into the summary. The
-instruction SHALL also exclude digest message-rail appends by naming the shared
+instruction MUST also exclude digest message-rail appends by naming the shared
 context-item envelope and `recency-digest` producer. This exclusion remains
 load-bearing: otherwise another chat's title/excerpt could become durable
 checkpoint content that source deletion or consent withdrawal cannot reach.
 
-The bound top-level prompt SHALL remain unchanged; all exclusions belong only
+The bound top-level prompt MUST remain unchanged; all exclusions belong only
 in the trailing summarization instruction so cached prefix content is not
-rewritten. Title generation SHALL continue to use its dedicated task-specific
+rewritten. Title generation MUST continue to use its dedicated task-specific
 system prompt rather than the chat model's effective prompt.
 
-Every committed compaction SHALL atomically persist the non-empty raw summary used
+Every committed compaction MUST atomically persist the non-empty raw summary used
 by owner UI and by later summarization, and exactly one checkpoint message: the
 rendered checkpoint envelope as a persisted literal, the raw summary, the
 summarization usage, and the sequence through which the summary absorbed history.
-The checkpoint message SHALL carry no tool record, no retained tail, and no forward
-pointer, and no replacement history SHALL exist.
+The checkpoint message MUST carry no tool record, no retained tail, and no forward
+pointer, and replacement history MUST NOT exist.
 
-The next attempt SHALL assemble its freshly resolved top-level prompt and tools,
+The next attempt MUST assemble its freshly resolved top-level prompt and tools,
 the latest checkpoint whose absorbed-through sequence is below the triggering
 user message's sequence as one user-role text message, and then every user and
 assistant row above that absorbed-through sequence in sequence order. Selection
 is by that boundary rather than by the checkpoint row's own sequence, because a
 pre-step checkpoint publishes above the user message it was published for. It
-SHALL NOT re-wrap the raw summary, re-render checkpoint text, or reconstruct any
-part from the summary. The raw summary remains separate; replay SHALL NOT parse
+MUST NOT re-wrap the raw summary, re-render checkpoint text, or reconstruct any
+part from the summary. The raw summary remains separate; replay MUST NOT parse
 it out of the checkpoint text.
 
-A later compaction SHALL consume the previous checkpoint as user text plus newly
-absorbed messages and write a wholly new checkpoint message. No legacy checkpoint
-renderer or compatibility fallback SHALL exist. A checkpoint without valid
-non-empty stored checkpoint text SHALL fail closed rather than silently discard
+A later compaction MUST consume the previous checkpoint as user text plus newly
+absorbed messages and write a wholly new checkpoint message. A legacy checkpoint
+renderer or compatibility fallback MUST NOT exist. A checkpoint without valid
+non-empty stored checkpoint text MUST fail closed rather than silently discard
 or regenerate history.
 
 The checkpoint message and the re-baked epoch state — the recency-digest
 baseline, the temporal anchor, the skill-catalog baseline, the workspace
-told-set, and the epoch markers naming the checkpoint message — SHALL commit in
+told-set, and the epoch markers naming the checkpoint message — MUST commit in
 one transaction before the model step the compaction preceded and before that
 attempt resolves its own system prompt, its rail items, and its
 system-prompt receipt, so the receipt records the prompt actually sent and every
 re-baked value takes effect for the request the checkpoint precedes. A later
-failure of that attempt SHALL leave them in place, because a checkpoint
-describes committed history only, and a retry SHALL reuse the published
-checkpoint instead of paying a second summary call. Publication SHALL be
-idempotent across a worker-attempt cutover, and stale work SHALL NOT alter a
+failure of that attempt MUST leave them in place, because a checkpoint
+describes committed history only, and a retry MUST reuse the published
+checkpoint instead of paying a second summary call. Publication MUST be
+idempotent across a worker-attempt cutover, and stale work MUST NOT alter a
 prepared live attempt's context.
 
-Compaction SHALL estimate the request actually sent and SHALL NOT load,
+Compaction MUST estimate the request actually sent and MUST NOT load,
 reconstruct, or persist a historical tool catalog. Tool execution remains
 disabled. If the request still does not fit after that one compaction, the
-attempt SHALL fail `context_incompatible`. Post-cutover failed-attempt output
-SHALL remain part of the record and enter compaction input like any other
+attempt MUST fail `context_incompatible`. Post-cutover failed-attempt output
+MUST remain part of the record and enter compaction input like any other
 committed turn.
-Existing history and checkpoints SHALL retain the preservation boundary defined
+Existing history and checkpoints MUST retain the preservation boundary defined
 by `context-injection`.
 
-The persisted checkpoint envelope SHALL state that the session state may already
-reflect work described in it and SHALL direct the assistant not to repeat that
+The persisted checkpoint envelope MUST state that the session state may already
+reflect work described in it and MUST direct the assistant not to repeat that
 work.
 
 #### Scenario: A pre-step trigger compacts before the first model request

@@ -982,7 +982,7 @@ The ordinary projection MUST stay:
 - neutralized, so remote-authored result content cannot forge a reserved structural boundary;
 - bounded in JavaScript UTF-16 code units over the exact serialized text of the pair. The limits
   are 8,000 for each pair and 32,000 for each stored assistant turn. An image in a result counts only as its
-  stored result text, with no `thumbnail`;
+  stored result text, with no `thumbnail` and no retained bytes;
 - reduced so that it keeps pairing before budget, newer observations before older ones, and
   identity and outcome before payload; and
 - stable for the same unchanged stored turn under the current explicit best-effort projector.
@@ -990,29 +990,30 @@ The ordinary projection MUST stay:
 The system MUST clear payloads, oldest first, only when this makes the envelope smaller. When pairs
 that cannot shrink more still go above a limit, the system MUST drop the oldest complete pairs
 atomically until the projection fits. It adds one bounded omission count and marker. The system
-MUST never emit a call or a result with no match.
+MUST NOT emit a call or a result with no match.
 
 The system MUST store an image in a tool result in the tool part as the native image result that
-made it. It MUST NOT store the `media-store` media descriptor, image bytes, or base64 model content.
-Only the result of a `media://` read names its image by a `media://` locator in `media`. Each other
-image result has no `media` field. The system stores it with the display-only `thumbnail` that
-`media-attachments` defines, when one fits its cap. The system MUST remove `thumbnail` from the
-model-facing output and from each replayed result. `thumbnail` MUST NOT count toward the UTF-16
-budgets, and the system MUST never accept it from a client. On replay, the text of the result MUST
-follow the projection above. The image MUST become provider image content, built at request time,
-only when three conditions are true. The model of the request declares `image` input, its model
-variant is available, and the epoch image window of `media-attachments` attaches that reference.
-For a `media://` result, the model variant is available from the media store. For each other image
-result, it is available only from the memory of the attempt that read it. That memory is keyed by
-the tool call id, as `media-attachments` defines. In other cases, the replayed result MUST carry the image
-placeholder of `media-attachments` in its text. The memory of the current attempt can have no entry
-for an image result. That result MUST then replay as the not-retained placeholder for a model that
-declares `image` input. For other models, it MUST replay as the omitted placeholder. This applies in a later
-turn, a retry or resume (a new attempt on any worker), a compaction request, or a fork. A
-`media://` reference that does not resolve to media of the Run owner MUST replay as the
-unavailable placeholder. These placeholders MUST NOT fail the request. Image content MUST NOT
-count toward the UTF-16 budgets. An image MUST replay only with its kept result payload. When the
-system clears a payload or drops a pair, it also removes the image from the request.
+made it. The result MUST NOT carry the `media-store` media descriptor, image bytes, or base64 model
+content. Only the result of a `media://` read names its image by a `media://` locator in `media`.
+Each other image result has no `media` field. The system stores it with the display-only `thumbnail`
+that `media-attachments` defines, when one fits its cap. The tool part MUST also keep the retained
+bytes of that image beside the result, as `media-attachments` defines. The system MUST remove
+`thumbnail` and the retained bytes from the model-facing output and from each replayed result.
+`thumbnail` and the retained bytes MUST NOT count toward the UTF-16 budgets, and the system MUST NOT
+accept them from a client. On replay, the text of the result MUST follow the projection above.
+The image MUST become provider image content, built at request time, only when three conditions are
+true. The model of the request declares `image` input, its model variant is available, and the
+epoch image window of `media-attachments` attaches that reference. For a `media://` result, the
+model variant is available from the media store. For each other image result, it is available from
+the retained bytes in its stored tool part. This applies in a later step, a later turn, a Continue
+Run, an owner fork, and a compaction request. It also applies to a reply rebuilt from the event log. A result with neither
+`media` nor `retainedMedia` MUST replay as its text only, with no image and no placeholder. For each other
+result, when the three conditions are not all true, the replayed result MUST carry the image
+placeholder of `media-attachments` in its text. A `media://` reference that does not resolve to media
+of the Run owner MUST replay as the unavailable placeholder. These placeholders MUST NOT fail the
+request. Image content MUST NOT count toward the UTF-16 budgets. An image MUST replay only with its
+kept result payload. When the system clears a payload or drops a pair, it also removes the image
+from the request.
 
 Visible assistant text and kept tool occurrences MUST keep their current chronology. Ordinary
 stored messages do not prove parallel or step boundaries. Thus consecutive calls MUST continue to
@@ -1149,6 +1150,7 @@ The live tool loop MUST continue to observe its own results in the turn that pro
 - **WHEN** a `read` of `/work/shot.png` returns an image result
 - **THEN** the stored tool part carries that native image result, with `kind: "image"`, `mediaType`, `width`, `height`, and `path`, and no `media` field
 - **AND** its stored output carries the display-only `thumbnail` and no other image data, and no `provenance`, `byteSize`, or `model` descriptor field
+- **AND** the tool part keeps the retained model variant beside the result
 
 #### Scenario: A media read result is stored as a media reference
 
@@ -1160,7 +1162,7 @@ The live tool loop MUST continue to observe its own results in the turn that pro
 
 - **WHEN** a later step of the Run that read `/work/shot.png`, on a model that declares `image` input, replays its image result
 - **AND** the epoch image window attaches the reference
-- **THEN** the replayed result carries its text and the image as provider image content built from the model variant in the memory of that attempt
+- **THEN** the replayed result carries its text and the image as provider image content built from the retained model variant in its stored tool part
 - **AND** the call stays directly paired with its result
 
 #### Scenario: A media read result replays from the store in a later turn
@@ -1170,9 +1172,15 @@ The live tool loop MUST continue to observe its own results in the turn that pro
 
 #### Scenario: An earlier turn's image read replays as not retained
 
-- **WHEN** a later turn on a model that declares `image` input replays the stored image result of `read("/work/shot.png")` for a 1600×900 image
-- **THEN** the text of the replayed result carries `[image "/work/shot.png" 1600×900, not retained]`
+- **WHEN** a later turn on a model that declares `image` input replays the stored image result of `read("/work/shot.png")` for a 1600×900 image, and that tool part has no `retainedMedia`
+- **THEN** the text of the replayed result carries the fields of the result and no placeholder
 - **AND** the request carries no image content for that result
+
+#### Scenario: An earlier turn's retained image read replays as image content
+
+- **WHEN** a later turn on a model that declares `image` input replays the stored image result of `read("/work/shot.png")`, and the epoch image window attaches its reference
+- **THEN** the replayed result carries its text and the image as provider image content built from the retained model variant
+- **AND** the call stays directly paired with its result
 
 #### Scenario: An unattached image result replays as a placeholder
 
@@ -1186,7 +1194,7 @@ The live tool loop MUST continue to observe its own results in the turn that pro
 - **WHEN** the model variant of a replayed image result would serialize as base64 longer than 8,000 UTF-16 code units
 - **AND** the text of the pair fits in the budget
 - **THEN** the system does not clear or drop the payload of the pair because of the image
-- **AND** the budgets measure only the text of the pair, with no `thumbnail`
+- **AND** the budgets measure only the text of the pair, with no `thumbnail` and no retained bytes
 
 #### Scenario: A thumbnail never reaches the model
 
@@ -1595,11 +1603,15 @@ it carries.
 
 ### Requirement: PDF tool observations are stored and replayed like image results
 
-A PDF in a tool result SHALL be stored in the tool part as the native PDF result, never as a media
-descriptor, PDF bytes, or base64 content. On replay its text SHALL follow the ordinary projection,
-and the PDF SHALL become provider file content built from its original at request time only when the
-request's model declares `pdf` input, the original is available, and the epoch image window attaches
-it; otherwise its text SHALL carry the matching PDF placeholder.
+The system MUST store a PDF in a tool result in the tool part as the native PDF result. The result
+MUST NOT carry a media descriptor, PDF bytes, or base64 content. The tool part MUST keep the
+retained original of an unstored PDF beside the result, as `media-attachments` defines. On replay,
+its text MUST follow the ordinary projection. The PDF MUST become provider file content, built from
+its original at request time, only when three conditions are true. The request's model declares
+`pdf` input, the original is available, and the epoch image window attaches it. A result with neither
+`media` nor `retainedMedia` MUST replay as its text only, with no file content and no placeholder. For each other
+result, when the three conditions are not all true, its text MUST carry the matching PDF
+placeholder.
 
 #### Scenario: A PDF result is stored without PDF data
 
@@ -1607,6 +1619,7 @@ it; otherwise its text SHALL carry the matching PDF placeholder.
 - **THEN** the stored tool part carries that native PDF result, with `status: "success"`,
   `kind: "pdf"`, `mediaType` `application/pdf`, `pages`, `byteSize`, and `path`, and no `media` field
 - **AND** its stored output carries no `thumbnail`, no PDF bytes, and no base64 data
+- **AND** the tool part keeps the retained original beside the result
 
 #### Scenario: A media read PDF result is stored as a media reference
 
@@ -1619,7 +1632,7 @@ it; otherwise its text SHALL carry the matching PDF placeholder.
 - **WHEN** a later step of the Run that read `/work/paper.pdf`, on a model that declares `pdf` input,
   replays its PDF result and the epoch image window attaches the reference
 - **THEN** the replayed result carries its text and the PDF as provider file content built from the
-  original held in that attempt's memory, keyed by the tool call id
+  retained original in its stored tool part
 - **AND** the call remains immediately paired with its result
 
 #### Scenario: A media read PDF result replays from the store in a later turn
@@ -1631,10 +1644,18 @@ it; otherwise its text SHALL carry the matching PDF placeholder.
 
 #### Scenario: An earlier turn's PDF read replays as not retained
 
-- **WHEN** a later turn, a retry or resume, a compaction request, or a fork on a model that declares
-  `pdf` input replays the stored PDF result of `read("/work/paper.pdf")` for a 15-page PDF
-- **THEN** the replayed result's text carries `[pdf "/work/paper.pdf" 15 pages, not retained]`
+- **WHEN** a later turn, a Continue Run, a compaction request, or a fork on a model that declares
+  `pdf` input replays the stored PDF result of `read("/work/paper.pdf")` for a 15-page PDF, and
+  that tool part has no `retainedMedia`
+- **THEN** the replayed result's text carries the fields of the result and no placeholder
 - **AND** the request carries no file content for that result and does not fail
+
+#### Scenario: An earlier turn's retained PDF read replays as file content
+
+- **WHEN** a later turn on a model that declares `pdf` input replays the stored PDF result of
+  `read("/work/paper.pdf")`, and the epoch image window attaches its reference
+- **THEN** the replayed result carries its text and the PDF as provider file content built from the
+  retained original
 
 #### Scenario: A model without PDF input receives the omitted placeholder
 
@@ -1658,7 +1679,7 @@ it; otherwise its text SHALL carry the matching PDF placeholder.
 - **WHEN** a replayed PDF result's original would serialize as base64 longer than 8,000 UTF-16 code
   units, and the pair's text fits within the budget
 - **THEN** the pair's payload is neither cleared nor dropped on account of the PDF
-- **AND** the budgets measure only the pair's text
+- **AND** the budgets measure only the pair's text, with no retained bytes
 
 #### Scenario: A dropped pair carries no PDF
 
