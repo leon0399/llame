@@ -1,31 +1,125 @@
 name: API DAST
 
 # Dynamic scan of the API from apps/api/openapi.json against a throwaway stack
-# (.github/actions/dast-stack). Called by ci.yml after its build job, whose
-# api-build artifact it runs instead of compiling the API again. One job per
-# scanner, each on its own stack, so one's fuzzed data never shapes the
-# other's findings, and only ZAP holds security-events: write.
+# (.github/actions/dast-stack). The stage compiles the API once and every
+# scanner leg runs that build, each on its own stack, so one's fuzzed data
+# never shapes another's findings, and only ZAP holds security-events: write.
+# It compiles only the API and what it imports, rather than waiting for the
+# whole-repo Build stage, because the scanners set CI's critical path.
 on:
   workflow_call:
-    inputs:
-      scan:
-        description: Whether this run changes the API or the scan.
-        type: boolean
-        required: true
 
 permissions:
   contents: read
 
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
 jobs:
+  # Always runs: a pull request that does not change the API reports the
+  # scanner jobs as skipped, rather than leaving them pending.
+  api-build:
+    name: Build API
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      scan: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # A pull request checks out its merge commit; its first parent is
+          # the base, which the scope below diffs against.
+          fetch-depth: 2
+
+      # A pull request scans the API only when it changes what the API runs
+      # or how it is scanned; every other event always scans.
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
+            apps/api packages/bash-executor packages/config-interpolation \
+            packages/git-executor packages/machine-protocol \
+            packages/mcp-workspace packages/native-file-tools \
+            packages/runtime-safety \
+            e2e/support scripts/dast .github/actions/dast-stack \
+            .github/actions/setup .github/workflows/ci.yml \
+            .github/workflows/dast.yml pnpm-lock.yaml; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      - if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          turbo-cache: dast-build
+
+      - if: ${{ steps.scope.outputs.run == 'true' }}
+        run: pnpm exec turbo run build --filter=api...
+
+      # The API and the workspace packages it imports from dist/.
+      - if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-build
+          path: |
+            apps/api/dist/
+            packages/bash-executor/dist/
+            packages/config-interpolation/dist/
+            packages/git-executor/dist/
+            packages/machine-protocol/dist/
+            packages/mcp-workspace/dist/
+            packages/native-file-tools/dist/
+            packages/runtime-safety/dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Schemathesis fills its whole time budget: fuzzing and stateful testing
+  # repeat until it is spent. The 15-minute budget of one run therefore
+  # splits into parallel legs with the same total scanning: four fuzzing legs
+  # over disjoint operation tags of roughly 20 operations each, and one
+  # stateful leg over every operation, whose budget stays above what it got
+  # as the remainder of a single run. The last fuzzing leg excludes the other
+  # legs' tags rather than naming its own, so an operation with a new tag is
+  # still fuzzed; keep its list the union of the others. Nightly and on-demand
+  # runs triple every budget.
   schemathesis:
-    name: Schemathesis
-    if: ${{ inputs.scan }}
+    name: Schemathesis (${{ matrix.leg }})
+    needs: [api-build]
+    if: ${{ needs.api-build.outputs.scan == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
       # OIDC for the Test Analytics upload.
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: fuzzing-1
+            phases: examples,coverage,fuzzing
+            budget: 165
+            filter: --include-tag-regex
+            tags: ^(chats|pins|personalization)$
+          - leg: fuzzing-2
+            phases: examples,coverage,fuzzing
+            budget: 165
+            filter: --include-tag-regex
+            tags: ^(org-units|projects)$
+          - leg: fuzzing-3
+            phases: examples,coverage,fuzzing
+            budget: 165
+            filter: --include-tag-regex
+            tags: ^(auth|media|repositories|checkouts)$
+          - leg: fuzzing-4
+            phases: examples,coverage,fuzzing
+            budget: 165
+            filter: --exclude-tag-regex
+            tags: ^(chats|pins|personalization|org-units|projects|auth|media|repositories|checkouts)$
+          - leg: stateful
+            phases: stateful
+            budget: 240
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -41,6 +135,11 @@ jobs:
       - name: Run Schemathesis
         env:
           DAST_SEED: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '20261018' || '' }}
+          DAST_BUDGET: ${{ matrix.budget }}
+          DAST_BUDGET_SCALE: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '1' || '3' }}
+          DAST_PHASES: ${{ matrix.phases }}
+          DAST_FILTER: ${{ matrix.filter }}
+          DAST_TAGS: ${{ matrix.tags }}
         run: |
           # The default shell has no pipefail, so tee would hide a failure.
           set -o pipefail
@@ -53,33 +152,32 @@ jobs:
             --config-file /cfg/schemathesis.toml \
             run /spec/openapi.json --url http://localhost:4301 \
             ${DAST_SEED:+--seed "$DAST_SEED"} \
+            --max-time "$((DAST_BUDGET * DAST_BUDGET_SCALE))" --phases "$DAST_PHASES" \
+            ${DAST_FILTER:+"$DAST_FILTER" "$DAST_TAGS"} \
             --report junit,html --report-dir /out --report-junit-path /out/junit.xml \
             2>&1 | tee dast-report/schemathesis/console.txt
 
       # Its own flag, apart from the unit/integration/component/e2e layers:
       # its failures are open findings, not flakes.
       - if: ${{ !cancelled() && hashFiles('dast-report/schemathesis/junit.xml') != '' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        uses: ./.github/actions/upload-test-results
         with:
-          use_oidc: true
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-          report_type: test_results
-          disable_search: true
-          flags: dast
-          name: schemathesis
-          files: dast-report/schemathesis/junit.xml
+          junit: dast-report/schemathesis/junit.xml
+          flag: dast
+          name: schemathesis-${{ matrix.leg }}
 
       # Schemathesis has no native SARIF output; its findings stay here.
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dast-report-schemathesis
+          name: dast-report-schemathesis-${{ matrix.leg }}
           path: dast-report/
           retention-days: 14
 
   zap:
     name: ZAP
-    if: ${{ inputs.scan }}
+    needs: [api-build]
+    if: ${{ needs.api-build.outputs.scan == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:

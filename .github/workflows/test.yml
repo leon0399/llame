@@ -1,0 +1,212 @@
+name: Tests
+
+# The test stage of CI (ci.yml). Every suite runs once, with coverage: each
+# workspace leg runs its `test:coverage`, which enforces its Vitest thresholds
+# (and CRAP where the script adds it), then uploads that report to Codecov as
+# the leg's flag. Adding a flag means adding it to .github/codecov.yml and
+# raising after_n_builds there.
+#
+# The api suite is the slowest by far, so it runs as Vitest shards whose blob
+# reports one merge job folds into a single run: thresholds, CRAP, the Codecov
+# flag and the JUnit report all see the whole suite, exactly as an unsharded
+# `test:coverage` would.
+#
+# Actions are pinned to commit SHAs (comment = the release tag they resolve to).
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  workspace:
+    name: ${{ matrix.flag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One Vitest run over node/jsdom tests plus stories in Chromium, so
+          # a single report spans the workspace.
+          - flag: web
+            dir: apps/web
+            browser: true
+          - flag: ui
+            dir: packages/ui
+            browser: true
+          - flag: storybook
+            dir: apps/storybook
+          - flag: bash-executor
+            dir: packages/bash-executor
+          - flag: config-interpolation
+            dir: packages/config-interpolation
+          - flag: native-file-tools
+            dir: packages/native-file-tools
+          - flag: machine
+            dir: apps/machine
+          - flag: machine-protocol
+            dir: packages/machine-protocol
+          - flag: mcp-workspace
+            dir: packages/mcp-workspace
+          - flag: oxlint-plugin-anti-slop
+            dir: packages/oxlint-plugin-anti-slop
+          - flag: runtime-safety
+            dir: packages/runtime-safety
+          # Root tooling scripts: node:test with Node's own coverage (lcov).
+          - flag: scripts
+            dir: .
+            filter: //
+            task: test:scripts:coverage
+            report: lcov.info
+    # Browser legs run in the Playwright image, which ships Chromium and its
+    # system libraries, so they skip `playwright install --with-deps`. An
+    # empty image runs the leg on the host.
+    container:
+      # Pinned by digest, like every action here: a retag would otherwise
+      # change the browser and base image for an already-reviewed commit.
+      # Refresh with the catalog's playwright version:
+      #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
+      image: ${{ matrix.browser && 'mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c' || '' }}
+      # Chromium renderers allocate from /dev/shm, and Docker's default 64 MB
+      # segment is a known crash source under parallel story runs; --ipc=host
+      # is Playwright's documented mitigation for Chromium in containers.
+      options: --ipc=host
+    env:
+      # The image ships its browsers at /ms-playwright, but the step's HOME is
+      # /github/home, so Playwright would look in ~/.cache and find nothing.
+      # Host legs launch no browser.
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      # Same locale pinning as the Product e2e job: Node >=21 derives
+      # navigator.language from the process locale, and an invalid tag makes
+      # `new Intl.Locale(...)` throw during SSR.
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # No turbo-cache: test tasks are `cache: false` (turbo.json), so a cache
+      # here would be written and never read.
+      - uses: ./.github/actions/setup
+
+      # Through turbo, not pnpm directly: some packages' test:coverage
+      # depends on ^build, since their workspace imports resolve to dist/.
+      # Streamed, not grouped (turbo's CI default): grouped output prints a
+      # task only when it ends, so a long suite shows no progress.
+      - env:
+          TEST_FILTER: ${{ matrix.filter || format('./{0}', matrix.dir) }}
+          TEST_TASK: ${{ matrix.task || 'test:coverage' }}
+        run: pnpm exec turbo run "$TEST_TASK" --filter="$TEST_FILTER" --log-order=stream
+
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          disable_search: true
+          flags: ${{ matrix.flag }}
+          files: ${{ matrix.dir }}/coverage/${{ matrix.report || 'coverage-final.json' }}
+
+      - if: ${{ !cancelled() && hashFiles(format('{0}/coverage/junit.xml', matrix.dir)) != '' }}
+        uses: ./.github/actions/upload-test-results
+        with:
+          junit: ${{ matrix.dir }}/coverage/junit.xml
+          flag: ${{ matrix.flag }}
+          split-layers: "true"
+
+  # Each shard self-provisions its own Testcontainers Postgres (host Docker,
+  # hence no container image) with one database per Vitest worker: a
+  # NON-superuser role owns the schema and runs the migrations, the worst-case
+  # single-role self-hosted deployment, so a green RLS suite proves FORCE
+  # constrains even the table owner. Vitest assigns files to shards by a
+  # path hash; a shard's thresholds are off, since each sees only part of the
+  # suite, and the merge job enforces them over all of it.
+  api-shard:
+    name: api (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # The Machine SSH integration suite copies the built llame-machine
+      # bundle into its sshd container (apps/api/turbo.json).
+      - run: pnpm exec turbo run build --filter=machine --log-order=stream
+
+      - env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: pnpm --filter api test:coverage:shard --shard="$SHARD"
+
+      # A failed shard still uploads: its blob carries the failures, which the
+      # merged JUnit report sends to Test Analytics.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-vitest-blob-${{ matrix.shard }}
+          path: apps/api/.vitest-reports/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [api-shard]
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: api-vitest-blob-*
+          path: apps/api/.vitest-reports
+          merge-multiple: true
+
+      # Replays every shard's results and merges their coverage, then applies
+      # the thresholds and CRAP to the whole suite.
+      - run: pnpm --filter api test:coverage:merge
+
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+          disable_search: true
+          flags: api
+          files: apps/api/coverage/coverage-final.json
+
+      - if: ${{ !cancelled() && hashFiles('apps/api/coverage/junit.xml') != '' }}
+        uses: ./.github/actions/upload-test-results
+        with:
+          junit: apps/api/coverage/junit.xml
+          flag: api
+          split-layers: "true"
+
+      # A shard that died before writing its blob leaves the merge green over
+      # fewer files, so the merge alone cannot prove the suite ran.
+      - if: ${{ !cancelled() }}
+        env:
+          SHARDS: ${{ needs.api-shard.result }}
+        run: test "$SHARDS" = success

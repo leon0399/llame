@@ -1,5 +1,5 @@
-# ZAP Automation Framework plan for the API DAST job (dast-zap in
-# .github/workflows/ci.yml). The Authorization header comes from the
+# ZAP Automation Framework plan for the API DAST job (.github/workflows/dast.yml).
+# The Authorization header comes from the
 # ZAP_AUTH_HEADER* environment variables, which ZAP adds to every request to
 # the target host (ZAP_AUTH_HEADER_SITE).
 env:

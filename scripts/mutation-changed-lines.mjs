@@ -226,16 +226,64 @@ export function mutateRanges(entries) {
   return ranges;
 }
 
+/** Changed lines in a file's ranges: the cheap proxy for its mutant count. */
+function changedLines({ ranges }) {
+  return ranges.reduce((sum, [start, end]) => sum + end - start + 1, 0);
+}
+
 /**
- * Score a Stryker report and fail below the threshold.
+ * The entries shard `index` of `count` mutates.
+ *
+ * Whole files, never a split file: two shards reporting one file would collide
+ * when their reports merge. Files go largest first onto the lightest shard, so
+ * the slowest shard, which sets the wall time, carries as little as possible.
+ * Every shard computes the same partition from the same diff, so together they
+ * cover each entry exactly once without coordinating.
+ */
+export function shardEntries(entries, index, count) {
+  if (
+    !Number.isInteger(count) ||
+    !Number.isInteger(index) ||
+    count < 1 ||
+    index < 1 ||
+    index > count
+  )
+    throw new Error(`Invalid shard ${index}/${count}`);
+  const loads = Array.from({ length: count }, () => 0);
+  const selected = [];
+  const ordered = [...entries].sort(
+    (left, right) =>
+      changedLines(right) - changedLines(left) ||
+      left.file.localeCompare(right.file),
+  );
+  for (const entry of ordered) {
+    const target = loads.indexOf(Math.min(...loads));
+    loads[target] += changedLines(entry);
+    if (target === index - 1) selected.push(entry);
+  }
+  return selected.sort((left, right) => left.file.localeCompare(right.file));
+}
+
+/**
+ * Score Stryker reports together and fail below the threshold.
+ *
+ * Several reports are one sharded run, scored as a whole: a per-shard
+ * threshold would fail a shard that happens to hold the weaker files of a
+ * passing change. No report at all means no shard had a mutable line.
  *
  * A changed line can carry no mutant at all — a declaration, a type-only
  * expression, a comment moved onto a code line — and that is a pass, not a
  * perfect score: there was nothing for a test to detect.
  */
-function gate(reportFile, threshold) {
-  const report = JSON.parse(readFileSync(reportFile, "utf8"));
-  const { score, counts } = mergeMutationReports([report]);
+function gate(reportFiles, threshold) {
+  if (reportFiles.length === 0) {
+    console.log("the changed lines carry no mutant.");
+    return;
+  }
+  const reports = reportFiles.map((file) =>
+    JSON.parse(readFileSync(file, "utf8")),
+  );
+  const { score, counts } = mergeMutationReports(reports);
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
   if (total === 0) {
     console.log("the changed lines carry no mutant.");
@@ -344,12 +392,18 @@ function main(arguments_) {
       throw new Error(`Unknown mutation workspace: ${workspace}`);
     const base = option(arguments_, "--base");
     const threshold = Number(option(arguments_, "--threshold", "80"));
-    const ranges = mutateRanges(changedLineRanges(base)[workspace]);
+    const [index, count] = option(arguments_, "--shard", "1/1")
+      .split("/")
+      .map(Number);
+    const ranges = mutateRanges(
+      shardEntries(changedLineRanges(base)[workspace], index, count),
+    );
+    const scope = count === 1 ? workspace : `${workspace} ${index}/${count}`;
     if (ranges.length === 0) {
-      console.log(`${workspace}: the diff changes no mutable line.`);
+      console.log(`${scope}: the diff changes no mutable line.`);
       return;
     }
-    console.log(`${workspace}: mutating ${ranges.length} ranges`);
+    console.log(`${scope}: mutating ${ranges.length} ranges`);
     // The path is known before the write, so a write that truncates and then
     // fails still leaves nothing behind.
     const config = path.resolve(workspace, scopeConfigFile);
@@ -364,13 +418,22 @@ function main(arguments_) {
     } finally {
       rmSync(config, { force: true });
     }
-    gate(path.join(path.resolve(workspace), reportFile), threshold);
+    // A shard prints its own score but never fails on it: the threshold
+    // applies to the gate over every shard's report.
+    gate(
+      [path.join(path.resolve(workspace), reportFile)],
+      count === 1 ? threshold : 0,
+    );
     return;
   }
   if (command === "gate") {
-    const file = arguments_[1];
-    if (!file) throw new Error("gate requires a report file");
-    gate(file, Number(option(arguments_, "--threshold", "80")));
+    const files = arguments_
+      .slice(1)
+      .filter(
+        (value, at, all) =>
+          value !== "--threshold" && all[at - 1] !== "--threshold",
+      );
+    gate(files, Number(option(arguments_, "--threshold", "80")));
     return;
   }
   throw new Error(`Unknown command: ${String(command)}`);

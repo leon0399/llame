@@ -7,8 +7,16 @@
  * function owner (docker/postgres/rls-function-owner.sql, which needs
  * superuser — see apps/api/src/db/AGENTS.md "app_rls (BYPASSRLS)").
  *
+ * The migrated database is then cloned once per worker (`llame_test_1` ..
+ * `llame_test_<maxWorkers>`), so files run in parallel on the one cluster
+ * without sharing a database — see vitest.integration.setup.ts, which points
+ * each worker's URLs at its clone. Cloning here rather than per worker keeps
+ * the expensive part (migrations) at one run.
+ *
  * TEST_DATABASE_URL overrides everything: point it at an already-provisioned
- * database (e.g. when docker is unavailable) and no container is started.
+ * database (e.g. when docker is unavailable) and no container is started. That
+ * database stays single and shared, so the integration project runs its files
+ * sequentially in that mode.
  * Runs in the vitest main process before workers spawn, so the env it sets is
  * inherited by every test worker.
  */
@@ -19,6 +27,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
+import type { TestProject } from 'vitest/node';
 
 // Pinned by digest, same as compose.yaml's dev database — a floating tag
 // would let an upstream refresh change test behavior with no code change.
@@ -29,6 +38,14 @@ import postgres from 'postgres';
 //     --format '{{index .RepoDigests 0}}' pgvector/pgvector:pg17
 const POSTGRES_IMAGE =
   'pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f';
+
+/**
+ * Presence of this variable in a worker means the self-provisioned cluster has
+ * one database per worker, and its value is how many. Read by
+ * vitest.integration.setup.ts, which runs in the worker (a separate process
+ * from this file), so the name is spelled out there too.
+ */
+const WORKER_DB_COUNT_VAR = 'LLAME_TEST_WORKER_DB_COUNT';
 
 function sqlFile(relativePath: string): string {
   return readFileSync(path.resolve(import.meta.dirname, relativePath), 'utf8');
@@ -160,7 +177,85 @@ async function dropRunSchemas(url: string, prefix: string): Promise<void> {
   }
 }
 
-export default async function setup(): Promise<(() => Promise<void>) | void> {
+/**
+ * Clones the migrated `llame_test` template once per worker. Each clone is a
+ * full Postgres database copy (data, schema, ownership) taken inside the
+ * server, so it costs far less than re-running the migrations per worker.
+ *
+ * Sequential on purpose: every CREATE DATABASE opens the template for the
+ * duration of the copy, and Postgres refuses a second one concurrently
+ * ("source database is being accessed by other users"). Teardown needs no
+ * counterpart — the container removal takes the clones with it.
+ */
+async function cloneWorkerDatabases(
+  superuserUri: string,
+  count: number,
+): Promise<void> {
+  const asSuperuser = postgres(superuserUri, { max: 1 });
+  try {
+    // provision() closed its own pools, but be explicit: any surviving session
+    // on the template fails CREATE DATABASE. This connection is on the
+    // container's maintenance database, so it never matches itself.
+    await asSuperuser`
+      SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+      WHERE datname = 'llame_test'
+    `;
+    for (let worker = 1; worker <= count; worker++) {
+      await asSuperuser.unsafe(
+        `CREATE DATABASE llame_test_${worker} TEMPLATE llame_test OWNER app`,
+      );
+    }
+  } finally {
+    await asSuperuser.end();
+  }
+}
+
+/**
+ * The self-provisioned path: start a throwaway cluster, build the migrated
+ * template database, give every worker its own clone of it, and publish the
+ * URLs (and the clone count) to the workers through the environment.
+ */
+async function provisionCluster(
+  project: TestProject,
+): Promise<() => Promise<void>> {
+  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
+  try {
+    const { appUrl, unprivilegedUrl } = await provision(
+      container.getConnectionUri(),
+    );
+
+    // The pool's own bound: Vitest numbers its workers 1..maxWorkers for the
+    // project, so this is how many databases the setup file may ask for. Not
+    // a restated constant — `--maxWorkers` has to be honoured here.
+    const workerCount = project.config.maxWorkers;
+    if (!Number.isInteger(workerCount) || workerCount < 1) {
+      throw new Error(
+        `Integration databases are provisioned per worker, but the project resolved maxWorkers to '${workerCount}'.`,
+      );
+    }
+    await cloneWorkerDatabases(container.getConnectionUri(), workerCount);
+
+    process.env.TEST_DATABASE_URL = appUrl;
+    process.env.TEST_UNPRIVILEGED_DATABASE_URL = unprivilegedUrl;
+    process.env.POSTGRES_URL = appUrl;
+    // Worker-side marker: the setup file points each URL at llame_test_<pool>
+    // when it sees this, and its absence means the single shared database.
+    process.env[WORKER_DB_COUNT_VAR] = String(workerCount);
+
+    return async () => {
+      await container.stop();
+    };
+  } catch (error) {
+    // Provisioning failed: stop the container rather than leaking it for the
+    // rest of the CI job (or the developer's machine).
+    await container.stop();
+    throw error;
+  }
+}
+
+export default async function setup(
+  project: TestProject,
+): Promise<(() => Promise<void>) | void> {
   // The HTTP-boundary suites boot the real app, whose stream cap would
   // otherwise wait out production-length timeouts (same default the retired
   // rls-test.sh provisioning script set).
@@ -182,26 +277,5 @@ export default async function setup(): Promise<(() => Promise<void>) | void> {
     };
   }
 
-  const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-
-  let appUrl: string;
-  let unprivilegedUrl: string;
-  try {
-    ({ appUrl, unprivilegedUrl } = await provision(
-      container.getConnectionUri(),
-    ));
-  } catch (error) {
-    // Provisioning failed: stop the container rather than leaking it for the
-    // rest of the CI job (or the developer's machine).
-    await container.stop();
-    throw error;
-  }
-
-  process.env.TEST_DATABASE_URL = appUrl;
-  process.env.TEST_UNPRIVILEGED_DATABASE_URL = unprivilegedUrl;
-  process.env.POSTGRES_URL = appUrl;
-
-  return async () => {
-    await container.stop();
-  };
+  return provisionCluster(project);
 }

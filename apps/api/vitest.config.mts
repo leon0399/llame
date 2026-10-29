@@ -31,6 +31,13 @@ const pkgSrc = (name: string) =>
 // has no project selector — so the selection has to happen here.
 const underStryker = process.env.STRYKER_MUTATOR_WORKER !== undefined;
 
+// Whether the integration project uses a database the caller provisioned
+// instead of a Testcontainers cluster. Read here from the same variable its
+// global setup branches on, and before setup runs, so config and provisioning
+// cannot disagree: only the self-provisioned path clones one database per
+// worker, and only that path may run files in parallel.
+const externalTestDatabase = process.env.TEST_DATABASE_URL !== undefined;
+
 const unitTest = {
   name: 'unit',
   include: ['src/**/*.test.ts'],
@@ -135,13 +142,17 @@ export default defineConfig({
               include: ['src/**/*.integration.test.ts', 'evals/**/*.test.ts'],
               exclude: ['evals/mcp-web-search-eval.test.ts'],
               // Self-provisions a throwaway worst-case-owner Postgres via
-              // Testcontainers; TEST_DATABASE_URL overrides (no container).
+              // Testcontainers and clones it once per worker, so parallel files
+              // never share a database. TEST_DATABASE_URL overrides that (no
+              // container, and the caller's single database is shared).
               globalSetup: ['./vitest.integration.global-setup.mts'],
               setupFiles: ['./vitest.integration.setup.ts'],
-              // Files sequential in one worker: every suite opens its own pool
-              // against ONE throwaway database; parallel workers contend on it
-              // and a real RLS regression could be misread as a flake.
-              fileParallelism: false,
+              // Parallel only when Vitest provisions the cluster: its global
+              // setup clones one database per worker, which is what makes
+              // parallel files safe. A caller-supplied TEST_DATABASE_URL is one
+              // database, where parallel workers contend on it and a real RLS
+              // regression could be misread as a flake — keep those sequential.
+              fileParallelism: !externalTestDatabase,
               testTimeout: 120_000,
               hookTimeout: 120_000,
             },
