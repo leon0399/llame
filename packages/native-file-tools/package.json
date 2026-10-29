@@ -31,6 +31,6 @@
   "dependencies": {
     "@workspace/runtime-safety": "workspace:*",
     "ignore": "7.0.12",
-    "re2js": "2.8.6"
+    "re2js": "2.8.7"
   }
 }
