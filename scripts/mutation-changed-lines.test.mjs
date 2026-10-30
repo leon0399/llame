@@ -224,8 +224,9 @@ test("the scope travels in a config file, so no argv element can reach E2BIG", (
   assert.ok(ranges.join(",").length > 131072);
   assert.deepEqual(written.mutate, ranges);
   // The workspace's own settings survive, so the generated run differs from an
-  // ordinary one only in scope and reporters.
+  // ordinary one only in scope, reporters, and the empty-shard allowance.
   assert.equal(written.testRunner, "vitest");
+  assert.equal(written.allowEmpty, true);
   assert.deepEqual(written.reporters, [
     "clear-text",
     "html",

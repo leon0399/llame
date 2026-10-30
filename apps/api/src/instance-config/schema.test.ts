@@ -54,6 +54,14 @@ describe('published schema — single artifact', () => {
     );
   });
 
+  it('rejects a schema artifact that parses to a non-object as the same packaging error', () => {
+    const arrayAccess: SchemaFileAccess = { readFile: () => '[]' };
+    expect(() => loadSchemaDocument(arrayAccess)).toThrow(InstanceConfigError);
+    expect(() => loadSchemaDocument(arrayAccess)).toThrow(
+      /not a JSON object .* internal packaging problem/,
+    );
+  });
+
   it('is a strict-closed schema with the $schema exemption declared', () => {
     const schema = loadSchemaDocument();
     expect(schema.additionalProperties).toBe(false);

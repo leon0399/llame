@@ -12,11 +12,11 @@ import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
  * the boot-time validator, so the two can never drift.
  *
  * Resolved relative to THIS module's own compiled location (`__dirname`),
- * NOT the runtime cwd: a source checkout (`nest start`, vitest) has
- * `__dirname` at `src/instance-config`, right next to this file, and a
- * dist-only deploy has it at `dist/instance-config` because `nest build`
- * copies the schema there too (nest-cli.json `compilerOptions.assets`) — the
- * same relative layout either way, so no separate "dist mode" branch.
+ * NOT the runtime cwd: a source checkout (vitest) has `__dirname` at
+ * `src/instance-config`, right next to this file, and a dist-only deploy has
+ * it at `dist/instance-config` because the build copies the schema there too
+ * (`scripts/copy-assets.ts`) — the same relative layout either way, so no
+ * separate "dist mode" branch.
  */
 export const SCHEMA_PATH = path.resolve(__dirname, 'llame.config.schema.json');
 
@@ -40,7 +40,7 @@ const DEFAULT_SCHEMA_FILE_ACCESS: SchemaFileAccess = {
  * boot validates against this exact artifact.
  *
  * A missing/unreadable/malformed schema file here is an internal packaging
- * problem (see nest-cli.json "assets"), NOT an operator config.json error —
+ * problem (see `scripts/copy-assets.ts`), NOT an operator config.json error —
  * wrapped as InstanceConfigError so it never surfaces as a raw, unattributed
  * `ENOENT` that an operator would mistake for their own file.
  */
@@ -53,12 +53,12 @@ export function loadSchemaDocument(
     parsed = JSON.parse(text);
   } catch (error) {
     throw new InstanceConfigError(
-      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator instance-config error: ${error instanceof Error ? error.message : String(error)}`,
+      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see scripts/copy-assets.ts), not an operator instance-config error: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   if (!isRecord(parsed)) {
     throw new InstanceConfigError(
-      `The published JSON Schema artifact at ${SCHEMA_PATH} is not a JSON object — this is an internal packaging problem (see nest-cli.json "assets"), not an operator instance-config error.`,
+      `The published JSON Schema artifact at ${SCHEMA_PATH} is not a JSON object — this is an internal packaging problem (see scripts/copy-assets.ts), not an operator instance-config error.`,
     );
   }
   return parsed;

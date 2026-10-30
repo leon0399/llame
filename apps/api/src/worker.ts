@@ -15,9 +15,9 @@ import { WorkerModule } from './worker.module';
  * paired with the api process on `web` (no groups); co-located dev keeps
  * running main.ts alone with the default `all` profile.
  *
- * One image, two entrypoints (nest-cli.json compiles the whole `src/`
- * program, so `nest build` emits both `dist/main.js` and `dist/worker.js`
- * with no separate build config).
+ * One image, two entrypoints (`tsconfig.build.json` compiles the whole
+ * `src/` program, so one `tsc` run emits both `dist/main.js` and
+ * `dist/worker.js` with no separate build config).
  */
 async function bootstrap() {
   const logger = new Logger('Worker');

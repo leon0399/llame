@@ -15,7 +15,13 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { globSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  globSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -331,6 +337,11 @@ const scopeConfigFile = "stryker.changed-lines.json";
  * It sits beside the workspace's own configuration so every relative path
  * inside it — the Vitest config it names, the report locations — resolves
  * exactly as it does for an ordinary run.
+ *
+ * `allowEmpty`: a shard can hold only files whose changed lines carry no
+ * mutant (comments, declarations), and Vitest then finds no related test.
+ * Stryker treats that as a configuration error by default; here it is a pass,
+ * and the empty report it still writes scores as zero mutants in the gate.
  */
 export function writeScopeConfig(workspace, ranges, root = process.cwd()) {
   const directory = path.join(root, workspace);
@@ -344,6 +355,7 @@ export function writeScopeConfig(workspace, ranges, root = process.cwd()) {
       {
         ...base,
         mutate: ranges,
+        allowEmpty: true,
         reporters: ["clear-text", "html", "json", "progress-append-only"],
       },
       undefined,
@@ -407,6 +419,8 @@ function main(arguments_) {
     // The path is known before the write, so a write that truncates and then
     // fails still leaves nothing behind.
     const config = path.resolve(workspace, scopeConfigFile);
+    const report = path.join(path.resolve(workspace), reportFile);
+    rmSync(report, { force: true });
     try {
       writeScopeConfig(workspace, ranges);
       const result = spawnSync("pnpm", mutationArguments(workspace), {
@@ -419,11 +433,11 @@ function main(arguments_) {
       rmSync(config, { force: true });
     }
     // A shard prints its own score but never fails on it: the threshold
-    // applies to the gate over every shard's report.
-    gate(
-      [path.join(path.resolve(workspace), reportFile)],
-      count === 1 ? threshold : 0,
-    );
+    // applies to the gate over every shard's report. Under `allowEmpty`,
+    // Stryker exits before any reporter runs when it found no test, so a
+    // missing report after a successful run is an empty one; the report is
+    // removed up front so a run that writes none cannot read a stale one.
+    gate(existsSync(report) ? [report] : [], count === 1 ? threshold : 0);
     return;
   }
   if (command === "gate") {

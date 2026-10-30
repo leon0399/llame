@@ -1,7 +1,12 @@
 {
   "extends": "./tsconfig.json",
+  // Explicit so `dist/` mirrors `src/` (`dist/main.js`, not `dist/src/main.js`)
+  // whatever the compiler's default root is; runtime modules resolve assets
+  // and the manifest relative to their compiled location.
+  "compilerOptions": { "rootDir": "src" },
   "exclude": [
     "node_modules",
+    "scripts",
     "evals",
     "dist",
     "**/*.test.ts",

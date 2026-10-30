@@ -23,11 +23,11 @@ export interface ProductIdentityReader {
 
 /**
  * The API package manifest, resolved relative to THIS module's own compiled
- * location (`__dirname`), never the runtime cwd: `nest-cli.json` sets
- * `sourceRoot: "src"`, so `dist/` mirrors `src/` and this file sits two
- * directories below the manifest under `nest build`, `nest start`, and Vitest
- * alike — the same relative layout either way, so no separate "dist mode"
- * branch. The manifest is therefore a deployment prerequisite beside `dist/`.
+ * location (`__dirname`), never the runtime cwd: `tsconfig.build.json` roots
+ * the program at `src`, so `dist/` mirrors `src/` and this file sits two
+ * directories below the manifest in the built output and under Vitest alike
+ * — the same relative layout either way, so no separate "dist mode" branch.
+ * The manifest is therefore a deployment prerequisite beside `dist/`.
  */
 const MANIFEST_PATH = path.resolve(__dirname, '..', '..', 'package.json');
 

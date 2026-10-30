@@ -6,10 +6,11 @@ import {
 } from './prompt-loader';
 
 /**
- * Build contract executed by package.json after `nest build`. Importing this
- * compiled module makes `prompt-loader` resolve from `dist/instance-config`,
- * so success proves Nest copied the default prompt to the matching dist path
- * and that the built runtime can read, normalize, and render it.
+ * Build contract executed by package.json after `tsc` emits `dist/` and
+ * `scripts/copy-assets.ts` fills it. Importing this compiled module makes
+ * `prompt-loader` resolve from `dist/instance-config`, so success proves the
+ * default prompt was copied to the matching dist path and that the built
+ * runtime can read, normalize, and render it.
  */
 const prompt = createModelPromptLoader({
   configPath: path.resolve(process.cwd(), 'llame.config.jsonc'),
@@ -43,7 +44,7 @@ if (
 
 // Verify every packaged tool description resolves from the built output.
 // loadPackagedToolDescription uses __dirname to find prompts/tools/*.md,
-// so running this from dist/ proves Nest copied the nested assets. The list
+// so running this from dist/ proves the nested assets were copied. The list
 // comes from the registry itself, so a tool added there is covered here
 // without a second edit.
 import {
