@@ -1,4 +1,8 @@
-import { DIRECTORY_TRAVERSAL_BUDGET } from '@workspace/native-file-tools';
+import {
+  DIRECTORY_TRAVERSAL_BUDGET,
+  MAX_RESULT_CODE_UNITS,
+  measureReadRendering,
+} from '@workspace/native-file-tools';
 
 import { type TenantRunner } from '../db/tenant-db.service';
 import {
@@ -489,13 +493,15 @@ describe('ssh directory reads', () => {
   });
 
   it('reserves room for the more-entries line at the result bound', async () => {
-    // One entry per 15 code units, so the 1000-entry listing crosses the
-    // 16 000-unit result cap. The bound line's own room is what decides how
-    // many entries survive: the renderer must stop short of the cap by the
-    // line the caller appends, never truncate that line's last entry.
+    // Each entry line is 17 code units, so the 1000-entry listing the host
+    // sends crosses the 16 000-unit rendered cap. The bound line's own room
+    // is what decides how many entries survive: the renderer must stop short
+    // of the cap by the line the caller appends, never truncate its last
+    // entry.
+    const moreLine = '  … more entries exist\n';
     const pairs = Array.from(
       { length: 1001 },
-      (_, index) => `f\0f${String(index).padStart(9, '0')}\0`,
+      (_, index) => `f\0f${String(index).padStart(11, '0')}\0`,
     ).join('');
 
     const { result } = await read(
@@ -503,10 +509,27 @@ describe('ssh directory reads', () => {
       directoryReply(pairs),
     );
     const content = String(result['content']);
+    const nextOffset = Number(result['nextOffset']);
+    const kept = content.match(/- f\d+/gu)?.length ?? 0;
+    // The page the renderer bounded, without the line this branch appends.
+    const page = { ...result, content: content.slice(0, -moreLine.length) };
+    const budget = MAX_RESULT_CODE_UNITS - moreLine.length;
 
     expect(result['truncated']).toBe(true);
-    expect(content.endsWith('  … more entries exist\n')).toBe(true);
-    expect(content.match(/- f\d+/gu)).toHaveLength(990);
+    expect(content.endsWith(moreLine)).toBe(true);
+    // The page leaves exactly the appended line's room inside the cap.
+    expect(measureReadRendering(page)).toBeLessThanOrEqual(budget);
+    expect(
+      measureReadRendering({
+        ...result,
+        content: `${page.content}  - f${String(kept).padStart(11, '0')}\n`,
+        nextOffset: nextOffset + 1,
+      }),
+    ).toBeGreaterThan(budget);
+    // The model's rendering of the stored result, both lines included.
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS,
+    );
   });
 
   it('lists one level in the local form, hidden entries included', async () => {

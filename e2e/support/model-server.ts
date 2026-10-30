@@ -431,6 +431,63 @@ function findCanonicalCoordinates(
   return undefined;
 }
 
+/** A `read` success reaches the model as its text shape, whose first line is
+ *  `locator:range` (or an empty or skipped-line form). */
+const READ_HEADER_RE =
+  /^(\S+?):(?:raw:|outline:)?(?:\d| empty| line \d+ exceeds)/u;
+/** A cut read ends with one bracketed continuation line naming the locator
+ *  and the one-based line the next read resumes at. */
+const READ_CONTINUATION_RE =
+  /Use (\S+?):(?:raw:|outline:)?(\d+)(?:-\S*)? to continue\]/u;
+
+function findReadTextLocator(value: JsonValue): string | undefined {
+  if (isJsonString(value)) {
+    const [header] = value.split("\n");
+    return header === undefined ? undefined : READ_HEADER_RE.exec(header)?.[1];
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.toReversed()) {
+      const found = findReadTextLocator(item);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (!isJsonObject(value)) return undefined;
+  for (const item of Object.values(value).toReversed()) {
+    const found = findReadTextLocator(item);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** The last read continuation line in `value`: the stored locator and the
+ *  one-based line to resume at. */
+function findReadContinuation(
+  value: JsonValue,
+): { locator: string; start: number } | undefined {
+  if (isJsonString(value)) {
+    const match = READ_CONTINUATION_RE.exec(value);
+    const locator = match?.[1];
+    const start = match?.[2];
+    return locator === undefined || start === undefined
+      ? undefined
+      : { locator, start: Number(start) };
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.toReversed()) {
+      const found = findReadContinuation(item);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (!isJsonObject(value)) return undefined;
+  for (const item of Object.values(value).toReversed()) {
+    const found = findReadContinuation(item);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 function findConversationReadResult(value: JsonValue): boolean {
   const parsed = parseJsonValue(value);
   if (Array.isArray(parsed)) {
@@ -532,11 +589,14 @@ function classify(raw: string) {
     const latestToolContent = messages.findLast(
       (m) => m.role === "tool",
     )?.content;
-    const knowledgeResultPath = findStringProperty(
-      messages.slice(lastUserIndex + 1).findLast((m) => m.role === "tool")
-        ?.content,
-      "path",
-    );
+    const readTextLocator = findReadTextLocator(currentTurnMessages);
+    const readContinuation = findReadContinuation(currentTurnMessages);
+    const knowledgeResultPath =
+      findStringProperty(
+        messages.slice(lastUserIndex + 1).findLast((m) => m.role === "tool")
+          ?.content,
+        "path",
+      ) ?? readTextLocator;
     const knowledge = classifyKnowledgeRequest(content);
     const knowledgeLocatorSearchResult = findSearchResult(currentTurnMessages);
     return {
@@ -554,7 +614,7 @@ function classify(raw: string) {
       hasBashTool: toolIsOffered(body.tools, BASH_TOOL_ID),
       asksPermissionFlow: content.includes(PERMISSION_PROMPT_MARKER),
       hasPermissionDeniedBashResult: raw.includes("permission_denied"),
-      hasPermissionReadResult: findConversationReadResult(currentTurnMessages),
+      hasPermissionReadResult: readTextLocator !== undefined,
       asksKnowledge: knowledge.asksKnowledge,
       hasKnowledgeSearchTool: toolIsOffered(
         body.tools,
@@ -576,15 +636,14 @@ function classify(raw: string) {
       knowledgeOperation: knowledge.operation,
       knowledgeSpaceId: knowledge.spaceId,
       knowledgeReadPath: knowledge.readPath,
-      knowledgeNextOffset: findNumberProperty(latestToolContent, "nextOffset"),
+      knowledgeContinuation: readContinuation,
       knowledgeCursor: findStringProperty(latestToolContent, "nextCursor"),
       knowledgeResultPath,
       knowledgeLocatorFromSearch:
         knowledgeLocatorSearchResult !== undefined
           ? findStringProperty(knowledgeLocatorSearchResult.results, "locator")
           : undefined,
-      hasKnowledgeLocatorReadResult:
-        findConversationReadResult(currentTurnMessages),
+      hasKnowledgeLocatorReadResult: readTextLocator !== undefined,
       lastUserContent: content,
       lastUserImageCount: content.match(IMAGE_CONTENT_PART_RE)?.length ?? 0,
       lastUserPdfCount: content.match(PDF_CONTENT_PART_RE)?.length ?? 0,
@@ -621,7 +680,7 @@ function classify(raw: string) {
       knowledgeOperation: "search",
       knowledgeSpaceId: undefined,
       knowledgeReadPath: "notes/worker-note.md",
-      knowledgeNextOffset: undefined,
+      knowledgeContinuation: undefined,
       knowledgeCursor: undefined,
       knowledgeResultPath: undefined,
       knowledgeLocatorFromSearch: undefined,
@@ -846,17 +905,17 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
     ((ctx.readKnowledge &&
       ctx.lastUserContent.includes("long knowledge fixture") &&
       !ctx.lastUserContent.includes("explicit range") &&
-      ctx.knowledgeNextOffset !== undefined) ||
+      ctx.knowledgeContinuation !== undefined) ||
       (!ctx.readKnowledge &&
         ctx.lastUserContent.includes(KNOWLEDGE_PAGED_MARKER) &&
         ctx.knowledgeCursor !== undefined));
   if (!matches) return false;
 
   // A continuation carries no separate offset/limit arguments; it re-derives
-  // a `kb://` selector from the PREVIOUS read result's own `path` (the
-  // locator, verbatim) and `nextOffset` (zero-based; resume at + 1).
-  const previousLocator = ctx.knowledgeResultPath;
-  const continuationStart = (ctx.knowledgeNextOffset ?? 0) + 1;
+  // a `kb://` selector from the PREVIOUS read result's own continuation line:
+  // its locator and the one-based line the result names.
+  const continuation = ctx.knowledgeContinuation;
+  const continuationStart = continuation?.start;
   writeToolCall(ctx.res, {
     id: ctx.readKnowledge
       ? "call_knowledge_note_read_continued_e2e"
@@ -865,9 +924,9 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
     arguments: ctx.readKnowledge
       ? {
           path:
-            previousLocator === undefined
+            continuation === undefined || continuationStart === undefined
               ? undefined
-              : `${stripKnowledgeSelector(previousLocator)}:${continuationStart}-${continuationStart + 1999}`,
+              : `${stripKnowledgeSelector(continuation.locator)}:${continuationStart}-${continuationStart + 1999}`,
         }
       : {
           query: KNOWLEDGE_PAGED_QUERY,

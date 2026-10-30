@@ -25,8 +25,9 @@ export async function countSourceLines(
     signal?.throwIfAborted();
     const { bytesRead } = await file.read(buffer, 0, buffer.length, position);
     if (bytesRead === 0) break;
-    for (let index = 0; index < bytesRead; index += 1)
-      if (buffer[index] === LF) terminators += 1;
+    const chunk = buffer.subarray(0, bytesRead);
+    for (let at = chunk.indexOf(LF); at !== -1; at = chunk.indexOf(LF, at + 1))
+      terminators += 1;
     last = buffer[bytesRead - 1];
     position += bytesRead;
   }

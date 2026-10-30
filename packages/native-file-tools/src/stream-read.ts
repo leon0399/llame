@@ -162,31 +162,27 @@ async function collectMarkdownWindow(
   file: FileHandle,
   target: ReadTarget,
   signal: AbortSignal | undefined,
-  lineCount: number | undefined,
 ): Promise<ReadSuccess> {
-  return drainCollector(new SingleCollector(target, lineCount), file, signal);
+  return drainCollector(new SingleCollector(target), file, signal);
 }
 
 async function collectMarkdownMultiWindow(
   file: FileHandle,
   target: ReadTarget,
   signal: AbortSignal | undefined,
-  lineCount: number | undefined,
 ): Promise<MultiReadSuccess> {
-  return drainCollector(new MultiCollector(target, lineCount), file, signal);
+  return drainCollector(new MultiCollector(target), file, signal);
 }
 
 async function collectWindow(
   file: FileHandle,
   target: ReadTarget,
   signal: AbortSignal | undefined,
-  lineCount: number | undefined,
 ): Promise<ReadSuccess> {
   const requestedEnd = target.offset + (target.limit ?? MAX_READ_LINES);
   const boundedEnd = target.offset + boundedReadLineCount(target.limit);
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
   const result = emptyReadResult(target, requestedEnd);
-  if (lineCount !== undefined) result.lineCount = lineCount;
   let count = 0;
   for await (const text of sourceLines(file, signal)) {
     const index = count++;
@@ -396,12 +392,8 @@ type MultiRangeWalk = {
  */
 type MultiRangeStep = "continue" | "halted" | "exhausted";
 
-function startMultiRangeWalk(
-  target: ReadTarget,
-  lineCount?: number,
-): MultiRangeWalk {
+function startMultiRangeWalk(target: ReadTarget): MultiRangeWalk {
   const result = emptyMultiReadResult(target);
-  if (lineCount !== undefined) result.lineCount = lineCount;
   return {
     expanded: target.expandedRanges ?? [],
     rangeIndex: 0,
@@ -461,9 +453,8 @@ async function collectMultiWindow(
   file: FileHandle,
   target: ReadTarget,
   signal: AbortSignal | undefined,
-  lineCount: number | undefined,
 ): Promise<MultiReadSuccess> {
-  const walk = startMultiRangeWalk(target, lineCount);
+  const walk = startMultiRangeWalk(target);
   for await (const text of sourceLines(file, signal)) {
     const step = stepMultiRangeWalk(walk, text, target);
     if (step === "halted") return walk.result;
@@ -477,8 +468,10 @@ async function collectMultiWindow(
  * source already in hand, and the same `undefined` for a line too large to
  * fit any result.
  */
-function* memorySourceLines(source: string): Generator<string | undefined> {
-  for (const line of splitSourceLines(source)) {
+function* memorySourceLines(
+  lines: Array<string>,
+): Generator<string | undefined> {
+  for (const line of lines) {
     yield line.length > MAX_RESULT_CODE_UNITS ? undefined : line;
   }
 }
@@ -498,8 +491,9 @@ export function selectMultiRangeLines(
   assertResolvedTarget(target);
   if (target.ranges === undefined) throw new NativeFileError("invalid_input");
   const lines = splitSourceLines(source);
+  const placed: ReadTarget = { ...target, lineCount: lines.length };
   if (mediaType === "text/markdown" && !target.raw) {
-    const collector = new MultiCollector(target, lines.length);
+    const collector = new MultiCollector(placed);
     let count = 0;
     for (const line of lines) {
       const keepReading = collector.push(count, markdownLineRecord(line));
@@ -508,8 +502,8 @@ export function selectMultiRangeLines(
     }
     return collector.finish(count);
   }
-  const walk = startMultiRangeWalk(target, lines.length);
-  for (const text of memorySourceLines(source)) {
+  const walk = startMultiRangeWalk(placed);
+  for (const text of memorySourceLines(lines)) {
     const step = stepMultiRangeWalk(walk, text, target);
     if (step === "halted") return walk.result;
     if (step === "exhausted") break;
@@ -524,16 +518,15 @@ async function collectOpenedWindow(window: {
   target: ReadTarget;
   mediaType: string | undefined;
   signal: AbortSignal | undefined;
-  lineCount: number | undefined;
 }): Promise<ReadSuccess> {
-  const { file, target, mediaType, signal, lineCount } = window;
+  const { file, target, mediaType, signal } = window;
   if (target.ranges !== undefined)
     return mediaType === "text/markdown" && !target.raw
-      ? await collectMarkdownMultiWindow(file, target, signal, lineCount)
-      : await collectMultiWindow(file, target, signal, lineCount);
+      ? await collectMarkdownMultiWindow(file, target, signal)
+      : await collectMultiWindow(file, target, signal);
   return mediaType === "text/markdown" && target.offset > 0 && !target.raw
-    ? await collectMarkdownWindow(file, target, signal, lineCount)
-    : await collectWindow(file, target, signal, lineCount);
+    ? await collectMarkdownWindow(file, target, signal)
+    : await collectWindow(file, target, signal);
 }
 
 /**
@@ -549,6 +542,26 @@ async function resolveCountedTarget(
   if (target.pending === undefined) return { target, counted: undefined };
   const counted = await countSourceLines(file, signal);
   return { target: resolveEndRelativeSelector(target, counted), counted };
+}
+
+/** The text window over the placed target, carrying the count the scan
+ *  produced so the header's total and the continuation label can use it. */
+async function textWindow(window: {
+  file: FileHandle;
+  target: ReadTarget;
+  size: number;
+  counted: number | undefined;
+  mediaType: string | undefined;
+  signal: AbortSignal | undefined;
+}): Promise<ReadSuccess> {
+  const { file, target, size, counted, mediaType, signal } = window;
+  const lineCount = await storedLineCount(file, size, counted, signal);
+  return await collectOpenedWindow({
+    file,
+    target: lineCount === undefined ? target : { ...target, lineCount },
+    mediaType,
+    signal,
+  });
 }
 
 /**
@@ -578,17 +591,13 @@ export async function streamFileWindow(
         outlineSourceLines(file, source.signal),
         placed.target,
       );
-    return await collectOpenedWindow({
+    return await textWindow({
       file,
       target: placed.target,
+      size: stats.size,
+      counted: placed.counted,
       mediaType,
       signal: source.signal,
-      lineCount: await storedLineCount(
-        file,
-        stats.size,
-        placed.counted,
-        source.signal,
-      ),
     });
   } finally {
     await file.close();

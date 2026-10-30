@@ -21,8 +21,8 @@ Append `:<sel>` to `path` (e.g. `src/foo.ts:50-200`, `src/foo.ts:raw`{{!, `db.sq
 - `:N-` - Selects from line N to the source's last line (e.g. `src/foo.ts:50-`).
 - `:-K` - Selects the last K lines (e.g. `src/foo.ts:-10`); a K longer than the source returns the whole source.
 - `:N-M,P-Q` - Selects multiple ranges (e.g. `src/foo.ts:5-16,960-973` for lines 5 to 16 and 960 to 973).
-- Every selected passage is served with one live line of context on each side, clipped at the ends, and touching passages become one block: `shownRange` (or `shownRanges` for a comma list) is what the result shows and may be wider than the range asked for.
-- An ordinary ranged read of Markdown also prepends the heading lines enclosing the first requested line, reported in `shownRanges` as separate intervals.
+- Every selected passage is served with one live line of context on each side, clipped at the ends, and touching passages become one block: the header names the lines the result shows, which may be wider than the range asked for.
+- An ordinary ranged read of Markdown also prepends the heading lines enclosing the first requested line; the header lists them as separate intervals.
 - A long source is cut by whichever binds first, the result budget or the 2000-line window: a cut read ends with one bracketed line naming the exact read that continues it.
 
 ### Raw Selector

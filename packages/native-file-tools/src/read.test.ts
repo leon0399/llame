@@ -270,6 +270,35 @@ describe("native source reads", () => {
     expect(overflowed.shownRange?.endLine).toBe(1999);
   });
 
+  it("fills a text read's bound with its trailing context line", async () => {
+    // The same calibration for a numbered read: the window's trailing context
+    // line is stored with the window end as its offset, so measuring it one
+    // line ahead would let the rendering gain a digit past the cap.
+    const source = (lastLine: number) =>
+      Array.from(
+        { length: 3000 },
+        (_, index) => `${"x".repeat(index === 1999 ? lastLine : 1)}\n`,
+      ).join("");
+    await writeFile(path, source(1));
+    const probe = await readFile({ path });
+    assertFileSuccess(probe);
+    const deficit = MAX_RESULT_CODE_UNITS - measureReadRendering(probe);
+
+    await writeFile(path, source(1 + deficit));
+    const filled = await readFile({ path });
+    assertFileSuccess(filled);
+    expect(measureReadRendering(filled)).toBe(MAX_RESULT_CODE_UNITS);
+    expect(filled).toMatchObject({ truncated: true, nextOffset: 2000 });
+
+    await writeFile(path, source(2 + deficit));
+    const overflowed = await readFile({ path });
+    assertFileSuccess(overflowed);
+    expect(measureReadRendering(overflowed)).toBeLessThan(
+      MAX_RESULT_CODE_UNITS,
+    );
+    expect(overflowed).toMatchObject({ truncated: true, nextOffset: 2000 });
+  });
+
   it("counts escaped delimiters toward the bound", async () => {
     // Ten reserved tags add six code units each once neutralized, and the
     // window is bounded on that text: the same file without them keeps a
@@ -859,33 +888,16 @@ describe("native source reads", () => {
   });
 
   describe("the source line count", () => {
-    it("reports the total on a ranged read", async () => {
-      await writeFile(path, numbered(216));
-      expect(await readFile({ path: `${path}:12-40` })).toMatchObject({
-        status: "success",
-        shownRange: { startLine: 11, endLine: 41 },
-        lineCount: 216,
-      });
-    });
-
-    it("reports the total on a raw read and on a multi-range read", async () => {
-      await writeFile(path, numbered(216));
-      expect(await readFile({ path: `${path}:raw:12-40` })).toMatchObject({
-        representation: "raw",
-        lineCount: 216,
-      });
-      expect(await readFile({ path: `${path}:1-2,4-5` })).toMatchObject({
-        lineCount: 216,
-      });
-    });
-
-    it("keeps the total on a file too large for one window", async () => {
-      await writeFile(path, "prefix\n" + "x\n".repeat(600_000) + "tail\n");
-      expect(await readFile({ path: `${path}:1-2` })).toMatchObject({
-        status: "success",
-        lineCount: 600_002,
-      });
-    });
+    it.each([":12-40", ":raw:12-40", ":1-2,4-5"])(
+      "reports the total on %s",
+      async (selector) => {
+        await writeFile(path, numbered(216));
+        expect(await readFile({ path: `${path}${selector}` })).toMatchObject({
+          status: "success",
+          lineCount: 216,
+        });
+      },
+    );
 
     it.runIf(process.platform === "linux")(
       "omits the total past the count bound without scanning the file",

@@ -18,6 +18,7 @@
 import { z } from 'zod';
 
 import {
+  measureReadRendering,
   renderReadText,
   serializeNativeModelOutput,
 } from '@workspace/native-file-tools';
@@ -133,6 +134,21 @@ export function renderToolResultText(
   return modelView(toolName, result).text;
 }
 
+/** The smallest read a result can render: the header alone, no total. */
+const MINIMAL_READ: UnknownRecord = {
+  status: 'success',
+  kind: 'file',
+  path: '',
+  representation: 'text',
+  content: '',
+  shownRange: null,
+  requestedRange: null,
+  truncated: false,
+};
+
+/** That header's own width in the model-facing rendering, which is constant. */
+const MINIMAL_READ_WIDTH = measureReadRendering(MINIMAL_READ);
+
 /**
  * Width the attribution lines of a read envelope add to the model-facing
  * rendering: rendering a minimal read with the envelope fields, minus the same
@@ -141,19 +157,8 @@ export function renderToolResultText(
  * (tool-result-rendering "Bounds are measured on the neutralized rendering").
  */
 export function readAttributionReserve(envelope: UnknownRecord): number {
-  const minimal: UnknownRecord = {
-    status: 'success',
-    kind: 'file',
-    path: '',
-    representation: 'text',
-    content: '',
-    shownRange: null,
-    requestedRange: null,
-    truncated: false,
-  };
   return (
-    neutralizeReservedDelimiters(renderReadText({ ...minimal, ...envelope }))
-      .length - neutralizeReservedDelimiters(renderReadText(minimal)).length
+    measureReadRendering({ ...MINIMAL_READ, ...envelope }) - MINIMAL_READ_WIDTH
   );
 }
 

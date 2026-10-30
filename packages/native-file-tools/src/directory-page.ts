@@ -36,9 +36,10 @@ export function directoryResult(
 }
 
 /**
- * A flat slice cut to the shared cap: whole entry lines are dropped from the
- * end until the page fits, and the continuation points at the first entry the
- * page no longer shows.
+ * A flat slice cut to the shared cap: the page keeps as many whole entry lines
+ * as fit, and the continuation points at the first entry the page no longer
+ * shows. The width grows with each kept entry line, so the largest page that
+ * fits is found by binary search rather than one entry per re-render.
  */
 export function boundFlatResult(
   result: DirectorySuccess,
@@ -48,14 +49,21 @@ export function boundFlatResult(
   if (fitsResultCap(result, cap)) return result;
 
   const lines = result.content.split("\n");
-  const keptEntries = () =>
-    lines.slice(1).filter((line) => line.length > 0).length;
-  const page = (): DirectorySuccess => ({
+  const header = lines[0] ?? "";
+  const entries = lines.slice(1).filter((line) => line.length > 0);
+  const page = (kept: number): DirectorySuccess => ({
     ...result,
-    content: lines.join("\n") + "\n",
+    content: [header, ...entries.slice(0, kept)].join("\n") + "\n",
     truncated: true,
-    nextOffset: requestOffset + keptEntries(),
+    nextOffset: requestOffset + kept,
   });
-  while (lines.length > 1 && !fitsResultCap(page(), cap)) lines.pop();
-  return { ...result, ...page() };
+  if (entries.length === 0) return page(0);
+  let low = 0;
+  let high = entries.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fitsResultCap(page(middle), cap)) low = middle;
+    else high = middle - 1;
+  }
+  return page(low);
 }

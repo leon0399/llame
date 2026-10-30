@@ -1,15 +1,11 @@
 import {
   invalidSelectorMessage,
+  measureReadRendering,
   OUTLINE_UNSUPPORTED_MESSAGE,
   renderCollectedDirectory,
-  renderReadText,
   type DirectoryListingEntry,
 } from '@workspace/native-file-tools';
-import {
-  neutralizeReservedDelimiters,
-  RESULT_TRUNCATE_CHARS,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 import { type WebRender } from './pipeline';
 import { buildWebReadResult } from './result';
@@ -27,13 +23,6 @@ const RANGED_MARKDOWN = [
   '## Third',
   'Third body',
 ].join('\n');
-
-/** The width the model receives for a web read: its neutralized text
- *  rendering, continuation line included (tool-result-rendering "Bounds are
- *  measured on the neutralized rendering"). */
-function renderedUnits(result: UnknownRecord): number {
-  return neutralizeReservedDelimiters(renderReadText(result)).length;
-}
 
 /** A rendered text of `count` lines, wide enough to exceed the shared bound. */
 function renderedLines(count: number): string {
@@ -877,7 +866,9 @@ describe('buildWebReadResult', () => {
       nextOffset: 398,
     });
     expect(result).toHaveProperty('content', readWindow(1, 201));
-    expect(renderedUnits(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
   });
 
   it('returns raw comma ranges verbatim', async () => {
@@ -938,7 +929,9 @@ describe('buildWebReadResult', () => {
       'content',
       expect.not.stringContaining('line 1200'),
     );
-    expect(renderedUnits(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
   });
 
   it('omits notes when the render reports none', async () => {

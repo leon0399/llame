@@ -143,7 +143,15 @@ function emitPassage(context: PassageContext): boolean {
     mandatory,
     result: state.result,
     emitted: state.emittedLines.size,
-    reserveNextOffset: state.result.nextOffset ?? passage.firstRequested + 1,
+    // A forced offset at or past the last line renders no continuation, so
+    // the estimate uses the nearest cut a real result can report.
+    reserveNextOffset:
+      target.lineCount === undefined
+        ? (state.result.nextOffset ?? passage.firstRequested + 1)
+        : Math.min(
+            state.result.nextOffset ?? passage.firstRequested + 1,
+            Math.max(0, target.lineCount - 1),
+          ),
     target,
     firstRequested: passage.firstRequested,
     firstShownLine: mandatory[0]?.line ?? passage.firstRequested + 1,
@@ -163,13 +171,11 @@ type MultiRenderContext = {
   count: number;
   tracker: MarkdownAncestorTracker;
   target: ReadTarget;
-  lineCount: number | undefined;
 };
 
 function renderMulti(context: MultiRenderContext): MultiReadSuccess {
-  const { passages, selected, count, tracker, target, lineCount } = context;
+  const { passages, selected, count, tracker, target } = context;
   const result = emptyMultiReadResult(target);
-  if (lineCount !== undefined) result.lineCount = lineCount;
   if (target.offset >= count && (count > 0 || target.offset !== 0))
     throw new NativeFileError("invalid_selector");
   if (count === 0) {
@@ -198,10 +204,7 @@ export class MultiCollector {
   private stopped = false;
   private haltedAt: number | undefined;
 
-  constructor(
-    private readonly target: ReadTarget,
-    private readonly lineCount?: number,
-  ) {
+  constructor(private readonly target: ReadTarget) {
     this.expanded = target.expandedRanges ?? [];
     this.passages = this.expanded.map((range) => ({
       range,
@@ -278,7 +281,6 @@ export class MultiCollector {
       count,
       tracker: this.tracker,
       target: this.target,
-      lineCount: this.lineCount,
     });
     if (this.haltedAt !== undefined && result.nextOffset === undefined) {
       result.truncated = true;

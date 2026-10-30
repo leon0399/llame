@@ -54,11 +54,11 @@ cut it, one bracketed continuation line — while the owner's UI reads the store
 object:
 
 ```text
-src/app.ts:11-2010 of 2162 lines
-11: import { app } from './app.ts';
+src/app.ts:1-2001 of 2162 lines
+1: import { app } from './app.ts';
 …
-2010: export default app;
-[152 more lines. Use src/app.ts:2011- to continue]
+2001: export default app;
+[162 more lines. Use src/app.ts:2001- to continue]
 ```
 
 The header names the source and the shown range: `path:start-end` for one range,

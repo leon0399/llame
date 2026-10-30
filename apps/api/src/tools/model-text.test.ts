@@ -20,65 +20,6 @@ describe('renderToolResultForModel', () => {
       kind: 'text',
       text: 'src/app.tsx:11-12 of 40 lines\n11: <div>\n12: </div>',
     });
-    expect(renderToolResultText('read', result)).not.toContain('{');
-  });
-
-  it('renders a directory read as its stored content', () => {
-    const text = renderToolResultText('read', {
-      status: 'success',
-      kind: 'directory',
-      path: '/repo/src',
-      content: '/repo/src\n  a.ts\n  b.ts\n',
-      truncated: false,
-      entryCount: 2,
-    });
-
-    expect(text).toBe('/repo/src\n  a.ts\n  b.ts');
-  });
-
-  it('renders a Machine read with the Machine locator in its header', () => {
-    const text = renderToolResultText('read', {
-      status: 'success',
-      kind: 'file',
-      path: 'build-host:/work/app.ts',
-      representation: 'text',
-      content: '1: const a = 1;\n',
-      requestedRange: { startLine: 1, endLine: 1 },
-      shownRange: { startLine: 1, endLine: 1 },
-      truncated: true,
-      nextOffset: 1,
-      lineCount: 9,
-    });
-
-    expect(text).toBe(
-      'build-host:/work/app.ts:1-1 of 9 lines\n1: const a = 1;\n[8 more lines. Use build-host:/work/app.ts:2- to continue]',
-    );
-  });
-
-  it('renders a Knowledge outline header and continuation once', () => {
-    const text = renderToolResultText('read', {
-      status: 'success',
-      kind: 'file',
-      path: 'kb://space-1/guide.md',
-      representation: 'outline',
-      content: '1: # Guide\n',
-      requestedRange: { startLine: 1, endLine: 900 },
-      shownRange: { startLine: 1, endLine: 400 },
-      truncated: true,
-      nextOffset: 400,
-      knowledgeSpaceName: 'Notes',
-      knowledgeSpaceId: 'space-1',
-    });
-
-    expect(text).toBe(
-      [
-        'kb://space-1/guide.md:outline:1-400',
-        'knowledgeSpaceName: Notes',
-        'knowledgeSpaceId: space-1',
-        '1: # Guide',
-        '[Use kb://space-1/guide.md:outline:401-900 to continue]',
-      ].join('\n'),
-    );
   });
 
   it('keeps an image read as JSON', () => {

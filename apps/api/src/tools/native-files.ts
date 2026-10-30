@@ -10,6 +10,7 @@ import {
   replaceFile,
   REPLACE_TARGET_MISSING_MESSAGE,
   resolveEndRelativeSelector,
+  serializeNativeModelOutput,
   type NativeReadOptions,
   type ReadTarget,
 } from '@workspace/native-file-tools';
@@ -445,9 +446,8 @@ async function settleKnowledgeMutation(
   const result = await performMutation(call, target.hostPath, {
     signal: context.abortSignal,
     displayPath: target.locator,
-    // The envelope is part of what the model receives, so the preview is
-    // bounded against it rather than truncated generically afterwards.
-    reserveCodeUnits: readAttributionReserve(envelope),
+    // Edit and write still render as JSON here; the reads reserve text width.
+    reserveCodeUnits: serializeNativeModelOutput(envelope).length,
   });
   return result.status === 'success' ? { ...result, ...envelope } : result;
 }
@@ -521,12 +521,11 @@ function performMutation(
     reserveCodeUnits?: number;
   },
 ): Promise<ToolResult> {
-  if (call.operation === 'edit') {
+  if (call.operation === 'edit')
     return editFile({ ...call.input, path: hostPath }, runtime.signal, {
       displayPath: runtime.displayPath,
       reserveCodeUnits: runtime.reserveCodeUnits,
     });
-  }
   const input = { path: hostPath, content: call.input.content };
   const options = {
     displayPath: runtime.displayPath,

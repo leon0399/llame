@@ -160,13 +160,9 @@ async function buildWebFileResult(
     resolved.ranges === undefined
       ? selectSourceLines(render.content, resolved, render.mediaType)
       : selectMultiRangeLines(render.content, resolved, render.mediaType);
-  // The render holds its own text, so its line count is known without a
-  // scan — the same count a `-K` member resolves against, counted once.
-  return {
-    ...read,
-    lineCount: (renderedLines ?? splitSourceLines(render.content)).length,
-    ...envelope,
-  };
+  // The selection stored its own count: the lines are in hand, and a `-K`
+  // member resolved against the same count.
+  return { ...read, ...envelope };
 }
 
 function directorySelectorFailure(

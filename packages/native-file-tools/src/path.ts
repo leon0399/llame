@@ -93,6 +93,11 @@ export type ReadTarget = {
   directory?: boolean;
   /** Room withheld from the shared result cap for a caller's envelope. */
   reserveCodeUnits?: number;
+  /** The source's line count once the reader knows it: a file's byte scan, or
+   *  the line count of text already in hand. The result constructors copy it,
+   *  so the header's total and the continuation's label are measured with
+   *  it. Absent for an outline and for a file past the count bound. */
+  lineCount?: number;
   /** Listing only: whether a link entry may name its target. Absent means the
    *  listing default, which is to name it. */
   linkTargets?: boolean;

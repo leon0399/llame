@@ -114,8 +114,10 @@ function fileHeader(result: UnknownRecord): string {
       ? ""
       : ` of ${result.lineCount} lines`;
   const ranges = asRanges(result.shownRanges);
-  if (ranges.length > 0)
-    return `${path}:${ranges.map(formatRange).join(",")}${total}`;
+  if (ranges.length > 0) {
+    const form = result.representation === "raw" ? "raw:" : "";
+    return `${path}:${form}${ranges.map(formatRange).join(",")}${total}`;
+  }
   const shown = asRange(result.shownRange);
   if (shown !== undefined) {
     const form =
@@ -142,29 +144,52 @@ function rangeSelector(
     : `${start}-${endLine}`;
 }
 
-/** The member a multi-range read stopped inside, then the members after it. */
+/**
+ * The member a multi-range read stopped inside, then the members after it. A
+ * `nextOffset` in the gap before a member, or on its leading context line,
+ * resumes from that member: its start is clipped to the resume line, and the
+ * members before it are spent.
+ */
 function multiSelector(ranges: Array<LineRange>, nextOffset: number): string {
   const line = nextOffset + 1;
-  const at = ranges.findIndex(
-    (range) => line >= range.startLine && line <= range.endLine,
-  );
-  const index = at < 0 ? ranges.length - 1 : at;
-  const members = [
-    rangeSelector(nextOffset, ranges[index]?.endLine),
-    ...ranges.slice(index + 1).map(formatRange),
-  ];
-  return members.join(",");
+  const at = ranges.findIndex((range) => line <= range.endLine);
+  if (at < 0) return `${line}-`;
+  const member = ranges[at];
+  if (member === undefined) return `${line}-`;
+  const head =
+    line >= member.startLine
+      ? rangeSelector(nextOffset, member.endLine)
+      : formatRange(member);
+  return [head, ...ranges.slice(at + 1).map(formatRange)].join(",");
 }
 
 /** The read that resumes after this one, in the form the request used. */
 function resumeSelector(result: UnknownRecord, nextOffset: number): string {
   if (result.kind === "directory") return `${nextOffset + 1}-`;
-  const requestedEnd = asRange(result.requestedRange)?.endLine;
+  const { lineCount } = result;
+  const requested = asRange(result.requestedRange)?.endLine;
+  // A requested end past the known line count is clamped to it, so the
+  // continuation names a selector the source can serve.
+  const requestedEnd =
+    isNumber(lineCount) && requested !== undefined
+      ? Math.min(requested, lineCount)
+      : requested;
   if (result.representation === "outline")
     return `outline:${rangeSelector(nextOffset, requestedEnd)}`;
-  const requested = asRanges(result.requestedRanges);
-  if (requested.length > 0) return multiSelector(requested, nextOffset);
-  return rangeSelector(nextOffset, requestedEnd);
+  const ranges = asRanges(result.requestedRanges);
+  const requestedRanges = isNumber(lineCount)
+    ? ranges.map((range) => ({
+        ...range,
+        endLine: Math.min(range.endLine, lineCount),
+      }))
+    : ranges;
+  const selector =
+    requestedRanges.length > 0
+      ? multiSelector(requestedRanges, nextOffset)
+      : rangeSelector(nextOffset, requestedEnd);
+  // A raw read stays raw on the way in: a numbered window would drop the
+  // verbatim view its `oldText` came from.
+  return result.representation === "raw" ? `raw:${selector}` : selector;
 }
 
 /** The one bracketed continuation notice a truncated result ends with. */
@@ -172,6 +197,14 @@ function continuationLine(result: UnknownRecord): string | undefined {
   if (result.truncated !== true) return undefined;
   const { nextOffset } = result;
   if (!isNumber(nextOffset)) return undefined;
+  // Nothing follows the last line: its header already says the line was
+  // skipped, and a read past the end would be refused.
+  if (
+    result.kind !== "directory" &&
+    isNumber(result.lineCount) &&
+    nextOffset >= result.lineCount
+  )
+    return undefined;
   let label = "";
   if (result.kind === "directory") {
     const { entryCount } = result;

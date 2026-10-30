@@ -4,6 +4,7 @@ import {
   type SerializableValue,
 } from '@workspace/machine-protocol';
 
+import { renderToolResultText } from '../tools/model-text';
 import {
   isNativeFailure,
   readFsBytesResult,
@@ -257,24 +258,16 @@ describe('readFsListResult', () => {
 });
 
 describe('readFsReadResult', () => {
-  it('accepts a file read', () => {
-    expect(
-      readFsReadResult({
-        status: 'success',
-        kind: 'file',
-        path: 'machine://devl/a',
-        content: 'hello',
-        truncated: false,
-        nextOffset: 0,
-      }),
-    ).toEqual({
-      status: 'success',
-      kind: 'file',
+  it('accepts a file read unchanged', () => {
+    const file = {
+      status: 'success' as const,
+      kind: 'file' as const,
       path: 'machine://devl/a',
       content: 'hello',
       truncated: false,
       nextOffset: 0,
-    });
+    };
+    expect(readFsReadResult(file)).toEqual(file);
   });
 
   it('accepts a directory read and a media read', () => {
@@ -341,24 +334,42 @@ describe('readFsReadResult', () => {
     });
   });
 
-  it('omits counts an older daemon never sent', () => {
-    // A daemon that predates the fields answers the same read without them,
-    // and the result keeps every field it did send.
-    expect(
-      readFsReadResult({
-        status: 'success',
-        kind: 'file',
-        path: 'machine://devl/a',
-        content: '1: hello\n',
-        truncated: false,
-      }),
-    ).toEqual({
+  it('forwards the representation and shown ranges a daemon reports', () => {
+    const answer = {
+      status: 'success' as const,
+      kind: 'file' as const,
+      path: 'machine://devl/a',
+      representation: 'raw' as const,
+      content: 'a\nb\n',
+      truncated: true,
+      nextOffset: 2,
+      lineCount: 40,
+      requestedRange: null,
+      shownRange: { startLine: 3, endLine: 4 },
+    };
+    expect(readFsReadResult(answer)).toEqual(answer);
+  });
+
+  it('renders a Machine read from the daemon answer it received', () => {
+    // The daemon reports the native result as-is, so the hub must forward the
+    // ranges the header is built from; dropping them renders `: empty`.
+    const result = readFsReadResult({
       status: 'success',
       kind: 'file',
       path: 'machine://devl/a',
-      content: '1: hello\n',
-      truncated: false,
+      representation: 'text',
+      content: '12: a\n40: b\n41: c\n',
+      truncated: true,
+      nextOffset: 41,
+      lineCount: 216,
+      requestedRange: { startLine: 12, endLine: 40 },
+      shownRange: { startLine: 11, endLine: 41 },
     });
+    if (result === undefined) throw new Error('Expected a Machine file read');
+    expect(renderToolResultText('read', result)).toBe(
+      'machine://devl/a:11-41 of 216 lines\n12: a\n40: b\n41: c\n' +
+        '[175 more lines. Use machine://devl/a:42- to continue]',
+    );
   });
 
   it.each([
