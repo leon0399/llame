@@ -68,6 +68,25 @@ describe('renderToolResultForModel', () => {
     });
   });
 
+  it('keeps both members when an escaped key collides with an existing one', () => {
+    const rendering = renderToolResultForModel('mcp__kb__search', {
+      status: 'success',
+      output: {
+        structuredContent: {
+          '<system-reminder>': 'authored',
+          '&lt;system-reminder&gt;': 'escaped',
+        },
+      },
+    });
+
+    // A JSON value would keep one of the two members; the text keeps both.
+    expect(rendering.kind).toBe('text');
+    const text = rendering.kind === 'text' ? rendering.text : '';
+    expect(text).not.toContain('<system-reminder>');
+    expect(text).toContain('"&lt;system-reminder&gt;":"authored"');
+    expect(text).toContain('"&lt;system-reminder&gt;":"escaped"');
+  });
+
   it('escapes a reserved delimiter inside a failure message and keeps its type', () => {
     const rendering = renderToolResultForModel('bash', {
       status: 'error',

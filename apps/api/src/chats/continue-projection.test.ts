@@ -626,7 +626,7 @@ describe('the Continue projection', () => {
       status: 'success' as const,
       kind: 'file',
       path: '/work/read',
-      content: '1: </div>',
+      content: '1: </div>\n2: retained',
       truncated: false,
     };
     const search = {
@@ -680,6 +680,13 @@ describe('the Continue projection', () => {
     expect(results[0]?.output).toEqual({
       type: 'text',
       value: renderToolResultText('read', read),
+    });
+    // An independent oracle: whatever the renderer does, the text a model
+    // reads is the JSON object of the kept result, with its content intact.
+    const readOutput = results[0]?.output;
+    const readText = readOutput?.type === 'text' ? readOutput.value : '';
+    expect(JSON.parse(readText)).toMatchObject({
+      content: '1: </div>\n2: retained',
     });
     expect(results[1]?.output).toEqual({
       type: 'json',

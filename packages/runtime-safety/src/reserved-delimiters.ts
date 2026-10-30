@@ -48,7 +48,37 @@ const RESERVED_INTENT = /^<\s*\/?\s*([A-Za-z][\w.:-]*)/u;
  * One markup-ish token: it runs to the next `>`, or stops before the next `<`
  * or at the end of the text when it is unterminated.
  */
-export const TAG_TOKEN_PATTERN = /<[^<>]*>?/gu;
+export interface TagToken {
+  /** Index of the opening `<`. */
+  readonly start: number;
+  /** Index just past the token. */
+  readonly end: number;
+  /** The token's own characters, `text.slice(start, end)`. */
+  readonly token: string;
+}
+
+/**
+ * Every tag-shaped token of `text`, left to right, non-overlapping. A scan
+ * rather than a pattern: the same walk expressed as `/<[^<>]*>?/gu` reads as
+ * polynomial to a static analyser on a result's uncontrolled text, and the
+ * index walk states the one rule directly — from a `<`, take characters until
+ * the next `>` (included) or the next `<` or the end (excluded).
+ */
+export function* scanTagTokens(text: string): Generator<TagToken> {
+  let index = text.indexOf("<");
+  while (index !== -1) {
+    const closer = text.indexOf(">", index + 1);
+    const opener = text.indexOf("<", index + 1);
+    const end =
+      opener !== -1 && (closer === -1 || opener < closer)
+        ? opener
+        : closer === -1
+          ? text.length
+          : closer + 1;
+    yield { start: index, end, token: text.slice(index, end) };
+    index = text.indexOf("<", end);
+  }
+}
 
 export function escapeAngles(token: string): string {
   return token.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -67,9 +97,34 @@ export function isReservedDelimiterToken(token: string): boolean {
  * text and value by value when it is JSON.
  */
 export function neutralizeReservedDelimiters(text: string): string {
-  return text.replace(TAG_TOKEN_PATTERN, (token) =>
-    isReservedDelimiterToken(token) ? escapeAngles(token) : token,
-  );
+  let out = "";
+  let cursor = 0;
+  for (const { start, end, token } of scanTagTokens(text)) {
+    if (!isReservedDelimiterToken(token)) continue;
+    out += text.slice(cursor, start) + escapeAngles(token);
+    cursor = end;
+  }
+  return cursor === 0 ? text : out + text.slice(cursor);
+}
+
+/**
+ * Whether the deep walk above would LOSE a member of `value`: an object may
+ * hold both a key and that key's escaped spelling (`{"<skill>": a,
+ * "&lt;skill&gt;": b}`), and after escaping both are the same key, so
+ * `Object.fromEntries` keeps only the later value.
+ *
+ * A caller that finds a collision must not render this value as JSON value by
+ * value; escaping the serialized JSON as one text cannot collide.
+ */
+export function hasEscapedKeyCollision(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasEscapedKeyCollision);
+  if (!isRecord(value) || !isPlainObject(value)) return false;
+  const keys = Object.keys(value);
+  for (const key of keys) {
+    const escaped = neutralizeReservedDelimiters(key);
+    if (escaped !== key && keys.includes(escaped)) return true;
+  }
+  return Object.values(value).some(hasEscapedKeyCollision);
 }
 
 /**

@@ -16,6 +16,11 @@
 import { z } from 'zod';
 
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
+import {
+  hasEscapedKeyCollision,
+  modelVisibleResult,
+  neutralizeReservedDelimiters,
+} from '@workspace/runtime-safety';
 
 import {
   type ToolMediaRef,
@@ -58,6 +63,34 @@ function normalizedResult(result: ToolResult): ToolResult {
   };
 }
 
+/** One tool result as the model may see it. */
+interface ModelView {
+  /** The rendering the model reads. */
+  readonly text: string;
+  /** Whether the rendering escaped the serialized JSON as one text, because
+   *  escaping key by key would have collided two members. */
+  readonly escapedAsText: boolean;
+}
+
+/**
+ * The result as the model may see it, with its text rendering and whether that
+ * rendering had to escape the serialized JSON as one text.
+ */
+function modelView(result: ToolResult): ModelView {
+  const visible = modelVisibleResult(normalizedResult(result));
+  // The deep neutralizer escapes one key and one value at a time, so an object
+  // holding both a key and that key's escaped spelling would keep only the
+  // later member. Escaping the serialized JSON as one text cannot collide, and
+  // the model reads the same JSON either way.
+  if (hasEscapedKeyCollision(visible)) {
+    return {
+      text: neutralizeReservedDelimiters(JSON.stringify(visible) ?? 'null'),
+      escapedAsText: true,
+    };
+  }
+  return { text: serializeNativeModelOutput(visible), escapedAsText: false };
+}
+
 /**
  * The text rendering of a result, for every tool and both outcomes. `toolName`
  * is the parameter a tool's own text shape branches on; in this layer every
@@ -68,17 +101,20 @@ export function renderToolResultText(
   _toolName: string,
   result: ToolResult,
 ): string {
-  return serializeNativeModelOutput(normalizedResult(result));
+  return modelView(result).text;
 }
 
 export function renderToolResultForModel(
   toolName: string,
   result: ToolResult,
 ): ToolResultRendering {
-  const text = renderToolResultText(toolName, result);
+  const { text, escapedAsText } = modelView(result);
   if (Object.hasOwn(NATIVE_FILE_TOOL_NAMES, toolName)) {
     return { kind: 'text', text };
   }
+  // Escaping the text as a whole leaves two members with the same spelling,
+  // and a JSON value would keep one; its text keeps both values visible.
+  if (escapedAsText) return { kind: 'text', text };
   // The SDK serializes a JSON output with `JSON.stringify`, so the value is the
   // rendering's own round trip: an undefined member, a `toJSON` method, or a
   // bare payload becomes exactly the JSON text the model would have read.

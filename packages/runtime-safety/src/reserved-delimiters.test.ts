@@ -1,7 +1,9 @@
 import {
+  hasEscapedKeyCollision,
   neutralizeReservedDelimiters,
   neutralizeReservedDelimitersDeep,
   RESERVED_DELIMITER_NAMES,
+  scanTagTokens,
 } from "./reserved-delimiters";
 
 describe("reserved delimiter neutralization", () => {
@@ -55,6 +57,65 @@ describe("reserved delimiter neutralization", () => {
     expect(neutralizeReservedDelimiters("see </tool-result> here")).toBe(
       "see &lt;/tool-result&gt; here",
     );
+  });
+});
+
+describe("tag token scanning", () => {
+  it("walks tokens left to right without overlap", () => {
+    expect(
+      [...scanTagTokens("a <b> c </d> e")].map(({ token }) => token),
+    ).toEqual(["<b>", "</d>"]);
+  });
+
+  it("ends a token at a nested opener, at the end, or at a closer", () => {
+    expect([...scanTagTokens("<<skill>")].map(({ token }) => token)).toEqual([
+      "<",
+      "<skill>",
+    ]);
+    expect([...scanTagTokens("x <skill")]).toEqual([
+      { start: 2, end: 8, token: "<skill" },
+    ]);
+    expect([...scanTagTokens("no markup")]).toEqual([]);
+  });
+
+  it("matches what the pattern it replaced matched", () => {
+    const pattern = /<[^<>]*>?/gu;
+    for (const text of [
+      "<a><b>x</b></a>",
+      'unterminated <skill foo="x',
+      "<a><<b>>",
+      "",
+      "a < b > c",
+    ]) {
+      expect([...scanTagTokens(text)].map(({ token }) => token)).toEqual(
+        [...text.matchAll(pattern)].map(([token]) => token),
+      );
+    }
+  });
+});
+
+describe("escaped key collisions", () => {
+  it("reports a key whose escaped spelling already exists", () => {
+    expect(
+      hasEscapedKeyCollision({
+        "<system-reminder>": "authored",
+        "&lt;system-reminder&gt;": "escaped",
+      }),
+    ).toBe(true);
+    expect(
+      hasEscapedKeyCollision({
+        nested: [{ "<skill>": 1, "&lt;skill&gt;": 2 }],
+      }),
+    ).toBe(true);
+  });
+
+  it("reports no collision for escaped keys without a twin", () => {
+    expect(hasEscapedKeyCollision({ "<system-reminder>": 1 })).toBe(false);
+    expect(hasEscapedKeyCollision({ text: "</div>", list: [1, "x"] })).toBe(
+      false,
+    );
+    expect(hasEscapedKeyCollision("<skill>")).toBe(false);
+    expect(hasEscapedKeyCollision(null)).toBe(false);
   });
 });
 

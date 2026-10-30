@@ -1,7 +1,7 @@
 import {
   escapeAngles,
   isReservedDelimiterToken,
-  TAG_TOKEN_PATTERN,
+  scanTagTokens,
 } from '@workspace/runtime-safety';
 
 /**
@@ -94,5 +94,11 @@ function emitToken(token: string, stack: Array<string>): string {
 
 export function sanitizeAuthoredText(value: string): string {
   const stack: Array<string> = [];
-  return value.replace(TAG_TOKEN_PATTERN, (token) => emitToken(token, stack));
+  let out = '';
+  let cursor = 0;
+  for (const { start, end, token } of scanTagTokens(value)) {
+    out += value.slice(cursor, start) + emitToken(token, stack);
+    cursor = end;
+  }
+  return out + value.slice(cursor);
 }
