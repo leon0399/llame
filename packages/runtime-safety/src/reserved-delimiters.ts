@@ -42,7 +42,7 @@ export const RESERVED_DELIMITER_NAMES: ReadonlySet<string> = new Set([
  * unterminated spelling is still a name a model can read as that delimiter, so
  * the name is taken from the token's opening shape alone.
  */
-const RESERVED_INTENT = /^<\s*\/?\s*([A-Za-z][\w.:-]*)/u;
+const RESERVED_INTENT = /^<\s*(?:\/\s*)?([A-Za-z][\w.:-]*)/u;
 
 /**
  * One markup-ish token: it runs to the next `>`, or stops before the next `<`
