@@ -26,7 +26,7 @@ import {
   type ToolUnavailableReason,
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
-import { renderedText, renderToolResultForModel } from '../tools/model-text';
+import { measureToolResultForModel } from '../tools/model-text';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { type Tool, type ToolContext, type ToolResult } from '../tools/types';
@@ -897,9 +897,5 @@ export class McpRuntimeService
 
 /** The global cap, measured on the rendering the model reads. */
 function capMcpResult(toolId: string, result: ToolResult): ToolResult {
-  return truncateOversizedResult(
-    result,
-    (candidate) =>
-      renderedText(renderToolResultForModel(toolId, candidate)).length,
-  );
+  return truncateOversizedResult(result, measureToolResultForModel(toolId));
 }

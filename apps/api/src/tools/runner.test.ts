@@ -7,7 +7,7 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { bashTool } from './bash';
-import { renderedText, renderToolResultForModel } from './model-text';
+import { renderToolResultText } from './model-text';
 import { nativeEditTool, nativeReadTool } from './native-files';
 import { previewToolPermission, runTool } from './runner';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -691,9 +691,7 @@ describe('runTool', () => {
       content: '',
       truncated: false,
     };
-    const overhead = renderedText(
-      renderToolResultForModel('read', empty),
-    ).length;
+    const overhead = renderToolResultText('read', empty).length;
     const content = 'x'.repeat(RESULT_TRUNCATE_CHARS - overhead);
     const readLike: Tool<{ value: string }> = {
       ...echoTool,
@@ -711,7 +709,7 @@ describe('runTool', () => {
     );
 
     expect(result).not.toMatchObject({ truncated: true });
-    expect(renderedText(renderToolResultForModel('read', result)).length).toBe(
+    expect(renderToolResultText('read', result).length).toBe(
       RESULT_TRUNCATE_CHARS,
     );
   });
@@ -725,16 +723,11 @@ describe('runTool', () => {
       }),
     };
     const result = await runTool(bigTool, { value: 'x' }, fakeContext(), 15);
-    const text = renderedText(renderToolResultForModel('echo', result));
+    const text = renderToolResultText('echo', result);
 
     expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toHaveProperty('truncationNotice', expect.any(String));
     expect(text.length).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
-    // SAFETY: `truncationNotice` is the marker field every truncated result
-    // carries (#294), passed through the tool result's own open record, not
-    // part of `ToolResult`'s declared shape.
-    expect((result as UnknownRecord).truncationNotice).toEqual(
-      expect.any(String),
-    );
     expect(text.split('"truncationNotice"')).toHaveLength(2);
   });
 });

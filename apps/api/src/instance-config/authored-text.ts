@@ -1,6 +1,7 @@
 import {
-  neutralizeReservedDelimiters,
-  RESERVED_DELIMITER_NAMES,
+  escapeAngles,
+  isReservedDelimiterToken,
+  TAG_TOKEN_PATTERN,
 } from '@workspace/runtime-safety';
 
 /**
@@ -54,41 +55,21 @@ const CLOSER = /^<\/([A-Za-z][\w.:-]*)>$/u;
 /** Anything that starts like a closing tag, however malformed. */
 const CLOSER_INTENT = /^<\s*\//u;
 
-const escapeAngles = (token: string) =>
-  token.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-
-/**
- * The markup-ish token starting at `lt`. A token runs to the next `>`, unless
- * another `<` starts first — then the fragment is unterminated and the next
- * `<` begins its own token.
- */
-function nextToken(value: string, lt: number) {
-  const gt = value.indexOf('>', lt + 1);
-  const nextLt = value.indexOf('<', lt + 1);
-  const complete = gt !== -1 && (nextLt === -1 || gt < nextLt);
-  const end = complete ? gt + 1 : nextLt === -1 ? value.length : nextLt;
-  return { token: value.slice(lt, end), end, complete };
-}
-
 /**
  * Decide what one token emits, and update the open-tag stack. This is the
  * whole security decision: a value may never close a tag it did not open
  * within that same value, and may never emit a reserved delimiter name as a
  * tag at all. `stack` is mutated, exactly as it was when this lived inline.
  */
-function emitToken(
-  token: string,
-  complete: boolean,
-  stack: Array<string>,
-): string {
-  const guarded = neutralizeReservedDelimiters(token);
-  if (guarded !== token) return guarded;
+function emitToken(token: string, stack: Array<string>): string {
+  if (isReservedDelimiterToken(token)) return escapeAngles(token);
+  const complete = token.endsWith('>');
 
   const closer = complete ? CLOSER.exec(token) : null;
   if (closer !== null) {
     const name = closer[1].toLowerCase();
     const opened = stack.lastIndexOf(name);
-    if (opened !== -1 && !RESERVED_DELIMITER_NAMES.has(name)) {
+    if (opened !== -1) {
       stack.length = opened;
       return token;
     }
@@ -112,22 +93,6 @@ function emitToken(
 }
 
 export function sanitizeAuthoredText(value: string): string {
-  const out: Array<string> = [];
   const stack: Array<string> = [];
-  let index = 0;
-
-  while (index < value.length) {
-    const lt = value.indexOf('<', index);
-    if (lt === -1) {
-      out.push(value.slice(index));
-      break;
-    }
-    out.push(value.slice(index, lt));
-
-    const { token, end, complete } = nextToken(value, lt);
-    index = end;
-    out.push(emitToken(token, complete, stack));
-  }
-
-  return out.join('');
+  return value.replace(TAG_TOKEN_PATTERN, (token) => emitToken(token, stack));
 }

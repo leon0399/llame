@@ -15,9 +15,9 @@ describe("modelVisibleResult", () => {
     });
   });
 
-  it("leaves a record without display alone, by reference", () => {
+  it("leaves a record without display or thumbnail alone", () => {
     const result = { status: "success", content: "text" };
-    expect(modelVisibleResult(result)).toBe(result);
+    expect(modelVisibleResult(result)).toEqual(result);
   });
 
   it("removes a legacy top-level thumbnail from an image result only", () => {
@@ -34,17 +34,35 @@ describe("modelVisibleResult", () => {
     });
 
     const file = { ...image, kind: "file" };
-    expect(modelVisibleResult(file)).toBe(file);
+    expect(modelVisibleResult(file)).toEqual(file);
   });
 
-  it("leaves a nested display object alone", () => {
-    const result = { status: "success", nested: { display: "kept" } };
-    expect(modelVisibleResult(result)).toBe(result);
+  it("keeps a thumbnail on a non-image result that also carries display", () => {
+    const result = {
+      status: "success",
+      kind: "file",
+      thumbnail: "kept payload",
+      display: { oldText: "a" },
+    };
+
+    expect(modelVisibleResult(result)).toEqual({
+      status: "success",
+      kind: "file",
+      thumbnail: "kept payload",
+    });
   });
 
-  it("returns non-records unchanged", () => {
-    for (const value of ["text", 4, null, undefined, ["display"]]) {
-      expect(modelVisibleResult(value)).toBe(value);
-    }
+  it.each([
+    [
+      "a nested display record",
+      { status: "success", nested: { display: "kept" } },
+    ],
+    ["a string", "text"],
+    ["a number", 4],
+    ["null", null],
+    ["undefined", undefined],
+    ["an array", ["display"]],
+  ])("leaves %s unchanged", (_case, value) => {
+    expect(modelVisibleResult(value)).toEqual(value);
   });
 });

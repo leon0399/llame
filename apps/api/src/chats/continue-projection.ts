@@ -38,7 +38,6 @@ import {
   isUnstoredMedia,
   mediaResultRef,
   submittedLocator,
-  toolResultOutput,
   type ToolMediaRef,
 } from '../media/epoch-admission';
 import type { RetainedMedia } from '../media/attempt-media';
@@ -47,7 +46,7 @@ import {
   projectStoredToolPart,
   type ProjectedToolObservationPair,
 } from './tool-observation-part';
-import { renderToolResultForModel } from '../tools/model-text';
+import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
 import type { ToolResult } from '../tools/types';
 
 /**
@@ -176,13 +175,9 @@ function keptToolOutput(
   result: ToolResult,
   retainedRef: ToolMediaRef | undefined,
 ): ToolResultPart['output'] {
-  const rendering = renderToolResultForModel(toolName, result);
-  if (rendering.kind === 'json') {
-    return { type: 'json', value: rendering.value };
-  }
   const named = mediaResultRef(result, submittedLocator(input));
-  return toolResultOutput(
-    rendering.text,
+  return modelToolOutput(
+    renderToolResultForModel(toolName, result),
     isUnstoredMedia(named) ? retainedRef : named,
   );
 }

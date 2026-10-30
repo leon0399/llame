@@ -14,7 +14,7 @@ import type {
 } from 'ai';
 
 import { isRejectedHopUrl } from '../tools/permissions/messages';
-import { renderedText, renderToolResultForModel } from '../tools/model-text';
+import { renderToolResultText } from '../tools/model-text';
 import { type ToolResult } from '../tools/types';
 import {
   isRecord,
@@ -250,27 +250,27 @@ function failureResult(
 function resolveResultBody(
   part: StoredToolPart,
   toolName: string,
-  hopRejection: boolean,
+  outcome: string,
 ): string | null {
   if (part.state === 'output-available' && part.output !== undefined) {
     // A legacy part stored a bare payload instead of a result object; it
     // replays as that text, through the same neutralizer every rendering uses.
     if (!isRecord(part.output)) {
-      return isString(part.output)
-        ? neutralizeReservedDelimiters(part.output)
-        : (JSON.stringify(part.output) ?? 'null');
+      return neutralizeReservedDelimiters(
+        isString(part.output)
+          ? part.output
+          : (JSON.stringify(part.output) ?? 'null'),
+      );
     }
     // A stored success is the result object its executor settled with, as
     // untyped jsonb; the record guard restores the one success shape.
     const result: ToolResult = { ...part.output, status: 'success' };
-    return renderedText(renderToolResultForModel(toolName, result));
+    return renderToolResultText(toolName, result);
   }
   if (!isString(part.errorText) || part.errorText.length === 0) return null;
-  return renderedText(
-    renderToolResultForModel(
-      toolName,
-      failureResult(part, resolveOutcome(part), hopRejection),
-    ),
+  return renderToolResultText(
+    toolName,
+    failureResult(part, outcome, isHopRejection(toolName, outcome)),
   );
 }
 
@@ -547,11 +547,7 @@ function storedObservation(
         ? 'incomplete'
         : outcome,
     input: part.input,
-    resultBody: resolveResultBody(
-      part,
-      toolName,
-      isHopRejection(toolName, outcome),
-    ),
+    resultBody: resolveResultBody(part, toolName, outcome),
     ...(toolName === READ_TOOL_NAME && part.state === 'output-available'
       ? readObservationRef(part, mediaKey)
       : { media: undefined, retained: undefined }),

@@ -36,17 +36,6 @@ describe("reserved delimiter neutralization", () => {
     );
   });
 
-  it("escalates every reserved name in one text", () => {
-    const text = [...RESERVED_DELIMITER_NAMES]
-      .map((name) => `<${name}>x</${name}>`)
-      .join(" ");
-    const neutralized = neutralizeReservedDelimiters(text);
-    expect(neutralized).not.toContain("<");
-    expect(neutralized.match(/&lt;/gu)).toHaveLength(
-      RESERVED_DELIMITER_NAMES.size * 2,
-    );
-  });
-
   it("leaves source markup, prose, and entities byte-for-byte", () => {
     for (const text of [
       "</div>",

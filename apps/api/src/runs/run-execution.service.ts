@@ -90,12 +90,10 @@ import {
   submittedLocator,
   collectMediaRefs,
   isUnstoredMedia,
-  toolResultOutput,
   type MediaAdmissionContext,
   type MediaSizing,
   type ReadMediaRef,
   type ToolMediaRef,
-  type ToolResultOutput,
 } from '../media/epoch-admission';
 import { mediaLocator, parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
@@ -246,7 +244,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
-import { renderToolResultForModel } from '../tools/model-text';
+import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
 import { MachinesService } from '../machines/machines.service';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import {
@@ -1853,33 +1851,6 @@ export class RunExecutionService {
       // result adds only its reference, which the step composer projects on
       // every step (vision-media D6), so no bytes stay in the Run's response
       // messages.
-      const modelOutput = {
-        toModelOutput: ({
-          input: call,
-          output,
-          toolCallId,
-        }: {
-          input: unknown;
-          output: ToolResult;
-          toolCallId: string;
-        }): ToolResultOutput => {
-          const rendering = renderToolResultForModel(declaration.id, output);
-          if (rendering.kind === 'json') {
-            return { type: 'json', value: rendering.value };
-          }
-          return toolResultOutput(
-            rendering.text,
-            // A result without a stored locator is a reference only while
-            // this attempt holds its bytes: the step composer then
-            // attaches them or the matching placeholder (D2).
-            retainedReadRef(
-              media.retainedMedia,
-              toolCallId,
-              mediaResultRef(output, submittedLocator(call)),
-            ),
-          );
-        },
-      };
       const definition = tool({
         description: declaration.description,
         inputSchema: toFlexibleSchema(declaration.inputSchema)!,
@@ -1901,7 +1872,26 @@ export class RunExecutionService {
             result,
           );
         },
-        ...modelOutput,
+        toModelOutput: ({
+          input: call,
+          output,
+          toolCallId,
+        }: {
+          input: unknown;
+          output: ToolResult;
+          toolCallId: string;
+        }) =>
+          modelToolOutput(
+            renderToolResultForModel(declaration.id, output),
+            // A result without a stored locator is a reference only while
+            // this attempt holds its bytes: the step composer then attaches
+            // them or the matching placeholder (D2).
+            retainedReadRef(
+              media.retainedMedia,
+              toolCallId,
+              mediaResultRef(output, submittedLocator(call)),
+            ),
+          ),
       });
       return definition.type === 'provider'
         ? definition

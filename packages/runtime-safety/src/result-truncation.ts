@@ -192,12 +192,12 @@ export function truncateOversizedResult(
   if (result.status !== "success") return result;
   if (Object.hasOwn(result, "display")) {
     const { display, ...shown } = result;
-    if (measure(shown) <= RESULT_TRUNCATE_CHARS) return result;
     const capped = truncateOversizedResult(shown, measure);
     return capped.status === "success" ? { ...capped, display } : capped;
   }
+  const measured = measure(result);
+  if (measured <= RESULT_TRUNCATE_CHARS) return result;
   const json = JSON.stringify(result) ?? "null";
-  if (measure(result) <= RESULT_TRUNCATE_CHARS) return result;
 
   // Work on the result's own JSON projection: `JSON.stringify` has already
   // applied `toJSON`, dropped undefined, and fixed every length, so what is
@@ -217,7 +217,8 @@ export function truncateOversizedResult(
     pinned: pinsMedia ? { media } : {},
     totalFields: Object.keys(payload).length,
     json,
-    measured: measure(result),
+    measured,
+    measure,
   };
 
   // First pass keeps every top-level field, which is the shape guarantee. Its
@@ -227,10 +228,10 @@ export function truncateOversizedResult(
   // out of a provider request — so a second pass drops trailing fields too, and
   // the marker says how many. That pass always fits: its own floor is the
   // marker alone.
-  const preserved = searchLargestFittingLimit(source, true, measure);
+  const preserved = searchLargestFittingLimit(source, true);
   return measure(preserved) <= RESULT_TRUNCATE_CHARS
     ? preserved
-    : searchLargestFittingLimit(source, false, measure);
+    : searchLargestFittingLimit(source, false);
 }
 
 /** The part of a truncation pass that never changes across the binary
@@ -243,13 +244,14 @@ interface TruncationSource {
   readonly json: string;
   /** The original result's measured size, in measured units. */
   readonly measured: number;
+  /** The caller's measure: what the model reads, in its own units. */
+  readonly measure: (candidate: ToolResult) => number;
 }
 
 function buildTruncatedResult(
   source: TruncationSource,
   limit: number,
   keepAllFields: boolean,
-  measure: (candidate: ToolResult) => number,
 ): ToolResult {
   const lists: Array<ShortenedList> = [];
   const capped = capRecord(
@@ -259,7 +261,7 @@ function buildTruncatedResult(
   );
   const kept = { ...source.pinned, ...capped };
   const omittedUnits =
-    source.measured - measure({ status: "success", ...kept });
+    source.measured - source.measure({ status: "success", ...kept });
   return {
     status: "success",
     ...kept,
@@ -283,15 +285,14 @@ function buildTruncatedResult(
 function searchLargestFittingLimit(
   source: TruncationSource,
   keepAllFields: boolean,
-  measure: (candidate: ToolResult) => number,
 ): ToolResult {
   let low = 0;
   let high = source.json.length;
-  let best = buildTruncatedResult(source, 0, keepAllFields, measure);
+  let best = buildTruncatedResult(source, 0, keepAllFields);
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
-    const candidate = buildTruncatedResult(source, mid, keepAllFields, measure);
-    if (measure(candidate) <= RESULT_TRUNCATE_CHARS) {
+    const candidate = buildTruncatedResult(source, mid, keepAllFields);
+    if (source.measure(candidate) <= RESULT_TRUNCATE_CHARS) {
       best = candidate;
       low = mid + 1;
     } else {

@@ -3,11 +3,9 @@
 /**
  * Prints the model-facing tool-result measurement table.
  *
- * The "today" column is the `64db12c9` baseline captured once from that
- * worktree's built packages: the committed fixture holds each case's result
- * object and the exact text the old serializer produced for it, so the numbers
- * never drift with later layers. The "after" columns wait for the renderers:
- * each layer that lands one fills its rows from the live renderer.
+ * The columns are the `64db12c9` baseline captured once from that worktree's
+ * built packages: the committed fixture holds each case's result object and the
+ * exact text the old serializer produced for it, so the numbers never drift.
  *
  * Run: `node scripts/measure-tool-results.mjs`
  */
@@ -32,11 +30,11 @@ const rows = cases.map(({ case: name, args, todayText }) => ({
 const num = (count) => count.toLocaleString("en-US");
 
 const lines = [
-  "| Case | Args tokens | Today chars | Today tokens | After chars | After tokens |",
-  "| --- | --: | --: | --: | --: | --: |",
+  "| Case | Args tokens | Today chars | Today tokens |",
+  "| --- | --: | --: | --: |",
   ...rows.map(
     (row) =>
-      `| ${row.name} | ${num(row.args)} | ${num(row.chars)} | ${num(row.today)} | — | — |`,
+      `| ${row.name} | ${num(row.args)} | ${num(row.chars)} | ${num(row.today)} |`,
   ),
 ];
 

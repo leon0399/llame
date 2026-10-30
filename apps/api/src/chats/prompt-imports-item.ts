@@ -354,8 +354,9 @@ const renderPromptImportsTemplate =
     'prompt-imports',
   );
 
-/** Keep imported content from closing its file block or forging another one. */
-function neutralizeImportBody(body: string): string {
+/** Keep imported content from closing its file block or forging another one.
+ *  Exported so the import bound counts the body as it is rendered. */
+export function neutralizeImportBody(body: string): string {
   return sanitizeAuthoredText(body).replaceAll(
     /<(\s*\/?\s*file)(?=\s*\/?\s*>|[\s/]+[\w-]+\s*=|$)/giu,
     '&lt;$1',

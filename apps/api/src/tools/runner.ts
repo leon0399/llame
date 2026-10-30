@@ -8,7 +8,7 @@ import {
   truncateOversizedResult,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-import { renderedText, renderToolResultForModel } from './model-text';
+import { measureToolResultForModel } from './model-text';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -445,8 +445,7 @@ async function settleAdmittedExecution(
 ): Promise<ToolResult> {
   let mcpDispatchRecorded = false;
   // The cap measures what the model reads, not the stored object.
-  const measure = (candidate: ToolResult): number =>
-    renderedText(renderToolResultForModel(tool.id, candidate)).length;
+  const measure = measureToolResultForModel(tool.id);
   const executionContext = {
     ...prepared.context,
     onMcpDispatchRecorded: () => {

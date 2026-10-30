@@ -44,19 +44,21 @@ export const RESERVED_DELIMITER_NAMES: ReadonlySet<string> = new Set([
  */
 const RESERVED_INTENT = /^<\s*\/?\s*([A-Za-z][\w.:-]*)/u;
 
-const escapeAngles = (token: string): string =>
-  token.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-
 /**
- * Where the markup-ish token starting at `lt` ends: at the next `>`, unless
- * another `<` starts first — then the fragment is unterminated and the next `<`
- * begins its own token.
+ * One markup-ish token: it runs to the next `>`, or stops before the next `<`
+ * or at the end of the text when it is unterminated.
  */
-function tokenEnd(value: string, lt: number): number {
-  const gt = value.indexOf(">", lt + 1);
-  const nextLt = value.indexOf("<", lt + 1);
-  if (gt !== -1 && (nextLt === -1 || gt < nextLt)) return gt + 1;
-  return nextLt === -1 ? value.length : nextLt;
+export const TAG_TOKEN_PATTERN = /<[^<>]*>?/gu;
+
+export function escapeAngles(token: string): string {
+  return token.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+/** Whether one tag-shaped token names a reserved delimiter, however it is
+ *  spelled. */
+export function isReservedDelimiterToken(token: string): boolean {
+  const name = RESERVED_INTENT.exec(token)?.[1];
+  return name !== undefined && RESERVED_DELIMITER_NAMES.has(name.toLowerCase());
 }
 
 /**
@@ -65,30 +67,9 @@ function tokenEnd(value: string, lt: number): number {
  * text and value by value when it is JSON.
  */
 export function neutralizeReservedDelimiters(text: string): string {
-  const out: Array<string> = [];
-  let index = 0;
-
-  while (index < text.length) {
-    const lt = text.indexOf("<", index);
-    if (lt === -1) {
-      out.push(text.slice(index));
-      break;
-    }
-    out.push(text.slice(index, lt));
-
-    const end = tokenEnd(text, lt);
-    const token = text.slice(lt, end);
-    index = end;
-
-    const name = RESERVED_INTENT.exec(token)?.[1];
-    out.push(
-      name !== undefined && RESERVED_DELIMITER_NAMES.has(name.toLowerCase())
-        ? escapeAngles(token)
-        : token,
-    );
-  }
-
-  return out.join("");
+  return text.replace(TAG_TOKEN_PATTERN, (token) =>
+    isReservedDelimiterToken(token) ? escapeAngles(token) : token,
+  );
 }
 
 /**

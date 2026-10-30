@@ -11,7 +11,7 @@ import { asDouble } from '../testing/support';
 import type { RetainedMediaJson } from '../media/retained-media';
 import { isContextItemPart } from './context-item';
 import { composeStepMessages } from '../models/step-composer';
-import { renderedText, renderToolResultForModel } from '../tools/model-text';
+import { renderToolResultText } from '../tools/model-text';
 import type { ToolResult } from '../tools/types';
 import { fakeResolver } from '../media/media-fixtures';
 import type { MessagePart } from './context-builder';
@@ -360,9 +360,7 @@ describe('the Continue projection', () => {
     );
     const legacyText =
       legacyResult?.output.type === 'text' ? legacyResult.output.value : '';
-    expect(legacyText).toContain(
-      renderedText(renderToolResultForModel('read', result)),
-    );
+    expect(legacyText).toContain(renderToolResultText('read', result));
     expect(legacyText).not.toContain('not attached');
   });
 
@@ -383,8 +381,35 @@ describe('the Continue projection', () => {
     // no untrusted framing and no budget.
     expect(toolResults(messages, 1)[0]?.output).toEqual({
       type: 'text',
-      value: renderedText(renderToolResultForModel('read', result)),
+      value: renderToolResultText('read', result),
     });
+  });
+
+  it('replays a kept result without its stored display data', () => {
+    const result = {
+      status: 'success' as const,
+      operation: 'edit' as const,
+      path: '/work/call-1',
+      content: '11: const a = 1;',
+      display: {
+        startLine: 11,
+        oldText: 'const a = 0;',
+        newText: 'const a = 1;',
+      },
+    };
+    const messages = projected({
+      parts: [toolPart(CALL_ID, 'ignored', 'edit')],
+      stepNumbers: new Map([[CALL_ID, 0]]),
+      results: new Map([[CALL_ID, result]]),
+    });
+
+    const output = toolResults(messages, 1)[0]?.output;
+    expect(output).toEqual({
+      type: 'text',
+      value: renderToolResultText('edit', result),
+    });
+    expect(JSON.stringify(output)).not.toContain('oldText');
+    expect(JSON.stringify(output)).not.toContain('const a = 0;');
   });
 
   it('replays a non-native result as its neutralized JSON', () => {
@@ -422,7 +447,7 @@ describe('the Continue projection', () => {
 
     expect(toolResults(messages, 1)[0]?.output).toEqual({
       type: 'text',
-      value: renderedText(renderToolResultForModel('read', result)),
+      value: renderToolResultText('read', result),
     });
   });
 
@@ -654,7 +679,7 @@ describe('the Continue projection', () => {
     const results = toolResults(messages, 1);
     expect(results[0]?.output).toEqual({
       type: 'text',
-      value: renderedText(renderToolResultForModel('read', read)),
+      value: renderToolResultText('read', read),
     });
     expect(results[1]?.output).toEqual({
       type: 'json',
@@ -671,7 +696,7 @@ describe('the Continue projection', () => {
       value: [
         {
           type: 'text',
-          text: renderedText(renderToolResultForModel('read', image)),
+          text: renderToolResultText('read', image),
         },
         { type: 'image-url', url: MEDIA },
       ],
