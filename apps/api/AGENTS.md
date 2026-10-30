@@ -327,5 +327,5 @@ chat-search/search-projection/conversation-read OpenSpecs.
 - Chained casts are banned. Narrow consumer dependencies with exported `Pick<>`
   capabilities and explicit Nest tokens; let mock fixtures retain inferred
   Vitest types.
-- API uses tsgo type-aware lint. Keep explicit node/vitest types and no
-  `baseUrl`.
+- API uses type-aware lint (`oxlint-tsgolint`). Keep explicit node/vitest
+  types and no `baseUrl`.

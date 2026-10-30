@@ -3,7 +3,7 @@
  *
  * Each @ts-expect-error asserts a misuse DOES NOT COMPILE. If the typing ever
  * weakens (e.g. the payload phantom is dropped and definitions become
- * structurally interchangeable), the directive stops firing and `tsgo
+ * structurally interchangeable), the directive stops firing and `tsc
  * --noEmit` fails — the type guarantee is itself under test. No runtime
  * behavior is exercised here.
  */

@@ -34,10 +34,14 @@ verifyDepsBeforeRun: install
 # https://pnpm.io/settings#minimumreleaseage
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
-  # Tracks fresh dated dev builds (see catalog pin); a new build is younger than
-  # the cooldown by design, so it would otherwise block bumping. Exact versions
-  # still land in the lockfile, so this exclusion widens no other attack surface.
-  - "@typescript/native-preview"
+  # TypeScript 7.1 Beta (2026-10-20) is adopted inside its cooldown window;
+  # the exact pin is pruned once it ages past it. The native compiler ships
+  # its binary as per-platform `@typescript/typescript-<os>-<arch>` packages
+  # published minutes after the parent, so the family skips the cooldown the
+  # way `@oxc-resolver/*` does; bindings are only ever pulled at the parent's
+  # exact version.
+  - typescript@7.1.0-beta
+  - "@typescript/typescript-*"
   # Exact versions younger than the cooldown, each dropped by
   # minimumReleaseAgeExcludePrune once it ages past it. Security fixes:
   # body-parser (GHSA-27r3) and multer (GHSA-q7qp) for express and
@@ -73,6 +77,28 @@ minimumReleaseAgeExclude:
   # versions stay in the lockfile and in the catalog; they simply no longer
   # need to skip the cooldown to be resolved.
 
+# TypeScript 7 ships no classic JavaScript compiler API (`ts.createProgram`,
+# `ts.LanguageService`, ...). A workspace whose dev tools still bind to that
+# API through a `typescript` peer (Storybook's react-docgen-typescript, the
+# Stryker TypeScript checker) declares `"typescript": "catalog:classic-api"`,
+# which installs the `@typescript/typescript6` compatibility package under the
+# `typescript` name for that workspace only. Its `tsc` scripts still run the
+# native compiler: the alias ships `tsc6`, so `pnpm run` falls through to the
+# workspace root's `tsc` on its PATH. Move a workspace back to `catalog:` once
+# its last such tool binds to the `typescript/*` API entry points.
+catalogs:
+  classic-api:
+    typescript: npm:@typescript/typescript6@6.0.2
+
+# `@stryker-mutator/core` imports `typescript` for its tsconfig preprocessor
+# without declaring it, so Node finds it through pnpm's hoisted fallback and
+# lands on the native 7.x package; declaring the classic package as a real
+# dependency pins what that import resolves to.
+packageExtensions:
+  "@stryker-mutator/core":
+    dependencies:
+      typescript: npm:@typescript/typescript6@6.0.2
+
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
 catalog:
@@ -102,7 +128,11 @@ catalog:
   "@types/node": ^22.16.5
   "@types/react": ^19.0.10
   "@types/react-dom": ^19.0.4
-  "@typescript/native-preview": 7.0.0-dev.20260703.1
+  # TypeScript 7.1 (native compiler): `tsc` for type-check and emit, the
+  # `typescript/*` API entry points for in-repo scripts. Tools that still
+  # bind to the classic compiler API get `@typescript/typescript6` through
+  # the `classic-api` catalog above.
+  typescript: 7.1.0-beta
   # apps/storybook and apps/web both run stories as browser-mode tests, so
   # the addon and the browser provider are shared.
   "@storybook/addon-vitest": ^10.6.3
@@ -134,7 +164,6 @@ catalog:
   storybook: ^10.6.3
   streamdown: 2.5.0
   tsx: ^4.23.12
-  typescript: 5.9.3
   use-stick-to-bottom: ^1.1.1
   # Exact, not a range: vitest warns and may misbehave when the
   # coverage provider's version differs from its own, and vitest
@@ -170,10 +199,11 @@ allowBuilds:
 
 # Evaluated for the multi-worktree agent workflow (https://pnpm.io/git-worktrees):
 # symlink-only node_modules would make per-worktree installs near-instant.
-# Deliberately OFF: with it enabled, tsgo resolves packages through global-store
-# realpaths outside the project and @types identities split — apps/web typecheck
-# fails (children missing on ThemeProviderProps, NextError not a JSX component)
-# on the identical dependency versions. Revisit when tsgo/TS handle the layout.
+# Deliberately OFF: with it enabled, the native tsc resolves packages through
+# global-store realpaths outside the project and @types identities split —
+# apps/web typecheck fails (children missing on ThemeProviderProps, NextError
+# not a JSX component) on the identical dependency versions (last seen on the
+# TypeScript 7 preview builds). Revisit when the compiler handles the layout.
 virtualStoreType: project
 
 patchedDependencies:

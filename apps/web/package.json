@@ -15,7 +15,7 @@
     "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none --exclude 'lib/api/generated/**' --exclude 'lib/api/live-generated/**' app lib components contexts hooks utils",
     "test:stories": "vitest run --project stories",
     "test:watch": "vitest --project unit",
-    "typecheck": "next typegen && tsgo --noEmit"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.259",
@@ -48,7 +48,6 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@typescript/native-preview": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",

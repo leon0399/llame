@@ -203,6 +203,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   output, counts the removed results and citations of the call and names no
   URL or host.
 
+- TypeScript 7.1 Beta (`typescript@7.1.0-beta`) is the workspace compiler:
+  every `typecheck` and package `build` runs its native `tsc`, which replaces
+  the `@typescript/native-preview` (`tsgo`) nightly for checking and the 5.9
+  compiler for emit. `apps/web`'s bundle-boundary test and
+  `scripts/quality-metrics.mjs` read syntax through the 7.1 `typescript/sync`
+  and `typescript/ast` entry points instead of the removed classic API.
+  `apps/storybook`, `apps/api`, `packages/config-interpolation`, and
+  `packages/runtime-safety` install `@typescript/typescript6` under the
+  `typescript` name (`catalog:classic-api`) because `react-docgen-typescript`
+  and the Stryker TypeScript checker still bind to the classic API through a
+  `typescript` peer; their `tsc` scripts resolve the native compiler from the
+  workspace root. `typescript-language-server` is removed: the agent LSP
+  drives `tsc --lsp` directly. `next build` type-checks through the `tsc` CLI,
+  as Next 16.4 does by default when TypeScript 7 is installed. Closes #229 and
+  #419.
 - `apps/api` builds and runs without the Nest CLI. `build` is `tsc -p
   tsconfig.build.json` (`rootDir: src`) plus `scripts/copy-assets.ts`, which
   copies the instance-config JSON Schema and every `**/prompts/**/*.md` into

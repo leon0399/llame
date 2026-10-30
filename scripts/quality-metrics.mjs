@@ -6,7 +6,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import tsComplex from "ts-complex";
-import ts from "typescript";
+import { isFunctionLikeDeclaration } from "typescript/ast/is";
+import { API } from "typescript/sync";
 
 const THRESHOLDS = {
   halsteadDifficulty: 90,
@@ -41,20 +42,26 @@ function sourceFiles() {
     .sort();
 }
 
+// One compiler API session for the whole run; it owns a native worker, so it
+// is released on exit rather than per file.
+const api = new API();
+process.once("exit", () => api.close());
+
 function hasCallable(source, file) {
-  const sourceFile = ts.createSourceFile(
-    file,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  let found = false;
-  const visit = (node) => {
-    if (ts.isFunctionLike(node) && node.body) found = true;
-    if (!found) ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return found;
+  const lease = api.createSourceFile(file, source);
+  try {
+    let found = false;
+    const visit = (node) => {
+      if (isFunctionLikeDeclaration(node) && node.body !== undefined) {
+        found = true;
+      }
+      if (!found) node.forEachChild(visit);
+    };
+    visit(lease.sourceFile);
+    return found;
+  } finally {
+    lease.dispose();
+  }
 }
 
 export function analyzeHalsteadFile(filePath) {
