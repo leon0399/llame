@@ -39,10 +39,12 @@ than the name-based special cases `thumbnail` has today.
 
 - **BREAKING (model-facing)**: every tool result reaching a model passes through
   one rendering function, live, on replay, and in the Continue projection. Its
-  input is the stored part. `read`, `edit`, `write`, `grep`, and `bash`
+  input is the tool result object; replay rebuilds a failure from the stored
+  outcome and error text. `read`, `edit`, `write`, `grep`, and `bash`
   successes render as plain text: one header line, `N: text` source lines, and
-  one bracketed continuation notice. Every other result, errors included, keeps
-  its JSON rendering through the same function.
+  one bracketed continuation notice. Every other result, failures included,
+  keeps its JSON rendering through the same function, and image and PDF reads
+  keep their media reference.
 - Stored tool parts keep their structured object. A reserved `display` key on
   any result is stored and never rendered. The image `thumbnail` moves to
   `display.thumbnail`; a part stored with a top-level `thumbnail` is still
@@ -52,20 +54,25 @@ than the name-based special cases `thumbnail` has today.
   on each side, with the post-edit `lineCount`. The model sees a header and
   the numbered region, never a diff.
 - `write` stores no `content` and renders as one status line with `lineCount`.
-- Text reads of files, web renders, `kb://`, and `skill://` store `lineCount`;
-  directory listings store `entryCount`; outlines store neither. The `read`
-  header carries the count when present.
+- Text reads store `lineCount` when it is known: web renders always, files
+  of at most 32 MiB by a line-feed byte scan; directory listings store
+  `entryCount`; larger files and outlines store none. The `read` header
+  carries the count when present, and the continuation line names the
+  remaining lines.
 - `grep` renders each run of a file's passages under one `## <locator>` line,
-  marks a matched line as `*N: text`, and emits context lines as `N: text`;
-  the stored passages keep `locator`, `content`, and `matches`.
+  marks a matched line as `*N: text`, emits context lines as `N: text`, and
+  marks a capped twentieth passage; the stored passages keep `locator`,
+  `content`, and `matches`.
 - `bash` stores `wallTimeMs` when the producer reports it, renders `exit
   <code>, <seconds> s` as its header, `(no output)` when both streams are
   empty, and a `[stderr]` section only when stderr is non-empty; `operation`
-  and `executor` are dropped. A `command_failed` message uses the same shape
-  with the non-zero exit code.
-- **BREAKING (neutralization)**: every tool result payload, text or JSON,
-  live or replayed, is neutralized under one rule: a tag naming a reserved
-  delimiter is escaped, every other character survives. The wholesale
+  and `executor` are dropped. Cut output ends with a marker. A
+  `command_failed` message uses the same shape with the non-zero exit code,
+  inside the JSON failure object.
+- **BREAKING (neutralization)**: every tool result payload, text or JSON
+  (keys and string values), live or replayed, is neutralized under one rule:
+  a tag naming a reserved delimiter is escaped, every other character
+  survives. The wholesale
   `<`/`>` escaping of native results and the unmatched-closer rule of
   `neutralizeToolResult` are deleted, so a line copied from a result is an
   exact `edit` target. The replay framing stops applying a second pass.
@@ -75,11 +82,16 @@ than the name-based special cases `thumbnail` has today.
   The global result cap measures the rendering too.
 - Machine wire changes are additive: `lineCount`, `entryCount`, `wallTimeMs`,
   and `display` are new optional fields; the hub maps an old daemon's
-  `diff`/`content`/`operation`/`executor` away and renders without the missing
-  counts.
+  `diff`/`operation`/`executor` away, keeps its `content` and `shownRange`,
+  and renders without the missing counts. A new daemon needs a new hub; the
+  runbook orders the hub first.
 - Parts stored before this change render from the fields they have: no total
   in a `read` or `write` header, no counts in an `edit` header, no time in a
   `bash` header, no content for a stored `write`.
+- A prompt import (`@` marker) embeds the `read` text rendering, as
+  `prompt-imports` already requires of the model-facing output.
+- The model-facing tool descriptions (`apps/api/src/prompts/tools/*.md`)
+  describe the text shapes; the JSON-decoding instruction is deleted.
 - `conversation_read` is untouched: it is due to fold into `read`.
 - A root `gpt-tokenizer` dev dependency and a measurement script record
   before/after token counts on a fixed fixture set; the "today" column is a
@@ -174,7 +186,15 @@ Deliberately unchanged, with the reading this change relies on:
   parts": its budgets measure "the exact serialized text of the pair", which
   is the rendered pair; `thumbnail` there means `display.thumbnail`, and a
   stored top-level `thumbnail` is removed on every path as the requirement
-  demands.
+  demands. Its "neutralized" bullet is satisfied by the one rule, keys
+  included.
+- `prompt-imports` "Imported results equal native read output": the body is
+  the `read` rendering, so it stays equal.
+- `turn-actions` Continue "as the live loop sent it": a part stored before
+  deployment is sent in the new rendering; the live loop would send the same.
+- `native-file-tools` "Ranged Markdown reads prepend ancestor headings": its
+  "post-edit previews remain unchanged" excludes previews from ancestor
+  prepending only; the preview's own shape is this change's.
 - `native-file-tools` "Web read results carry the final URL and retrieval
   method": the stored result and its `content` carry no header; the header is
   part of the rendering only.
@@ -182,9 +202,10 @@ Deliberately unchanged, with the reading this change relies on:
   passages keep their ranged `locator`; the rendered `##` line plus a line
   number forms the same argument.
 - `conversation-reads`, `chat-search`, `web-search`, `mcp-tools`,
-  `agent-skills`, `prompt-imports`, `remote-machines` (additive wire fields
-  keep protocol version 1 as the Git methods did), and the `read`, directory,
-  PDF, and outline requirements of `native-file-tools`.
+  `agent-skills`, `remote-machines` (additive wire fields keep protocol
+  version 1 as the Git methods did; during skew an old daemon bounds by JSON
+  and sends no counts), and the `read`, directory, PDF, and outline
+  requirements of `native-file-tools`.
 
 ## Impact
 
@@ -195,6 +216,7 @@ Deliberately unchanged, with the reading this change relies on:
   `entryCount`; `source-lines.ts`, `stream-read.ts`, `directory-listing.ts`,
   and `grep/page.ts` budget measurement on rendered text; the `grep` renderer.
 - `packages/machine-protocol`, `apps/machine`: additive wire fields.
+- `apps/api/src/tools/conversation-read.ts`: bounds on the one rule.
 - `apps/api`: `run-execution.service.ts` `toModelOutput` for every tool and
   the end of result neutralization in `settleBoundTool`;
   `tool-observation-part.ts`, `continue-projection.ts`,
@@ -206,8 +228,10 @@ Deliberately unchanged, with the reading this change relies on:
 - `packages/ui`: `edit.tsx` renders from `display`; `read.tsx` image thumbnail
   from `display`; `bash.tsx` shows wall time; stories.
 - Docs: `docs/product/reference/tools/{read,edit,write,grep,bash}.md`,
-  `apps/api/src/tools/prompts/read.md` (the JSON-decoding instruction is
-  deleted; the reserved-name rule is named), `CHANGELOG.md`.
+  `apps/api/src/prompts/tools/{read,edit,write,grep,bash}.md` (the JSON
+  descriptions become the text shapes; the JSON-decoding instruction is
+  deleted; the reserved-name rule is named),
+  `docs/product/operator/machines.md` (hub before daemon), `CHANGELOG.md`.
 - Historical stored parts keep their authored shape; renderers and UI rows
   tolerate both.
 - New root dev dependency: `gpt-tokenizer`.

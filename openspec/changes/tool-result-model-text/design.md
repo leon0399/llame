@@ -110,30 +110,45 @@ region; Q1 chose the region.
 
 ### D1: One rendering function in `apps/api`, renderers in the packages that own the shapes
 
-`renderToolResultForModel(toolName, part)` in `apps/api/src/tools/model-text.ts`
-is the only function that turns a stored part into model content. Its input
-is the stored part: `output` for a success, `errorText` plus
-`errorRejectedUrl` for a failure. It strips `display` and a legacy top-level
-`thumbnail`, selects a text renderer for `read`, `edit`, `write`, `grep`, and
-`bash` successes by tool name (Machine variants share the names), renders
-every other success as JSON and every failure as the neutralized error text,
-and returns `{ type: 'text' }` for a text rendering and `{ type: 'json' }`
-otherwise, so the live and Continue outputs of JSON tools keep their SDK
-type. The `read`, `edit`, and `write` renderers live in
-`packages/native-file-tools/src/model-text.ts` (replacing
-`serialization.ts`), `grep`'s in `packages/native-file-tools/src/grep/`, and
-`bash`'s in `packages/bash-executor`, because the package bounding code and
-the Machine daemon measure them. Four call sites use the function:
-`createModelToolDefinition` (every tool gets a `toModelOutput`),
-`settleBoundTool` (stops neutralizing; the hook receives the stored object),
-`tool-observation-part.ts`, and `continue-projection.ts`.
+`renderToolResultForModel(toolName, result)` in `apps/api/src/tools/model-text.ts`
+is the only function that turns a tool result into model content. Its input
+is the `ToolResult` object the executor returned: a success object, or a
+failure object `{ status: 'error', type, message, rejectedUrl?, leftDirectory? }`.
+Live and Continue already hold that object; replay rebuilds a failure from
+the stored `outcome`, `errorText`, and `errorRejectedUrl`
+(`resolveResultBody` does this today), so `leftDirectory` stays live-only as
+it is now. The function strips `display` and a legacy top-level `thumbnail`,
+selects a text renderer for `read`, `edit`, `write`, `grep`, and `bash`
+successes by tool name (Machine variants share the names), and renders every
+other success and every failure as JSON. It returns the rendered string and
+its kind, `text` or `json`. The three call sites wrap it as they do today:
+`toolResultOutput(text, retainedReadRef(...))` for native tools, so an image
+or PDF read keeps its media reference and the SDK output type `text` it has
+now; `{ type: 'json', value }` for JSON tools live and in Continue; the
+untrusted framing on replay. Call sites: `createModelToolDefinition` (every
+tool gets a `toModelOutput`), `settleBoundTool` (stops neutralizing; the hook
+receives the result object), `tool-observation-part.ts`, and
+`continue-projection.ts`. The prompt-import body
+(`run-execution.service.ts:2938`) is the same `read` rendering, as
+`prompt-imports` "Imported results equal native read output" demands.
 
-`measureNativeModelOutput` survives only as the JSON measure of context items
-that are not tool results (`skills/skill-activation.ts`, the prompt-import
-body in `run-execution.service.ts:2938`), renamed `measureJson` in
-`runtime-safety`. The `reserveCodeUnits` the scheme resolvers pass
-(`native-files.ts:272,373,450`, `web-read/result.ts:81,198`) becomes the
-width of the attribution lines their envelope renders.
+The `read`, `edit`, and `write` renderers live in
+`packages/native-file-tools/src/model-text.ts`, `grep`'s in
+`packages/native-file-tools/src/grep/`, and `bash`'s in
+`packages/bash-executor`, because the package bounding code and the Machine
+daemon measure them. `measureNativeModelOutput` stays until the last bound
+moves: in the seam layer it measures the JSON rendering with the reserved-name
+rule, which is never shorter than what is sent; each text layer re-points its
+own bounds (`source-lines.ts`, `stream-read.ts`, `directory-listing.ts`,
+`markdown-ancestors.ts`, `markdown-outline.ts`, `mutate.ts`, `web-read/result.ts`,
+`grep/page.ts`, `apps/api/src/tools/grep.ts`) at the text renderer, and the
+grep layer deletes it. `conversation-read.ts` bounds itself on
+`neutralizeToolResult` today and switches to the reserved-name rule in the
+seam layer. The aggregate JSON measures that are not tool results
+(`skills/skill-activation.ts`) use `measureJson` in `runtime-safety`. The
+`reserveCodeUnits` the scheme resolvers pass (`native-files.ts:272,373,450`,
+`web-read/result.ts:81,198`) becomes the width of the attribution lines their
+envelope renders.
 
 Rejected: rendering at the tool (returning text from the executor). The
 stored part would then be text, the UI would lose its structured rows, and
@@ -144,14 +159,17 @@ history would carry two shapes.
 Any result may carry `display: Record<string, unknown>`. The rendering
 function deletes it; `truncateOversizedResult` sets it aside and re-attaches
 it unchanged, as it does for `thumbnail` today. `thumbnail` becomes
-`display.thumbnail` at its producer (`tool-media-store.ts`) and consumer
-(`prompt-imports-item.ts`). A part stored before the change keeps its
+`display.thumbnail` at its producer (`tool-media-store.ts`) and at the read
+of it in `prompt-imports-item.ts`; the prompt-import payload keeps its own
+`thumbnail` key, which the web client parses strictly. A part stored before the change keeps its
 top-level `thumbnail`; the rendering function removes that too, so the
 canonical "a thumbnail never reaches the model" holds for old and new parts.
 `edit` stores `display: { startLine, oldText, newText }`; `bash` stores
 `wallTimeMs` as an ordinary field (the model sees it in the header) and
-nothing under `display`. A client cannot persist a tool part at all
-(`context-item.ts:222-237`), which is the boundary the negative test pins.
+nothing under `display`. A client cannot submit a tool part at all
+(`context-item.ts:222-237` drops every part that is not `text` or `file`, and
+the DTO forbids unknown keys), which is the boundary the negative test pins;
+the canonical "rejected" wording is kept.
 
 Rejected: a per-tool strip list (a fourth special case per field) and a
 sibling column on the part (a schema change for the same effect; the part
@@ -168,22 +186,25 @@ is:
 read   <locator>:<start>-<end>[ of <lineCount> lines]
        <attribution lines>
        <N: text …>
-       [<k> more lines. ]Use <locator>:<nextOffset+1>-<end> to continue]
+       [[<k> more lines. ]Use <locator>:<nextOffset+1>-<end> to continue]
        [<truncationNotice>]
 
        multi-range: <locator>:<a>-<b>,<c>-<d>[ of <lineCount> lines]
-                    continue with the remaining members: :<n+1>-<b>,<c>-<d>
-       directory:   <locator> (directory, entries <a>-<b>[ of <entryCount>])
-                    continue: :<nextOffset+1>
-       outline:     <locator>:outline:<a>-<b>
-                    continue: :outline:<n+1>-<end>
+                    resume with the remaining members: :<n+1>-<b>,<c>-<d>
        raw:         <locator>:raw:<a>-<b>[ of <lineCount> lines]
-       empty:       <locator>: empty
+       outline:     <locator>:outline:<a>-<b>
+                    resume: :outline:<n+1>-<end>
+       open-ended:  the resume selector is :<n+1>- when the request had no end
+       directory:   the stored content as-is (its first line is the path),
+                    then [[<k> more entries. ]Use <locator>:<n+1>- to continue]
+       empty:       <locator>: empty                       (not truncated)
+       skipped:     <locator>: line <nextOffset> exceeds the result bound and was skipped
 
 edit   edited <locator>: line <startLine>, <old> -> <new> lines[ (<lineCount> lines total)]
        <attribution lines>
        <N: text …>   changed lines plus two live lines each side
-       stored without display: edited <locator>: line <shownRange.startLine>
+       [region cut at the bound]                           when truncated
+       stored without display: edited <locator>: region from line <shownRange.startLine>
 
 write  created <locator>[ (<lineCount> lines)]
        replaced <locator>[ (<lineCount> lines)]
@@ -194,6 +215,7 @@ grep   <notice line, when present>
        *<N>: <matched line>
        <N>: <context line>
                                   (blank line between passages of one run)
+       [more passages in this file; read it to see them]   after a capped 20th
        [warnings: <count> <kind>, …]
        [more results. Continue with cursor: <cursor>]
 
@@ -202,6 +224,7 @@ bash   exit <code>[, <seconds> s]
        [stderr]
        <stderr>
        (no output)                             when both streams are empty
+       [output cut at the bound]               when truncated
        [<truncationNotice>]
 ```
 
@@ -210,29 +233,41 @@ carries, in the order the spec lists; `adapter` joins `id`, `route`, `origin`
 with spaces; `notes` renders one line per entry. The Knowledge and skill
 notices stay verbatim: they are closed templates under `tool-calling`.
 
-`<k>` is `lineCount - <end>` and appears only when `lineCount` is stored. The
-`read` `lineCount` is the count of logical lines of the text the selector was
-resolved against: a regular file (already loaded whole for a single-range
-read; counted once in the streaming multi-range path), a web render, a `kb://`
-or `skill://` file. An outline stores none (its scan can stop early). A
-directory stores `entryCount`, the requested-level count the listing already
-computes. The `edit` total is the post-edit count. `command_failed` and
-`timed_out` messages are composed by `bash-result.ts` in the bash shape, so
-the error text a model reads live and on replay is the same shape as a
-success.
+`<k>` is `lineCount - nextOffset` and appears only when `lineCount` is
+stored. Reads stream and stop when the window is full
+(`stream-read.ts:150-200`); the only count today is `countSourceLines`, a
+positional line-feed byte scan that runs for `N-`/`-K` selectors
+(`:470-490`). `lineCount` reuses that scan, without a decode, for files of at
+most 32 MiB (a few milliseconds; invalid UTF-8 after the window cannot fail
+the read), and is omitted above that size so a ranged read of a multi-GiB log
+stays a window read. A web render, an `edit`, and a `write` hold the text in
+memory and count it directly. An outline stores none (its scan can stop
+early). A directory stores `entryCount`, the requested-level count the
+listing already computes. `command_failed` and `timed_out` messages are
+composed by `bash-result.ts` in the bash shape, so the error text a model
+reads live and on replay is the same shape as a success, inside the JSON
+failure object.
 
 Rejected: Gemini's unnumbered context (loses the anchor a chained `edit` uses);
 ripgrep's `N-` context separator (a second prefix grammar); printing `status`
 or `path` as fields (both are in the header); a text form for the `skill://`
-catalog (a list of packages, not content; it keeps JSON with image and PDF).
+catalog (a list of packages, not content; it keeps JSON with image and PDF); a
+second header line on a directory listing (its stored content already starts
+with the path, as `native-file-tools` requires); counting `lineCount` by
+decoding the rest of the stream (a decode failure after the window would turn
+a success into `invalid_utf8`).
 
 ### D4: One neutralization rule, in a package
 
 The reserved-name rule (rule 2 of `authored-text.ts`) moves to
 `packages/runtime-safety/src/reserved-delimiters.ts` with the reserved set;
+`runtime-safety` has no runtime dependencies and `native-file-tools`,
+`bash-executor`, and `apps/machine` already depend on it, so no cycle.
 `authored-text.ts` imports it and keeps rule 1 for owner-authored prompt
-values. The rendering function applies the rule to text renderings, to every
-string value of a JSON rendering, and to error texts. `neutralizeToolResult`
+values. The rendering function applies the rule to a text rendering as a
+whole and to every object key and string value of a JSON rendering, failure
+objects included; keys matter because an MCP `structuredContent` key is
+server-authored and the replay wrapper pass that escaped it is gone. `neutralizeToolResult`
 is deleted; the replay wrapper no longer sanitizes the composed result, since
 its own lines are static and the payload arrives neutralized. The package
 renderers call the same function before measuring, so a bound counts the
@@ -253,10 +288,14 @@ the candidate result. The grep cursor reservation (`grepCursorFieldUnits`,
 the 64-zero placeholder hash) becomes the width of the continuation line for
 the candidate cursor. The replay budgets keep measuring
 `JSON.stringify(pairEnvelope)`, whose payload is now the rendered text. The
-global cap in `runner.ts` measures `renderToolResultForModel` for the result,
-so a self-bounded text result at exactly 16,000 units passes unchanged while
-an oversized JSON result is cut as before; the cap then shrinks the stored
-object, as today, and the renderer shows the `truncationNotice` as a
+global cap (`truncateOversizedResult` in `runtime-safety`, called from
+`runner.ts` and once more in `mcp-runtime.service.ts:601`) takes a measure
+parameter and measures `renderToolResultForModel` for the result, so a
+self-bounded text result at exactly 16,000 units passes unchanged while an
+oversized JSON result is cut as before. Its shrink still converges: one limit
+applies to every string, so the rendered length rises with the limit, and the
+binary search accepts only candidates that fit. The notice's omitted count is
+stated in rendered units. The renderer shows the `truncationNotice` as a
 bracketed line.
 
 The earlier draft kept the cap on the JSON and argued text is never longer;
@@ -280,7 +319,11 @@ that is true and irrelevant: a text bounded at 16,000 serializes to more than
 back to `input.oldText`/`newText` plus the legacy `diff` header for parts
 stored before this change. The UI already renders a write's content from the
 input. The hub's `readFsMutateResult` accepts both the new fields and an old
-daemon's `diff`/`content`, and drops the latter.
+daemon's `diff`/`content`/`shownRange`, forwards `content` and `shownRange`
+so the legacy edit form renders, and drops `diff`. Skew runs one way: an old
+daemon on a new hub works; a new daemon on an old hub fails `edit`, `write`,
+and `bash` because the old hub requires the removed fields. The operator
+runbook says to update the hub before the daemon.
 
 ### D7: `bash` wall time
 
@@ -294,25 +337,34 @@ none.
 ### D8: Measurement
 
 A root dev dependency `gpt-tokenizer` and `scripts/measure-tool-results.mjs`
-produce the proposal's table with `o200k_base`. Fixture:
+produce the proposal's table with `o200k_base`. The fixture file is
 `apps/web/app/(chat)/components/chat-message-row.tsx` at `64db12c9` (562
-lines), copied to `scripts/fixtures/tool-results/`. The "today" column is a
-committed JSON fixture of the results the old serializer produced at
-`64db12c9`, captured once by the scratch script; the "after" column is the
-live renderer over the same fixture file. Run:
+lines), read with `git show 64db12c9:<path>` rather than copied. The "today"
+column is a committed JSON fixture of the result objects the old serializer
+produced at `64db12c9`, captured once from a worktree at that commit. The
+"after" column, per row: `read` rows render the fixture objects with
+`lineCount` injected, holding the window equal to today's (so the
+bound-limited row stays comparable rather than refilling to the text bound);
+`edit` and `write` rows run the live package on a temporary copy; `grep` rows
+render the fixture passages; `bash` rows render fixture objects. Run:
 `pnpm --filter @workspace/native-file-tools build && node scripts/measure-tool-results.mjs`.
 The numbers in the proposal came from the scratch script at `64db12c9`; the
 committed script reproduces them from the fixture.
 
 ### D9: Layering
 
-Four layers. The first lands the rendering function on every path with
-byte-identical JSON output, `display` with the thumbnail move and the legacy
-strip, the one neutralization rule, and the cap on the rendering: a run then
-exercises the new seam with every tool's text unchanged except for escaping.
-The second adds the `read`/`edit`/`write` text, `lineCount`, the mutation
-shapes, the Machine additive fields, and the UI edit row. The third adds
-`grep` and `bash` and closes both issues. The fourth is finalize.
+Five layers. The first lands the rendering function on every path with JSON
+output, `display` with the thumbnail move and the legacy strip, the one
+neutralization rule, and the cap on the rendering: a run then exercises the
+new seam with every tool's text unchanged except for escaping. The second
+adds the `read` text, `lineCount`/`entryCount`, the read bounds on text, the
+`fs.read` wire field, the prompt-import body, and the `read` description. The
+third adds the `edit`/`write` shapes and text, the mutate wire mapping, the UI
+edit row, and the `edit`/`write` descriptions. The fourth adds `grep` and
+`bash` and closes both issues. The fifth is finalize. Round 2 measured the
+earlier combined file layer above the budget (59 test references to the
+measure, 26 `diff:` references, six header forms, the UI, and the
+descriptions), which is why read and mutation are separate.
 
 ## Risks / Trade-offs
 
@@ -335,7 +387,10 @@ shapes, the Machine additive fields, and the UI edit row. The third adds
   is rewritten.
 - [Hub and daemon versions differ] → every wire change is additive; the hub
   tolerates an old daemon's fields and the missing counts have a stated
-  rendering.
+  rendering. A new daemon on an old hub fails `edit`, `write`, and `bash`;
+  the runbook orders the hub first. During skew an old daemon bounds by JSON
+  and sends no counts, which is the transitional reading of `remote-machines`
+  "Native file tools behave identically".
 - [The `tool-calling` cap and replay requirements still spell `thumbnail`]
   → the key is `display.thumbnail`, the stored top-level form is removed on
   every path, and the proposal records the reading; a later STE pass over
@@ -354,6 +409,19 @@ None that change the specs or the layering. Whether the `bash` header should
 also carry the command's `cwd` can be decided after the first torture run.
 
 ## Revision history
+
+- **v3 (2026-10-30):** Review round 2 (2 reviewers, 0 P0, 10 P1, 22 P2).
+  Rendering input is the `ToolResult` object; replay rebuilds a failure;
+  failures render as JSON; the function returns string plus kind so media
+  references and SDK output types survive. Keys of JSON renderings are
+  neutralized too. Truncation markers for bash, grep's capped passage, and a
+  cut edit region; oversized-first-line header; open-ended resume selectors;
+  `lineCount` by byte scan up to 32 MiB. Directory renders its stored content
+  with no second header. Prompt-import body is the `read` rendering.
+  `measureNativeModelOutput` kept until the last bound moves; `conversation-read`,
+  Markdown bounds, apps `grep.ts`, `mcp-runtime` cap call, and the
+  model-facing tool descriptions named in tasks. Hub-first skew rule. Five
+  layers: read and mutation text split.
 
 - **v2 (2026-10-30):** Review round 1 (2 reviewers, 10 P0, 23 P1, 14 P2).
   Input of the rendering function is the stored part, failures included.

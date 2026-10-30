@@ -19,10 +19,10 @@ in byte order of the Space identifier. A bare `skill://` scope expands in
 byte order of the package name. Each expansion takes its own ordinal. A
 Machine scope takes its ordinal from the same counter.
 
-The tool MUST keep the rendered model text of the whole result, its
-continuation line, `[skipped: …]` line, and notice included, at or under
-15,000 UTF-16 code units, as `tool-result-rendering` defines that text. It
-MUST emit whole passages in order while the next passage fits. When the
+The tool MUST keep the rendered model text of the whole result at or under
+15,000 UTF-16 code units, as `tool-result-rendering` defines that text. The
+continuation line, the `[warnings: …]` line, and the notice count. It MUST
+emit whole passages in order while the next passage fits. When the
 first passage of a page does not fit, the tool MUST cut that passage at a
 line boundary and mark it `truncated: true`. That passage ends the page. The
 page MUST end before the budget, so the tool loop never cuts the result.

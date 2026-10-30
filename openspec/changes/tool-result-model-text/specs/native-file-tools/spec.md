@@ -11,9 +11,10 @@ before the native operation. `edit` MUST read the current file at execution time
 exactly one exact occurrence of `oldText`. A missing or ambiguous occurrence MUST fail without
 mutation. An unrelated change elsewhere in the file MUST NOT block a correct unique replacement.
 Calls that target the same path MUST execute one after the other in the host runtime. The operation
-MUST keep the bytes outside the replacement. The result MUST carry post-edit `content` with two
-adjacent live lines on each side when available, the post-edit line count as `lineCount`, and
-`display` with `startLine`, `oldText`, and `newText`. The result MUST NOT carry a diff. No prior
+MUST keep the bytes outside the replacement. The result MUST carry bounded post-edit `content`
+with two adjacent live lines on each side when available, marked `truncated` when the bound cuts
+it. It MUST carry the post-edit line count as `lineCount` and `display` with `startLine`,
+`oldText`, and `newText`. The result MUST NOT carry a diff. No prior
 read, snapshot tag, read hash, or permission rule is required in this iteration.
 
 #### Scenario: Unrelated change does not block edit
@@ -60,8 +61,8 @@ read, snapshot tag, read hash, or permission rule is required in this iteration.
 ### Requirement: Image reads return an image result
 
 A native `read` MUST return an image result when the bytes it acquires are a PNG, JPEG, GIF, or
-WebP image: a host path, `file:` alias, or Workspace-relative path, `kb://`, `skill://`, a web image
-body, or `media://`. The model-facing result MUST carry `status: "success"`, `kind: "image"`, the
+WebP image. The source can be a host path, `file:` alias, or Workspace-relative path, `kb://`,
+`skill://`, a web image body, or `media://`. The model-facing result MUST carry `status: "success"`, `kind: "image"`, the
 original's `mediaType`, `width`, and `height`, and the source's existing attribution fields, and no
 `content` or image bytes. The result MUST NOT depend on the Run's model.
 
@@ -113,16 +114,28 @@ UI MUST render the written content from the call's `content` argument.
 
 ### Requirement: A text read carries the source line count when it is known
 
-A successful text read of a regular file, a web render, or a `kb://` or `skill://` file MUST
-carry the source's line count as `lineCount`. A directory listing MUST carry its requested-level
-entry count as `entryCount`. An outline MUST NOT carry `lineCount`, because its scan can stop
-before the source end. A Machine read MUST carry the count the daemon reports and MUST omit it
-when the daemon sends none.
+A successful text read MUST carry the source's line count as `lineCount` when the count is
+known. It is known for a web render, and for a regular file, `kb://` file, or `skill://` file of
+at most 32 MiB, counted by a byte scan for line feeds without a decode. A larger file, and an
+outline, MUST carry no `lineCount`. A directory listing MUST carry its requested-level entry count
+as `entryCount`. A Machine read MUST carry the count the daemon reports and MUST omit it when the
+daemon sends none.
 
 #### Scenario: A ranged read reports the total
 
 - **WHEN** the model reads `src/app.ts:12-40` of a 216-line file
 - **THEN** the result carries `lineCount: 216`
+
+#### Scenario: A large file carries no total
+
+- **WHEN** the model reads `big.log:1-10` of a 2 GiB file
+- **THEN** the result carries no `lineCount`
+- **AND** the read does not scan the whole file
+
+#### Scenario: Invalid bytes after the window do not fail the read
+
+- **WHEN** the model reads `data.txt:1-10` of a 1 MiB file whose last line holds invalid UTF-8
+- **THEN** the read succeeds with `lineCount` from the byte scan
 
 #### Scenario: An outline carries no total
 
