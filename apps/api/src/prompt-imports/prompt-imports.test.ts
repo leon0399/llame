@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import type { PermissionDecision } from '../tools/permissions/types';
+import { readLocatorSchemes } from '../tools/native-files';
 import { type ToolResult } from '../tools/types';
 import {
   MAX_PROMPT_IMPORT_BYTES,
@@ -540,7 +541,7 @@ describe('resolvePromptImports Machine targets', () => {
     expect(result).toEqual({ outcomes: [], omitted: [] });
   });
 
-  it('keeps the Machine listing forms and refusals prose', async () => {
+  it('reads the Machine listing forms directly and keeps a refusal prose', async () => {
     const { calls, run } = createHarness({
       machine: { 'dev/notes/a.md': MACHINE },
     });
@@ -549,6 +550,18 @@ describe('resolvePromptImports Machine targets', () => {
 
     expect(calls.admits).toEqual([]);
     expect(calls.machineProbes).toEqual([]);
+    expect(calls.readLocators).toEqual(['machine://', 'machine://dev']);
+    expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
+      'machine://',
+      'machine://dev',
+    ]);
+  });
+
+  it('keeps the Machine listing forms prose when no Machine world is available', async () => {
+    const { calls, run } = createHarness({ machineAvailable: false });
+
+    const result = await run('@machine:// @machine://dev');
+
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({ outcomes: [], omitted: [] });
   });
@@ -1291,5 +1304,57 @@ describe('resolvePromptImports ssh targets', () => {
     expect(result.outcomes).toHaveLength(1);
     expect(result.outcomes[0]).not.toHaveProperty('body');
     expect(result.outcomes[0]?.outcome).not.toBe('imported');
+  });
+});
+
+describe('resolvePromptImports native read schemes', () => {
+  const MACHINE = 'machine://box/etc/hostname';
+  const KB = 'kb://notes/a.md';
+  const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  /** Probed sources need a target their probe finds; any other scheme reads directly. */
+  const probed = new Map([
+    ['machine', MACHINE],
+    ['kb', KB],
+    ['media', MEDIA],
+  ]);
+  const markers = readLocatorSchemes().map(
+    (scheme) => probed.get(scheme) ?? `${scheme}://host/doc.md`,
+  );
+
+  it('keeps every scheme native read accepts today', () => {
+    expect(readLocatorSchemes()).toEqual(
+      expect.arrayContaining([
+        'machine',
+        'kb',
+        'skill',
+        'media',
+        'http',
+        'https',
+        'ssh',
+      ]),
+    );
+  });
+
+  it('attempts a reachable marker of every scheme native read accepts', async () => {
+    const { calls, run } = createHarness({
+      machine: { 'box/etc/hostname': MACHINE },
+      knowledge: { [KB]: KB },
+      media: [MEDIA],
+    });
+
+    const result = await run(markers.map((marker) => `@${marker}`).join(' '));
+
+    expect(calls.readLocators).toEqual(markers);
+    expect(result.outcomes.map((outcome) => outcome.locator)).toEqual(markers);
+  });
+
+  it('keeps a scheme native read does not accept as prose', async () => {
+    const { calls, run } = createHarness();
+
+    const result = await run('@foo://host/doc.md');
+
+    expect(calls.admits).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
   });
 });

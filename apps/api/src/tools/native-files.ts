@@ -53,6 +53,7 @@ import {
   parseMachineLocator,
 } from '../machines/machine-locator';
 import { executeSshNative } from './ssh-files';
+import { SSH_SCHEME } from '../ssh/ssh-locator';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -101,7 +102,12 @@ function executeNative(
     hostCall = rewritePath(call, alias.hostPath);
   } else {
     const scheme = parsePathScheme(call.input.path);
-    if (scheme !== undefined) return executeLocator(context, call, scheme);
+    if (scheme !== undefined) {
+      const reader = LOCATOR_READERS.get(scheme.scheme);
+      return reader === undefined
+        ? Promise.resolve(unknownSchemeResult())
+        : reader(context, call, scheme.rest);
+    }
     hostCall = projectNativeCall(context, call);
     // A Machine Workspace maps relative and absolute paths to the Machine's
     // own locator, so they take the Machine branch like a written one.
@@ -116,36 +122,46 @@ function executeNative(
   );
 }
 
-function executeLocator(
+type LocatorReader = (
   context: ToolContext,
   call: NativeCall,
-  { scheme, rest }: { scheme: string; rest: string },
-): Promise<ToolResult> {
-  if (scheme === MACHINE_SCHEME) {
-    return executeMachineNative(context, call, call.input.path);
-  }
-  if (scheme === KNOWLEDGE_LOCATOR_SCHEME) {
-    return executeKnowledge(context, call, rest);
-  }
-  if (scheme === SKILL_LOCATOR_SCHEME) {
-    return executeSkill(context, call, rest);
-  }
-  if (scheme === MEDIA_LOCATOR_SCHEME && context.media !== undefined) {
-    return executeMediaRead(
-      context.media,
-      call.operation,
-      call.input.path,
-      context.abortSignal,
-    );
-  }
-  if (scheme === 'http' || scheme === 'https') {
+  rest: string,
+) => Promise<ToolResult>;
+
+/**
+ * The locator schemes native file tools dispatch, keyed by the parsed,
+ * lower-cased scheme. Consumers query {@link readAcceptsScheme} instead of
+ * keeping their own scheme list, so a scheme added here reaches them too.
+ */
+const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
+  Object.entries({
+    [MACHINE_SCHEME]: (context, call) =>
+      executeMachineNative(context, call, call.input.path),
+    [KNOWLEDGE_LOCATOR_SCHEME]: executeKnowledge,
+    [SKILL_LOCATOR_SCHEME]: executeSkill,
+    [MEDIA_LOCATOR_SCHEME]: ({ media, abortSignal }, call) =>
+      media === undefined
+        ? Promise.resolve(unknownSchemeResult())
+        : executeMediaRead(media, call.operation, call.input.path, abortSignal),
     // The lower-cased scheme selects the branch; the branch re-parses the
     // submitted text, which policy matched, and requests its canonical form.
-    return executeWebRead(context, call);
-  }
-  if (scheme === 'ssh' && context.sshClient !== undefined)
-    return executeSshNative(context, call.operation, call.input.path);
-  return Promise.resolve(unknownSchemeResult());
+    http: (context, call) => executeWebRead(context, call),
+    https: (context, call) => executeWebRead(context, call),
+    [SSH_SCHEME]: (context, call) =>
+      context.sshClient === undefined
+        ? Promise.resolve(unknownSchemeResult())
+        : executeSshNative(context, call.operation, call.input.path),
+  } satisfies Record<string, LocatorReader>),
+);
+
+/** Whether native `read` dispatches this parsed, lower-cased scheme now. */
+export function readAcceptsScheme(scheme: string): boolean {
+  return LOCATOR_READERS.has(scheme);
+}
+
+/** Every parsed, lower-cased scheme native `read` dispatches now. */
+export function readLocatorSchemes(): ReadonlyArray<string> {
+  return [...LOCATOR_READERS.keys()];
 }
 
 function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {

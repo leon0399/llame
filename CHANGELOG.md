@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-30
 
+- Prompt imports now ask native `read` which locator schemes it accepts instead
+  of keeping their own list. A scheme `read` gains imports from a prompt through
+  one direct `read` unless prompt imports give it a probe, so it can no longer
+  stay silent prose the way `@ssh://` did before it had a branch. The Machine
+  listing forms `@machine://` and `@machine://<name>` now import the listing
+  instead of staying prose. A scheme `read` does not accept, such as
+  `@foo://host/doc.md`, still stays prose, and markers in instruction and skill
+  files still import local files only. See
+  [prompt imports](docs/product/reference/prompt-imports.md#targets).
+
 - Every permission check in the API now goes through one mode-aware entry
   point, `decidePermission` in `apps/api/src/tools/permissions/admit.ts`.
   Workspace re-checks, chat-creation Workspace decisions, and the repository

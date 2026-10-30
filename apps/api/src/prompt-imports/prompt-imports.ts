@@ -23,6 +23,8 @@ import {
   parseMachineLocator,
 } from '../machines/machine-locator';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
+import { SSH_SCHEME } from '../ssh/ssh-locator';
+import { readAcceptsScheme } from '../tools/native-files';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
@@ -200,9 +202,9 @@ function planTarget(
 /**
  * A Machine locator plans like a host path: the same admission pre-evaluation
  * over the canonical locator the read submits, then a probe of the absolute
- * Machine path. Only a locator that names a Machine path can plan — the
- * listing forms and the refusals stay prose — and no Machine is probed unless
- * the Run may reach the configured Machines.
+ * Machine path. A listing form (`machine://`, `machine://<name>`) has nothing
+ * to probe, so it reads directly like web; a refusal stays prose. No Machine
+ * is reached unless the Run may reach the configured Machines.
  */
 function planMachineTarget(
   request: PromptImportRequest,
@@ -210,6 +212,9 @@ function planMachineTarget(
 ): ImportPlan | undefined {
   if (!request.machineAvailable) return undefined;
   const parsed = parseMachineLocator(locator);
+  if (parsed.kind === 'list' || parsed.kind === 'roots') {
+    return { kind: 'direct', readPath: locator };
+  }
   if (parsed.kind !== 'path') return undefined;
   return {
     kind: 'machine',
@@ -232,26 +237,30 @@ function planFileAlias(
     : undefined;
 }
 
+/**
+ * Sources with a probe or an availability gate plan here. Every other scheme
+ * native `read` accepts imports through one direct read, so a scheme `read`
+ * gains never stays silent prose; one `read` refuses stays prose.
+ */
 function planScheme(
   request: PromptImportRequest,
   scheme: string,
   target: string,
 ): ImportPlan | undefined {
-  if (scheme === 'http' || scheme === 'https' || scheme === 'skill') {
-    return { kind: 'direct', readPath: target };
-  }
-  if (scheme === KNOWLEDGE_LOCATOR_SCHEME && request.knowledgeAvailable) {
-    return { kind: 'knowledge', readPath: target };
+  if (scheme === KNOWLEDGE_LOCATOR_SCHEME) {
+    return request.knowledgeAvailable
+      ? { kind: 'knowledge', readPath: target }
+      : undefined;
   }
   if (scheme === MEDIA_LOCATOR_SCHEME) {
     return { kind: 'media', readPath: target };
   }
   // A probe would cost a connection and admission resolves asynchronously, so
   // `ssh://` reads directly like web: `read` itself admits it (ssh-locator D6a).
-  if (scheme === 'ssh' && request.sshAvailable) {
-    return { kind: 'direct', readPath: target };
-  }
-  return undefined;
+  if (scheme === SSH_SCHEME && !request.sshAvailable) return undefined;
+  return readAcceptsScheme(scheme)
+    ? { kind: 'direct', readPath: target }
+    : undefined;
 }
 
 async function handleTarget(
