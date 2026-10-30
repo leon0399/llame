@@ -29,6 +29,23 @@ the Run runs.
 | [`conversation_read`](conversation-read.md)       | none                                                                | message coordinates                                                                                                                                                                            | `conversation_read`     | [conversation recall](../../operator/conversation-recall.md)                                                                                                          |
 | [MCP tools](mcp-tools.md)                         | none                                                                | tool-defined                                                                                                                                                                                   | `mcp__<server>__<tool>` | [MCP tools](../../operator/mcp-tools.md)                                                                                                                              |
 
+## What a model receives
+
+Every tool result reaches a model through one rendering function, and that
+function neutralizes one thing only: a tag-shaped token naming a reserved
+wrapper element has its angle brackets escaped, however it is spelled
+(`<tool-result>`, `< tool-result>`, `</TOOL-RESULT >`). The reserved names are
+`system-reminder`, `tool-call`, `tool-result`, `user_chat_history`,
+`user_personalization`, `skill`, and `available_skills`. Everything else passes
+verbatim, including an unmatched closer such as `</div>`. The rule covers a
+text rendering, a JSON string value, a JSON key, and an error message alike; a
+tool result no longer escapes every `<` and `>`.
+
+A `display` key on a result is stored with the tool part for the chat UI and is
+never rendered to a model. An image read's inline thumbnail lives at
+`display.thumbnail`; a part stored before that key moved keeps a top-level
+`thumbnail` that the UI still shows.
+
 Shared behavior lives on its own pages: [selectors](../selectors.md),
 [instruction files](../instruction-files.md),
 [permission modes](../permission-modes.md), and

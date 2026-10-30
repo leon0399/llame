@@ -20,7 +20,7 @@ import {
   scanConversationLogicalLines,
 } from './conversation-read';
 import { conversationSourceCoordinatesSchema } from './conversation-source-coordinates';
-import { neutralizeToolResult } from '../chats/tool-observation-part';
+import { neutralizeReservedDelimitersDeep } from '@workspace/runtime-safety';
 
 const CHAT_ID = '00000000-0000-4000-8000-000000000001';
 const OWNER_ID = '00000000-0000-4000-8000-000000000002';
@@ -343,7 +343,7 @@ describe('conversation_read execution', () => {
         fits:
           JSON.stringify(result).length <=
             CONVERSATION_READ_RESULT_MAX_CODE_UNITS &&
-          JSON.stringify(neutralizeToolResult(result)).length <=
+          JSON.stringify(neutralizeReservedDelimitersDeep(result)).length <=
             CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
       };
     });
@@ -376,7 +376,7 @@ describe('conversation_read execution', () => {
       CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
     );
     expect(
-      JSON.stringify(neutralizeToolResult(hypotheticalFull)).length,
+      JSON.stringify(neutralizeReservedDelimitersDeep(hypotheticalFull)).length,
     ).toBeGreaterThan(CONVERSATION_READ_RESULT_MAX_CODE_UNITS);
 
     const result = renderConversationRead(source, {
@@ -400,7 +400,7 @@ describe('conversation_read execution', () => {
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
       CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
     );
-    const neutralized = neutralizeToolResult(result);
+    const neutralized = neutralizeReservedDelimitersDeep(result);
     expect(JSON.stringify(neutralized).length).toBeLessThanOrEqual(
       CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
     );
@@ -696,7 +696,7 @@ describe('conversation_read image placeholders', () => {
         CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
       );
       expect(
-        JSON.stringify(neutralizeToolResult(read)).length,
+        JSON.stringify(neutralizeReservedDelimitersDeep(read)).length,
       ).toBeLessThanOrEqual(CONVERSATION_READ_RESULT_MAX_CODE_UNITS);
       expect(truncateOversizedResult(read)).toEqual(read);
     }

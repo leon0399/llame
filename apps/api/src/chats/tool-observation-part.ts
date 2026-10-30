@@ -13,10 +13,14 @@ import type {
   ToolResultPart as SdkToolResultPart,
 } from 'ai';
 
-import { serializeNativeModelOutput } from '@workspace/native-file-tools';
-import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { isRejectedHopUrl } from '../tools/permissions/messages';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { renderedText, renderToolResultForModel } from '../tools/model-text';
+import { type ToolResult } from '../tools/types';
+import {
+  isRecord,
+  isString,
+  neutralizeReservedDelimiters,
+} from '@workspace/runtime-safety';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import type { MessagePart } from './context-builder';
 import {
@@ -221,50 +225,63 @@ function resolveOutcome(part: StoredToolPart): string {
   return normalizeToolObservationOutcome(part.outcome, fallback);
 }
 
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- native payloads are persisted as unknown tool-part output; the native branch delegates to its JSON serializer and the legacy branch preserves the existing string/JSON handling.
-function serializePayload(value: unknown, native: boolean): string {
-  if (native) return serializeNativeModelOutput(value);
-  if (isString(value)) return value;
-  return JSON.stringify(value ?? null) ?? 'null';
-}
-
-/** The tools whose model output is their own serialization, not JSON. */
-export function isNativeToolName(toolName: string): boolean {
-  return toolName === 'read' || toolName === 'edit' || toolName === 'write';
+/** The failure object a stored error part rebuilds: its stored outcome, error
+ *  text, and — for the native `read` tool's refused hop — the refused locator
+ *  it stored beside its error. */
+function failureResult(
+  part: StoredToolPart,
+  outcome: string,
+  hopRejection: boolean,
+): ToolResult {
+  // The fixed hop message points the model at `rejectedUrl`, which the stored
+  // part keeps beside its error, so a target refused on an earlier turn stays
+  // identifiable on every turn that replays that part. The part must still be
+  // the native `read` tool's hop rejection and the stored value the exact
+  // locator `rejectedHopUrl` writes, or the rebuilt result carries none.
+  const rejectedUrl = part.errorRejectedUrl;
+  return {
+    status: 'error',
+    type: outcome,
+    message: part.errorText ?? '',
+    ...(hopRejection && isRejectedHopUrl(rejectedUrl) && { rejectedUrl }),
+  };
 }
 
 function resolveResultBody(
   part: StoredToolPart,
-  native: boolean,
+  toolName: string,
   hopRejection: boolean,
 ): string | null {
   if (part.state === 'output-available' && part.output !== undefined) {
-    return serializePayload(part.output, native);
+    // A legacy part stored a bare payload instead of a result object; it
+    // replays as that text, through the same neutralizer every rendering uses.
+    if (!isRecord(part.output)) {
+      return isString(part.output)
+        ? neutralizeReservedDelimiters(part.output)
+        : (JSON.stringify(part.output) ?? 'null');
+    }
+    // A stored success is the result object its executor settled with, as
+    // untyped jsonb; the record guard restores the one success shape.
+    const result: ToolResult = { ...part.output, status: 'success' };
+    return renderedText(renderToolResultForModel(toolName, result));
   }
   if (!isString(part.errorText) || part.errorText.length === 0) return null;
-  const body = native
-    ? serializeNativeModelOutput(part.errorText)
-    : part.errorText;
-  // The fixed hop message points the model at `rejectedUrl`, which the stored
-  // part keeps beside its error: re-attach the stored locator to the body the
-  // model reads — never to the message itself — so a target refused on an
-  // earlier turn stays identifiable on every turn that replays that part. The
-  // part must still be the native `read` tool's hop rejection and the stored
-  // value the exact locator `rejectedHopUrl` writes, or nothing is attached.
-  const rejectedUrl = part.errorRejectedUrl;
-  return hopRejection && isRejectedHopUrl(rejectedUrl)
-    ? `${body}\nrejectedUrl: ${rejectedUrl}`
-    : body;
+  return renderedText(
+    renderToolResultForModel(
+      toolName,
+      failureResult(part, resolveOutcome(part), hopRejection),
+    ),
+  );
 }
 
 function resultText(outcome: string, body: string | null): string {
-  return sanitizeAuthoredText(
-    renderToolOutputUntrusted({
-      outcome,
-      payload: body,
-      hasPayload: body !== null,
-    }),
-  );
+  // The payload arrives already neutralized by the one rendering, and every
+  // line this template adds is static, so nothing here needs escaping.
+  return renderToolOutputUntrusted({
+    outcome,
+    payload: body,
+    hasPayload: body !== null,
+  });
 }
 
 function pairEnvelope(pair: ProjectedToolObservationPair): Array<ModelMessage> {
@@ -532,7 +549,7 @@ function storedObservation(
     input: part.input,
     resultBody: resolveResultBody(
       part,
-      isNativeToolName(toolName),
+      toolName,
       isHopRejection(toolName, outcome),
     ),
     ...(toolName === READ_TOOL_NAME && part.state === 'output-available'
@@ -607,5 +624,3 @@ export function projectToolObservations(
     retainedMedia: retainedEntriesOf(observations),
   });
 }
-
-export { neutralizeToolResult } from './tool-observation-neutralizer';

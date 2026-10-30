@@ -1,3 +1,8 @@
+import {
+  neutralizeReservedDelimiters,
+  RESERVED_DELIMITER_NAMES,
+} from '@workspace/runtime-safety';
+
 /**
  * Sanitizes owner-authored personalization text for inclusion in a rendered
  * prompt.
@@ -12,7 +17,9 @@
  *    closer, matched or not. Rule 1 alone is not enough: a value that both
  *    opens AND closes a packaged fence satisfies it while rendering a complete
  *    forged copy inside the real one, so each fence's own name has to be
- *    spelled out here.
+ *    spelled out. The names and the rule itself live in `runtime-safety`, which
+ *    applies the same rule to every tool result; this module keeps rule 1,
+ *    which only owner-authored prompt values need.
  *
  * Everything else passes byte-for-byte: owners legitimately author structured
  * text (`<instructions>…</instructions>`), and entity-mangling every angle
@@ -41,50 +48,6 @@
  * - Non-tag text involving `<` (`a < b`, `<3`, `i<10`) passes through
  *   untouched; only name-initiated tag shapes are considered at all.
  */
-
-/**
- * Tag names an authored value may never emit as a tag. This includes llame's
- * packaged personalization and chat-history fences plus the server-authored
- * structural labels used for context reminders, compaction history, and tool
- * observations.
- */
-const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
-  // Exactly the three retired rail delimiters are gone: `conversation-checkpoint`,
-  // `chat-recency-update`, and `runtime-tool-availability` no longer exist, since
-  // every context item now shares one envelope. Every OTHER entry below is
-  // unrelated to the rail and stays reserved — dropping them with the rail's
-  // would be an escaping regression a test that only forges `system-reminder`
-  // would never catch.
-  'system-reminder',
-  'tool-call',
-  'tool-result',
-  'user_chat_history',
-  'user_personalization',
-  // The skill catalog's own fence and entry element (system-provided-skills
-  // D4). Rule 1 alone does NOT cover these: a description carrying a BALANCED
-  // `<skill name="evil">…</skill>` closes only a tag it opened in-value, so it
-  // satisfies rule 1 while rendering a second, forged catalog entry beside the
-  // real one — enough to advertise a skill that does not exist, or to smuggle
-  // instructions that read as catalog framing. `available_skills` is reserved
-  // for the same reason at block granularity.
-  'skill',
-  'available_skills',
-]);
-
-/**
- * Any tag-SHAPED token naming a reserved wrapper, however sloppily spelled:
- * `<user_personalization>`, `< user_personalization>`, `</ user_personalization >`,
- * or an unterminated `<user_personalization foo="`.
- *
- * Reservation must not depend on the token parsing cleanly. `OPENER`/`CLOSER`
- * are strict by design, so a padded or unterminated spelling fell through to
- * the pass-through branch with the reserved name intact — and a model reading
- * that as an opener can pair it with the template's REAL closer, leaving every
- * system section after the fence sitting inside the untrusted block. The same
- * fail-closed reasoning already applied to malformed closers; it applies to
- * reserved names in any position.
- */
-const RESERVED_INTENT = /^<\s*\/?\s*([A-Za-z][\w.:-]*)/u;
 
 const OPENER = /^<([A-Za-z][\w.:-]*)(?:[\s/][^<>]*)?>$/u;
 const CLOSER = /^<\/([A-Za-z][\w.:-]*)>$/u;
@@ -118,16 +81,14 @@ function emitToken(
   complete: boolean,
   stack: Array<string>,
 ): string {
-  const reserved = RESERVED_INTENT.exec(token);
-  if (reserved !== null && RESERVED_TAG_NAMES.has(reserved[1].toLowerCase())) {
-    return escapeAngles(token);
-  }
+  const guarded = neutralizeReservedDelimiters(token);
+  if (guarded !== token) return guarded;
 
   const closer = complete ? CLOSER.exec(token) : null;
   if (closer !== null) {
     const name = closer[1].toLowerCase();
     const opened = stack.lastIndexOf(name);
-    if (opened !== -1 && !RESERVED_TAG_NAMES.has(name)) {
+    if (opened !== -1 && !RESERVED_DELIMITER_NAMES.has(name)) {
       stack.length = opened;
       return token;
     }

@@ -967,7 +967,10 @@ describe('resolvePromptImports image entries', () => {
   const imageResult = (path: string): ToolResult => ({
     status: 'success',
     kind: 'image',
-    ...UNSTORED,
+    width: UNSTORED.width,
+    height: UNSTORED.height,
+    mediaType: UNSTORED.mediaType,
+    display: { thumbnail: THUMBNAIL },
     path,
   });
   /** The native image result `read` returns for the owner's `MEDIA`. */
@@ -979,9 +982,9 @@ describe('resolvePromptImports image entries', () => {
     width: 1600,
     height: 900,
   };
-  /** The model-facing envelope of an image result: no thumbnail. */
+  /** The model-facing envelope of an image result: no display data. */
   const envelope = (path: string) =>
-    JSON.stringify({ ...imageResult(path), thumbnail: undefined });
+    JSON.stringify({ ...imageResult(path), display: undefined });
   const isImage = (path: string) => path.endsWith('.png');
 
   it('turns an image read into an unstored image entry whose body is the read envelope', async () => {

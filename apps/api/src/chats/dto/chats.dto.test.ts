@@ -325,6 +325,16 @@ describe('CreateMessageDto', () => {
       await expect(send([null])).rejects.toMatchObject({ status: 400 });
     });
 
+    it('rejects a part carrying display data', async () => {
+      const display = { thumbnail: 'data:image/webp;base64,UklGRg==' };
+      await expect(
+        send([{ ...file(media(1)), display }]),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        send([{ type: 'text', text: 'see', display }]),
+      ).rejects.toMatchObject({ status: 400 });
+    });
+
     it('rejects a part carrying a client-supplied thumbnail', async () => {
       const thumbnail = 'data:image/webp;base64,UklGRg==';
       await expect(

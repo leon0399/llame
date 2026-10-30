@@ -214,7 +214,7 @@ const DECODED_IMAGE = {
   mediaType: 'image/png',
   width: 4,
   height: 3,
-  thumbnail: 'data:image/webp;base64,AAAA',
+  display: { thumbnail: 'data:image/webp;base64,AAAA' },
 } as const;
 
 /** A media store that records each decode and decodes every body it is given. */

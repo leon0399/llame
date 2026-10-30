@@ -48,18 +48,18 @@ move to `mutation-text`; the wire field stays with the field. No generated outpu
 Create `tool-result-model-text/rendering-seam` from `tool-result-model-text/proposal` with
 `$gh-stack`.
 
-- [ ] 2.1 Move the reserved-name rule and its set to
+- [x] 2.1 Move the reserved-name rule and its set to
       `packages/runtime-safety/src/reserved-delimiters.ts`; `authored-text.ts` imports it and keeps
       rule 1 for prompt values; verify with a unit test that `</div>` passes and `</tool-result>`,
       `< tool-result>`, and `</TOOL-RESULT >` are escaped (scenarios of "Tool result payloads are
       neutralized by the reserved-name rule").
-- [ ] 2.2 Add `renderToolResultForModel(toolName, result)` in `apps/api/src/tools/model-text.ts`:
+- [x] 2.2 Add `renderToolResultForModel(toolName, result)` in `apps/api/src/tools/model-text.ts`:
       strip `display` and a legacy top-level `thumbnail`, render every success and failure as
       JSON with the rule over keys and string values, return the string and kind `json`; verify
       with a unit test per branch, a test that `display` and a legacy `thumbnail` never appear, a
       key-escaping test on an MCP-shaped result, and a `command_failed` object test (scenarios of
       "One rendering function…" and "Display data is stored and never rendered").
-- [ ] 2.3 Wire the function: `toModelOutput` for every tool in `createModelToolDefinition`
+- [x] 2.3 Wire the function: `toModelOutput` for every tool in `createModelToolDefinition`
       (native tools keep `toolResultOutput(text, retainedReadRef(…))` and type `text`; others
       `json`), `settleBoundTool` returns the result object, `tool-observation-part.ts` rebuilds a
       failure object and calls the function, `continue-projection.ts` calls it, the replay wrapper
@@ -70,23 +70,23 @@ Create `tool-result-model-text/rendering-seam` from `tool-result-model-text/prop
       payloads are equal for `read`, `search_conversations`, a PNG read with its reference, and a
       `command_failed` bash part (scenarios "Live and replayed renderings agree", "A media reference
       survives the rendering").
-- [ ] 2.4 Move `thumbnail` to `display.thumbnail` in `tool-media-store.ts`, `result-truncation.ts`
+- [x] 2.4 Move `thumbnail` to `display.thumbnail` in `tool-media-store.ts`, `result-truncation.ts`
       (set aside `display`), `media.ts` types, and the read of it in `chats/prompt-imports-item.ts`
       (the import payload key is unchanged); `read.tsx` reads `display.thumbnail` and keeps
       `thumbnail`; verify with the thumbnail tests moved to the new key, a replay test for a stored
       top-level `thumbnail`, and a negative test that a client part with `display` is rejected at
       the DTO (scenarios "A stored image part with a top-level thumbnail replays without it", "A
       client cannot supply display data").
-- [ ] 2.5 Give `truncateOversizedResult` a measure parameter and pass the rendering measure from
+- [x] 2.5 Give `truncateOversizedResult` a measure parameter and pass the rendering measure from
       `runner.ts` and `mcp-runtime.service.ts`, with the omitted count in rendered units; verify
       with `runner.test.ts` and `result-truncation.test.ts` cases for a JSON result over the cap
       and for a result whose rendering is exactly 16,000 units (scenarios of "The global result
       cap measures the rendering").
-- [ ] 2.6 Add `gpt-tokenizer` as a root dev dependency, the "today" JSON fixture captured from a
+- [x] 2.6 Add `gpt-tokenizer` as a root dev dependency, the "today" JSON fixture captured from a
       `64db12c9` worktree under `scripts/fixtures/tool-results/`, and
       `scripts/measure-tool-results.mjs` reading the fixture file with `git show` and printing the
       "today" column; verify that the today numbers match the proposal table.
-- [ ] 2.7 Docs: `docs/product/reference/tools/index.md` names the one neutralization rule; dated
+- [x] 2.7 Docs: `docs/product/reference/tools/index.md` names the one neutralization rule; dated
       `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
 - [ ] 2.8 SR: self-review the parent-relative diff against REVIEW_GUIDE.md; run the code-review
       and ponytail-review passes; fix with new commits; re-measure the authored size.

@@ -95,6 +95,7 @@ import {
   type MediaSizing,
   type ReadMediaRef,
   type ToolMediaRef,
+  type ToolResultOutput,
 } from '../media/epoch-admission';
 import { mediaLocator, parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
@@ -147,7 +148,6 @@ import {
   isContextItemPart,
   type AuthoredContextItemPart,
 } from '../chats/context-item';
-import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createRegenerateNoticeItem } from '../chats/regenerate-notice';
 import { isModelSwitchItem } from '../chats/accepted-turn-parts.repository';
 import {
@@ -246,6 +246,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
+import { renderToolResultForModel } from '../tools/model-text';
 import { MachinesService } from '../machines/machines.service';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import {
@@ -1836,7 +1837,7 @@ export class RunExecutionService {
           'Host command or mutation outcome is unknown; the Run cannot continue.',
         );
       }
-      return isNativeFileTool(executor) ? result : neutralizeToolResult(result);
+      return result;
     };
 
     const createModelToolDefinition = (
@@ -1846,34 +1847,39 @@ export class RunExecutionService {
       if (initialExecutor === undefined) {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
-      // A native result reaches the model as its serialized text, without an
-      // image's display-only thumbnail; an image result adds only its
-      // reference, which the step composer projects on every step
-      // (vision-media D6), so no bytes stay in the Run's response messages.
-      const nativeOutput = isNativeFileTool(initialExecutor)
-        ? {
-            toModelOutput: ({
-              input: call,
-              output,
-              toolCallId,
-            }: {
-              input: unknown;
-              output: unknown;
-              toolCallId: string;
-            }) =>
-              toolResultOutput(
-                serializeNativeModelOutput(output),
-                // A result without a stored locator is a reference only while
-                // this attempt holds its bytes: the step composer then
-                // attaches them or the matching placeholder (D2).
-                retainedReadRef(
-                  media.retainedMedia,
-                  toolCallId,
-                  mediaResultRef(output, submittedLocator(call)),
-                ),
-              ),
+      // Every result reaches the model through the one rendering: a native
+      // file tool as its serialized text — the SDK output type its media
+      // reference needs — and every other tool as its JSON value. An image
+      // result adds only its reference, which the step composer projects on
+      // every step (vision-media D6), so no bytes stay in the Run's response
+      // messages.
+      const modelOutput = {
+        toModelOutput: ({
+          input: call,
+          output,
+          toolCallId,
+        }: {
+          input: unknown;
+          output: ToolResult;
+          toolCallId: string;
+        }): ToolResultOutput => {
+          const rendering = renderToolResultForModel(declaration.id, output);
+          if (rendering.kind === 'json') {
+            return { type: 'json', value: rendering.value };
           }
-        : {};
+          return toolResultOutput(
+            rendering.text,
+            // A result without a stored locator is a reference only while
+            // this attempt holds its bytes: the step composer then
+            // attaches them or the matching placeholder (D2).
+            retainedReadRef(
+              media.retainedMedia,
+              toolCallId,
+              mediaResultRef(output, submittedLocator(call)),
+            ),
+          );
+        },
+      };
       const definition = tool({
         description: declaration.description,
         inputSchema: toFlexibleSchema(declaration.inputSchema)!,
@@ -1895,7 +1901,7 @@ export class RunExecutionService {
             result,
           );
         },
-        ...nativeOutput,
+        ...modelOutput,
       });
       return definition.type === 'provider'
         ? definition

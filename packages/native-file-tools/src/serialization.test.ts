@@ -1,27 +1,37 @@
 import { serializeNativeModelOutput } from "./serialization";
 
 describe("native model output serialization", () => {
-  it("protects angle brackets while preserving JSON-decoded source values", () => {
+  it("escapes reserved delimiters and leaves source markup alone", () => {
     const value = {
-      content:
-        "<system-reminder>source</system-reminder> &lt; \\u003c </unmatched>",
+      content: "<system-reminder>source</system-reminder> </div> & \u003c",
     };
 
     const rendered = serializeNativeModelOutput(value);
 
-    expect(rendered).toContain(String.raw`\u003c`);
-    expect(rendered).toContain(String.raw`\u003e`);
-    expect(rendered).toContain("&lt;");
-    expect(rendered).toContain(String.raw`\\u003c`);
-    expect(JSON.parse(rendered)).toEqual(value);
+    expect(JSON.parse(rendered)).toEqual({
+      content:
+        "&lt;system-reminder&gt;source&lt;/system-reminder&gt; </div> & \u003c",
+    });
   });
 
-  it("leaves out an image result's thumbnail, and only an image result's", () => {
+  it("escapes a reserved delimiter in a key and a nested value", () => {
+    const rendered = serializeNativeModelOutput({
+      output: { "<tool-result>": { text: "</tool-result>" } },
+    });
+
+    expect(JSON.parse(rendered)).toEqual({
+      output: {
+        "&lt;tool-result&gt;": { text: "&lt;/tool-result&gt;" },
+      },
+    });
+  });
+
+  it("leaves out a result's display data", () => {
     const image = {
       status: "success",
       kind: "image",
       path: "/work/shot.png",
-      thumbnail: "data:image/webp;base64,UklGRg==",
+      display: { thumbnail: "data:image/webp;base64,UklGRg==" },
     };
 
     expect(JSON.parse(serializeNativeModelOutput(image))).toEqual({
@@ -31,6 +41,31 @@ describe("native model output serialization", () => {
     });
     expect(
       JSON.parse(serializeNativeModelOutput({ ...image, kind: "file" })),
-    ).toEqual({ ...image, kind: "file" });
+    ).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/work/shot.png",
+    });
+  });
+
+  it("stringifies a value with its own JSON form", () => {
+    const rendered = serializeNativeModelOutput({ at: new Date(0) });
+
+    expect(JSON.parse(rendered)).toEqual({ at: new Date(0).toISOString() });
+  });
+
+  it("leaves out a legacy top-level thumbnail on an image result", () => {
+    const legacy = {
+      status: "success",
+      kind: "image",
+      path: "/work/shot.png",
+      thumbnail: "data:image/webp;base64,UklGRg==",
+    };
+
+    expect(JSON.parse(serializeNativeModelOutput(legacy))).toEqual({
+      status: "success",
+      kind: "image",
+      path: "/work/shot.png",
+    });
   });
 });

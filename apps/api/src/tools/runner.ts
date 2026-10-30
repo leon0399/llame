@@ -8,6 +8,7 @@ import {
   truncateOversizedResult,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
+import { renderedText, renderToolResultForModel } from './model-text';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -443,6 +444,9 @@ async function settleAdmittedExecution(
   prepared: PreparedToolExecution,
 ): Promise<ToolResult> {
   let mcpDispatchRecorded = false;
+  // The cap measures what the model reads, not the stored object.
+  const measure = (candidate: ToolResult): number =>
+    renderedText(renderToolResultForModel(tool.id, candidate)).length;
   const executionContext = {
     ...prepared.context,
     onMcpDispatchRecorded: () => {
@@ -456,7 +460,7 @@ async function settleAdmittedExecution(
       isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
     );
     notifyUnknownOutcome(tool, context, result);
-    return truncateOversizedResult(result);
+    return truncateOversizedResult(result, measure);
   } catch (error) {
     const result = classifyToolExecutionError(
       error,
@@ -466,7 +470,7 @@ async function settleAdmittedExecution(
       mcpDispatchRecorded,
     );
     notifyUnknownOutcome(tool, context, result);
-    return truncateOversizedResult(result);
+    return truncateOversizedResult(result, measure);
   }
 }
 

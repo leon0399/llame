@@ -11,8 +11,7 @@
  * once the agent can construct absolute paths from them.
  */
 
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
-import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
+import { measureJson, RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 import { type SkillCatalogEntry } from './skill-catalog';
 import {
@@ -147,7 +146,7 @@ function fits(
     skillPathInstruction: SKILL_PATH_INSTRUCTION,
     ...(offset + shown < total && { nextOffset: offset + shown }),
   };
-  return measureNativeModelOutput(listing) <= RESULT_TRUNCATE_CHARS;
+  return measureJson(listing) <= RESULT_TRUNCATE_CHARS;
 }
 
 function toProjection(entry: SkillCatalogEntry): CatalogEntryProjection {

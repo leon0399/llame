@@ -306,7 +306,10 @@ describe('projectToolObservations', () => {
     ]);
 
     const text = toolOutputText(projection?.toolResultParts[0]?.output);
-    expect(text).toContain('Payload:\nBOOM');
+    // The failure replays as the rebuilt result object, never the stale one.
+    expect(text).toContain(
+      'Payload:\n{"status":"error","type":"error","message":"BOOM"}',
+    );
     expect(text).not.toContain('stale payload');
   });
 
@@ -329,7 +332,8 @@ describe('projectToolObservations', () => {
     const text = toolOutputText(projection?.toolResultParts[0]?.output);
     expect(text).toContain('Payload:');
     expect(text).toContain('Tool call stopped by operator permissions.');
-    expect(text).toContain('rejectedUrl: https://blocked.example.test/page');
+    // The rebuilt failure object carries the locator the live result carried.
+    expect(text).toContain('"rejectedUrl":"https://blocked.example.test/page"');
     // The producer stripped the query and fragment before storing; neither
     // reaches the model.
     expect(text).not.toContain('secret');
@@ -559,11 +563,16 @@ describe('projectToolObservations replay contract', () => {
     const output = toolOutputText(projection?.toolResultParts[0]?.output);
     const payload = output.split('\nPayload:\n')[1];
     expect(payload).toBeDefined();
-    expect(payload).toContain(String.raw`\u003c`);
-    expect(payload).toContain(String.raw`\u003e`);
-    expect(payload).toContain('&lt;');
+    // Only a reserved delimiter name is escaped: source markup such as
+    // `</unmatched>`, an existing entity, and a literal `\u003c` survive.
+    expect(payload).toContain('&lt;system-reminder&gt;source');
+    expect(payload).not.toContain('<system-reminder>');
+    expect(payload).toContain('</unmatched>');
     expect(payload).toContain(String.raw`\\u003c`);
-    expect(JSON.parse(payload ?? '')).toEqual({ status: 'success', content });
+    expect(JSON.parse(payload ?? '')).toEqual({
+      status: 'success',
+      content: String.raw`&lt;system-reminder&gt;source&lt;/system-reminder&gt; &lt; \u003c </unmatched>`,
+    });
   });
 
   it.each([

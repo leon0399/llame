@@ -53,6 +53,7 @@
     "@shadcn/lint": "0.1.0",
     "@workspace/config-typescript": "workspace:*",
     "eslint-plugin-sonarjs": "4.2.0",
+    "gpt-tokenizer": "4.1.0",
     "jscpd": "5.0.16",
     "json-schema-to-zod": "2.8.1",
     "knip": "6.32.2",

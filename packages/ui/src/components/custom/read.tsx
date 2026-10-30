@@ -68,13 +68,15 @@ const textOutputSchema = z.looseObject({
 
 /** A read whose bytes were an image, with the original's type and size and no
  *  content: a `media://` read carries the stored object's locator, any other
- *  read the display-only inline `thumbnail` (used only when it is a valid
- *  WebP data URL; absent when it would exceed the cap). Loose for the same
- *  scheme envelopes as a text read. */
+ *  read the display-only inline thumbnail at `display.thumbnail` — or, on a
+ *  part stored before that key moved, at a top-level `thumbnail`. Used only
+ *  when it is a valid WebP data URL; absent when it would exceed the cap.
+ *  Loose for the same scheme envelopes as a text read. */
 const imageOutputSchema = z.looseObject({
   ...readSourceFields,
   kind: z.literal("image"),
   media: z.string().optional(),
+  display: z.object({ thumbnail: z.unknown().optional() }).optional(),
   thumbnail: z.unknown().optional(),
   mediaType: z.string(),
   width: z.number(),
@@ -162,7 +164,7 @@ function methodLabel(
 }
 
 /** Every field `schema` does not declare, under its own key, so no envelope
- *  is ever dropped. */
+ *  is ever dropped. A result's `display` data is for the card, not a row. */
 function envelopeRows(
   output: ReadOutput | ImageReadOutput | PdfReadOutput,
   schema:
@@ -171,7 +173,7 @@ function envelopeRows(
     | typeof pdfOutputSchema,
 ): Array<[string, string]> {
   return Object.entries(output)
-    .filter(([key]) => !Object.hasOwn(schema.shape, key))
+    .filter(([key]) => key !== "display" && !Object.hasOwn(schema.shape, key))
     .map(([key, value]): [string, string] => [
       key,
       z.string().safeParse(value).data ?? JSON.stringify(value),
@@ -347,7 +349,10 @@ function readImageSlide({
       slide: { key, src: sources.original, alt: output.path, caption },
     };
   }
-  const thumbnail = inlineThumbnailSchema.safeParse(output.thumbnail).data;
+  // The thumbnail lives under `display`; parts stored before it moved keep it
+  // at the top level.
+  const inline = output.display?.thumbnail ?? output.thumbnail;
+  const thumbnail = inlineThumbnailSchema.safeParse(inline).data;
   if (thumbnail === undefined) return null;
   const locator = submittedPathSchema.safeParse(input).data?.path;
   const caption = mediaCaption(locator ?? output.path, output);
@@ -467,8 +472,8 @@ function ReadResult({
  * Renders a native `read` invocation: the source it identified, the content
  * as the model received it, and how much of the source that content covers.
  * An image result shows a thumbnail instead of content (its inline
- * `thumbnail`, or the stored image for a `media://` read) that opens it in a
- * lightbox, or only its size when it has neither. A PDF result shows a
+ * `display.thumbnail`, or the stored image for a `media://` read) that opens
+ * it in a lightbox, or only its size when it has neither. A PDF result shows a
  * document tile named after the locator it settled on, with the original's
  * page count and byte size; a `media://` PDF's tile opens the stored original
  * in a new tab, while an unstored PDF's tile is static.

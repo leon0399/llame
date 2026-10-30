@@ -19,15 +19,12 @@
 
 import type {
   AssistantContent,
-  JSONValue,
   ModelMessage,
   ToolCallPart,
   ToolResultPart,
 } from 'ai';
 
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
-import { z } from 'zod';
-import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 
 import { isContextItemPart, type ContextItemPart } from './context-item';
 import {
@@ -46,12 +43,11 @@ import {
 } from '../media/epoch-admission';
 import type { RetainedMedia } from '../media/attempt-media';
 import { continuedMediaKey } from '../media/retained-media';
-import { neutralizeToolResult } from './tool-observation-neutralizer';
 import {
-  isNativeToolName,
   projectStoredToolPart,
   type ProjectedToolObservationPair,
 } from './tool-observation-part';
+import { renderToolResultForModel } from '../tools/model-text';
 import type { ToolResult } from '../tools/types';
 
 /**
@@ -60,9 +56,6 @@ import type { ToolResult } from '../tools/types';
  * step numbers stores an empty one.
  */
 export type KeptStepNumbers = Record<string, number>;
-
-/** The JSON value the SDK's tool output accepts, validated at this boundary. */
-const jsonSchema = z.json();
 
 /**
  * The kept parts of a Continue Run, as its `run.continued` event stores them,
@@ -167,10 +160,10 @@ function toolResultFromRecord(value: unknown): ToolResult | undefined {
 }
 
 /**
- * The output one kept call replays, built the way the live loop built it: a
- * native file tool sends its serialized result and its media reference; every
- * other tool sends its neutralized result as JSON. No untrusted framing, no
- * budget — the model reads exactly what the source Run sent it.
+ * The output one kept call replays, built the way the live loop built it, from
+ * the one rendering of the settled result: a text rendering sends its text and
+ * its media reference; a JSON rendering sends its JSON value. No untrusted
+ * framing, no budget — the model reads exactly what the source Run sent it.
  *
  * A kept result that names media without a stored locator is a reference only
  * when its kept part keeps the retained bytes: a reply from before retention
@@ -183,24 +176,15 @@ function keptToolOutput(
   result: ToolResult,
   retainedRef: ToolMediaRef | undefined,
 ): ToolResultPart['output'] {
-  if (!isNativeToolName(toolName)) {
-    return { type: 'json', value: jsonOutputOf(neutralizeToolResult(result)) };
+  const rendering = renderToolResultForModel(toolName, result);
+  if (rendering.kind === 'json') {
+    return { type: 'json', value: rendering.value };
   }
   const named = mediaResultRef(result, submittedLocator(input));
   return toolResultOutput(
-    serializeNativeModelOutput(result),
+    rendering.text,
     isUnstoredMedia(named) ? retainedRef : named,
   );
-}
-
-/**
- * A neutralized result as the SDK's json output: the value the live loop handed
- * the SDK, which serializes it the same way.
- */
-function jsonOutputOf(result: ToolResult): JSONValue {
-  // The SDK serializes the value the live loop returned, so the kept result
-  // takes the same JSON form rather than a hand-built one.
-  return jsonSchema.parse(result);
 }
 
 /**
