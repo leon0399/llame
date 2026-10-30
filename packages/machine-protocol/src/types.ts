@@ -126,6 +126,11 @@ export type NativeFileReadResult = {
   readonly content: string;
   readonly truncated: boolean;
   readonly nextOffset?: number;
+  /** The source's line count, when the daemon knows it. Absent on a daemon
+   *  that predates the field, on an outline, and past the count bound. */
+  readonly lineCount?: number;
+  /** Every entry the listed level holds, of which `content` may be a page. */
+  readonly entryCount?: number;
 };
 
 /** The local media shape, part of the shared read contract. `fs.read` never

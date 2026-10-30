@@ -5,17 +5,14 @@ import {
   mkdir,
   mkdtemp,
   open,
+  readFile as readHostFile,
   realpath,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import {
-  isNumber,
-  isRecord,
-  truncateOversizedResult,
-} from "@workspace/runtime-safety";
+import { isNumber, isRecord } from "@workspace/runtime-safety";
 import { join } from "node:path";
 import {
   loadText,
@@ -26,15 +23,26 @@ import {
   splitSourceLines,
 } from "./read";
 import { applySelectorSuffix } from "./path";
-import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
+import {
+  measureReadRendering,
+  type MultiReadSuccess,
+  type SingleReadSuccess,
+} from "./source-lines";
+import { READ_LINE_COUNT_MAX_BYTES } from "./line-count";
 import { OUTLINE_UNSUPPORTED_MESSAGE } from "./representations";
-import { measureNativeModelOutput } from "./serialization";
 import { editFile } from "./mutate";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
   return { ...original, opendir: vi.fn(original.opendir) };
 });
+
+/** Bytes this process has read through read-like syscalls: a whole-file scan
+ *  moves it by the file's size, a window read by one chunk. */
+async function hostReadBytes(): Promise<number> {
+  const io = await readHostFile("/proc/self/io", "utf8");
+  return Number(/rchar: (\d+)/u.exec(io)?.[1] ?? 0);
+}
 
 const numbered = (count: number, fill = ""): string =>
   Array.from({ length: count }, (_, i) => `line ${i + 1}${fill}\n`).join("");
@@ -181,6 +189,7 @@ describe("native source reads", () => {
       shownRange: { startLine: 1, endLine: 4 },
       nextOffset: 3,
       truncated: false,
+      lineCount: 5,
     });
   });
 
@@ -220,21 +229,76 @@ describe("native source reads", () => {
     });
   });
 
-  it("bounds the serialized result using whole lines", async () => {
+  it("bounds the rendered result using whole lines", async () => {
     await writeFile(path, ('"'.repeat(1000) + "\n").repeat(100));
     const result = await readFile({ path });
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+    assertFileSuccess(result);
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(16_000);
-    expect(truncateOversizedResult(result)).toBe(result);
     expect(result).toMatchObject({ status: "success", truncated: true });
-    assertFileSuccess(result);
     expect(result.content.endsWith("\n")).toBe(true);
     expect(result.nextOffset).toBe(result.shownRange?.endLine);
   });
 
-  it("bounds the protected model serialization using whole lines", async () => {
+  it("fills its bound with rendered lines, continuation included", async () => {
+    // A raw window of the shared line cap: the first read calibrates the line
+    // the window ends on to the exact rendered width of the bound, and one
+    // more character of source drops that line instead of overflowing.
+    const source = (lastLine: number) =>
+      Array.from(
+        { length: 3000 },
+        (_, index) => `${"x".repeat(index === 1999 ? lastLine : 5)}\n`,
+      ).join("");
+    await writeFile(path, source(5));
+    const probe = await readFile({ path: `${path}:raw` });
+    assertFileSuccess(probe);
+    const deficit = MAX_RESULT_CODE_UNITS - measureReadRendering(probe);
+
+    await writeFile(path, source(5 + deficit));
+    const filled = await readFile({ path: `${path}:raw` });
+    assertFileSuccess(filled);
+    expect(measureReadRendering(filled)).toBe(MAX_RESULT_CODE_UNITS);
+    expect(filled).toMatchObject({ truncated: true, nextOffset: 2000 });
+
+    await writeFile(path, source(6 + deficit));
+    const overflowed = await readFile({ path: `${path}:raw` });
+    assertFileSuccess(overflowed);
+    expect(measureReadRendering(overflowed)).toBeLessThan(
+      MAX_RESULT_CODE_UNITS,
+    );
+    expect(overflowed.shownRange?.endLine).toBe(1999);
+  });
+
+  it("counts escaped delimiters toward the bound", async () => {
+    // Ten reserved tags add six code units each once neutralized, and the
+    // window is bounded on that text: the same file without them keeps a
+    // whole line more.
+    const filler = "x".repeat(40);
+    await writeFile(path, `${filler}\n`.repeat(2000));
+    const plain = await readFile({ path });
+    await writeFile(
+      path,
+      Array.from(
+        { length: 2000 },
+        (_, index) => `${index < 10 ? "<skill>".padEnd(40, "x") : filler}\n`,
+      ).join(""),
+    );
+    const escaped = await readFile({ path });
+    assertFileSuccess(plain);
+    assertFileSuccess(escaped);
+    expect(measureReadRendering(plain)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS,
+    );
+    expect(measureReadRendering(escaped)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS,
+    );
+    expect(plain.shownRange?.endLine).toBeGreaterThan(
+      escaped.shownRange?.endLine ?? 0,
+    );
+  });
+
+  it("bounds the protected rendering using whole lines", async () => {
     await writeFile(path, "<system-reminder>".repeat(900));
 
     const result = await readFile({ path: `${path}:raw` });
@@ -245,7 +309,7 @@ describe("native source reads", () => {
       nextOffset: 1,
       truncated: true,
     });
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
   });
@@ -256,7 +320,7 @@ describe("native source reads", () => {
 
     const result = await readFile({ path: `${path}:raw` });
     expect(result).toMatchObject({ status: "success", truncated: true });
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
     if (
@@ -533,6 +597,7 @@ describe("native source reads", () => {
       shownRange: { startLine: 1, endLine: 3 },
       nextOffset: 2,
       truncated: false,
+      lineCount: 3,
     });
   });
 
@@ -585,6 +650,7 @@ describe("native source reads", () => {
         { startLine: 3, endLine: 5 },
       ],
       truncated: false,
+      lineCount: 5,
     });
   });
 
@@ -781,13 +847,124 @@ describe("native source reads", () => {
       shownRange: { startLine: 1, endLine: 2001 },
       truncated: true,
     });
+    assertFileSuccess(streamed);
     expect(streamed).toEqual(buffered);
+    expect(streamed.lineCount).toBe(2002);
     await writeFile(path, "only\n");
     expect(await readFile({ path: `${path}:1-10` })).toMatchObject({
       requestedRange: { startLine: 1, endLine: 10 },
       shownRange: { startLine: 1, endLine: 1 },
       truncated: false,
     });
+  });
+
+  describe("the source line count", () => {
+    it("reports the total on a ranged read", async () => {
+      await writeFile(path, numbered(216));
+      expect(await readFile({ path: `${path}:12-40` })).toMatchObject({
+        status: "success",
+        shownRange: { startLine: 11, endLine: 41 },
+        lineCount: 216,
+      });
+    });
+
+    it("reports the total on a raw read and on a multi-range read", async () => {
+      await writeFile(path, numbered(216));
+      expect(await readFile({ path: `${path}:raw:12-40` })).toMatchObject({
+        representation: "raw",
+        lineCount: 216,
+      });
+      expect(await readFile({ path: `${path}:1-2,4-5` })).toMatchObject({
+        lineCount: 216,
+      });
+    });
+
+    it("keeps the total on a file too large for one window", async () => {
+      await writeFile(path, "prefix\n" + "x\n".repeat(600_000) + "tail\n");
+      expect(await readFile({ path: `${path}:1-2` })).toMatchObject({
+        status: "success",
+        lineCount: 600_002,
+      });
+    });
+
+    it.runIf(process.platform === "linux")(
+      "omits the total past the count bound without scanning the file",
+      async () => {
+        const file = await open(path, "w");
+        try {
+          await file.write("first\nsecond\nthird\n");
+          await file.truncate(READ_LINE_COUNT_MAX_BYTES + 1);
+        } finally {
+          await file.close();
+        }
+        const before = await hostReadBytes();
+        const result = await readFile({ path: `${path}:1-1` });
+        const scanned = (await hostReadBytes()) - before;
+        expect(result).toMatchObject({ status: "success" });
+        expect(result).not.toHaveProperty("lineCount");
+        // A whole-file pass reads the file's size; a window read touches one
+        // chunk of it.
+        expect(scanned).toBeLessThan(1024 * 1024);
+      },
+    );
+
+    it("survives invalid bytes after the window", async () => {
+      await writeFile(
+        path,
+        Buffer.concat([
+          Buffer.from(numbered(200)),
+          Buffer.alloc(1024 * 1024, 0x79),
+          Buffer.from([0xff]),
+        ]),
+      );
+      const result = await readFile({ path: `${path}:1-10` });
+      assertFileSuccess(result);
+      expect(result.content).toBe(
+        Array.from({ length: 11 }, (_, i) => `${i + 1}: line ${i + 1}\n`).join(
+          "",
+        ),
+      );
+      expect(result.lineCount).toBe(201);
+    });
+
+    it("carries no total on an outline", async () => {
+      const outlinePath = join(directory, "doc.md");
+      await writeFile(outlinePath, "# Title\nbody\n# Two\nmore\n");
+      const result = await readFile({ path: `${outlinePath}:outline` });
+      expect(result).toMatchObject({
+        status: "success",
+        representation: "outline",
+      });
+      expect(result).not.toHaveProperty("lineCount");
+    });
+
+    it.runIf(process.platform === "linux")(
+      "counts the file once when a tail member already asked for the count",
+      async () => {
+        // A source over half a megabyte makes an extra count pass visible in
+        // the bytes read, unlike the few hundred of a tiny fixture.
+        const source = numbered(20_000, ` ${"y".repeat(60)}`);
+        await writeFile(path, source);
+        const size = Buffer.byteLength(source);
+        let before = await hostReadBytes();
+        expect(await readFile({ path: `${path}:19998-20000` })).toMatchObject({
+          status: "success",
+          lineCount: 20_000,
+        });
+        const absolute = (await hostReadBytes()) - before;
+        before = await hostReadBytes();
+        expect(await readFile({ path: `${path}:-3` })).toMatchObject({
+          status: "success",
+          lineCount: 20_000,
+        });
+        // The tail member's count pass doubles as the stored total: it costs
+        // what the same window costs when its start was already absolute,
+        // where a second scan would add another file-length read.
+        expect((await hostReadBytes()) - before).toBeLessThan(
+          absolute + size / 2,
+        );
+      },
+    );
   });
 
   describe("multi-range reads", () => {
@@ -1081,7 +1258,7 @@ describe("native source reads", () => {
       assertMultiFileSuccess(full);
       assertMultiFileSuccess(reserved);
       expect(reserved.content.length).toBeLessThan(full.content.length);
-      expect(measureNativeModelOutput(reserved)).toBeLessThanOrEqual(
+      expect(measureReadRendering(reserved)).toBeLessThanOrEqual(
         MAX_RESULT_CODE_UNITS - 10_000,
       );
     });
@@ -1306,7 +1483,7 @@ describe("native source reads", () => {
       assertFileSuccess(baseline);
       expect(baseline.truncated).toBe(false);
       const measured = (result: SingleReadSuccess) =>
-        measureNativeModelOutput({ ...result, nextOffset: 1 });
+        measureReadRendering({ ...result, truncated: true, nextOffset: 1 });
       await writeFile(
         realFile,
         `${"x".repeat(MAX_RESULT_CODE_UNITS - measured(baseline) + 1)}\n`,
@@ -1319,10 +1496,11 @@ describe("native source reads", () => {
       expect(linkedFile).toHaveLength(realFile.length);
       expect(measured(canonical)).toBe(MAX_RESULT_CODE_UNITS);
       expect(
-        measureNativeModelOutput({
+        measureReadRendering({
           ...canonical,
           path: linkedFile,
           realPath: await realpath(realFile),
+          truncated: true,
           nextOffset: 1,
         }),
       ).toBeGreaterThan(MAX_RESULT_CODE_UNITS);
@@ -1429,6 +1607,7 @@ describe("native reads resolved by a scheme owner", () => {
       path: "skill://pdf/",
       content: "skill://pdf/\n  - notes.md\n",
       truncated: false,
+      entryCount: 1,
     });
   });
 
@@ -1485,7 +1664,7 @@ describe("native reads resolved by a scheme owner", () => {
     assertFileSuccess(full);
     assertFileSuccess(reserved);
     expect(reserved.content.length).toBeLessThan(full.content.length);
-    expect(measureNativeModelOutput(reserved)).toBeLessThanOrEqual(
+    expect(measureReadRendering(reserved)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS - 10_000,
     );
   });
@@ -1719,11 +1898,11 @@ describe("missing file suggestions", () => {
       "content",
       expect.stringContaining(`  - beta/\n    … 3 entries\n  - ${lastName}`),
     );
-    expect(measureNativeModelOutput(partial)).toBeLessThanOrEqual(700);
+    expect(measureReadRendering(partial)).toBeLessThanOrEqual(700);
 
     const truncated = await readResolvedFile(directory, {
       displayPath: "kb://space/",
-      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 250,
+      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 150,
     });
     expect(truncated).toMatchObject({
       content:
@@ -1731,7 +1910,7 @@ describe("missing file suggestions", () => {
       truncated: true,
       nextOffset: 2,
     });
-    expect(measureNativeModelOutput(truncated)).toBeLessThanOrEqual(250);
+    expect(measureReadRendering(truncated)).toBeLessThanOrEqual(150);
     expect(
       await readResolvedFile(directory, {
         displayPath: "kb://space/",
@@ -1746,14 +1925,14 @@ describe("missing file suggestions", () => {
     const flat = await readResolvedFile(directory, {
       displayPath: "kb://space/",
       selector: "1-5",
-      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 200,
+      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 100,
     });
     expect(flat).toMatchObject({
       content: "kb://space/\n  - alpha/\n  - beta/\n",
       truncated: true,
       nextOffset: 2,
     });
-    expect(measureNativeModelOutput(flat)).toBeLessThanOrEqual(200);
+    expect(measureReadRendering(flat)).toBeLessThanOrEqual(100);
   });
 
   it("counts token retries against the same scoring budget", async () => {

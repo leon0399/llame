@@ -1,7 +1,6 @@
 import {
   NativeFileError,
   applySelectorSuffix,
-  measureNativeModelOutput,
   outlineReader,
   renderCollectedDirectory,
   resolveEndRelativeSelector,
@@ -15,6 +14,7 @@ import {
 } from '@workspace/native-file-tools';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
+import { readAttributionReserve } from '../model-text';
 import { type WebLocator } from './locator';
 import { type WebAdapterProvenance } from './adapters/contract';
 import {
@@ -78,7 +78,7 @@ export async function buildWebReadResult(
   try {
     const target: ReadTarget = {
       ...applySelectorSuffix(locator.url, locator.selector),
-      reserveCodeUnits: measureNativeModelOutput(envelope),
+      reserveCodeUnits: readAttributionReserve(envelope),
     };
     if (render.directory !== undefined) {
       return buildDirectoryReadResult(target, envelope, render.directory);
@@ -118,6 +118,11 @@ export function buildWebMediaResult(
   };
 }
 
+/** A refusal the adapter's own bound caused, not a selector the caller wrote. */
+function representationTooLarge(message: string): WebReadFailure {
+  return { status: 'error', type: 'representation_too_large', message };
+}
+
 async function buildWebFileResult(
   target: ReadTarget,
   envelope: WebResultEnvelope,
@@ -132,13 +137,8 @@ async function buildWebFileResult(
       ? target
       : resolveEndRelativeSelector(target, renderedLines.length);
   if (resolved.outline) {
-    if (render.truncated === true) {
-      return {
-        status: 'error',
-        type: 'representation_too_large',
-        message: ADAPTER_OUTLINE_TOO_LARGE_MESSAGE,
-      };
-    }
+    if (render.truncated === true)
+      return representationTooLarge(ADAPTER_OUTLINE_TOO_LARGE_MESSAGE);
     const lines = renderedLines ?? splitSourceLines(render.content);
     const read = await outlineReader(render.mediaType)(lines, resolved);
     return { ...read, ...envelope };
@@ -151,11 +151,7 @@ async function buildWebFileResult(
     target.pending !== undefined &&
     /(?:^|,)-/u.test(target.pending)
   ) {
-    return {
-      status: 'error',
-      type: 'representation_too_large',
-      message: ADAPTER_TAIL_TOO_LARGE_MESSAGE,
-    };
+    return representationTooLarge(ADAPTER_TAIL_TOO_LARGE_MESSAGE);
   }
   // A comma request needs the multi-range walk: the render is text in
   // hand, so it cannot go through the file-backed stream reader, and
@@ -164,7 +160,13 @@ async function buildWebFileResult(
     resolved.ranges === undefined
       ? selectSourceLines(render.content, resolved, render.mediaType)
       : selectMultiRangeLines(render.content, resolved, render.mediaType);
-  return { ...read, ...envelope };
+  // The render holds its own text, so its line count is known without a
+  // scan — the same count a `-K` member resolves against, counted once.
+  return {
+    ...read,
+    lineCount: (renderedLines ?? splitSourceLines(render.content)).length,
+    ...envelope,
+  };
 }
 
 function directorySelectorFailure(
@@ -195,7 +197,7 @@ function buildDirectoryReadResult(
   if (refusal !== undefined) return refusal;
   const options = {
     displayPath: target.path,
-    reserveCodeUnits: measureNativeModelOutput(envelope),
+    reserveCodeUnits: readAttributionReserve(envelope),
     ...(target.offset > 0 && { offset: target.offset }),
     ...(target.limit !== undefined && { limit: target.limit }),
     // The listing's own renderer places the pending members against the

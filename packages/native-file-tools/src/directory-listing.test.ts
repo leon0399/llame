@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type * as Filesystem from "node:fs/promises";
 import { readFile, readResolvedFile, MAX_RESULT_CODE_UNITS } from "./read";
-import { measureNativeModelOutput } from "./serialization";
+import { measureReadRendering } from "./source-lines";
 import {
   listDirectory,
   DIRECTORY_CHILD_CAP,
@@ -324,7 +324,7 @@ describe("directory listing", () => {
     });
     if (result.status !== "success") throw new Error();
     const rendered = result.content.split("\n").filter(Boolean).length - 1;
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
     // The rendered link lines are what the cap counts, so the listing stops
@@ -577,6 +577,33 @@ describe("directory listing", () => {
     expect(lines).toHaveLength(3);
     const childLines = lines.filter((l) => l.startsWith("    "));
     expect(childLines).toHaveLength(0);
+  });
+
+  it("carries the requested level's entry count on every listing form", async () => {
+    await mkdir(join(root, "sub"));
+    await writeFile(join(root, "a.txt"), "");
+    await writeFile(join(root, "b.txt"), "");
+
+    // A page carries the level's count, not the page's.
+    expect(await readFile({ path: `${root}:2-2` })).toMatchObject({
+      status: "success",
+      kind: "directory",
+      truncated: true,
+      nextOffset: 2,
+      entryCount: 3,
+    });
+    expect(await readFile({ path: root })).toMatchObject({
+      status: "success",
+      kind: "directory",
+      truncated: false,
+      entryCount: 3,
+    });
+    const empty = join(root, "sub");
+    expect(await readFile({ path: empty })).toMatchObject({
+      status: "success",
+      kind: "directory",
+      entryCount: 0,
+    });
   });
 
   it.each([

@@ -1,6 +1,10 @@
-import { RESULT_TRUNCATE_CHARS } from "@workspace/runtime-safety";
+import {
+  neutralizeReservedDelimiters,
+  RESULT_TRUNCATE_CHARS,
+  type UnknownRecord,
+} from "@workspace/runtime-safety";
+import { renderReadText } from "./model-text";
 import { assertResolvedTarget, NativeFileError, type ReadTarget } from "./path";
-import { measureNativeModelOutput } from "./serialization";
 import { selectMarkdownSourceLines } from "./markdown-ancestors";
 export const MAX_READ_LINES = 2000;
 export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
@@ -8,6 +12,17 @@ export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
 /** The shared cap minus any room a caller withheld for its own envelope. */
 export function resultBudget(target: { reserveCodeUnits?: number }): number {
   return MAX_RESULT_CODE_UNITS - (target.reserveCodeUnits ?? 0);
+}
+
+/**
+ * Width the model receives for a read candidate: its text rendering after the
+ * one reserved-name rule, so escaped delimiters and the framing count against
+ * the bound (tool-result-rendering "Bounds are measured on the neutralized
+ * rendering"). Callers pass the next offset they would store, so the
+ * continuation line a truncated result ends with is inside the measured width.
+ */
+export function measureReadRendering(result: UnknownRecord): number {
+  return neutralizeReservedDelimiters(renderReadText(result)).length;
 }
 
 export type LineRange = { startLine: number; endLine: number };
@@ -22,6 +37,10 @@ type ReadSuccessBase = {
   content: string;
   nextOffset?: number;
   truncated: boolean;
+  /** The source's line count, when it is known: a text read of a file small
+   *  enough to count by byte scan. Absent for an outline, for a file past
+   *  `READ_LINE_COUNT_MAX_BYTES`, and for an in-memory selection. */
+  lineCount?: number;
 };
 
 export type SingleReadSuccess = ReadSuccessBase & {
@@ -79,6 +98,9 @@ export function selectSourceLines(
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
   const end = target.raw ? boundedEnd : Math.min(lines.length, boundedEnd + 1);
   const result = emptyReadResult(target, lines.length === 0 ? 0 : requestedEnd);
+  // The source is in hand, so the selection counts its own lines and the
+  // rendering's total and continuation width are measured exactly.
+  result.lineCount = lines.length;
   result.truncated =
     boundedEnd < Math.min(requestedEnd, lines.length) ||
     (target.limit === undefined && boundedEnd < lines.length);
@@ -127,8 +149,11 @@ export function appendReadLine(
   const isFirstLineOfResult = result.content === "";
   const overflows =
     line === undefined ||
-    measureNativeModelOutput({ ...candidate, nextOffset: index + 1 }) >
-      resultBudget(target);
+    measureReadRendering({
+      ...candidate,
+      truncated: true,
+      nextOffset: index + 1,
+    }) > resultBudget(target);
   // The only index below the requested offset is the single preceding
   // context line. One that cannot be rendered is unavailable context, not a
   // truncated result, so dropping it keeps the requested range reachable
@@ -166,8 +191,11 @@ export function emptyReadResult(
   };
   if (target.realPath !== undefined) result.realPath = target.realPath;
   if (
-    measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
-    resultBudget(target)
+    measureReadRendering({
+      ...result,
+      truncated: true,
+      nextOffset: target.offset,
+    }) > resultBudget(target)
   )
     throw new NativeFileError("invalid_path");
   return result;
@@ -203,8 +231,11 @@ export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
   };
   if (target.realPath !== undefined) result.realPath = target.realPath;
   if (
-    measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
-    resultBudget(target)
+    measureReadRendering({
+      ...result,
+      truncated: true,
+      nextOffset: target.offset,
+    }) > resultBudget(target)
   )
     throw new NativeFileError("invalid_selector");
   return result;
@@ -237,8 +268,11 @@ export function appendMultiReadLine(
   };
   const isFirstLineOfResult = result.content === "";
   const overflows =
-    measureNativeModelOutput({ ...candidate, nextOffset: index + 1 }) >
-    resultBudget(target);
+    measureReadRendering({
+      ...candidate,
+      truncated: true,
+      nextOffset: index + 1,
+    }) > resultBudget(target);
   if (overflows) {
     result.truncated = true;
     // A line that fails even as the first line of a fresh result fails again

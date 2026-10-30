@@ -1,11 +1,15 @@
 import {
   invalidSelectorMessage,
-  measureNativeModelOutput,
   OUTLINE_UNSUPPORTED_MESSAGE,
   renderCollectedDirectory,
+  renderReadText,
   type DirectoryListingEntry,
 } from '@workspace/native-file-tools';
-import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
+import {
+  neutralizeReservedDelimiters,
+  RESULT_TRUNCATE_CHARS,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 import { type WebRender } from './pipeline';
 import { buildWebReadResult } from './result';
@@ -23,6 +27,13 @@ const RANGED_MARKDOWN = [
   '## Third',
   'Third body',
 ].join('\n');
+
+/** The width the model receives for a web read: its neutralized text
+ *  rendering, continuation line included (tool-result-rendering "Bounds are
+ *  measured on the neutralized rendering"). */
+function renderedUnits(result: UnknownRecord): number {
+  return neutralizeReservedDelimiters(renderReadText(result)).length;
+}
 
 /** A rendered text of `count` lines, wide enough to exceed the shared bound. */
 function renderedLines(count: number): string {
@@ -91,6 +102,36 @@ describe('buildWebReadResult', () => {
     expect(JSON.stringify(result)).not.toContain('text/markdown');
   });
 
+  it('stores the rendered line count of a text read', async () => {
+    const render = {
+      method: 'negotiated' as const,
+      content: renderedLines(100),
+    };
+    // A selected window still reports the page's own line count.
+    expect(
+      await buildWebReadResult(
+        { url: GUIDE_URL, selector: '10-12' },
+        GUIDE_URL,
+        render,
+      ),
+    ).toMatchObject({ status: 'success', lineCount: 100 });
+    // An outline stores none: its scan can stop early.
+    const outline = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'outline' },
+      GUIDE_URL,
+      {
+        method: 'text',
+        content: '# Guide\n\n## Setup\n',
+        mediaType: 'text/markdown',
+      },
+    );
+    expect(outline).toMatchObject({
+      status: 'success',
+      representation: 'outline',
+    });
+    expect(outline).not.toHaveProperty('lineCount');
+  });
+
   it('matches the native directory renderer, including a selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,
@@ -135,6 +176,7 @@ describe('buildWebReadResult', () => {
   - README.md
 `,
       truncated: false,
+      entryCount: 2,
       finalUrl: DIRECTORY_URL,
       method: 'adapter',
     });
@@ -157,6 +199,7 @@ describe('buildWebReadResult', () => {
 `,
       truncated: true,
       nextOffset: 1,
+      entryCount: 2,
       finalUrl: DIRECTORY_URL,
       method: 'adapter',
     });
@@ -702,6 +745,7 @@ describe('buildWebReadResult', () => {
       shownRange: { startLine: 3, endLine: 5 },
       nextOffset: 4,
       truncated: false,
+      lineCount: 10,
       finalUrl: GUIDE_URL,
       method: 'text',
     });
@@ -725,6 +769,7 @@ describe('buildWebReadResult', () => {
       shownRange: { startLine: 2, endLine: 2 },
       nextOffset: 2,
       truncated: false,
+      lineCount: 10,
       finalUrl: GUIDE_URL,
       method: 'raw',
     });
@@ -758,6 +803,7 @@ describe('buildWebReadResult', () => {
         { startLine: 9, endLine: 10 },
       ],
       truncated: false,
+      lineCount: 10,
       finalUrl: GUIDE_URL,
       method: 'negotiated',
     });
@@ -831,9 +877,7 @@ describe('buildWebReadResult', () => {
       nextOffset: 398,
     });
     expect(result).toHaveProperty('content', readWindow(1, 201));
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(renderedUnits(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 
   it('returns raw comma ranges verbatim', async () => {
@@ -894,9 +938,7 @@ describe('buildWebReadResult', () => {
       'content',
       expect.not.stringContaining('line 1200'),
     );
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(renderedUnits(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 
   it('omits notes when the render reports none', async () => {

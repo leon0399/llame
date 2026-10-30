@@ -8,18 +8,25 @@
  * `display`, is removed here, a legacy top-level `thumbnail` included, and the
  * reserved-name rule is applied before the result is measured or sent.
  *
- * A native file tool renders as its serialized text because the SDK output type
- * `text` is what carries its media reference; every other tool, successes and
- * failures alike, renders as a JSON value.
+ * A native file tool renders as text because the SDK output type `text` is
+ * what carries its media reference. A `read` success with content uses the
+ * read text shape — one header line, the attribution lines it carries, its
+ * numbered content, and the continuation line; every other result, successes
+ * and failures alike, renders as a JSON value.
  */
 
 import { z } from 'zod';
 
-import { serializeNativeModelOutput } from '@workspace/native-file-tools';
+import {
+  renderReadText,
+  serializeNativeModelOutput,
+} from '@workspace/native-file-tools';
 import {
   hasEscapedKeyCollision,
+  isString,
   modelVisibleResult,
   neutralizeReservedDelimiters,
+  type UnknownRecord,
 } from '@workspace/runtime-safety';
 
 import {
@@ -74,10 +81,19 @@ interface ModelView {
 
 /**
  * The result as the model may see it, with its text rendering and whether that
- * rendering had to escape the serialized JSON as one text.
+ * rendering had to escape the serialized JSON as one text. A `read` success
+ * with content renders in the read text shape; the one reserved-name rule is
+ * applied once to the whole rendering, and that is what the cap measures.
  */
-function modelView(result: ToolResult): ModelView {
-  const visible = modelVisibleResult(normalizedResult(result));
+function modelView(toolName: string, result: ToolResult): ModelView {
+  const normalized = normalizedResult(result);
+  if (toolName === 'read' && isReadTextResult(normalized)) {
+    return {
+      text: neutralizeReservedDelimiters(renderReadText(normalized)),
+      escapedAsText: true,
+    };
+  }
+  const visible = modelVisibleResult(normalized);
   // The deep neutralizer escapes one key and one value at a time, so an object
   // holding both a key and that key's escaped spelling would keep only the
   // later member. Escaping the serialized JSON as one text cannot collide, and
@@ -92,23 +108,60 @@ function modelView(result: ToolResult): ModelView {
 }
 
 /**
+ * A `read` success that carries content: a file of any representation, or a
+ * directory listing. Image, PDF, and skill-catalog results carry no content
+ * and keep their JSON rendering.
+ */
+function isReadTextResult(result: ToolResult): boolean {
+  return (
+    result.status === 'success' &&
+    (result.kind === 'file' || result.kind === 'directory') &&
+    isString(result.content)
+  );
+}
+
+/**
  * The text rendering of a result, for every tool and both outcomes. `toolName`
- * is the parameter a tool's own text shape branches on; in this layer every
- * tool renders its serialized result, which is also what the JSON rendering
- * below derives its value from.
+ * selects a tool's own text shape: a `read` success renders as its header,
+ * attribution lines, numbered content, and continuation line; every other
+ * result renders its serialized form.
  */
 export function renderToolResultText(
-  _toolName: string,
+  toolName: string,
   result: ToolResult,
 ): string {
-  return modelView(result).text;
+  return modelView(toolName, result).text;
+}
+
+/**
+ * Width the attribution lines of a read envelope add to the model-facing
+ * rendering: rendering a minimal read with the envelope fields, minus the same
+ * read without them. A caller withholds that much room from the read bound, so
+ * the envelope's own lines stay inside the shared cap
+ * (tool-result-rendering "Bounds are measured on the neutralized rendering").
+ */
+export function readAttributionReserve(envelope: UnknownRecord): number {
+  const minimal: UnknownRecord = {
+    status: 'success',
+    kind: 'file',
+    path: '',
+    representation: 'text',
+    content: '',
+    shownRange: null,
+    requestedRange: null,
+    truncated: false,
+  };
+  return (
+    neutralizeReservedDelimiters(renderReadText({ ...minimal, ...envelope }))
+      .length - neutralizeReservedDelimiters(renderReadText(minimal)).length
+  );
 }
 
 export function renderToolResultForModel(
   toolName: string,
   result: ToolResult,
 ): ToolResultRendering {
-  const { text, escapedAsText } = modelView(result);
+  const { text, escapedAsText } = modelView(toolName, result);
   if (Object.hasOwn(NATIVE_FILE_TOOL_NAMES, toolName)) {
     return { kind: 'text', text };
   }

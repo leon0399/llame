@@ -26,6 +26,7 @@ describe("collected directory listing", () => {
       path: "repo://workspace",
       content: "repo://workspace\n  - src/\n    - index.ts\n  - README.md\n",
       truncated: false,
+      entryCount: 2,
     });
   });
 
@@ -45,6 +46,7 @@ describe("collected directory listing", () => {
       path: "/workspace",
       content: "/workspace\n  - b\n",
       truncated: false,
+      entryCount: 2,
     });
   });
 

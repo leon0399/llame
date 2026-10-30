@@ -5,13 +5,13 @@ import {
   type MarkdownLine,
 } from "./markdown-structure";
 import { MarkdownRootTableTracker } from "./markdown-tables";
-import { measureNativeModelOutput } from "./serialization";
 import {
   appendReadLine,
   emptyMultiReadResult,
   emptyReadResult,
   MAX_READ_LINES,
   MAX_RESULT_CODE_UNITS,
+  measureReadRendering,
   renderSourceLine,
   resultBudget,
   splitSourceLines,
@@ -234,7 +234,7 @@ export function appendPluralLine(
   };
   const nextOffset = result.nextOffset ?? index + 1;
   if (
-    measureNativeModelOutput({ ...candidate, nextOffset }) >
+    measureReadRendering({ ...candidate, truncated: true, nextOffset }) >
     resultBudget(target)
   )
     return false;
@@ -295,10 +295,11 @@ function candidateFits(
     .map((entry) => renderSourceLine(entry.text, entry.line - 1))
     .join("");
   return (
-    measureNativeModelOutput({
+    measureReadRendering({
       ...context.result,
       content: context.result.content + content,
       shownRanges: withLineRanges(context.result.shownRanges, lines),
+      truncated: true,
       nextOffset: context.reserveNextOffset,
     }) <= resultBudget(context.target)
   );
@@ -328,11 +329,13 @@ export function admitAncestorChain(
 function initialSingleResult(
   target: ReadTarget,
   count: number,
+  lineCount: number | undefined,
 ): SingleInitialResult {
   const requestedEnd = target.offset + (target.limit ?? MAX_READ_LINES);
   const boundedEnd =
     target.offset + Math.min(target.limit ?? MAX_READ_LINES, MAX_READ_LINES);
   const result = emptyReadResult(target, requestedEnd);
+  if (lineCount !== undefined) result.lineCount = lineCount;
   result.truncated =
     boundedEnd < Math.min(requestedEnd, count) ||
     (target.limit === undefined && boundedEnd < count);
@@ -366,7 +369,10 @@ export class SingleCollector {
   private readonly scanner;
   private stopped = false;
 
-  constructor(private readonly target: ReadTarget) {
+  constructor(
+    private readonly target: ReadTarget,
+    private readonly lineCount?: number,
+  ) {
     this.start = Math.max(0, target.offset - 1);
     this.boundedEnd =
       target.offset + Math.min(target.limit ?? MAX_READ_LINES, MAX_READ_LINES);
@@ -392,7 +398,13 @@ export class SingleCollector {
     this.scanner.end();
     if (this.target.offset >= count && (count > 0 || this.target.offset !== 0))
       throw new NativeFileError("invalid_selector");
-    return renderSingle(this.selected, count, this.tracker, this.target);
+    return renderSingle({
+      selected: this.selected,
+      count,
+      tracker: this.tracker,
+      target: this.target,
+      lineCount: this.lineCount,
+    });
   }
 }
 
@@ -400,9 +412,10 @@ export function selectMarkdownSourceLines(
   source: string,
   target: ReadTarget,
 ): ReadSuccess {
-  const collector = new SingleCollector(target);
+  const lines = splitSourceLines(source);
+  const collector = new SingleCollector(target, lines.length);
   let count = 0;
-  for (const line of splitSourceLines(source)) {
+  for (const line of lines) {
     const keepReading = collector.push(count, markdownLineRecord(line));
     count += 1;
     if (!keepReading) break;
@@ -410,9 +423,15 @@ export function selectMarkdownSourceLines(
   return collector.finish(count);
 }
 
-function baseMulti(target: ReadTarget, requestedEnd: number): MultiReadSuccess {
+function baseMulti(
+  target: ReadTarget,
+  requestedEnd: number,
+  lineCount: number | undefined,
+): MultiReadSuccess {
+  const base = emptyMultiReadResult(target);
+  if (lineCount !== undefined) base.lineCount = lineCount;
   return {
-    ...emptyMultiReadResult(target),
+    ...base,
     requestedRanges: [{ startLine: target.offset + 1, endLine: requestedEnd }],
   };
 }
@@ -476,15 +495,24 @@ function promoteSingle(context: PromoteSingleContext): MultiReadSuccess {
   return result;
 }
 
-function renderSingle(
-  selected: Map<number, MarkdownLineRecord>,
-  count: number,
-  tracker: MarkdownAncestorTracker,
-  target: ReadTarget,
-): ReadSuccess {
-  const { result: singular, requestedEnd } = initialSingleResult(target, count);
+/** The window a single selection renders, and the count its framing names. */
+type SingleRender = {
+  selected: Map<number, MarkdownLineRecord>;
+  count: number;
+  tracker: MarkdownAncestorTracker;
+  target: ReadTarget;
+  lineCount: number | undefined;
+};
+
+function renderSingle(context: SingleRender): ReadSuccess {
+  const { selected, count, tracker, target, lineCount } = context;
+  const { result: singular, requestedEnd } = initialSingleResult(
+    target,
+    count,
+    lineCount,
+  );
   const selection = prepareSingleSelection(selected, target);
-  const base = baseMulti(target, requestedEnd);
+  const base = baseMulti(target, requestedEnd, lineCount);
   const firstRequested = target.offset + 1;
   const entries = admitAncestorChain({
     units: tracker.ancestorsFor(firstRequested),

@@ -302,6 +302,65 @@ describe('readFsReadResult', () => {
     });
   });
 
+  it('forwards the counts a newer daemon reports', () => {
+    expect(
+      readFsReadResult({
+        status: 'success',
+        kind: 'file',
+        path: 'machine://devl/a',
+        content: '1: hello\n',
+        truncated: true,
+        nextOffset: 1,
+        lineCount: 216,
+      }),
+    ).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: 'machine://devl/a',
+      content: '1: hello\n',
+      truncated: true,
+      nextOffset: 1,
+      lineCount: 216,
+    });
+    expect(
+      readFsReadResult({
+        status: 'success',
+        kind: 'directory',
+        path: 'machine://devl/a',
+        content: 'machine://devl/a\n  - b\n',
+        truncated: false,
+        entryCount: 3,
+      }),
+    ).toEqual({
+      status: 'success',
+      kind: 'directory',
+      path: 'machine://devl/a',
+      content: 'machine://devl/a\n  - b\n',
+      truncated: false,
+      entryCount: 3,
+    });
+  });
+
+  it('omits counts an older daemon never sent', () => {
+    // A daemon that predates the fields answers the same read without them,
+    // and the result keeps every field it did send.
+    expect(
+      readFsReadResult({
+        status: 'success',
+        kind: 'file',
+        path: 'machine://devl/a',
+        content: '1: hello\n',
+        truncated: false,
+      }),
+    ).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: 'machine://devl/a',
+      content: '1: hello\n',
+      truncated: false,
+    });
+  });
+
   it.each([
     [{ status: 'success', kind: 'file', path: 'p' }],
     [

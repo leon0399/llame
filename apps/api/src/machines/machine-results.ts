@@ -273,29 +273,28 @@ function readMediaRead(
   return isText(realPath) ? { ...media, realPath } : media;
 }
 
-/** The file/directory branch: content, truncation, and the next window. */
+/** The file/directory branch: content, truncation, the next window, and the
+ *  counts a daemon that knows them reports. */
 function readFileRead(
   value: SerializableRecord,
   kind: 'file' | 'directory',
   path: string,
 ): NativeFileReadResult | undefined {
-  const { content, truncated, nextOffset, realPath } = value;
+  const { content, truncated, nextOffset, realPath, lineCount, entryCount } =
+    value;
   if (!isText(content) || !isFlag(truncated)) return undefined;
-  if (isText(realPath) && isCount(nextOffset))
-    return {
-      status: 'success',
-      kind,
-      path,
-      content,
-      truncated,
-      realPath,
-      nextOffset,
-    };
-  if (isText(realPath))
-    return { status: 'success', kind, path, content, truncated, realPath };
-  if (isCount(nextOffset))
-    return { status: 'success', kind, path, content, truncated, nextOffset };
-  return { status: 'success', kind, path, content, truncated };
+  let result: NativeFileReadResult = {
+    status: 'success',
+    kind,
+    path,
+    content,
+    truncated,
+  };
+  if (isText(realPath)) result = { ...result, realPath };
+  if (isCount(nextOffset)) result = { ...result, nextOffset };
+  if (isCount(lineCount)) result = { ...result, lineCount };
+  if (isCount(entryCount)) result = { ...result, entryCount };
+  return result;
 }
 
 /** A `fs.bytes` answer: the byte length and media type, or a refusal. */

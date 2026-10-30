@@ -163,11 +163,13 @@ type MultiRenderContext = {
   count: number;
   tracker: MarkdownAncestorTracker;
   target: ReadTarget;
+  lineCount: number | undefined;
 };
 
 function renderMulti(context: MultiRenderContext): MultiReadSuccess {
-  const { passages, selected, count, tracker, target } = context;
+  const { passages, selected, count, tracker, target, lineCount } = context;
   const result = emptyMultiReadResult(target);
+  if (lineCount !== undefined) result.lineCount = lineCount;
   if (target.offset >= count && (count > 0 || target.offset !== 0))
     throw new NativeFileError("invalid_selector");
   if (count === 0) {
@@ -196,7 +198,10 @@ export class MultiCollector {
   private stopped = false;
   private haltedAt: number | undefined;
 
-  constructor(private readonly target: ReadTarget) {
+  constructor(
+    private readonly target: ReadTarget,
+    private readonly lineCount?: number,
+  ) {
     this.expanded = target.expandedRanges ?? [];
     this.passages = this.expanded.map((range) => ({
       range,
@@ -273,6 +278,7 @@ export class MultiCollector {
       count,
       tracker: this.tracker,
       target: this.target,
+      lineCount: this.lineCount,
     });
     if (this.haltedAt !== undefined && result.nextOffset === undefined) {
       result.truncated = true;

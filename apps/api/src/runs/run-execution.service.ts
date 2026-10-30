@@ -22,10 +22,7 @@ import {
   type SshClient,
   type SshClientFactory,
 } from '../ssh/ssh-client';
-import {
-  serializeNativeModelOutput,
-  statHostPath,
-} from '@workspace/native-file-tools';
+import { statHostPath } from '@workspace/native-file-tools';
 import { isRecord } from '@workspace/runtime-safety';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
@@ -244,7 +241,11 @@ import {
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
-import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
+import {
+  modelToolOutput,
+  renderToolResultForModel,
+  renderToolResultText,
+} from '../tools/model-text';
 import { MachinesService } from '../machines/machines.service';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import {
@@ -2931,7 +2932,13 @@ export class RunExecutionService {
           ['prompt-import', input.runId, step.attemptId, ordinal].join('-'),
           ORIGIN_PROMPT_IMPORT,
         );
-        return { result, text: serializeNativeModelOutput(result), admission };
+        // The imported body is the same text the model receives for this
+        // read (prompt-imports "Imported results equal native read output").
+        return {
+          result,
+          text: renderToolResultText('read', result),
+          admission,
+        };
       },
       nowMs: () => Date.now(),
     };

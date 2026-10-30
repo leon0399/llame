@@ -13,9 +13,9 @@ import {
   MarkdownRootTableTracker,
   type RootTableExcerpt,
 } from "./markdown-tables";
-import { measureNativeModelOutput } from "./serialization";
 import {
   MAX_READ_LINES,
+  measureReadRendering,
   renderSourceLine,
   resultBudget,
   type SingleReadSuccess,
@@ -284,11 +284,12 @@ class MarkdownOutlineReader {
       );
     }
     return (
-      measureNativeModelOutput({
+      measureReadRendering({
         ...this.result,
         content,
         requestedRange: this.requestedRangeForAppend(),
         shownRange: { startLine: first.line, endLine: last.line },
+        truncated: true,
         nextOffset: last.line - 1,
       }) <= resultBudget(this.target)
     );
@@ -377,8 +378,11 @@ class MarkdownOutlineReader {
       shownRange,
     };
     if (
-      measureNativeModelOutput({ ...candidate, nextOffset: coordinate }) >
-      resultBudget(this.target)
+      measureReadRendering({
+        ...candidate,
+        truncated: true,
+        nextOffset: coordinate,
+      }) > resultBudget(this.target)
     ) {
       return this.truncate(coordinate);
     }

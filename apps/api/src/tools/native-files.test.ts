@@ -22,6 +22,7 @@ import {
   nativeWriteTool,
   isNativeFileTool,
 } from './native-files';
+import { measureToolResultForModel } from './model-text';
 import { resolveAdvertisedTools } from './registry';
 import { composeTurnToolCatalog } from './turn-tool-catalog';
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
@@ -285,6 +286,7 @@ describe('Workspace-relative native paths', () => {
         ],
         nextOffset: 6,
         truncated: false,
+        lineCount: 7,
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -325,6 +327,7 @@ describe('Workspace-relative native paths', () => {
           { startLine: 5, endLine: 8 },
         ],
         truncated: false,
+        lineCount: 8,
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -926,7 +929,7 @@ describe('knowledge locator resolution', () => {
     expect(result).toMatchObject({
       status: 'success',
       kind: 'file',
-      path: `kb://${SPACE}/note.md:3-3`,
+      path: `kb://${SPACE}/note.md`,
       knowledgeSpaceId: SPACE,
       knowledgeSpaceName: 'Personal',
       notice: KNOWLEDGE_CONTENT_NOTICE,
@@ -959,7 +962,7 @@ describe('knowledge locator resolution', () => {
 
     expect(knowledge).toMatchObject({
       status: 'success',
-      path: `kb://${SPACE}/guide.md:6-6`,
+      path: `kb://${SPACE}/guide.md`,
       knowledgeSpaceId: SPACE,
       knowledgeSpaceName: 'Personal',
       notice: KNOWLEDGE_CONTENT_NOTICE,
@@ -1000,7 +1003,7 @@ describe('knowledge locator resolution', () => {
     });
     expect(knowledge).toMatchObject({
       status: 'success',
-      path: `kb://${SPACE}/guide.md:outline`,
+      path: `kb://${SPACE}/guide.md`,
       representation: 'outline',
       knowledgeSpaceId: SPACE,
       knowledgeSpaceName: 'Personal',
@@ -1036,10 +1039,38 @@ describe('knowledge locator resolution', () => {
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
     expect(JSON.stringify(result)).not.toContain(root);
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+    // The Knowledge envelope's attribution lines are part of what the bound
+    // reserves, so the model-facing rendering is what stays inside the cap.
+    expect(measureToolResultForModel('read')(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
     expect(runAsCalls).toBe(0);
+  });
+
+  it('keeps the Knowledge attribution inside the read bound', async () => {
+    await writeFile(
+      join(directory, 'long.md'),
+      Array.from(
+        { length: 2000 },
+        (_, index) => `line ${index} ${'x'.repeat(40)}\n`,
+      ).join(''),
+    );
+    const result = await runTool(
+      nativeReadTool,
+      { path: `kb://${SPACE}/long.md` },
+      knowledgeContext(),
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      truncated: true,
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    });
+    // The withheld room is the rendered width of the Space's own lines, so the
+    // truncated window leaves exactly enough for the rendering to fit.
+    expect(measureToolResultForModel('read')(result)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS,
+    );
   });
 
   it('rejects a malformed Knowledge outline range as an invalid selector', async () => {
