@@ -12,57 +12,78 @@ structured result document ([#1419](https://github.com/leon0399/llame/issues/141
 [#917](https://github.com/leon0399/llame/issues/917)). Measured on a real
 562-line TSX file with the `o200k_base` tokenizer:
 
-| Case                  | Today (tokens) | After (tokens) | Change |
-| --------------------- | -------------: | -------------: | -----: |
-| `read` 40 lines       |            575 |            395 |   −31% |
-| `read` 562 lines      |          4,758 |          3,936 |   −17% |
-| `edit`, 4-line change |            280 |            109 |   −61% |
-| `write` 562 lines     |          4,740 |              8 |  −100% |
-| `grep`, 4 passages    |            447 |            332 |   −26% |
-| `bash`, 30 lines      |            361 |            282 |   −22% |
-| `bash`, no output     |             27 |             13 |   −52% |
+| Case                                     | Today (tokens) | After (tokens) | Change |
+| ---------------------------------------- | -------------: | -------------: | -----: |
+| `read` 40 lines                          |            575 |            395 |   −31% |
+| `read`, bound-limited (386 of 562 lines) |          4,758 |          3,961 |   −17% |
+| `edit`, 4-line change                    |            280 |            109 |   −61% |
+| `write` 562 lines                        |          4,740 |              8 |  −100% |
+| `grep`, 4 passages                       |            447 |            336 |   −25% |
+| `bash`, 30 lines                         |            361 |            282 |   −22% |
+| `bash`, no output                        |             27 |             13 |   −52% |
 
-The "after" column is the text shape this change specifies; the `grep` row
-keeps today's opaque cursor (192 of its 332 tokens), which a later change
-replaces. The measurement script and fixture are recorded in
-[design.md](design.md).
+The "after" column is the text shape this change specifies, with the shown
+window held equal to today's. The bound-limited row is today's 16,000-unit JSON
+bound stopping at line 386; its "after" adds the continuation line and does not
+refill the window to the text bound. The `grep` row keeps today's opaque cursor
+(192 of its 336 tokens), which a later change replaces. The measurement script
+and fixture are recorded in [design.md](design.md).
 
 A second reason is experimentation. The owner UI renders an `edit` as a diff it
 computes from the call's `oldText`/`newText`. An edit regime that does not take
 those arguments (hashline anchors, line ranges) has nothing to render from. The
-persisted part needs display data the model never sees, through one rule rather
-than the three name-based special cases `thumbnail` has today.
+stored part needs display data the model never sees, through one rule rather
+than the name-based special cases `thumbnail` has today.
 
 ## What Changes
 
 - **BREAKING (model-facing)**: every tool result reaching a model passes through
-  one rendering entry point, live, on replay, and in the Continue projection.
-  `read`, `edit`, `write`, `grep`, and `bash` render as plain text: one header
-  line, `N: text` source lines, and one bracketed continuation notice. Every
-  other tool keeps its JSON rendering through the same entry point.
-- Persisted tool parts keep their structured object. A reserved `display` key
-  on any result is persisted and never rendered. The image `thumbnail` moves to
-  `display.thumbnail`.
-- `edit` persists `display: { startLine, oldText, newText }`, drops `diff`, and
+  one rendering function, live, on replay, and in the Continue projection. Its
+  input is the stored part. `read`, `edit`, `write`, `grep`, and `bash`
+  successes render as plain text: one header line, `N: text` source lines, and
+  one bracketed continuation notice. Every other result, errors included, keeps
+  its JSON rendering through the same function.
+- Stored tool parts keep their structured object. A reserved `display` key on
+  any result is stored and never rendered. The image `thumbnail` moves to
+  `display.thumbnail`; a part stored with a top-level `thumbnail` is still
+  stripped on every path.
+- `edit` stores `display: { startLine, oldText, newText }`, drops `diff`, and
   keeps a post-edit `content` region of the changed lines plus two live lines
-  on each side. The model sees a header and the numbered region, never a diff.
-- `write` persists no `content` and renders as one status line.
-- `grep` renders each file once under a `## <locator>` line, marks a matched
-  line as `*N: text`, and emits context lines as `N: text`; the persisted
-  passages keep `locator`, `content`, and `matches`.
-- `bash` persists `wallTimeMs`, renders `exit <code>, <seconds> s` as its
-  header, `(no output)` when both streams are empty, and a `[stderr]` section
-  only when stderr is non-empty; `operation` and `executor` are dropped.
-- Text payloads are neutralized under the reserved-delimiter rule only: a
-  reserved tag name (`tool-result`, `system-reminder`, …) is escaped, every
-  other `<` and `>` survives, so a line copied from a result is an exact `edit`
-  target. JSON payloads keep today's neutralization.
-- Result bounds (16,000 units per native result, 15,000 per `grep` page,
-  8,000/32,000 on replay) are measured on the rendered text.
-- The `read` header carries the source's total line count.
+  on each side, with the post-edit `lineCount`. The model sees a header and
+  the numbered region, never a diff.
+- `write` stores no `content` and renders as one status line with `lineCount`.
+- Text reads of files, web renders, `kb://`, and `skill://` store `lineCount`;
+  directory listings store `entryCount`; outlines store neither. The `read`
+  header carries the count when present.
+- `grep` renders each run of a file's passages under one `## <locator>` line,
+  marks a matched line as `*N: text`, and emits context lines as `N: text`;
+  the stored passages keep `locator`, `content`, and `matches`.
+- `bash` stores `wallTimeMs` when the producer reports it, renders `exit
+  <code>, <seconds> s` as its header, `(no output)` when both streams are
+  empty, and a `[stderr]` section only when stderr is non-empty; `operation`
+  and `executor` are dropped. A `command_failed` message uses the same shape
+  with the non-zero exit code.
+- **BREAKING (neutralization)**: every tool result payload, text or JSON,
+  live or replayed, is neutralized under one rule: a tag naming a reserved
+  delimiter is escaped, every other character survives. The wholesale
+  `<`/`>` escaping of native results and the unmatched-closer rule of
+  `neutralizeToolResult` are deleted, so a line copied from a result is an
+  exact `edit` target. The replay framing stops applying a second pass.
+- Result bounds (16,000 units per native result, 15,000 per `grep` page) are
+  measured on the neutralized rendering, so the neutralizer and renderers live
+  in a package every bounding process can import, the Machine daemon included.
+  The global result cap measures the rendering too.
+- Machine wire changes are additive: `lineCount`, `entryCount`, `wallTimeMs`,
+  and `display` are new optional fields; the hub maps an old daemon's
+  `diff`/`content`/`operation`/`executor` away and renders without the missing
+  counts.
+- Parts stored before this change render from the fields they have: no total
+  in a `read` or `write` header, no counts in an `edit` header, no time in a
+  `bash` header, no content for a stored `write`.
 - `conversation_read` is untouched: it is due to fold into `read`.
 - A root `gpt-tokenizer` dev dependency and a measurement script record
-  before/after token counts on a fixed fixture set.
+  before/after token counts on a fixed fixture set; the "today" column is a
+  committed fixture captured at `64db12c9`.
 
 ## Assumptions, confirmed with Leo
 
@@ -77,20 +98,24 @@ Settled in the grilling of 2026-10-30; codes are stable.
 - Q4 — content-bearing tools render as plain text in this change;
   `conversation_read` is excluded; structured tools stay JSON.
 - Q5 — reserved-tag neutralization replaces wholesale `<`/`>` escaping.
-- Q6, Q9 — `grep` prints each path once and marks a matched line with a `*`
-  before its number; one line grammar (`[*]N: text`) for every tool.
+- Q6, Q9 — `grep` prints each path once per run of passages and marks a
+  matched line with a `*` before its number; one line grammar (`[*]N: text`)
+  for every tool.
 - Q7 — the `read` header carries the total line count.
 - Q8 — `bash` renders the Codex-style header with exit code and wall time.
 
 Assumptions that follow from those answers but were not asked:
 
 - `conversation_read` keeps its JSON rendering and its current fields.
-- Image and PDF results, which carry no `content`, keep JSON rendering.
+- Image, PDF, and `skill://` catalog results, which carry no `content`, keep
+  JSON rendering.
 - Continuation fields (`nextOffset`, `cursor`, `nextCursor`) keep their
   semantics; the text rendering shows each as one notice line. Replacing them
   with re-readable artifacts is [#915](https://github.com/leon0399/llame/issues/915),
   a separate change.
 - Clearing old tool results (#1419 T9) is postponed, as Leo stated.
+- A non-zero exit stays a `command_failed` error outcome; only its message
+  takes the text shape.
 
 ## Deviation from the grilling record
 
@@ -99,61 +124,92 @@ ordinary `<div>` survives". The sanitizer in use also escapes an _unmatched_
 closing tag (a value may never close a tag it did not open within that value).
 A 20-line window of a JSX file routinely shows `</div>` without its opener, so
 that rule would rewrite exactly the lines a model copies into `oldText`. This
-proposal therefore applies only the reserved-name rule to text payloads: a tag
+proposal therefore applies only the reserved-name rule to tool results: a tag
 naming a reserved delimiter is escaped in any position and spelling; every
-other tag passes. The wrapper around a tool result is a bracketed text line,
-not a tag, and the wire carries tool results as structured blocks, so the
-unmatched-closer rule protects nothing there. Leo to confirm.
+other tag passes. It applies the same rule to JSON payloads and error texts,
+so there is one regime for tool results instead of three (`\u003c` for native
+JSON, both rules for other JSON, both rules again over the replay wrapper).
+The wrapper around a tool result is a bracketed text line, not a tag, and the
+wire carries tool results as structured blocks, so the unmatched-closer rule
+protects nothing there. Leo to confirm.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `tool-result-rendering`: how a persisted tool result becomes the text or
-  JSON a model reads — the single entry point, the `display` partition, the
-  text shapes of `read`, `edit`, `write`, `grep`, and `bash`, the line prefix
-  convention, header and continuation lines, neutralization of text payloads,
-  and bound measurement on rendered text.
+- `tool-result-rendering`: how a stored tool part becomes the text or JSON a
+  model reads — the rendering function, the `display` partition, the global
+  cap on the rendering, the text shapes of `read`, `edit`, `write`, `grep`,
+  and `bash`, the line prefix grammar, header, attribution, and continuation
+  lines, rendering of parts stored before the contract, the one neutralization
+  rule, and bound measurement on the neutralized rendering.
 
 ### Modified Capabilities
 
 - `native-file-tools`: "Exact edit replaces one current unique match" returns
-  display data and a two-line-context region instead of a diff; "Only a media
-  read's image result carries a media locator" stores the thumbnail under
-  `display`.
+  display data, `lineCount`, and a two-line-context region instead of a diff;
+  "Image reads return an image result" and "Only a media read's image result
+  carries a media locator" store the thumbnail as `display.thumbnail`. Added:
+  "A write result carries no content" and "A text read carries the source
+  line count when it is known".
 - `media-attachments`: "Unstored images carry a display-only inline thumbnail",
   "A thumbnail over its cap is omitted", and "Thumbnails are display-only" name
   `display.thumbnail` as the stored location.
 - `grep-tool`: "Results are ordered, bounded, and paged by a keyset cursor"
   measures its 15,000-unit page budget on the rendered model text.
-- `bash-execution`: "Command results are bounded and explicit" adds wall time
-  and the empty-output marker.
+- `bash-execution`: "Command results are bounded and explicit" adds wall time,
+  the `command_failed` text shape, and drops the constant fields.
 - `knowledge-tools`: "Knowledge content is untrusted and potentially stale"
-  states the reserved-delimiter rule as the one exception to verbatim bytes.
+  states the reserved-name rule as the one exception to verbatim bytes.
+- `tool-calling`: "Framing llame authors inside tool results is a packaged
+  template" hands payload neutralization to `tool-result-rendering` and keeps
+  the framing bytes.
 
-Deliberately unchanged: `tool-calling` "Tool observations survive into later
-turns as stored UI parts" (its budgets and `thumbnail` removal hold under the
-`display` rule; the rendered text is the serialized text it bounds);
-`conversation-reads`; `chat-search`; `web-search`; `mcp-tools`;
-`native-file-tools` read, directory, web-read, image, and PDF result
-requirements, whose fields stay in the persisted object.
+Deliberately unchanged, with the reading this change relies on:
+
+- `tool-calling` "Tool failure is an observation, not a crash": its cap is
+  "measured over the serialized result"; this change defines the serialized
+  result as the rendering, and its `thumbnail` lives at `display.thumbnail`.
+- `tool-calling` "Tool observations survive into later turns as stored UI
+  parts": its budgets measure "the exact serialized text of the pair", which
+  is the rendered pair; `thumbnail` there means `display.thumbnail`, and a
+  stored top-level `thumbnail` is removed on every path as the requirement
+  demands.
+- `native-file-tools` "Web read results carry the final URL and retrieval
+  method": the stored result and its `content` carry no header; the header is
+  part of the rendering only.
+- `grep-tool` "Every hit is a locator that the read group admits": the stored
+  passages keep their ranged `locator`; the rendered `##` line plus a line
+  number forms the same argument.
+- `conversation-reads`, `chat-search`, `web-search`, `mcp-tools`,
+  `agent-skills`, `prompt-imports`, `remote-machines` (additive wire fields
+  keep protocol version 1 as the Git methods did), and the `read`, directory,
+  PDF, and outline requirements of `native-file-tools`.
 
 ## Impact
 
-- `packages/native-file-tools`: `serialization.ts` becomes the rendering entry
-  point; `mutate.ts` result shape; `source-lines.ts` and `grep/page.ts` budget
-  measurement on rendered text.
-- `apps/api`: `run-execution.service.ts` `toModelOutput` for every tool,
+- `packages/runtime-safety`: the reserved-name neutralizer and the global cap
+  measured on the rendering.
+- `packages/native-file-tools`: `serialization.ts` replaced by the
+  `read`/`edit`/`write` renderers; `mutate.ts` result shape; `lineCount` and
+  `entryCount`; `source-lines.ts`, `stream-read.ts`, `directory-listing.ts`,
+  and `grep/page.ts` budget measurement on rendered text; the `grep` renderer.
+- `packages/machine-protocol`, `apps/machine`: additive wire fields.
+- `apps/api`: `run-execution.service.ts` `toModelOutput` for every tool and
+  the end of result neutralization in `settleBoundTool`;
   `tool-observation-part.ts`, `continue-projection.ts`,
-  `tool-observation-neutralizer.ts`, `bash-result.ts` and the three bash
-  producers, `grep.ts`, `prompt-imports-item.ts` (thumbnail location),
-  `machine-files.ts`.
+  `tool-observation-neutralizer.ts`, `instance-config/authored-text.ts`,
+  `tools/runner.ts`, `bash-result.ts` and the three bash producers, `grep.ts`,
+  `chats/prompt-imports-item.ts` (thumbnail location), `machine-files.ts`,
+  `machine-call.ts`, `skills/skill-results.ts`, `web-read/result.ts` and
+  `native-files.ts` (envelope reservation becomes attribution-line width).
 - `packages/ui`: `edit.tsx` renders from `display`; `read.tsx` image thumbnail
   from `display`; `bash.tsx` shows wall time; stories.
 - Docs: `docs/product/reference/tools/{read,edit,write,grep,bash}.md`,
   `apps/api/src/tools/prompts/read.md` (the JSON-decoding instruction is
-  deleted), `CHANGELOG.md`.
-- Historical persisted parts keep their authored shape; the UI tolerates both.
+  deleted; the reserved-name rule is named), `CHANGELOG.md`.
+- Historical stored parts keep their authored shape; renderers and UI rows
+  tolerate both.
 - New root dev dependency: `gpt-tokenizer`.
 
 ## Non-Goals
@@ -164,18 +220,23 @@ requirements, whose fields stay in the persisted object.
   `web_search`, or MCP result shapes or their JSON rendering.
 - Shortening spec-mandated untrusted-content notices (#1419 T7).
 - Plain-text cursors for `grep` (#1419 T10 comment); superseded by #915.
+- Making a non-zero exit a success outcome.
 - Any change to edit matching semantics; this change only makes a later regime
   renderable.
 
 ## Acceptance
 
-- Every tool result a model receives, live or replayed, is produced by one
-  function; a `display` key never reaches a model on any path.
+- Every tool result a model receives, live, replayed, or kept by Continue, is
+  produced by one function; a `display` key or a stored top-level `thumbnail`
+  never reaches a model on any path.
 - `write` results carry no content; `edit` results carry no diff; both are
   verified by a test that fails on the old shape.
 - A `read`, `edit`, `grep`, or `bash` result with `</div>` reaches the model
-  verbatim; one with `</tool-result>` reaches it escaped.
+  verbatim; one with `</tool-result>` reaches it escaped; a replayed
+  `command_failed` message gets the same treatment.
+- A read that fills its 16,000-unit text bound is stored without a
+  `truncationNotice`.
 - Before/after `o200k_base` token counts on the fixture set are recorded in
   `design.md` and reproducible by the committed script.
 - The owner UI renders live and historical `edit`, `write`, `read`, `grep`,
-  and `bash` parts, including parts persisted before this change.
+  and `bash` parts, including parts stored before this change.
