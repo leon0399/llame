@@ -32,14 +32,14 @@ move to `mutation-text`; the wire field stays with the field. No generated outpu
 
 ## 1. Proposal
 
-- [ ] 1.1 Create `tool-result-model-text/proposal` from `master` with `$gh-stack` before any change
+- [x] 1.1 Create `tool-result-model-text/proposal` from `master` with `$gh-stack` before any change
       artifact; verify with `gh stack view --json`.
-- [ ] 1.2 Write the proposal, design, delta specs, and this ledger; verify with
+- [x] 1.2 Write the proposal, design, delta specs, and this ledger; verify with
       `pnpm exec openspec validate tool-result-model-text --strict`, `pnpm lint:markdown`,
       `pnpm format:check`, and `git diff --check`.
-- [ ] 1.3 Run two rounds of `$iterative-review-refinement` with two independent reviewers each;
+- [x] 1.3 Run two rounds of `$iterative-review-refinement` with two independent reviewers each;
       commit each round separately and record the finding counts in the PR body.
-- [ ] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
+- [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
       before ready.
 - [ ] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
 
