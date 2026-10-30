@@ -61,7 +61,6 @@
     "oxlint": "catalog:",
     "oxfmt": "catalog:",
     "shadcn": "catalog:",
-    "ts-complex": "1.0.0",
     "tsx": "catalog:",
     "turbo": "^2.10.4",
     "typescript": "catalog:",

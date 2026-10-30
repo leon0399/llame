@@ -11,11 +11,7 @@ const REASONING_MATH_TEXT =
   "Rest energy is $E = mc^2$, and the Pythagorean identity is \\(a^2 + b^2 = c^2\\). Summing the first n integers:\n\n" +
   String.raw`$$\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$$`;
 
-// `Reasoning`'s props extend `ComponentProps<typeof Collapsible>`, whose
-// props reference Radix's non-exported `CollapsibleProps` — an inferred
-// `satisfies Meta<typeof Reasoning>` object type can't be named once
-// exported, so annotate explicitly instead (tsgo TS2883).
-const meta: Meta<typeof Reasoning> = {
+const meta = {
   component: Reasoning,
   // Full-width: Reasoning is a `w-full` collapsible, so let it span the canvas
   // and align to the real edges. No narrowing decorator — a centered inner
@@ -28,7 +24,7 @@ const meta: Meta<typeof Reasoning> = {
       <ReasoningContent>{REASONING_TEXT}</ReasoningContent>
     </Reasoning>
   ),
-};
+} satisfies Meta<typeof Reasoning>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
