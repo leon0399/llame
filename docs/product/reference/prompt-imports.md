@@ -67,11 +67,17 @@ its selector attached. Every `read` locator is accepted:
 | `skill://<name>/<path>`      | a [skill package](locators/skill.md) file, as data |
 | `http://…`, `https://…`      | the [web](locators/web.md) read                    |
 | `ssh://<host>/<path>`        | an [ssh locator](locators/ssh.md) read             |
+| `machine://<name>/<path>`    | a [Machine](locators/machine.md) file              |
 | `media://<id>`               | an image or PDF you [stored](locators/media.md)    |
 
 An `ssh://` target imports only when the operator has enabled the `ssh` section
 (see [ssh](../operator/ssh.md)); without it the marker stays prose and no SSH
 process starts.
+
+Prompt imports accept every locator scheme `read` accepts. A scheme `read` does
+not accept, such as `@foo://host/doc.md`, stays prose with no read and no audit
+event. Only your prompt gets this: markers in instruction files and skill files
+import local files only, and markers in imported content are not followed.
 
 On a text target any [selector](selectors.md) rides along, so the imported body
 is what `read` returns for the same locator, context lines and Markdown ancestor

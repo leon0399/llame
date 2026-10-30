@@ -23,6 +23,8 @@ import {
   parseMachineLocator,
 } from '../machines/machine-locator';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
+import { SSH_SCHEME } from '../ssh/ssh-locator';
+import { READ_LOCATOR_SCHEMES } from '../tools/native-files';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
@@ -232,26 +234,30 @@ function planFileAlias(
     : undefined;
 }
 
+/**
+ * Sources with a probe or an availability gate plan here. Every other scheme
+ * native `read` accepts imports through one direct read, so a scheme `read`
+ * gains never stays silent prose; one `read` refuses stays prose.
+ */
 function planScheme(
   request: PromptImportRequest,
   scheme: string,
   target: string,
 ): ImportPlan | undefined {
-  if (scheme === 'http' || scheme === 'https' || scheme === 'skill') {
-    return { kind: 'direct', readPath: target };
-  }
-  if (scheme === KNOWLEDGE_LOCATOR_SCHEME && request.knowledgeAvailable) {
-    return { kind: 'knowledge', readPath: target };
+  if (scheme === KNOWLEDGE_LOCATOR_SCHEME) {
+    return request.knowledgeAvailable
+      ? { kind: 'knowledge', readPath: target }
+      : undefined;
   }
   if (scheme === MEDIA_LOCATOR_SCHEME) {
     return { kind: 'media', readPath: target };
   }
   // A probe would cost a connection and admission resolves asynchronously, so
   // `ssh://` reads directly like web: `read` itself admits it (ssh-locator D6a).
-  if (scheme === 'ssh' && request.sshAvailable) {
-    return { kind: 'direct', readPath: target };
-  }
-  return undefined;
+  if (scheme === SSH_SCHEME && !request.sshAvailable) return undefined;
+  return READ_LOCATOR_SCHEMES.includes(scheme)
+    ? { kind: 'direct', readPath: target }
+    : undefined;
 }
 
 async function handleTarget(

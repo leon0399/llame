@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import type { PermissionDecision } from '../tools/permissions/types';
+import { READ_LOCATOR_SCHEMES } from '../tools/native-files';
 import { type ToolResult } from '../tools/types';
 import {
   MAX_PROMPT_IMPORT_BYTES,
@@ -1291,5 +1292,43 @@ describe('resolvePromptImports ssh targets', () => {
     expect(result.outcomes).toHaveLength(1);
     expect(result.outcomes[0]).not.toHaveProperty('body');
     expect(result.outcomes[0]?.outcome).not.toBe('imported');
+  });
+});
+
+describe('resolvePromptImports native read schemes', () => {
+  const MACHINE = 'machine://box/etc/hostname';
+  const KB = 'kb://notes/a.md';
+  const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  /** Probed sources need a target their probe finds; any other scheme reads directly. */
+  const probed = new Map([
+    ['machine', MACHINE],
+    ['kb', KB],
+    ['media', MEDIA],
+  ]);
+  const markers = READ_LOCATOR_SCHEMES.map(
+    (scheme) => probed.get(scheme) ?? `${scheme}://host/doc.md`,
+  );
+
+  it('attempts a reachable marker of every scheme native read accepts', async () => {
+    const { calls, run } = createHarness({
+      machine: { 'box/etc/hostname': MACHINE },
+      knowledge: { [KB]: KB },
+      media: [MEDIA],
+    });
+
+    const result = await run(markers.map((marker) => `@${marker}`).join(' '));
+
+    expect(calls.readLocators).toEqual(markers);
+    expect(result.outcomes.map((outcome) => outcome.locator)).toEqual(markers);
+  });
+
+  it('keeps a scheme native read does not accept as prose', async () => {
+    const { calls, run } = createHarness();
+
+    const result = await run('@foo://host/doc.md');
+
+    expect(calls.admits).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
   });
 });
