@@ -74,6 +74,11 @@ An `ssh://` target imports only when the operator has enabled the `ssh` section
 (see [ssh](../operator/ssh.md)); without it the marker stays prose and no SSH
 process starts.
 
+A `machine://` target imports only when the operator has configured Machines
+and allows `read` (see [Machines](../operator/machines.md)); otherwise the
+marker stays prose. The listing forms `machine://` and `machine://<name>` read
+directly, like web targets.
+
 Prompt imports accept every locator scheme `read` accepts. A scheme `read` does
 not accept, such as `@foo://host/doc.md`, stays prose with no read and no audit
 event. Only your prompt gets this: markers in instruction files and skill files

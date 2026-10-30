@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import type { PermissionDecision } from '../tools/permissions/types';
-import { READ_LOCATOR_SCHEMES } from '../tools/native-files';
+import { readLocatorSchemes } from '../tools/native-files';
 import { type ToolResult } from '../tools/types';
 import {
   MAX_PROMPT_IMPORT_BYTES,
@@ -541,7 +541,7 @@ describe('resolvePromptImports Machine targets', () => {
     expect(result).toEqual({ outcomes: [], omitted: [] });
   });
 
-  it('keeps the Machine listing forms and refusals prose', async () => {
+  it('reads the Machine listing forms directly and keeps a refusal prose', async () => {
     const { calls, run } = createHarness({
       machine: { 'dev/notes/a.md': MACHINE },
     });
@@ -550,6 +550,18 @@ describe('resolvePromptImports Machine targets', () => {
 
     expect(calls.admits).toEqual([]);
     expect(calls.machineProbes).toEqual([]);
+    expect(calls.readLocators).toEqual(['machine://', 'machine://dev']);
+    expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
+      'machine://',
+      'machine://dev',
+    ]);
+  });
+
+  it('keeps the Machine listing forms prose when no Machine world is available', async () => {
+    const { calls, run } = createHarness({ machineAvailable: false });
+
+    const result = await run('@machine:// @machine://dev');
+
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({ outcomes: [], omitted: [] });
   });
@@ -1305,9 +1317,23 @@ describe('resolvePromptImports native read schemes', () => {
     ['kb', KB],
     ['media', MEDIA],
   ]);
-  const markers = READ_LOCATOR_SCHEMES.map(
+  const markers = readLocatorSchemes().map(
     (scheme) => probed.get(scheme) ?? `${scheme}://host/doc.md`,
   );
+
+  it('keeps every scheme native read accepts today', () => {
+    expect(readLocatorSchemes()).toEqual(
+      expect.arrayContaining([
+        'machine',
+        'kb',
+        'skill',
+        'media',
+        'http',
+        'https',
+        'ssh',
+      ]),
+    );
+  });
 
   it('attempts a reachable marker of every scheme native read accepts', async () => {
     const { calls, run } = createHarness({

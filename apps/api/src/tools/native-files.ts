@@ -130,7 +130,7 @@ type LocatorReader = (
 
 /**
  * The locator schemes native file tools dispatch, keyed by the parsed,
- * lower-cased scheme. Consumers read {@link READ_LOCATOR_SCHEMES} instead of
+ * lower-cased scheme. Consumers query {@link readAcceptsScheme} instead of
  * keeping their own scheme list, so a scheme added here reaches them too.
  */
 const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
@@ -139,15 +139,10 @@ const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
       executeMachineNative(context, call, call.input.path),
     [KNOWLEDGE_LOCATOR_SCHEME]: executeKnowledge,
     [SKILL_LOCATOR_SCHEME]: executeSkill,
-    [MEDIA_LOCATOR_SCHEME]: (context, call) =>
-      context.media === undefined
+    [MEDIA_LOCATOR_SCHEME]: ({ media, abortSignal }, call) =>
+      media === undefined
         ? Promise.resolve(unknownSchemeResult())
-        : executeMediaRead(
-            context.media,
-            call.operation,
-            call.input.path,
-            context.abortSignal,
-          ),
+        : executeMediaRead(media, call.operation, call.input.path, abortSignal),
     // The lower-cased scheme selects the branch; the branch re-parses the
     // submitted text, which policy matched, and requests its canonical form.
     http: (context, call) => executeWebRead(context, call),
@@ -159,8 +154,15 @@ const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
   } satisfies Record<string, LocatorReader>),
 );
 
-/** Every parsed, lower-cased scheme native `read` dispatches. */
-export const READ_LOCATOR_SCHEMES = [...LOCATOR_READERS.keys()];
+/** Whether native `read` dispatches this parsed, lower-cased scheme now. */
+export function readAcceptsScheme(scheme: string): boolean {
+  return LOCATOR_READERS.has(scheme);
+}
+
+/** Every parsed, lower-cased scheme native `read` dispatches now. */
+export function readLocatorSchemes(): ReadonlyArray<string> {
+  return [...LOCATOR_READERS.keys()];
+}
 
 function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {
   const root = context.workspaceRoot?.current();

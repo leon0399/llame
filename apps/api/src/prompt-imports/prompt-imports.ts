@@ -24,7 +24,7 @@ import {
 } from '../machines/machine-locator';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { SSH_SCHEME } from '../ssh/ssh-locator';
-import { READ_LOCATOR_SCHEMES } from '../tools/native-files';
+import { readAcceptsScheme } from '../tools/native-files';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
@@ -202,9 +202,9 @@ function planTarget(
 /**
  * A Machine locator plans like a host path: the same admission pre-evaluation
  * over the canonical locator the read submits, then a probe of the absolute
- * Machine path. Only a locator that names a Machine path can plan — the
- * listing forms and the refusals stay prose — and no Machine is probed unless
- * the Run may reach the configured Machines.
+ * Machine path. A listing form (`machine://`, `machine://<name>`) has nothing
+ * to probe, so it reads directly like web; a refusal stays prose. No Machine
+ * is reached unless the Run may reach the configured Machines.
  */
 function planMachineTarget(
   request: PromptImportRequest,
@@ -212,6 +212,9 @@ function planMachineTarget(
 ): ImportPlan | undefined {
   if (!request.machineAvailable) return undefined;
   const parsed = parseMachineLocator(locator);
+  if (parsed.kind === 'list' || parsed.kind === 'roots') {
+    return { kind: 'direct', readPath: locator };
+  }
   if (parsed.kind !== 'path') return undefined;
   return {
     kind: 'machine',
@@ -255,7 +258,7 @@ function planScheme(
   // A probe would cost a connection and admission resolves asynchronously, so
   // `ssh://` reads directly like web: `read` itself admits it (ssh-locator D6a).
   if (scheme === SSH_SCHEME && !request.sshAvailable) return undefined;
-  return READ_LOCATOR_SCHEMES.includes(scheme)
+  return readAcceptsScheme(scheme)
     ? { kind: 'direct', readPath: target }
     : undefined;
 }
