@@ -189,6 +189,10 @@ assessment.
 64. [Tortie](./tortie.md) — macOS Electron agent multiplexer: private tmux sessions, SQLite manifest-before-spawn, armed resume commands, and cross-project needs-input attention
 65. [OpenCodex](./opencodex.md) — Provider proxy / Responses wire translator (better as a tool); ChatGPT account-pool affinity
 66. [OpenBot](./openbot.md) — Electron desktop meta-harness: per-agent workspaces, peer CLIs, a host-owned queue, and a macOS Seatbelt workspace mode that refuses to start on Linux and Windows
+67. [PiNomad](./pinomad.md) — Self-hosted Pi Durable host: Mac, web, and iOS clients attach to one machine, and coding tools run there with no approval gate
+68. [ThinkRail](./thinkrail.md) — JetBrains agentic IDE around in-process pi: git-worktree workspaces, a project trust grant, and MCP calls that ask unless marked read-only
+69. [OpenDuet](./openduet.md) — Proactive agent on vendored CopilotKit OpenBot: per-bot computers, a deny-by-default action gateway, and credentials kept out of the transcript
+70. [GVS5H](./gvs5h.md) — Benchmark scaffold for ledger-based fresh-context orchestration; the multiagent engine runs public stdin samples, and the model has no tools
 
 ## Multi-machine and container placement
 
@@ -228,12 +232,15 @@ even with a single laptop UI):
 - [OpenDots](./opendots.md) — per-Dot authorized computer executors
 - [AX](./ax.md) — desired-state task sandboxes over Agent Substrate
 - [OpenShell](./openshell.md) — per-sandbox supervisor and workload; Docker, Podman, Kubernetes, and MicroVM fences
+- [OpenDuet](./openduet.md) — default one Docker computer per Bot; gVisor only when the computer runtime is set to runsc
 
 **Single remote only** (optional one SSH/daemon host, not a multi-box registry):
 [super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
 [T3 Code](./t3-code.md), [CodeBuddy Code](./codebuddy.md) (daemon `--host`,
 docs only), [DeepSeek Harness](./deepseek-harness.md) (optional POSIX SSH
-providers; shipped profiles leave them unmounted).
+providers; shipped profiles leave them unmounted),
+[PiNomad](./pinomad.md) (one host runs the agent; Mac, web, and iOS clients attach),
+[ThinkRail](./thinkrail.md) (CLI can bind one host; the desktop launcher stays on loopback).
 
 The [multi-device placement study](../product-vision/2026-10-18-multi-device-execution-placement.md)
 compares these mechanisms with OpenClaw nodes, Home Assistant voice satellites,
