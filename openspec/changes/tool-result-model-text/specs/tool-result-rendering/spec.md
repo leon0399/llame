@@ -203,14 +203,21 @@ and `origin` when present. `notes` MUST render one line per entry. A notice MUST
 
 When a result carries `truncated: true` and a `nextOffset`, the text MUST end with one bracketed
 line that gives the selector of the next read. The selector MUST continue the request form from
-line `nextOffset + 1` to the requested end, or open-ended as `<n>-` when the request had no end.
-When the result carries `lineCount`, the line MUST name `lineCount - nextOffset` more lines. A
+line `nextOffset + 1` to the stored requested end. When `nextOffset` has reached that end, the
+selector MUST be open-ended, `<n>-`. When the result carries `lineCount`, the line MUST name
+`lineCount - nextOffset` more lines. A
 `grep` page with `complete: false` MUST end with one bracketed line that carries its cursor.
 
 #### Scenario: A truncated read tells how to continue
 
 - **WHEN** an unselected read of a 3,000-line file stops with `nextOffset` 2000 and `lineCount` 3000
 - **THEN** the text ends with `[1000 more lines. Use <locator>:2001- to continue]`
+
+#### Scenario: A cut inside the requested window resumes to the stored end
+
+- **WHEN** an unselected read is cut by the bound with `nextOffset` 1500 and a stored requested end of 2000
+- **THEN** the text ends with `[… Use <locator>:1501-2000 to continue]`
+- **AND** an explicit `:1-2000` read cut at the same line ends the same way
 
 #### Scenario: A ranged read that is not truncated has no notice
 

@@ -194,7 +194,10 @@ read   <locator>:<start>-<end>[ of <lineCount> lines]
        raw:         <locator>:raw:<a>-<b>[ of <lineCount> lines]
        outline:     <locator>:outline:<a>-<b>
                     resume: :outline:<n+1>-<end>
-       open-ended:  the resume selector is :<n+1>- when the request had no end
+       open-ended:  the resume selector is :<n+1>- once nextOffset reaches the
+                    stored requested end (an unselected read stores the default
+                    end 2000, so a cut at 1500 resumes :1501-2000, and a full
+                    window resumes :2001-)
        directory:   the stored content as-is (its first line is the path),
                     then [[<k> more entries. ]Use <locator>:<n+1>- to continue]
        empty:       <locator>: empty                       (not truncated)
