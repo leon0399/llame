@@ -202,11 +202,10 @@ and `origin` when present. `notes` MUST render one line per entry. A notice MUST
 ### Requirement: Continuation is one bracketed notice line
 
 When a result carries `truncated: true` and a `nextOffset`, the text MUST end with one bracketed
-line that gives the selector of the next read. The selector MUST continue the request form from
-line `nextOffset + 1` to the stored requested end. When `nextOffset` has reached that end, the
-selector MUST be open-ended, `<n>-`. When the result carries `lineCount`, the line MUST name
-`lineCount - nextOffset` more lines. A
-`grep` page with `complete: false` MUST end with one bracketed line that carries its cursor.
+line with the selector of the next read: the request form from line `nextOffset + 1` to the stored
+requested end, or open-ended `<n>-` once `nextOffset` has reached that end. When the result carries
+`lineCount`, the line MUST name `lineCount - nextOffset` more lines. A `grep` page with
+`complete: false` MUST end with one bracketed line that carries its cursor.
 
 #### Scenario: A truncated read tells how to continue
 
