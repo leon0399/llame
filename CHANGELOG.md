@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-30
+
+- The Product e2e job runs on `ubuntu-24.04` instead of `ubuntu-latest`. That
+  label moved to Ubuntu 26.04, where Playwright 1.55.1 has no Chromium build,
+  so `playwright install --with-deps` failed every run before any test.
+
 # 2026-10-28
 
 - CI is split into one reusable workflow per stage (`test.yml`, `build.yml`,

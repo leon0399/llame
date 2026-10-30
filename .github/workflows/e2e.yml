@@ -18,7 +18,12 @@ env:
 jobs:
   playwright:
     name: Playwright
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: that label moved to Ubuntu 26.04, and the
+    # catalog's Playwright (1.55.1) ships no Chromium for it, so
+    # `playwright install --with-deps` fails before any test. 24.04 (noble)
+    # also matches the Playwright image the Storybook legs run in. Move back
+    # with the Playwright bump that adds 26.04 (1.64.1 has it).
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
