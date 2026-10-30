@@ -84,6 +84,19 @@
     ],
     "anti-slop/no-unsafe-inner-html": "error",
     "anti-slop/require-timestamptz-column": "error",
+    // Permission modes live only in apps/api/src/tools/permissions/admit.ts;
+    // the raw, mode-unaware evaluator is private to that directory.
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "regex": "(^|/)permissions/evaluator$",
+            "message": "Decide permissions through decidePermission or admitPermission in tools/permissions/admit; the evaluator ignores the permission mode."
+          }
+        ]
+      }
+    ],
 
     // Type evidence and trust-boundary discipline.
     "anti-slop/no-array-filter-map": "error",

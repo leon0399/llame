@@ -9,7 +9,7 @@ import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
-import { evaluatePermission } from '../tools/permissions/evaluator';
+import { decidePermission, OWNER_ROUTE } from '../tools/permissions/admit';
 import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import { type CompiledPolicy } from '../tools/permissions/types';
@@ -131,9 +131,10 @@ export class WorktreeRemovalService {
 
   /**
    * The gates every route that runs git passes: a derivable executor, an
-   * allowlisted `enter_workspace`, and a stored path the group allows. The row
-   * stores the canonical address, so one evaluation decides both the submitted
-   * and the canonical form.
+   * allowlisted `enter_workspace`, and a stored path the group allows. An
+   * owner HTTP route has no Run, so the group is decided under
+   * {@link OWNER_ROUTE}. The row stores the canonical address, so one
+   * evaluation decides both the submitted and the canonical form.
    */
   private canRemove(checkout: Checkout): ExecutorTarget {
     let target: ExecutorTarget | undefined;
@@ -148,10 +149,12 @@ export class WorktreeRemovalService {
         `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this path may not be inspected.`,
       );
     }
-    const decision = evaluatePermission(this.policy, {
-      toolId: WORKSPACE_TOOL_ID,
-      args: { path: projectNativeFilePath(checkout.path) },
-    });
+    const decision = decidePermission(this.policy, OWNER_ROUTE, (evaluate) =>
+      evaluate({
+        toolId: WORKSPACE_TOOL_ID,
+        args: { path: projectNativeFilePath(checkout.path) },
+      }),
+    );
     if (decision.decision === 'reject') {
       throw repositoryFailure(
         'permission_denied',

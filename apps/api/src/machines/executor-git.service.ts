@@ -224,7 +224,7 @@ export class ExecutorGit {
    * git call, so a symlink cannot walk out of an allow list. The probe therefore
    * only ever sees a value the `enter_workspace` policy allows.
    *
-   * The path-injection analyzer cannot see through `evaluatePermission`: the
+   * The path-injection analyzer cannot see through `decidePermission`: the
    * policy is compiled from operator configuration at boot, and its matchers
    * are data, not a syntactic check it can model. The suppression names that
    * guard for a reviewer; it does not weaken the runtime check, which the

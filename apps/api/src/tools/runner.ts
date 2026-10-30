@@ -13,9 +13,11 @@ import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { evaluateGrepPermission } from './grep-admission';
 import { refuseUnsearchableGrepScopes } from './grep-scopes';
-import { admitPermission } from './permissions/admit';
+import {
+  admitPermission,
+  evaluateSubmittedThenProjected,
+} from './permissions/admit';
 import { isBashCommandField } from './permissions/bash-command-field';
-import { evaluatePermission } from './permissions/evaluator';
 import { declaredStringProperties } from './permissions/declared-fields';
 import {
   nativeFileProjection,
@@ -35,7 +37,10 @@ import {
   isSshRead,
   type SshAdmission,
 } from './ssh-admission';
-import { type PermissionDecision } from './permissions/types';
+import {
+  type EvaluatePermissionOptions,
+  type PermissionDecision,
+} from './permissions/types';
 
 const logger = new Logger('ToolRunner');
 
@@ -242,7 +247,7 @@ function evaluateCanonicalReadPermission(
   tool: Tool,
   workspace: WorkspaceProjection,
   projectFieldValue: (field: string, value: string) => string,
-  options: Parameters<typeof evaluatePermission>[1],
+  options: EvaluatePermissionOptions,
   decision: PermissionDecision | undefined,
 ): PermissionDecision | undefined {
   const evaluatedPath =
@@ -258,8 +263,8 @@ function evaluateCanonicalReadPermission(
     return decision;
   }
 
-  const canonicalDecision = admitPermission(context, (policy) =>
-    evaluatePermission(policy, {
+  const canonicalDecision = admitPermission(context, (evaluate) =>
+    evaluate({
       ...options,
       args: { path: canonicalPath },
     }),
@@ -316,22 +321,20 @@ function evaluateLocatorToolPermission(
     validFields: mcpDeclaredStringFields(tool),
     projectFieldValue: nativeFileProjection(tool.id, root),
   };
-  const decision = admitPermission(context, (policy) => {
-    if (workspace.changed) return evaluatePermission(policy, options);
-    const submitted = evaluatePermission(policy, {
-      ...options,
-      args,
-      projectFieldValue:
-        tool.id === 'read'
-          ? (field: string, value: string) =>
-              field === 'path' ? withoutReadSelector(value) : value
-          : undefined,
-    });
-    if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
-      return submitted;
-    }
-    return evaluatePermission(policy, options);
-  });
+  const submitted = {
+    ...options,
+    args,
+    projectFieldValue:
+      tool.id === 'read'
+        ? (field: string, value: string) =>
+            field === 'path' ? withoutReadSelector(value) : value
+        : undefined,
+  };
+  const decision = admitPermission(context, (evaluate) =>
+    workspace.changed
+      ? evaluate(options)
+      : evaluateSubmittedThenProjected(evaluate, submitted, options),
+  );
   return evaluateCanonicalReadPermission(
     context,
     tool,

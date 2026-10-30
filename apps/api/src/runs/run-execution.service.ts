@@ -354,7 +354,7 @@ import {
   type WorkspaceRootCell,
 } from '../tools/workspace-path';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
-import { evaluatePermission } from '../tools/permissions/evaluator';
+import { decidePermission } from '../tools/permissions/admit';
 import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import {
   formatTemporalAnchor,
@@ -2685,12 +2685,12 @@ export class RunExecutionService {
     if (!this.instanceConfig.config.tools.allowed.includes('enter_workspace')) {
       return 'tool_not_allowed';
     }
-    // Deliberately mirrors admitPermission; no ToolContext exists here.
-    if (effectivePermissionMode === 'bypass') return undefined;
-    const decision = evaluatePermission(this.permissionPolicy, {
-      toolId: 'enter_workspace',
-      args: { path: root },
-    });
+    const decision = decidePermission(
+      this.permissionPolicy,
+      effectivePermissionMode,
+      (evaluate) =>
+        evaluate({ toolId: 'enter_workspace', args: { path: root } }),
+    );
     return decision.decision === 'allow' ? undefined : 'permission_rejected';
   }
 

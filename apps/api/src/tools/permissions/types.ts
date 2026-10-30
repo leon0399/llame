@@ -52,6 +52,25 @@ export interface PermissionClauseReference {
   readonly clauseIndex: number | null;
 }
 
+export interface EvaluatePermissionOptions {
+  readonly toolId: string;
+  /** Originally submitted, parsed argument values (never schema defaults). */
+  readonly args: unknown;
+  /**
+   * Whether a top-level field's literal matching uses Bash flexible
+   * whitespace. Defaults to the native Bash `command` field.
+   */
+  readonly isFlexibleWhitespaceField?: (field: string) => boolean;
+  /** Project a submitted field value before matching (native logical locators). */
+  readonly projectFieldValue?: (field: string, value: string) => string;
+  /**
+   * Declared string fields for a dynamic tool (MCP). A configured field clause
+   * naming anything else fails closed with `invalid_field` rather than being
+   * silently dropped or granting an allow.
+   */
+  readonly validFields?: ReadonlySet<string>;
+}
+
 /**
  * A trusted, safe admission decision. Discriminated on `decision` so a reject
  * can never carry an allow-only reason and vice versa. It already contains

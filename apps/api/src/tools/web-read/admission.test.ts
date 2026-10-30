@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { decidePermission } from '../permissions/admit';
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
-import { evaluatePermission } from '../permissions/evaluator';
 import { nativeFileProjection } from '../permissions/locator-projection';
 import {
   type CompiledPolicy,
@@ -50,13 +50,15 @@ function submittedDecision(
   url: string,
 ): PermissionDecision {
   const options = { toolId: 'read', args: { path: url } };
-  const submitted = evaluatePermission(compiled, options);
-  if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
-    return submitted;
-  }
-  return evaluatePermission(compiled, {
-    ...options,
-    projectFieldValue: nativeFileProjection('read'),
+  return decidePermission(compiled, 'default', (evaluate) => {
+    const submitted = evaluate(options);
+    if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
+      return submitted;
+    }
+    return evaluate({
+      ...options,
+      projectFieldValue: nativeFileProjection('read'),
+    });
   });
 }
 

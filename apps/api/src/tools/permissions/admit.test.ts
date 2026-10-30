@@ -1,14 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { admitPermission } from './admit';
+import {
+  admitPermission,
+  decidePermission,
+  type EvaluateCall,
+  OWNER_ROUTE,
+} from './admit';
 import { compileToolPermissionMap } from './compile-permissions';
 import { type ToolContext } from '../types';
 import { type PermissionDecision } from './types';
 
 const policy = compileToolPermissionMap(
-  { echo: { allow: true } },
+  { echo: { allow: [{ field: 'text', literal: 'allowed' }] } },
   'process-policy',
 );
+
+const BYPASS_ALLOW: PermissionDecision = {
+  policyId: 'process-policy',
+  decision: 'allow',
+  reason: 'permission_mode_bypass',
+  reference: null,
+};
+
+const NO_ALLOW: PermissionDecision = {
+  policyId: 'process-policy',
+  decision: 'reject',
+  reason: 'no_allow',
+  reference: null,
+};
+
+const echo = (evaluate: EvaluateCall) =>
+  evaluate({ toolId: 'echo', args: { text: 'refused' } });
 
 function context(permissionMode?: 'default' | 'bypass'): ToolContext {
   return {
@@ -20,47 +42,45 @@ function context(permissionMode?: 'default' | 'bypass'): ToolContext {
   };
 }
 
-describe('admitPermission', () => {
-  it('delegates exactly to policy evaluation in default mode', () => {
-    const evaluate = vi.fn<(compiled: typeof policy) => PermissionDecision>(
-      () => ({
-        policyId: policy.id,
-        decision: 'reject',
-        reason: 'no_allow',
-        reference: null,
-      }),
-    );
-
-    expect(admitPermission(context('default'), evaluate)).toEqual({
-      policyId: policy.id,
-      decision: 'reject',
-      reason: 'no_allow',
-      reference: null,
-    });
-    expect(evaluate).toHaveBeenCalledWith(policy);
-  });
+describe('decidePermission', () => {
+  it.each(['default', OWNER_ROUTE] as const)(
+    'evaluates the policy under %s',
+    (mode) => {
+      expect(decidePermission(policy, mode, echo)).toEqual(NO_ALLOW);
+      expect(
+        decidePermission(policy, mode, (evaluate) =>
+          evaluate({ toolId: 'echo', args: { text: 'allowed' } }),
+        ),
+      ).toMatchObject({ decision: 'allow', reason: 'matched_allow' });
+    },
+  );
 
   it('returns a process-attributed bypass allow without evaluating the policy', () => {
-    const evaluate = vi.fn<(compiled: typeof policy) => PermissionDecision>();
+    const decide = vi.fn<(evaluate: EvaluateCall) => PermissionDecision>();
 
-    expect(admitPermission(context('bypass'), evaluate)).toEqual({
-      policyId: 'process-policy',
-      decision: 'allow',
-      reason: 'permission_mode_bypass',
-      reference: null,
-    });
-    expect(evaluate).not.toHaveBeenCalled();
+    expect(decidePermission(policy, 'bypass', decide)).toEqual(BYPASS_ALLOW);
+    expect(decide).not.toHaveBeenCalled();
+  });
+});
+
+describe('admitPermission', () => {
+  it.each([
+    ['default', NO_ALLOW],
+    [undefined, NO_ALLOW],
+    ['bypass', BYPASS_ALLOW],
+  ] as const)('decides a call in mode %s', (mode, expected) => {
+    expect(admitPermission(context(mode), echo)).toEqual(expected);
   });
 
   it('keeps absent policy fail-closed for callers that require a decision', () => {
-    const evaluate = vi.fn<(compiled: typeof policy) => PermissionDecision>();
+    const decide = vi.fn<(evaluate: EvaluateCall) => PermissionDecision>();
     const noPolicy: ToolContext = {
       userId: 'owner',
       chatId: 'chat',
       tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
     };
 
-    expect(admitPermission(noPolicy, evaluate)).toBeUndefined();
-    expect(evaluate).not.toHaveBeenCalled();
+    expect(admitPermission(noPolicy, decide)).toBeUndefined();
+    expect(decide).not.toHaveBeenCalled();
   });
 });
