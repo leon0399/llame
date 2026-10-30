@@ -38,7 +38,7 @@ later turn, and the kept result of a Continue Run. A tool MUST NOT bypass the fu
 
 - **WHEN** the model reads a PNG file live, and the part replays in a later turn
 - **THEN** both renderings carry the JSON image text and the image reference the step composer attaches
-- **AND** the native JSON rendering keeps the SDK output type it had before this contract
+- **AND** the native JSON rendering keeps the SDK output type `text`
 
 ### Requirement: Display data is stored and never rendered
 
