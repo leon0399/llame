@@ -18,7 +18,7 @@ import { webSearchInputSchema, webSearchTool } from './tool';
 import { type VendorFetch } from './http';
 import { requestUrl } from '../../testing/web-search-fetch';
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
-import { evaluatePermission } from '../permissions/evaluator';
+import { decidePermission } from '../permissions/admit';
 import {
   type CompiledPolicy,
   type PermissionGroup,
@@ -703,10 +703,12 @@ it('removes the results a read reject clause matches and counts them in the firs
     expect(JSON.stringify(output)).not.toContain('grokipedia');
     // The removal filters this call only: `read` still refuses the URL.
     expect(
-      evaluatePermission(policy, {
-        toolId: 'read',
-        args: { path: 'https://grokipedia.com/page' },
-      }),
+      decidePermission(policy, 'default', (evaluate) =>
+        evaluate({
+          toolId: 'read',
+          args: { path: 'https://grokipedia.com/page' },
+        }),
+      ),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   } finally {
     vi.unstubAllGlobals();

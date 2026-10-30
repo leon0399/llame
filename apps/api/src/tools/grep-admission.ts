@@ -23,7 +23,6 @@ import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { MACHINE_SCHEME } from '../machines/machine-locator';
 import { SKILL_LOCATOR_SCHEME } from '../skills/skill-locator';
 import { admitPermission } from './permissions/admit';
-import { evaluatePermission } from './permissions/evaluator';
 import { isFileAlias } from './permissions/file-alias';
 import {
   nativeFileProjection,
@@ -124,16 +123,16 @@ export function evaluateGrepPermission(
   const root = context.workspaceRoot?.current();
   const scopes = grepScopeStrings(args, root);
   if (scopes === undefined) {
-    return admitPermission(context, (policy) =>
-      evaluatePermission(policy, { toolId: 'grep', args }),
+    return admitPermission(context, (evaluate) =>
+      evaluate({ toolId: 'grep', args }),
     );
   }
   const projected = scopes.map((scope) => projectGrepScope(scope, root));
   const prefixes = projected.map((scope) => scope.prefix);
-  return admitPermission(context, (policy) => {
+  return admitPermission(context, (evaluate) => {
     let last: PermissionDecision | undefined;
     for (const scope of projected) {
-      last = evaluatePermission(policy, {
+      last = evaluate({
         toolId: 'grep',
         args: {
           ...args,
@@ -146,7 +145,7 @@ export function evaluateGrepPermission(
       if (last.decision === 'reject') return last;
     }
     // `scopes` is non-empty by schema, so `last` is always decided here.
-    return last ?? evaluatePermission(policy, { toolId: 'grep', args });
+    return last ?? evaluate({ toolId: 'grep', args });
   });
 }
 
@@ -178,8 +177,8 @@ export function createGrepReadAdmission(
     admit(locator) {
       const known = verdicts.get(locator);
       if (known !== undefined) return known;
-      const decision = admitPermission(context, (policy) =>
-        evaluatePermission(policy, {
+      const decision = admitPermission(context, (evaluate) =>
+        evaluate({
           toolId: 'read',
           args: { path: locator },
           projectFieldValue: project,

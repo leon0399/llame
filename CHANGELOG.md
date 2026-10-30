@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-30
 
+- Every permission check in the API now goes through one mode-aware entry
+  point, `decidePermission` in `apps/api/src/tools/permissions/admit.ts`.
+  Workspace re-checks, chat-creation Workspace decisions, and the repository
+  owner routes no longer copy the `bypass` branch by hand, and lint fails any
+  import of the raw evaluator from outside that directory. Decisions are
+  unchanged.
+
 - The Product e2e job runs on `ubuntu-24.04` instead of `ubuntu-latest`. That
   label moved to Ubuntu 26.04, where Playwright 1.55.1 has no Chromium build,
   so `playwright install --with-deps` failed every run before any test.

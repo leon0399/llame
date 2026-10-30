@@ -35,6 +35,12 @@ model-visible result. Requests carry `User-Agent: llame/<version>`, are never
 retried, and stay inside the 10 s header, 30 s call, 5 MiB body (20 MiB for a PDF page), and
 20-redirect bounds. Do not restore removed policy or env toggles.
 
+Every permission decision goes through `decidePermission` (or
+`admitPermission` for a `ToolContext`) in `src/tools/permissions/admit.ts`,
+which alone owns permission-mode semantics. Pass the Run's effective mode, or
+`OWNER_ROUTE` from an owner HTTP route with no Run. Never branch on the mode at
+a call site; lint refuses an `evaluator` import outside `src/tools/permissions/`.
+
 ## Commands
 
 ```bash

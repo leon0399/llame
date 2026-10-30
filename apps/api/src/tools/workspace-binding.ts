@@ -8,7 +8,6 @@ import { boundSkillCatalog } from '../skills/skill-prompt-baseline';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { admitPermission } from './permissions/admit';
-import { evaluatePermission } from './permissions/evaluator';
 import { projectNativeFilePath } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
 import {
@@ -114,8 +113,8 @@ export function requireSubmittedPermission(
   context: ToolContext,
   submittedPath: string,
 ): ToolErrorResult | undefined {
-  const decision = admitPermission(context, (policy) =>
-    evaluatePermission(policy, {
+  const decision = admitPermission(context, (evaluate) =>
+    evaluate({
       toolId: 'enter_workspace',
       args: { path: submittedPath },
     }),
@@ -136,8 +135,8 @@ export function requireDerivedPermission(
   kind: 'canonical' | 'main_clone' | 'worktree_directory',
   address: string,
 ): ToolErrorResult | undefined {
-  const decision = admitPermission(context, (policy) =>
-    evaluatePermission(policy, {
+  const decision = admitPermission(context, (evaluate) =>
+    evaluate({
       toolId: 'enter_workspace',
       args: { path: projectNativeFilePath(address) },
     }),

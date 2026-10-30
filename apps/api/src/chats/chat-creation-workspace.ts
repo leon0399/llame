@@ -15,10 +15,7 @@ import {
   type BindFailureCode,
   type WorktreeFailureCode,
 } from './dto/chat-creation.dto';
-import {
-  bypassAllow,
-  evaluatePermission,
-} from '../tools/permissions/evaluator';
+import { decidePermission } from '../tools/permissions/admit';
 import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { permissionDeniedResult } from '../tools/permissions/messages';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
@@ -225,13 +222,15 @@ export class ChatCreationWorkspace {
     log: DecisionLog,
     address: string,
   ): ToolErrorResult | undefined {
-    const decision =
-      log.input.permissionMode === 'bypass'
-        ? bypassAllow(this.policy.id)
-        : evaluatePermission(this.policy, {
-            toolId: WORKSPACE_TOOL_ID,
-            args: { path: projectNativeFilePath(address) },
-          });
+    const decision = decidePermission(
+      this.policy,
+      log.input.permissionMode,
+      (evaluate) =>
+        evaluate({
+          toolId: WORKSPACE_TOOL_ID,
+          args: { path: projectNativeFilePath(address) },
+        }),
+    );
     log.decisions.push({ path: address, decision });
     return decision.decision === 'reject'
       ? permissionDeniedResult(decision.reason)

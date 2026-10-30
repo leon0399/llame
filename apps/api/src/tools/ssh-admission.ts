@@ -33,7 +33,6 @@ import {
 } from '../ssh/ssh-locator';
 import { type SshResolvedDestination } from '../ssh/ssh-client';
 import { admitPermission } from './permissions/admit';
-import { evaluatePermission } from './permissions/evaluator';
 import { withoutReadSelector } from './permissions/locator-projection';
 import { type PermissionDecision } from './permissions/types';
 import { sshUnavailableResult } from './ssh-results';
@@ -168,8 +167,8 @@ function evaluateSshLocator(
   call: SshLocatorCall,
   value: string,
 ): PermissionDecision | undefined {
-  return admitPermission(context, (policy) =>
-    evaluatePermission(policy, {
+  return admitPermission(context, (evaluate) =>
+    evaluate({
       toolId: call.toolId,
       args: { ...call.args, [call.field]: value },
     }),

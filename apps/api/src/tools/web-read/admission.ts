@@ -1,5 +1,7 @@
-import { admitPermission } from '../permissions/admit';
-import { evaluatePermission } from '../permissions/evaluator';
+import {
+  admitPermission,
+  evaluateSubmittedThenProjected,
+} from '../permissions/admit';
 import { projectNativeFilePath } from '../permissions/locator-projection';
 import { type PermissionDecision } from '../permissions/types';
 import { type ToolContext } from '../types';
@@ -95,8 +97,12 @@ export function evaluateWebLocatorRead(
   context: ToolContext,
   url: string,
 ): PermissionDecision | undefined {
-  return admitPermission(context, (policy) =>
-    evaluateLocatorPermission(policy, url, PROJECT_DERIVED_LOCATOR),
+  const options = { toolId: 'read', args: { path: url } };
+  return admitPermission(context, (evaluate) =>
+    evaluateSubmittedThenProjected(evaluate, options, {
+      ...options,
+      projectFieldValue: PROJECT_DERIVED_LOCATOR,
+    }),
   );
 }
 
@@ -130,23 +136,6 @@ export function createAddressAdmission(context: ToolContext): AdmitAddress {
 
     return false;
   };
-}
-
-/**
- * Mirrors submitted-call precedence: a raw reject other than `no_allow`
- * stands; otherwise the projected locator determines the result.
- */
-function evaluateLocatorPermission(
-  policy: NonNullable<ToolContext['permissionPolicy']>,
-  locator: string,
-  projectFieldValue: (field: string, value: string) => string,
-): PermissionDecision {
-  const options = { toolId: 'read', args: { path: locator } };
-  const submitted = evaluatePermission(policy, options);
-  if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
-    return submitted;
-  }
-  return evaluatePermission(policy, { ...options, projectFieldValue });
 }
 
 /**

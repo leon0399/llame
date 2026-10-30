@@ -32,7 +32,7 @@ import {
   snapshotMachineSkillSources,
   type MachineSkillRequest,
 } from '../skills/machine-skill-sources';
-import { evaluatePermission } from '../tools/permissions/evaluator';
+import { decidePermission } from '../tools/permissions/admit';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type CompiledPolicy } from '../tools/permissions/types';
 import { machineWorkspaceRoot } from '../tools/workspace-path';
@@ -243,13 +243,13 @@ async function checkMachineRoot(
   if (!params.toolAllowlist.includes('enter_workspace')) {
     return { verdict: 'detach', reason: 'tool_not_allowed' };
   }
-  // Deliberately mirrors admitPermission; the bound locator is already the
-  // canonical text every Machine rule matches.
-  if (params.effectivePermissionMode === 'bypass') return { verdict: 'keep' };
-  const decision = evaluatePermission(params.permissionPolicy, {
-    toolId: 'enter_workspace',
-    args: { path: params.root },
-  });
+  // The bound locator is already the canonical text every Machine rule matches.
+  const decision = decidePermission(
+    params.permissionPolicy,
+    params.effectivePermissionMode,
+    (evaluate) =>
+      evaluate({ toolId: 'enter_workspace', args: { path: params.root } }),
+  );
   return decision.decision === 'allow'
     ? { verdict: 'keep' }
     : { verdict: 'detach', reason: 'permission_rejected' };

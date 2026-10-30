@@ -6,13 +6,24 @@ import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { evaluatePermission } from '../tools/permissions/evaluator';
+import { decidePermission } from '../tools/permissions/admit';
 import { isBashCommandField } from '../tools/permissions/bash-command-field';
 import { nativeFileProjection } from '../tools/permissions/locator-projection';
 import { buildToolPermissionPolicy } from '../tools/permissions/policy-provider';
-import { type PermissionDecisionReason } from '../tools/permissions/types';
+import {
+  type CompiledPolicy,
+  type EvaluatePermissionOptions,
+  type PermissionDecisionReason,
+} from '../tools/permissions/types';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { loadInstanceConfig } from './config-loader';
+
+function decideDefault(
+  policy: CompiledPolicy,
+  options: EvaluatePermissionOptions,
+) {
+  return decidePermission(policy, 'default', (evaluate) => evaluate(options));
+}
 
 let dir: string;
 
@@ -206,7 +217,7 @@ describe('shipped example configuration', () => {
       ['/home/operator/projects/Downloads', 5],
     ] as const;
     for (const [entryPath, clauseIndex] of protectedPaths) {
-      const decision = evaluatePermission(policy, {
+      const decision = decideDefault(policy, {
         toolId: 'enter_workspace',
         args: { path: entryPath },
         projectFieldValue: nativeFileProjection('enter_workspace'),
@@ -221,7 +232,7 @@ describe('shipped example configuration', () => {
         },
       });
     }
-    const allowedDecision = evaluatePermission(policy, {
+    const allowedDecision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/projects/app' },
       projectFieldValue: nativeFileProjection('enter_workspace'),
@@ -234,7 +245,7 @@ describe('shipped example configuration', () => {
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
     );
     const policy = await buildToolPermissionPolicy(loaded.tools.permissions);
-    const decision = evaluatePermission(policy, {
+    const decision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/projects/app/sub' },
       projectFieldValue: nativeFileProjection('enter_workspace'),
@@ -328,8 +339,8 @@ describe('shipped example configuration', () => {
           isBashCommandField(toolId, field),
         projectFieldValue: nativeFileProjection(toolId),
       };
-      const left = evaluatePermission(fromExample, options);
-      const right = evaluatePermission(portable, options);
+      const left = decideDefault(fromExample, options);
+      const right = decideDefault(portable, options);
       expect({ decision: left.decision, reason: left.reason }).toEqual({
         decision: right.decision,
         reason: right.reason,
@@ -353,7 +364,7 @@ describe('shipped example configuration', () => {
         reject: PORTABLE_TOOL_PERMISSIONS.enter_workspace.reject,
       },
     });
-    const decision = evaluatePermission(policy, {
+    const decision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/.ssh' },
       projectFieldValue: nativeFileProjection('enter_workspace'),
@@ -370,7 +381,7 @@ describe('shipped example configuration', () => {
       },
     });
     const decisionFor = (path: string) =>
-      evaluatePermission(policy, {
+      decideDefault(policy, {
         toolId: 'read',
         args: { path },
         projectFieldValue: nativeFileProjection('read'),

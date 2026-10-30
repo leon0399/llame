@@ -16,7 +16,7 @@ import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
-import { evaluatePermission } from '../tools/permissions/evaluator';
+import { decidePermission, OWNER_ROUTE } from '../tools/permissions/admit';
 import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import { type CompiledPolicy } from '../tools/permissions/types';
@@ -141,16 +141,18 @@ export class CheckoutRegistrationService {
   }
 
   /**
-   * One path under the `enter_workspace` group, in `default` mode. An owner
-   * HTTP route has no Run and no permission mode, so it evaluates the group as
-   * a `default`-mode call would: no bypass, the same projection, and a refusal
-   * whenever nothing allows the path.
+   * One path under the `enter_workspace` group. An owner HTTP route has no Run
+   * and no permission mode, so it decides under {@link OWNER_ROUTE}: the group
+   * is always evaluated, with the same projection, and refuses whenever
+   * nothing allows the path.
    */
   private requirePathAllowed(value: string): void {
-    const decision = evaluatePermission(this.policy, {
-      toolId: WORKSPACE_TOOL_ID,
-      args: { path: projectNativeFilePath(value) },
-    });
+    const decision = decidePermission(this.policy, OWNER_ROUTE, (evaluate) =>
+      evaluate({
+        toolId: WORKSPACE_TOOL_ID,
+        args: { path: projectNativeFilePath(value) },
+      }),
+    );
     if (decision.decision === 'reject') {
       throw repositoryFailure(
         'permission_denied',

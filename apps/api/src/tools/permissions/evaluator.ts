@@ -11,31 +11,16 @@ import {
   type CompiledPermissionClause,
   type CompiledPermissionGroup,
   type CompiledPolicy,
+  type EvaluatePermissionOptions,
   type PermissionClauseReference,
   type PermissionDecision,
   type PermissionRejectionReason,
 } from './types';
 
-export interface EvaluatePermissionOptions {
-  readonly toolId: string;
-  /** Originally submitted, parsed argument values (never schema defaults). */
-  readonly args: unknown;
-  /**
-   * Whether a top-level field's literal matching uses Bash flexible
-   * whitespace. Defaults to the native Bash `command` field.
-   */
-  readonly isFlexibleWhitespaceField?: (field: string) => boolean;
-  /** Project a submitted field value before matching (native logical locators). */
-  readonly projectFieldValue?: (field: string, value: string) => string;
-  /**
-   * Declared string fields for a dynamic tool (MCP). A configured field clause
-   * naming anything else fails closed with `invalid_field` rather than being
-   * silently dropped or granting an allow.
-   */
-  readonly validFields?: ReadonlySet<string>;
-}
-
 /**
+ * The raw policy evaluation, mode-unaware. Only `admit.ts` calls it, through
+ * `decidePermission`; lint refuses an import from outside this directory.
+ *
  * Deterministic allow/reject decision (D4): every applicable reject is checked
  * before any allow; any matching reject vetoes; otherwise a whole-tool allow or
  * any field allow grants; otherwise the call is rejected. Clause order never
@@ -50,15 +35,6 @@ export function evaluatePermission(
     return reject(policy.id, 'no_allow', null);
   }
   return evaluateGroup(policy.id, options.toolId, group, options);
-}
-
-export function bypassAllow(policyId: string): PermissionDecision {
-  return {
-    policyId,
-    decision: 'allow',
-    reason: 'permission_mode_bypass',
-    reference: null,
-  };
 }
 
 function evaluateGroup(
