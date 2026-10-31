@@ -16,8 +16,10 @@ import { readFile, readResolvedFile, MAX_RESULT_CODE_UNITS } from "./read";
 import { measureReadRendering } from "./source-lines";
 import {
   listDirectory,
+  renderCollectedDirectoryParts,
   DIRECTORY_CHILD_CAP,
   DIRECTORY_TRAVERSAL_BUDGET,
+  type DirEntry,
   type DirectoryPort,
 } from "./directory-listing";
 
@@ -376,6 +378,99 @@ describe("directory listing", () => {
     const result = await readResolvedFile(root, {
       displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS - 20)}`,
     });
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header and its next entry exceed the result bound, so no page of the listing can be shown.",
+    });
+  });
+
+  it("keeps a header-only tree page when the flat continuation can advance", () => {
+    // The first entry is a directory, so its tree line carries an elision
+    // marker the flat continuation drops. At this budget the marker is the
+    // only width that keeps the first entry out of the tree page.
+    const rootEntries: Array<DirEntry> = [
+      { name: "alpha", kind: "directory" },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        name: `f${index}.txt`,
+        kind: "file" as const,
+      })),
+    ];
+    const children = [
+      {
+        name: "alpha",
+        entries: [{ name: "x.txt", kind: "file" as const }],
+        totalCount: 1,
+        overBudget: false,
+      },
+    ];
+    const options = {
+      displayPath: "kb://space/x",
+      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 75,
+    };
+
+    const result = renderCollectedDirectoryParts(
+      "/root",
+      rootEntries,
+      children,
+      options,
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "directory",
+      path: "kb://space/x",
+      content: "kb://space/x\n",
+      truncated: true,
+      entryCount: 11,
+      nextOffset: 0,
+    });
+
+    // The continuation the page names is the flat read of the first entry,
+    // which fits without the marker.
+    const continuation = renderCollectedDirectoryParts(
+      "/root",
+      rootEntries,
+      children,
+      { ...options, offset: 0 },
+    );
+    expect(continuation).toMatchObject({
+      status: "success",
+      content: "kb://space/x\n  - alpha/\n",
+      truncated: true,
+      nextOffset: 1,
+    });
+  });
+
+  it("fails a tree page closed when its flat continuation cannot advance", () => {
+    const rootEntries: Array<DirEntry> = [
+      { name: "alpha", kind: "directory" },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        name: `f${index}.txt`,
+        kind: "file" as const,
+      })),
+    ];
+    const children = [
+      {
+        name: "alpha",
+        entries: [{ name: "x.txt", kind: "file" as const }],
+        totalCount: 1,
+        overBudget: false,
+      },
+    ];
+
+    // The header-only page fits here, but the flat continuation's first entry
+    // does not, so no page advances and the read refuses instead of returning
+    // a page whose continuation fails.
+    const result = renderCollectedDirectoryParts(
+      "/root",
+      rootEntries,
+      children,
+      {
+        displayPath: "kb://space/x",
+        reserveCodeUnits: MAX_RESULT_CODE_UNITS - 70,
+      },
+    );
     expect(result).toEqual({
       status: "error",
       type: "representation_too_large",

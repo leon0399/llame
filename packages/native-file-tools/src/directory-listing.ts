@@ -4,7 +4,6 @@ import {
   boundFlatResult,
   directoryResult,
   fitsResultCap,
-  listingTooLarge,
   type DirectoryPage,
 } from "./directory-page";
 
@@ -538,6 +537,36 @@ function indexChildBlocks(childBlocks: Array<ChildBlockInfo>) {
   return { byName, elided };
 }
 
+/**
+ * The page for a level whose first entry does not fit. A page cut before the
+ * first entry keeps no entry, but its continuation is a flat read that drops
+ * the elided block's marker, so that read can fit where this page cannot.
+ * Keep the header when the flat page can serve; when it cannot, no page
+ * advances and the read fails closed instead of returning a page that cannot
+ * continue.
+ */
+function pageBeforeFirstEntry(
+  targetPath: string,
+  rootEntries: Array<DirEntry>,
+  cap: number,
+): DirectorySuccess | DirectoryFailure {
+  const flat = renderFlatListing(
+    targetPath,
+    rootEntries,
+    { offset: 0, end: rootEntries.length, selected: rootEntries },
+    cap,
+  );
+  if (flat.status === "error") return flat;
+  const header = directoryResult(targetPath, rootEntries.length, {
+    content: `${targetPath}\n`,
+    truncated: true,
+    nextOffset: 0,
+  });
+  // A header-only page repeats the path in its continuation, so the whole
+  // flat level can fit where the header and that notice do not.
+  return fitsResultCap(header, cap) ? header : flat;
+}
+
 function truncateRequestedLevel(
   targetPath: string,
   rootEntries: Array<DirEntry>,
@@ -546,40 +575,26 @@ function truncateRequestedLevel(
 ): DirectorySuccess | DirectoryFailure {
   const { byName, elided } = indexChildBlocks(childBlocks);
   const lines: Array<string> = [targetPath];
+  const count = rootEntries.length;
+  const page = (content: string, truncated: boolean, nextOffset?: number) =>
+    directoryResult(targetPath, count, { content, truncated, nextOffset });
   const fits = (candidate: Array<string>, nextOffset: number) =>
-    fitsResultCap(
-      directoryResult(targetPath, rootEntries.length, {
-        content: candidate.join("\n") + "\n",
-        truncated: true,
-        nextOffset,
-      }),
-      cap,
-    );
+    fitsResultCap(page(candidate.join("\n") + "\n", true, nextOffset), cap);
 
   for (const [entryIndex, entry] of rootEntries.entries()) {
-    const block =
-      entry.kind === "directory" ? byName.get(entry.name) : undefined;
+    const block = byName.get(entry.name);
     const marker =
       block && elided.has(block.name)
         ? elisionMarker(block.totalCount)
         : undefined;
     const added = [formatEntry(entry, "  "), ...(marker ? [marker] : [])];
     if (!fits([...lines, ...added], entryIndex + 1)) {
-      // The first entry is the one entry 0's continuation would name, so a
-      // page cut before it cannot advance: keeping it out fails closed
-      // instead of returning itself on every retry.
-      if (entryIndex === 0) return listingTooLarge(true);
-      return directoryResult(targetPath, rootEntries.length, {
-        content: lines.join("\n") + "\n",
-        truncated: true,
-        nextOffset: entryIndex,
-      });
+      if (entryIndex === 0)
+        return pageBeforeFirstEntry(targetPath, rootEntries, cap);
+      return page(lines.join("\n") + "\n", true, entryIndex);
     }
     lines.push(...added);
   }
 
-  return directoryResult(targetPath, rootEntries.length, {
-    content: lines.join("\n") + "\n",
-    truncated: false,
-  });
+  return page(lines.join("\n") + "\n", false);
 }
