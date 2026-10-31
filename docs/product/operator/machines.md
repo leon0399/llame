@@ -135,12 +135,15 @@ binary is replaced.
 
 Mutation results are additive in the same way, so update the hub before the
 daemon. A hub newer than the daemon still accepts an old daemon's `edit` and
-`write` results: the daemon's post-edit `content` and `shownRange` are
-forwarded, its `diff` is dropped, and `lineCount` and `display` are mapped when
-it sends them. A hub older than the daemon refuses a status-only write or a
-display-carrying edit, because it still requires the fields this protocol
-revision stopped sending. No `PROTOCOL_VERSION` bumped, so the handshake stays
-compatible in both directions; only the result mapping differs.
+`write` results. An old edit keeps its post-edit `content`, `shownRange`, and
+`diff`, because the owner UI numbers such a part from the `diff` header;
+`lineCount` and `display` are mapped when the daemon sends them, and an edit
+that carries `display` drops its `diff`. An old write keeps only `created`,
+`replaced`, and `lineCount`. A hub older than the daemon refuses a status-only
+write or a display-carrying edit, because it still requires the fields this
+protocol revision stopped sending. The change does not bump `PROTOCOL_VERSION`,
+so the handshake stays compatible in both directions; only the result mapping
+differs.
 
 ## Register roots
 
