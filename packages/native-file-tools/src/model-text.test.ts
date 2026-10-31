@@ -643,15 +643,29 @@ describe("edit text", () => {
     );
   });
 
-  it("ends with the cap notice in brackets", () => {
+  it("keeps the bound's marker when the cap also shrank the result", () => {
     const result = editResult({
       truncated: true,
+      cut: true,
       truncationNotice: "The result was cut at the shared cap.",
     });
 
     const lines = renderEditText(result).split("\n");
     expect(lines.at(-2)).toBe("[region cut at the bound]");
     expect(lines.at(-1)).toBe("[The result was cut at the shared cap.]");
+  });
+
+  it("omits the bound's marker when only the cap cut the region", () => {
+    // The cap overwrites `truncated` and adds its notice; no executor bound
+    // cut this region, so the marker must not claim one.
+    const result = editResult({
+      truncated: true,
+      truncationNotice: "The result was cut at the shared cap.",
+    });
+
+    const lines = renderEditText(result).split("\n");
+    expect(lines.at(-1)).toBe("[The result was cut at the shared cap.]");
+    expect(lines).not.toContain("[region cut at the bound]");
   });
 
   it("keeps a path with a line break on the header line", () => {

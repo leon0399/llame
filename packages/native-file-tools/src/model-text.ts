@@ -346,10 +346,14 @@ export function renderEditText(result: UnknownRecord): string {
     ...renderAttributionLines(result),
   ];
   if (body !== "") lines.push(body);
-  if (result.truncated === true) lines.push(REGION_CUT_MARKER);
+  // The marker names the executor's bound, so a cap-only cut must not print it:
+  // the cap overwrites `truncated` and adds its own notice. A part stored
+  // before `cut` existed has no notice unless the cap cut it.
   const { truncationNotice } = result;
-  if (isNonEmptyString(truncationNotice))
-    lines.push(`[${oneLine(truncationNotice)}]`);
+  const capCut = isNonEmptyString(truncationNotice);
+  if (result.cut === true || (result.truncated === true && !capCut))
+    lines.push(REGION_CUT_MARKER);
+  if (capCut) lines.push(`[${oneLine(truncationNotice)}]`);
   return lines.join("\n");
 }
 

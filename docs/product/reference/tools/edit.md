@@ -66,7 +66,8 @@ text as separate blocks, and bytes outside the replacement are preserved.
 | -------------- | --------------------------------------------------------------------- |
 | `content`      | the bounded post-edit region, each line with its `N:` prefix          |
 | `shownRange`   | the post-edit lines actually emitted                                  |
-| `truncated`    | whether the bound cut the region                                      |
+| `truncated`    | whether the result bound or the shared cap cut the result             |
+| `cut`          | whether the result bound cut the region; the cap never sets it        |
 | `lineCount`    | the post-edit file's line count                                       |
 | `display`      | the region's `startLine`, `oldText`, and `newText` for the owner's UI |
 | `replacements` | the number of replacements, always `1`                                |

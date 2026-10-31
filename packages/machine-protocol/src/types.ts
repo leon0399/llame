@@ -197,6 +197,10 @@ export type NativeMutationResult = {
   readonly content?: string;
   readonly shownRange?: NativeLineRange | null;
   readonly truncated?: boolean;
+  /** The daemon's own bound cut the region. The hub's result cap overwrites
+   *  `truncated` but never this field, so a rendering can name a bound cut
+   *  without claiming the cap's. Absent on a daemon that predates the field. */
+  readonly cut?: boolean;
   /** The written or post-edit source's line count. Absent on a daemon that
    *  predates the field. */
   readonly lineCount?: number;

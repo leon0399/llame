@@ -227,6 +227,7 @@ describe("native exact mutations", () => {
     expect(result).toMatchObject({
       status: "success",
       truncated: true,
+      cut: true,
       lineCount: 20_000,
     });
     expect(measureEditRendering(result)).toBeLessThanOrEqual(16_000);

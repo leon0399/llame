@@ -383,6 +383,30 @@ describe('the cap measure of an edit rendering', () => {
     expect(cut).toMatchObject({ status: 'success', truncated: true, display });
     expect(measure(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(renderToolResultText('edit', cut).split('\n')[0]).toBe(header);
+    // Only the cap cut this region, so its notice is the last line and no
+    // bound marker claims the cut.
+    const lines = renderToolResultText('edit', cut).split('\n');
+    expect(lines).not.toContain('[region cut at the bound]');
+    expect(lines.at(-1)).toMatch(
+      /^\[Result truncated to fit the 16000-character tool-result cap;/u,
+    );
+  });
+
+  it('keeps a bound cut marker the cap never overwrites', () => {
+    const over = {
+      ...edit('x'.repeat(RESULT_TRUNCATE_CHARS - overhead)),
+      truncated: true,
+      cut: true,
+    };
+
+    const cut = truncateOversizedResult(over, measure);
+    expect(cut).toMatchObject({ truncated: true, cut: true });
+    expect(measure(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    const lines = renderToolResultText('edit', cut).split('\n');
+    expect(lines.at(-2)).toBe('[region cut at the bound]');
+    expect(lines.at(-1)).toMatch(
+      /^\[Result truncated to fit the 16000-character tool-result cap;/u,
+    );
   });
 
   it('measures the candidate with its display re-attached', () => {

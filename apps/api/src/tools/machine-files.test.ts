@@ -742,6 +742,43 @@ describe('Machine mutations', () => {
     });
   });
 
+  it('forwards the daemon bound cut through the cap', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: true,
+            cut: true,
+            lineCount: 400,
+            display: { startLine: 1 },
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      {
+        path: 'machine://devl/srv/app/a.ts',
+        oldText: 'old',
+        newText: 'new',
+      },
+      context(connector),
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      truncated: true,
+      cut: true,
+    });
+  });
+
   it('creates through fs.write and keeps created', async () => {
     stubFence();
     const { peer, connector } = fixture({

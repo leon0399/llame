@@ -56,6 +56,10 @@ export type EditSuccess = {
   content: string;
   shownRange: LineRange | null;
   truncated: boolean;
+  /** The executor's own bound cut the region. The shared cap overwrites
+   *  `truncated` when it shrinks a result but never this field, so the
+   *  renderer can name a bound cut without claiming a cap cut. */
+  cut?: boolean;
   lineCount: number;
   display: MutationDisplay;
 };
@@ -250,6 +254,7 @@ function boundMutationResult(
   const cap = MAX_RESULT_CODE_UNITS - reserveCodeUnits;
   if (measureEditRendering(result) <= cap) return result;
   result.truncated = true;
+  result.cut = true;
   const lines = splitSourceLines(result.content);
   // The cut marker is fixed width and the region only shrinks, so the widest
   // prefix that fits is the longest one the binary search accepts.

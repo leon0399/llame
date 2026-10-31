@@ -555,7 +555,7 @@ function readFsEditResult(
   path: string,
   input: MachineEditInput | undefined,
 ): NativeMutationResult {
-  const { content, truncated, replacements, lineCount } = value;
+  const { content, truncated, cut, replacements, lineCount } = value;
   const storedRange = value['shownRange'];
   const shownRange =
     storedRange === null ? null : readMutationRange(storedRange);
@@ -575,6 +575,7 @@ function readFsEditResult(
     ...(isString(content) && { content }),
     ...(shownRange !== undefined && { shownRange }),
     ...(isBoolean(truncated) && { truncated }),
+    ...(cut === true && { cut: true }),
     ...(isNumber(lineCount) && { lineCount }),
     ...(display !== undefined && { display }),
     ...(legacyDiff !== undefined && { diff: legacyDiff }),
