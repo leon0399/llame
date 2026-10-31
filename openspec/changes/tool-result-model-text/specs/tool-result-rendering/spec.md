@@ -162,6 +162,20 @@ header. A null shown range MUST render `<locator>: empty` when the result is not
 - **THEN** the header is `x.min.js: line 1 exceeds the result bound and was skipped`
 - **AND** the continuation line follows
 
+### Requirement: A read stored without ranges names its locator alone
+
+A `read` result that carries neither `shownRange` nor `shownRanges` MUST render the bare `<locator>`
+as its header, followed by ` of <lineCount> lines` when the result stores the total. Such a result
+MUST NOT render `<locator>: empty`: it carries content, and an `empty` header denies it. A result
+whose `shownRange` is explicitly null MUST keep the `<locator>: empty` header.
+
+#### Scenario: A part stored without range keys keeps its content visible
+
+- **WHEN** a `read` part stored before the ranges were kept carries `content`, `lineCount` 216,
+  and no `shownRange`, `shownRanges`, or `representation`
+- **THEN** the header is `<locator> of 216 lines`
+- **AND** the content lines follow, with no `empty` in the header
+
 ### Requirement: The read header carries the source total when it is stored
 
 When a `read` result carries `lineCount`, its header MUST end with `of <lineCount> lines` after
@@ -249,6 +263,25 @@ requested end, or open-ended `<n>-` once `nextOffset` has reached that end. When
 
 - **WHEN** a read of `:1-2500,4000-4010` of a 5,000-line file stops with `nextOffset` 2000
 - **THEN** the text ends with `[3000 more lines. Use <locator>:2001-2500,4000-4010 to continue]`
+
+### Requirement: A locator without selector room states the remainder alone
+
+A web locator that carries a query or a fragment takes no trailing selector, so a truncated file
+`read` of it MUST NOT advise a selector read. Its continuation line MUST be
+`[<count> more lines not shown; this locator takes no line selector]`, without the count when
+`lineCount` is absent. A locator that takes a selector MUST keep the continuation read.
+
+#### Scenario: A locator with a query states the remainder without advice
+
+- **WHEN** a truncated read of `https://example.test/doc?version=1` stops with `nextOffset` 2000 and
+  `lineCount` 3000
+- **THEN** the text ends with `[1000 more lines not shown; this locator takes no line selector]`
+- **AND** the text names no next read
+
+#### Scenario: A selector-less locator stored without a total omits the count
+
+- **WHEN** a truncated read of `https://example.test/doc#intro` carries no `lineCount`
+- **THEN** the text ends with `[more lines not shown; this locator takes no line selector]`
 
 ### Requirement: An edit renders its post-edit region
 
