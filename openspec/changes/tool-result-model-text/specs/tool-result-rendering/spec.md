@@ -242,6 +242,24 @@ and `origin` when present. `notes` MUST render one line per entry. A notice MUST
 - **WHEN** a web read renders with a header and attribution lines
 - **THEN** the stored `content` carries no header and no attribution line
 
+### Requirement: Framing values render on one line
+
+Every stored value a text rendering prints in its framing MUST render on one line, and one line
+break in such a value MUST become one space. The values are the `read` header path, the `read`
+continuation path, each attribution value, each `notes` entry, and the truncation notice of a
+`read` result. A notice MUST otherwise render verbatim.
+
+#### Scenario: A path with a line break renders on one line
+
+- **WHEN** a stored `read` part carries a path of `a\nb.ts` and is truncated
+- **THEN** the header and the continuation line carry `a b.ts` on one line
+- **AND** no unprefixed line is added by the path
+
+#### Scenario: A cap notice with a line break stays one line
+
+- **WHEN** a stored `read` part carries a `truncationNotice` with a line break
+- **THEN** the notice renders on one line with one space in place of the break
+
 ### Requirement: Continuation is one bracketed notice line
 
 When a result carries `truncated: true` and a `nextOffset`, the text MUST end with one bracketed

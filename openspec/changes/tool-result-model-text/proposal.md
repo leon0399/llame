@@ -80,6 +80,16 @@ than the name-based special cases `thumbnail` has today.
   measured on the neutralized rendering, so the neutralizer and renderers live
   in a package every bounding process can import, the Machine daemon included.
   The global result cap measures the rendering too.
+- A directory page that cannot advance fails closed: when the header and the
+  first entry of the requested window exceed the result cap, or the window
+  keeps no entry and the header alone exceeds the bound, the read fails with
+  `representation_too_large` and carries no listing and no continuation. A
+  page that kept no entry would otherwise name the entry it already selected,
+  so every retry would return the same page.
+- Every stored value the framing prints sits on one line: the `read` header
+  path, attribution values, `notes` entries, the continuation path, and the
+  truncation notice of a `read` result replace each line break with one space,
+  so no stored value can add an unprefixed line that imitates the framing.
 - Machine wire changes are additive: `lineCount`, `entryCount`, `wallTimeMs`,
   and `display` are new optional fields; the hub maps an old daemon's
   `diff`/`operation`/`executor` away, keeps its `content` and `shownRange`,
@@ -152,18 +162,20 @@ protects nothing there. Leo to confirm.
 - `tool-result-rendering`: how a stored tool part becomes the text or JSON a
   model reads — the rendering function, the `display` partition, the global
   cap on the rendering, the text shapes of `read`, `edit`, `write`, `grep`,
-  and `bash`, the line prefix grammar, header, attribution, and continuation
-  lines, rendering of parts stored before the contract, the one neutralization
-  rule, and bound measurement on the neutralized rendering.
+  and `bash`, the line prefix grammar, header, attribution, continuation, and
+  one-line framing values, rendering of parts stored before the contract, the
+  one neutralization rule, and bound measurement on the neutralized rendering.
 
 ### Modified Capabilities
 
 - `native-file-tools`: "Exact edit replaces one current unique match" returns
   display data, `lineCount`, and a two-line-context region instead of a diff;
   "Image reads return an image result" and "Only a media read's image result
-  carries a media locator" store the thumbnail as `display.thumbnail`. Added:
-  "A write result carries no content" and "A text read carries the source
-  line count when it is known".
+  carries a media locator" store the thumbnail as `display.thumbnail`;
+  "Directory listing bounds favor the requested level" is restated in STE with
+  every rule and scenario kept. Added: "A write result carries no content", "A
+  text read carries the source line count when it is known", and "A listing
+  page that cannot advance fails closed".
 - `media-attachments`: "Unstored images carry a display-only inline thumbnail",
   "A thumbnail over its cap is omitted", and "Thumbnails are display-only" name
   `display.thumbnail` as the stored location.

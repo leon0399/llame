@@ -2,6 +2,68 @@
 
 ## MODIFIED Requirements
 
+### Requirement: Directory listing bounds favor the requested level
+
+Each directory read for a listing MUST keep at most 10,000 entry names for ordering and MUST count
+the entries beyond that budget. A requested directory over the budget MUST fail with
+`directory_too_large`, the entry count, and no listing. A child directory over the budget MUST
+render only its `- name/` line and one indented `… N entries` line with the exact count. The budget
+MUST NOT cap the requested directory's own entries. Within the budget, a child directory MUST
+render at most 20 entries in order, then one `… N more` line with the omitted count when any were
+omitted. An empty child directory MUST render its `- name/` line alone, so a bare child line means
+empty and an `… N entries` line means elided. When the rendered two-level listing exceeds the common
+native result cap, the tool MUST replace whole child blocks from the last, each block by one
+indented `… N entries` line with that child's total entry count, and MUST keep every requested-level
+line. That marker MUST count toward the requested level size and MUST NOT occupy an entry index.
+When the requested level and its markers still exceed the cap, ordinary truncation MUST apply over
+the requested-level entries in order, each marker with its entry, and `nextOffset` MUST name the
+next requested-level entry index not emitted. A range selector on a directory path MUST produce a
+flat listing of the requested level: the header, then the selected entries by one-based entry
+index, with no child entries and no context expansion, whether or not the two-level listing would
+fit. `nextOffset` MUST name the next entry index of the requested level. A `:raw` selector on a
+directory MUST fail with a selector error.
+
+#### Scenario: Requested directory over the traversal budget fails closed
+
+- **WHEN** the model reads a directory holding more than 10,000 entries
+- **THEN** the tool returns `directory_too_large` with the entry count
+- **AND** it emits no listing
+
+#### Scenario: Child directory over the traversal budget is elided
+
+- **WHEN** a child directory holds more than 10,000 entries
+- **THEN** the listing shows that child's `- name/` line followed by `… N entries` with the exact count
+- **AND** no entry of that child is rendered
+
+#### Scenario: Large child directory is summarized
+
+- **WHEN** a child directory holds more than 20 entries
+- **THEN** the listing shows its first 20 entries in order followed by `… N more` with the exact omitted count
+
+#### Scenario: Oversized listing keeps the requested level
+
+- **WHEN** the rendered two-level listing exceeds the common result cap but the requested level fits
+- **THEN** whole child blocks are replaced last-first by `… N entries` lines until the listing fits
+- **AND** every requested-level entry remains present with no partially rendered child block
+- **AND** an empty child directory still renders as a bare `- name/` line
+
+#### Scenario: Oversized requested level pages by selector
+
+- **WHEN** the requested directory's own entries alone exceed the common result cap
+- **THEN** the result carries the ordinary truncation details with `nextOffset`
+- **AND** a range selector such as `:201-400` on the same directory returns the header and entries 201 through 400 of the requested level only
+
+#### Scenario: Range selector on a small directory is flat
+
+- **WHEN** the model reads a directory whose two-level listing fits the cap, with the selector `:1-5`
+- **THEN** content is the header followed by the first five requested-level entries
+- **AND** no child directory entries appear
+
+#### Scenario: Raw selector on a directory is rejected
+
+- **WHEN** the model reads a directory path with the `:raw` selector
+- **THEN** the tool returns a selector error and no listing
+
 ### Requirement: Exact edit replaces one current unique match
 
 `edit` MUST accept an absolute local path, a valid `file://` alias, a non-empty `oldText`, and
@@ -147,3 +209,21 @@ daemon sends none.
 - **WHEN** a Machine daemon that predates this field answers an `fs.read`
 - **THEN** the hub result carries no `lineCount`
 - **AND** the read succeeds with its other fields unchanged
+
+### Requirement: A listing page that cannot advance fails closed
+
+When the header and the first entry of the requested window leave no room in the result cap, the
+read MUST fail with `representation_too_large` and MUST carry no listing and no continuation. The
+same MUST hold when the requested window keeps no entry and the header alone exceeds the bound.
+
+#### Scenario: A listing too wide for its first entry fails closed
+
+- **WHEN** the header and the first entry of the requested window exceed the result cap
+- **THEN** the read fails with `representation_too_large`
+- **AND** it carries no listing and no continuation
+
+#### Scenario: A header over the bound with no entry fails closed
+
+- **WHEN** the requested window keeps no entry and its header alone exceeds the result bound
+- **THEN** the read fails with `representation_too_large`
+- **AND** it carries no listing and no continuation
