@@ -232,9 +232,16 @@ bash   exit <code>[, <seconds> s]
        [stderr]
        <stderr>
        (no output)                             when both streams are empty
-       [output cut at the bound]               when truncated
+       [output cut at the bound]               when the stored cut is set
        [<truncationNotice>]
 ```
+
+A `bash` success stores `{status, exitCode, stdout, stderr, cut?,
+wallTimeMs?}`. `cut` is the executor's own bound signal, taken from the
+producer's `truncated` in `bash-result.ts`. The cap overwrites `truncated`
+when it shortens a rendering and adds the notice, so the marker cannot read
+`truncated`: it reads `cut`, and a legacy part without `cut` marks on
+`truncated` when it carries no notice.
 
 Attribution lines render one `<field>: <value>` per field the stored object
 carries, in the order the spec lists; `adapter` joins `id`, `route`, `origin`

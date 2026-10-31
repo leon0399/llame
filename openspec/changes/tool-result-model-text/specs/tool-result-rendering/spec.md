@@ -432,12 +432,12 @@ render first.
 
 ### Requirement: A bash result renders a status header and its streams
 
-A `bash` success and a `command_failed` message MUST begin with `exit <code>`, then
-`, <seconds> s` with one decimal when `wallTimeMs` is stored. The stdout MUST follow
-verbatim. A non-empty stderr MUST follow under a `[stderr]` line. When both streams are empty, the
-text MUST be the header and `(no output)`. A result with `truncated: true` MUST carry
-`[output cut at the bound]` after its output, before a cap notice. A `command_failed` message MUST
-be the same shape with the non-zero exit code.
+A `bash` success MUST begin with `exit <code>`, then `, <seconds> s` (one decimal) when the
+result carries `wallTimeMs`. The stdout MUST follow verbatim. A non-empty stderr MUST follow
+under a `[stderr]` line. When both streams are empty, the text MUST be the header and `(no
+output)`. A result whose executor bound cut a stream MUST carry `[output cut at the bound]`; a
+result the cap alone shortened MUST carry none. A `command_failed` message MUST be the same shape
+with the non-zero exit code.
 
 #### Scenario: A silent command reports no output
 
@@ -463,6 +463,18 @@ be the same shape with the non-zero exit code.
 
 - **WHEN** a command's stdout is cut at the executor bound
 - **THEN** the text ends with `[output cut at the bound]`
+
+#### Scenario: A result only the cap shortened carries no bound marker
+
+- **WHEN** a command writes 20,000 characters to stdout, within the executor stream bound
+- **THEN** the global result cap shortens the text
+- **AND** the text ends with the cap notice and carries no `[output cut at the bound]`
+
+#### Scenario: A bound cut and a cap cut carry both lines
+
+- **WHEN** the executor bound cuts stdout and the cap then shortens the same result
+- **THEN** the text carries `[output cut at the bound]`
+- **AND** it ends with the cap notice
 
 ### Requirement: A grep passage cut at the page bound names the cursor
 
