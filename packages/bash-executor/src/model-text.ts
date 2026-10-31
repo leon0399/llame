@@ -7,8 +7,9 @@ import {
 /*
  * The model-facing text of a `bash` result (tool-result-rendering "A bash
  * result renders a status header and its streams"). The stored result keeps
- * the exit code, the wall time, the two bounded streams, and its truncation
- * flags, so this module adds only the framing: the status header, the `[stderr]`
+ * the exit code, the wall time, the two bounded streams, the `cut` flag its
+ * executor set, and the `truncated` flag with its notice the global result cap
+ * adds, so this module adds only the framing: the status header, the `[stderr]`
  * label, the empty-output phrase, and the markers a cut or the cap adds.
  *
  * The return value is the raw text; the one reserved-name rule is applied by
@@ -25,6 +26,23 @@ const STDERR_LABEL = "[stderr]";
 const NO_OUTPUT = "(no output)";
 
 const MILLISECONDS_PER_SECOND = 1000;
+
+/**
+ * Whether the executor's own bound cut a stream.
+ *
+ * The stored success carries `cut: true` when it did, and the global result cap
+ * never overwrites that flag. The cap writes `truncated` and a notice whenever
+ * it shortens a rendering, so `truncated` alone names the cap's cut, not the
+ * executor's: a 20 KB stdout the per-stream bound left whole is cut only by the
+ * 16,000-character cap. A result stored before `cut` existed reported its bound
+ * cut as a `truncated` with no notice, which is the only case the fallback
+ * covers.
+ */
+function cutAtBound(result: UnknownRecord): boolean {
+  const { truncationNotice } = result;
+  const capped = isString(truncationNotice) && truncationNotice !== "";
+  return result.cut === true || (result.truncated === true && !capped);
+}
 
 /**
  * The model-facing text of a `bash` result: the status header, stdout
@@ -58,7 +76,7 @@ export function renderBashText(result: UnknownRecord): string {
   if (produced !== "") lines.push(stdout);
   if (failed !== "") lines.push(STDERR_LABEL, stderr);
   if (produced === "" && failed === "") lines.push(NO_OUTPUT);
-  if (result.truncated === true) lines.push(OUTPUT_CUT_MARKER);
+  if (cutAtBound(result)) lines.push(OUTPUT_CUT_MARKER);
   const { truncationNotice } = result;
   if (isString(truncationNotice) && truncationNotice !== "")
     lines.push(`[${truncationNotice}]`);

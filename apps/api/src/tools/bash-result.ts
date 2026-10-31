@@ -52,7 +52,12 @@ export function toToolResult(result: BashResult): ToolResult {
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
-      truncated: result.truncated,
+      // The executor's own cut, under a name the global result cap does not
+      // overwrite: the cap writes `truncated` and a notice when it shortens a
+      // rendering, so the model text marks only this flag
+      // (tool-result-rendering "A bash result renders a status header and its
+      // streams").
+      ...(result.truncated && { cut: true }),
       ...(result.wallTimeMs !== undefined && { wallTimeMs: result.wallTimeMs }),
     };
   }

@@ -33,8 +33,9 @@ with `, <seconds> s` (one decimal) when the producer measured the command's wall
 time from spawn to settlement, then stdout verbatim, then a `[stderr]` line and
 the stderr when it is non-empty. A result with both streams empty says
 `(no output)`. `[output cut at the bound]` marks output the executor bound cut,
-and a bracketed cap notice can end the text. A stored result without a wall time
-renders the bare header.
+and a bracketed cap notice can end the text; a result only the global result cap
+shortened ends with its notice and no such marker. A stored result without a
+wall time renders the bare header.
 
 A failing command is a `command_failed` result whose message is the same text
 shape, with the non-zero exit code. A stopped command is a `timed_out` result
@@ -42,8 +43,8 @@ whose message starts with `timed out` and the measured elapsed time in seconds,
 and names no exit code: the process was stopped, not exited. A deadline that
 ended the call before a command started names no time, because nothing
 measured one. The stored result keeps the exit code, both bounded streams, the
-truncation flags, and the wall time, and carries no field naming the operation
-or the executor.
+`cut` flag its executor set, and the wall time, and carries no field naming the
+operation or the executor.
 
 ## Behavior
 

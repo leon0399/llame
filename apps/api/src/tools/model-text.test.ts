@@ -242,12 +242,61 @@ describe('renderToolResultForModel', () => {
         exitCode: 2,
         stdout: 'prefix',
         stderr: '',
+        cut: true,
         truncated: true,
         truncationNotice: 'Result truncated to fit the cap.',
       }),
     ).toBe(
       'exit 2\nprefix\n[output cut at the bound]\n[Result truncated to fit the cap.]',
     );
+  });
+
+  it('ends a bash result only the cap shortened with its notice and no cut marker', () => {
+    // 20 KB of stdout is inside the executor's 32,000-character per-stream
+    // bound, so only the 16,000-character result cap cuts this result.
+    const result: ToolResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'x'.repeat(20_000),
+      stderr: '',
+      wallTimeMs: 12,
+    };
+
+    const cut = truncateOversizedResult(
+      result,
+      measureToolResultForModel('bash'),
+    );
+    const text = renderToolResultText('bash', cut);
+
+    expect(cut).toMatchObject({ status: 'success', truncated: true });
+    expect(text).not.toContain('[output cut at the bound]');
+    expect(text).toMatch(
+      /^exit 0, 0\.0 s\nx+\n\[Result truncated to fit the 16000-character tool-result cap; \d+ characters omitted\./u,
+    );
+    expect(text.length).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+  });
+
+  it('keeps the cut marker when the cap also shortened a cut bash result', () => {
+    const result: ToolResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'y'.repeat(20_000),
+      stderr: '',
+      cut: true,
+      wallTimeMs: 12,
+    };
+
+    const capped = truncateOversizedResult(
+      result,
+      measureToolResultForModel('bash'),
+    );
+    const text = renderToolResultText('bash', capped);
+
+    expect(capped).toMatchObject({ status: 'success', cut: true });
+    expect(text).toContain(
+      '\n[output cut at the bound]\n[Result truncated to fit the 16000-character tool-result cap; ',
+    );
+    expect(text.length).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 
   it('neutralizes a reserved delimiter inside a bash rendering', () => {

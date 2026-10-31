@@ -18,7 +18,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   prints `exit <code>, <seconds> s` from the producer's new `wallTimeMs` (spawn
   to settlement, one decimal), then stdout verbatim, then `[stderr]` and the
   stderr when it is non-empty, `(no output)` when both are empty,
-  `[output cut at the bound]` for output the executor bound cut, and the cap
+  `[output cut at the bound]` for output the executor bound cut (stored as a
+  `cut` flag the result cap never overwrites, so a result the 16,000-character
+  cap alone shortened ends with its notice and no such marker), and the cap
   notice last; a stored part without a wall time prints the bare header. A
   `command_failed` message carries the same shape inside the JSON failure
   object, so the live and replayed text match; a `timed_out` message starts

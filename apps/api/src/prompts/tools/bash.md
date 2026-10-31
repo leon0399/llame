@@ -6,7 +6,7 @@ Run a shell command as the host user via `bash -c`.
 
 <output>
 - A result is plain text, not JSON: one status header `exit <code>`, continued with `, <seconds> s` (one decimal) when the producer measured the command's wall time, then stdout verbatim, then `[stderr]` and the stderr when it is non-empty; `(no output)` when both streams are empty.
-- `[output cut at the bound]` marks output the executor bound cut, and a bracketed cap notice can end the text. A result stored before this shape renders `exit <code>` with no time.
+- `[output cut at the bound]` marks output the executor bound cut, and a bracketed cap notice can end the text; a result only the result cap shortened ends with that notice alone. A result stored before this shape renders `exit <code>` with no time.
 - A failed command's `command_failed` result carries this same text in its message, with the non-zero exit code; a `timed_out` message starts with `timed out` and names the measured elapsed time in seconds, and names no exit code because the command never exited.
 - Text is neutralized for reserved delimiters: a tag-shaped token naming `system-reminder`, `tool-call`, `tool-result`, `user_chat_history`, `user_personalization`, `skill`, or `available_skills` is angle-escaped (`&lt;tool-result&gt;`); every other character is the output as produced, `</div>` included.
 </output>

@@ -32,16 +32,49 @@ describe("bash text rendering", () => {
     expect(renderBashText(success)).toBe("exit 0\n(no output)");
   });
 
-  it("marks a cut output after its streams", () => {
+  it("marks the output the executor bound cut after its streams", () => {
     expect(
       renderBashText({
         ...success,
         exitCode: 2,
         wallTimeMs: 1240,
         stdout: "prefix",
-        truncated: true,
+        cut: true,
       }),
     ).toBe("exit 2, 1.2 s\nprefix\n[output cut at the bound]");
+  });
+
+  it("keeps the bound marker on a cut result the cap also shortened", () => {
+    expect(
+      renderBashText({
+        ...success,
+        stdout: "prefix",
+        cut: true,
+        truncated: true,
+        truncationNotice: "Result truncated to fit the cap.",
+      }),
+    ).toBe(
+      "exit 0\nprefix\n[output cut at the bound]\n[Result truncated to fit the cap.]",
+    );
+  });
+
+  it("ends a result the cap alone shortened with its notice and no marker", () => {
+    // 20 KB of stdout is inside the executor's per-stream bound, so only the
+    // 16,000-character result cap cut this result.
+    expect(
+      renderBashText({
+        ...success,
+        stdout: "kept",
+        truncated: true,
+        truncationNotice: "Result truncated to fit the cap.",
+      }),
+    ).toBe("exit 0\nkept\n[Result truncated to fit the cap.]");
+  });
+
+  it("reads the cut of a result stored before the cut flag from truncated", () => {
+    expect(
+      renderBashText({ ...success, stdout: "prefix", truncated: true }),
+    ).toBe("exit 0\nprefix\n[output cut at the bound]");
   });
 
   it("ends with the cap notice in brackets", () => {

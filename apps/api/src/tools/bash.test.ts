@@ -480,7 +480,7 @@ describe('bash durable admission', () => {
 
       expect(result).toMatchObject({ status: 'success' });
       if (result.status === 'success') {
-        expect(result.truncated).toBe(false);
+        expect(result).not.toHaveProperty('cut');
         if (!isString(result.stdout)) {
           throw new Error('Expected bash stdout to be a string');
         }
@@ -779,7 +779,25 @@ describe('bash durable admission', () => {
       exitCode: 0,
       stdout: 'out\n',
       stderr: '',
-      truncated: false,
+      wallTimeMs: 1240,
+    });
+  });
+
+  it('marks the executor cut with cut, not with the cap flag', () => {
+    const result: BashResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'prefix',
+      stderr: '',
+      truncated: true,
+      wallTimeMs: 1240,
+    };
+    expect(toToolResult(result)).toStrictEqual({
+      status: 'success',
+      exitCode: 0,
+      stdout: 'prefix',
+      stderr: '',
+      cut: true,
       wallTimeMs: 1240,
     });
   });
@@ -798,7 +816,6 @@ describe('bash durable admission', () => {
       exitCode: 0,
       stdout: 'out\n',
       stderr: '',
-      truncated: false,
     });
   });
 
