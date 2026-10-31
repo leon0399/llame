@@ -183,11 +183,11 @@ function resumeSelector(result: UnknownRecord, nextOffset: number): string {
   if (result.kind === "directory") return `${nextOffset + 1}-`;
   const { lineCount } = result;
   const requested = asRange(result.requestedRange)?.endLine;
-  // A requested end past the known line count is clamped to it, so the
-  // continuation names a selector the source can serve.
+  // A requested end at or past the known line count reaches the last line, so
+  // the continuation is open-ended, the form the read tool resolves to it.
   const requestedEnd =
-    isNumber(lineCount) && requested !== undefined
-      ? Math.min(requested, lineCount)
+    isNumber(lineCount) && requested !== undefined && requested >= lineCount
+      ? undefined
       : requested;
   if (result.representation === "outline")
     return `outline:${rangeSelector(nextOffset, requestedEnd)}`;

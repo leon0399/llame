@@ -124,7 +124,7 @@ describe("read text header", () => {
     });
 
     expect(renderReadText(result)).toBe(
-      "x.min.js: line 1 exceeds the result bound and was skipped\n[4 more lines. Use x.min.js:2-5 to continue]",
+      "x.min.js: line 1 exceeds the result bound and was skipped\n[4 more lines. Use x.min.js:2- to continue]",
     );
   });
 

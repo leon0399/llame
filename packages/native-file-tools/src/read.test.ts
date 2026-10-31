@@ -22,6 +22,7 @@ import {
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
+import { renderReadText } from "./model-text";
 import { applySelectorSuffix } from "./path";
 import {
   measureReadRendering,
@@ -104,7 +105,7 @@ describe("native source reads", () => {
   it("caps an unselected read and continues before trailing context", async () => {
     await writeFile(path, "\n".repeat(2002));
     expect(await readFile({ path })).toMatchObject({
-      requestedRange: { startLine: 1, endLine: 2000 },
+      requestedRange: { startLine: 1, endLine: 2002 },
       shownRange: { startLine: 1, endLine: 2001 },
       nextOffset: 2000,
       truncated: true,
@@ -239,6 +240,21 @@ describe("native source reads", () => {
     expect(result).toMatchObject({ status: "success", truncated: true });
     expect(result.content.endsWith("\n")).toBe(true);
     expect(result.nextOffset).toBe(result.shownRange?.endLine);
+  });
+
+  it("lets a bound-cut unselected read continue to the end of the file", async () => {
+    await writeFile(path, ("x".repeat(100) + "\n").repeat(3000));
+    const result = await readFile({ path });
+    assertFileSuccess(result);
+    expect(result.nextOffset).toBeLessThan(2000);
+    expect(result.requestedRange).toEqual({ startLine: 1, endLine: 3000 });
+    const next = (result.nextOffset ?? 0) + 1;
+    expect(renderReadText(result)).toMatch(
+      new RegExp(
+        `\\[${3001 - next} more lines\\. Use \\S+:${next}- to continue\\]$`,
+        "u",
+      ),
+    );
   });
 
   it("fills its bound with rendered lines, continuation included", async () => {

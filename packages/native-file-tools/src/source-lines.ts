@@ -183,10 +183,19 @@ export function appendReadLine(
   return true;
 }
 
+/** An unselected read requests the whole source: when its line count is
+ *  known, that count is the requested end, so a read cut inside the default
+ *  window continues to the end of the file rather than to line 2000. */
 export function emptyReadResult(
   target: ReadTarget,
   endLine: number,
 ): SingleReadSuccess {
+  const requestedEnd =
+    endLine !== 0 &&
+    target.limit === undefined &&
+    target.lineCount !== undefined
+      ? target.lineCount
+      : endLine;
   const result: SingleReadSuccess = {
     status: "success",
     kind: "file",
@@ -194,7 +203,9 @@ export function emptyReadResult(
     representation: target.raw ? "raw" : "text",
     content: "",
     requestedRange:
-      endLine === 0 ? null : { startLine: target.offset + 1, endLine },
+      requestedEnd === 0
+        ? null
+        : { startLine: target.offset + 1, endLine: requestedEnd },
     shownRange: null,
     truncated: false,
   };
