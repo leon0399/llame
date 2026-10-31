@@ -165,7 +165,7 @@ header. A null shown range MUST render `<locator>: empty` when the result is not
 ### Requirement: A read stored without ranges names its locator alone
 
 A `read` result that carries neither `shownRange` nor `shownRanges` MUST render the bare `<locator>`
-as its header, followed by ` of <lineCount> lines` when the result stores the total. Such a result
+as its header, followed by `of <lineCount> lines` after one space when the result stores the total. Such a result
 MUST NOT render `<locator>: empty`: it carries content, and an `empty` header denies it. A result
 whose `shownRange` is explicitly null MUST keep the `<locator>: empty` header.
 
