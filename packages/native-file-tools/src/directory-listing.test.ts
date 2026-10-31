@@ -335,6 +335,55 @@ describe("directory listing", () => {
     expect(result.nextOffset).toBe(rendered);
   });
 
+  it("fails a flat page whose first entry does not fit instead of repeating it", async () => {
+    await writeFile(join(root, "a.txt"), "");
+    await writeFile(join(root, "b.txt"), "");
+
+    const result = await readResolvedFile(root, {
+      displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS - 20)}`,
+      selector: "1-2",
+    });
+    // The header leaves room for the first entry but not for the continuation
+    // that would name it, so no page can advance: a stored `nextOffset` would
+    // send the next read back to the same entry.
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header and its next entry exceed the result bound, so no page of the listing can be shown.",
+    });
+  });
+
+  it("fails a flat listing whose header alone does not fit", async () => {
+    await writeFile(join(root, "a.txt"), "");
+
+    const result = await readResolvedFile(root, {
+      displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS)}`,
+      selector: "2-",
+    });
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header alone exceeds the result bound, so the listing cannot be shown.",
+    });
+  });
+
+  it("fails a tree listing whose first entry does not fit instead of paging from it", async () => {
+    await writeFile(join(root, "a.txt"), "");
+    await writeFile(join(root, "b.txt"), "");
+
+    const result = await readResolvedFile(root, {
+      displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS - 20)}`,
+    });
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header and its next entry exceed the result bound, so no page of the listing can be shown.",
+    });
+  });
+
   it("resolves link metadata only for a child directory's capped head", async () => {
     const names = Array.from(
       { length: DIRECTORY_CHILD_CAP + 5 },
@@ -474,7 +523,8 @@ describe("directory listing", () => {
       status: "error",
       type: "directory_too_large",
     });
-    if (result.status !== "error") throw new Error();
+    if (result.status !== "error" || result.type !== "directory_too_large")
+      throw new Error();
     expect(result.count).toBe(DIRECTORY_TRAVERSAL_BUDGET + 100);
   });
 

@@ -4,6 +4,7 @@ import {
   boundFlatResult,
   directoryResult,
   fitsResultCap,
+  listingTooLarge,
   type DirectoryPage,
 } from "./directory-page";
 
@@ -131,12 +132,20 @@ export function renderCollectedDirectoryParts(
   return renderFlatListing(header, roots, slice, cap);
 }
 
-export type DirectoryFailure = {
-  status: "error";
-  type: "directory_too_large";
-  message: string;
-  count: number;
-};
+export type DirectoryFailure =
+  | {
+      status: "error";
+      type: "directory_too_large";
+      message: string;
+      count: number;
+    }
+  | {
+      /** No page of the listing fits the result bound, so no continuation
+       *  could advance; see `listingTooLarge`. */
+      status: "error";
+      type: "representation_too_large";
+      message: string;
+    };
 
 type ChildBlockInfo = {
   name: string;
@@ -343,7 +352,7 @@ function renderFlatListing(
   entries: Array<DirEntry>,
   slice: FlatSlice,
   cap: number,
-): DirectorySuccess {
+): DirectorySuccess | DirectoryFailure {
   const { offset, end, selected } = slice;
 
   const lines: Array<string> = [targetPath];
@@ -411,7 +420,7 @@ function renderTreeListing(
   rootEntries: Array<DirEntry>,
   children: Array<ChildDir>,
   cap: number,
-): DirectorySuccess {
+): DirectorySuccess | DirectoryFailure {
   if (rootEntries.length === 0)
     return directoryResult(targetPath, rootEntries.length, {
       content: `${targetPath}\n(empty directory)\n`,
@@ -534,7 +543,7 @@ function truncateRequestedLevel(
   rootEntries: Array<DirEntry>,
   childBlocks: Array<ChildBlockInfo>,
   cap: number,
-): DirectorySuccess {
+): DirectorySuccess | DirectoryFailure {
   const { byName, elided } = indexChildBlocks(childBlocks);
   const lines: Array<string> = [targetPath];
   const fits = (candidate: Array<string>, nextOffset: number) =>
@@ -555,12 +564,17 @@ function truncateRequestedLevel(
         ? elisionMarker(block.totalCount)
         : undefined;
     const added = [formatEntry(entry, "  "), ...(marker ? [marker] : [])];
-    if (!fits([...lines, ...added], entryIndex + 1))
+    if (!fits([...lines, ...added], entryIndex + 1)) {
+      // The first entry is the one entry 0's continuation would name, so a
+      // page cut before it cannot advance: keeping it out fails closed
+      // instead of returning itself on every retry.
+      if (entryIndex === 0) return listingTooLarge(true);
       return directoryResult(targetPath, rootEntries.length, {
         content: lines.join("\n") + "\n",
         truncated: true,
         nextOffset: entryIndex,
       });
+    }
     lines.push(...added);
   }
 

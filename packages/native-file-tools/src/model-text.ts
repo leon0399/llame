@@ -17,7 +17,10 @@ import {
  * adds only the framing: one header line, the attribution lines the result
  * carries, and the continuation notice. It reads a fixed set of fields and
  * ignores every other one — a legacy part without `lineCount`/`entryCount`
- * renders with no total and a selector-only continuation.
+ * renders with no total and a selector-only continuation. Every stored value it
+ * prints sits on one line: a line break in a path, an attribution value, or the
+ * cap notice becomes a space, so no stored value can add an unprefixed line to
+ * the framing.
  *
  * The return value is the raw text; the one reserved-name rule is applied by
  * the caller, once, to the whole rendering, and that neutralized text is what
@@ -51,6 +54,14 @@ function isNonEmptyString(value: unknown): value is string {
   return isString(value) && value !== "";
 }
 
+/** A stored value as one line. The framing this module prints is positional —
+ *  the header is the first line, attribution follows it, the continuation and
+ *  the cap notice are the last — so a line break inside a stored value would
+ *  add an unprefixed line that can imitate any of them. */
+function oneLine(value: string): string {
+  return value.replaceAll(/[\r\n]+/gu, " ");
+}
+
 function asRange(value: unknown): LineRange | undefined {
   if (!isRecord(value)) return undefined;
   const { startLine, endLine } = value;
@@ -78,7 +89,7 @@ function adapterLines(value: unknown): Array<string> {
   if (!isRecord(value)) return [];
   const parts: Array<string> = [];
   for (const part of [value.id, value.route, value.origin]) {
-    if (isNonEmptyString(part)) parts.push(part);
+    if (isNonEmptyString(part)) parts.push(oneLine(part));
   }
   return parts.length === 0 ? [] : [`adapter: ${parts.join(" ")}`];
 }
@@ -87,7 +98,7 @@ function noteLines(value: unknown): Array<string> {
   if (!Array.isArray(value)) return [];
   const lines: Array<string> = [];
   for (const entry of value) {
-    if (isNonEmptyString(entry)) lines.push(`notes: ${entry}`);
+    if (isNonEmptyString(entry)) lines.push(`notes: ${oneLine(entry)}`);
   }
   return lines;
 }
@@ -98,7 +109,7 @@ function attributionLines(result: UnknownRecord): Array<string> {
     const value = result[field];
     if (field === "adapter") lines.push(...adapterLines(value));
     else if (field === "notes") lines.push(...noteLines(value));
-    else if (isNonEmptyString(value)) lines.push(`${field}: ${value}`);
+    else if (isNonEmptyString(value)) lines.push(`${field}: ${oneLine(value)}`);
   }
   return lines;
 }
@@ -110,7 +121,7 @@ function attributionLines(result: UnknownRecord): Array<string> {
  *  `: empty` would deny the content below it. An outline carries no total: its
  *  scan can stop early, so it stores none. */
 function fileHeader(result: UnknownRecord): string {
-  const path = isNonEmptyString(result.path) ? result.path : "";
+  const path = isNonEmptyString(result.path) ? oneLine(result.path) : "";
   const total =
     result.representation === "outline" || !isNumber(result.lineCount)
       ? ""
@@ -219,7 +230,7 @@ function continuationLine(result: UnknownRecord): string | undefined {
   } else if (isNumber(result.lineCount)) {
     label = `${result.lineCount - nextOffset} more lines. `;
   }
-  const path = isNonEmptyString(result.path) ? result.path : "";
+  const path = isNonEmptyString(result.path) ? oneLine(result.path) : "";
   // Every colon a web locator's query or fragment opened is URL text, so a
   // trailing selector cannot follow one: `…?version=1:2001-` would request a
   // different URL than the one the source was read from. A host path takes
@@ -255,6 +266,7 @@ export function renderReadText(result: UnknownRecord): string {
   const continuation = continuationLine(result);
   if (continuation !== undefined) lines.push(continuation);
   const { truncationNotice } = result;
-  if (isNonEmptyString(truncationNotice)) lines.push(`[${truncationNotice}]`);
+  if (isNonEmptyString(truncationNotice))
+    lines.push(`[${oneLine(truncationNotice)}]`);
   return lines.join("\n");
 }
