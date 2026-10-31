@@ -284,11 +284,12 @@ describe('ssh bash pre-start and authority limits', () => {
       { command: 'true', cwd: CWD },
     );
 
+    // The message is the bash text shape: the 300 s deadline elapsed before
+    // the command could start, and both streams were empty.
     expect(result).toEqual({
       status: 'error',
       type: 'timed_out',
-      message:
-        'Command exceeded its deadline of 300000 ms.\nstdout:\n\nstderr:\n',
+      message: 'exit 1, 300.0 s\n(no output)',
     });
     expect(remoteClient.runs).toHaveLength(0);
   });

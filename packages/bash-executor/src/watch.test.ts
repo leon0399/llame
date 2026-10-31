@@ -55,6 +55,32 @@ describe("process-group settlement", () => {
     });
   });
 
+  it("records the wall time from spawn to settlement", async () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_349 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      true,
+    );
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        { context, attemptId: "wall-time", options: {} },
+        resolve,
+      );
+    });
+    clock.mockReturnValue(2240);
+    child.emit("close", 0, null);
+
+    expect(await pending).toMatchObject({
+      status: "success",
+      exitCode: 0,
+      wallTimeMs: 1240,
+    });
+  });
+
   it("bounds an open output pipe and marks its result truncated", async () => {
     vi.useFakeTimers();
     const child = new ChildProcess();

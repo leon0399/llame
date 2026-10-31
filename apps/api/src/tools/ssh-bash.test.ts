@@ -146,15 +146,17 @@ describe('ssh bash execution', () => {
       env: { TOKEN_HINT: "it's data" },
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: 'success',
-      operation: 'bash',
-      executor: 'managed',
       exitCode: 0,
       stdout: 'command out\n',
       stderr: 'command err\n',
       truncated: false,
     });
+    // The wall time is measured, not constant; the dropped fields are gone.
+    expect(result).toHaveProperty('wallTimeMs', expect.any(Number));
+    expect(result).not.toHaveProperty('operation');
+    expect(result).not.toHaveProperty('executor');
     const run = remoteClient.runs[0];
     expect(run).toMatchObject({
       destination: 'box',
@@ -203,10 +205,7 @@ describe('ssh bash execution', () => {
       status: 'error',
       type: 'command_failed',
     });
-    expect(result).toHaveProperty(
-      'message',
-      expect.stringContaining('Command exited with code 7.'),
-    );
+    expect(result).toHaveProperty('message', expect.stringContaining('exit 7'));
     expect(result.status === 'error' && result.message).toContain('boom');
   });
 
@@ -225,7 +224,7 @@ describe('ssh bash execution', () => {
     });
     expect(result).toHaveProperty(
       'message',
-      expect.stringContaining('Command exited with code 255.'),
+      expect.stringContaining('exit 255'),
     );
   });
 

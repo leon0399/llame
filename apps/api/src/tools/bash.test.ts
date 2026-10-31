@@ -702,7 +702,7 @@ describe('bash durable admission', () => {
   });
 
   it.each([
-    { truncated: true, note: '\nOutput was truncated.' },
+    { truncated: true, note: '\n[output cut at the bound]' },
     { truncated: false, note: '' },
   ])(
     'maps timed-out output and truncation=$truncated into the error message',
@@ -715,13 +715,50 @@ describe('bash durable admission', () => {
         stderr: 'partial stderr',
         truncated,
       };
+      // The message is the bash text shape, naming the 0.1 s the deadline
+      // elapsed before the command was stopped.
       expect(toToolResult(result)).toEqual({
         status: 'error',
         type: 'timed_out',
-        message: `Command exceeded its deadline of 100 ms.\nstdout:\npartial stdout\nstderr:\npartial stderr${note}`,
+        message: `exit 1, 0.1 s\npartial stdout\n[stderr]\npartial stderr${note}`,
       });
     },
   );
+
+  it('composes a failing command as the bash text shape with its elapsed time', () => {
+    const result: BashResult = {
+      status: 'error',
+      exitCode: 1,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 2460,
+    };
+    expect(toToolResult(result)).toEqual({
+      status: 'error',
+      type: 'command_failed',
+      message: 'exit 1, 2.5 s\n(no output)',
+    });
+  });
+
+  it('drops the constant operation fields and keeps the wall time on success', () => {
+    const result: BashResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 1240,
+    };
+    expect(toToolResult(result)).toEqual({
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 1240,
+    });
+  });
 
   it('does not start a command when the durable attempt cannot commit', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));

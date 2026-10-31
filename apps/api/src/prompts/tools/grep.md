@@ -11,11 +11,13 @@ Search file contents for a pattern and return line-ranged locators that `read` a
 </instruction>
 
 <output>
-- `results` holds one object per passage: `locator`, `content`, and `matches`. A passage is a matched line with one line of context on each side, and touching windows merge. `content` carries one-based `N:` line prefixes, which are navigation metadata, never file bytes.
-- `locator` is `<file locator>:<start>-<end>` and is directly a valid `read` argument. Read it to see more of the file.
-- `matches` lists the matched line numbers in the window. A long line is cut at 512 code units and ends with `…`; the locator still addresses the whole line.
-- One page holds at most `limit` files (default 20) and 20 passages per file; a file with more marks its twentieth passage `truncated`. `complete: false` and `cursor` mean more passages remain: submit the same arguments with `cursor` to continue. A cursor from other inputs is refused as `invalid_input`.
-- `warnings` counts the skipped files and the bound that stopped the walk, by kind: `binary`, `invalid_utf8`, `oversized`, `unreadable`, `link`, `file_bound`, `entry_bound`, `byte_bound`, or `deadline`.
+- A result is plain text, not JSON: one `notice: <text>` line first when it carries the Knowledge untrusted-content notice, then each run of consecutive passages of one file under one `## <file locator>` line, then one `[warnings: …]` line, then one bracketed continuation line when more passages remain.
+- `## <file locator>` names the file with no line range. Each passage under it prints its lines as `N: text`, with `*N: text` for a matched line, and one blank line separates the passages of one run. Overlapping scopes repeat the file line, once per scope.
+- A passage is a matched line with one line of context on each side, and touching windows merge. Line-number prefixes are navigation metadata, never file bytes. A long line is cut at 512 code units and ends with `…`; the file line and printed number still address the whole line.
+- Build a `read` selector from the file line and a printed line number: `<file locator>:<start>-<end>`. Read it to see more of the file.
+- One page holds at most `limit` files (default 20) and 20 passages per file; a file with more ends its twentieth passage with `[more passages in this file; read it to see them]`. `[more results. Continue with cursor: <cursor>]` means more passages remain: submit the same arguments with that cursor. A cursor from other inputs is refused as `invalid_input`.
+- `[warnings: <count> <kind>, …]` counts the skipped files and the bound that stopped the walk, by kind: `binary`, `invalid_utf8`, `oversized`, `unreadable`, `link`, `file_bound`, `entry_bound`, `byte_bound`, or `deadline`. A bracketed cap notice ends the text when the result cap cut the page.
+- Text is neutralized for reserved delimiters: a tag-shaped token naming `system-reminder`, `tool-call`, `tool-result`, `user_chat_history`, `user_personalization`, `skill`, or `available_skills` is angle-escaped (`&lt;tool-result&gt;`); every other character is the source as stored, `</div>` included.
 </output>
 
 <critical>

@@ -16,8 +16,9 @@ import {
 } from '@workspace/machine-protocol';
 import {
   encodeGrepCursor,
+  grepContinuationUnits,
   hashGrepInputs,
-  measureNativeModelOutput,
+  measureGrepRendering,
   type GrepBudget,
 } from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
@@ -473,14 +474,19 @@ function answeredByPath(
   };
 }
 
-/** Content whose rendered passage serializes to exactly `units` code units. */
+/** Content whose rendered passage takes exactly `units` code units. */
 function contentOfUnits(
   locator: string,
   units: number,
   matches: ReadonlyArray<number> = [1],
 ): string {
-  const empty = measureNativeModelOutput({ locator, content: '', matches }) - 2;
-  return 'a'.repeat(units - empty);
+  // A page of this one passage renders its file line and then the content
+  // line after one newline, so the content fills what those leave.
+  const bare = measureGrepRendering({
+    results: [{ locator, content: '', matches }],
+    complete: true,
+  });
+  return 'a'.repeat(units - bare - 1);
 }
 
 function locatorAt(name: string, startLine: number, endLine: number): string {
@@ -789,19 +795,24 @@ describe('Machine page bounds', () => {
     expect(result).toMatchObject({ status: 'success', complete: true });
     const session = await peer.session(0);
     expect(session.calls).toHaveLength(2);
-    // Both passages with the separator between them, less the page's own
-    // brackets: the two serializations are exactly what the page holds.
+    // Both passages as the page renders them, plus the newline that separates
+    // the next scope from them.
     const rendered =
-      measureNativeModelOutput({
-        locator: 'machine://devl/srv/a/a.go:1-1',
-        content: '1: needle',
-        matches: [1],
-      }) +
-      measureNativeModelOutput({
-        locator: 'machine://devl/srv/a/a.go:3-3',
-        content: '3: needle',
-        matches: [3],
-      });
+      measureGrepRendering({
+        results: [
+          {
+            locator: 'machine://devl/srv/a/a.go:1-1',
+            content: '1: needle',
+            matches: [1],
+          },
+          {
+            locator: 'machine://devl/srv/a/a.go:3-3',
+            content: '3: needle',
+            matches: [3],
+          },
+        ],
+        complete: true,
+      }) + 1;
     expect(session.calls[1].params).toMatchObject({
       path: '/srv/b',
       budget: {
@@ -817,7 +828,7 @@ describe('Machine page bounds', () => {
     expect(budget['deadlineMs']).toBeLessThanOrEqual(30_000);
   });
 
-  it('reserves the brackets of a page that holds one passage', async () => {
+  it('keeps the separators of a page that holds one passage', async () => {
     const { peer, connector } = fixture({
       answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
     });
@@ -826,17 +837,22 @@ describe('Machine page bounds', () => {
       scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
     });
     const session = await peer.session(0);
-    const rendered = measureNativeModelOutput({
-      locator: 'machine://devl/srv/a/a.go:1-1',
-      content: '1: needle',
-      matches: [1],
+    const rendered = measureGrepRendering({
+      results: [
+        {
+          locator: 'machine://devl/srv/a/a.go:1-1',
+          content: '1: needle',
+          matches: [1],
+        },
+      ],
+      complete: true,
     });
     expect(budgetOf(session.calls[1].params)).toMatchObject({
       pageUnits: 15_000 - rendered - 1 - pageFixedReserve(),
     });
   });
 
-  it('hands a following scope the page brackets when it kept nothing', async () => {
+  it('hands a following scope the whole page when it kept nothing', async () => {
     const { peer, connector } = fixture({
       answers: { 'fs.grep': { value: page([]) } },
     });
@@ -846,7 +862,7 @@ describe('Machine page bounds', () => {
     });
     const session = await peer.session(0);
     expect(budgetOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 14_998 - pageFixedReserve(),
+      pageUnits: 15_000 - pageFixedReserve(),
       limit: 20,
     });
   });
@@ -1092,15 +1108,20 @@ describe('Machine page bounds', () => {
   });
 
   it('keeps a passage whose whole result fits the page and drops one that overflows it', async () => {
-    // 14,294 units is the largest passage that fits beside its own cursor
-    // field and the fields a result carries: 2 + 14,294 + 198 + 506 = 15,000.
+    // The page's own lines take the fixed reserve and the cursor that names
+    // the passage takes its continuation line, so the largest passage that
+    // fits beside them leaves exactly what is left of 15,000.
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      grepContinuationUnits({ scopeIndex: 0, rel: 'a.go', startLine: 1 });
     const filled = fixture({
       answers: {
         'fs.grep': {
           value: page([
             {
               ...passage('a.go', 1, 1),
-              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_294),
+              content: contentOfUnits(locatorAt('a.go', 1, 1), room),
             },
           ]),
         },
@@ -1112,7 +1133,7 @@ describe('Machine page bounds', () => {
     });
     expect(kept).toMatchObject({ status: 'success', complete: true });
     expect(locatorsOf(kept)).toEqual(['machine://devl/srv/app/a.go:1-1']);
-    expect(measureNativeModelOutput(kept)).toBeLessThanOrEqual(15_000);
+    expect(measureGrepRendering(kept)).toBeLessThanOrEqual(15_000);
 
     const over = fixture({
       answers: {
@@ -1120,7 +1141,7 @@ describe('Machine page bounds', () => {
           value: page([
             {
               ...passage('a.go', 1, 1),
-              content: contentOfUnits(locatorAt('a.go', 1, 1), 14_295),
+              content: contentOfUnits(locatorAt('a.go', 1, 1), room + 1),
             },
           ]),
         },

@@ -48,11 +48,7 @@ describe("file-context handoff", () => {
       { command: "bash", args: ["-c", "cat note.txt"] },
       context(directory),
     );
-    expect(bash).toMatchObject({
-      status: "success",
-      executor: "managed",
-      stdout: "after-edit\n",
-    });
+    expect(bash).toMatchObject({ status: "success", stdout: "after-edit\n" });
   });
 
   it("lets native read observe a known bash mutation", async () => {
@@ -65,7 +61,7 @@ describe("file-context handoff", () => {
       },
       context(directory),
     );
-    expect(bash).toMatchObject({ status: "success", executor: "managed" });
+    expect(bash).toMatchObject({ status: "success" });
 
     const read = await readFile({ path });
     expect(read).toMatchObject({ status: "success" });

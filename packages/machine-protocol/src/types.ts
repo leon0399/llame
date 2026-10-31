@@ -316,16 +316,16 @@ export type ProcBashParams = {
 };
 
 /** The managed-executor result, exactly as `@workspace/bash-executor` returns
- *  it; a non-zero exit is this result, not a protocol error. */
+ *  it; a non-zero exit is this result, not a protocol error. `wallTimeMs` is
+ *  optional: a daemon that predates it reports none. */
 export type ProcBashResult =
   | {
       readonly status: "success" | "error";
-      readonly operation: "bash";
-      readonly executor: "managed";
       readonly exitCode: number;
       readonly stdout: string;
       readonly stderr: string;
       readonly truncated: boolean;
+      readonly wallTimeMs?: number;
     }
   | {
       readonly status: "error";

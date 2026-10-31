@@ -2,6 +2,30 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-31
 
+- `grep` and `bash` results now render as text, closing
+  [#1419](https://github.com/leon0399/llame/issues/1419) and
+  [#917](https://github.com/leon0399/llame/issues/917). A `grep` page prints
+  its Knowledge notice first, then each run of consecutive passages of one file
+  under one `## <file locator>` line, with `*N: text` for a matched line, one
+  blank line between the passages of a run, `[more passages in this file; read
+  it to see them]` after a file's twentieth passage, one
+  `[warnings: <count> <kind>, …]` line, and a
+  `[more results. Continue with cursor: <cursor>]` line when the page is
+  incomplete; the page budget now measures that neutralized rendering, a
+  continuation line included, instead of a JSON estimate. A `bash` result
+  prints `exit <code>, <seconds> s` from the producer's new `wallTimeMs` (spawn
+  to settlement, one decimal), then stdout verbatim, then `[stderr]` and the
+  stderr when it is non-empty, `(no output)` when both are empty,
+  `[output cut at the bound]` for output the executor bound cut, and the cap
+  notice last; a stored part without a wall time prints the bare header. A
+  `command_failed` or `timed_out` message carries the same shape inside the JSON
+  failure object, so the live and replayed text match. Success results no longer
+  carry the constant `operation` and `executor` fields, the Machine wire carries
+  optional `wallTimeMs`, an older daemon's `operation`/`executor` are mapped away,
+  and the owner's `bash` row shows the wall time. The `grep` and `bash`
+  descriptions and reference pages name the text shapes. See
+  [grep](docs/product/reference/tools/grep.md) and
+  [bash](docs/product/reference/tools/bash.md).
 - `edit` and `write` results now render as text. An `edit` reads
   `edited <locator>: line <startLine>, <old> -> <new> lines (<lineCount> lines
   total)`, then the attribution lines, then the post-edit region around the

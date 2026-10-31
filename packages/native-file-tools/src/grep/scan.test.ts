@@ -1,6 +1,6 @@
-import { measureNativeModelOutput } from "../serialization";
+import { measureGrepRendering, renderGrepText } from "./model-text";
 
-import { decodeGrepCursor, grepCursorFieldUnits } from "./cursor";
+import { decodeGrepCursor, grepContinuationUnits } from "./cursor";
 import type { DecodedGrepCursor, GrepPassageCursor } from "./cursor";
 import {
   createMemoryPort,
@@ -42,7 +42,7 @@ function passageCursor(cursor: string | undefined): GrepPassageCursor {
 
 /** A page bound that leaves `room` units for passages beside the page's own. */
 function reservedRoom(rel: string, room: number): number {
-  return grepCursorFieldUnits({ scopeIndex: 0, rel, startLine: 1 }) + room;
+  return grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) + room;
 }
 
 function matchingChildren(count: number): MemoryTree {
@@ -171,6 +171,32 @@ describe("grep walk order and ignore rules", () => {
     ]);
     expect(port.lists).toEqual([]);
     expect(port.reads).toEqual([""]);
+  });
+
+  it("repeats the file line when an overlapping later scope yields the same file", async () => {
+    const tree = createMemoryPort({ "app.js": file("hit\nplain\nhit\n") });
+    const single = createSingleFilePort(file("hit\nplain\nhit\n"));
+    const result = await runMemoryScan(
+      [
+        memoryScope(0, "/repo/dist/", tree),
+        memoryScope(1, "/repo/dist/app.js", single, { singleFile: true }),
+      ],
+      ["hit"],
+    );
+    // Both scopes yield the same file and the same lines, so the later run
+    // starts a new file line instead of merging under the first.
+    expect(renderGrepText({ results: result.results, complete: true })).toBe(
+      [
+        "## /repo/dist/app.js",
+        "*1: hit",
+        "2: plain",
+        "*3: hit",
+        "## /repo/dist/app.js",
+        "*1: hit",
+        "2: plain",
+        "*3: hit",
+      ].join("\n"),
+    );
   });
 
   it("searches only glob candidates and prunes directories that cannot match", async () => {
@@ -643,14 +669,15 @@ describe("grep paging", () => {
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
     const scope = memoryScope(0, "/repo/", port);
     const first = await runMemoryScan([scope], ["hit"], {
-      budget: { pageUnits: reservedRoom("a.md", 200) },
+      budget: { pageUnits: reservedRoom("a.md", 50) },
     });
-    expect(first.results).toHaveLength(2);
+    expect(first.results.length).toBeGreaterThan(0);
+    expect(first.results.length).toBeLessThan(6);
     expect(first.complete).toBe(false);
     const second = await runMemoryScan([scope], ["hit"], {
       cursor: decode(first.cursor),
     });
-    expect(second.results).toHaveLength(4);
+    expect(second.results).toHaveLength(6 - first.results.length);
     expect(second.complete).toBe(true);
   });
 
@@ -662,12 +689,16 @@ describe("grep paging", () => {
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
-      { budget: { pageUnits: 1400, fixedReserve: 600 } },
+      { budget: { pageUnits: 700, fixedReserve: 300 } },
     );
     expect(result.complete).toBe(false);
     expect(result.results.length).toBeGreaterThan(0);
-    const page = { results: result.results, cursor: result.cursor };
-    expect(measureNativeModelOutput(page) + 600).toBeLessThanOrEqual(1400);
+    const page = {
+      results: result.results,
+      complete: false,
+      cursor: result.cursor,
+    };
+    expect(measureGrepRendering(page) + 300).toBeLessThanOrEqual(700);
   });
 
   it("cuts a first passage that does not fit at a line boundary", async () => {

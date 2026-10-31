@@ -1,6 +1,6 @@
 import {
   encodeGrepCursor,
-  grepCursorFieldUnits,
+  grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
 import { GREP_LIMITS } from "./limits";
@@ -113,7 +113,7 @@ async function scanScope(state: ScanState, scope: GrepScope): Promise<void> {
       // keeps the room its position cursor takes.
       state.page.reserveFloor = Math.max(
         state.page.reserveFloor,
-        grepCursorFieldUnits({
+        grepContinuationUnits({
           scopeIndex: state.widestIndex,
           rel: reached,
         }),

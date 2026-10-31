@@ -28,8 +28,19 @@ command on that remote host instead. It is not tenant isolation.
 
 ## Result
 
-Command stdout and stderr are returned as produced up to the configured bound,
-with truncation reported.
+The model reads plain text, not JSON: one status header `exit <code>`, continued
+with `, <seconds> s` (one decimal) when the producer measured the command's wall
+time from spawn to settlement, then stdout verbatim, then a `[stderr]` line and
+the stderr when it is non-empty. A result with both streams empty says
+`(no output)`. `[output cut at the bound]` marks output the executor bound cut,
+and a bracketed cap notice can end the text. A stored result without a wall time
+renders the bare header.
+
+A failing command is a `command_failed` result whose message is the same text
+shape, with the non-zero exit code; a stopped command is a `timed_out` result
+whose message names the elapsed deadline in seconds. The stored result keeps the
+exit code, both bounded streams, the truncation flags, and the wall time, and
+carries no field naming the operation or the executor.
 
 ## Behavior
 

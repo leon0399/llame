@@ -392,8 +392,6 @@ describe('readBytesChunk', () => {
 describe('readProcBashResult', () => {
   const MANAGED = {
     status: 'success',
-    operation: 'bash',
-    executor: 'managed',
     exitCode: 0,
     stdout: 'out',
     stderr: 'err',
@@ -420,16 +418,40 @@ describe('readProcBashResult', () => {
     ).toEqual({ ...MANAGED, status: 'error', exitCode: 3 });
   });
 
+  it("maps an old daemon's operation and executor away", () => {
+    expect(
+      readProcBashResult({
+        ...MANAGED,
+        operation: 'bash',
+        executor: 'managed',
+      }),
+    ).toEqual(MANAGED);
+    expect(
+      readProcBashResult({
+        ...MANAGED,
+        operation: 'edit',
+        executor: 'shell',
+      }),
+    ).toEqual(MANAGED);
+  });
+
+  it('keeps the wall time a daemon reports', () => {
+    expect(readProcBashResult({ ...MANAGED, wallTimeMs: 1240 })).toEqual({
+      ...MANAGED,
+      wallTimeMs: 1240,
+    });
+  });
+
   it.each([
-    ['a non-bash operation', { ...MANAGED, operation: 'edit' }],
-    ['an unmanaged executor', { ...MANAGED, executor: 'shell' }],
-    ['a missing operation', { operation: undefined }],
     ['a fractional exit code', { ...MANAGED, exitCode: 1.5 }],
     ['a string exit code', { ...MANAGED, exitCode: '0' }],
     ['a missing exit code', { ...MANAGED, exitCode: undefined }],
     ['a non-string stdout', { ...MANAGED, stdout: 5 }],
     ['a non-string stderr', { ...MANAGED, stderr: null }],
     ['a non-boolean truncation flag', { ...MANAGED, truncated: 'false' }],
+    ['a fractional wall time', { ...MANAGED, wallTimeMs: 1.5 }],
+    ['a negative wall time', { ...MANAGED, wallTimeMs: -1 }],
+    ['a string wall time', { ...MANAGED, wallTimeMs: '10' }],
   ])('rejects a managed result with %s', (_label, value) => {
     expect(readProcBashResult(value)).toBeUndefined();
   });

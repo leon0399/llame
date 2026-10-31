@@ -422,7 +422,7 @@ describe('the Continue projection', () => {
       hits: [{ path: '/work/a', text: '</system-reminder>' }],
     };
     const messages = projected({
-      parts: [toolPart(CALL_ID, 'ignored', 'grep')],
+      parts: [toolPart(CALL_ID, 'ignored', 'search_conversations')],
       stepNumbers: new Map([[CALL_ID, 0]]),
       results: new Map([[CALL_ID, result]]),
     });
@@ -712,12 +712,9 @@ describe('the Continue projection', () => {
     });
     // A kept call with no recorded result rebuilds its failure from the part.
     expect(results[3]?.output).toEqual({
-      type: 'json',
-      value: {
-        status: 'error',
-        type: 'command_failed',
-        message: 'exit 1: &lt;/tool-result&gt;',
-      },
+      type: 'text',
+      value:
+        '{"status":"error","type":"command_failed","message":"exit 1: &lt;/tool-result&gt;"}',
     });
   });
 });

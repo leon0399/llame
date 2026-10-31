@@ -1,5 +1,8 @@
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
-import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
+import {
+  measureJson,
+  neutralizeReservedDelimitersDeep,
+  RESULT_TRUNCATE_CHARS,
+} from '@workspace/runtime-safety';
 
 import { type SkillCatalogEntry } from './skill-catalog';
 import { skillCatalogEnvelope } from './skill-results';
@@ -24,9 +27,9 @@ describe('skillCatalogEnvelope', () => {
 
     const listing = skillCatalogEnvelope(entries, { offset: 0 });
 
-    expect(measureNativeModelOutput(listing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(listing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(listing.skills.length).toBeGreaterThan(0);
     expect(listing.skills.length).toBeLessThan(entries.length);
     // The continuation resumes exactly where the page stopped, so no entry is
@@ -47,9 +50,9 @@ describe('skillCatalogEnvelope', () => {
     const plainListing = skillCatalogEnvelope(plain, { offset: 0 });
     const reservedListing = skillCatalogEnvelope(reserved, { offset: 0 });
 
-    expect(measureNativeModelOutput(reservedListing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(reservedListing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(reservedListing.skills.length).toBeLessThan(
       plainListing.skills.length,
     );
@@ -72,9 +75,9 @@ describe('skillCatalogEnvelope', () => {
 
     expect(listing.skillCount).toBe(50_000);
     expect(listing.skills.length).toBeGreaterThan(0);
-    expect(measureNativeModelOutput(listing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(listing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(elapsed).toBeLessThan(1000);
   });
 
@@ -94,9 +97,9 @@ describe('skillCatalogEnvelope', () => {
 
     const listing = skillCatalogEnvelope(entries, { offset: 100, limit: 500 });
 
-    expect(measureNativeModelOutput(listing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(listing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(listing.nextOffset).toBe(100 + listing.skills.length);
   });
 

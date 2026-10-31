@@ -6,12 +6,11 @@ import { BashTool } from "./bash.js";
 
 const success = {
   status: "success" as const,
-  operation: "bash" as const,
-  executor: "managed",
   exitCode: 0,
   stdout: "apps/\npackages/\nREADME.md\n",
   stderr: "",
   truncated: false,
+  wallTimeMs: 1240,
 };
 
 const meta = {
@@ -99,6 +98,21 @@ export const NoOutput: Story = {
 };
 
 /**
+ * A settled command reports its wall time in the details row.
+ *
+ * @summary for a command with a reported wall time
+ */
+export const WallTime: Story = {
+  tags: ["ai-generated"],
+  args: { input: { command: "sleep 1.2" }, output: success },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
+    await expect(canvas.getByText("Time:")).toBeVisible();
+    await expect(canvas.getByText(/1\.2 s/u)).toBeVisible();
+  },
+};
+
+/**
  * A failed command's output arrives inside the error text, which keeps its
  * line breaks.
  *
@@ -111,14 +125,14 @@ export const Failed: Story = {
   args: {
     input: { command: "pnpm test" },
     output: undefined,
-    errorText:
-      "Command exited with code 1.\nstdout:\n1 failed\nstderr:\nAssertionError",
+    errorText: "exit 1, 2.4 s\n1 failed\n[stderr]\nAssertionError",
     state: "output-error" as const,
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
     const error = canvas.getByRole("group", { name: "Error" });
-    await expect(error).toHaveTextContent("Command exited with code 1.");
+    await expect(error).toHaveTextContent("exit 1, 2.4 s");
+    await expect(error).toHaveTextContent("[stderr]");
     await expect(within(error).getByText(/AssertionError/u)).toBeVisible();
     await expect(
       canvas.getByText("pnpm test", { selector: "p" }),

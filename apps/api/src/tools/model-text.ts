@@ -13,15 +13,18 @@
  * read text shape — one header line, the attribution lines it carries, its
  * numbered content, and the continuation line; an `edit` success uses the
  * mutation shape with its post-edit region; a `write` success is one status
- * line. Every other result, successes and failures alike, renders as a JSON
- * value.
+ * line; a `grep` page its runs of passages under one file line each and the
+ * cursor that continues it; a `bash` result uses its status header and streams.
+ * Every other result, successes and failures alike, renders as a JSON value.
  */
 
 import { z } from 'zod';
 
+import { renderBashText } from '@workspace/bash-executor';
 import {
   measureReadRendering,
   renderEditText,
+  renderGrepText,
   renderReadText,
   renderWriteText,
   serializeNativeModelOutput,
@@ -42,13 +45,15 @@ import {
 import { type ToolResult } from './types';
 
 /**
- * The native file tools: their result reaches the model as serialized text,
- * and a Machine variant shares its host counterpart's name.
+ * The tools whose result carries content: it reaches the model as text, and a
+ * Machine variant shares its host counterpart's name.
  */
-const NATIVE_FILE_TOOL_NAMES = {
+const TEXT_RESULT_TOOL_NAMES = {
   read: true,
   edit: true,
   write: true,
+  grep: true,
+  bash: true,
 } satisfies Record<string, true>;
 
 /** The JSON value the SDK's `json` tool output accepts, validated here. */
@@ -86,9 +91,10 @@ interface ModelView {
 
 /**
  * The result as the model may see it, with its text rendering and whether that
- * rendering had to escape the serialized JSON as one text. A `read`, `edit`, or
- * `write` success renders in its own text shape; the one reserved-name rule is
- * applied once to the whole rendering, and that is what the cap measures.
+ * rendering had to escape the serialized JSON as one text. A `read`, `edit`,
+ * `write`, `grep`, or `bash` success renders in its own text shape; the one
+ * reserved-name rule is applied once to the whole rendering, and that is what
+ * the cap measures.
  */
 function modelView(toolName: string, result: ToolResult): ModelView {
   const normalized = normalizedResult(result);
@@ -130,6 +136,13 @@ function textResultRenderer(
       : undefined;
   if (toolName === 'edit') return renderEditText;
   if (toolName === 'write') return renderWriteText;
+  // A `grep` page renders every success as text: its notice, the `## <file>`
+  // runs of passages, its warnings line, and the continuation line of a page
+  // that is not complete. A Machine `grep` shares the name.
+  if (toolName === 'grep') return renderGrepText;
+  // A `bash` result renders its status header and its streams, and a Machine
+  // `bash` shares the name.
+  if (toolName === 'bash') return renderBashText;
   return undefined;
 }
 
@@ -179,7 +192,7 @@ export function renderToolResultForModel(
   result: ToolResult,
 ): ToolResultRendering {
   const { text, escapedAsText } = modelView(toolName, result);
-  if (Object.hasOwn(NATIVE_FILE_TOOL_NAMES, toolName)) {
+  if (Object.hasOwn(TEXT_RESULT_TOOL_NAMES, toolName)) {
     return { kind: 'text', text };
   }
   // Escaping the text as a whole leaves two members with the same spelling,

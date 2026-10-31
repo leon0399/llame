@@ -10,11 +10,11 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
-  grepCursorFieldUnits,
+  grepFileLocator,
   GREP_LIMITS,
   GREP_WARNING_KINDS,
   hashGrepInputs,
-  measureNativeModelOutput,
+  measureGrepRendering,
   runGrepScan,
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
@@ -161,8 +161,8 @@ type PageState = {
   readonly consumed: { files: number; entries: number; bytes: number };
   /** Files that contributed a passage, for the page's file bound. */
   readonly files: Set<string>;
-  /** Code units the results array serializes to, brackets included. */
-  units: number;
+  /** The hash this call's cursors carry, so a candidate's line is measured. */
+  readonly inputHash: string;
   complete: boolean;
   resume: ResumePoint | undefined;
 };
@@ -177,7 +177,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const budget = grepBudget(input.limit);
   const deadlineAt = Date.now() + budget.deadlineMs;
   const resume = cursor.cursor;
-  const state = createPageState();
+  const state = createPageState(inputHash);
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
     // The engine skips local scopes before the cursor itself; a Machine scope
@@ -331,23 +331,23 @@ function searchArgumentsOf(input: GrepArguments): GrepSearchArguments {
   };
 }
 
-function createPageState(): PageState {
+function createPageState(inputHash: string): PageState {
   return {
     results: [],
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     files: new Set(),
-    // An array of no element serializes as `[]`.
-    units: 2,
+    inputHash,
     complete: true,
     resume: undefined,
   };
 }
 
 /**
- * What is left of the call's bounds. The page's own brackets and a following
- * separator are subtracted, so the segment the values are handed to can never
- * emit past the call's page.
+ * What is left of the call's bounds. The rendered text of the passages already
+ * held and the newline that separates them from the next segment are
+ * subtracted, so the segment the values are handed to can never emit past the
+ * call's page.
  */
 function remainingBudget(
   budget: GrepBudget,
@@ -361,18 +361,18 @@ function remainingBudget(
     bytes: Math.max(0, budget.bytes - state.consumed.bytes),
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: Math.max(0, budget.limit - state.files.size),
-    pageUnits: Math.max(0, budget.pageUnits - state.units - separator),
+    pageUnits: Math.max(
+      0,
+      budget.pageUnits -
+        measureGrepRendering({ results: state.results, complete: true }) -
+        separator,
+    ),
     fixedReserve: budget.fixedReserve,
   };
 }
 
 function pageIsFull(state: PageState, budget: GrepBudget): boolean {
   return state.files.size >= budget.limit;
-}
-
-/** The locator without its line range, which is the file's identity. */
-function fileOf(locator: string): string {
-  return locator.slice(0, locator.lastIndexOf(':'));
 }
 
 /** Append one segment while the page holds it; the rest waits for a cursor. */
@@ -407,38 +407,38 @@ function appendSegment(
 }
 
 /**
- * Whether one more entry fits the page. The local engine already kept its own
- * cursor and the fixed fields back; a Machine entry names the point the call
- * would resume at, so its cursor field and those fields are added here.
+ * Whether one more entry fits the page, measured on the text the model reads:
+ * the page's passages with this entry, the continuation line of the cursor the
+ * page would end at, and the fields the caller adds. The local engine already
+ * kept its own room back; a Machine entry names the point the call would
+ * resume at, so its cursor is measured here.
  */
 function fitsPage(
   state: PageState,
   budget: GrepBudget,
   entry: SegmentEntry,
 ): boolean {
-  const file = fileOf(entry.passage.locator);
+  const file = grepFileLocator(entry.passage.locator);
   if (!state.files.has(file) && state.files.size >= budget.limit) return false;
-  const separator = state.results.length === 0 ? 0 : 1;
-  const reserve =
+  const candidate = [...state.results, entry.passage];
+  const resume =
     entry.end === undefined
-      ? 0
-      : grepCursorFieldUnits(entry.end) + budget.fixedReserve;
-  return (
-    state.units + separator + passageUnits(entry.passage) + reserve <=
-    budget.pageUnits
-  );
+      ? state.resume
+      : { kind: 'passage' as const, end: entry.end };
+  const rendered =
+    resume === undefined
+      ? measureGrepRendering({ results: candidate, complete: true })
+      : measureGrepRendering({
+          results: candidate,
+          complete: false,
+          cursor: resumeCursor(resume, state.inputHash),
+        });
+  return rendered + budget.fixedReserve <= budget.pageUnits;
 }
 
 function pushPassage(state: PageState, passage: GrepPassage): void {
-  const separator = state.results.length === 0 ? 0 : 1;
   state.results.push(passage);
-  state.units += separator + passageUnits(passage);
-  state.files.add(fileOf(passage.locator));
-}
-
-/** One passage's code units inside the results array, without its brackets. */
-function passageUnits(passage: GrepPassage): number {
-  return measureNativeModelOutput(passage) - 2;
+  state.files.add(grepFileLocator(passage.locator));
 }
 
 function mergeWarnings(
@@ -571,20 +571,19 @@ function grepBudget(limit: number | undefined): GrepBudget {
 }
 
 /**
- * The units a page's fields beside `results` may take: the status and
- * completeness envelope, one `warnings` entry for every kind with a six-digit
- * count, and the Knowledge notice. The engine keeps exactly this much back
- * from the page's bound, and adds its own cursor to that reservation.
+ * The rendered width of a page's own lines beside `results`: the Knowledge
+ * notice and one `warnings` line naming every kind with a six-digit count, each
+ * with its separating newline. The engine keeps exactly this much back from the
+ * page's bound, and adds its own continuation line to that reservation.
  */
 export function pageFixedReserve(): number {
   return (
-    measureNativeModelOutput({
-      status: 'success',
+    measureGrepRendering({
       results: [],
-      complete: false,
+      complete: true,
       warnings: GREP_WARNING_KINDS.map((kind) => ({ kind, count: 999_999 })),
       notice: KNOWLEDGE_CONTENT_NOTICE,
-    }) - 2
+    }) + 2
   );
 }
 

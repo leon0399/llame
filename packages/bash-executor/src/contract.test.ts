@@ -41,8 +41,6 @@ describe("bash-executor contract", () => {
   it("preserves paths, tracebacks, and error lines while redacting secrets", () => {
     const raw: BashKnownResult = {
       status: "success",
-      operation: "bash",
-      executor: "managed",
       exitCode: 0,
       stdout: `${"/tmp/llame-workspace"}/secret.txt\nTraceback (most recent call last):\n  at Object.run (/usr/lib/node)\nError: boom\nAUTH-TOKEN\n`,
       stderr: "Error: boom\n    at fail (/home/leon0399/proj/x.ts:1:1)",
@@ -63,8 +61,6 @@ describe("bash-executor contract", () => {
   it("redacts protected values before cutting at a code point boundary", () => {
     const raw: BashKnownResult = {
       status: "success",
-      operation: "bash",
-      executor: "managed",
       exitCode: 0,
       stdout: "prefix AUTH-TOKEN 😀 suffix",
       stderr: "",

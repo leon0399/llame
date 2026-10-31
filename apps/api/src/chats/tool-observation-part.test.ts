@@ -1,4 +1,5 @@
 import { projectToolObservations } from './tool-observation-part';
+import { toToolResult } from '../tools/bash-result';
 import { renderToolResultText } from '../tools/model-text';
 import type { ToolResult } from '../tools/types';
 import type { MessagePart } from './context-builder';
@@ -268,6 +269,53 @@ describe('live and replayed renderings agree', () => {
     expect(replayed).toContain('Outcome: command_failed');
     expect(replayed).toContain('"type":"command_failed"');
     expect(replayed).toContain('&lt;/tool-result&gt;');
+  });
+
+  it('replays a bash success as its live rendering', () => {
+    const result = {
+      status: 'success' as const,
+      exitCode: 0,
+      stdout: 'apps/\n',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 1240,
+    };
+
+    const replayed = projectedOutput(
+      storedPart('bash', result, { input: { command: 'ls' } }),
+    );
+    expect(replayed).toContain(liveText('bash', result));
+    expect(replayed).toContain('exit 0, 1.2 s\napps/');
+  });
+
+  it('replays a failing bash command as its live rendering', () => {
+    const live = toToolResult({
+      status: 'error',
+      exitCode: 1,
+      stdout: '1 failed\n',
+      stderr: 'AssertionError',
+      truncated: false,
+      wallTimeMs: 2460,
+    });
+    if (live.status !== 'error') throw new Error('Expected a failure');
+
+    const replayed = projectedOutput(
+      storedPart(
+        'bash',
+        {},
+        {
+          state: 'output-error',
+          output: undefined,
+          errorText: live.message,
+          outcome: 'command_failed',
+        },
+      ),
+    );
+    expect(live.message).toBe(
+      'exit 1, 2.5 s\n1 failed\n[stderr]\nAssertionError',
+    );
+    expect(replayed).toContain(liveText('bash', live));
+    expect(replayed).toContain('"type":"command_failed"');
   });
 
   it('replays a failure without the operator diagnostic its live result carried', () => {
