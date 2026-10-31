@@ -1,10 +1,10 @@
 Track [#1419](https://github.com/leon0399/llame/issues/1419) and
 [#917](https://github.com/leon0399/llame/issues/917) and their PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Keep live status in the Project.
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Each layer is
 created and published with `$gh-stack` and implemented with `$openspec-apply-change`. Each layer is
-self-reviewed before it is marked ready and monitored per [CONTRIBUTING.md](../../../CONTRIBUTING.md).
+self-reviewed before it is marked ready and monitored per [CONTRIBUTING.md](../../../../CONTRIBUTING.md).
 Each implementation layer also gets a code-review and a ponytail-review pass on its draft diff
 before ready.
 
@@ -39,7 +39,7 @@ move to `mutation-text`; the wire field stays with the field. No generated outpu
       `pnpm format:check`, and `git diff --check`.
 - [x] 1.3 Run two rounds of `$iterative-review-refinement` with two independent reviewers each;
       commit each round separately and record the finding counts in the PR body.
-- [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
+- [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../../REVIEW_GUIDE.md)
       before ready.
 - [x] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
 
@@ -218,7 +218,7 @@ before `$openspec-sync-specs` writes any canonical spec.
       six merged specs fail only the pre-existing ">500 characters" warnings, unchanged from
       `e3533929` (335 warnings, same per-spec multiset), because STE forbids dividing a modified
       requirement.
-- [ ] 6.2 Archive readiness: `openspec status --change tool-result-model-text --json` reports every
+- [x] 6.2 Archive readiness: `openspec status --change tool-result-model-text --json` reports every
       artifact complete and every task above checked; verify with
       `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and
       `git diff --check`.
