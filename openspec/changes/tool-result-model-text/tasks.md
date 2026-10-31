@@ -41,7 +41,7 @@ move to `mutation-text`; the wire field stays with the field. No generated outpu
       commit each round separately and record the finding counts in the PR body.
 - [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
       before ready.
-- [ ] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
+- [x] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
 
 ## 2. Rendering seam
 
@@ -88,9 +88,9 @@ Create `tool-result-model-text/rendering-seam` from `tool-result-model-text/prop
       "today" column; verify that the today numbers match the proposal table.
 - [x] 2.7 Docs: `docs/product/reference/tools/index.md` names the one neutralization rule; dated
       `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
-- [ ] 2.8 SR: self-review the parent-relative diff against REVIEW_GUIDE.md; run the code-review
+- [x] 2.8 SR: self-review the parent-relative diff against REVIEW_GUIDE.md; run the code-review
       and ponytail-review passes; fix with new commits; re-measure the authored size.
-- [ ] 2.9 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
+- [x] 2.9 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
       feedback is processed.
 
 ## 3. Read text
@@ -129,10 +129,10 @@ Create `tool-result-model-text/read-text` from `tool-result-model-text/rendering
       JSON-decoding instruction, and names the reserved-name rule;
       `docs/product/reference/tools/read.md`; dated `CHANGELOG.md` entry; verify with
       `pnpm lint:markdown`.
-- [ ] 3.7 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
+- [x] 3.7 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
       run one torture conversation over the draft and record it in the PR body; fix with new
       commits; re-measure the authored size.
-- [ ] 3.8 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
+- [x] 3.8 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
       feedback is processed.
 
 ## 4. Mutation text
@@ -161,9 +161,9 @@ Create `tool-result-model-text/mutation-text` from `tool-result-model-text/read-
       `docs/product/reference/tools/{edit,write}.md` describe the text shapes and the legacy
       forms; `docs/product/operator/machines.md` orders the hub before the daemon; dated
       `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
-- [ ] 4.6 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
+- [x] 4.6 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
       fix with new commits; re-measure the authored size.
-- [ ] 4.7 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
+- [x] 4.7 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
       feedback is processed.
 
 ## 5. Grep and bash
@@ -198,9 +198,9 @@ Create `tool-result-model-text/grep-bash` from `tool-result-model-text/mutation-
 - [x] 5.7 Docs: `apps/api/src/prompts/tools/{grep,bash}.md` and
       `docs/product/reference/tools/{grep,bash}.md`; dated `CHANGELOG.md` entry; verify with
       `pnpm lint:markdown`.
-- [ ] 5.8 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
+- [x] 5.8 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
       fix with new commits; re-measure the authored size.
-- [ ] 5.9 GR: mark ready with `Closes #1419` and `Closes #917`; run the Ready-PR monitoring loop
+- [x] 5.9 GR: mark ready with `Closes #1419` and `Closes #917`; run the Ready-PR monitoring loop
       until CI is green and the bot feedback is processed.
 
 ## 6. Finalize
