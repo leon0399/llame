@@ -208,11 +208,14 @@ Create `tool-result-model-text/grep-bash` from `tool-result-model-text/mutation-
 Enter `tool-result-model-text/finalize` from `tool-result-model-text/grep-bash` with `$gh-stack`
 before `$openspec-sync-specs` writes any canonical spec.
 
-- [ ] 6.1 Run `$openspec-sync-specs`; verify with `pnpm exec openspec validate --specs --strict`
-      that the new `tool-result-rendering` spec, the ten modified requirements, and the two added
-      `native-file-tools` requirements validate, and read the merged `native-file-tools`,
-      `media-attachments`, `grep-tool`, `bash-execution`, `knowledge-tools`, and `tool-calling`
-      blocks for wording consistency with their neighbours.
+- [x] 6.1 Run `$openspec-sync-specs`; verify with `pnpm exec openspec validate --specs --strict`
+      that the new `tool-result-rendering` spec (23 requirements), the eleven modified
+      requirements, and the four added `native-file-tools` requirements validate, and read the
+      merged `native-file-tools`, `media-attachments`, `grep-tool`, `bash-execution`,
+      `knowledge-tools`, and `tool-calling` blocks for wording consistency with their neighbours.
+      Verified: `spec/tool-result-rendering` passes strict validation; the six merged specs fail
+      only the pre-existing ">500 characters" warnings, unchanged from `e3533929` (335 warnings,
+      same per-spec multiset), because STE forbids dividing a modified requirement.
 - [ ] 6.2 Archive readiness: `openspec status --change tool-result-model-text --json` reports every
       artifact complete and every task above checked; verify with
       `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and
