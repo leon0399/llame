@@ -67,14 +67,21 @@ MUST NOT accept `display` from a client.
 
 The result cap that `tool-calling` applies to every tool result MUST be measured on the rendering
 of the result, which is its serialized form. A tool that bounds its own rendering under that cap
-MUST be recorded unchanged by the cap. `display` is outside the rendering and therefore outside
-the cap.
+MUST be recorded unchanged by the cap. The stored `display` object is not rendered as raw text, so
+the cap MUST NOT count it. Text the rendering builds from `display` values MUST count: an edit
+header names the stored start line and line counts.
 
 #### Scenario: A read filled to its bound is recorded unchanged
 
 - **WHEN** a read renders to exactly 16,000 code units, continuation line included
 - **THEN** the stored part carries no `truncationNotice`
 - **AND** the model receives the rendering unchanged
+
+#### Scenario: A header built from display data is measured
+
+- **WHEN** an edit result carries `display` and its rendering names the start line and counts
+- **THEN** the cap measures those header characters, not the legacy header
+- **AND** the stored `display` object itself is not counted
 
 #### Scenario: An oversized JSON result is still cut
 
