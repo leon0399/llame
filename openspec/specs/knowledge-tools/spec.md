@@ -241,7 +241,7 @@ The `knowledge_search` declaration, the native `read` declaration's `kb://` guid
 
 - **WHEN** the model reads a note through `kb://`
 - **THEN** the result includes the closed untrusted-content notice
-- **AND** the note's text is not neutralized: the selected source bytes are returned unchanged apart from the generated line-number prefixes, which `:raw` omits, and a tag naming a reserved delimiter
+- **AND** the note's text is not neutralized: the selected source bytes are returned unchanged apart from the generated line-number prefixes, which `:raw` omits, and apart from a tag naming a reserved delimiter, which the reserved-name rule escapes
 
 #### Scenario: Note contains a volatile claim
 

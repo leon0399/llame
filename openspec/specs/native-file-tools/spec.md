@@ -1137,13 +1137,15 @@ no configured root, resolved child path, hosted owner ID, credential, worker
 identity, or raw filesystem diagnostic. Every successful `kb://` read or listing
 SHALL include the Knowledge untrusted-content `notice`; content SHALL be returned
 verbatim so that `edit` `oldText` can be copied from it once the generated
-line-number prefixes are removed, or read with `:raw` to omit them. An
-`outline` read returns a selection of verbatim source lines under that same
-rule while retaining the same locator, Space attribution, and notice. A `kb://`
-read whose file is an image SHALL return the image result with the same
-locator, Space attribution, and notice, and SHALL carry no line content. A
-`kb://` read whose file is a PDF SHALL return the PDF result with the same
-locator, Space attribution, and notice, and SHALL carry no line content.
+line-number prefixes are removed, or read with `:raw` to omit them. The
+reserved-name rule of `tool-result-rendering` is the one exception: it MUST
+escape a tag that names a reserved delimiter, so such a tag does not round-trip
+into `oldText`. An `outline` read returns a selection of verbatim source lines
+under that same rule while retaining the same locator, Space attribution, and
+notice. A `kb://` read whose file is an image SHALL return the image result with
+the same locator, Space attribution, and notice, and SHALL carry no line
+content. A `kb://` read whose file is a PDF SHALL return the PDF result with the
+same locator, Space attribution, and notice, and SHALL carry no line content.
 
 The `kb://` grammar is the authority-aware locator that later schemes follow; a
 scheme SHALL declare which of `read`, `edit`, and `write` it supports, and an

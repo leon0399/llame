@@ -208,14 +208,14 @@ Create `tool-result-model-text/grep-bash` from `tool-result-model-text/mutation-
 Enter `tool-result-model-text/finalize` from `tool-result-model-text/grep-bash` with `$gh-stack`
 before `$openspec-sync-specs` writes any canonical spec.
 
-- [x] 6.1 Run `$openspec-sync-specs`; verify with `pnpm exec openspec validate --specs --strict`
-      that the new `tool-result-rendering` spec (24 requirements), the eleven modified
-      requirements, and the five added `native-file-tools` requirements validate, and read the
-      merged `native-file-tools`, `media-attachments`, `grep-tool`, `bash-execution`,
-      `knowledge-tools`, and `tool-calling` blocks for wording consistency with their neighbours.
-      Verified after the proposal resync: every delta requirement body and scenario equals its
-      canonical block byte-for-byte; `spec/tool-result-rendering` passes strict validation; the
-      six merged specs fail only the pre-existing ">500 characters" warnings, unchanged from
+- [x] 6.1 Run `$openspec-sync-specs`; verify with `pnpm exec openspec validate --specs` that the
+      new `tool-result-rendering` spec (24 requirements), the thirteen modified requirements, and
+      the five added `native-file-tools` requirements validate, and read the merged
+      `native-file-tools`, `media-attachments`, `grep-tool`, `bash-execution`, `knowledge-tools`,
+      and `tool-calling` blocks for wording consistency with their neighbours.
+      Verified after the archive: every delta requirement body and scenario equals its canonical
+      block byte-for-byte; `pnpm exec openspec validate --specs` reports 54 passed and 0 failed.
+      `--specs --strict` still fails the pre-existing ">500 characters" warnings, unchanged from
       `e3533929` (335 warnings, same per-spec multiset), because STE forbids dividing a modified
       requirement.
 - [x] 6.2 Archive readiness: `openspec status --change tool-result-model-text --json` reports every
