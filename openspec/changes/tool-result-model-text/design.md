@@ -429,10 +429,11 @@ descriptions), which is why read and mutation are separate.
   the runbook orders the hub first. During skew an old daemon bounds by JSON
   and sends no counts, which is the transitional reading of `remote-machines`
   "Native file tools behave identically".
-- [The `tool-calling` cap and replay requirements still spell `thumbnail`]
+- [The `tool-calling` replay requirement still spells `thumbnail`]
   → the key is `display.thumbnail`, the stored top-level form is removed on
-  every path, and the proposal records the reading; a later STE pass over
-  those blocks can rename it.
+  every path, and the proposal records the reading; the cap requirement is
+  renamed in this change, and a later STE pass over the replay block can
+  rename it.
 
 ## Migration Plan
 
