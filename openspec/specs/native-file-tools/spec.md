@@ -4416,7 +4416,7 @@ page.
 Notwithstanding the ordinary truncation rule, a tree page whose first entry and its elision
 marker do not fit MUST keep the header and name the flat continuation when the flat read serves a
 page. When the header-only page exceeds the cap, the read MUST return the flat page of the
-requested level instead. The flat page MUST carry no elision marker and its own continuation. A
+requested level instead. The flat page MUST carry no elision marker, and MUST carry a continuation only when the cap cuts it. A
 flat level that serves no page MUST fail as the fail-closed rule states.
 
 #### Scenario: A first entry that does not fit keeps the header
