@@ -385,6 +385,12 @@ MUST carry no region marker. The text MUST NOT carry a diff or the old and new t
 - **THEN** the result carries `cut: true`
 - **AND** the text ends with `[region cut at the bound]`
 
+#### Scenario: A region cut by the bound and the cap keeps both lines
+
+- **WHEN** the edit bound cuts the post-edit region and the shared cap then shortens the result
+- **THEN** `[region cut at the bound]` is the next-to-last line
+- **AND** the bracketed cap notice is the last line
+
 #### Scenario: A cap-only cut adds no region marker
 
 - **WHEN** the shared cap shortens an edit region its own bound did not cut
