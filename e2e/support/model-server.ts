@@ -440,6 +440,44 @@ const READ_HEADER_RE =
 const READ_CONTINUATION_RE =
   /Use (\S+?):(?:raw:|outline:)?(\d+)(?:-\S*)? to continue\]/u;
 
+/**
+ * The contents of the current turn's `read` tool results, oldest first. A
+ * tool message names its call only by id, so the assistant turns' calls map
+ * the id back to the function name; any other tool's result is not text.
+ */
+function readCallResults(messages: ReadonlyArray<ChatMessage>): Array<JsonValue> {
+  const readCallIds = new Set<string>();
+  for (const message of messages) {
+    // SAFETY: a chat message is a JSON record; a turn without calls has no
+    // `tool_calls` member, which the array check rejects.
+    const calls = (message as { tool_calls?: unknown }).tool_calls;
+    if (!Array.isArray(calls)) continue;
+    for (const call of calls) {
+      if (!isJsonObject(call)) continue;
+      const id = call["id"];
+      const fn = call["function"];
+      if (
+        isJsonString(id) &&
+        isJsonObject(fn) &&
+        fn["name"] === "read"
+      ) {
+        readCallIds.add(id);
+      }
+    }
+  }
+  const contents: Array<JsonValue> = [];
+  for (const message of messages) {
+    if (message.role !== "tool") continue;
+    // SAFETY: a tool message is a JSON record; a result without a call id has
+    // no `tool_call_id` member, which the string check rejects.
+    const callId = (message as { tool_call_id?: unknown }).tool_call_id;
+    if (isJsonString(callId) && readCallIds.has(callId)) {
+      contents.push(message.content);
+    }
+  }
+  return contents;
+}
+
 function findReadTextLocator(value: JsonValue): string | undefined {
   if (isJsonString(value)) {
     const [header] = value.split("\n");
@@ -589,8 +627,12 @@ function classify(raw: string) {
     const latestToolContent = messages.findLast(
       (m) => m.role === "tool",
     )?.content;
-    const readTextLocator = findReadTextLocator(currentTurnMessages);
-    const readContinuation = findReadContinuation(currentTurnMessages);
+    // Only a `read` call's result is a read text: a knowledge_search result
+    // carries `kb://` locator strings whose one-line reading would otherwise
+    // look like a read header.
+    const readResults = readCallResults(currentTurnMessages);
+    const readTextLocator = findReadTextLocator(readResults);
+    const readContinuation = findReadContinuation(readResults);
     const knowledgeResultPath =
       findStringProperty(
         messages.slice(lastUserIndex + 1).findLast((m) => m.role === "tool")
