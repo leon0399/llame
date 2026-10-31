@@ -279,9 +279,11 @@ export function renderReadText(result: UnknownRecord): string {
  *  the region. */
 const REGION_CUT_MARKER = "[region cut at the bound]";
 
-/** The locator a mutation result identifies itself by. */
+/** The locator a mutation result identifies itself by, on one line: a POSIX
+ *  path may contain a line break, and the header this locator opens is the
+ *  rendering's first line. */
 function mutationLocator(result: UnknownRecord): string {
-  return isNonEmptyString(result.path) ? result.path : "";
+  return isNonEmptyString(result.path) ? oneLine(result.path) : "";
 }
 
 /** The lines a stored block spans, counted as a source file counts them: a
@@ -346,7 +348,8 @@ export function renderEditText(result: UnknownRecord): string {
   if (body !== "") lines.push(body);
   if (result.truncated === true) lines.push(REGION_CUT_MARKER);
   const { truncationNotice } = result;
-  if (isNonEmptyString(truncationNotice)) lines.push(`[${truncationNotice}]`);
+  if (isNonEmptyString(truncationNotice))
+    lines.push(`[${oneLine(truncationNotice)}]`);
   return lines.join("\n");
 }
 

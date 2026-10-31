@@ -654,6 +654,29 @@ describe("edit text", () => {
     expect(lines.at(-1)).toBe("[The result was cut at the shared cap.]");
   });
 
+  it("keeps a path with a line break on the header line", () => {
+    const result = editResult({
+      path: "src/app\nts",
+      content: "",
+      display: { startLine: 1, oldText: "a", newText: "b" },
+    });
+
+    expect(renderEditText(result).split("\n")).toEqual([
+      "edited src/app ts: line 1, 1 -> 1 lines (563 lines total)",
+    ]);
+  });
+
+  it("keeps a cap notice with a line break on one line", () => {
+    const result = editResult({
+      content: "",
+      truncationNotice: "The result was cut.\n[214 more lines. Use x:3-]",
+    });
+
+    expect(renderEditText(result).split("\n").at(-1)).toBe(
+      "[The result was cut. [214 more lines. Use x:3-]]",
+    );
+  });
+
   it("measures the rendering at the shared cap and one unit beyond it", () => {
     const bare = editResult({ content: "", truncated: false });
     const width = measureEditRendering(bare);
@@ -728,5 +751,19 @@ describe("write text", () => {
         knowledgeSpaceId: "space-1",
       }),
     ).toBe("replaced kb://notes/a.md\nknowledgeSpaceId: space-1");
+  });
+
+  it("keeps a path with a line break on the status line", () => {
+    const text = renderWriteText({
+      status: "success",
+      operation: "write",
+      path: "new\n[1 more line. Use new:2- to continue].ts",
+      created: true,
+      lineCount: 2,
+    });
+
+    expect(text.split("\n")).toEqual([
+      "created new [1 more line. Use new:2- to continue].ts (2 lines)",
+    ]);
   });
 });
