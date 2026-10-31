@@ -11,6 +11,13 @@
  * the bound-limited read stays the window the JSON bound left it, so its
  * "after" adds the continuation line instead of refilling to the text bound.
  *
+ * The mutation rows cannot be rendered from the stored objects: a fixture edit
+ * has no `display` and a fixture write has no `lineCount`, so both would render
+ * the legacy forms. They call the live package on a temporary copy of the
+ * fixture file instead, and the recorded locator is kept so the row stays
+ * comparable to today's. The write row creates the fixture's content, so its
+ * status names the resulting line count.
+ *
  * A case whose renderer lands in a later layer shows `—` in the after columns.
  *
  * Two differences from the proposal's table are expected and explained by later
@@ -23,11 +30,16 @@
  * scripts/measure-tool-results.mjs`
  */
 
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
 
 import {
+  createFile,
+  editFile,
   renderEditText,
   renderReadText,
   renderWriteText,
@@ -48,37 +60,69 @@ const storedPath = (locator) =>
 
 const tokens = (text) => encode(text).length;
 
-/** The text rendering of a case a text renderer covers. Read and edit successes
- *  carry the line count their header names. */
-function afterText(name, result) {
-  if (result === null) return undefined;
-  if (name.startsWith("read")) {
-    return neutralizeReservedDelimiters(
-      renderReadText({
-        ...result,
-        path: storedPath(result.path),
-        lineCount: READ_LINE_COUNT,
-      }),
-    );
-  }
-  if (name.startsWith("edit")) {
-    const stored = {
+/** The fixture file every case was recorded against, at the baseline commit. */
+const FIXTURE_SOURCE = "apps/web/app/(chat)/components/chat-message-row.tsx";
+const FIXTURE_REVISION = "64db12c9";
+
+/** The text rendering of a read case: a read stores the line count its header
+ *  names, which the recorded result does not carry. */
+function readAfter(name, result) {
+  if (!name.startsWith("read") || result === null) return undefined;
+  return neutralizeReservedDelimiters(
+    renderReadText({
       ...result,
       path: storedPath(result.path),
-      lineCount: READ_LINE_COUNT + 1,
-    };
-    return neutralizeReservedDelimiters(renderEditText(stored));
+      lineCount: READ_LINE_COUNT,
+    }),
+  );
+}
+
+/** The text rendering of the mutation cases, measured from live package calls.
+ *  A fixture edit carries no `display` and a fixture write no `lineCount`, so
+ *  its stored object renders the legacy forms: the edit and the write run on a
+ *  temporary copy of the fixture file instead. Each reports the recorded
+ *  locator, so the row stays comparable to today's. */
+async function measureMutations(cases) {
+  const edit = cases.find((entry) => entry.case.startsWith("edit"));
+  const write = cases.find((entry) => entry.case.startsWith("write"));
+  if (edit === undefined || write === undefined) return new Map();
+  const directory = mkdtempSync(join(tmpdir(), "tool-results-"));
+  try {
+    const source = join(directory, "chat-message-row.tsx");
+    writeFileSync(
+      source,
+      execFileSync("git", ["show", `${FIXTURE_REVISION}:${FIXTURE_SOURCE}`], {
+        encoding: "utf8",
+      }),
+    );
+    const edited = await editFile(
+      { path: source, oldText: edit.args.oldText, newText: edit.args.newText },
+      undefined,
+      { displayPath: storedPath(edit.args.path) },
+    );
+    const created = await createFile(
+      { path: join(directory, "new.tsx"), content: write.args.content },
+      undefined,
+      { displayPath: write.args.path },
+    );
+    if (edited.status !== "success" || created.status !== "success")
+      throw new Error("A mutation measured for the table failed.");
+    return new Map([
+      [edit.case, neutralizeReservedDelimiters(renderEditText(edited))],
+      [write.case, neutralizeReservedDelimiters(renderWriteText(created))],
+    ]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
-  if (name.startsWith("write")) {
-    return neutralizeReservedDelimiters(renderWriteText(result));
-  }
-  return undefined;
 }
 
 const cases = JSON.parse(readFileSync(FIXTURE, "utf8"));
+const mutations = await measureMutations(cases);
 
 const rows = cases.map(({ case: name, args, result, todayText }) => {
-  const after = afterText(name, result);
+  const after = name.startsWith("read")
+    ? readAfter(name, result)
+    : mutations.get(name);
   return {
     name,
     args: tokens(JSON.stringify(args)),

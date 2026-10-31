@@ -620,6 +620,23 @@ describe("edit text", () => {
     );
   });
 
+  it("renders a legacy region that starts at the first line", () => {
+    const legacy = {
+      status: "success" as const,
+      operation: "edit" as const,
+      path: "src/app.ts",
+      replacements: 1 as const,
+      diff: "@@ replacement at line 1 @@\n-a\n+b\n",
+      content: "1: b",
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+    };
+
+    expect(renderEditText(legacy)).toBe(
+      "edited src/app.ts: region from line 1\n1: b",
+    );
+  });
+
   it("marks a region the bound cut", () => {
     expect(renderEditText(editResult({ truncated: true }))).toBe(
       `${header}\n${region}\n[region cut at the bound]`,

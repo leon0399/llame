@@ -621,3 +621,80 @@ describe("truncateOversizedResult media results", () => {
     expect(measureText(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 });
+
+describe("truncateOversizedResult display-aware measures", () => {
+  /** A measure shaped like an edit's rendering: the header names the line
+   *  `display` starts at, so display changes the measured width. */
+  function editWidth(candidate: ToolResult): number {
+    const display =
+      candidate.status === "success" && isRecord(candidate.display)
+        ? candidate.display
+        : undefined;
+    const startLine = isRecord(display) ? display.startLine : undefined;
+    const header =
+      startLine === 1 ? "edited a.tsx: line 1, 1 -> 1 lines" : "edited a.tsx";
+    return (
+      header.length +
+      (candidate.status === "success" && isString(candidate.content)
+        ? candidate.content.length
+        : 0)
+    );
+  }
+
+  function editResult(content: string): ToolResult {
+    return {
+      status: "success",
+      operation: "edit",
+      path: "a.tsx",
+      replacements: 1,
+      content,
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+      lineCount: 1,
+      display: { startLine: 1, oldText: "a", newText: "b" },
+    };
+  }
+
+  /** Content that makes the full rendering exactly `total` units wide. */
+  function contentOfWidth(total: number): string {
+    return "x".repeat(total - editWidth(editResult("")));
+  }
+
+  it("passes a display-carrying result whose rendering is exactly the cap", () => {
+    const atCap = editResult(contentOfWidth(RESULT_TRUNCATE_CHARS));
+
+    expect(editWidth(atCap)).toBe(RESULT_TRUNCATE_CHARS);
+    expect(truncateOversizedResult(atCap, editWidth)).toEqual(atCap);
+  });
+
+  it("cuts a display-carrying result one unit over the cap", () => {
+    const over = editResult(contentOfWidth(RESULT_TRUNCATE_CHARS + 1));
+
+    // The display-free legacy form measures under the cap, which is what made
+    // the old measurement miss this result.
+    expect(editWidth({ ...over, display: undefined })).toBeLessThan(
+      RESULT_TRUNCATE_CHARS,
+    );
+    const cut = truncateOversizedResult(over, editWidth);
+    expect(cut).toMatchObject({
+      truncated: true,
+      display: { startLine: 1, oldText: "a", newText: "b" },
+    });
+    expect(editWidth(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+  });
+
+  it("measures the candidate with its display, not the display-free form", () => {
+    const result = editResult("body");
+    const widths: Array<number> = [];
+    const measure = (candidate: ToolResult): number => {
+      const width = editWidth(candidate);
+      widths.push(width);
+      return width;
+    };
+
+    truncateOversizedResult(result, measure);
+
+    expect(widths[0]).toBe(editWidth(result));
+    expect(widths[0]).not.toBe(editWidth({ ...result, display: undefined }));
+  });
+});

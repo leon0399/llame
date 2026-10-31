@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import { measureEditRendering } from '@workspace/native-file-tools';
 import {
+  RESULT_TRUNCATE_CHARS,
+  truncateOversizedResult,
+  type ToolResult,
+} from '@workspace/runtime-safety';
+
+import {
+  measureToolResultForModel,
   readAttributionReserve,
   renderToolResultForModel,
   renderToolResultText,
@@ -330,5 +338,65 @@ describe('readAttributionReserve', () => {
         notes: ['one', 'two'],
       }),
     ).toBe('realPath: /real/notes.md\nnotes: one\nnotes: two\n'.length);
+  });
+});
+
+describe('the cap measure of an edit rendering', () => {
+  const display = {
+    startLine: 161,
+    oldText: 'a\nb\nc\nd',
+    newText: 'a\nb\nc\nd\ne',
+  };
+  const header = 'edited a.tsx: line 161, 4 -> 5 lines (563 lines total)';
+  const edit = (content: string): ToolResult => ({
+    status: 'success',
+    operation: 'edit',
+    path: 'a.tsx',
+    replacements: 1,
+    content,
+    shownRange: { startLine: 160, endLine: 166 },
+    truncated: false,
+    lineCount: 563,
+    display,
+  });
+  const measure = measureToolResultForModel('edit');
+  // A rendering with an empty region is the header line alone, so its width is
+  // the framing every filled rendering adds before its region and newline.
+  const overhead = measureEditRendering(edit(''));
+
+  it('records an edit whose rendering is exactly the cap unchanged', () => {
+    const atCap = edit('x'.repeat(RESULT_TRUNCATE_CHARS - overhead - 1));
+
+    expect(measureEditRendering(atCap)).toBe(RESULT_TRUNCATE_CHARS);
+    expect(truncateOversizedResult(atCap, measure)).toEqual(atCap);
+  });
+
+  it('cuts an edit whose display-carrying rendering is one unit over the cap', () => {
+    const over = edit('x'.repeat(RESULT_TRUNCATE_CHARS - overhead));
+
+    // The display-free legacy form is narrower than the full rendering, so
+    // measuring it left this result uncut and over the cap.
+    expect(measureEditRendering({ ...over, display: undefined })).toBeLessThan(
+      RESULT_TRUNCATE_CHARS,
+    );
+    const cut = truncateOversizedResult(over, measure);
+    expect(cut).toMatchObject({ status: 'success', truncated: true, display });
+    expect(measure(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(renderToolResultText('edit', cut).split('\n')[0]).toBe(header);
+  });
+
+  it('measures the candidate with its display re-attached', () => {
+    const result = edit('region');
+    const widths: Array<number> = [];
+    truncateOversizedResult(result, (candidate) => {
+      const width = measureEditRendering(candidate);
+      widths.push(width);
+      return width;
+    });
+
+    expect(widths[0]).toBe(measureEditRendering(result));
+    expect(widths[0]).not.toBe(
+      measureEditRendering({ ...result, display: undefined }),
+    );
   });
 });

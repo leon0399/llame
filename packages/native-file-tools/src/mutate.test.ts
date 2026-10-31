@@ -17,7 +17,7 @@ import {
   REPLACE_TARGET_MISSING_MESSAGE,
 } from "./mutate";
 import { readFile as readNativeFile } from "./read";
-import { measureEditRendering } from "./model-text";
+import { measureEditRendering, renderEditText } from "./model-text";
 
 describe("native exact mutations", () => {
   let directory: string;
@@ -122,6 +122,17 @@ describe("native exact mutations", () => {
     expect(await readFile(path, "utf8")).toBe("replacement\n");
   });
 
+  it("creates a file with a status-only result that carries its line count", async () => {
+    expect(await createFile({ path, content: "one\ntwo\n" })).toEqual({
+      status: "success",
+      operation: "write",
+      path,
+      created: true,
+      lineCount: 2,
+    });
+    expect(await readFile(path, "utf8")).toBe("one\ntwo\n");
+  });
+
   it("creates once even when concurrent callers race", async () => {
     const results = await Promise.all([
       createFile({ path, content: "first" }),
@@ -181,15 +192,17 @@ describe("native exact mutations", () => {
 
   it("deletes the entire file content without inventing a source line", async () => {
     await writeFile(path, "Foo");
-    expect(await editFile({ path, oldText: "Foo", newText: "" })).toMatchObject(
-      {
-        status: "success",
-        content: "",
-        shownRange: null,
-        truncated: false,
-        lineCount: 0,
-        display: { startLine: 1, oldText: "Foo", newText: "" },
-      },
+    const result = await editFile({ path, oldText: "Foo", newText: "" });
+    expect(result).toMatchObject({
+      status: "success",
+      content: "",
+      shownRange: null,
+      truncated: false,
+      lineCount: 0,
+      display: { startLine: 1, oldText: "Foo", newText: "" },
+    });
+    expect(renderEditText(result)).toBe(
+      `edited ${path}: line 1, 1 -> 0 lines (0 lines total)`,
     );
     expect(await readFile(path, "utf8")).toBe("");
   });

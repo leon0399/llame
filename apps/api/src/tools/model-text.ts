@@ -120,24 +120,17 @@ function textResultRenderer(
   result: ToolResult,
 ): ((result: ToolResult) => string) | undefined {
   if (result.status !== 'success') return undefined;
+  // A `read` success that carries content renders as text: a file of any
+  // representation, or a directory listing. An image, PDF, or skill-catalog
+  // result carries no content and keeps its JSON rendering.
   if (toolName === 'read')
-    return isReadTextResult(result) ? renderReadText : undefined;
+    return (result.kind === 'file' || result.kind === 'directory') &&
+      isString(result.content)
+      ? renderReadText
+      : undefined;
   if (toolName === 'edit') return renderEditText;
   if (toolName === 'write') return renderWriteText;
   return undefined;
-}
-
-/**
- * A `read` success that carries content: a file of any representation, or a
- * directory listing. Image, PDF, and skill-catalog results carry no content
- * and keep their JSON rendering.
- */
-function isReadTextResult(result: ToolResult): boolean {
-  return (
-    result.status === 'success' &&
-    (result.kind === 'file' || result.kind === 'directory') &&
-    isString(result.content)
-  );
 }
 
 /**

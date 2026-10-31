@@ -269,20 +269,22 @@ describe("fs.read", () => {
 });
 
 describe("fs.edit and fs.write", () => {
-  it("edits a file and reports the locator", async () => {
-    await expect(
-      daemon.call("fs.edit", {
-        envelope: envelope(),
-        path: fixture.notes,
-        options: { displayPrefix: PREFIX },
-        oldText: "two\n",
-        newText: "TWO\n",
-      }),
-    ).resolves.toMatchObject({
+  it("edits a file and reports the locator and the region it replaced", async () => {
+    const result = await daemon.call("fs.edit", {
+      envelope: envelope(),
+      path: fixture.notes,
+      options: { displayPrefix: PREFIX },
+      oldText: "two\n",
+      newText: "TWO\n",
+    });
+    expect(result).toMatchObject({
       status: "success",
       operation: "edit",
       path: `${PREFIX}${fixture.notes}`,
+      lineCount: 4,
+      display: { startLine: 2, oldText: "two\n", newText: "TWO\n" },
     });
+    expect(result).not.toHaveProperty("diff");
     await expect(readFile(fixture.notes, "utf8")).resolves.toBe(
       "one\nTWO\nthree\nfour\n",
     );
@@ -290,19 +292,21 @@ describe("fs.edit and fs.write", () => {
 
   it("creates a missing directory chain for a new file", async () => {
     const target = join(fixture.root, "fresh", "deep", "new.txt");
-    await expect(
-      daemon.call("fs.write", {
-        envelope: envelope(),
-        path: target,
-        options: { displayPrefix: PREFIX },
-        content: "hello\n",
-      }),
-    ).resolves.toMatchObject({
+    const result = await daemon.call("fs.write", {
+      envelope: envelope(),
+      path: target,
+      options: { displayPrefix: PREFIX },
+      content: "hello\n",
+    });
+    expect(result).toMatchObject({
       status: "success",
       operation: "write",
       path: `${PREFIX}${target}`,
       created: true,
+      lineCount: 1,
     });
+    expect(result).not.toHaveProperty("content");
+    expect(result).not.toHaveProperty("diff");
     await expect(readFile(target, "utf8")).resolves.toBe("hello\n");
   });
 

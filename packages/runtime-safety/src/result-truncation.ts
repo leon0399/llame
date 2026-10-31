@@ -167,6 +167,23 @@ function truncationNotice(
 }
 
 /**
+ * The measure for a result whose `display` was set aside: the default JSON
+ * measure counts the serialization the shrink works on, which is display-free,
+ * while every other measure counts a rendering, and an edit's rendering reads
+ * `display`, so it receives the full candidate.
+ */
+function displayAwareMeasure(
+  measure: (candidate: ToolResult) => number,
+  display: UnknownRecord,
+): (candidate: ToolResult) => number {
+  if (measure === measureJson) return measure;
+  return (candidate) =>
+    candidate.status === "success"
+      ? measure({ ...candidate, display })
+      : measure(candidate);
+}
+
+/**
  * Truncate an oversized SUCCESS result to the cap, keeping the shape the tool
  * declared (#294). The `status` discriminant and every top-level field survive
  * with their values shrunk in place; the model never receives a fragment of
@@ -176,9 +193,12 @@ function truncationNotice(
  * model-facing rendering is not the result's JSON — a text rendering rather
  * than a JSON one — so the cap counts what the model receives.
  *
- * A result's `display` data never reaches the model, so it neither counts
- * toward the cap nor is shortened: it is set aside and kept unchanged
- * (tool-result-rendering D2).
+ * A result's `display` data never reaches the model as raw characters, so it
+ * is not serialized into the capped result and is never shortened: it is set
+ * aside and kept unchanged (tool-result-rendering D2). A text rendering may
+ * still be built from it — an edit's header names the line its `display`
+ * starts at and the counts it replaced — so a caller's `measure` sees the
+ * candidate with `display` re-attached.
  *
  * Error results are never truncated — every error message this registry
  * produces is a short, statically-authored string (see refusalResult /
@@ -192,7 +212,10 @@ export function truncateOversizedResult(
   if (result.status !== "success") return result;
   if (Object.hasOwn(result, "display")) {
     const { display, ...shown } = result;
-    const capped = truncateOversizedResult(shown, measure);
+    const capped = truncateOversizedResult(
+      shown,
+      isRecord(display) ? displayAwareMeasure(measure, display) : measure,
+    );
     return capped.status === "success" ? { ...capped, display } : capped;
   }
   const measured = measure(result);

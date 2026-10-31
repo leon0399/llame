@@ -1971,6 +1971,37 @@ describe('Machine mutation addressing and results', () => {
       message: 'The Machine "devl" answered an unusable result.',
     });
   });
+
+  it('drops a malformed optional mutation field instead of failing the answer', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            content: 3,
+            shownRange: 'a',
+            lineCount: 'many',
+            display: { startLine: 'x' },
+          },
+        },
+      },
+    });
+    await expect(
+      runTool(
+        nativeEditTool,
+        { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
+        context(connector),
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'success',
+      operation: 'edit',
+      path: 'machine://devl/srv/app/a.ts',
+    });
+  });
 });
 
 describe('Machine bash working directories', () => {

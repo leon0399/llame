@@ -209,3 +209,91 @@ export const TrailingLineBreak: Story = {
     ).toBeInTheDocument();
   },
 };
+
+/**
+ * A current result names the region it replaced, so the diff shows that text
+ * and numbering even when the submitted input says otherwise.
+ *
+ * @summary when the result's display data differs from the submitted text
+ */
+export const Displayed: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: {
+      path: "apps/api/src/greet.ts",
+      oldText: "submitted old",
+      newText: "submitted new",
+    },
+    output: {
+      status: "success" as const,
+      operation: "edit" as const,
+      path: "apps/api/src/greet.ts",
+      replacements: 1,
+      content: "4: kept line\n5: kept replacement\n",
+      shownRange: { startLine: 4, endLine: 5 },
+      truncated: false,
+      lineCount: 5,
+      display: {
+        startLine: 4,
+        oldText: "kept line\n",
+        newText: "kept replacement\n",
+      },
+    },
+    state: "output-available" as const,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /edit/iu }));
+    await expect(canvas.getByText("+1 −1")).toBeInTheDocument();
+    const diff = within(canvas.getByRole("group", { name: "Diff" }));
+    // Only the changed words are distinct; the shared prefix stays context.
+    await expect(diff.getByText("line")).toBeInTheDocument();
+    await expect(diff.getByText("replacement")).toBeInTheDocument();
+    // The numbers start at the result's `display.startLine`, on both sides.
+    await expect(diff.getAllByText("4")).toHaveLength(2);
+    await expect(canvas.queryAllByText(/submitted/u)).toHaveLength(0);
+  },
+};
+
+/**
+ * A deletion removes lines without adding any, so the diff counts zero added
+ * lines and numbers the region it was taken from.
+ *
+ * @summary for an edit that only deletes lines
+ */
+export const Deletion: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: {
+      path: "notes.md",
+      oldText: "keep\nremove one\nremove two\n",
+      newText: "keep\n",
+    },
+    output: {
+      status: "success" as const,
+      operation: "edit" as const,
+      path: "notes.md",
+      replacements: 1,
+      content: "9: keep\n",
+      shownRange: { startLine: 9, endLine: 9 },
+      truncated: false,
+      lineCount: 9,
+      display: {
+        startLine: 9,
+        oldText: "keep\nremove one\nremove two\n",
+        newText: "keep\n",
+      },
+    },
+    state: "output-available" as const,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /edit/iu }));
+    await expect(canvas.getByText("+0 −2")).toBeInTheDocument();
+    const diff = within(canvas.getByRole("group", { name: "Diff" }));
+    // The kept line is context on both sides; the deleted lines only keep
+    // their old numbers.
+    await expect(diff.getAllByText("9")).toHaveLength(2);
+    await expect(diff.getAllByText("10")).toHaveLength(1);
+    await expect(diff.getByText("remove one")).toBeInTheDocument();
+    await expect(diff.getByText("remove two")).toBeInTheDocument();
+  },
+};
