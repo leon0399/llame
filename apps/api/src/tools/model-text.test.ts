@@ -262,13 +262,17 @@ describe('renderToolResultForModel', () => {
       wallTimeMs: 12,
     };
 
-    const cut = truncateOversizedResult(
+    const capped = truncateOversizedResult(
       result,
       measureToolResultForModel('bash'),
     );
-    const text = renderToolResultText('bash', cut);
+    const text = renderToolResultText('bash', capped);
 
-    expect(cut).toMatchObject({ status: 'success', truncated: true });
+    // The cap records its own cut as `truncated` plus the notice and never
+    // writes a tool's `cut` field (tool-result-rendering "The global result cap
+    // measures the rendering").
+    expect(capped).toMatchObject({ status: 'success', truncated: true });
+    expect(capped).not.toHaveProperty('cut');
     expect(text).not.toContain('[output cut at the bound]');
     expect(text).toMatch(
       /^exit 0, 0\.0 s\nx+\n\[Result truncated to fit the 16000-character tool-result cap; \d+ characters omitted\./u,
