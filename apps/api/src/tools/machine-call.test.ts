@@ -436,10 +436,16 @@ describe('readProcBashResult', () => {
   });
 
   it('keeps the wall time a daemon reports', () => {
-    expect(readProcBashResult({ ...MANAGED, wallTimeMs: 1240 })).toEqual({
+    expect(readProcBashResult({ ...MANAGED, wallTimeMs: 1240 })).toStrictEqual({
       ...MANAGED,
       wallTimeMs: 1240,
     });
+  });
+
+  it('omits the wall time a daemon did not report', () => {
+    const settled = readProcBashResult(MANAGED);
+    expect(settled).toBeDefined();
+    expect(settled !== undefined && 'wallTimeMs' in settled).toBe(false);
   });
 
   it.each([
@@ -466,7 +472,7 @@ describe('readProcBashResult', () => {
         stderr: '',
         truncated: true,
       }),
-    ).toEqual({
+    ).toStrictEqual({
       status: 'error',
       type: 'timed_out',
       durationMs: 100,
@@ -487,7 +493,7 @@ describe('readProcBashResult', () => {
         stderr: '',
         truncated: false,
       }),
-    ).toEqual({
+    ).toStrictEqual({
       status: 'error',
       type: 'timed_out',
       durationMs: 300_000,

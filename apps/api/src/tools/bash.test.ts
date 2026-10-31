@@ -774,13 +774,31 @@ describe('bash durable admission', () => {
       truncated: false,
       wallTimeMs: 1240,
     };
-    expect(toToolResult(result)).toEqual({
+    expect(toToolResult(result)).toStrictEqual({
       status: 'success',
       exitCode: 0,
       stdout: 'out\n',
       stderr: '',
       truncated: false,
       wallTimeMs: 1240,
+    });
+  });
+
+  it('omits the wall time a result never measured', () => {
+    const result: BashResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+      truncated: false,
+    };
+    const settled = toToolResult(result);
+    expect(settled).toStrictEqual({
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+      truncated: false,
     });
   });
 
