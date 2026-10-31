@@ -227,3 +227,14 @@ same MUST hold when the requested window keeps no entry and the header alone exc
 - **WHEN** the requested window keeps no entry and its header alone exceeds the result bound
 - **THEN** the read fails with `representation_too_large`
 - **AND** it carries no listing and no continuation
+
+### Requirement: An unselected read requests the whole source
+
+A text read with no line selector MUST report `requestedRange` from its first line to its
+`lineCount` when the count is known, so a read cut by the bound resumes to the end of the source.
+When the count is unknown, `requestedRange` MUST end at line 2000, the read line ceiling.
+
+#### Scenario: An unselected read of a counted file requests every line
+
+- **WHEN** the model reads `notes.txt` of a 3,000-line file and the bound cuts it at line 1500
+- **THEN** the result carries `requestedRange` 1..3000 and `nextOffset: 1500`

@@ -264,8 +264,8 @@ continuation path, each attribution value, each `notes` entry, and the truncatio
 
 When a result carries `truncated: true` and a `nextOffset`, the text MUST end with one bracketed
 line naming the next read: from line `nextOffset + 1` to the stored requested end, or open-ended
-`<n>-` once that end is reached or when the result stores none. A directory listing stores no
-requested end, so its read is always open-ended. A locator that takes no selector states the
+`<n>-` once that end is reached, when it reaches the stored `lineCount`, or when the result stores
+none, as a directory listing does. A locator that takes no selector states the
 remainder alone instead. A `grep` page with `complete: false` MUST end with one bracketed line
 carrying its cursor.
 
@@ -276,10 +276,14 @@ carrying its cursor.
 
 #### Scenario: A cut inside the requested window resumes to the stored end
 
-- **WHEN** an unselected read is cut by the bound with `nextOffset` 1500 and a stored requested end
-  of 2000, in a file of 3,000 lines
+- **WHEN** an explicit `:1-2000` read of a 3,000-line file is cut by the bound with `nextOffset`
+  1500
 - **THEN** the text ends with `[1500 more lines. Use <locator>:1501-2000 to continue]`
-- **AND** an explicit `:1-2000` read cut at the same line ends the same way
+
+#### Scenario: A cut unselected read resumes to the end of the file
+
+- **WHEN** an unselected read of a 3,000-line file is cut by the bound with `nextOffset` 1500
+- **THEN** the text ends with `[1500 more lines. Use <locator>:1501- to continue]`
 
 #### Scenario: A ranged read that is not truncated has no notice
 
