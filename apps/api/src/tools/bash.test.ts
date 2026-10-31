@@ -557,6 +557,10 @@ describe('bash durable admission', () => {
         type: 'timed_out',
       });
       if (timedOut.status === 'error') {
+        // A stopped command names itself and the measured time, never an exit
+        // code it did not report.
+        expect(timedOut.message).toMatch(/^timed out, \d+\.\d s\n/u);
+        expect(timedOut.message).not.toContain('exit ');
         expect(timedOut.message).toContain('partial-stdout');
         expect(timedOut.message).toContain('partial-stderr');
       }
@@ -711,19 +715,39 @@ describe('bash durable admission', () => {
         status: 'error',
         type: 'timed_out',
         durationMs: 100,
+        wallTimeMs: 100,
         stdout: 'partial stdout',
         stderr: 'partial stderr',
         truncated,
       };
-      // The message is the bash text shape, naming the 0.1 s the deadline
-      // elapsed before the command was stopped.
+      // The message is the bash text shape: the command was stopped, not
+      // exited, so the header names itself and the 0.1 s measured before the
+      // deadline stopped it.
       expect(toToolResult(result)).toEqual({
         status: 'error',
         type: 'timed_out',
-        message: `exit 1, 0.1 s\npartial stdout\n[stderr]\npartial stderr${note}`,
+        message: `timed out, 0.1 s\npartial stdout\n[stderr]\npartial stderr${note}`,
       });
     },
   );
+
+  it('names no elapsed time for a timeout that never started a command', () => {
+    // The admission and the SSH pre-start check can end a call before anything
+    // spawns: the configured deadline is not a measurement, so no seconds.
+    const result: BashResult = {
+      status: 'error',
+      type: 'timed_out',
+      durationMs: 300_000,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+    };
+    expect(toToolResult(result)).toEqual({
+      status: 'error',
+      type: 'timed_out',
+      message: 'timed out\n(no output)',
+    });
+  });
 
   it('composes a failing command as the bash text shape with its elapsed time', () => {
     const result: BashResult = {

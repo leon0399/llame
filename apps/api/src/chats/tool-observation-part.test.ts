@@ -288,6 +288,37 @@ describe('live and replayed renderings agree', () => {
     expect(replayed).toContain('exit 0, 1.2 s\napps/');
   });
 
+  it('replays a grep page as its live rendering, cursor line included', () => {
+    const result = {
+      status: 'success' as const,
+      results: [
+        {
+          locator: '/work/src/app.ts:3-4',
+          content: '3: a\n4: hit',
+          matches: [4],
+        },
+        {
+          locator: '/work/src/app.ts:40-41',
+          content: '40: hit\n41: b',
+          matches: [40],
+        },
+      ],
+      complete: false,
+      cursor: 'cursor-1',
+      warnings: [],
+    };
+
+    const live = liveText('grep', result);
+    expect(live).toBe(
+      '## /work/src/app.ts\n3: a\n*4: hit\n\n*40: hit\n41: b\n[more results. Continue with cursor: cursor-1]',
+    );
+    const replayed = projectedOutput(
+      storedPart('grep', result, { input: { patterns: ['hit'] } }),
+    );
+    expect(replayed).toContain(live);
+    expect(replayed).toContain('Outcome: success');
+  });
+
   it('replays a failing bash command as its live rendering', () => {
     const live = toToolResult({
       status: 'error',

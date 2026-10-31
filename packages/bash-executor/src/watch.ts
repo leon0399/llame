@@ -179,6 +179,9 @@ async function settleDeadline(session: WatchSession): Promise<void> {
     status: "error",
     type: "timed_out",
     durationMs: effectiveDeadlineMs(session),
+    ...(output.wallTimeMs !== undefined && {
+      wallTimeMs: output.wallTimeMs,
+    }),
     stdout: output.stdout,
     stderr: output.stderr,
     truncated: output.truncated,

@@ -44,17 +44,40 @@ import {
 } from '../media/epoch-admission';
 import { type ToolResult } from './types';
 
+/** The text shape a tool result renders in, or `undefined` to keep its JSON. */
+type TextResultRenderer = (result: ToolResult) => string | undefined;
+
+/** The tools whose result reaches the model as text. */
+type TextResultToolName = 'read' | 'edit' | 'write' | 'grep' | 'bash';
+
 /**
- * The tools whose result carries content: it reaches the model as text, and a
- * Machine variant shares its host counterpart's name.
+ * The text renderers, one per tool whose result reaches the model as text; a
+ * Machine variant shares its host counterpart's name. A key marks the tool as
+ * one whose failure keeps the SDK output type `text`, with its JSON body. The
+ * value renders a success, and `undefined` keeps that result's JSON rendering.
  */
-const TEXT_RESULT_TOOL_NAMES = {
-  read: true,
-  edit: true,
-  write: true,
-  grep: true,
-  bash: true,
-} satisfies Record<string, true>;
+const TEXT_RESULT_RENDERERS: Readonly<
+  Record<TextResultToolName, TextResultRenderer>
+> = {
+  // A `read` success renders as text when it carries content: a file of any
+  // representation, or a directory listing. An image, PDF, or skill-catalog
+  // result carries none and keeps its JSON rendering.
+  read: (result) =>
+    result.status === 'success' &&
+    (result.kind === 'file' || result.kind === 'directory') &&
+    isString(result.content)
+      ? renderReadText(result)
+      : undefined,
+  edit: renderEditText,
+  write: renderWriteText,
+  grep: renderGrepText,
+  bash: renderBashText,
+};
+
+/** Whether this build renders a tool's result as text, failures included. */
+function isTextResultTool(toolName: string): toolName is TextResultToolName {
+  return Object.hasOwn(TEXT_RESULT_RENDERERS, toolName);
+}
 
 /** The JSON value the SDK's `json` tool output accepts, validated here. */
 const jsonValue = z.json();
@@ -98,12 +121,13 @@ interface ModelView {
  */
 function modelView(toolName: string, result: ToolResult): ModelView {
   const normalized = normalizedResult(result);
-  const textResult = textResultRenderer(toolName, normalized);
-  if (textResult !== undefined) {
-    return {
-      text: neutralizeReservedDelimiters(textResult(normalized)),
-      escapedAsText: true,
-    };
+  if (normalized.status === 'success' && isTextResultTool(toolName)) {
+    const text = TEXT_RESULT_RENDERERS[toolName](normalized);
+    if (text !== undefined)
+      return {
+        text: neutralizeReservedDelimiters(text),
+        escapedAsText: true,
+      };
   }
   const visible = modelVisibleResult(normalized);
   // The deep neutralizer escapes one key and one value at a time, so an object
@@ -119,38 +143,10 @@ function modelView(toolName: string, result: ToolResult): ModelView {
   return { text: serializeNativeModelOutput(visible), escapedAsText: false };
 }
 
-/** The text shape a successful native tool result renders in, or none for a
- *  result that keeps its JSON rendering. */
-function textResultRenderer(
-  toolName: string,
-  result: ToolResult,
-): ((result: ToolResult) => string) | undefined {
-  if (result.status !== 'success') return undefined;
-  // A `read` success that carries content renders as text: a file of any
-  // representation, or a directory listing. An image, PDF, or skill-catalog
-  // result carries no content and keeps its JSON rendering.
-  if (toolName === 'read')
-    return (result.kind === 'file' || result.kind === 'directory') &&
-      isString(result.content)
-      ? renderReadText
-      : undefined;
-  if (toolName === 'edit') return renderEditText;
-  if (toolName === 'write') return renderWriteText;
-  // A `grep` page renders every success as text: its notice, the `## <file>`
-  // runs of passages, its warnings line, and the continuation line of a page
-  // that is not complete. A Machine `grep` shares the name.
-  if (toolName === 'grep') return renderGrepText;
-  // A `bash` result renders its status header and its streams, and a Machine
-  // `bash` shares the name.
-  if (toolName === 'bash') return renderBashText;
-  return undefined;
-}
-
 /**
- * The text rendering of a result, for every tool and both outcomes. `toolName`
- * selects a tool's own text shape: a `read` success renders as its header,
- * attribution lines, numbered content, and continuation line; every other
- * result renders its serialized form.
+ * The text rendering of a result, for every tool and both outcomes. A tool in
+ * `TEXT_RESULT_RENDERERS` renders a success in its own text shape and a failure
+ * as its JSON body; every other result renders its serialized form.
  */
 export function renderToolResultText(
   toolName: string,
@@ -192,9 +188,7 @@ export function renderToolResultForModel(
   result: ToolResult,
 ): ToolResultRendering {
   const { text, escapedAsText } = modelView(toolName, result);
-  if (Object.hasOwn(TEXT_RESULT_TOOL_NAMES, toolName)) {
-    return { kind: 'text', text };
-  }
+  if (isTextResultTool(toolName)) return { kind: 'text', text };
   // Escaping the text as a whole leaves two members with the same spelling,
   // and a JSON value would keep one; its text keeps both values visible.
   if (escapedAsText) return { kind: 'text', text };

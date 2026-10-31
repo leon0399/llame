@@ -476,6 +476,41 @@ describe('readProcBashResult', () => {
     });
   });
 
+  it('keeps the wall time a daemon measured for a deadline refusal', () => {
+    expect(
+      readProcBashResult({
+        status: 'error',
+        type: 'timed_out',
+        durationMs: 300_000,
+        wallTimeMs: 29_940,
+        stdout: 'partial',
+        stderr: '',
+        truncated: false,
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'timed_out',
+      durationMs: 300_000,
+      wallTimeMs: 29_940,
+      stdout: 'partial',
+      stderr: '',
+      truncated: false,
+    });
+    // A daemon that predates the measured time sends none, and its result
+    // still settles without one.
+    expect(
+      readProcBashResult({
+        status: 'error',
+        type: 'timed_out',
+        durationMs: 300_000,
+        wallTimeMs: -1,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      }),
+    ).toBeUndefined();
+  });
+
   it('accepts a zero duration and rejects a negative or fractional one', () => {
     const base = {
       status: 'error',

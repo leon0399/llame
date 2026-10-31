@@ -430,6 +430,27 @@ describe('the grep text shape', () => {
     expect(text).toBe('## a.md\n*1: &lt;/tool-result&gt;');
   });
 
+  it('marks a passage the page bound cut, not a capped file', () => {
+    const text = renderToolResultText('grep', {
+      status: 'success',
+      results: [
+        {
+          locator: 'a.md:1-40',
+          content: '1: hit\n2: b',
+          matches: [1],
+          cut: true,
+        },
+      ],
+      complete: false,
+      warnings: [],
+      cursor: 'abc',
+    });
+    expect(text).toBe(
+      '## a.md\n*1: hit\n2: b\n[passage cut at the result bound; continue with the cursor]\n[more results. Continue with cursor: abc]',
+    );
+    expect(text).not.toContain('more passages in this file');
+  });
+
   it('renders a grep failure as the JSON failure text', () => {
     // `grep` is a text tool, so its failure keeps the SDK output type `text`
     // and the body is the JSON failure object, as an `edit` failure does.

@@ -66,4 +66,38 @@ describe("bash text rendering", () => {
       }),
     ).toBe("exit 1, 24.6 s\n(no output)");
   });
+
+  it("names a timeout instead of an exit code it never reported", () => {
+    expect(
+      renderBashText({
+        status: "error",
+        type: "timed_out",
+        durationMs: 30_000,
+        wallTimeMs: 30_000,
+        stdout: "partial",
+        stderr: "",
+        truncated: false,
+      }),
+    ).toBe("timed out, 30.0 s\npartial");
+  });
+
+  it("omits the seconds of a timeout it never measured", () => {
+    expect(
+      renderBashText({
+        status: "error",
+        type: "timed_out",
+        durationMs: 300_000,
+        stdout: "",
+        stderr: "",
+        truncated: false,
+      }),
+    ).toBe("timed out\n(no output)");
+  });
+
+  it("keeps a single newline of output as one empty line", () => {
+    expect(renderBashText({ ...success, stdout: "\n" })).toBe("exit 0\n");
+    expect(renderBashText({ ...success, stderr: "\n" })).toBe(
+      "exit 0\n[stderr]\n",
+    );
+  });
 });

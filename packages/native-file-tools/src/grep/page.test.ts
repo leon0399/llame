@@ -38,7 +38,7 @@ function emission(
 }
 
 describe("grep page cuts", () => {
-  it("keeps the twentieth-passage flag when it cuts the first passage", () => {
+  it("keeps the cap and the cut apart when it cuts a capped first passage", () => {
     const page = createGrepPage();
     appendGrepFile(
       page,
@@ -46,12 +46,25 @@ describe("grep page cuts", () => {
       emission([FIRST], 40),
     );
     expect(page.results).toHaveLength(1);
-    expect(page.results[0].truncated).toBe(true);
+    expect(page.results[0]).toMatchObject({ cut: true, truncated: true });
     expect(page.full).toBe(true);
     expect(page.last).toMatchObject({
       startLine: 40,
       endLine: 40,
       capped: true,
+    });
+  });
+
+  it("marks a cut passage that is not its file's twentieth as a cut only", () => {
+    const page = createGrepPage();
+    appendGrepFile(page, { pageUnits: 10, fixedReserve: 0 }, emission([FIRST]));
+    expect(page.results).toHaveLength(1);
+    expect(page.results[0].cut).toBe(true);
+    expect(page.results[0].truncated).toBeUndefined();
+    expect(page.last).toMatchObject({
+      startLine: 40,
+      endLine: 40,
+      capped: false,
     });
   });
 });
@@ -83,7 +96,7 @@ describe("grep page reservation", () => {
       emission([FIRST]),
     );
     expect(overflows.results[0].locator).toBe(FIRST.locator);
-    expect(overflows.results[0].truncated).toBe(true);
+    expect(overflows.results[0].cut).toBe(true);
     expect(overflows.full).toBe(true);
   });
 
@@ -153,7 +166,7 @@ describe("grep page reservation", () => {
 
     const over = createGrepPage();
     appendGrepFile(over, limits, emission([passageOf(1)]));
-    expect(over.results[0].truncated).toBe(true);
+    expect(over.results[0].cut).toBe(true);
     expect(over.full).toBe(true);
   });
 });

@@ -379,11 +379,13 @@ function readTimedOutBashResult(
   value: SerializableRecord,
 ): ProcBashResult | undefined {
   const durationMs = value['durationMs'];
+  const wallTimeMs = value['wallTimeMs'];
   const stdout = value['stdout'];
   const stderr = value['stderr'];
   const truncated = value['truncated'];
   if (
     !isCount(durationMs) ||
+    (wallTimeMs !== undefined && !isCount(wallTimeMs)) ||
     !isString(stdout) ||
     !isString(stderr) ||
     !isBoolean(truncated)
@@ -393,6 +395,7 @@ function readTimedOutBashResult(
     status: 'error',
     type: 'timed_out',
     durationMs,
+    ...(wallTimeMs !== undefined && { wallTimeMs }),
     stdout,
     stderr,
     truncated,

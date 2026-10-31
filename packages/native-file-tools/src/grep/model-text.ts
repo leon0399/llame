@@ -6,6 +6,10 @@ import {
   type UnknownRecord,
 } from "@workspace/runtime-safety";
 
+import { isNonEmptyString } from "../model-text";
+import { passageStartLine } from "./passages";
+import type { GrepPassage } from "./types";
+
 /*
  * The model-facing text of a `grep` page (tool-result-rendering "A grep page
  * groups consecutive passages under one file line"). Each run of consecutive
@@ -17,12 +21,15 @@ import {
 
 /** One stored passage, as the page's `results` list carries it. */
 interface PassageView {
-  readonly locator: string;
-  /** The one-based start line, and the file's locator without its range. */
+  /** The file's locator without its line range. */
   readonly file: string;
+  /** The one-based start line of the passage. */
   readonly startLine: number;
   readonly content: string;
   readonly matches: ReadonlyArray<number>;
+  /** The page cut the passage at a line boundary; the cursor continues it. */
+  readonly cut: boolean;
+  /** The passage is its file's twentieth: the file holds more after it. */
   readonly truncated: boolean;
 }
 
@@ -30,6 +37,11 @@ interface PassageView {
  *  `read` is the only way to see them. */
 const CAPPED_PASSAGE_MARKER =
   "[more passages in this file; read it to see them]";
+
+/** The line a passage cut at the page bound ends with: the cursor continues
+ *  it, and the lines after it are on the next page. */
+const CUT_PASSAGE_MARKER =
+  "[passage cut at the result bound; continue with the cursor]";
 
 /** `N: text` from the start of one stored content line. */
 const NUMBERED_LINE = /^(\d+): /u;
@@ -50,28 +62,22 @@ export function grepFileLocator(locator: string): string {
     : locator;
 }
 
-/** The one-based start line of a passage locator, or 0 when it is malformed. */
-function passageStartLine(locator: string): number {
-  const separator = locator.lastIndexOf(":");
-  const match =
-    separator === -1 ? null : RANGE_SUFFIX.exec(locator.slice(separator + 1));
-  return match === null ? 0 : Number(match[1]);
-}
-
 /** One stored passage, or none when the result entry is not a passage. */
 function passageOf(value: unknown): PassageView | undefined {
   if (!isRecord(value)) return undefined;
-  const { locator, content, matches, truncated } = value;
-  if (!isString(locator) || locator === "" || !isString(content))
-    return undefined;
+  const { locator, content, matches, cut, truncated } = value;
+  if (!isNonEmptyString(locator) || !isString(content)) return undefined;
+  const startLine = passageStartLine(locator);
   return {
-    locator,
     file: grepFileLocator(locator),
-    startLine: passageStartLine(locator),
+    // A locator with no readable start line opens its own run, as a malformed
+    // entry should.
+    startLine: Number.isFinite(startLine) ? startLine : 0,
     content,
     matches: Array.isArray(matches)
       ? matches.filter((line): line is number => isNumber(line))
       : [],
+    cut: cut === true,
     truncated: truncated === true,
   };
 }
@@ -89,8 +95,8 @@ function passagesOf(value: unknown): Array<PassageView> {
 
 /**
  * One passage's lines: the stored `N: text` lines with a `*` before the
- * number of a matched line, then the capped-passage marker when the file holds
- * more passages.
+ * number of a matched line, then the cut marker of a passage the page cut, and
+ * the capped-passage marker of its file's twentieth.
  */
 function passageLines(passage: PassageView): Array<string> {
   const matched = new Set(passage.matches);
@@ -101,6 +107,7 @@ function passageLines(passage: PassageView): Array<string> {
     if (match === null) return line;
     return matched.has(Number(match[1])) ? `*${line}` : line;
   });
+  if (passage.cut) marked.push(CUT_PASSAGE_MARKER);
   if (passage.truncated) marked.push(CAPPED_PASSAGE_MARKER);
   return marked;
 }
@@ -112,8 +119,7 @@ function warningsLine(value: unknown): string | undefined {
   for (const warning of value) {
     if (!isRecord(warning)) continue;
     const { kind, count } = warning;
-    if (!isString(kind) || kind === "" || !isNumber(count) || count < 1)
-      continue;
+    if (!isNonEmptyString(kind) || !isNumber(count) || count < 1) continue;
     warnings.push(`${String(count)} ${kind}`);
   }
   return warnings.length === 0
@@ -138,7 +144,7 @@ export function grepContinuationLine(cursor: string): string {
 export function renderGrepText(result: UnknownRecord): string {
   const lines: Array<string> = [];
   const { notice } = result;
-  if (isString(notice) && notice !== "") lines.push(`notice: ${notice}`);
+  if (isNonEmptyString(notice)) lines.push(`notice: ${notice}`);
   let previous: PassageView | undefined;
   for (const passage of passagesOf(result.results)) {
     const continues =
@@ -153,11 +159,10 @@ export function renderGrepText(result: UnknownRecord): string {
   const warnings = warningsLine(result.warnings);
   if (warnings !== undefined) lines.push(warnings);
   const { complete, cursor } = result;
-  if (complete !== true && isString(cursor) && cursor !== "")
+  if (complete !== true && isNonEmptyString(cursor))
     lines.push(grepContinuationLine(cursor));
   const { truncationNotice } = result;
-  if (isString(truncationNotice) && truncationNotice !== "")
-    lines.push(`[${truncationNotice}]`);
+  if (isNonEmptyString(truncationNotice)) lines.push(`[${truncationNotice}]`);
   return lines.join("\n");
 }
 
@@ -168,4 +173,23 @@ export function renderGrepText(result: UnknownRecord): string {
  */
 export function measureGrepRendering(result: UnknownRecord): number {
   return neutralizeReservedDelimiters(renderGrepText(result)).length;
+}
+
+/**
+ * The rendered width one passage adds to a page's text after `previous`: its
+ * own lines and the blank line or `## <locator>` line that joins it. The pair
+ * is measured as a pair, so one reserved-name token spanning the join counts
+ * once, in the width it renders to.
+ */
+export function grepPassageUnits(
+  previous: GrepPassage | undefined,
+  passage: GrepPassage,
+): number {
+  const page = previous === undefined ? [passage] : [previous, passage];
+  return (
+    measureGrepRendering({ results: page, complete: true }) -
+    (previous === undefined
+      ? 0
+      : measureGrepRendering({ results: [previous], complete: true }))
+  );
 }

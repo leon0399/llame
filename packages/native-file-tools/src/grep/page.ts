@@ -1,5 +1,5 @@
 import { grepContinuationUnits } from "./cursor";
-import { measureGrepRendering } from "./model-text";
+import { grepPassageUnits } from "./model-text";
 import { passageEndLine, passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
@@ -28,6 +28,8 @@ export interface GrepPage {
    * room is kept.
    */
   reserveFloor: number;
+  /** Rendered width of `results` as a complete page, kept as they grow. */
+  units: number;
 }
 
 /** What a page may render to, and what it must leave for its caller. */
@@ -55,6 +57,7 @@ export function createGrepPage(): GrepPage {
     full: false,
     last: undefined,
     reserveFloor: 0,
+    units: 0,
   };
 }
 
@@ -75,16 +78,17 @@ export function appendGrepFile(
 ): number {
   let emitted = 0;
   for (const passage of emission.passages) {
-    if (
-      fits(page, limits, pageKey(emission, passage), [...page.results, passage])
-    ) {
+    const added = grepPassageUnits(page.results.at(-1), passage);
+    if (fits(page, limits, pageKey(emission, passage), added)) {
       page.results.push(passage);
+      page.units += added;
       emitted += 1;
       page.last = pageKey(emission, passage);
       continue;
     }
     if (page.results.length === 0) {
       const cut = cutToFit(page, limits, emission, passage);
+      page.units += grepPassageUnits(page.results.at(-1), cut);
       page.results.push(cut);
       emitted += 1;
       page.last = {
@@ -100,24 +104,19 @@ export function appendGrepFile(
 }
 
 /**
- * Whether one more result fits the page: the rendered text of the passages
- * with it, the continuation line that names it, and the room the caller's own
- * lines take. A page that ends before its first passage keeps the room of the
- * position cursor that then carries it.
+ * Whether one more result fits the page: the passages it already holds, the
+ * widening this one adds, the continuation line that names it, and the room
+ * the caller's own lines take. A page that ends before its first passage keeps
+ * the room of the position cursor that then carries it.
  */
 function fits(
   page: GrepPage,
   limits: GrepPageLimits,
   key: GrepPageKey,
-  candidate: ReadonlyArray<GrepPassage>,
+  added: number,
 ): boolean {
   const reserve = Math.max(grepContinuationUnits(key), page.reserveFloor);
-  return (
-    measureGrepRendering({ results: candidate, complete: true }) +
-      reserve +
-      limits.fixedReserve <=
-    limits.pageUnits
-  );
+  return page.units + added + reserve + limits.fixedReserve <= limits.pageUnits;
 }
 
 function pageKey(
@@ -149,13 +148,17 @@ function cutToFit(
     locator: `${emission.fileLocator}:${start}-${end}`,
     content: lines.slice(0, end - start + 1).join("\n"),
     matches: passage.matches.filter((line) => line <= end),
-    truncated: true,
+    cut: true,
+    // The cap marker belongs to the file's twentieth passage alone; the cut
+    // ends the page and the cursor continues it.
+    ...(emission.cappedAt === start && { truncated: true as const }),
   });
   // A cut passage ends the page, so its cursor names its last emitted line.
   for (let end = rangeEnd; end > start; end -= 1) {
     const cut = cutAt(end);
     const key = { ...pageKey(emission, cut), endLine: end };
-    if (fits(page, limits, key, [cut])) return cut;
+    if (fits(page, limits, key, grepPassageUnits(page.results.at(-1), cut)))
+      return cut;
   }
   // One line is the floor: a match never yields an empty page.
   return cutAt(start);

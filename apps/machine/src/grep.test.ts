@@ -392,11 +392,13 @@ describe("fs.grep", () => {
       }),
     );
     expect(first.results).toHaveLength(1);
+    // A cut passage claims the cut only: its file is not capped, so the
+    // twentieth-passage marker would be a lie the hub renders back.
     expect(first.results[0]).toMatchObject({
       startLine: 1,
-      truncated: true,
       cut: true,
     });
+    expect(first.results[0]).not.toHaveProperty("truncated");
     const cutEnd = first.results[0]?.endLine ?? 0;
     expect(cutEnd).toBeLessThan(8);
     if (first.cursor === undefined)

@@ -37,10 +37,13 @@ and a bracketed cap notice can end the text. A stored result without a wall time
 renders the bare header.
 
 A failing command is a `command_failed` result whose message is the same text
-shape, with the non-zero exit code; a stopped command is a `timed_out` result
-whose message names the elapsed deadline in seconds. The stored result keeps the
-exit code, both bounded streams, the truncation flags, and the wall time, and
-carries no field naming the operation or the executor.
+shape, with the non-zero exit code. A stopped command is a `timed_out` result
+whose message starts with `timed out` and the measured elapsed time in seconds,
+and names no exit code: the process was stopped, not exited. A deadline that
+ended the call before a command started names no time, because nothing
+measured one. The stored result keeps the exit code, both bounded streams, the
+truncation flags, and the wall time, and carries no field naming the operation
+or the executor.
 
 ## Behavior
 

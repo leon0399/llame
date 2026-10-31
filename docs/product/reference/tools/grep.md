@@ -86,7 +86,7 @@ reads the stored object:
 
 | Field      | Meaning                                                                              |
 | ---------- | ------------------------------------------------------------------------------------ |
-| `results`  | one object per passage: `locator`, `content`, `matches`, and `truncated`             |
+| `results`  | one object per passage: `locator`, `content`, `matches`, `cut`, and `truncated`      |
 | `complete` | whether more passages remain after this page                                         |
 | `cursor`   | the opaque value the continuation line names                                         |
 | `warnings` | every skip and the bound that stopped the walk, by kind and count                    |
@@ -98,7 +98,9 @@ blank line separates the passages of one run. Overlapping scopes repeat the
 file line: each scope's run of passages has its own `##` line, in scope order.
 A file with more than 20 passages ends its twentieth passage with
 `[more passages in this file; read it to see them]`, and a later `read`
-reaches the rest. A bracketed cap notice ends the text when the shared result
+reaches the rest. A passage cut at the page bound ends with `[passage cut at
+the result bound; continue with the cursor]`, and the cursor continues its
+remaining lines. A bracketed cap notice ends the text when the shared result
 cap cut the page.
 
 A result with at least one `kb://` passage carries the closed

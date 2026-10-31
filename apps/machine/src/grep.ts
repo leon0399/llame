@@ -132,14 +132,11 @@ async function scopeOf(
 
 /**
  * One engine passage as the wire carries it: a relative path, a line range,
- * and the marks the hub paginates on. The engine's page end names the only
- * passage a page can cut — the first one, which then ends that page — so its
- * start line is the cut marker the hub reads.
+ * and the marks the hub paginates on.
  */
 function passageOf(
   passage: GrepPassage,
   capped: ReadonlySet<string>,
-  cutAt: number | undefined,
 ): FsGrepPassage {
   const separator = passage.locator.lastIndexOf(":");
   const [startLine, endLine] = passage.locator
@@ -157,7 +154,7 @@ function passageOf(
     ...(capped.has(`${path}\u0000${String(startLine)}`) && {
       capped: true as const,
     }),
-    ...(startLine === cutAt && { cut: true as const }),
+    ...(passage.cut === true && { cut: true as const }),
   };
 }
 
@@ -169,11 +166,9 @@ function resultOf(scan: GrepScanResult): FsGrepResult {
       (entry) => `${entry.rel}\u0000${String(entry.startLine)}`,
     ),
   );
-  const cutAt =
-    scan.last?.endLine === undefined ? undefined : scan.last.startLine;
   const result = {
     ok: true as const,
-    results: scan.results.map((passage) => passageOf(passage, capped, cutAt)),
+    results: scan.results.map((passage) => passageOf(passage, capped)),
     complete: scan.complete,
     warnings: scan.warnings.map((warning) => ({ ...warning })),
     consumed: { ...scan.consumed },

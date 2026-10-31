@@ -81,6 +81,36 @@ describe("process-group settlement", () => {
     });
   });
 
+  it("records the elapsed time it measured when the deadline stops a command", async () => {
+    vi.useFakeTimers();
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_346 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "stopProcessGroup").mockResolvedValue(true);
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, durationMs: 30_000 },
+          attemptId: "timeout-wall-time",
+          options: {},
+        },
+        resolve,
+      );
+    });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await pending;
+    // `durationMs` is the deadline the watcher armed; `wallTimeMs` is what it
+    // measured from spawn to the stop, which is what the message names.
+    expect(result).toMatchObject({ type: "timed_out", durationMs: 30_000 });
+    if (!("wallTimeMs" in result))
+      throw new Error("Expected a measured wall time");
+    expect(result.wallTimeMs).toBeGreaterThanOrEqual(30_000);
+  });
+
   it("bounds an open output pipe and marks its result truncated", async () => {
     vi.useFakeTimers();
     const child = new ChildProcess();

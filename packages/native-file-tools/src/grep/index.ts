@@ -29,6 +29,7 @@ export type {
 export { runGrepScan } from "./scan";
 export {
   grepFileLocator,
+  grepPassageUnits,
   measureGrepRendering,
   renderGrepText,
 } from "./model-text";

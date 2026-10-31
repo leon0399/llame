@@ -1312,13 +1312,10 @@ describe('Machine resume', () => {
     const { peer, connector } = fixture({
       answers: {
         'fs.grep': {
-          value: page(
-            [{ ...passage('a.go', 10, 40), truncated: true, cut: true }],
-            {
-              complete: false,
-              cursor: 'daemon',
-            },
-          ),
+          value: page([{ ...passage('a.go', 10, 40), cut: true }], {
+            complete: false,
+            cursor: 'daemon',
+          }),
         },
       },
     });

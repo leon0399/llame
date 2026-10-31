@@ -8,8 +8,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   its Knowledge notice first, then each run of consecutive passages of one file
   under one `## <file locator>` line, with `*N: text` for a matched line, one
   blank line between the passages of a run, `[more passages in this file; read
-  it to see them]` after a file's twentieth passage, one
-  `[warnings: <count> <kind>, …]` line, and a
+  it to see them]` after a file's twentieth passage,
+  `[passage cut at the result bound; continue with the cursor]` after a passage
+  the page bound cut (a separate `cut` mark, so a cut never claims a capped
+  file), one `[warnings: <count> <kind>, …]` line, and a
   `[more results. Continue with cursor: <cursor>]` line when the page is
   incomplete; the page budget now measures that neutralized rendering, a
   continuation line included, instead of a JSON estimate. A `bash` result
@@ -18,8 +20,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   stderr when it is non-empty, `(no output)` when both are empty,
   `[output cut at the bound]` for output the executor bound cut, and the cap
   notice last; a stored part without a wall time prints the bare header. A
-  `command_failed` or `timed_out` message carries the same shape inside the JSON
-  failure object, so the live and replayed text match. Success results no longer
+  `command_failed` message carries the same shape inside the JSON failure
+  object, so the live and replayed text match; a `timed_out` message starts
+  with `timed out` and the wall time the producer measured — the process was
+  stopped, not exited, so it names no exit code — and a deadline that ended a
+  call before its command started names no time. Success results no longer
   carry the constant `operation` and `executor` fields, the Machine wire carries
   optional `wallTimeMs`, an older daemon's `operation`/`executor` are mapped away,
   and the owner's `bash` row shows the wall time. The `grep` and `bash`

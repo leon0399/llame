@@ -20,9 +20,6 @@ import {
 
 import { type ToolResult } from './types';
 
-/** The exit code a stopped command reports; the watcher's own code for it. */
-const TIMED_OUT_EXIT_CODE = 1;
-
 /** A failure the executor already classified; a timeout keeps its streams. */
 function typedFailureResult(
   result: BashTimedOutResult | BashUnknownResult | BashUnavailableResult,
@@ -32,13 +29,9 @@ function typedFailureResult(
   return {
     status: 'error',
     type: 'timed_out',
-    message: renderBashText({
-      exitCode: TIMED_OUT_EXIT_CODE,
-      wallTimeMs: result.durationMs,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      truncated: result.truncated,
-    }),
+    // The type tells the renderer this command was stopped, not exited, so the
+    // header names the measured elapsed time and no exit code.
+    message: renderBashText(result),
   };
 }
 
@@ -47,19 +40,11 @@ function commandFailedResult(result: BashKnownResult): ToolResult {
   return {
     status: 'error',
     type: 'command_failed',
-    message: renderBashText({
-      exitCode: result.exitCode,
-      ...(result.wallTimeMs !== undefined && {
-        wallTimeMs: result.wallTimeMs,
-      }),
-      stdout: result.stdout,
-      stderr: result.stderr,
-      truncated: result.truncated,
-    }),
+    message: renderBashText(result),
   };
 }
 
-/** The observation the model reads, which carries no constant fields. */
+/** The observation the model reads, with the exit code and streams it holds. */
 export function toToolResult(result: BashResult): ToolResult {
   if (result.status === 'success') {
     return {

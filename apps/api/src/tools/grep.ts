@@ -10,7 +10,9 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
+  grepContinuationUnits,
   grepFileLocator,
+  grepPassageUnits,
   GREP_LIMITS,
   GREP_WARNING_KINDS,
   hashGrepInputs,
@@ -161,8 +163,8 @@ type PageState = {
   readonly consumed: { files: number; entries: number; bytes: number };
   /** Files that contributed a passage, for the page's file bound. */
   readonly files: Set<string>;
-  /** The hash this call's cursors carry, so a candidate's line is measured. */
-  readonly inputHash: string;
+  /** Rendered width of `results`, kept as entries are appended. */
+  units: number;
   complete: boolean;
   resume: ResumePoint | undefined;
 };
@@ -177,7 +179,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const budget = grepBudget(input.limit);
   const deadlineAt = Date.now() + budget.deadlineMs;
   const resume = cursor.cursor;
-  const state = createPageState(inputHash);
+  const state = createPageState();
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
     // The engine skips local scopes before the cursor itself; a Machine scope
@@ -331,13 +333,13 @@ function searchArgumentsOf(input: GrepArguments): GrepSearchArguments {
   };
 }
 
-function createPageState(inputHash: string): PageState {
+function createPageState(): PageState {
   return {
     results: [],
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     files: new Set(),
-    inputHash,
+    units: 0,
     complete: true,
     resume: undefined,
   };
@@ -347,7 +349,9 @@ function createPageState(inputHash: string): PageState {
  * What is left of the call's bounds. The rendered text of the passages already
  * held and the newline that separates them from the next segment are
  * subtracted, so the segment the values are handed to can never emit past the
- * call's page.
+ * call's page. The whole page is measured exactly here, once per segment,
+ * which also recalibrates the running total the segment's entries are admitted
+ * against.
  */
 function remainingBudget(
   budget: GrepBudget,
@@ -355,18 +359,17 @@ function remainingBudget(
   deadlineAt: number,
 ): GrepBudget {
   const separator = state.results.length === 0 ? 0 : 1;
+  state.units = measureGrepRendering({
+    results: state.results,
+    complete: true,
+  });
   return {
     files: Math.max(0, budget.files - state.consumed.files),
     entries: Math.max(0, budget.entries - state.consumed.entries),
     bytes: Math.max(0, budget.bytes - state.consumed.bytes),
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: Math.max(0, budget.limit - state.files.size),
-    pageUnits: Math.max(
-      0,
-      budget.pageUnits -
-        measureGrepRendering({ results: state.results, complete: true }) -
-        separator,
-    ),
+    pageUnits: Math.max(0, budget.pageUnits - state.units - separator),
     fixedReserve: budget.fixedReserve,
   };
 }
@@ -408,10 +411,12 @@ function appendSegment(
 
 /**
  * Whether one more entry fits the page, measured on the text the model reads:
- * the page's passages with this entry, the continuation line of the cursor the
- * page would end at, and the fields the caller adds. The local engine already
- * kept its own room back; a Machine entry names the point the call would
- * resume at, so its cursor is measured here.
+ * the passages the page holds, the widening this entry adds, the continuation
+ * line that names the point the call would resume at, and the fields the
+ * caller adds. A local entry was already fitted by the engine's own page, which
+ * kept that continuation line and these fields back; a Machine entry names its
+ * own resume point, so its line is reserved here at the placeholder cursor's
+ * width.
  */
 function fitsPage(
   state: PageState,
@@ -420,23 +425,25 @@ function fitsPage(
 ): boolean {
   const file = grepFileLocator(entry.passage.locator);
   if (!state.files.has(file) && state.files.size >= budget.limit) return false;
-  const candidate = [...state.results, entry.passage];
-  const resume =
-    entry.end === undefined
-      ? state.resume
-      : { kind: 'passage' as const, end: entry.end };
-  const rendered =
-    resume === undefined
-      ? measureGrepRendering({ results: candidate, complete: true })
-      : measureGrepRendering({
-          results: candidate,
-          complete: false,
-          cursor: resumeCursor(resume, state.inputHash),
-        });
-  return rendered + budget.fixedReserve <= budget.pageUnits;
+  const end = entry.end;
+  if (end === undefined) return true;
+  return (
+    state.units +
+      grepPassageUnits(state.results.at(-1), entry.passage) +
+      grepContinuationUnits({
+        scopeIndex: end.scopeIndex,
+        rel: end.rel,
+        startLine: end.startLine,
+        ...(end.endLine !== undefined && { endLine: end.endLine }),
+        capped: end.capped,
+      }) +
+      budget.fixedReserve <=
+    budget.pageUnits
+  );
 }
 
 function pushPassage(state: PageState, passage: GrepPassage): void {
+  state.units += grepPassageUnits(state.results.at(-1), passage);
   state.results.push(passage);
   state.files.add(grepFileLocator(passage.locator));
 }

@@ -177,9 +177,9 @@ Create `tool-result-model-text/grep-bash` from `tool-result-model-text/mutation-
       overlapping-scope, warnings, and capped-file scenarios.
 - [x] 5.2 Measure the grep page budget on the neutralized rendering in `grep/page.ts` and
       `apps/api/src/tools/grep.ts`; replace `grepCursorFieldUnits` and the placeholder hash with
-      the continuation line's width; delete `measureNativeModelOutput` and `serialization.ts`;
-      verify `page.test.ts` at exactly 15,000 code units and the "budget ends a page early"
-      scenario.
+      the continuation line's width; delete `measureNativeModelOutput` and keep
+      `serializeNativeModelOutput` in `serialization.ts`; verify `page.test.ts` at exactly 15,000
+      code units and the "budget ends a page early" scenario.
 - [x] 5.3 Record `wallTimeMs` in the managed watcher, SSH, and Machine bash producers and add it
       as an optional wire field; carry it on success and in the `command_failed` and `timed_out`
       messages; drop `operation` and `executor` and map them away from an old daemon; verify with

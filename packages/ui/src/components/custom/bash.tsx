@@ -65,13 +65,13 @@ function BashCommand({ input }: { input: BashInput }) {
   );
 }
 
-const SECONDS_PER_MS = 1000;
+const MILLISECONDS_PER_SECOND = 1000;
 
 function BashResult({ output }: { output: BashOutput }) {
   const wallTime =
     output.wallTimeMs === undefined
       ? undefined
-      : `${(output.wallTimeMs / SECONDS_PER_MS).toFixed(1)} s`;
+      : `${(output.wallTimeMs / MILLISECONDS_PER_SECOND).toFixed(1)} s`;
   return (
     <>
       <ToolSection label="Output" aside={`exit ${output.exitCode}`}>

@@ -331,6 +331,8 @@ export type ProcBashResult =
       readonly status: "error";
       readonly type: "timed_out";
       readonly durationMs: number;
+      /** Spawn to stop as the daemon measured it; absent when none started. */
+      readonly wallTimeMs?: number;
       readonly stdout: string;
       readonly stderr: string;
       readonly truncated: boolean;

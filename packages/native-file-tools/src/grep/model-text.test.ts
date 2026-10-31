@@ -1,17 +1,18 @@
 import { measureGrepRendering, renderGrepText } from "./model-text";
 
-/** One stored passage of the fixture page. */
+/** One stored passage of the fixture page, with the marks the page adds. */
 function passage(
   locator: string,
   content: string,
   matches: ReadonlyArray<number>,
-  truncated = false,
+  marks: { readonly truncated?: boolean; readonly cut?: boolean } = {},
 ) {
   return {
     locator,
     content,
     matches,
-    ...(truncated && { truncated: true as const }),
+    ...(marks.cut && { cut: true as const }),
+    ...(marks.truncated && { truncated: true as const }),
   };
 }
 
@@ -61,12 +62,43 @@ describe("grep text rendering", () => {
 
   it("marks a capped twentieth passage", () => {
     const text = renderGrepText({
-      results: [passage("a.md:95-97", "95: x\n96: y\n97: z", [96], true)],
+      results: [
+        passage("a.md:95-97", "95: x\n96: y\n97: z", [96], {
+          truncated: true,
+        }),
+      ],
       complete: true,
     });
     expect(text.split("\n").at(-1)).toBe(
       "[more passages in this file; read it to see them]",
     );
+  });
+
+  it("marks a passage the page cut as a cut, not as a capped file", () => {
+    const text = renderGrepText({
+      results: [passage("a.md:1-3", "1: x\n2: y\n3: z", [2], { cut: true })],
+      complete: true,
+    });
+    expect(text).toBe(
+      "## a.md\n1: x\n*2: y\n3: z\n[passage cut at the result bound; continue with the cursor]",
+    );
+    expect(text).not.toContain("more passages in this file");
+  });
+
+  it("ends a cut passage of a capped file with the cap marker", () => {
+    const text = renderGrepText({
+      results: [
+        passage("a.md:1-3", "1: x", [1], {
+          truncated: true,
+          cut: true,
+        }),
+      ],
+      complete: true,
+    });
+    expect(text.split("\n").slice(-2)).toEqual([
+      "[passage cut at the result bound; continue with the cursor]",
+      "[more passages in this file; read it to see them]",
+    ]);
   });
 
   it("renders the warnings as one line in the order given", () => {

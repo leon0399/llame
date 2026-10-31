@@ -712,7 +712,9 @@ describe("grep paging", () => {
       },
     );
     expect(result.results).toHaveLength(1);
-    expect(result.results[0].truncated).toBe(true);
+    // A cut passage is marked as cut, not as its file's capped twentieth.
+    expect(result.results[0].cut).toBe(true);
+    expect(result.results[0].truncated).toBeUndefined();
     expect(result.complete).toBe(false);
     expect(result.results[0].locator).not.toBe("/repo/a.md:1-30");
     const cursor = passageCursor(result.cursor);

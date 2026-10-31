@@ -52,7 +52,7 @@ const ATTRIBUTION_FIELDS: ReadonlyArray<string> = [
 ];
 
 /** A stored string field, present only when it says something. */
-function isNonEmptyString(value: unknown): value is string {
+export function isNonEmptyString(value: unknown): value is string {
   return isString(value) && value !== "";
 }
 

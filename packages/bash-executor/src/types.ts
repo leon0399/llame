@@ -42,7 +42,10 @@ export type BashUnknownResult = {
 export type BashTimedOutResult = {
   readonly status: "error";
   readonly type: "timed_out";
+  /** The deadline the command was stopped at; never a measurement. */
   readonly durationMs: number;
+  /** Spawn to stop as the producer measured it, absent when none started. */
+  readonly wallTimeMs?: number;
   readonly stdout: string;
   readonly stderr: string;
   readonly truncated: boolean;
