@@ -804,33 +804,24 @@ prefixes.
 
 ### Requirement: Directory listing bounds favor the requested level
 
-Each directory read for a listing, requested or child, SHALL retain at most
-10,000 entry names for ordering while continuing to count entries beyond that
-budget. A requested directory over the budget SHALL fail closed with a
-`directory_too_large` error that states the count and no listing. A child
-directory over the budget SHALL render only its `- name/` line followed by an
-indented `… N entries` line with the exact count. Within that budget, the
-requested directory's own entries SHALL NOT be capped by a per-level limit.
-Each child directory SHALL render at most 20 entries in order, followed by one
-`… N more` line stating the number of omitted entries when any were omitted.
-When the rendered two-level listing exceeds the common native result cap, the
-tool SHALL replace whole child blocks, last-first, where a child block is every
-line rendered beneath one child directory including its `… N more` line, with
-one indented `… N entries` line stating that child's total entry count; the
-requested level's own lines SHALL be preserved by that step. An empty child
-directory SHALL render as its `- name/` line alone, so a bare child line means
-empty and an `… N entries` line means elided. The `… N entries` markers count toward the size of the requested level for
-the next step but SHALL NOT occupy entry index positions. Only when the
-requested level's entries and their markers still exceed the cap SHALL the tool
-apply the ordinary truncation metadata over the requested-level entries in
-order, each marker travelling with the entry it hangs from; `nextOffset` SHALL
-identify the next requested-level entry index that was not emitted.
-A range selector on a directory path SHALL switch the read to a flat listing of
-the requested level: the header, then the selected entries by one-based entry
-index, with no child entries and no context expansion, regardless of whether
-the two-level listing would have fit. `nextOffset` SHALL identify the next
-entry index of the requested level. The `:raw` selector on a directory SHALL
-fail with a selector error.
+Each directory read for a listing MUST keep at most 10,000 entry names for ordering and MUST count
+the entries beyond that budget. A requested directory over the budget MUST fail with
+`directory_too_large`, the entry count, and no listing. A child directory over the budget MUST
+render only its `- name/` line and one indented `… N entries` line with the exact count. The budget
+MUST NOT cap the requested directory's own entries. Within the budget, a child directory MUST
+render at most 20 entries in order, then one `… N more` line with the omitted count when any were
+omitted. An empty child directory MUST render its `- name/` line alone, so a bare child line means
+empty and an `… N entries` line means elided. When the rendered two-level listing exceeds the common
+native result cap, the tool MUST replace whole child blocks from the last, each block by one
+indented `… N entries` line with that child's total entry count, and MUST keep every requested-level
+line. That marker MUST count toward the requested level size and MUST NOT occupy an entry index.
+When the requested level and its markers still exceed the cap, ordinary truncation MUST apply over
+the requested-level entries in order, each marker with its entry, and `nextOffset` MUST name the
+next requested-level entry index not emitted. A range selector on a directory path MUST produce a
+flat listing of the requested level: the header, then the selected entries by one-based entry
+index, with no child entries and no context expansion, whether or not the two-level listing would
+fit. `nextOffset` MUST name the next entry index of the requested level. A `:raw` selector on a
+directory MUST fail with a selector error.
 
 #### Scenario: Requested directory over the traversal budget fails closed
 
@@ -875,18 +866,19 @@ fail with a selector error.
 
 ### Requirement: Exact edit replaces one current unique match
 
-`edit` SHALL accept an absolute local path or, while a Workspace is entered, a
-relative local path resolved from the Workspace root under the local path rules
-above, together with a valid `file://` alias, non-empty `oldText`, and
-`newText`. A file alias is always absolute and is decoded before native
-operation. It SHALL read the current file at execution time and require exactly
-one exact occurrence of `oldText`. A missing or ambiguous occurrence SHALL fail
-without mutation. Unrelated changes elsewhere in the file SHALL NOT block a
-correct unique replacement. Calls targeting the same path SHALL execute
-sequentially in the host runtime. The operation SHALL preserve bytes outside
-the replacement and return a bounded diff plus post-edit content with one
-adjacent live line on each side when available. No prior read, snapshot tag,
-read hash, or permission rule is required in this iteration.
+`edit` MUST accept an absolute local path, a valid `file://` alias, a non-empty `oldText`, and
+`newText`. While a Workspace is entered, it MUST also accept a relative local path resolved from
+the Workspace root under the local path rules above. A file alias is always absolute and is decoded
+before the native operation. `edit` MUST read the current file at execution time and MUST require
+exactly one exact occurrence of `oldText`. A missing or ambiguous occurrence MUST fail without
+mutation. An unrelated change elsewhere in the file MUST NOT block a correct unique replacement.
+Calls that target the same path MUST execute one after the other in the host runtime. The operation
+MUST keep the bytes outside the replacement. The result MUST carry bounded post-edit `content`
+with two adjacent live lines on each side when available, marked `truncated` when the bound cuts
+it. It MUST carry `cut: true` for that same cut, so a cap that overwrites `truncated` cannot hide
+it. It MUST carry the post-edit line count as `lineCount` and `display` with `startLine`,
+`oldText`, and `newText`. The result MUST NOT carry a diff. No prior
+read, snapshot tag, read hash, or permission rule is required in this iteration.
 
 #### Scenario: Unrelated change does not block edit
 
@@ -915,13 +907,19 @@ read hash, or permission rule is required in this iteration.
 
 - **WHEN** `edit` targets `file:///tmp/guide.md` with one matching `oldText`
 - **THEN** it applies the exact unique replacement to `/tmp/guide.md`
-- **AND** it reports the same bounded diff and decoded result identity as an edit naming `/tmp/guide.md`
+- **AND** it reports the same post-edit region and decoded result identity as an edit naming `/tmp/guide.md`
 
 #### Scenario: Workspace-relative edit uses the resolved local path
 
 - **WHEN** the model edits `src/app.ts` while a Workspace is entered at `/work/project`
 - **THEN** the host applies the edit to `/work/project/src/app.ts`
 - **AND** the result identifies `/work/project/src/app.ts` as the path used
+
+#### Scenario: The stored edit carries display data and no diff
+
+- **WHEN** the model replaces lines 12-13 of a 40-line `src/app.ts` with three lines
+- **THEN** the stored result carries `display` with `startLine` 12, the two replaced lines as `oldText`, and the three new lines as `newText`
+- **AND** it carries `content` for lines 10 to 16, `lineCount` 41, and no `diff` key
 
 ### Requirement: Write creates or explicitly replaces
 
@@ -1139,13 +1137,15 @@ no configured root, resolved child path, hosted owner ID, credential, worker
 identity, or raw filesystem diagnostic. Every successful `kb://` read or listing
 SHALL include the Knowledge untrusted-content `notice`; content SHALL be returned
 verbatim so that `edit` `oldText` can be copied from it once the generated
-line-number prefixes are removed, or read with `:raw` to omit them. An
-`outline` read returns a selection of verbatim source lines under that same
-rule while retaining the same locator, Space attribution, and notice. A `kb://`
-read whose file is an image SHALL return the image result with the same
-locator, Space attribution, and notice, and SHALL carry no line content. A
-`kb://` read whose file is a PDF SHALL return the PDF result with the same
-locator, Space attribution, and notice, and SHALL carry no line content.
+line-number prefixes are removed, or read with `:raw` to omit them. The
+reserved-name rule of `tool-result-rendering` is the one exception: it MUST
+escape a tag that names a reserved delimiter, so such a tag does not round-trip
+into `oldText`. An `outline` read returns a selection of verbatim source lines
+under that same rule while retaining the same locator, Space attribution, and
+notice. A `kb://` read whose file is an image SHALL return the image result with
+the same locator, Space attribution, and notice, and SHALL carry no line
+content. A `kb://` read whose file is a PDF SHALL return the PDF result with the
+same locator, Space attribution, and notice, and SHALL carry no line content.
 
 The `kb://` grammar is the authority-aware locator that later schemes follow; a
 scheme SHALL declare which of `read`, `edit`, and `write` it supports, and an
@@ -4014,18 +4014,18 @@ SHALL remain unchanged.
 
 ### Requirement: Image reads return an image result
 
-A native `read` SHALL return an image result when the bytes it acquires are a PNG, JPEG, GIF, or
-WebP image: a host path, `file:` alias, or Workspace-relative path, `kb://`, `skill://`, a web image
-body, or `media://`. The model-facing result SHALL carry `status: "success"`, `kind: "image"`, the
+A native `read` MUST return an image result when the bytes it acquires are a PNG, JPEG, GIF, or
+WebP image. The source can be a host path, `file:` alias, or Workspace-relative path, `kb://`,
+`skill://`, a web image body, or `media://`. The model-facing result MUST carry `status: "success"`, `kind: "image"`, the
 original's `mediaType`, `width`, and `height`, and the source's existing attribution fields, and no
-`content` or image bytes. The result SHALL NOT depend on the Run's model.
+`content` or image bytes. The result MUST NOT depend on the Run's model.
 
 #### Scenario: A host PNG returns an image result
 
 - **WHEN** the model reads `/work/shot.png`, a regular file whose bytes are a 1600 by 900 PNG image
 - **THEN** the result has `status: "success"`, `kind: "image"`, `mediaType` `image/png`, `width` 1600, `height` 900, and `path` `/work/shot.png`
 - **AND** it carries no `media` field, no `content`, and no encoding of the image bytes
-- **AND** its stored tool output carries a `thumbnail` that the model never receives
+- **AND** its stored tool output carries `display.thumbnail`, which the model never receives
 
 #### Scenario: A skill image keeps the skill envelope
 
@@ -4037,20 +4037,20 @@ original's `mediaType`, `width`, and `height`, and the source's existing attribu
 
 - **WHEN** a Run whose model declares no image input reads `/work/shot.png`, whose bytes are a PNG image
 - **THEN** the tool result is the same image result that a Run on a model declaring image input receives
-- **AND** the image is decoded all the same, and its stored tool output carries the same `thumbnail`
+- **AND** the image is decoded all the same, and its stored tool output carries the same `display.thumbnail`
 
 ### Requirement: Only a media read's image result carries a media locator
 
-Only a `media://` read's image result SHALL carry `media`, the stored object's locator. Every other
-image result SHALL carry no `media` field and no `media://` locator, and SHALL be stored in its tool
-output with the display-only `thumbnail` that `media-attachments` defines when one fits its cap,
-which never reaches the model.
+Only a `media://` read's image result MUST carry `media`, the stored object's locator. Every other
+image result MUST carry no `media` field and no `media://` locator. It MUST be stored in its tool
+output with the display-only thumbnail that `media-attachments` defines, as `display.thumbnail`,
+when one fits its cap. That thumbnail never reaches the model.
 
 #### Scenario: An unstored image result carries a thumbnail and no locator
 
 - **WHEN** the model reads `https://example.test/shot.png`, which serves a PNG image
 - **THEN** the result carries no `media` field and no `media://` locator
-- **AND** its stored tool output carries a `thumbnail` that no model request carries
+- **AND** its stored tool output carries `display.thumbnail`, which no model request carries
 
 ### Requirement: Image detection reads leading bytes before text decoding
 
@@ -4342,3 +4342,119 @@ The statement that `read` `path` clauses do not restrict `web_search` MUST mean 
 - **WHEN** the `read` group rejects `^https://grokipedia\.com/` and allows `^https://`, and an engine returns a `grokipedia.com` result
 - **THEN** the `web_search` call succeeds and its output does not contain that result
 - **AND** a `read` of that URL is still rejected as `explicit_reject`
+
+### Requirement: A write result carries no content
+
+A successful `write` MUST store the mutated locator, the `created` or `replaced` marker, and the
+written file's line count as `lineCount`. It MUST NOT store the written content or a diff. The owner
+UI MUST render the written content from the call's `content` argument.
+
+#### Scenario: A stored write is status only
+
+- **WHEN** the model writes a 216-line file
+- **THEN** the stored result carries `created: true` and `lineCount: 216`
+- **AND** it carries no `content` and no `diff` key
+
+### Requirement: A text read carries the source line count when it is known
+
+A successful text read MUST carry the source's line count as `lineCount` when the count is
+known. It is known for a web render, and for a regular file, `kb://` file, or `skill://` file of
+at most 32 MiB, counted by a byte scan for line feeds without a decode. A larger file, and an
+outline, MUST carry no `lineCount`. A directory listing MUST carry its requested-level entry count
+as `entryCount`. A Machine read MUST carry the count the daemon reports and MUST omit it when the
+daemon sends none.
+
+#### Scenario: A ranged read reports the total
+
+- **WHEN** the model reads `src/app.ts:12-40` of a 216-line file
+- **THEN** the result carries `lineCount: 216`
+
+#### Scenario: A large file carries no total
+
+- **WHEN** the model reads `big.log:1-10` of a 2 GiB file
+- **THEN** the result carries no `lineCount`
+- **AND** the read does not scan the whole file
+
+#### Scenario: Invalid bytes after the window do not fail the read
+
+- **WHEN** the model reads `data.txt:1-10` of a 1 MiB file whose last line holds invalid UTF-8
+- **THEN** the read succeeds with `lineCount` from the byte scan
+
+#### Scenario: An outline carries no total
+
+- **WHEN** the model reads `README.md:outline`
+- **THEN** the result carries no `lineCount`
+
+#### Scenario: An old daemon sends no count
+
+- **WHEN** a Machine daemon that predates this field answers an `fs.read`
+- **THEN** the hub result carries no `lineCount`
+- **AND** the read succeeds with its other fields unchanged
+
+### Requirement: A listing page that cannot advance fails closed
+
+Notwithstanding the ordinary truncation rule, when the header and the first entry of the requested
+window leave no room in the result cap and the flat level serves no page, the read MUST fail with
+`representation_too_large` and MUST carry no listing and no continuation. The same MUST hold when
+the requested window keeps no entry, the header alone exceeds the cap, and the flat level serves no
+page.
+
+#### Scenario: A listing too wide for its first entry fails closed
+
+- **WHEN** the header and the first entry of the requested window exceed the result cap and the
+  flat level serves no page
+- **THEN** the read fails with `representation_too_large`
+- **AND** it carries no listing and no continuation
+
+#### Scenario: A header over the bound with no entry fails closed
+
+- **WHEN** the requested window keeps no entry, its header alone exceeds the result bound, and the
+  flat level serves no page
+- **THEN** the read fails with `representation_too_large`
+- **AND** it carries no listing and no continuation
+
+### Requirement: A tree page that cannot hold its first entry keeps the level
+
+Notwithstanding the ordinary truncation rule, a tree page whose first entry and its elision
+marker do not fit MUST keep the header and name the flat continuation when the flat read serves a
+page. When the header-only page exceeds the cap, the read MUST return the flat page of the
+requested level instead. The flat page MUST carry no elision marker, and MUST carry a continuation only when the cap cuts it. A
+flat level that serves no page MUST fail as the fail-closed rule states.
+
+#### Scenario: A first entry that does not fit keeps the header
+
+- **WHEN** the first requested-level entry and its elision marker do not fit the cap, the header
+  alone fits with its continuation, and the flat read serves a page
+- **THEN** the content is the header alone, with `truncated: true` and `nextOffset: 0`
+- **AND** the continuation names the flat read
+
+#### Scenario: A header page that does not fit returns the flat level
+
+- **WHEN** the flat level fits the cap and the header alone with its continuation does not
+- **THEN** the content is the flat page of the requested level, with no elision marker
+- **AND** the result is not truncated and carries no continuation
+
+### Requirement: An unselected read requests the whole source
+
+A text file read with no line selector MUST report `requestedRange` from its first line to its
+`lineCount` when the count is known and non-zero, so a read cut by the bound resumes to the end of
+the source. When the count is unknown, `requestedRange` MUST end at line 2000, the read line
+ceiling. An empty file and a directory listing MUST report no `requestedRange`; a listing's
+continuation stays open-ended.
+
+#### Scenario: An unselected read of a counted file requests every line
+
+- **WHEN** the model reads `notes.txt` of a 3,000-line file and the bound cuts it at line 1500
+- **THEN** the result carries `requestedRange` 1..3000 and `nextOffset: 1500`
+
+#### Scenario: An empty file requests no range
+
+- **WHEN** the model reads an empty `notes.txt`
+- **THEN** the result carries `lineCount` 0
+- **AND** it carries no `requestedRange`
+
+#### Scenario: A listing reports no range
+
+- **WHEN** the model lists a directory of 120 entries and the bound stops the page at entry 50
+- **THEN** the result carries no `requestedRange`
+- **AND** its continuation is open-ended (`:51-`)

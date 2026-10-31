@@ -1,10 +1,10 @@
 Track [#1419](https://github.com/leon0399/llame/issues/1419) and
 [#917](https://github.com/leon0399/llame/issues/917) and their PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Keep live status in the Project.
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Each layer is
 created and published with `$gh-stack` and implemented with `$openspec-apply-change`. Each layer is
-self-reviewed before it is marked ready and monitored per [CONTRIBUTING.md](../../../CONTRIBUTING.md).
+self-reviewed before it is marked ready and monitored per [CONTRIBUTING.md](../../../../CONTRIBUTING.md).
 Each implementation layer also gets a code-review and a ponytail-review pass on its draft diff
 before ready.
 
@@ -39,9 +39,9 @@ move to `mutation-text`; the wire field stays with the field. No generated outpu
       `pnpm format:check`, and `git diff --check`.
 - [x] 1.3 Run two rounds of `$iterative-review-refinement` with two independent reviewers each;
       commit each round separately and record the finding counts in the PR body.
-- [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
+- [x] 1.4 SR: self-review the proposal PR diff against [REVIEW_GUIDE.md](../../../../REVIEW_GUIDE.md)
       before ready.
-- [ ] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
+- [x] 1.5 GR: run the Ready-PR monitoring loop until CI is green and the bot feedback is processed.
 
 ## 2. Rendering seam
 
@@ -88,9 +88,9 @@ Create `tool-result-model-text/rendering-seam` from `tool-result-model-text/prop
       "today" column; verify that the today numbers match the proposal table.
 - [x] 2.7 Docs: `docs/product/reference/tools/index.md` names the one neutralization rule; dated
       `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
-- [ ] 2.8 SR: self-review the parent-relative diff against REVIEW_GUIDE.md; run the code-review
+- [x] 2.8 SR: self-review the parent-relative diff against REVIEW_GUIDE.md; run the code-review
       and ponytail-review passes; fix with new commits; re-measure the authored size.
-- [ ] 2.9 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
+- [x] 2.9 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
       feedback is processed.
 
 ## 3. Read text
@@ -129,10 +129,10 @@ Create `tool-result-model-text/read-text` from `tool-result-model-text/rendering
       JSON-decoding instruction, and names the reserved-name rule;
       `docs/product/reference/tools/read.md`; dated `CHANGELOG.md` entry; verify with
       `pnpm lint:markdown`.
-- [ ] 3.7 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
+- [x] 3.7 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
       run one torture conversation over the draft and record it in the PR body; fix with new
       commits; re-measure the authored size.
-- [ ] 3.8 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
+- [x] 3.8 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
       feedback is processed.
 
 ## 4. Mutation text
@@ -161,9 +161,9 @@ Create `tool-result-model-text/mutation-text` from `tool-result-model-text/read-
       `docs/product/reference/tools/{edit,write}.md` describe the text shapes and the legacy
       forms; `docs/product/operator/machines.md` orders the hub before the daemon; dated
       `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.
-- [ ] 4.6 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
+- [x] 4.6 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
       fix with new commits; re-measure the authored size.
-- [ ] 4.7 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
+- [x] 4.7 GR: mark ready and run the Ready-PR monitoring loop until CI is green and the bot
       feedback is processed.
 
 ## 5. Grep and bash
@@ -198,9 +198,9 @@ Create `tool-result-model-text/grep-bash` from `tool-result-model-text/mutation-
 - [x] 5.7 Docs: `apps/api/src/prompts/tools/{grep,bash}.md` and
       `docs/product/reference/tools/{grep,bash}.md`; dated `CHANGELOG.md` entry; verify with
       `pnpm lint:markdown`.
-- [ ] 5.8 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
+- [x] 5.8 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;
       fix with new commits; re-measure the authored size.
-- [ ] 5.9 GR: mark ready with `Closes #1419` and `Closes #917`; run the Ready-PR monitoring loop
+- [x] 5.9 GR: mark ready with `Closes #1419` and `Closes #917`; run the Ready-PR monitoring loop
       until CI is green and the bot feedback is processed.
 
 ## 6. Finalize
@@ -208,12 +208,17 @@ Create `tool-result-model-text/grep-bash` from `tool-result-model-text/mutation-
 Enter `tool-result-model-text/finalize` from `tool-result-model-text/grep-bash` with `$gh-stack`
 before `$openspec-sync-specs` writes any canonical spec.
 
-- [ ] 6.1 Run `$openspec-sync-specs`; verify with `pnpm exec openspec validate --specs --strict`
-      that the new `tool-result-rendering` spec, the ten modified requirements, and the two added
-      `native-file-tools` requirements validate, and read the merged `native-file-tools`,
-      `media-attachments`, `grep-tool`, `bash-execution`, `knowledge-tools`, and `tool-calling`
-      blocks for wording consistency with their neighbours.
-- [ ] 6.2 Archive readiness: `openspec status --change tool-result-model-text --json` reports every
+- [x] 6.1 Run `$openspec-sync-specs`; verify with `pnpm exec openspec validate --specs` that the
+      new `tool-result-rendering` spec (24 requirements), the thirteen modified requirements, and
+      the five added `native-file-tools` requirements validate, and read the merged
+      `native-file-tools`, `media-attachments`, `grep-tool`, `bash-execution`, `knowledge-tools`,
+      and `tool-calling` blocks for wording consistency with their neighbours.
+      Verified after the archive: every delta requirement body and scenario equals its canonical
+      block byte-for-byte; `pnpm exec openspec validate --specs` reports 54 passed and 0 failed.
+      `--specs --strict` still fails the pre-existing ">500 characters" warnings, unchanged from
+      `e3533929` (335 warnings, same per-spec multiset), because STE forbids dividing a modified
+      requirement.
+- [x] 6.2 Archive readiness: `openspec status --change tool-result-model-text --json` reports every
       artifact complete and every task above checked; verify with
       `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and
       `git diff --check`.
