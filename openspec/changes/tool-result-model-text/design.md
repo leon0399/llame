@@ -317,6 +317,14 @@ binary search accepts only candidates that fit. The notice's omitted count is
 stated in rendered units. The renderer shows the `truncationNotice` as a
 bracketed line.
 
+`cut` is one name for the tool's own bound cut: a `grep` passage's
+per-passage `cut: true`, a `bash` success's result-level `cut: true`, and an
+`edit` result's `cut: true`. The cap writes `truncated` and
+`truncationNotice` and never `cut`, so each renderer marks on `cut` and falls
+back to `truncated` only when the result carries no cap notice. The
+predicate repeats per package because `bash-executor` cannot import
+`native-file-tools`, so this note is where the convention is stated once.
+
 The earlier draft kept the cap on the JSON and argued text is never longer;
 that is true and irrelevant: a text bounded at 16,000 serializes to more than
 16,000 JSON characters and the cap would cut it.
@@ -328,11 +336,16 @@ that is true and irrelevant: a text bounded at 16,000 serializes to more than
   status: 'success', operation: 'edit', path, replacements: 1,
   content,            // changed lines plus two live lines each side, numbered
   shownRange, truncated,
+  cut,                // the bound trimmed the region; the cap never sets it
   lineCount,          // post-edit total
   display: { startLine, oldText, newText },
 }
 { status: 'success', operation: 'write', path, created | replaced, lineCount }
 ```
+
+`cut` is the mutation bound's own signal, so a cap that overwrites `truncated` and
+adds the notice cannot hide the cut; a legacy part without it marks on
+`truncated` when it carries no notice.
 
 `diff` is gone. The UI's `EditDiff` takes `display` when present and falls
 back to `input.oldText`/`newText` plus the legacy `diff` header for parts
@@ -341,7 +354,10 @@ input. The hub's `readFsMutateResult` accepts both the new fields and an old
 daemon's `diff`/`content`/`shownRange`, forwards `content` and `shownRange`
 so the legacy edit form renders, and drops `diff`. Skew runs one way: an old
 daemon on a new hub works; a new daemon on an old hub fails `edit`, `write`,
-and `bash` because the old hub requires the removed fields. The operator
+and `bash` because the old hub requires the removed fields. The edit wire
+gains `cut` as an optional field, and a result from a daemon without it falls
+back to `truncated`. A `bash` result derives `cut` from the wire `truncated`,
+so bash needs no wire change. The operator
 runbook says to update the hub before the daemon.
 
 ### D7: `bash` wall time

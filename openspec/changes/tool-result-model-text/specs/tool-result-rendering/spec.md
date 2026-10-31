@@ -70,7 +70,7 @@ The result cap that `tool-calling` applies to every tool result MUST be measured
 of the result, which is its serialized form. A tool that bounds its own rendering under that cap
 MUST be recorded unchanged by the cap. The stored `display` object is not rendered as raw text, so
 the cap MUST NOT count it. Text the rendering builds from `display` values MUST count: an edit
-header names the stored start line and line counts.
+header names the stored start line and line counts. The cap MUST NOT set a tool's `cut` field.
 
 #### Scenario: A read filled to its bound is recorded unchanged
 
@@ -363,10 +363,9 @@ web read stores no fragment, so a fragment path belongs to a stored part only.
 
 An `edit` text MUST begin with `edited <locator>: line <startLine>, <old> -> <new> lines`, with
 the counts of the replaced and replacement lines. When the result carries `lineCount`, the header
-continues with `(<lineCount> lines total)` after one space. The numbered post-edit `content` MUST
-follow. A `content` cut by the bound MUST carry `[region cut at the bound]` as the last line
-before any cap notice. The text MUST NOT carry a diff, the old text, or the new text as a
-separate block.
+adds `(<lineCount> lines total)` after one space. The numbered post-edit `content` MUST follow. A
+`content` cut by the bound MUST carry `[region cut at the bound]`; an edit the cap alone shortened
+MUST carry no region marker. The text MUST NOT carry a diff or the old and new text as a block.
 
 #### Scenario: A four-line edit renders its region
 
@@ -382,8 +381,15 @@ separate block.
 
 #### Scenario: A cut region is marked
 
-- **WHEN** the post-edit region is cut by the result bound
-- **THEN** the text ends with `[region cut at the bound]`
+- **WHEN** the edit bound cuts the post-edit region
+- **THEN** the result carries `cut: true`
+- **AND** the text ends with `[region cut at the bound]`
+
+#### Scenario: A cap-only cut adds no region marker
+
+- **WHEN** the shared cap shortens an edit region its own bound did not cut
+- **THEN** the text ends with the bracketed cap notice
+- **AND** it carries no `[region cut at the bound]`
 
 ### Requirement: A write renders one status line
 
