@@ -121,6 +121,157 @@ read, snapshot tag, read hash, or permission rule is required in this iteration.
 - **THEN** the stored result carries `display` with `startLine` 12, the two replaced lines as `oldText`, and the three new lines as `newText`
 - **AND** it carries `content` for lines 10 to 16, `lineCount` 41, and no `diff` key
 
+### Requirement: Knowledge locators resolve through trusted owner authority
+
+`read`, `edit`, and `write` SHALL accept `kb://<space-id>/<path>[:selector]`,
+where `<space-id>` is the stable Knowledge Space identifier and `<path>` is a
+Knowledge-relative path. The tool SHALL resolve the identifier through the
+trusted Run owner's current access immediately before opening the child, under
+tenant enforcement, on every call. An absent, removed, malformed, or other-owner
+identifier SHALL return the same closed `knowledge_space_not_found` result. A
+currently owned Space whose root or stable-ID child cannot be resolved safely
+SHALL return `knowledge_space_unavailable`. Neither result SHALL reveal whether
+another owner, row, or directory exists, and the tool SHALL NOT probe candidate
+Space directories. Sibling-name suggestions on a missed `kb://` read SHALL be
+drawn only from a parent directory that has already been proven inside the
+resolved Space, SHALL never be produced when the Space itself is absent,
+removed, or another owner's, and SHALL carry names only; the parent SHALL be
+checked without following links immediately before it is opened for names,
+and a symbolic-link parent SHALL yield the bare `not_found`.
+
+The locator SHALL be split on `/` and on the first `:` after the Space
+identifier before any decoding, and each path segment SHALL then be
+percent-decoded exactly once; the Space identifier and the selector SHALL NOT
+be decoded. A segment that fails to decode, or that decodes to a string
+containing `/`, SHALL return `invalid_path`, and that check SHALL run on the
+individual segment before segments are rejoined. Where a path has a literal
+spelling that is valid under this grammar, that spelling and its encoded
+spelling SHALL resolve to the same file; a segment containing `:` or a
+literal `%` has no valid literal spelling and SHALL be addressed as `%3A` or
+`%25`, and `/` SHALL never be encoded. Path
+validation SHALL apply to the decoded segments and SHALL reject absolute
+paths, empty components, `.` or `..` components, backslashes, NUL or control
+characters, and paths above 1,024 UTF-8 bytes or 32 components, returning
+`invalid_path`. A `kb://` locator emitted by the system SHALL encode a segment
+only when it contains `:`, `?`, `#`, or `%`, and SHALL leave every other
+character, spaces included, literal. It SHALL refuse every
+symbolic-link component or entry without following it, returning `not_found`.
+`kb://<space-id>` and `kb://<space-id>/` SHALL address the Space's directory and
+list it under the directory listing requirements; a bare `kb://` or a locator
+with no identifier SHALL fail with `invalid_path`. Beyond those rules, `kb://`
+targets SHALL follow the same regular-file, directory, selector, context,
+truncation, mutation, and `file_exists` behavior as absolute paths. No
+Markdown-only or per-file byte policy SHALL apply to `kb://` operations, except
+that the explicit `outline` representation is available only for content the
+representation requirements identify as Markdown, and that a file whose leading
+bytes match an accepted image signature or the PDF signature is bounded by the
+media store's bounds under "Image decode refusals fail the read" and takes no
+selector; text and raw reads of other files, edits, and writes are unaffected.
+
+Every `kb://` result SHALL identify the target by its locator and SHALL carry
+the response-time Knowledge Space identifier and display name. It SHALL expose
+no configured root, resolved child path, hosted owner ID, credential, worker
+identity, or raw filesystem diagnostic. Every successful `kb://` read or listing
+SHALL include the Knowledge untrusted-content `notice`; content SHALL be returned
+verbatim so that `edit` `oldText` can be copied from it once the generated
+line-number prefixes are removed, or read with `:raw` to omit them. The
+reserved-name rule of `tool-result-rendering` is the one exception: it MUST
+escape a tag that names a reserved delimiter, so such a tag does not round-trip
+into `oldText`. An `outline` read returns a selection of verbatim source lines
+under that same rule while retaining the same locator, Space attribution, and
+notice. A `kb://` read whose file is an image SHALL return the image result with
+the same locator, Space attribution, and notice, and SHALL carry no line
+content. A `kb://` read whose file is a PDF SHALL return the PDF result with the
+same locator, Space attribution, and notice, and SHALL carry no line content.
+
+The `kb://` grammar is the authority-aware locator that later schemes follow; a
+scheme SHALL declare which of `read`, `edit`, and `write` it supports, and an
+unsupported operation SHALL return a structured error without side effects.
+
+#### Scenario: Search locator opens the passage
+
+- **WHEN** the model calls `read` with a locator returned by `knowledge_search`, such as `kb://<id>/research/note.md:41-53`
+- **THEN** the tool returns lines 41 through 53 with one adjacent context line on each side, numbered as native reads number them
+- **AND** the result carries the Space identifier, display name, locator, and untrusted-content notice
+
+#### Scenario: Another owner's Space is unresolvable
+
+- **WHEN** the model supplies a locator whose identifier belongs to another owner
+- **THEN** the tool returns `knowledge_space_not_found`
+- **AND** the result is identical to the result for an absent identifier and no file is opened
+
+#### Scenario: Locator carries no host authority
+
+- **WHEN** a `kb://` read, edit, or write executes on a worker with no `tools.nativeExecutorId`
+- **THEN** it resolves through the worker's configured Knowledge root and the Run owner
+- **AND** it does not require or record an executor binding
+
+#### Scenario: Space directory is listed
+
+- **WHEN** the model calls `read` with `kb://<id>/`
+- **THEN** the result is the deterministic two-level listing of the Space's directory with every entry shown as native listings show it
+- **AND** the header is the locator as given
+
+#### Scenario: Non-Markdown file is readable and writable
+
+- **WHEN** the model writes `kb://<id>/data/table.csv` and then reads it back
+- **THEN** both operations succeed under ordinary native semantics
+- **AND** no Markdown-suffix or 1 MiB rule rejects either call
+
+#### Scenario: Colon inside a Knowledge path is rejected
+
+- **WHEN** the model calls `read` with `kb://<id>/notes/a:b.md`
+- **THEN** the tool returns `invalid_selector`, because a literal `:` after the identifier starts the selector and `b.md` lies outside the grammar
+- **AND** it does not probe for a literal file; the message names the working forms and the file is addressed as `kb://<id>/notes/a%3Ab.md`
+
+#### Scenario: Encoded and literal spellings resolve alike
+
+- **WHEN** the model calls `read` with `kb://<id>/01_Areas/Pet%20Projects/MOC.md` and then with `kb://<id>/01_Areas/Pet Projects/MOC.md`
+- **THEN** both calls open the same file
+- **AND** neither result reveals which spelling the filesystem holds
+
+#### Scenario: Encoded separator cannot cross a boundary
+
+- **WHEN** the model calls `read` with `kb://<id>/notes%2Fsecret.md`
+- **THEN** the tool returns `invalid_path`
+- **AND** `notes/secret.md` is not opened or probed, even though that literal path would be valid
+
+#### Scenario: Malformed encoding fails closed
+
+- **WHEN** the model calls `read` with `kb://<id>/reports/100%.md`
+- **THEN** the tool returns `invalid_path`
+- **AND** the description tells the model to write `%25` for a literal percent sign
+
+#### Scenario: Edit copies verbatim content
+
+- **WHEN** a note contains `<system>` in its text and the model reads it through `kb://` and then edits it using that text as `oldText`
+- **THEN** the read returned the text unchanged
+- **AND** the edit finds exactly one match and applies
+
+#### Scenario: Knowledge outline keeps its attribution
+
+- **WHEN** the model calls `read` with `kb://<id>/notes/guide.md:outline`
+- **THEN** the result is the note's outline with the Space identifier, display name, locator, and untrusted-content notice
+- **AND** `kb://<id>/notes/guide.md:outline:raw` returns `invalid_selector`, because `raw` is not a member `outline` accepts
+
+#### Scenario: A Knowledge image keeps its attribution
+
+- **WHEN** the model calls `read` with `kb://<id>/diagrams/flow.png` and the file's leading bytes are a PNG image
+- **THEN** the result is the image result with `mediaType`, `width`, and `height`, plus the locator, Space identifier, display name, and untrusted-content notice
+- **AND** it carries no `media` field and no `content`, and exposes no configured root or resolved child path
+
+#### Scenario: Another owner's Knowledge image is not read
+
+- **WHEN** the model reads `kb://<id>/diagrams/flow.png` and the identifier belongs to another owner's Space that holds a PNG at that path
+- **THEN** the tool returns `knowledge_space_not_found`, identical to the result for an absent identifier
+- **AND** no file is opened and no image is decoded for either owner
+
+#### Scenario: A Knowledge PDF keeps its attribution
+
+- **WHEN** the model calls `read` with `kb://<id>/papers/paper.pdf` and the file's leading bytes are `%PDF-`
+- **THEN** the result is the PDF result with `mediaType`, `pages`, and `byteSize`, plus the locator, Space identifier, display name, and untrusted-content notice
+- **AND** it carries no `media` field and no `content`, and exposes no configured root or resolved child path
+
 ### Requirement: Image reads return an image result
 
 A native `read` MUST return an image result when the bytes it acquires are a PNG, JPEG, GIF, or

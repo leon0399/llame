@@ -75,11 +75,15 @@ than the name-based special cases `thumbnail` has today.
   survives. The wholesale
   `<`/`>` escaping of native results and the unmatched-closer rule of
   `neutralizeToolResult` are deleted, so a line copied from a result is an
-  exact `edit` target. The replay framing stops applying a second pass.
+  exact `edit` target, except a line holding a tag that names a reserved
+  delimiter, which the rule escapes. The `kb://` read guarantee of
+  `native-file-tools` names that exception, so every other `kb://` byte stays
+  verbatim. The replay framing stops applying a second pass.
 - Result bounds (16,000 units per native result, 15,000 per `grep` page) are
   measured on the neutralized rendering, so the neutralizer and renderers live
   in a package every bounding process can import, the Machine daemon included.
-  The global result cap measures the rendering too.
+  The global result cap measures the rendering too, and does not count the
+  stored `display` object.
 - A directory page that cannot advance fails closed: when the header and the
   first entry of the requested window exceed the result cap, or the window
   keeps no entry and the header alone exceeds the bound, the read fails with
@@ -173,8 +177,11 @@ protects nothing there. Leo to confirm.
   "Image reads return an image result" and "Only a media read's image result
   carries a media locator" store the thumbnail as `display.thumbnail`;
   "Directory listing bounds favor the requested level" is restated in STE with
-  every rule and scenario kept. Added: "A write result carries no content", "A
-  text read carries the source line count when it is known", and "A listing
+  every rule and scenario kept; "Knowledge locators resolve through trusted
+  owner authority" names the reserved-name rule as the one exception to
+  verbatim `kb://` bytes, so a tag naming a reserved delimiter does not
+  round-trip into `edit` `oldText`. Added: "A write result carries no content",
+  "A text read carries the source line count when it is known", and "A listing
   page that cannot advance fails closed".
 - `media-attachments`: "Unstored images carry a display-only inline thumbnail",
   "A thumbnail over its cap is omitted", and "Thumbnails are display-only" name
@@ -187,13 +194,12 @@ protects nothing there. Leo to confirm.
   states the reserved-name rule as the one exception to verbatim bytes.
 - `tool-calling`: "Framing llame authors inside tool results is a packaged
   template" hands payload neutralization to `tool-result-rendering` and keeps
-  the framing bytes.
+  the framing bytes; "Tool failure is an observation, not a crash" measures
+  the result cap on the model-facing rendering, excludes the stored `display`
+  object, and names `display.thumbnail`.
 
 Deliberately unchanged, with the reading this change relies on:
 
-- `tool-calling` "Tool failure is an observation, not a crash": its cap is
-  "measured over the serialized result"; this change defines the serialized
-  result as the rendering, and its `thumbnail` lives at `display.thumbnail`.
 - `tool-calling` "Tool observations survive into later turns as stored UI
   parts": its budgets measure "the exact serialized text of the pair", which
   is the rendered pair; `thumbnail` there means `display.thumbnail`, and a
