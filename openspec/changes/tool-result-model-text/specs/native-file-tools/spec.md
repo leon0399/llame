@@ -216,17 +216,20 @@ daemon sends none.
 Notwithstanding the ordinary truncation rule, when the header and the first entry of the requested
 window leave no room in the result cap and the flat level serves no page, the read MUST fail with
 `representation_too_large` and MUST carry no listing and no continuation. The same MUST hold when
-the requested window keeps no entry and the header alone exceeds the cap.
+the requested window keeps no entry, the header alone exceeds the cap, and the flat level serves no
+page.
 
 #### Scenario: A listing too wide for its first entry fails closed
 
-- **WHEN** the header and the first entry of the requested window exceed the result cap
+- **WHEN** the header and the first entry of the requested window exceed the result cap and the
+  flat level serves no page
 - **THEN** the read fails with `representation_too_large`
 - **AND** it carries no listing and no continuation
 
 #### Scenario: A header over the bound with no entry fails closed
 
-- **WHEN** the requested window keeps no entry and its header alone exceeds the result bound
+- **WHEN** the requested window keeps no entry, its header alone exceeds the result bound, and the
+  flat level serves no page
 - **THEN** the read fails with `representation_too_large`
 - **AND** it carries no listing and no continuation
 
@@ -272,6 +275,6 @@ continuation stays open-ended.
 
 #### Scenario: A listing reports no range
 
-- **WHEN** the model reads a directory of two entries
+- **WHEN** the model lists a directory of 120 entries and the bound stops the page at entry 50
 - **THEN** the result carries no `requestedRange`
-- **AND** its continuation is open-ended
+- **AND** its continuation is open-ended (`:51-`)

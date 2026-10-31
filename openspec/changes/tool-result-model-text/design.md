@@ -210,7 +210,8 @@ read   <locator>:<start>-<end>[ of <lineCount> lines]
 edit   edited <locator>: line <startLine>, <old> -> <new> lines[ (<lineCount> lines total)]
        <attribution lines>
        <N: text …>   changed lines plus two live lines each side
-       [region cut at the bound]                           when truncated
+       [region cut at the bound]                           when the stored cut is set
+       [<truncationNotice>]
        stored without display: edited <locator>: region from line <shownRange.startLine>
 
 write  created <locator>[ (<lineCount> lines)]
@@ -320,10 +321,12 @@ bracketed line.
 `cut` is one name for the tool's own bound cut: a `grep` passage's
 per-passage `cut: true`, a `bash` success's result-level `cut: true`, and an
 `edit` result's `cut: true`. The cap writes `truncated` and
-`truncationNotice` and never `cut`, so each renderer marks on `cut` and falls
-back to `truncated` only when the result carries no cap notice. The
-predicate repeats per package because `bash-executor` cannot import
-`native-file-tools`, so this note is where the convention is stated once.
+`truncationNotice` and never `cut`. The result-level renderers of `bash` and
+`edit` mark on `cut` and fall back to `truncated` only when the result carries
+no cap notice. A `grep` passage keeps its two flags apart: its `truncated` is
+the capped-twentieth marker, never a cut. The predicate repeats per package
+because `bash-executor` cannot import `native-file-tools`, so this note is
+where the convention is stated once.
 
 The earlier draft kept the cap on the JSON and argued text is never longer;
 that is true and irrelevant: a text bounded at 16,000 serializes to more than
