@@ -60,6 +60,17 @@ describe("grep text rendering", () => {
     expect(text.split("\n")[0]).toBe("## machine://box/srv/a:1.go");
   });
 
+  it("renders a file locator with a line break on one line", () => {
+    // A POSIX path may carry a line break, and the `## <locator>` line is
+    // framing: a second line would read as a passage line (tool-result-rendering
+    // "Framing values render on one line").
+    const text = renderGrepText({
+      results: [passage("a\nb.ts:3-4", "3: a\n4: hit", [4])],
+      complete: true,
+    });
+    expect(text.split("\n")).toEqual(["## a b.ts", "3: a", "*4: hit"]);
+  });
+
   it("marks a capped twentieth passage", () => {
     const text = renderGrepText({
       results: [

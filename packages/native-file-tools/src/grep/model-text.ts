@@ -6,7 +6,7 @@ import {
   type UnknownRecord,
 } from "@workspace/runtime-safety";
 
-import { isNonEmptyString } from "../model-text";
+import { isNonEmptyString, oneLine } from "../model-text";
 import { passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
@@ -152,7 +152,7 @@ export function renderGrepText(result: UnknownRecord): string {
       previous.file === passage.file &&
       passage.startLine > previous.startLine;
     if (continues) lines.push("");
-    else lines.push(`## ${passage.file}`);
+    else lines.push(`## ${oneLine(passage.file)}`);
     lines.push(...passageLines(passage));
     previous = passage;
   }
