@@ -717,6 +717,51 @@ describe('runTool', () => {
     );
   });
 
+  // The edit header is built from the result's display, so the cap counts the
+  // rendering with display attached: a result that renders to exactly the cap
+  // in that form is recorded unchanged.
+  it('records an edit result whose display-carrying rendering is exactly the cap unchanged', async () => {
+    const display = {
+      startLine: 161,
+      oldText: 'a\nb\nc\nd',
+      newText: 'a\nb\nc\nd\ne',
+    };
+    const editOutput = (content: string) => ({
+      status: 'success' as const,
+      operation: 'edit' as const,
+      path: 'a.tsx',
+      replacements: 1 as const,
+      content,
+      lineCount: 563,
+      display,
+      truncated: false,
+    });
+    // The framing the rendering adds around a region: the header line, one
+    // newline, and the region itself.
+    const overhead = renderToolResultText('edit', editOutput('x')).length - 1;
+    const content = 'x'.repeat(RESULT_TRUNCATE_CHARS - overhead);
+    const editLike: Tool<{ value: string }> = {
+      ...echoTool,
+      id: 'edit',
+      execute: () => editOutput(content),
+    };
+    const result = await runTool(
+      editLike,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        permissionPolicy: compileTestPermissionPolicy(['edit']),
+      },
+      15,
+    );
+
+    expect(result).not.toMatchObject({ truncated: true });
+    expect(result).toEqual(editOutput(content));
+    expect(renderToolResultText('edit', result).length).toBe(
+      RESULT_TRUNCATE_CHARS,
+    );
+  });
+
   it('cuts an oversized JSON rendering with one truncation notice', async () => {
     const bigTool: Tool = {
       ...echoTool,

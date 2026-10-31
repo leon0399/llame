@@ -11,15 +11,19 @@
  * A native file tool renders as text because the SDK output type `text` is
  * what carries its media reference. A `read` success with content uses the
  * read text shape — one header line, the attribution lines it carries, its
- * numbered content, and the continuation line; every other result, successes
- * and failures alike, renders as a JSON value.
+ * numbered content, and the continuation line; an `edit` success uses the
+ * mutation shape with its post-edit region; a `write` success is one status
+ * line. Every other result, successes and failures alike, renders as a JSON
+ * value.
  */
 
 import { z } from 'zod';
 
 import {
   measureReadRendering,
+  renderEditText,
   renderReadText,
+  renderWriteText,
   serializeNativeModelOutput,
 } from '@workspace/native-file-tools';
 import {
@@ -82,15 +86,16 @@ interface ModelView {
 
 /**
  * The result as the model may see it, with its text rendering and whether that
- * rendering had to escape the serialized JSON as one text. A `read` success
- * with content renders in the read text shape; the one reserved-name rule is
+ * rendering had to escape the serialized JSON as one text. A `read`, `edit`, or
+ * `write` success renders in its own text shape; the one reserved-name rule is
  * applied once to the whole rendering, and that is what the cap measures.
  */
 function modelView(toolName: string, result: ToolResult): ModelView {
   const normalized = normalizedResult(result);
-  if (toolName === 'read' && isReadTextResult(normalized)) {
+  const textResult = textResultRenderer(toolName, normalized);
+  if (textResult !== undefined) {
     return {
-      text: neutralizeReservedDelimiters(renderReadText(normalized)),
+      text: neutralizeReservedDelimiters(textResult(normalized)),
       escapedAsText: true,
     };
   }
@@ -108,17 +113,24 @@ function modelView(toolName: string, result: ToolResult): ModelView {
   return { text: serializeNativeModelOutput(visible), escapedAsText: false };
 }
 
-/**
- * A `read` success that carries content: a file of any representation, or a
- * directory listing. Image, PDF, and skill-catalog results carry no content
- * and keep their JSON rendering.
- */
-function isReadTextResult(result: ToolResult): boolean {
-  return (
-    result.status === 'success' &&
-    (result.kind === 'file' || result.kind === 'directory') &&
-    isString(result.content)
-  );
+/** The text shape a successful native tool result renders in, or none for a
+ *  result that keeps its JSON rendering. */
+function textResultRenderer(
+  toolName: string,
+  result: ToolResult,
+): ((result: ToolResult) => string) | undefined {
+  if (result.status !== 'success') return undefined;
+  // A `read` success that carries content renders as text: a file of any
+  // representation, or a directory listing. An image, PDF, or skill-catalog
+  // result carries no content and keeps its JSON rendering.
+  if (toolName === 'read')
+    return (result.kind === 'file' || result.kind === 'directory') &&
+      isString(result.content)
+      ? renderReadText
+      : undefined;
+  if (toolName === 'edit') return renderEditText;
+  if (toolName === 'write') return renderWriteText;
+  return undefined;
 }
 
 /**

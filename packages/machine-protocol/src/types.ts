@@ -171,15 +171,45 @@ export type FsWriteParams = {
   readonly replace?: boolean;
 };
 
+/** Display-only data for the owner UI: the exact replaced and replacement
+ *  text with the post-edit line the region starts at. Never rendered for the
+ *  model. Absent on a daemon that predates the field. */
+export type NativeMutationDisplay = {
+  /** The post-edit line the region starts at, which only the daemon that ran
+   *  the edit can compute. */
+  readonly startLine: number;
+  /** The replaced and replacement text. A daemon answers with the start line
+   *  alone: the hub holds both strings in the call and rebuilds them, so a
+   *  large replacement crosses one frame once instead of twice. */
+  readonly oldText?: string;
+  readonly newText?: string;
+};
+
 export type NativeMutationResult = {
   readonly status: "success";
   readonly operation: "edit" | "write";
   readonly path: string;
   readonly created?: true;
   readonly replaced?: true;
-  readonly diff: string;
-  readonly content: string;
-  readonly truncated: boolean;
+  readonly replacements?: 1;
+  /** The numbered post-edit region of an edit. Absent on a write, and on a
+   *  daemon that predates the field. */
+  readonly content?: string;
+  readonly shownRange?: NativeLineRange | null;
+  readonly truncated?: boolean;
+  /** The daemon's own bound cut the region. The hub's result cap overwrites
+   *  `truncated` but never this field, so a rendering can name a bound cut
+   *  without claiming the cap's. Absent on a daemon that predates the field. */
+  readonly cut?: boolean;
+  /** The written or post-edit source's line count. Absent on a daemon that
+   *  predates the field. */
+  readonly lineCount?: number;
+  /** An edit's `@@ replacement at line N @@` text, which only a daemon that
+   *  predates `display` sends. The hub keeps it on the mapped legacy edit
+   *  because the owner UI numbers such a part from its header. Never rendered
+   *  for the model. */
+  readonly diff?: string;
+  readonly display?: NativeMutationDisplay;
 };
 
 export type FsMutateResult = NativeMutationResult | NativeFailureResult;

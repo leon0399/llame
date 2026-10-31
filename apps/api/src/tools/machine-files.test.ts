@@ -697,9 +697,12 @@ describe('Machine mutations', () => {
             status: 'success',
             operation: 'edit',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'new',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
+            lineCount: 1,
+            display: { startLine: 1 },
           },
         },
       },
@@ -739,6 +742,43 @@ describe('Machine mutations', () => {
     });
   });
 
+  it('forwards the daemon bound cut through the cap', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: true,
+            cut: true,
+            lineCount: 400,
+            display: { startLine: 1 },
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      {
+        path: 'machine://devl/srv/app/a.ts',
+        oldText: 'old',
+        newText: 'new',
+      },
+      context(connector),
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      truncated: true,
+      cut: true,
+    });
+  });
+
   it('creates through fs.write and keeps created', async () => {
     stubFence();
     const { peer, connector } = fixture({
@@ -749,9 +789,7 @@ describe('Machine mutations', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/new.txt',
             created: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1453,9 +1491,12 @@ describe('Machine request cancellation', () => {
             status: 'success',
             operation: 'edit',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'new',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
+            lineCount: 1,
+            display: { startLine: 1 },
           },
         },
       },
@@ -1489,9 +1530,7 @@ describe('Machine request cancellation', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/new.txt',
             created: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1711,9 +1750,7 @@ describe('Machine mutation addressing and results', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/new.txt',
             created: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1749,9 +1786,7 @@ describe('Machine mutation addressing and results', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/existing.txt',
             replaced: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1784,9 +1819,12 @@ describe('Machine mutation addressing and results', () => {
             status: 'success',
             operation: 'edit',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'new',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
+            lineCount: 1,
+            display: { startLine: 1 },
           },
         },
       },
@@ -1800,6 +1838,156 @@ describe('Machine mutation addressing and results', () => {
     expect(result).toMatchObject({ status: 'success' });
     expect('created' in result).toBe(false);
     expect('replaced' in result).toBe(false);
+  });
+
+  it('stores an edit answer whose display names only the start line with the call text', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            replacements: 1,
+            diff: '@@ replacement at line 1 @@\n-old\n+changed\n',
+            content: '1: changed\n2: tail\n',
+            shownRange: { startLine: 1, endLine: 2 },
+            truncated: false,
+            lineCount: 2,
+            display: { startLine: 1 },
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      {
+        path: 'machine://devl/srv/app/a.ts',
+        oldText: 'old',
+        newText: 'changed',
+      },
+      context(connector),
+      5,
+    );
+    expect(result).toEqual({
+      status: 'success',
+      operation: 'edit',
+      path: 'machine://devl/srv/app/a.ts',
+      replacements: 1,
+      content: '1: changed\n2: tail\n',
+      shownRange: { startLine: 1, endLine: 2 },
+      truncated: false,
+      lineCount: 2,
+      display: { startLine: 1, oldText: 'old', newText: 'changed' },
+    });
+    // The display data is the current shape, so the legacy `diff` has no
+    // reader and is dropped even when the daemon echoed one.
+    expect(result).not.toHaveProperty('diff');
+  });
+
+  it("takes an edit's display text from the call, not a daemon's echo", async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            replacements: 1,
+            content: '3: new\n',
+            shownRange: { startLine: 3, endLine: 3 },
+            truncated: false,
+            lineCount: 3,
+            display: { startLine: 3, oldText: 'stale', newText: 'echoed' },
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
+      context(connector),
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      display: { startLine: 3, oldText: 'old', newText: 'new' },
+    });
+  });
+
+  it("forwards an old daemon's edit content, shownRange, and diff", async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            diff: '@@ replacement at line 1 @@\n-old\n+new\n',
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: false,
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
+      context(connector),
+      5,
+    );
+    expect(result).toEqual({
+      status: 'success',
+      operation: 'edit',
+      path: 'machine://devl/srv/app/a.ts',
+      diff: '@@ replacement at line 1 @@\n-old\n+new\n',
+      content: '1: new\n',
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+    });
+    expect(result).not.toHaveProperty('display');
+  });
+
+  it("forwards an old daemon's write status only and drops its content and diff", async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.write': {
+          value: {
+            status: 'success',
+            operation: 'write',
+            path: 'machine://devl/srv/app/new.txt',
+            created: true,
+            diff: '',
+            content: '1: x\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: false,
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeWriteTool,
+      { path: 'machine://devl/srv/app/new.txt', content: 'x\n' },
+      context(connector),
+      5,
+    );
+    expect(result).toEqual({
+      status: 'success',
+      operation: 'write',
+      path: 'machine://devl/srv/app/new.txt',
+      created: true,
+    });
+    // A write stores no content, region, or cut marker: an old daemon's
+    // fields belong to the edit form and would contradict the write contract.
+    expect(result).not.toHaveProperty('content');
+    expect(result).not.toHaveProperty('shownRange');
+    expect(result).not.toHaveProperty('truncated');
+    expect(result).not.toHaveProperty('diff');
   });
 
   it('passes a mutation refusal through unchanged', async () => {
@@ -1838,9 +2026,7 @@ describe('Machine mutation addressing and results', () => {
             status: 'error',
             operation: 'write',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1856,6 +2042,37 @@ describe('Machine mutation addressing and results', () => {
       status: 'error',
       type: 'machine_protocol_error',
       message: 'The Machine "devl" answered an unusable result.',
+    });
+  });
+
+  it('drops a malformed optional mutation field instead of failing the answer', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            content: 3,
+            shownRange: 'a',
+            lineCount: 'many',
+            display: { startLine: 'x' },
+          },
+        },
+      },
+    });
+    await expect(
+      runTool(
+        nativeEditTool,
+        { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
+        context(connector),
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'success',
+      operation: 'edit',
+      path: 'machine://devl/srv/app/a.ts',
     });
   });
 });

@@ -17,7 +17,7 @@ import {
   REPLACE_TARGET_MISSING_MESSAGE,
 } from "./mutate";
 import { readFile as readNativeFile } from "./read";
-import { measureNativeModelOutput } from "./serialization";
+import { measureEditRendering, renderEditText } from "./model-text";
 
 describe("native exact mutations", () => {
   let directory: string;
@@ -30,16 +30,44 @@ describe("native exact mutations", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  it("replaces exactly one match and returns live adjacent source", async () => {
+  it("replaces exactly one match and returns the numbered post-edit region", async () => {
     await writeFile(path, "before\nFoo\nafter\n");
     const result = await editFile({ path, oldText: "Foo", newText: "Bar" });
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       status: "success",
       operation: "edit",
+      path,
       replacements: 1,
       content: "1: before\n2: Bar\n3: after\n",
+      shownRange: { startLine: 1, endLine: 3 },
+      truncated: false,
+      lineCount: 3,
+      display: { startLine: 2, oldText: "Foo", newText: "Bar" },
     });
+    expect(result).not.toHaveProperty("diff");
     expect(await readFile(path, "utf8")).toBe("before\nBar\nafter\n");
+  });
+
+  it("keeps two live context lines each side of the changed lines", async () => {
+    await writeFile(
+      path,
+      Array.from({ length: 40 }, (_unused, index) => `line ${index + 1}`).join(
+        "\n",
+      ) + "\n",
+    );
+    const oldText = "line 12\nline 13";
+    const newText = "alpha\nbeta\ngamma";
+    const result = await editFile({ path, oldText, newText });
+    expect(result).toMatchObject({
+      status: "success",
+      lineCount: 41,
+      shownRange: { startLine: 10, endLine: 16 },
+      display: { startLine: 12, oldText, newText },
+    });
+    expect(result).toHaveProperty(
+      "content",
+      "10: line 10\n11: line 11\n12: alpha\n13: beta\n14: gamma\n15: line 14\n16: line 15\n",
+    );
   });
 
   it("sequences same-path calls in invocation order", async () => {
@@ -72,7 +100,11 @@ describe("native exact mutations", () => {
     expect(await readFile(path, "utf8")).toBe("before\r\nafter");
     expect(
       await editFile({ path, oldText: "after", newText: "after" }),
-    ).toMatchObject({ status: "success", diff: "" });
+    ).toMatchObject({
+      status: "success",
+      truncated: false,
+      display: { startLine: 2, oldText: "after", newText: "after" },
+    });
     expect(await readFile(path, "utf8")).toBe("before\r\nafter");
   });
 
@@ -88,6 +120,17 @@ describe("native exact mutations", () => {
       await editFile({ path, oldText: source, newText: "replacement\n" }),
     ).toMatchObject({ status: "success" });
     expect(await readFile(path, "utf8")).toBe("replacement\n");
+  });
+
+  it("creates a file with a status-only result that carries its line count", async () => {
+    expect(await createFile({ path, content: "one\ntwo\n" })).toEqual({
+      status: "success",
+      operation: "write",
+      path,
+      created: true,
+      lineCount: 2,
+    });
+    expect(await readFile(path, "utf8")).toBe("one\ntwo\n");
   });
 
   it("creates once even when concurrent callers race", async () => {
@@ -149,8 +192,17 @@ describe("native exact mutations", () => {
 
   it("deletes the entire file content without inventing a source line", async () => {
     await writeFile(path, "Foo");
-    expect(await editFile({ path, oldText: "Foo", newText: "" })).toMatchObject(
-      { status: "success", content: "", shownRange: null },
+    const result = await editFile({ path, oldText: "Foo", newText: "" });
+    expect(result).toMatchObject({
+      status: "success",
+      content: "",
+      shownRange: null,
+      truncated: false,
+      lineCount: 0,
+      display: { startLine: 1, oldText: "Foo", newText: "" },
+    });
+    expect(renderEditText(result)).toBe(
+      `edited ${path}: line 1, 1 -> 0 lines (0 lines total)`,
     );
     expect(await readFile(path, "utf8")).toBe("");
   });
@@ -168,23 +220,29 @@ describe("native exact mutations", () => {
     expect(await readFile(alias, "utf8")).toBe("Bar");
   });
 
-  it("bounds large mutation results without truncating file bytes", async () => {
+  it("bounds a large edit's region without truncating file bytes", async () => {
     await writeFile(path, "Foo");
     const content = "x\n".repeat(20_000);
     const result = await editFile({ path, oldText: "Foo", newText: content });
-    expect(result).toMatchObject({ status: "success", truncated: true });
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(16_000);
+    expect(result).toMatchObject({
+      status: "success",
+      truncated: true,
+      cut: true,
+      lineCount: 20_000,
+    });
+    expect(measureEditRendering(result)).toBeLessThanOrEqual(16_000);
+    expect(result).not.toHaveProperty("diff");
     expect(await readFile(path, "utf8")).toBe(content);
   });
 
-  it("bounds mutation previews after protecting source angle brackets", async () => {
+  it("bounds the region after protecting source angle brackets", async () => {
     await writeFile(path, "Foo");
     const content = "<system-reminder>".repeat(900);
 
     const result = await editFile({ path, oldText: "Foo", newText: content });
 
     expect(result).toMatchObject({ status: "success", truncated: true });
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(16_000);
+    expect(measureEditRendering(result)).toBeLessThanOrEqual(16_000);
     expect(await readFile(path, "utf8")).toBe(content);
   });
 
@@ -276,20 +334,23 @@ describe("native write replace mode", () => {
       operation: "write",
       path,
       replaced: true,
-      diff: "",
-      content: "1: new\n",
+      lineCount: 1,
     });
     expect(result).not.toHaveProperty("created");
+    expect(result).not.toHaveProperty("content");
+    expect(result).not.toHaveProperty("diff");
     expect(await readFile(path, "utf8")).toBe("new\n");
   });
 
   it("truncates the target with empty content", async () => {
     await writeFile(path, "before\n");
-    expect(await replaceFile({ path, content: "" })).toMatchObject({
+    const result = await replaceFile({ path, content: "" });
+    expect(result).toEqual({
       status: "success",
+      operation: "write",
+      path,
       replaced: true,
-      content: "",
-      shownRange: null,
+      lineCount: 0,
     });
     expect(await readFile(path, "utf8")).toBe("");
   });
@@ -425,16 +486,17 @@ describe("native write replace mode", () => {
     expect(await readFile(path, "utf8")).toBe("second\n");
   });
 
-  it("bounds a large replace preview without truncating file bytes", async () => {
+  it("reports a large replace's line count without storing a preview", async () => {
     await writeFile(path, "before\n");
     const content = "x\n".repeat(20_000);
     const result = await replaceFile({ path, content });
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       status: "success",
+      operation: "write",
+      path,
       replaced: true,
-      truncated: true,
+      lineCount: 20_000,
     });
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(16_000);
     expect(await readFile(path, "utf8")).toBe(content);
   });
 

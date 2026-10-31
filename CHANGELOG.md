@@ -1,5 +1,33 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-31
+
+- `edit` and `write` results now render as text. An `edit` reads
+  `edited <locator>: line <startLine>, <old> -> <new> lines (<lineCount> lines
+  total)`, then the attribution lines, then the post-edit region around the
+  change with two live lines each side, numbered from the post-edit file;
+  `[region cut at the bound]` marks a region the result bound cut, and no diff,
+  old text, or new text block reaches a model. A stored edit carries its
+  post-edit `content`, `shownRange`, `truncated`, `lineCount`, and
+  `display: { startLine, oldText, newText }` for the UI instead of a `diff`, and
+  a part stored before this shape still renders as
+  `edited <locator>: region from line <N>` beside its stored region, which the
+  owner UI numbers from the legacy `diff` the hub keeps when the part carries
+  no `display`. A `write` reads one status line,
+  `created <locator> (<lineCount> lines)` or `replaced …`, and never its
+  content; the stored result no longer keeps the written content or a diff, and
+  the owner's UI renders it from the call's `content` argument. The hub
+  accepts both mutation shapes: it forwards an old daemon's edit `content`,
+  `shownRange`, and `diff`, drops an old daemon's write content and region so a
+  write stays status only, maps `lineCount` and `display`, and rebuilds the
+  display text from the edit call, because a daemon answers with the start line
+  alone — echoing a large replacement back would carry it over the frame limit
+  twice and can fail after the file has changed — so update the hub before the
+  daemons. The `edit` and `write` descriptions and reference pages name the
+  text shapes and the legacy forms. See
+  [edit](docs/product/reference/tools/edit.md) and
+  [write](docs/product/reference/tools/write.md).
+
 # 2026-10-30
 
 - `read` results now render as text instead of JSON text: one header line

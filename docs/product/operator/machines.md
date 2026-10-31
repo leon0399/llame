@@ -133,6 +133,18 @@ build. A box whose handshake listed no git methods keeps serving files and
 `bash`, and a git call on it fails as `machine_update_required` until the
 binary is replaced.
 
+Mutation results are additive in the same way, so update the hub before the
+daemon. A hub newer than the daemon still accepts an old daemon's `edit` and
+`write` results. An old edit keeps its post-edit `content`, `shownRange`, and
+`diff`, because the owner UI numbers such a part from the `diff` header;
+`lineCount` and `display` are mapped when the daemon sends them, and an edit
+that carries `display` drops its `diff`. An old write keeps only `created`,
+`replaced`, and `lineCount`. A hub older than the daemon refuses a status-only
+write or a display-carrying edit, because it still requires the fields this
+protocol revision stopped sending. The change does not bump `PROTOCOL_VERSION`,
+so the handshake stays compatible in both directions; only the result mapping
+differs.
+
 ## Register roots
 
 On the box, as the daemon's user:

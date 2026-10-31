@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import { measureEditRendering } from '@workspace/native-file-tools';
 import {
+  RESULT_TRUNCATE_CHARS,
+  truncateOversizedResult,
+  type ToolResult,
+} from '@workspace/runtime-safety';
+
+import {
+  measureToolResultForModel,
   readAttributionReserve,
   renderToolResultForModel,
   renderToolResultText,
@@ -185,11 +193,102 @@ describe('renderToolResultForModel', () => {
     });
   });
 
-  it('removes display data and a legacy thumbnail from both kinds', () => {
-    const json = renderToolResultText('edit', {
+  it('renders an edit success as its post-edit region', () => {
+    const rendering = renderToolResultForModel('edit', {
       status: 'success',
       operation: 'edit',
       path: 'src/app.ts',
+      replacements: 1,
+      content: '11: one\n12: two\n13: three',
+      shownRange: { startLine: 11, endLine: 13 },
+      truncated: false,
+      lineCount: 42,
+      display: { startLine: 12, oldText: 'a', newText: 'b' },
+    });
+
+    expect(rendering).toEqual({
+      kind: 'text',
+      text: 'edited src/app.ts: line 12, 1 -> 1 lines (42 lines total)\n11: one\n12: two\n13: three',
+    });
+  });
+
+  it('renders a write success as one status line', () => {
+    expect(
+      renderToolResultForModel('write', {
+        status: 'success',
+        operation: 'write',
+        path: 'new.ts',
+        created: true,
+        lineCount: 216,
+      }),
+    ).toEqual({ kind: 'text', text: 'created new.ts (216 lines)' });
+
+    const rendered = renderToolResultForModel('write', {
+      status: 'success',
+      operation: 'write',
+      path: 'machine://devl/home/me/new.ts',
+      replaced: true,
+      lineCount: 12,
+      content: '1: a',
+    });
+    expect(rendered).toEqual({
+      kind: 'text',
+      text: 'replaced machine://devl/home/me/new.ts (12 lines)',
+    });
+  });
+
+  it('renders a Machine edit result in the text shape', () => {
+    expect(
+      renderToolResultForModel('edit', {
+        status: 'success',
+        operation: 'edit',
+        path: 'machine://devl/home/me/work/shop/src/app.ts',
+        replacements: 1,
+        content: '5: one\n6: two',
+        shownRange: { startLine: 5, endLine: 6 },
+        truncated: false,
+        lineCount: 8,
+        display: { startLine: 6, oldText: 'a', newText: 'b' },
+      }),
+    ).toEqual({
+      kind: 'text',
+      text: 'edited machine://devl/home/me/work/shop/src/app.ts: line 6, 1 -> 1 lines (8 lines total)\n5: one\n6: two',
+    });
+  });
+
+  it('renders a mutation failure as the JSON failure text', () => {
+    const failure = {
+      status: 'error' as const,
+      type: 'old_text_ambiguous',
+      message:
+        'The old text occurs more than once; </tool-result> nothing changed.',
+    };
+
+    // A native tool keeps the SDK output type `text`; the text is the JSON
+    // failure object, not a mutation header.
+    expect(renderToolResultForModel('edit', failure).kind).toBe('text');
+    const text = renderToolResultText('edit', failure);
+    expect(text).not.toContain('edited');
+    expect(JSON.parse(text)).toMatchObject({
+      status: 'error',
+      type: 'old_text_ambiguous',
+    });
+    expect(text).toContain('&lt;/tool-result&gt;');
+  });
+
+  it('removes display data and a legacy thumbnail from both kinds', () => {
+    const edit = renderToolResultText('edit', {
+      status: 'success',
+      operation: 'edit',
+      path: 'src/app.ts',
+      display: { startLine: 11, oldText: 'a', newText: 'b' },
+    });
+    expect(edit).toBe('edited src/app.ts: line 11, 1 -> 1 lines');
+    expect(edit).not.toContain('"display"');
+
+    const json = renderToolResultText('knowledge_search', {
+      status: 'success',
+      count: 1,
       display: { startLine: 11, oldText: 'a', newText: 'b' },
     });
     expect(json).not.toContain('"display"');
@@ -239,5 +338,89 @@ describe('readAttributionReserve', () => {
         notes: ['one', 'two'],
       }),
     ).toBe('realPath: /real/notes.md\nnotes: one\nnotes: two\n'.length);
+  });
+});
+
+describe('the cap measure of an edit rendering', () => {
+  const display = {
+    startLine: 161,
+    oldText: 'a\nb\nc\nd',
+    newText: 'a\nb\nc\nd\ne',
+  };
+  const header = 'edited a.tsx: line 161, 4 -> 5 lines (563 lines total)';
+  const edit = (content: string): ToolResult => ({
+    status: 'success',
+    operation: 'edit',
+    path: 'a.tsx',
+    replacements: 1,
+    content,
+    shownRange: { startLine: 160, endLine: 166 },
+    truncated: false,
+    lineCount: 563,
+    display,
+  });
+  const measure = measureToolResultForModel('edit');
+  // A rendering with an empty region is the header line alone, so its width is
+  // the framing every filled rendering adds before its region and newline.
+  const overhead = measureEditRendering(edit(''));
+
+  it('records an edit whose rendering is exactly the cap unchanged', () => {
+    const atCap = edit('x'.repeat(RESULT_TRUNCATE_CHARS - overhead - 1));
+
+    expect(measureEditRendering(atCap)).toBe(RESULT_TRUNCATE_CHARS);
+    expect(truncateOversizedResult(atCap, measure)).toEqual(atCap);
+  });
+
+  it('cuts an edit whose display-carrying rendering is one unit over the cap', () => {
+    const over = edit('x'.repeat(RESULT_TRUNCATE_CHARS - overhead));
+
+    // The display-free legacy form is narrower than the full rendering, so
+    // measuring it left this result uncut and over the cap.
+    expect(measureEditRendering({ ...over, display: undefined })).toBeLessThan(
+      RESULT_TRUNCATE_CHARS,
+    );
+    const cut = truncateOversizedResult(over, measure);
+    expect(cut).toMatchObject({ status: 'success', truncated: true, display });
+    expect(measure(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(renderToolResultText('edit', cut).split('\n')[0]).toBe(header);
+    // Only the cap cut this region, so its notice is the last line and no
+    // bound marker claims the cut.
+    const lines = renderToolResultText('edit', cut).split('\n');
+    expect(lines).not.toContain('[region cut at the bound]');
+    expect(lines.at(-1)).toMatch(
+      /^\[Result truncated to fit the 16000-character tool-result cap;/u,
+    );
+  });
+
+  it('keeps a bound cut marker the cap never overwrites', () => {
+    const over = {
+      ...edit('x'.repeat(RESULT_TRUNCATE_CHARS - overhead)),
+      truncated: true,
+      cut: true,
+    };
+
+    const cut = truncateOversizedResult(over, measure);
+    expect(cut).toMatchObject({ truncated: true, cut: true });
+    expect(measure(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    const lines = renderToolResultText('edit', cut).split('\n');
+    expect(lines.at(-2)).toBe('[region cut at the bound]');
+    expect(lines.at(-1)).toMatch(
+      /^\[Result truncated to fit the 16000-character tool-result cap;/u,
+    );
+  });
+
+  it('measures the candidate with its display re-attached', () => {
+    const result = edit('region');
+    const widths: Array<number> = [];
+    truncateOversizedResult(result, (candidate) => {
+      const width = measureEditRendering(candidate);
+      widths.push(width);
+      return width;
+    });
+
+    expect(widths[0]).toBe(measureEditRendering(result));
+    expect(widths[0]).not.toBe(
+      measureEditRendering({ ...result, display: undefined }),
+    );
   });
 });
