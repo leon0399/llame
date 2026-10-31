@@ -282,8 +282,14 @@ describe("fs.edit and fs.write", () => {
       operation: "edit",
       path: `${PREFIX}${fixture.notes}`,
       lineCount: 4,
-      display: { startLine: 2, oldText: "two\n", newText: "TWO\n" },
     });
+    // The hub holds the submitted text in the call and rebuilds it, so the
+    // answer carries only the start line: echoing a large replacement would
+    // carry it over one frame twice and can fail after the file has changed.
+    const display = isSerializableRecord(result)
+      ? result["display"]
+      : undefined;
+    expect(display).toEqual({ startLine: 2 });
     expect(result).not.toHaveProperty("diff");
     await expect(readFile(fixture.notes, "utf8")).resolves.toBe(
       "one\nTWO\nthree\nfour\n",

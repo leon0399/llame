@@ -702,7 +702,7 @@ describe('Machine mutations', () => {
             shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
             lineCount: 1,
-            display: { startLine: 1, oldText: 'old', newText: 'new' },
+            display: { startLine: 1 },
           },
         },
       },
@@ -1459,7 +1459,7 @@ describe('Machine request cancellation', () => {
             shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
             lineCount: 1,
-            display: { startLine: 1, oldText: 'old', newText: 'new' },
+            display: { startLine: 1 },
           },
         },
       },
@@ -1787,7 +1787,7 @@ describe('Machine mutation addressing and results', () => {
             shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
             lineCount: 1,
-            display: { startLine: 1, oldText: 'old', newText: 'new' },
+            display: { startLine: 1 },
           },
         },
       },
@@ -1803,7 +1803,7 @@ describe('Machine mutation addressing and results', () => {
     expect('replaced' in result).toBe(false);
   });
 
-  it('forwards a new-shape edit region, display data, and line count', async () => {
+  it('stores an edit answer whose display names only the start line with the call text', async () => {
     stubFence();
     const { connector } = fixture({
       answers: {
@@ -1813,11 +1813,12 @@ describe('Machine mutation addressing and results', () => {
             operation: 'edit',
             path: 'machine://devl/srv/app/a.ts',
             replacements: 1,
+            diff: '@@ replacement at line 1 @@\n-old\n+changed\n',
             content: '1: changed\n2: tail\n',
             shownRange: { startLine: 1, endLine: 2 },
             truncated: false,
             lineCount: 2,
-            display: { startLine: 1, oldText: 'old', newText: 'changed' },
+            display: { startLine: 1 },
           },
         },
       },
@@ -1843,10 +1844,43 @@ describe('Machine mutation addressing and results', () => {
       lineCount: 2,
       display: { startLine: 1, oldText: 'old', newText: 'changed' },
     });
+    // The display data is the current shape, so the legacy `diff` has no
+    // reader and is dropped even when the daemon echoed one.
     expect(result).not.toHaveProperty('diff');
   });
 
-  it("forwards an old daemon's edit content and shownRange and drops its diff", async () => {
+  it("takes an edit's display text from the call, not a daemon's echo", async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            replacements: 1,
+            content: '3: new\n',
+            shownRange: { startLine: 3, endLine: 3 },
+            truncated: false,
+            lineCount: 3,
+            display: { startLine: 3, oldText: 'stale', newText: 'echoed' },
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
+      context(connector),
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      display: { startLine: 3, oldText: 'old', newText: 'new' },
+    });
+  });
+
+  it("forwards an old daemon's edit content, shownRange, and diff", async () => {
     stubFence();
     const { connector } = fixture({
       answers: {
@@ -1873,15 +1907,15 @@ describe('Machine mutation addressing and results', () => {
       status: 'success',
       operation: 'edit',
       path: 'machine://devl/srv/app/a.ts',
+      diff: '@@ replacement at line 1 @@\n-old\n+new\n',
       content: '1: new\n',
       shownRange: { startLine: 1, endLine: 1 },
       truncated: false,
     });
-    expect(result).not.toHaveProperty('diff');
     expect(result).not.toHaveProperty('display');
   });
 
-  it("forwards an old daemon's write content and drops its diff", async () => {
+  it("forwards an old daemon's write status only and drops its content and diff", async () => {
     stubFence();
     const { connector } = fixture({
       answers: {
@@ -1910,10 +1944,12 @@ describe('Machine mutation addressing and results', () => {
       operation: 'write',
       path: 'machine://devl/srv/app/new.txt',
       created: true,
-      content: '1: x\n',
-      shownRange: { startLine: 1, endLine: 1 },
-      truncated: false,
     });
+    // A write stores no content, region, or cut marker: an old daemon's
+    // fields belong to the edit form and would contradict the write contract.
+    expect(result).not.toHaveProperty('content');
+    expect(result).not.toHaveProperty('shownRange');
+    expect(result).not.toHaveProperty('truncated');
     expect(result).not.toHaveProperty('diff');
   });
 

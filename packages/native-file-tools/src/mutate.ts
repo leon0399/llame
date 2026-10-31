@@ -45,7 +45,10 @@ type MutationDisplay = {
   newText: string;
 };
 
-type EditSuccess = {
+/** A completed edit: the numbered post-edit region, where it starts, and the
+ *  display data the owner UI diffs. The model reads the rendering of these
+ *  fields, never the display data. */
+export type EditSuccess = {
   status: "success";
   operation: "edit";
   path: string;
@@ -89,10 +92,10 @@ let mutations: Promise<void> = Promise.resolve();
  * filesystem reported rather than the operation; an operation that asserts the
  * target exists supplies it, and every other operation keeps the generic one.
  */
-function mutate(
-  operation: () => Promise<MutationSuccess>,
+function mutate<Result extends MutationSuccess>(
+  operation: () => Promise<Result>,
   notFoundMessage?: string,
-): Promise<MutationSuccess | FileFailure> {
+): Promise<Result | FileFailure> {
   const pending = mutations.then(operation);
   mutations = pending.then(
     () => {},
@@ -291,8 +294,8 @@ export function editFile(
   input: EditInput,
   signal?: AbortSignal,
   options: NativeMutateOptions = {},
-): Promise<MutationSuccess | FileFailure> {
-  return mutate(async () => {
+): Promise<EditSuccess | FileFailure> {
+  return mutate<EditSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, input.newText, signal);
     // An absolute path is the host's own; a resolved target was authorized as
@@ -321,8 +324,8 @@ export function createFile(
   input: WriteInput,
   signal?: AbortSignal,
   options: NativeMutateOptions = {},
-): Promise<MutationSuccess | FileFailure> {
-  return mutate(async () => {
+): Promise<WriteSuccess | FileFailure> {
+  return mutate<WriteSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, "", signal);
     await requireAbsent(input.path);
@@ -365,8 +368,8 @@ export function replaceFile(
   input: WriteInput,
   signal?: AbortSignal,
   options: NativeMutateOptions = {},
-): Promise<MutationSuccess | FileFailure> {
-  return mutate(async () => {
+): Promise<WriteSuccess | FileFailure> {
+  return mutate<WriteSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, "", signal);
     const target = await resolveReplaceTarget(

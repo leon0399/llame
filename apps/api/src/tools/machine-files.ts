@@ -47,6 +47,7 @@ import {
   isNumber,
   isRecord,
   isString,
+  type UnknownRecord,
 } from '@workspace/runtime-safety';
 
 /** The three native calls a Machine locator can address. */
@@ -443,7 +444,7 @@ async function mutateMachinePath(
         machine,
         envelope,
       });
-      const result = readFsMutateResult(raw);
+      const result = readFsMutateResult(raw, call);
       return result === undefined
         ? machineUnusableResult(machine.name)
         : canonicalizeMachineResult(machine, result);
@@ -494,9 +495,7 @@ function requestMachineMutation(
 }
 
 /** One stored line range from a daemon answer: both counts, or nothing. */
-function readMutationRange(
-  value: JsonValue | undefined,
-): NativeLineRange | undefined {
+function readMutationRange(value: unknown): NativeLineRange | undefined {
   if (!isRecord(value)) return undefined;
   const { startLine, endLine } = value;
   return isNumber(startLine) && isNumber(endLine)
@@ -504,48 +503,104 @@ function readMutationRange(
     : undefined;
 }
 
-/** The display data of a new-shape daemon answer, when all three fields a
- *  header needs are intact. */
+/** The edit input a Machine edit call carries. */
+type MachineEditInput = Extract<
+  MachineFileCall,
+  { operation: 'edit' }
+>['input'];
+
+/** The display data of an edit answer: the daemon's start line with the text
+ *  the hub already holds. A daemon answers without the replaced and
+ *  replacement text, because echoing a large replacement would carry it over
+ *  the frame limit twice and can fail after the file has changed, so the
+ *  stored part takes `oldText` and `newText` from the call, exactly as a local
+ *  edit takes them from its input. */
 function readMutationDisplay(
-  value: JsonValue | undefined,
+  value: unknown,
+  input: MachineEditInput,
 ): NativeMutationDisplay | undefined {
   if (!isRecord(value)) return undefined;
-  const { startLine, oldText, newText } = value;
-  return isNumber(startLine) && isString(oldText) && isString(newText)
-    ? { startLine, oldText, newText }
+  const { startLine } = value;
+  return isNumber(startLine)
+    ? { startLine, oldText: input.oldText, newText: input.newText }
     : undefined;
 }
 
-/**
- * One `fs.edit` or `fs.write` success. The new shape stores a numbered edit
- * region, its line count, and display data, and no diff; an old daemon's
- * `content` and `shownRange` are forwarded so the legacy edit form still
- * renders, and its `diff` is dropped because no rendering reads one. Each
- * optional field is forwarded only when it is well formed, so a daemon that
- * predates a field still yields a usable result.
- */
-function readFsMutateResult(value: JsonValue): ToolResult | undefined {
-  const failure = readNativeFailure(value);
-  if (failure !== undefined) return failure;
-  if (!isRecord(value) || value['status'] !== 'success') return undefined;
-  const { operation, path, content, truncated, lineCount } = value;
-  if ((operation !== 'edit' && operation !== 'write') || !isString(path))
-    return undefined;
+/** One `fs.write` success: only the facts its status line names. An old
+ *  daemon's `content`, `shownRange`, and `truncated` belong to the edit form
+ *  and would contradict the write contract, so they are dropped, never
+ *  stored. */
+function readFsWriteResult(
+  value: UnknownRecord,
+  path: string,
+): NativeMutationResult {
+  const { created, replaced, lineCount } = value;
+  return {
+    status: 'success',
+    operation: 'write',
+    path,
+    ...(created === true && { created: true }),
+    ...(replaced === true && { replaced: true }),
+    ...(isNumber(lineCount) && { lineCount }),
+  };
+}
+
+/** One `fs.edit` success: its numbered region, shown range, cut marker, line
+ *  count, and display data. An old-daemon edit without display data keeps its
+ *  `diff`, which is the only line numbering the owner UI has for such a part;
+ *  a current answer's display data makes the diff dead weight. Each field is
+ *  forwarded only when it is well formed. */
+function readFsEditResult(
+  value: UnknownRecord,
+  path: string,
+  input: MachineEditInput | undefined,
+): NativeMutationResult {
+  const { content, truncated, replacements, lineCount } = value;
   const storedRange = value['shownRange'];
   const shownRange =
     storedRange === null ? null : readMutationRange(storedRange);
-  const display = readMutationDisplay(value['display']);
+  const display =
+    input === undefined
+      ? undefined
+      : readMutationDisplay(value['display'], input);
+  const legacyDiff =
+    display === undefined && isString(value['diff'])
+      ? value['diff']
+      : undefined;
   return {
     status: 'success',
-    operation,
+    operation: 'edit',
     path,
-    ...(value['created'] === true && { created: true }),
-    ...(value['replaced'] === true && { replaced: true }),
-    ...(value['replacements'] === 1 && { replacements: 1 }),
+    ...(replacements === 1 && { replacements: 1 }),
     ...(isString(content) && { content }),
     ...(shownRange !== undefined && { shownRange }),
     ...(isBoolean(truncated) && { truncated }),
     ...(isNumber(lineCount) && { lineCount }),
     ...(display !== undefined && { display }),
-  } satisfies NativeMutationResult;
+    ...(legacyDiff !== undefined && { diff: legacyDiff }),
+  };
+}
+
+/**
+ * One `fs.edit` or `fs.write` success, mapped to the shape the tool stores. A
+ * write is status only; an edit carries its region and the display data the
+ * owner UI diffs. A daemon that predates a field still yields a usable result.
+ */
+function readFsMutateResult(
+  value: JsonValue,
+  call: Exclude<MachineFileCall, { operation: 'read' }>,
+): ToolResult | undefined {
+  const failure = readNativeFailure(value);
+  if (failure !== undefined) return failure;
+  if (!isRecord(value) || value['status'] !== 'success') return undefined;
+  const { operation, path } = value;
+  if ((operation !== 'edit' && operation !== 'write') || !isString(path))
+    return undefined;
+  return operation === 'write'
+    ? readFsWriteResult(value, path)
+    : readFsEditResult(
+        value,
+        path,
+        call.operation === 'edit' ? call.input : undefined,
+      );
 }

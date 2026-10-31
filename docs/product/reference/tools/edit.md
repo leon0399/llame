@@ -73,10 +73,13 @@ text as separate blocks, and bytes outside the replacement are preserved.
 | `path`         | the locator the result identifies itself by                           |
 
 `display` is stored with the tool part for the chat UI only: a model never
-receives it, and it counts toward no result or replay budget. A result stored
-before this shape carries `diff`, `content`, and `shownRange` instead; its
-header is `edited <path>: region from line <N>`, the stored region follows, and
-the stored diff is never rendered.
+receives it, and it counts toward no result or replay budget. On a Machine the
+daemon answers with the region's start line alone and the hub rebuilds
+`oldText` and `newText` from the call, so the stored part is the same as a local
+edit and a large replacement crosses the connection once rather than twice. A
+result stored before this shape carries `diff`, `content`, and `shownRange`
+instead; its header is `edited <path>: region from line <N>`, the stored region
+follows, and the stored diff is never rendered.
 
 The result is the same for a `file://` alias, decoded to the same identity as
 the path it names.

@@ -175,9 +175,14 @@ export type FsWriteParams = {
  *  text with the post-edit line the region starts at. Never rendered for the
  *  model. Absent on a daemon that predates the field. */
 export type NativeMutationDisplay = {
+  /** The post-edit line the region starts at, which only the daemon that ran
+   *  the edit can compute. */
   readonly startLine: number;
-  readonly oldText: string;
-  readonly newText: string;
+  /** The replaced and replacement text. A daemon answers with the start line
+   *  alone: the hub holds both strings in the call and rebuilds them, so a
+   *  large replacement crosses one frame once instead of twice. */
+  readonly oldText?: string;
+  readonly newText?: string;
 };
 
 export type NativeMutationResult = {
@@ -195,6 +200,11 @@ export type NativeMutationResult = {
   /** The written or post-edit source's line count. Absent on a daemon that
    *  predates the field. */
   readonly lineCount?: number;
+  /** An edit's `@@ replacement at line N @@` text, which only a daemon that
+   *  predates `display` sends. The hub keeps it on the mapped legacy edit
+   *  because the owner UI numbers such a part from its header. Never rendered
+   *  for the model. */
+  readonly diff?: string;
   readonly display?: NativeMutationDisplay;
 };
 
