@@ -105,8 +105,10 @@ function attributionLines(result: UnknownRecord): Array<string> {
 
 /** The header of a file read: the shown range in the form of its
  *  representation with the stored total, or the empty and skipped forms a
- *  null shown range produces. An outline carries no total: its scan can stop
- *  early, so it stores none. */
+ *  null shown range produces. A result stored before the ranges were kept
+ *  carries content but no range key at all, so it names the locator alone:
+ *  `: empty` would deny the content below it. An outline carries no total: its
+ *  scan can stop early, so it stores none. */
 function fileHeader(result: UnknownRecord): string {
   const path = isNonEmptyString(result.path) ? result.path : "";
   const total =
@@ -129,7 +131,9 @@ function fileHeader(result: UnknownRecord): string {
   const { nextOffset } = result;
   if (result.truncated === true && isNumber(nextOffset))
     return `${path}: line ${nextOffset} exceeds the result bound and was skipped`;
-  return `${path}: empty`;
+  if (result.shownRange === null && result.truncated !== true)
+    return `${path}: empty`;
+  return `${path}${total}`;
 }
 
 /** One range selector from `nextOffset`, open-ended once the request is
@@ -192,7 +196,9 @@ function resumeSelector(result: UnknownRecord, nextOffset: number): string {
   return result.representation === "raw" ? `raw:${selector}` : selector;
 }
 
-/** The one bracketed continuation notice a truncated result ends with. */
+/** The one bracketed continuation notice a truncated result ends with. A
+ *  locator with no room for a selector states the remainder alone, because
+ *  the read it would name is one the read tool refuses. */
 function continuationLine(result: UnknownRecord): string | undefined {
   if (result.truncated !== true) return undefined;
   const { nextOffset } = result;
@@ -214,6 +220,18 @@ function continuationLine(result: UnknownRecord): string | undefined {
     label = `${result.lineCount - nextOffset} more lines. `;
   }
   const path = isNonEmptyString(result.path) ? result.path : "";
+  // Every colon a web locator's query or fragment opened is URL text, so a
+  // trailing selector cannot follow one: `…?version=1:2001-` would request a
+  // different URL than the one the source was read from. A host path takes
+  // `?` and `#` as ordinary name characters and keeps its selector.
+  const webLocatorTakesNoSelector =
+    /^https?:\/\//iu.test(path) && /[?#]/u.test(path);
+  if (result.kind !== "directory" && webLocatorTakesNoSelector) {
+    const stated = isNumber(result.lineCount)
+      ? `${result.lineCount - nextOffset} more lines not shown`
+      : "more lines not shown";
+    return `[${stated}; this locator takes no line selector]`;
+  }
   const use = `Use ${path}:${resumeSelector(result, nextOffset)} to continue`;
   return `[${label}${use}]`;
 }

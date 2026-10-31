@@ -67,12 +67,17 @@ The header names the source and the shown range: `path:start-end` for one range,
 `of <total> lines` when `lineCount` is stored. A null shown range renders
 `path: empty`, or
 `path: line <N> exceeds the result bound and was skipped` when the first line
-itself is larger than the bound; the continuation line resumes after it. A
-directory listing renders its `content` as-is (its first line is the path) with
-no header line. The attribution lines follow the header, or a listing's entries,
-in the order the source adds them. The continuation line names the exact read
-that resumes the source in its own form, open-ended once the requested range is
-spent, and states how many lines or entries remain when the count is stored.
+itself is larger than the bound; the continuation line resumes after it. A part
+stored before the ranges were kept carries no shown range key at all, so it
+renders the bare locator with `of <total> lines` when one is stored. A directory
+listing renders its `content` as-is (its first line is the path) with no header
+line. The attribution lines follow the header, or a listing's entries, in the
+order the source adds them. The continuation line names the exact read that
+resumes the source in its own form, open-ended once the requested range is
+spent, and states how many lines or entries remain when the count is stored. A
+web locator that carries a query or a fragment takes no selector, so its line
+states the remaining lines and that the locator takes no line selector instead
+of naming a read.
 
 | Field                                | Meaning                                                                                    |
 | ------------------------------------ | ------------------------------------------------------------------------------------------ |

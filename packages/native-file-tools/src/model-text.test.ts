@@ -85,6 +85,33 @@ describe("read text header", () => {
     expect(renderReadText(result)).toBe("notes.md: empty");
   });
 
+  it("keeps a stored part without range keys off the empty header", () => {
+    const legacy: UnknownRecord = {
+      status: "success",
+      kind: "file",
+      path: "src/app.ts",
+      content: "11: a\n12: b\n",
+      truncated: false,
+      lineCount: 216,
+    };
+
+    expect(renderReadText(legacy)).toBe(
+      "src/app.ts of 216 lines\n11: a\n12: b",
+    );
+  });
+
+  it("keeps a stored part without a total or range keys bare", () => {
+    const legacy: UnknownRecord = {
+      status: "success",
+      kind: "file",
+      path: "src/app.ts",
+      content: "11: a\n12: b\n",
+      truncated: false,
+    };
+
+    expect(renderReadText(legacy)).toBe("src/app.ts\n11: a\n12: b");
+  });
+
   it("reports an oversized first line instead of an empty result", () => {
     const result = fileRead({
       path: "x.min.js",
@@ -289,6 +316,76 @@ describe("read text total and continuation", () => {
 
     expect(renderReadText(result)).toBe(
       "/repo\n  a\n  b\n[70 more entries. Use /repo:51- to continue]",
+    );
+  });
+
+  it("drops the advice on a locator that carries a query", () => {
+    const result = {
+      status: "success",
+      kind: "file",
+      path: "https://example.test/doc?version=1",
+      representation: "text",
+      content: "1: a\n2: b\n",
+      requestedRange: null,
+      shownRange: { startLine: 1, endLine: 2000 },
+      truncated: true,
+      nextOffset: 2000,
+      lineCount: 3000,
+    };
+
+    expect(renderReadText(result)).toBe(
+      "https://example.test/doc?version=1:1-2000 of 3000 lines\n1: a\n2: b\n[1000 more lines not shown; this locator takes no line selector]",
+    );
+  });
+
+  it("omits the count on a selector-less locator stored without a total", () => {
+    const result = {
+      status: "success",
+      kind: "file",
+      path: "https://example.test/doc#intro",
+      content: "1: a\n",
+      requestedRange: { startLine: 1, endLine: 2000 },
+      shownRange: { startLine: 1, endLine: 2000 },
+      truncated: true,
+      nextOffset: 2000,
+    };
+
+    expect(renderReadText(result)).toBe(
+      "https://example.test/doc#intro:1-2000\n1: a\n[more lines not shown; this locator takes no line selector]",
+    );
+  });
+
+  it("keeps the advice on a web locator that takes a selector", () => {
+    const result = {
+      status: "success",
+      kind: "file",
+      path: "https://example.test/doc",
+      content: "1: a\n",
+      requestedRange: null,
+      shownRange: { startLine: 1, endLine: 2000 },
+      truncated: true,
+      nextOffset: 2000,
+      lineCount: 3000,
+    };
+
+    expect(renderReadText(result)).toContain(
+      "[1000 more lines. Use https://example.test/doc:2001- to continue]",
+    );
+  });
+
+  it("keeps the advice on a host path that contains a question mark", () => {
+    const result = fileRead({
+      path: "/repo/notes?draft.md",
+      content: "1: a\n",
+      requestedRange: null,
+      shownRange: { startLine: 1, endLine: 2000 },
+      truncated: true,
+      nextOffset: 2000,
+      lineCount: 3000,
+    });
+
+    expect(renderReadText(result)).toContain(
+      "[1000 more lines. Use /repo/notes?draft.md:2001- to continue]",
     );
   });
 });
