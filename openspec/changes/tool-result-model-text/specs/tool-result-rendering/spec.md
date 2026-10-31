@@ -399,7 +399,6 @@ also the twentieth passage of its file.
 - **THEN** that passage ends with `[passage cut at the result bound; continue with the cursor]`
 - **AND** the text carries no `[more passages in this file; read it to see them]`
 
-
 ### Requirement: A timed-out command names no exit code
 
 A `timed_out` text MUST begin with `timed out`, then `, <seconds> s` with one decimal when the
