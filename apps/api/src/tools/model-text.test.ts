@@ -44,9 +44,9 @@ describe('renderToolResultForModel', () => {
     });
   });
 
-  it('keeps another native tool out of the read text shape', () => {
-    // A `write` result can carry the same fields a read does; only a `read`
-    // call renders in the read text shape.
+  it('keeps another tool out of the read text shape', () => {
+    // Another tool's result can carry the same fields a read does; only a
+    // `read` call renders in the read text shape.
     const result = {
       status: 'success' as const,
       kind: 'file',
@@ -55,7 +55,7 @@ describe('renderToolResultForModel', () => {
       truncated: false,
     };
 
-    expect(renderToolResultText('write', result)).toBe(
+    expect(renderToolResultText('knowledge_search', result)).toBe(
       '{"status":"success","kind":"file","path":"notes.md","content":"body",' +
         '"truncated":false}',
     );
