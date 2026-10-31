@@ -117,11 +117,12 @@ failure object `{ status: 'error', type, message, rejectedUrl?, leftDirectory? }
 Live and Continue already hold that object; replay rebuilds a failure from
 the stored `outcome`, `errorText`, and `errorRejectedUrl`
 (`resolveResultBody` does this today), so `leftDirectory` stays live-only as
-it is now. The function strips `display` and a legacy top-level `thumbnail`,
-selects a text renderer for `read`, `edit`, `write`, `grep`, and `bash`
-successes by tool name (Machine variants share the names), and renders every
-other success and every failure as JSON. It returns the rendered string and
-its kind, `text` or `json`. The three call sites wrap it as they do today:
+it is now. The function selects a text renderer for `read`, `edit`, `write`,
+`grep`, and `bash` successes by tool name (Machine variants share the names),
+and renders every other success and every failure as JSON. A renderer reads the
+`display` values its shape needs — an edit header's start line and line counts —
+and the emitted rendering carries no `display` key, nor a legacy top-level
+`thumbnail`. It returns the rendered string and its kind, `text` or `json`. The three call sites wrap it as they do today:
 `toolResultOutput(text, retainedReadRef(...))` for native tools, so an image
 or PDF read keeps its media reference and the SDK output type `text` it has
 now; `{ type: 'json', value }` for JSON tools live and in Continue; the
@@ -157,8 +158,9 @@ history would carry two shapes.
 ### D2: `display` is a reserved key of every result object
 
 Any result may carry `display: Record<string, unknown>`. The rendering
-function deletes it; `truncateOversizedResult` sets it aside and re-attaches
-it unchanged, as it does for `thumbnail` today. `thumbnail` becomes
+function reads the values its shape needs and emits no `display` key;
+`truncateOversizedResult` sets the object aside and re-attaches it unchanged,
+as it does for `thumbnail` today. `thumbnail` becomes
 `display.thumbnail` at its producer (`tool-media-store.ts`) and at the read
 of it in `prompt-imports-item.ts`; the prompt-import payload keeps its own
 `thumbnail` key, which the web client parses strictly. A part stored before the change keeps its

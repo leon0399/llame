@@ -198,6 +198,13 @@ Deliberately unchanged, with the reading this change relies on:
 - `native-file-tools` "Web read results carry the final URL and retrieval
   method": the stored result and its `content` carry no header; the header is
   part of the rendering only.
+- `instance-config` "Prompt-file rules govern replaceable files only": its
+  reserved-delimiter rules apply "wherever a producer neutralizes untrusted
+  text", and a tool result is such a producer. This change keeps rule 2, the
+  reserved-name rule, for tool results and drops rule 1, the unmatched-closer
+  rule, because a 20-line window of a JSX file carries `</div>` without its
+  opener. A tool result is therefore governed by the reserved-name rule alone,
+  as `tool-result-rendering` states.
 - `grep-tool` "Every hit is a locator that the read group admits": the stored
   passages keep their ranged `locator`; the rendered `##` line plus a line
   number forms the same argument.

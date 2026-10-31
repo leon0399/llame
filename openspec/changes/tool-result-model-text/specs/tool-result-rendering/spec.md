@@ -43,9 +43,10 @@ later turn, and the kept result of a Continue Run. A tool MUST NOT bypass the fu
 ### Requirement: Display data is stored and never rendered
 
 A tool result can carry a `display` object. The stored part MUST keep `display` as the tool wrote
-it. The rendering function MUST remove `display` before it renders. The rendering function MUST
-also remove a top-level `thumbnail` from an image result stored without `display`. The system
-MUST NOT accept `display` from a client.
+it. The rendering function MUST read the `display` values its shape needs, such as the start line
+of an edit header, and MUST NOT emit a `display` key: the object never reaches the model. A
+top-level `thumbnail` on an image result stored without `display` MUST NOT reach the model either.
+The system MUST NOT accept `display` from a client.
 
 #### Scenario: Display data does not reach the model
 
@@ -91,10 +92,10 @@ header names the stored start line and line counts.
 ### Requirement: Results that carry content render as text
 
 The rendering function MUST render a `read`, `edit`, `write`, `grep`, or `bash` success as plain
-text. The text MUST begin with one header line. A result that carries `content` MUST render the
-content lines after the header and the attribution lines. A result that carries a
-`truncationNotice` MUST render it as one bracketed line at the end. Image, PDF, and skill-catalog
-results MUST keep their JSON rendering.
+text, except an image, PDF, or skill-catalog result, which MUST keep its JSON rendering. A file
+`read`, an `edit`, and a `write` MUST begin with one header line. A `grep` page opens with its
+notice when it carries one, or with its first `## <locator>` line. A file read and an `edit` MUST
+render their `content` lines after the header and the attribution lines.
 
 #### Scenario: A file read renders as text
 
@@ -111,6 +112,27 @@ results MUST keep their JSON rendering.
 
 - **WHEN** `read` runs on a Machine locator
 - **THEN** the rendering is the text shape with the Machine locator in the header
+
+#### Scenario: A grep page opens with its notice
+
+- **WHEN** a `grep` page carries a Knowledge notice
+- **THEN** the text starts with that notice, before the first `## <locator>` line
+
+### Requirement: A directory listing renders its content without a header
+
+A directory listing MUST render its stored content, whose first line is the path, with no extra
+header, and its attribution lines after the content.
+
+#### Scenario: A listing opens with its path
+
+- **WHEN** the model lists a directory of two entries
+- **THEN** the text starts with the directory path
+- **AND** no header line precedes it
+
+### Requirement: A cap notice ends the text
+
+A result that carries a `truncationNotice` MUST render it as one bracketed line at the end of the
+text.
 
 #### Scenario: A cap notice renders as a line
 
@@ -135,11 +157,11 @@ read MUST render its content without prefixes.
 
 ### Requirement: The read header names the source and the shown lines
 
-A `read` text MUST begin with one of these headers, with the shown range of the result:
+A `read` text MUST begin with one of these headers, with the shown range of the result, or with
+the bare-locator header its own requirement defines:
 `<locator>:<start>-<end>` for a single range, `<locator>:<a>-<b>,<c>-<d>` for a multi-range read,
 `<locator>:raw:<start>-<end>` for a raw read, `<locator>:outline:<start>-<end>` for an outline.
-A directory listing MUST render its stored content, whose first line is the path, with no extra
-header. A null shown range MUST render `<locator>: empty` when the result is not truncated.
+A null shown range MUST render `<locator>: empty` when the result is not truncated.
 
 #### Scenario: A multi-range read lists its ranges
 
@@ -164,16 +186,16 @@ header. A null shown range MUST render `<locator>: empty` when the result is not
 
 ### Requirement: A read stored without ranges names its locator alone
 
-A `read` result that carries neither `shownRange` nor `shownRanges` MUST render the bare `<locator>`
-as its header, followed by `of <lineCount> lines` after one space when the result stores the total. Such a result
-MUST NOT render `<locator>: empty`: it carries content, and an `empty` header denies it. A result
-whose `shownRange` is explicitly null MUST keep the `<locator>: empty` header.
+A `read` result that carries neither `shownRange` nor `shownRanges` MUST render the bare
+`<locator>` as its header. Such a result MUST NOT render `<locator>: empty`: it carries content,
+and an `empty` header denies it. A result whose `shownRange` is explicitly null MUST keep the
+`<locator>: empty` header.
 
 #### Scenario: A part stored without range keys keeps its content visible
 
-- **WHEN** a `read` part stored before the ranges were kept carries `content`, `lineCount` 216,
-  and no `shownRange`, `shownRanges`, or `representation`
-- **THEN** the header is `<locator> of 216 lines`
+- **WHEN** a `read` part stored before the ranges were kept carries `content` and no
+  `shownRange`, `shownRanges`, `lineCount`, or `representation`
+- **THEN** the header is the bare `<locator>`, with no total
 - **AND** the content lines follow, with no `empty` in the header
 
 ### Requirement: The read header carries the source total when it is stored
@@ -223,10 +245,11 @@ and `origin` when present. `notes` MUST render one line per entry. A notice MUST
 ### Requirement: Continuation is one bracketed notice line
 
 When a result carries `truncated: true` and a `nextOffset`, the text MUST end with one bracketed
-line with the selector of the next read: the request form from line `nextOffset + 1` to the stored
-requested end, or open-ended `<n>-` once `nextOffset` has reached that end. When the result carries
-`lineCount`, the line MUST name `lineCount - nextOffset` more lines. A `grep` page with
-`complete: false` MUST end with one bracketed line that carries its cursor.
+line naming the next read: from line `nextOffset + 1` to the stored requested end, or open-ended
+`<n>-` once that end is reached or when the result stores none. A directory listing stores no
+requested end, so its read is always open-ended. A locator that takes no selector states the
+remainder alone instead. A `grep` page with `complete: false` MUST end with one bracketed line
+carrying its cursor.
 
 #### Scenario: A truncated read tells how to continue
 
@@ -235,8 +258,9 @@ requested end, or open-ended `<n>-` once `nextOffset` has reached that end. When
 
 #### Scenario: A cut inside the requested window resumes to the stored end
 
-- **WHEN** an unselected read is cut by the bound with `nextOffset` 1500 and a stored requested end of 2000
-- **THEN** the text ends with `[… Use <locator>:1501-2000 to continue]`
+- **WHEN** an unselected read is cut by the bound with `nextOffset` 1500 and a stored requested end
+  of 2000, in a file of 3,000 lines
+- **THEN** the text ends with `[1500 more lines. Use <locator>:1501-2000 to continue]`
 - **AND** an explicit `:1-2000` read cut at the same line ends the same way
 
 #### Scenario: A ranged read that is not truncated has no notice
@@ -258,18 +282,28 @@ requested end, or open-ended `<n>-` once `nextOffset` has reached that end. When
 
 - **WHEN** a directory listing of 120 entries stops with `nextOffset` 50 and `entryCount` 120
 - **THEN** the text ends with `[70 more entries. Use <locator>:51- to continue]`
+- **AND** the next read is open-ended
 
-#### Scenario: A multi-range read resumes with its remaining members
+### Requirement: The continuation count names the source lines after the cut
+
+When a truncated result carries a `lineCount`, its bracketed line MUST name the source lines after
+the cut, `lineCount - nextOffset`, before the read that continues it. The count MUST NOT claim to
+be the members the selector still requests: a multi-range read counts the gap it skips, and a read
+cut inside its window counts past the window end.
+
+#### Scenario: A multi-range read counts the source, not the remaining members
 
 - **WHEN** a read of `:1-2500,4000-4010` of a 5,000-line file stops with `nextOffset` 2000
 - **THEN** the text ends with `[3000 more lines. Use <locator>:2001-2500,4000-4010 to continue]`
+- **AND** the selector requests 511 lines while the count names the 3,000 source lines after the cut
 
 ### Requirement: A locator without selector room states the remainder alone
 
 A web locator that carries a query or a fragment takes no trailing selector, so a truncated file
 `read` of it MUST NOT advise a selector read. Its continuation line MUST be
 `[<count> more lines not shown; this locator takes no line selector]`, without the count when
-`lineCount` is absent. A locator that takes a selector MUST keep the continuation read.
+`lineCount` is absent. A locator that takes a selector MUST keep the continuation read. A new
+web read stores no fragment, so a fragment path belongs to a stored part only.
 
 #### Scenario: A locator with a query states the remainder without advice
 
@@ -278,9 +312,10 @@ A web locator that carries a query or a fragment takes no trailing selector, so 
 - **THEN** the text ends with `[1000 more lines not shown; this locator takes no line selector]`
 - **AND** the text names no next read
 
-#### Scenario: A selector-less locator stored without a total omits the count
+#### Scenario: A selector-less stored part without a total omits the count
 
-- **WHEN** a truncated read of `https://example.test/doc#intro` carries no `lineCount`
+- **WHEN** a truncated read part stored before the fragment was dropped carries
+  `https://example.test/doc#intro` and no `lineCount`
 - **THEN** the text ends with `[more lines not shown; this locator takes no line selector]`
 
 ### Requirement: An edit renders its post-edit region
@@ -355,11 +390,12 @@ render first.
 
 ### Requirement: A bash result renders a status header and its streams
 
-A `bash` text MUST begin with `exit <code>`, then `, <seconds> s` with one decimal when the result
-carries `wallTimeMs`. The stdout MUST follow verbatim. A non-empty stderr MUST follow under a
-`[stderr]` line. When both streams are empty, the text MUST be the header and `(no output)`. A
-result with `truncated: true` MUST end with `[output cut at the bound]`. A `command_failed`
-message MUST be the same text shape with the non-zero exit code.
+A `bash` success and a `command_failed` message MUST begin with `exit <code>`, then
+`, <seconds> s` with one decimal when the result carries `wallTimeMs`. The stdout MUST follow
+verbatim. A non-empty stderr MUST follow under a `[stderr]` line. When both streams are empty, the
+text MUST be the header and `(no output)`. A result with `truncated: true` MUST end with
+`[output cut at the bound]`. A `command_failed` message MUST be the same text shape with the
+non-zero exit code.
 
 #### Scenario: A silent command reports no output
 
@@ -388,32 +424,42 @@ message MUST be the same text shape with the non-zero exit code.
 
 ### Requirement: A grep passage cut at the page bound names the cursor
 
-A passage the page cut to fit carries `cut: true` and MUST end with `[passage cut at the result
-bound; continue with the cursor]`. A cut passage MUST NOT carry the capped-file notice unless it is
-also the twentieth passage of its file.
+A passage the page cut to fit carries `cut: true` and MUST carry `[passage cut at the result
+bound; continue with the cursor]` after its last line. A cut passage that is also its file's
+twentieth passage MUST carry `[more passages in this file; read it to see them]` in the line after
+the cut marker, and MUST carry that notice in no other case.
 
 #### Scenario: A cut passage does not claim a capped file
 
-- **WHEN** the first passage of a page is cut at line 40 and its file holds no more than 20
+- **WHEN** the first passage of a page is cut at line 40 and its file holds fewer than 20
   passages
-- **THEN** that passage ends with `[passage cut at the result bound; continue with the cursor]`
+- **THEN** that passage carries `[passage cut at the result bound; continue with the cursor]`
+  after its last line
 - **AND** the text carries no `[more passages in this file; read it to see them]`
+
+#### Scenario: A cut twentieth passage carries both markers
+
+- **WHEN** a file's twentieth passage is cut to fit the page bound
+- **THEN** the cut marker follows its last line
+- **AND** the capped-file notice follows the cut marker
 
 ### Requirement: A timed-out command names no exit code
 
-A `timed_out` text MUST begin with `timed out`, then `, <seconds> s` with one decimal when the
+A `timed_out` message MUST begin with `timed out`, then `, <seconds> s` with one decimal when the
 producer measured `wallTimeMs`. It MUST NOT name an exit code the command never reported. Its
-streams follow the bash text shape.
+streams follow the bash text shape. The failure result stays a JSON object with this text as its
+`message`.
 
 #### Scenario: A timeout names its elapsed time
 
 - **WHEN** a command is stopped by its deadline after 30.0 s with no output
-- **THEN** the text is `timed out, 30.0 s` then `(no output)`
+- **THEN** the message is `timed out, 30.0 s` then `(no output)`
+- **AND** the failure result is JSON with `type: "timed_out"` and that message
 
 #### Scenario: A timeout before any command started names no time
 
 - **WHEN** a call ends at its deadline before a command was spawned
-- **THEN** the text is `timed out` then `(no output)`
+- **THEN** the message is `timed out` then `(no output)`
 
 ### Requirement: Tool result payloads are neutralized by the reserved-name rule
 
