@@ -24,7 +24,7 @@ The tool MUST keep the rendered model text of the whole result at or under
 continuation line, the `[warnings: …]` line, and the notice count. It MUST
 emit whole passages in order while the next passage fits. When the
 first passage of a page does not fit, the tool MUST cut that passage at a
-line boundary and mark it `truncated: true`. That passage ends the page. The
+line boundary and mark it `cut: true`. That passage ends the page. The
 page MUST end before the budget, so the tool loop never cuts the result.
 
 When the tool cuts a passage, the cursor MUST name that passage and its last
@@ -33,8 +33,9 @@ passage first. It MUST start at the line after the last emitted line. It
 MUST repeat no line. It MUST then continue in canonical order.
 
 A rest with no matched line is dropped, as the partition rule drops one. A
-cut passage that is also the twentieth passage of its file keeps the
-twentieth rule after that call emits its rest.
+cut passage that is also the twentieth passage of its file carries
+`truncated: true` beside its cut, and the twentieth rule holds after that
+call emits its rest.
 
 When passages remain after a page, the result MUST carry `complete: false`
 and an opaque keyset `cursor`. The cursor names the last emitted passage by

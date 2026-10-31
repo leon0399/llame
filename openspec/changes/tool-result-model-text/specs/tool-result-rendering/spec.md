@@ -386,6 +386,36 @@ message MUST be the same text shape with the non-zero exit code.
 - **WHEN** a command's stdout is cut at the executor bound
 - **THEN** the text ends with `[output cut at the bound]`
 
+### Requirement: A grep passage cut at the page bound names the cursor
+
+A passage the page cut to fit carries `cut: true` and MUST end with `[passage cut at the result
+bound; continue with the cursor]`. A cut passage MUST NOT carry the capped-file notice unless it is
+also the twentieth passage of its file.
+
+#### Scenario: A cut passage does not claim a capped file
+
+- **WHEN** the first passage of a page is cut at line 40 and its file holds no more than 20
+  passages
+- **THEN** that passage ends with `[passage cut at the result bound; continue with the cursor]`
+- **AND** the text carries no `[more passages in this file; read it to see them]`
+
+
+### Requirement: A timed-out command names no exit code
+
+A `timed_out` text MUST begin with `timed out`, then `, <seconds> s` with one decimal when the
+producer measured `wallTimeMs`. It MUST NOT name an exit code the command never reported. Its
+streams follow the bash text shape.
+
+#### Scenario: A timeout names its elapsed time
+
+- **WHEN** a command is stopped by its deadline after 30.0 s with no output
+- **THEN** the text is `timed out, 30.0 s` then `(no output)`
+
+#### Scenario: A timeout before any command started names no time
+
+- **WHEN** a call ends at its deadline before a command was spawned
+- **THEN** the text is `timed out` then `(no output)`
+
 ### Requirement: Tool result payloads are neutralized by the reserved-name rule
 
 The rendering function MUST pass each rendering through one neutralizer: a text rendering as a
