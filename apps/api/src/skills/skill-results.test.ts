@@ -1,5 +1,8 @@
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
-import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
+import {
+  measureJson,
+  neutralizeReservedDelimitersDeep,
+  RESULT_TRUNCATE_CHARS,
+} from '@workspace/runtime-safety';
 
 import { type SkillCatalogEntry } from './skill-catalog';
 import { skillCatalogEnvelope } from './skill-results';
@@ -24,14 +27,36 @@ describe('skillCatalogEnvelope', () => {
 
     const listing = skillCatalogEnvelope(entries, { offset: 0 });
 
-    expect(measureNativeModelOutput(listing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(listing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(listing.skills.length).toBeGreaterThan(0);
     expect(listing.skills.length).toBeLessThan(entries.length);
     // The continuation resumes exactly where the page stopped, so no entry is
     // skipped between pages.
     expect(listing.nextOffset).toBe(listing.skills.length);
+  });
+
+  it('admits a catalog that fills the cap exactly and refuses one unit more', () => {
+    // The fitting bound is inclusive: a listing whose neutralized JSON is
+    // exactly the shared cap is a page that fits. The base measurement gives
+    // the fixed width, so each added description character is one more unit.
+    const base = skillCatalogEnvelope([entry(1, 0)], { offset: 0 });
+    const baseSize = measureJson(neutralizeReservedDelimitersDeep(base));
+    const padding = RESULT_TRUNCATE_CHARS - baseSize;
+
+    const atCap = skillCatalogEnvelope([entry(1, padding)], { offset: 0 });
+    expect(measureJson(neutralizeReservedDelimitersDeep(atCap))).toBe(
+      RESULT_TRUNCATE_CHARS,
+    );
+    expect(atCap.skills).toHaveLength(1);
+    expect(atCap).not.toHaveProperty('nextOffset');
+
+    const overCap = skillCatalogEnvelope([entry(1, padding + 1)], {
+      offset: 0,
+    });
+    expect(overCap.skills).toHaveLength(0);
+    expect(overCap.nextOffset).toBe(0);
   });
 
   it('measures the escaping the reserved-name rule adds', () => {
@@ -47,9 +72,9 @@ describe('skillCatalogEnvelope', () => {
     const plainListing = skillCatalogEnvelope(plain, { offset: 0 });
     const reservedListing = skillCatalogEnvelope(reserved, { offset: 0 });
 
-    expect(measureNativeModelOutput(reservedListing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(reservedListing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(reservedListing.skills.length).toBeLessThan(
       plainListing.skills.length,
     );
@@ -72,9 +97,9 @@ describe('skillCatalogEnvelope', () => {
 
     expect(listing.skillCount).toBe(50_000);
     expect(listing.skills.length).toBeGreaterThan(0);
-    expect(measureNativeModelOutput(listing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(listing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(elapsed).toBeLessThan(1000);
   });
 
@@ -94,9 +119,9 @@ describe('skillCatalogEnvelope', () => {
 
     const listing = skillCatalogEnvelope(entries, { offset: 100, limit: 500 });
 
-    expect(measureNativeModelOutput(listing)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(listing)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(listing.nextOffset).toBe(100 + listing.skills.length);
   });
 

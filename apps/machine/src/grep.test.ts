@@ -18,8 +18,8 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
-  grepCursorFieldUnits,
-  measureNativeModelOutput,
+  grepContinuationUnits,
+  measureGrepRendering,
   runGrepScan,
   type GrepBudget,
   type GrepWalkPort,
@@ -75,24 +75,19 @@ function spacedMatches(count: number): string {
 
 /** A page bound that leaves `room` units for one file's passages. */
 function pageRoom(rel: string, startLine: number, room: number): number {
-  return grepCursorFieldUnits({ scopeIndex: 0, rel, startLine }) + room;
+  return grepContinuationUnits({ scopeIndex: 0, rel, startLine }) + room;
 }
 
-/** The page units a run of daemon passages takes, its array brackets included. */
+/** The page units a run of daemon passages renders to. */
 function unitsOf(passages: ReadonlyArray<FsGrepPassage>): number {
-  return passages.reduce(
-    (total, passage, index) =>
-      total +
-      // The engine pages a passage as its locator, content, and matches.
-      measureNativeModelOutput({
-        locator: `${passage.path}:${String(passage.startLine)}-${String(passage.endLine)}`,
-        content: passage.content,
-        matches: passage.matches,
-      }) -
-      2 +
-      (index === 0 ? 0 : 1),
-    2,
-  );
+  return measureGrepRendering({
+    results: passages.map((passage) => ({
+      locator: `${passage.path}:${String(passage.startLine)}-${String(passage.endLine)}`,
+      content: passage.content,
+      matches: passage.matches,
+    })),
+    complete: true,
+  });
 }
 
 function request(
@@ -361,7 +356,7 @@ describe("fs.grep", () => {
           ...BUDGET,
           pageUnits:
             unitsOf(whole.results.slice(0, 10)) +
-            grepCursorFieldUnits({
+            grepContinuationUnits({
               scopeIndex: 0,
               rel: "a.go",
               startLine: whole.results[9].startLine,
@@ -397,11 +392,13 @@ describe("fs.grep", () => {
       }),
     );
     expect(first.results).toHaveLength(1);
+    // A cut passage claims the cut only: its file is not capped, so the
+    // twentieth-passage marker would be a lie the hub renders back.
     expect(first.results[0]).toMatchObject({
       startLine: 1,
-      truncated: true,
       cut: true,
     });
+    expect(first.results[0]).not.toHaveProperty("truncated");
     const cutEnd = first.results[0]?.endLine ?? 0;
     expect(cutEnd).toBeLessThan(8);
     if (first.cursor === undefined)

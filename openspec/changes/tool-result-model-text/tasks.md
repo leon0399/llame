@@ -171,31 +171,31 @@ Create `tool-result-model-text/mutation-text` from `tool-result-model-text/read-
 Create `tool-result-model-text/grep-bash` from `tool-result-model-text/mutation-text` with
 `$gh-stack`.
 
-- [ ] 5.1 Add the `grep` text renderer: notice first, `## <locator>` per run of passages,
+- [x] 5.1 Add the `grep` text renderer: notice first, `## <locator>` per run of passages,
       `*N:` match rows from absolute `matches`, blank line between passages, the capped-passage
       marker, `[warnings: …]`, continuation line with the cursor; verify the two-passage,
       overlapping-scope, warnings, and capped-file scenarios.
-- [ ] 5.2 Measure the grep page budget on the neutralized rendering in `grep/page.ts` and
+- [x] 5.2 Measure the grep page budget on the neutralized rendering in `grep/page.ts` and
       `apps/api/src/tools/grep.ts`; replace `grepCursorFieldUnits` and the placeholder hash with
-      the continuation line's width; delete `measureNativeModelOutput` and `serialization.ts`;
-      verify `page.test.ts` at exactly 15,000 code units and the "budget ends a page early"
-      scenario.
-- [ ] 5.3 Record `wallTimeMs` in the managed watcher, SSH, and Machine bash producers and add it
+      the continuation line's width; delete `measureNativeModelOutput` and keep
+      `serializeNativeModelOutput` in `serialization.ts`; verify `page.test.ts` at exactly 15,000
+      code units and the "budget ends a page early" scenario.
+- [x] 5.3 Record `wallTimeMs` in the managed watcher, SSH, and Machine bash producers and add it
       as an optional wire field; carry it on success and in the `command_failed` and `timed_out`
       messages; drop `operation` and `executor` and map them away from an old daemon; verify with
       `bash.test.ts`, `ssh-bash.test.ts`, and the Machine call test (scenarios "Wall time is
       reported", "A timeout names the elapsed time", "An old daemon reports no wall time").
-- [ ] 5.4 Add the `bash` text renderer in `packages/bash-executor` with `exit <code>[, <seconds>
+- [x] 5.4 Add the `bash` text renderer in `packages/bash-executor` with `exit <code>[, <seconds>
       s]`, `[stderr]`, `(no output)`, `[output cut at the bound]`, and the `truncationNotice`
       line, and compose the `command_failed` message with it in `bash-result.ts`; wire both
       renderers into `renderToolResultForModel`; verify the silent-command, labelled-stderr,
       failing-command, cut-output, and legacy scenarios and the live/replay equality test extended
       to `grep` and `bash`.
-- [ ] 5.5 UI: `bash.tsx` shows wall time and stops parsing `executor`; `grep.tsx` unchanged;
+- [x] 5.5 UI: `bash.tsx` shows wall time and stops parsing `executor`; `grep.tsx` unchanged;
       verify with a story and `run-story-tests`.
-- [ ] 5.6 Extend `scripts/measure-tool-results.mjs` with the `grep` and `bash` rows; verify that
+- [x] 5.6 Extend `scripts/measure-tool-results.mjs` with the `grep` and `bash` rows; verify that
       it reproduces the proposal's table.
-- [ ] 5.7 Docs: `apps/api/src/prompts/tools/{grep,bash}.md` and
+- [x] 5.7 Docs: `apps/api/src/prompts/tools/{grep,bash}.md` and
       `docs/product/reference/tools/{grep,bash}.md`; dated `CHANGELOG.md` entry; verify with
       `pnpm lint:markdown`.
 - [ ] 5.8 SR: self-review the parent-relative diff; run the code-review and ponytail-review passes;

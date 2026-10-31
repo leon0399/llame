@@ -34,10 +34,13 @@ import {
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
 import { isRecord, isString } from '@workspace/runtime-safety';
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
+import {
+  GREP_WARNING_KINDS,
+  measureGrepRendering,
+} from '@workspace/native-file-tools';
 import { type ToolResult } from './types';
 import { type KnowledgeToolResolver, type ToolContext } from './types';
-import { grepInputSchema, nativeGrepTool } from './grep';
+import { grepInputSchema, nativeGrepTool, pageFixedReserve } from './grep';
 import { nativeReadTool } from './native-files';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
@@ -657,11 +660,26 @@ describe('skill scopes', () => {
 });
 
 describe('paging', () => {
+  it('reserves the worst-case page lines and their separators', () => {
+    // The reserve holds the Knowledge notice and one warning of every kind at
+    // a six-digit count, plus the two newlines that separate those lines from
+    // the passages. A smaller reserve lets a page render past its bound; a
+    // larger one needlessly refuses a passage that fits.
+    const worstCase = measureGrepRendering({
+      results: [],
+      complete: true,
+      warnings: GREP_WARNING_KINDS.map((kind) => ({ kind, count: 999_999 })),
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    });
+    expect(pageFixedReserve()).toBe(worstCase + 2);
+  });
+
   it('reserves the cursor and the notice inside the 15,000-unit page', async () => {
     await withRoot(async (root) => {
-      // A path near the Knowledge byte bound makes the cursor large: a page
-      // that filled the budget with passages alone would push the cursor past
-      // the runner's 16,000-unit cap, which shortens it in place.
+      // A long path is rendered once per file, so each note's file line and
+      // its passages fill the page beside the cursor and the notice; a page
+      // measured on its passages alone would push the cursor past the runner's
+      // 16,000-unit cap, which shortens it in place.
       const directory = Array.from(
         { length: 28 },
         (_, index) => `${String(index).padStart(2, '0')}${'d'.repeat(28)}`,
@@ -671,9 +689,16 @@ describe('paging', () => {
       const lines: Array<string> = [];
       for (let index = 0; index < 14; index += 1)
         lines.push('ctx', 'ctx', 'ctx', matched);
-      const a = await spaceFixture(root, SPACE_A, {
-        [`${directory}/note.md`]: lineNumbered(...lines),
-      });
+      const a = await spaceFixture(
+        root,
+        SPACE_A,
+        Object.fromEntries(
+          Array.from({ length: 24 }, (_, index) => [
+            `${directory}/note-${String(index).padStart(2, '0')}.md`,
+            lineNumbered(...lines),
+          ]),
+        ),
+      );
       const context = contextOf({
         resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
       });
@@ -681,7 +706,7 @@ describe('paging', () => {
 
       const first = await run(context, { patterns: ['needle'], scopes });
       expect(first).toMatchObject({ status: 'success', complete: false });
-      expect(measureNativeModelOutput(first)).toBeLessThanOrEqual(15_000);
+      expect(measureGrepRendering(first)).toBeLessThanOrEqual(15_000);
       const cursor = cursorOf(first);
       if (cursor === undefined) throw new Error('the page carries a cursor');
 
@@ -703,14 +728,14 @@ describe('paging', () => {
       const space = path.join(root, SPACE_A);
       await mkdir(space, { recursive: true });
       const misses = Array.from(
-        { length: 4999 },
+        { length: 4900 },
         (_, index) => `f${String(index).padStart(4, '0')}.md`,
       );
       await Promise.all(
         misses.map((name) => writeFile(path.join(space, name), 'miss\n')),
       );
-      // A path near the Knowledge byte bound makes the cursor large, and one
-      // passage per four lines fills the page beside it.
+      // A long file line per note fills the page beside the cursor, so the
+      // call fills before the file bound and must not page itself again.
       const directory = Array.from(
         { length: 28 },
         (_, index) => `z${String(index).padStart(2, '0')}${'d'.repeat(26)}`,
@@ -722,10 +747,14 @@ describe('paging', () => {
       const lines: Array<string> = [];
       for (let index = 0; index < 20; index += 1)
         lines.push('ctx', matched, 'ctx', 'ctx');
-      await writeFile(
-        path.join(space, ...`${directory}/note.md`.split('/')),
-        lineNumbered(...lines),
-      );
+      for (let index = 0; index < 6; index += 1)
+        await writeFile(
+          path.join(
+            space,
+            ...`${directory}/note-${String(index)}.md`.split('/'),
+          ),
+          lineNumbered(...lines),
+        );
 
       const reads = vi.spyOn(KnowledgeFilesystemAdapter.prototype, 'readWalk');
       try {
@@ -743,13 +772,14 @@ describe('paging', () => {
           { patterns: ['needle'], scopes: [`kb://${SPACE_A}`] },
         );
         expect(result).toMatchObject({ status: 'success', complete: false });
-        expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(15_000);
+        expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
         expect(reads.mock.calls.length).toBeLessThanOrEqual(5000);
       } finally {
         reads.mockRestore();
       }
     });
-    // The fixture creates and walks 5,000 files, which is the bound it proves.
+    // The fixture creates and walks about 5,000 files, which is the bound it
+    // proves; the page fills long before the walk stops.
   }, 30_000);
   it('mints a position cursor when the deadline stops a walk before any passage', async () => {
     await withRoot(async (root) => {

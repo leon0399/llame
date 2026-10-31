@@ -1,4 +1,5 @@
 import { projectToolObservations } from './tool-observation-part';
+import { toToolResult } from '../tools/bash-result';
 import { renderToolResultText } from '../tools/model-text';
 import type { ToolResult } from '../tools/types';
 import type { MessagePart } from './context-builder';
@@ -268,6 +269,84 @@ describe('live and replayed renderings agree', () => {
     expect(replayed).toContain('Outcome: command_failed');
     expect(replayed).toContain('"type":"command_failed"');
     expect(replayed).toContain('&lt;/tool-result&gt;');
+  });
+
+  it('replays a bash success as its live rendering', () => {
+    const result = {
+      status: 'success' as const,
+      exitCode: 0,
+      stdout: 'apps/\n',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 1240,
+    };
+
+    const replayed = projectedOutput(
+      storedPart('bash', result, { input: { command: 'ls' } }),
+    );
+    expect(replayed).toContain(liveText('bash', result));
+    expect(replayed).toContain('exit 0, 1.2 s\napps/');
+  });
+
+  it('replays a grep page as its live rendering, cursor line included', () => {
+    const result = {
+      status: 'success' as const,
+      results: [
+        {
+          locator: '/work/src/app.ts:3-4',
+          content: '3: a\n4: hit',
+          matches: [4],
+        },
+        {
+          locator: '/work/src/app.ts:40-41',
+          content: '40: hit\n41: b',
+          matches: [40],
+        },
+      ],
+      complete: false,
+      cursor: 'cursor-1',
+      warnings: [],
+    };
+
+    const live = liveText('grep', result);
+    expect(live).toBe(
+      '## /work/src/app.ts\n3: a\n*4: hit\n\n*40: hit\n41: b\n[more results. Continue with cursor: cursor-1]',
+    );
+    const replayed = projectedOutput(
+      storedPart('grep', result, { input: { patterns: ['hit'] } }),
+    );
+    expect(replayed).toContain(live);
+    expect(replayed).toContain('Outcome: success');
+  });
+
+  it('replays a failing bash command as its live rendering', () => {
+    const live = toToolResult({
+      status: 'error',
+      exitCode: 1,
+      stdout: '1 failed\n',
+      stderr: 'AssertionError',
+      truncated: false,
+      wallTimeMs: 2460,
+    });
+    if (live.status !== 'error') throw new Error('Expected a failure');
+
+    const replayed = projectedOutput(
+      storedPart(
+        'bash',
+        {},
+        {
+          state: 'output-error',
+          output: undefined,
+          errorText: live.message,
+          outcome: 'command_failed',
+        },
+      ),
+    );
+    expect(live.message).toBe(
+      'exit 1, 2.5 s\n1 failed\n[stderr]\nAssertionError',
+    );
+    expect(replayed).toContain(liveText('bash', live));
+    expect(replayed).toContain('"type":"command_failed"');
   });
 
   it('replays a failure without the operator diagnostic its live result carried', () => {

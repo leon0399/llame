@@ -150,10 +150,10 @@ describe('ssh bash over a real sshd', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      operation: 'bash',
       exitCode: 0,
       stdout: '/tmp\n',
     });
+    expect(result).toHaveProperty('wallTimeMs', expect.any(Number));
     const who = await bash(
       { command: 'id -un; hostname', cwd: 'ssh://box/tmp' },
       client(),
@@ -170,9 +170,7 @@ describe('ssh bash over a real sshd', () => {
     );
 
     expect(result).toMatchObject({ status: 'error', type: 'command_failed' });
-    expect(result.status === 'error' && result.message).toContain(
-      'Command exited with code 255.',
-    );
+    expect(result.status === 'error' && result.message).toContain('exit 255');
   });
 
   it('refuses a missing cwd without running the command', async () => {
@@ -229,7 +227,7 @@ describe('ssh bash over a real sshd', () => {
       client(),
     );
 
-    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toMatchObject({ status: 'success', cut: true });
     const stdout = String(result['stdout']);
     expect(stdout).toMatch(/^x+$/u);
     expect(stdout.length).toBeGreaterThan(0);

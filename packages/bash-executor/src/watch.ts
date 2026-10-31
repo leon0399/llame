@@ -8,7 +8,6 @@ import {
 } from "./process-tree";
 import { sanitizeKnownResult } from "./sanitize";
 import type { BashExecutorContext, BashKnownResult } from "./types";
-import { MANAGED_EXECUTOR } from "./managed-constants";
 
 const OUTPUT_DRAIN_BUDGET_MS = 50;
 
@@ -46,6 +45,8 @@ type WatchSession = {
   readonly child: ChildProcess;
   readonly pgid: number;
   readonly request: WatchRequest;
+  /** The moment the watcher took the spawned child: the wall time's origin. */
+  readonly startedAtMs: number;
   readonly streams: StreamState;
   readonly controls: WatchControls;
   readonly finish: (result: BashResult) => void;
@@ -88,6 +89,7 @@ export function watchManagedChild(
     child,
     pgid,
     request,
+    startedAtMs: performance.now(),
     streams,
     controls,
     finish,
@@ -177,6 +179,9 @@ async function settleDeadline(session: WatchSession): Promise<void> {
     status: "error",
     type: "timed_out",
     durationMs: effectiveDeadlineMs(session),
+    ...(output.wallTimeMs !== undefined && {
+      wallTimeMs: output.wallTimeMs,
+    }),
     stdout: output.stdout,
     stderr: output.stderr,
     truncated: output.truncated,
@@ -361,13 +366,12 @@ function knownCloseResult(
   const exitCode = code ?? 1;
   const raw: BashKnownResult = {
     status: exitCode === 0 ? "success" : "error",
-    operation: "bash",
-    executor: MANAGED_EXECUTOR,
     exitCode,
     stdout: session.streams.stdout,
     stderr: session.streams.stderr,
     truncated:
       session.streams.stdoutTruncated || session.streams.stderrTruncated,
+    wallTimeMs: Math.round(performance.now() - session.startedAtMs),
   };
   return sanitizeKnownResult(
     raw,

@@ -18,14 +18,18 @@ const inputSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-/** Loose: the runner's oversize cap may add `truncationNotice`. */
+/** Loose: the runner's oversize cap may add `truncated`/`truncationNotice`,
+ *  the executor's own stream cut is `cut`, and a part stored before either
+ *  carries `truncated` for the executor cut and may hold the old
+ *  `operation`/`executor`. */
 const outputSchema = z.looseObject({
   status: z.literal("success"),
   exitCode: z.number(),
   stdout: z.string(),
   stderr: z.string(),
-  truncated: z.boolean(),
-  executor: z.string().optional(),
+  cut: z.boolean().optional(),
+  truncated: z.boolean().optional(),
+  wallTimeMs: z.number().optional(),
   truncationNotice: z.string().optional(),
 });
 
@@ -64,7 +68,13 @@ function BashCommand({ input }: { input: BashInput }) {
   );
 }
 
+const MILLISECONDS_PER_SECOND = 1000;
+
 function BashResult({ output }: { output: BashOutput }) {
+  const wallTime =
+    output.wallTimeMs === undefined
+      ? undefined
+      : `${(output.wallTimeMs / MILLISECONDS_PER_SECOND).toFixed(1)} s`;
   return (
     <>
       <ToolSection label="Output" aside={`exit ${output.exitCode}`}>
@@ -83,7 +93,13 @@ function BashResult({ output }: { output: BashOutput }) {
       </ToolSection>
       <ToolDetails
         rows={[
-          ["Truncated", output.truncated ? "yes" : undefined],
+          ["Time", wallTime],
+          [
+            "Truncated",
+            output.cut === true || output.truncated === true
+              ? "yes"
+              : undefined,
+          ],
           ["Note", output.truncationNotice],
         ]}
       />
@@ -94,8 +110,9 @@ function BashResult({ output }: { output: BashOutput }) {
 /**
  * Renders a host `bash` invocation as a shell prompt (command, working
  * directory, added environment) followed by the exit code and the standard
- * output and error streams. A failed command's output arrives inside the
- * error text, which the error panel shows with its line breaks.
+ * output and error streams, with the command's wall time beside them. A failed
+ * command's output arrives inside the error text, which the error panel shows
+ * with its line breaks.
  *
  * @summary displays a shell command and its output inside a collapsible tool row
  */

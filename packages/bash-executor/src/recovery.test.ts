@@ -41,11 +41,7 @@ describe("recovery and attempt ledger", () => {
       { command: "bash", args: ["-c", "printf ok"] },
       context(directory),
     );
-    expect(result).toMatchObject({
-      status: "success",
-      executor: "managed",
-      stdout: "ok",
-    });
+    expect(result).toMatchObject({ status: "success", stdout: "ok" });
   });
 
   it("admits a new Run after an unknown outcome with no surviving process", async () => {

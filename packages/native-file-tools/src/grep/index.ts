@@ -14,7 +14,7 @@ export type {
 export {
   decodeGrepCursor,
   encodeGrepCursor,
-  grepCursorFieldUnits,
+  grepContinuationUnits,
   hashGrepInputs,
 } from "./cursor";
 export type {
@@ -27,6 +27,12 @@ export type {
   GrepPositionCursor,
 } from "./cursor";
 export { runGrepScan } from "./scan";
+export {
+  grepFileLocator,
+  grepPassageUnits,
+  measureGrepRendering,
+  renderGrepText,
+} from "./model-text";
 export { GREP_WARNING_KINDS, GrepPortError } from "./types";
 export type {
   GrepBudget,

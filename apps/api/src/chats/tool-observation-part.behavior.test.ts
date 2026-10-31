@@ -409,10 +409,18 @@ describe('projectToolObservations', () => {
 
   it('marks a cleared payload incomplete ONLY for a partial Knowledge search or grep result', () => {
     const bulk = 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2);
+    // A grep page renders as text, so its size comes from real passages.
+    const passages = Array.from({ length: 40 }, (_, index) => ({
+      locator: `src/file-${index}.ts:1-1`,
+      content: `1: ${bulk}`,
+      matches: [1],
+    }));
     const clearedOutcomeOf = (overrides: UnknownRecord): string => {
       const projection = project([toolPart(overrides)]);
       const text = toolOutputText(projection?.toolResultParts[0]?.output);
-      expect(text).not.toContain('Payload:');
+      // A cleared payload carries no body: the text renderers print an empty
+      // rendering, the JSON ones an empty one-line value.
+      expect(text).not.toMatch(/Payload:\n\S/u);
       const match = /Outcome: (?<outcome>\S+)/u.exec(text);
       if (match?.groups === undefined) {
         throw new Error(`expected an outcome line, got ${text}`);
@@ -430,14 +438,14 @@ describe('projectToolObservations', () => {
     expect(
       clearedOutcomeOf({
         type: 'tool-grep',
-        output: { status: 'success', complete: false, results: bulk },
+        output: { status: 'success', complete: false, results: passages },
       }),
     ).toBe('incomplete');
     // A complete grep page is not.
     expect(
       clearedOutcomeOf({
         type: 'tool-grep',
-        output: { status: 'success', complete: true, results: bulk },
+        output: { status: 'success', complete: true, results: passages },
       }),
     ).toBe('success');
     // Another tool with the identical payload shape is not Knowledge.

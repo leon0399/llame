@@ -40,7 +40,6 @@ export function sanitizeKnownResult(
   const stderr = sanitizeStream(result.stderr, bound, protectedValues);
   return {
     ...result,
-    executor: "managed",
     stdout: stdout.text,
     stderr: stderr.text,
     truncated: result.truncated || stdout.truncated || stderr.truncated,

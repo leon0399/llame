@@ -4,10 +4,12 @@ export type {
   BashExecutorContext,
   BashKnownResult,
   BashResult,
+  BashTimedOutResult,
   BashUnavailableResult,
   BashUnknownResult,
 } from "./types";
 export { managedEnvironmentCollision } from "./env";
+export { renderBashText } from "./model-text";
 export { requireManagedBoundary, sanitizeKnownResult } from "./sanitize";
 export {
   CONFIGURED_TOOLS,
@@ -18,7 +20,6 @@ export type { ConfiguredTool } from "./tools";
 export {
   admitManagedBash,
   executeManagedBash,
-  MANAGED_EXECUTOR,
   measureManagedInput,
   resetManagedExecutorForTests,
   reserveManagedProcessSlot,

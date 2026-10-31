@@ -23,13 +23,13 @@ export type BashCancellation = {
 
 export type BashKnownResult = {
   readonly status: "success" | "error";
-  readonly operation: "bash";
-  /** Managed executor only; direct host bash is not part of this contract. */
-  readonly executor: "managed";
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
   readonly truncated: boolean;
+  /** Spawn to settlement, as the producer measured it (bash-execution
+   *  "Command results are bounded and explicit"). */
+  readonly wallTimeMs?: number;
 };
 
 export type BashUnknownResult = {
@@ -42,7 +42,10 @@ export type BashUnknownResult = {
 export type BashTimedOutResult = {
   readonly status: "error";
   readonly type: "timed_out";
+  /** The deadline the command was stopped at; never a measurement. */
   readonly durationMs: number;
+  /** Spawn to stop as the producer measured it, absent when none started. */
+  readonly wallTimeMs?: number;
   readonly stdout: string;
   readonly stderr: string;
   readonly truncated: boolean;
