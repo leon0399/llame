@@ -19,6 +19,7 @@ import {
   grepContinuationUnits,
   hashGrepInputs,
   measureGrepRendering,
+  renderGrepText,
   type GrepBudget,
 } from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
@@ -1179,6 +1180,132 @@ describe('Machine page bounds', () => {
     expect(result).toMatchObject({ status: 'success', complete: false });
     expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
   });
+
+  it('measures a following passage against the passage it follows', async () => {
+    // The second passage fits only as a continuation of the first. Measured
+    // alone it would carry its own `## <file>` line, and that extra line would
+    // push the page over the bound.
+    const first = passage('a.go', 1, 1);
+    const firstWidth = measureGrepRendering({
+      results: [
+        {
+          locator: locatorAt('a.go', 1, 1),
+          content: '1: needle',
+          matches: [1],
+        },
+      ],
+      complete: true,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: 'a.go',
+      startLine: 3,
+      capped: false,
+    });
+    const second = {
+      ...passage('a.go', 3, 3, []),
+      content: 'a'.repeat(
+        15_000 - pageFixedReserve() - continuation - firstWidth - 2,
+      ),
+    };
+    const { connector } = fixture({
+      answers: { 'fs.grep': { value: page([first, second]) } },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(result).toMatchObject({ status: 'success', complete: true });
+    expect(locatorsOf(result)).toEqual([
+      'machine://devl/srv/app/a.go:1-1',
+      'machine://devl/srv/app/a.go:3-3',
+    ]);
+  });
+
+  it('adds a passage to the units the page already holds', async () => {
+    // The first two passages leave exactly enough for the third; a running
+    // total that forgets them (or doubles one of them) drops it.
+    const first = { ...passage('a.go', 1, 1, []), content: 'a'.repeat(5) };
+    const second = { ...passage('a.go', 3, 3, []), content: 'b'.repeat(5) };
+    const pairWidth = measureGrepRendering({
+      results: [
+        {
+          locator: locatorAt('a.go', 1, 1),
+          content: 'a'.repeat(5),
+          matches: [],
+        },
+        {
+          locator: locatorAt('a.go', 3, 3),
+          content: 'b'.repeat(5),
+          matches: [],
+        },
+      ],
+      complete: true,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: 'a.go',
+      startLine: 5,
+      capped: false,
+    });
+    const third = {
+      ...passage('a.go', 5, 5, []),
+      content: 'c'.repeat(
+        15_000 - pageFixedReserve() - continuation - pairWidth - 2,
+      ),
+    };
+    const { connector } = fixture({
+      answers: { 'fs.grep': { value: page([first, second, third]) } },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(result).toMatchObject({ status: 'success', complete: true });
+    expect(locatorsOf(result)).toEqual([
+      'machine://devl/srv/app/a.go:1-1',
+      'machine://devl/srv/app/a.go:3-3',
+      'machine://devl/srv/app/a.go:5-5',
+    ]);
+  });
+
+  it('reserves the continuation line of a cut passage end line', async () => {
+    // A cut passage names the line it stopped at, so its continuation cursor is
+    // wider than a plain passage cursor. One unit past the bound that the wider
+    // cursor leaves must drop the passage.
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: 'a.go',
+      startLine: 10,
+      endLine: 40,
+      capped: false,
+    });
+    const bare = measureGrepRendering({
+      results: [
+        {
+          locator: locatorAt('a.go', 10, 40),
+          content: '',
+          matches: [],
+          cut: true,
+        },
+      ],
+      complete: true,
+    });
+    const cut = {
+      ...passage('a.go', 10, 40, []),
+      content: 'a'.repeat(15_000 - pageFixedReserve() - continuation - bare),
+      cut: true as const,
+    };
+    const { connector } = fixture({
+      answers: { 'fs.grep': { value: page([cut]) } },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(result).toMatchObject({ status: 'success', complete: false });
+    expect(locatorsOf(result)).toEqual([]);
+  });
 });
 
 describe('Machine resume', () => {
@@ -1352,6 +1479,33 @@ describe('Machine resume', () => {
         }),
       }),
     });
+  });
+
+  it('forwards the cut flag of a passage the daemon cut', async () => {
+    const cutFixture = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([{ ...passage('a.go', 10, 40), cut: true }]),
+        },
+      },
+    });
+    const cut = await run(context(cutFixture.connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(passagesOf(cut)[0]).toMatchObject({ cut: true });
+    expect(renderGrepText(success(cut))).toContain(
+      '[passage cut at the result bound; continue with the cursor]',
+    );
+
+    const plainFixture = fixture({
+      answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
+    });
+    const plain = await run(context(plainFixture.connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(passagesOf(plain)[0]).not.toHaveProperty('cut');
   });
 
   it('resumes a Machine scope after the entry a position cursor names', async () => {

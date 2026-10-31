@@ -37,6 +37,28 @@ describe('skillCatalogEnvelope', () => {
     expect(listing.nextOffset).toBe(listing.skills.length);
   });
 
+  it('admits a catalog that fills the cap exactly and refuses one unit more', () => {
+    // The fitting bound is inclusive: a listing whose neutralized JSON is
+    // exactly the shared cap is a page that fits. The base measurement gives
+    // the fixed width, so each added description character is one more unit.
+    const base = skillCatalogEnvelope([entry(1, 0)], { offset: 0 });
+    const baseSize = measureJson(neutralizeReservedDelimitersDeep(base));
+    const padding = RESULT_TRUNCATE_CHARS - baseSize;
+
+    const atCap = skillCatalogEnvelope([entry(1, padding)], { offset: 0 });
+    expect(measureJson(neutralizeReservedDelimitersDeep(atCap))).toBe(
+      RESULT_TRUNCATE_CHARS,
+    );
+    expect(atCap.skills).toHaveLength(1);
+    expect(atCap).not.toHaveProperty('nextOffset');
+
+    const overCap = skillCatalogEnvelope([entry(1, padding + 1)], {
+      offset: 0,
+    });
+    expect(overCap.skills).toHaveLength(0);
+    expect(overCap.nextOffset).toBe(0);
+  });
+
   it('measures the escaping the reserved-name rule adds', () => {
     // A description full of reserved delimiters grows by six code units per
     // token once the listing renders, so a page sized on the raw JSON would be

@@ -34,10 +34,13 @@ import {
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
 import { isRecord, isString } from '@workspace/runtime-safety';
-import { measureGrepRendering } from '@workspace/native-file-tools';
+import {
+  GREP_WARNING_KINDS,
+  measureGrepRendering,
+} from '@workspace/native-file-tools';
 import { type ToolResult } from './types';
 import { type KnowledgeToolResolver, type ToolContext } from './types';
-import { grepInputSchema, nativeGrepTool } from './grep';
+import { grepInputSchema, nativeGrepTool, pageFixedReserve } from './grep';
 import { nativeReadTool } from './native-files';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
@@ -657,6 +660,20 @@ describe('skill scopes', () => {
 });
 
 describe('paging', () => {
+  it('reserves the worst-case page lines and their separators', () => {
+    // The reserve holds the Knowledge notice and one warning of every kind at
+    // a six-digit count, plus the two newlines that separate those lines from
+    // the passages. A smaller reserve lets a page render past its bound; a
+    // larger one needlessly refuses a passage that fits.
+    const worstCase = measureGrepRendering({
+      results: [],
+      complete: true,
+      warnings: GREP_WARNING_KINDS.map((kind) => ({ kind, count: 999_999 })),
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    });
+    expect(pageFixedReserve()).toBe(worstCase + 2);
+  });
+
   it('reserves the cursor and the notice inside the 15,000-unit page', async () => {
     await withRoot(async (root) => {
       // A long path is rendered once per file, so each note's file line and

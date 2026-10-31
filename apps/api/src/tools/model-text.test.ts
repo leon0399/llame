@@ -88,6 +88,35 @@ describe('renderToolResultForModel', () => {
     });
   });
 
+  it('renders a directory read as text and keeps an image or pdf read as JSON', () => {
+    const directory = {
+      status: 'success' as const,
+      kind: 'directory',
+      path: 'notes',
+      content: 'notes\n  a.md\n  b.md',
+    };
+    expect(renderToolResultForModel('read', directory)).toEqual({
+      kind: 'text',
+      text: 'notes\n  a.md\n  b.md',
+    });
+
+    // A media result carries a string body too, so the kind guard — not the
+    // body's type — is what keeps it in its JSON rendering.
+    for (const kind of ['image', 'pdf'] as const) {
+      const media = {
+        status: 'success' as const,
+        kind,
+        path: `manual.${kind}`,
+        mediaType: kind === 'pdf' ? 'application/pdf' : 'image/png',
+        content: 'JVBERi0=',
+      };
+      const rendering = renderToolResultForModel('read', media);
+      expect(rendering.kind).toBe('text');
+      if (rendering.kind !== 'text') throw new Error('expected a text result');
+      expect(JSON.parse(rendering.text)).toMatchObject({ kind });
+    }
+  });
+
   it('escapes a reserved delimiter inside a native text rendering', () => {
     const text = renderToolResultText('read', {
       status: 'success',

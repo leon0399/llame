@@ -192,6 +192,23 @@ describe('ssh bash execution', () => {
     );
   });
 
+  it('reports the elapsed clock time as the wall time', async () => {
+    let clock = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const remoteClient = remote((nonce) => {
+      clock = 2240;
+      return completed('command out\n', '', 0)(nonce);
+    });
+    stubFence();
+
+    const result = await executeSshBash(context(remoteClient), {
+      command: 'true',
+      cwd: CWD,
+    });
+
+    expect(result).toHaveProperty('wallTimeMs', 1240);
+  });
+
   it('takes the exit status from the end trailer', async () => {
     const remoteClient = remote(completed('', 'boom\n', 7));
     stubFence();
