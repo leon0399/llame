@@ -67,10 +67,10 @@ The system MUST NOT accept `display` from a client.
 ### Requirement: The global result cap measures the rendering
 
 The result cap that `tool-calling` applies to every tool result MUST be measured on the rendering
-of the result, which is its serialized form. A tool that bounds its own rendering under that cap
-MUST be recorded unchanged by the cap. The stored `display` object is not rendered as raw text, so
-the cap MUST NOT count it. Text the rendering builds from `display` values MUST count: an edit
-header names the stored start line and line counts. The cap MUST NOT set a tool's `cut` field.
+of the result, which is its serialized form for a JSON-rendered tool and its text shape for a
+text-rendered tool. A tool that bounds its own rendering under that cap
+MUST be recorded unchanged by the cap. The cap MUST NOT count the stored `display`
+object. Text the rendering builds from `display` values MUST count. The cap MUST NOT set a tool's `cut` field.
 
 #### Scenario: A read filled to its bound is recorded unchanged
 
