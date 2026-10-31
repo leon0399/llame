@@ -25,7 +25,7 @@ const DECODED = {
   mediaType: "image/png",
   width: 1600,
   height: 900,
-  thumbnail: "data:image/webp;base64,UklGRg==",
+  display: { thumbnail: "data:image/webp;base64,UklGRg==" },
 };
 
 /** A hook that decodes whatever it is given and records what it was given. */

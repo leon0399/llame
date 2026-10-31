@@ -496,6 +496,11 @@ describe("truncateOversizedResult field preservation", () => {
 
 describe("truncateOversizedResult media results", () => {
   const MEDIA = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+  /** The rendering of a result whose only model-facing text is `text`. */
+  const measureText = (candidate: ToolResult): number =>
+    candidate.status === "success" && isString(candidate.text)
+      ? candidate.text.length
+      : 0;
 
   it.each([
     { kind: "image", mediaType: "image/png", width: 1600, height: 900 },
@@ -558,8 +563,10 @@ describe("truncateOversizedResult media results", () => {
     expect(result).not.toMatchObject({ media: "x".repeat(50_000) });
   });
 
-  it("neither counts nor shortens an image result's thumbnail", () => {
-    const thumbnail = `data:image/webp;base64,${"A".repeat(60_000)}`;
+  it("neither counts nor shortens a result's display data", () => {
+    const display = {
+      thumbnail: `data:image/webp;base64,${"A".repeat(60_000)}`,
+    };
     const fits = {
       status: "success" as const,
       kind: "image",
@@ -567,7 +574,7 @@ describe("truncateOversizedResult media results", () => {
       width: 1600,
       height: 900,
       path: "/work/shot.png",
-      thumbnail,
+      display,
     };
     expect(truncateOversizedResult(fits)).toEqual(fits);
 
@@ -575,9 +582,42 @@ describe("truncateOversizedResult media results", () => {
       ...fits,
       path: `/work/${"a".repeat(50_000)}.png`,
     });
-    expect(oversized).toMatchObject({ truncated: true, thumbnail });
-    // JSON.stringify omits undefined, so this measures everything but the thumbnail.
-    const shown = JSON.stringify({ ...oversized, thumbnail: undefined });
+    expect(oversized).toMatchObject({ truncated: true, display });
+    // JSON.stringify omits undefined, so this measures everything but display.
+    const shown = JSON.stringify({ ...oversized, display: undefined });
     expect(shown.length).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+  });
+
+  it("sets display data aside on a result that is not an image", () => {
+    const display = { oldText: "a".repeat(60_000) };
+    const result = { status: "success" as const, text: "small", display };
+
+    expect(truncateOversizedResult(result)).toEqual(result);
+    expect(
+      truncateOversizedResult({ ...result, text: "x".repeat(50_000) }),
+    ).toMatchObject({ truncated: true, display });
+  });
+
+  it("measures the rendering a caller names, not the JSON serialization", () => {
+    // The rendering of this result is its `text` field alone; the JSON envelope
+    // around it is wider than the cap on its own.
+    const atCap: ToolResult = {
+      status: "success",
+      text: "x".repeat(RESULT_TRUNCATE_CHARS),
+    };
+
+    expect(truncateOversizedResult(atCap)).toMatchObject({ truncated: true });
+    expect(truncateOversizedResult(atCap, measureText)).toBe(atCap);
+  });
+
+  it("cuts a result whose rendering is one unit over the cap", () => {
+    const cut = truncateOversizedResult(
+      { status: "success", text: "x".repeat(RESULT_TRUNCATE_CHARS + 1) },
+      measureText,
+    );
+
+    expect(cut).toMatchObject({ truncated: true });
+    expect(cut).toHaveProperty("truncationNotice", expect.any(String));
+    expect(measureText(cut)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 });

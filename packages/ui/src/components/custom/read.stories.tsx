@@ -245,7 +245,7 @@ export const ImageResult: Story = {
       mediaType: "image/png",
       width: 1600,
       height: 900,
-      thumbnail: SHOT_THUMBNAIL,
+      display: { thumbnail: SHOT_THUMBNAIL },
     },
     mediaSources: fn(() => null),
   },
@@ -255,6 +255,7 @@ export const ImageResult: Story = {
       canvas.getByRole("img", { name: "/work/shot.png" }),
     ).toHaveAttribute("src", SHOT_THUMBNAIL);
     await expect(canvas.getByText("1600×900 PNG")).toBeInTheDocument();
+    await expect(canvas.queryByText("display:")).not.toBeInTheDocument();
     await expect(canvas.queryByText("thumbnail:")).not.toBeInTheDocument();
     await expect(canvas.queryByText("No content.")).not.toBeInTheDocument();
 
@@ -271,6 +272,40 @@ export const ImageResult: Story = {
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(opener).toHaveFocus());
+  },
+};
+
+/**
+ * A tool part stored before the thumbnail moved under `display` keeps it at
+ * the top level; the card still shows it in place of content and the details
+ * show no row for either key. Parts stored from now on carry
+ * `display.thumbnail`.
+ *
+ * @summary for an image part stored with a top-level thumbnail
+ */
+export const LegacyImageThumbnail: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "docs/shot.png" },
+    output: {
+      status: "success" as const,
+      kind: "image" as const,
+      path: "/work/shot.png",
+      mediaType: "image/png",
+      width: 1600,
+      height: 900,
+      thumbnail: SHOT_THUMBNAIL,
+    },
+    mediaSources: fn(() => null),
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(
+      canvas.getByRole("img", { name: "/work/shot.png" }),
+    ).toHaveAttribute("src", SHOT_THUMBNAIL);
+    await expect(canvas.getByText("1600×900 PNG")).toBeInTheDocument();
+    await expect(canvas.queryByText("display:")).not.toBeInTheDocument();
+    await expect(canvas.queryByText("thumbnail:")).not.toBeInTheDocument();
   },
 };
 

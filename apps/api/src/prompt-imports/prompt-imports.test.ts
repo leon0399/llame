@@ -713,8 +713,10 @@ describe('resolvePromptImports bounds', () => {
   });
 
   it('omits a body that would exceed 128 KiB and stops reading', async () => {
+    // 60 KB of raw text, but 111 KB once the reserved-name rule escapes it, so
+    // the second body is over the bound even though both raw texts fit.
     const { calls, run } = createHarness({
-      body: () => 'a'.repeat(100 * 1024),
+      body: () => '<skill>'.repeat(8571),
     });
 
     const result = await run(
@@ -740,8 +742,12 @@ describe('resolvePromptImports bounds', () => {
   });
 
   it('accepts bodies that total exactly 128 KiB', async () => {
+    // Each body's neutralized form is exactly half the bound: 5,000 `<skill>`
+    // tokens escape to 65,000 units, plus 536 plain characters.
+    const escaped = '<skill>'.repeat(5000);
+    const body = `${escaped}${'a'.repeat(MAX_PROMPT_IMPORT_BYTES / 2 - 13 * 5000)}`;
     const { run } = createHarness({
-      body: () => 'a'.repeat(MAX_PROMPT_IMPORT_BYTES / 2),
+      body: () => body,
     });
 
     const result = await run('@https://x.test/0 @https://x.test/1');
@@ -967,7 +973,10 @@ describe('resolvePromptImports image entries', () => {
   const imageResult = (path: string): ToolResult => ({
     status: 'success',
     kind: 'image',
-    ...UNSTORED,
+    width: UNSTORED.width,
+    height: UNSTORED.height,
+    mediaType: UNSTORED.mediaType,
+    display: { thumbnail: THUMBNAIL },
     path,
   });
   /** The native image result `read` returns for the owner's `MEDIA`. */
@@ -979,9 +988,9 @@ describe('resolvePromptImports image entries', () => {
     width: 1600,
     height: 900,
   };
-  /** The model-facing envelope of an image result: no thumbnail. */
+  /** The model-facing envelope of an image result: no display data. */
   const envelope = (path: string) =>
-    JSON.stringify({ ...imageResult(path), thumbnail: undefined });
+    JSON.stringify({ ...imageResult(path), display: undefined });
   const isImage = (path: string) => path.endsWith('.png');
 
   it('turns an image read into an unstored image entry whose body is the read envelope', async () => {

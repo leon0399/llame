@@ -123,7 +123,9 @@ async function prepareImageRead(
       mediaType,
       width,
       height,
-      ...(thumbnail !== undefined && { thumbnail }),
+      // The thumbnail is display data, not model data: it is stored with the
+      // result for the owner's UI and never rendered (vision-media D7).
+      ...(thumbnail !== undefined && { display: { thumbnail } }),
     },
     entry: {
       locator,

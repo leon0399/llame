@@ -11,8 +11,8 @@
  * once the agent can construct absolute paths from them.
  */
 
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
 import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
+import { measureNativeModelOutput } from '@workspace/native-file-tools';
 
 import { type SkillCatalogEntry } from './skill-catalog';
 import {

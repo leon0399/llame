@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { neutralizeReservedDelimitersDeep } from '@workspace/runtime-safety';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 
 import {
@@ -13,7 +14,6 @@ import {
   scanConversationLogicalLines,
   type ConversationLogicalLine,
 } from '../chats/conversation-logical-lines';
-import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { type Db } from '../db/tenant-db.service';
 import { fileAttachmentLines } from '../media/media-descriptors';
 import {
@@ -335,7 +335,7 @@ function buildResult(
 function fitsSerializedBounds(result: ConversationReadSuccess): boolean {
   return (
     serializedCodeUnits(result) <= CONVERSATION_READ_RESULT_MAX_CODE_UNITS &&
-    serializedCodeUnits(neutralizeToolResult(result)) <=
+    serializedCodeUnits(neutralizeReservedDelimitersDeep(result)) <=
       CONVERSATION_READ_RESULT_MAX_CODE_UNITS
   );
 }

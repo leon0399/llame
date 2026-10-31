@@ -150,7 +150,7 @@ const payloadEntrySchema = z.union([
 export function promptImportMedia(
   result: UnknownRecord,
 ): PromptImportMedia | undefined {
-  const { kind, media, mediaType, pages, byteSize, thumbnail, width, height } =
+  const { kind, media, mediaType, pages, byteSize, display, width, height } =
     result;
   if (kind === 'pdf') {
     return promptImportPdfSchema.safeParse({
@@ -162,6 +162,9 @@ export function promptImportMedia(
     }).data;
   }
   if (kind !== 'image') return undefined;
+  // The read result keeps its thumbnail as display data, which no rendering
+  // shows; this payload copies it into its own model-free entry key.
+  const thumbnail = isRecord(display) ? display['thumbnail'] : undefined;
   const image = isString(media)
     ? { media }
     : {
@@ -351,8 +354,9 @@ const renderPromptImportsTemplate =
     'prompt-imports',
   );
 
-/** Keep imported content from closing its file block or forging another one. */
-function neutralizeImportBody(body: string): string {
+/** Keep imported content from closing its file block or forging another one.
+ *  Exported so the import bound counts the body as it is rendered. */
+export function neutralizeImportBody(body: string): string {
   return sanitizeAuthoredText(body).replaceAll(
     /<(\s*\/?\s*file)(?=\s*\/?\s*>|[\s/]+[\w-]+\s*=|$)/giu,
     '&lt;$1',

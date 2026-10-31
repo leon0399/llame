@@ -3,7 +3,7 @@ import {
   MAX_OMISSION_IMPORT_LOCATOR_LENGTH,
   MAX_OMISSION_IMPORT_NAMES,
 } from '../chats/skill-activation-item';
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
+import { measureJson } from '@workspace/runtime-safety';
 import { activateSkills, MAX_SKILL_ACTIVATION_BYTES } from './skill-activation';
 import { parseSkillMentions } from './skill-mention';
 import {
@@ -32,7 +32,7 @@ function instructionCeiling(names: ReadonlyArray<string>): number {
       'x'.repeat(MAX_OMISSION_IMPORT_LOCATOR_LENGTH + 1),
     ),
   });
-  return MAX_SKILL_ACTIVATION_BYTES - measureNativeModelOutput(notice);
+  return MAX_SKILL_ACTIVATION_BYTES - measureJson(notice);
 }
 
 /**
@@ -72,10 +72,7 @@ async function activate(mentions: ReadonlyArray<string>, tunedLength: number) {
 }
 
 function bytesOf(items: ReadonlyArray<object>): number {
-  return items.reduce<number>(
-    (sum, item) => sum + measureNativeModelOutput(item),
-    0,
-  );
+  return items.reduce<number>((sum, item) => sum + measureJson(item), 0);
 }
 
 /** The tuned length at which everything `first` and `second` carry fills the ceiling exactly. */

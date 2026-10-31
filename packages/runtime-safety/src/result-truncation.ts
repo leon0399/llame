@@ -12,6 +12,17 @@ import { type ToolResult } from "./types";
 export const RESULT_TRUNCATE_CHARS = 16_000;
 
 /**
+ * The default measure: a result's JSON serialization, in UTF-16 code units.
+ * A caller whose model-facing rendering is not that serialization — plain text,
+ * a partial projection — passes its own measure, so the cap counts what the
+ * model actually receives and a self-bounded result is recorded unchanged.
+ */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- measures any JSON-shaped value at the tool-result boundary; `JSON.stringify` itself is the measure, so there is no shape to validate first.
+export function measureJson(value: unknown): number {
+  return (JSON.stringify(value ?? null) ?? "null").length;
+}
+
+/**
  * Marker fields on a truncated result. They are written last, so a payload
  * field of the same name is overwritten: the marker has to sit at a fixed,
  * findable place, and a tool-declared `truncated` would otherwise be
@@ -142,14 +153,14 @@ function omittedFieldPhrase(
 }
 
 function truncationNotice(
-  omittedChars: number,
+  omittedUnits: number,
   lists: ReadonlyArray<ShortenedList>,
   omittedFields: number,
   totalFields: number,
 ): string {
   return (
     `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +
-    `${omittedChars} characters omitted.${omittedFieldPhrase(omittedFields, totalFields)}` +
+    `${omittedUnits} characters omitted.${omittedFieldPhrase(omittedFields, totalFields)}` +
     `${shortenedListPhrase(lists)} ` +
     `Re-run this tool with narrower arguments if you need the omitted content.`
   );
@@ -161,24 +172,32 @@ function truncationNotice(
  * with their values shrunk in place; the model never receives a fragment of
  * the result's own serialization in place of the result.
  *
- * An image result's display-only `thumbnail` never reaches the model, so it
- * neither counts toward the cap nor is shortened: it is set aside and kept
- * unchanged (vision-media D7).
+ * The cap is measured with `measure`, which the caller supplies when its
+ * model-facing rendering is not the result's JSON — a text rendering rather
+ * than a JSON one — so the cap counts what the model receives.
+ *
+ * A result's `display` data never reaches the model, so it neither counts
+ * toward the cap nor is shortened: it is set aside and kept unchanged
+ * (tool-result-rendering D2).
  *
  * Error results are never truncated — every error message this registry
  * produces is a short, statically-authored string (see refusalResult /
  * invalidCallResult and the runner's catch branches), so an oversized error
  * can only mean a bug elsewhere, not something to silently cap here.
  */
-export function truncateOversizedResult(result: ToolResult): ToolResult {
+export function truncateOversizedResult(
+  result: ToolResult,
+  measure: (candidate: ToolResult) => number = measureJson,
+): ToolResult {
   if (result.status !== "success") return result;
-  const { thumbnail, ...shown } = result;
-  if (result.kind === "image" && isString(thumbnail)) {
-    const capped = truncateOversizedResult(shown);
-    return capped.status === "success" ? { ...capped, thumbnail } : capped;
+  if (Object.hasOwn(result, "display")) {
+    const { display, ...shown } = result;
+    const capped = truncateOversizedResult(shown, measure);
+    return capped.status === "success" ? { ...capped, display } : capped;
   }
-  const json = JSON.stringify(result);
-  if (json.length <= RESULT_TRUNCATE_CHARS) return result;
+  const measured = measure(result);
+  if (measured <= RESULT_TRUNCATE_CHARS) return result;
+  const json = JSON.stringify(result) ?? "null";
 
   // Work on the result's own JSON projection: `JSON.stringify` has already
   // applied `toJSON`, dropped undefined, and fixed every length, so what is
@@ -198,6 +217,8 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
     pinned: pinsMedia ? { media } : {},
     totalFields: Object.keys(payload).length,
     json,
+    measured,
+    measure,
   };
 
   // First pass keeps every top-level field, which is the shape guarantee. Its
@@ -208,7 +229,7 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
   // the marker says how many. That pass always fits: its own floor is the
   // marker alone.
   const preserved = searchLargestFittingLimit(source, true);
-  return JSON.stringify(preserved).length <= RESULT_TRUNCATE_CHARS
+  return measure(preserved) <= RESULT_TRUNCATE_CHARS
     ? preserved
     : searchLargestFittingLimit(source, false);
 }
@@ -221,6 +242,10 @@ interface TruncationSource {
   readonly pinned: UnknownRecord;
   readonly totalFields: number;
   readonly json: string;
+  /** The original result's measured size, in measured units. */
+  readonly measured: number;
+  /** The caller's measure: what the model reads, in its own units. */
+  readonly measure: (candidate: ToolResult) => number;
 }
 
 function buildTruncatedResult(
@@ -235,14 +260,14 @@ function buildTruncatedResult(
     "",
   );
   const kept = { ...source.pinned, ...capped };
-  const omittedChars =
-    source.json.length - JSON.stringify({ status: "success", ...kept }).length;
+  const omittedUnits =
+    source.measured - source.measure({ status: "success", ...kept });
   return {
     status: "success",
     ...kept,
     [TRUNCATED_FIELD]: true,
     [NOTICE_FIELD]: truncationNotice(
-      omittedChars,
+      omittedUnits,
       lists,
       source.totalFields - Object.keys(kept).length,
       source.totalFields,
@@ -250,7 +275,7 @@ function buildTruncatedResult(
   };
 }
 
-// The serialized length rises with `limit` (a larger limit only ever keeps
+// The measured length rises with `limit` (a larger limit only ever keeps
 // more payload, while the notice's own length changes by a few characters as
 // the omitted count falls and lists stop being shortened), so the largest
 // fitting limit is a binary search — measured against the real serialization
@@ -267,7 +292,7 @@ function searchLargestFittingLimit(
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
     const candidate = buildTruncatedResult(source, mid, keepAllFields);
-    if (JSON.stringify(candidate).length <= RESULT_TRUNCATE_CHARS) {
+    if (source.measure(candidate) <= RESULT_TRUNCATE_CHARS) {
       best = candidate;
       low = mid + 1;
     } else {

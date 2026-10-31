@@ -337,7 +337,10 @@ describe('promptImportMedia', () => {
       promptImportMedia({
         status: 'success',
         kind: 'image',
-        ...UNSTORED,
+        width: UNSTORED.width,
+        height: UNSTORED.height,
+        mediaType: UNSTORED.mediaType,
+        display: { thumbnail: UNSTORED.thumbnail },
         path: '/repo/shot.png',
       }),
     ).toEqual(UNSTORED);

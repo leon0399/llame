@@ -7,6 +7,7 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { bashTool } from './bash';
+import { renderToolResultText } from './model-text';
 import { nativeEditTool, nativeReadTool } from './native-files';
 import { previewToolPermission, runTool } from './runner';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -678,6 +679,56 @@ describe('runTool', () => {
     const tool = resultPaddedToJsonLength(RESULT_TRUNCATE_CHARS + 1);
     const result = await runTool(tool, { value: 'x' }, fakeContext(), 15);
     expect(result).toMatchObject({ status: 'success', truncated: true });
+  });
+
+  // The cap measures the rendering, so a self-bounded result that renders to
+  // exactly the cap is recorded unchanged.
+  it('records a result whose rendering is exactly the cap unchanged', async () => {
+    const empty = {
+      status: 'success' as const,
+      kind: 'file',
+      path: 'a.txt',
+      content: '',
+      truncated: false,
+    };
+    const overhead = renderToolResultText('read', empty).length;
+    const content = 'x'.repeat(RESULT_TRUNCATE_CHARS - overhead);
+    const readLike: Tool<{ value: string }> = {
+      ...echoTool,
+      id: 'read',
+      execute: () => ({ ...empty, content }),
+    };
+    const result = await runTool(
+      readLike,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        permissionPolicy: compileTestPermissionPolicy(['read']),
+      },
+      15,
+    );
+
+    expect(result).not.toMatchObject({ truncated: true });
+    expect(renderToolResultText('read', result).length).toBe(
+      RESULT_TRUNCATE_CHARS,
+    );
+  });
+
+  it('cuts an oversized JSON rendering with one truncation notice', async () => {
+    const bigTool: Tool = {
+      ...echoTool,
+      execute: () => ({
+        status: 'success',
+        blob: `<div>${'x'.repeat(20_000)}`,
+      }),
+    };
+    const result = await runTool(bigTool, { value: 'x' }, fakeContext(), 15);
+    const text = renderToolResultText('echo', result);
+
+    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toHaveProperty('truncationNotice', expect.any(String));
+    expect(text.length).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(text.split('"truncationNotice"')).toHaveLength(2);
   });
 });
 
