@@ -875,6 +875,7 @@ mutation. An unrelated change elsewhere in the file MUST NOT block a correct uni
 Calls that target the same path MUST execute one after the other in the host runtime. The operation
 MUST keep the bytes outside the replacement. The result MUST carry bounded post-edit `content`
 with two adjacent live lines on each side when available, marked `truncated` when the bound cuts
+it. It MUST carry `cut: true` for that same cut, so a cap that overwrites `truncated` cannot hide
 it. It MUST carry the post-edit line count as `lineCount` and `display` with `startLine`,
 `oldText`, and `newText`. The result MUST NOT carry a diff. No prior
 read, snapshot tag, read hash, or permission rule is required in this iteration.
@@ -4390,9 +4391,10 @@ daemon sends none.
 
 ### Requirement: A listing page that cannot advance fails closed
 
-When the header and the first entry of the requested window leave no room in the result cap, the
-read MUST fail with `representation_too_large` and MUST carry no listing and no continuation. The
-same MUST hold when the requested window keeps no entry and the header alone exceeds the bound.
+Notwithstanding the ordinary truncation rule, when the header and the first entry of the requested
+window leave no room in the result cap and the flat level serves no page, the read MUST fail with
+`representation_too_large` and MUST carry no listing and no continuation. The same MUST hold when
+the requested window keeps no entry and the header alone exceeds the cap.
 
 #### Scenario: A listing too wide for its first entry fails closed
 
@@ -4406,13 +4408,48 @@ same MUST hold when the requested window keeps no entry and the header alone exc
 - **THEN** the read fails with `representation_too_large`
 - **AND** it carries no listing and no continuation
 
+### Requirement: A tree page that cannot hold its first entry keeps the level
+
+Notwithstanding the ordinary truncation rule, a tree page whose first entry and its elision
+marker do not fit MUST keep the header and name the flat continuation when the flat read serves a
+page. When the header-only page exceeds the cap, the read MUST return the flat page of the
+requested level instead. The flat page MUST carry no elision marker and its own continuation. A
+flat level that serves no page MUST fail as the fail-closed rule states.
+
+#### Scenario: A first entry that does not fit keeps the header
+
+- **WHEN** the first requested-level entry and its elision marker do not fit the cap, the header
+  alone fits with its continuation, and the flat read serves a page
+- **THEN** the content is the header alone, with `truncated: true` and `nextOffset: 0`
+- **AND** the continuation names the flat read
+
+#### Scenario: A header page that does not fit returns the flat level
+
+- **WHEN** the flat level fits the cap and the header alone with its continuation does not
+- **THEN** the content is the flat page of the requested level, with no elision marker
+- **AND** the result is not truncated and carries no continuation
+
 ### Requirement: An unselected read requests the whole source
 
-A text read with no line selector MUST report `requestedRange` from its first line to its
-`lineCount` when the count is known, so a read cut by the bound resumes to the end of the source.
-When the count is unknown, `requestedRange` MUST end at line 2000, the read line ceiling.
+A text file read with no line selector MUST report `requestedRange` from its first line to its
+`lineCount` when the count is known and non-zero, so a read cut by the bound resumes to the end of
+the source. When the count is unknown, `requestedRange` MUST end at line 2000, the read line
+ceiling. An empty file and a directory listing MUST report no `requestedRange`; a listing's
+continuation stays open-ended.
 
 #### Scenario: An unselected read of a counted file requests every line
 
 - **WHEN** the model reads `notes.txt` of a 3,000-line file and the bound cuts it at line 1500
 - **THEN** the result carries `requestedRange` 1..3000 and `nextOffset: 1500`
+
+#### Scenario: An empty file requests no range
+
+- **WHEN** the model reads an empty `notes.txt`
+- **THEN** the result carries `lineCount` 0
+- **AND** it carries no `requestedRange`
+
+#### Scenario: A listing reports no range
+
+- **WHEN** the model reads a directory of two entries
+- **THEN** the result carries no `requestedRange`
+- **AND** its continuation is open-ended

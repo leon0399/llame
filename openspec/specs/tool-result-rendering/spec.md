@@ -70,7 +70,7 @@ The result cap that `tool-calling` applies to every tool result MUST be measured
 of the result, which is its serialized form. A tool that bounds its own rendering under that cap
 MUST be recorded unchanged by the cap. The stored `display` object is not rendered as raw text, so
 the cap MUST NOT count it. Text the rendering builds from `display` values MUST count: an edit
-header names the stored start line and line counts.
+header names the stored start line and line counts. The cap MUST NOT set a tool's `cut` field.
 
 #### Scenario: A read filled to its bound is recorded unchanged
 
@@ -131,8 +131,8 @@ header, and its attribution lines after the content.
 
 ### Requirement: A cap notice ends the text
 
-A result that carries a `truncationNotice` MUST render it as one bracketed line at the end of the
-text.
+A result that carries a `truncationNotice` MUST render it as one bracketed line after any
+continuation, cut, or cursor line, as the last line of the text.
 
 #### Scenario: A cap notice renders as a line
 
@@ -216,16 +216,28 @@ total to its content; its continuation line names the remaining entries.
 
 ### Requirement: Attribution fields render as lines after the header
 
-After the header, a text result MUST render one `<field>: <value>` line for each attribution field
-it carries. The fields and their order are: `realPath`, `finalUrl`, `method`, `adapter`, `notes`,
-`knowledgeSpaceName`, `knowledgeSpaceId`, `notice`, `locator`, `sourceDirectory`, `resolvedPath`,
-`skillDirectory`, `realSkillDirectory`, `skillPathInstruction`. `adapter` MUST render `id route`
-and `origin` when present. `notes` MUST render one line per entry. A notice MUST render verbatim.
+After the header, a file `read`, an `edit`, and a `write` MUST render one `<field>: <value>` line
+for each attribution field the result carries. A directory listing MUST render those lines after
+its content. A `grep` page MUST render its `notice` first, as `notice: <notice>`, and MUST NOT
+render it as an attribution line.
 
 #### Scenario: A web read carries its attribution
 
 - **WHEN** the model reads `https://example.test/doc` and the publisher served Markdown
 - **THEN** the header is followed by `finalUrl: …` and `method: negotiated`
+
+#### Scenario: The header is not part of the stored content
+
+- **WHEN** a web read renders with a header and attribution lines
+- **THEN** the stored `content` carries no header and no attribution line
+
+### Requirement: Attribution fields keep the listed order
+
+The attribution fields MUST render in this order: `realPath`, `finalUrl`, `method`, `adapter`,
+`notes`, `knowledgeSpaceName`, `knowledgeSpaceId`, `notice`, `locator`, `sourceDirectory`,
+`resolvedPath`, `skillDirectory`, `realSkillDirectory`, `skillPathInstruction`. `adapter` MUST
+render `id route` and `origin` when present. `notes` MUST render one line per entry. A notice MUST
+keep its stored text.
 
 #### Scenario: A Knowledge read keeps its notice verbatim
 
@@ -237,17 +249,13 @@ and `origin` when present. `notes` MUST render one line per entry. A notice MUST
 - **WHEN** a web read result carries `adapter: { id: "github", route: "rewrite", origin: "…" }` and two `notes`
 - **THEN** the text carries `adapter: github rewrite …` and one `notes:` line per entry
 
-#### Scenario: The header is not part of the stored content
-
-- **WHEN** a web read renders with a header and attribution lines
-- **THEN** the stored `content` carries no header and no attribution line
-
 ### Requirement: Framing values render on one line
 
-Every stored value a text rendering prints in its framing MUST render on one line, and one line
-break in such a value MUST become one space. The values are the `read` header path, the `read`
-continuation path, each attribution value, each `notes` entry, and the truncation notice of a
-`read` result. A notice MUST otherwise render verbatim.
+These stored values MUST render on one line, and one line break in such a value MUST become one
+space: the `read` header and continuation paths, the mutation locator that opens an `edit` or
+`write` rendering, a `grep` `## <locator>` header, each attribution value, each `notes` entry, and
+the truncation notice of a `read` or `edit` result. A `grep` notice MUST NOT fold its line
+breaks.
 
 #### Scenario: A path with a line break renders on one line
 
@@ -255,19 +263,30 @@ continuation path, each attribution value, each `notes` entry, and the truncatio
 - **THEN** the header and the continuation line carry `a b.ts` on one line
 - **AND** no unprefixed line is added by the path
 
+#### Scenario: A grep file line stays one line
+
+- **WHEN** a stored `grep` passage locator carries the path `a\nb.ts`
+- **THEN** its `## a b.ts` line carries one space in place of the break
+- **AND** no unprefixed line is added by the path
+
+#### Scenario: A mutation path stays on its status line
+
+- **WHEN** a stored `write` part carries the path `a\nb.ts`
+- **THEN** its `created a b.ts` line carries one space in place of the break
+
 #### Scenario: A cap notice with a line break stays one line
 
-- **WHEN** a stored `read` part carries a `truncationNotice` with a line break
+- **WHEN** a stored `read` or `edit` part carries a `truncationNotice` with a line break
 - **THEN** the notice renders on one line with one space in place of the break
 
 ### Requirement: Continuation is one bracketed notice line
 
-When a result carries `truncated: true` and a `nextOffset`, the text MUST end with one bracketed
+When a result carries `truncated: true` and a `nextOffset`, the text MUST carry one bracketed
 line naming the next read: from line `nextOffset + 1` to the stored requested end, or open-ended
-`<n>-` once that end is reached, when it reaches the stored `lineCount`, or when the result stores
-none, as a directory listing does. A locator that takes no selector states the
-remainder alone instead. A `grep` page with `complete: false` MUST end with one bracketed line
-carrying its cursor.
+`<n>-` once that end is reached, when it reaches the stored `lineCount`, or when the result
+stores none, as a directory listing does. A locator that takes no selector states the remainder
+alone instead. A `grep` page with `complete: false` MUST carry one bracketed line carrying its
+cursor.
 
 #### Scenario: A truncated read tells how to continue
 
@@ -344,9 +363,9 @@ web read stores no fragment, so a fragment path belongs to a stored part only.
 
 An `edit` text MUST begin with `edited <locator>: line <startLine>, <old> -> <new> lines`, with
 the counts of the replaced and replacement lines. When the result carries `lineCount`, the header
-continues with `(<lineCount> lines total)` after one space. The numbered post-edit `content` MUST
-follow. A `content` cut by the bound MUST end with `[region cut at the bound]`. The text MUST NOT
-carry a diff, the old text, or the new text as a separate block.
+adds `(<lineCount> lines total)` after one space. The numbered post-edit `content` MUST follow. A
+`content` cut by the bound MUST carry `[region cut at the bound]`; an edit the cap alone shortened
+MUST carry no region marker. The text MUST NOT carry a diff or the old and new text as a block.
 
 #### Scenario: A four-line edit renders its region
 
@@ -362,8 +381,15 @@ carry a diff, the old text, or the new text as a separate block.
 
 #### Scenario: A cut region is marked
 
-- **WHEN** the post-edit region is cut by the result bound
-- **THEN** the text ends with `[region cut at the bound]`
+- **WHEN** the edit bound cuts the post-edit region
+- **THEN** the result carries `cut: true`
+- **AND** the text ends with `[region cut at the bound]`
+
+#### Scenario: A cap-only cut adds no region marker
+
+- **WHEN** the shared cap shortens an edit region its own bound did not cut
+- **THEN** the text ends with the bracketed cap notice
+- **AND** it carries no `[region cut at the bound]`
 
 ### Requirement: A write renders one status line
 
@@ -412,12 +438,12 @@ render first.
 
 ### Requirement: A bash result renders a status header and its streams
 
-A `bash` success and a `command_failed` message MUST begin with `exit <code>`, then
-`, <seconds> s` with one decimal when the result carries `wallTimeMs`. The stdout MUST follow
-verbatim. A non-empty stderr MUST follow under a `[stderr]` line. When both streams are empty, the
-text MUST be the header and `(no output)`. A result with `truncated: true` MUST end with
-`[output cut at the bound]`. A `command_failed` message MUST be the same text shape with the
-non-zero exit code.
+A `bash` success MUST begin with `exit <code>`, then `, <seconds> s` (one decimal) when the
+result carries `wallTimeMs`. The stdout MUST follow verbatim. A non-empty stderr MUST follow
+under a `[stderr]` line. When both streams are empty, the text MUST be the header and `(no
+output)`. A result whose executor bound cut a stream MUST carry `[output cut at the bound]`; a
+result the cap alone shortened MUST carry none. A `command_failed` message MUST be the same shape
+with the non-zero exit code.
 
 #### Scenario: A silent command reports no output
 
@@ -443,6 +469,18 @@ non-zero exit code.
 
 - **WHEN** a command's stdout is cut at the executor bound
 - **THEN** the text ends with `[output cut at the bound]`
+
+#### Scenario: A result only the cap shortened carries no bound marker
+
+- **WHEN** a command writes 20,000 characters to stdout, within the executor stream bound
+- **THEN** the global result cap shortens the text
+- **AND** the text ends with the cap notice and carries no `[output cut at the bound]`
+
+#### Scenario: A bound cut and a cap cut carry both lines
+
+- **WHEN** the executor bound cuts stdout and the cap then shortens the same result
+- **THEN** the text carries `[output cut at the bound]`
+- **AND** it ends with the cap notice
 
 ### Requirement: A grep passage cut at the page bound names the cursor
 
