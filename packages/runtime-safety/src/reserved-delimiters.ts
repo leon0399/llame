@@ -67,14 +67,13 @@ export interface TagToken {
 export function* scanTagTokens(text: string): Generator<TagToken> {
   let index = text.indexOf("<");
   while (index !== -1) {
-    const closer = text.indexOf(">", index + 1);
-    const opener = text.indexOf("<", index + 1);
-    const end =
-      opener !== -1 && (closer === -1 || opener < closer)
-        ? opener
-        : closer === -1
-          ? text.length
-          : closer + 1;
+    // One forward pass per token: every position is visited once overall, so a
+    // run of `<` with no `>` costs linear time rather than a rescan per token.
+    let end = index + 1;
+    while (end < text.length && text[end] !== "<" && text[end] !== ">") {
+      end += 1;
+    }
+    if (end < text.length && text[end] === ">") end += 1;
     yield { start: index, end, token: text.slice(index, end) };
     index = text.indexOf("<", end);
   }
@@ -120,9 +119,10 @@ export function hasEscapedKeyCollision(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasEscapedKeyCollision);
   if (!isRecord(value) || !isPlainObject(value)) return false;
   const keys = Object.keys(value);
+  const keySet = new Set(keys);
   for (const key of keys) {
     const escaped = neutralizeReservedDelimiters(key);
-    if (escaped !== key && keys.includes(escaped)) return true;
+    if (escaped !== key && keySet.has(escaped)) return true;
   }
   return Object.values(value).some(hasEscapedKeyCollision);
 }
