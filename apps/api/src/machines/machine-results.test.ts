@@ -258,6 +258,103 @@ describe('readFsListResult', () => {
 });
 
 describe('readFsReadResult', () => {
+  /** A minimal file read; every optional field is added per case. */
+  const READ_ANSWER = {
+    status: 'success',
+    kind: 'file',
+    path: 'machine://devl/a',
+    content: '1: a\n',
+    truncated: false,
+  } as const;
+
+  const RANGE_FIELDS = [
+    'requestedRange',
+    'shownRange',
+    'requestedRanges',
+    'shownRanges',
+  ] as const;
+
+  type RangeField = (typeof RANGE_FIELDS)[number];
+
+  /** One valid value per range field, as a daemon reports it. */
+  const RANGE_VALUES: Record<RangeField, JsonValue> = {
+    requestedRange: { startLine: 12, endLine: 40 },
+    shownRange: { startLine: 11, endLine: 41 },
+    requestedRanges: [
+      { startLine: 12, endLine: 40 },
+      { startLine: 70, endLine: 80 },
+    ],
+    shownRanges: [
+      { startLine: 11, endLine: 41 },
+      { startLine: 69, endLine: 81 },
+    ],
+  };
+
+  /** One value per range field the hub refuses to forward. */
+  const MALFORMED_RANGES: Record<RangeField, JsonValue> = {
+    requestedRange: { startLine: 12 },
+    shownRange: '11-41',
+    requestedRanges: [{ startLine: 12, endLine: 40 }, { startLine: 70 }],
+    shownRanges: { startLine: 11, endLine: 41 },
+  };
+
+  it.each(RANGE_FIELDS)('forwards the %s a daemon reports', (field) => {
+    const answer = { ...READ_ANSWER, [field]: RANGE_VALUES[field] };
+
+    expect(readFsReadResult(answer)).toStrictEqual({
+      ...READ_ANSWER,
+      [field]: RANGE_VALUES[field],
+    });
+  });
+
+  it.each(RANGE_FIELDS)(
+    'drops a malformed %s without dropping the read',
+    (field) => {
+      const result = readFsReadResult({
+        ...READ_ANSWER,
+        [field]: MALFORMED_RANGES[field],
+      });
+
+      expect(result).toStrictEqual({ ...READ_ANSWER });
+      expect(Object.hasOwn(result ?? {}, field)).toBe(false);
+    },
+  );
+
+  it('keeps every range field a daemon omits absent', () => {
+    const result = readFsReadResult(READ_ANSWER);
+
+    expect(result).toStrictEqual({ ...READ_ANSWER });
+    for (const field of RANGE_FIELDS)
+      expect(Object.hasOwn(result ?? {}, field)).toBe(false);
+  });
+
+  it('keeps an explicit null range as null', () => {
+    expect(
+      readFsReadResult({
+        ...READ_ANSWER,
+        requestedRange: null,
+        shownRange: null,
+      }),
+    ).toStrictEqual({
+      ...READ_ANSWER,
+      requestedRange: null,
+      shownRange: null,
+    });
+  });
+
+  it('drops a representation outside the closed set', () => {
+    const result = readFsReadResult({ ...READ_ANSWER, representation: 'hex' });
+
+    expect(result).toStrictEqual({ ...READ_ANSWER });
+    expect(Object.hasOwn(result ?? {}, 'representation')).toBe(false);
+  });
+
+  it('forwards a representation inside the closed set', () => {
+    expect(
+      readFsReadResult({ ...READ_ANSWER, representation: 'outline' }),
+    ).toStrictEqual({ ...READ_ANSWER, representation: 'outline' });
+  });
+
   it('accepts a file read unchanged', () => {
     const file = {
       status: 'success' as const,
