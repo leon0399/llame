@@ -212,9 +212,10 @@ daemon sends none.
 
 ### Requirement: A listing page that cannot advance fails closed
 
-When the header and the first entry of the requested window leave no room in the result cap, the
-read MUST fail with `representation_too_large` and MUST carry no listing and no continuation. The
-same MUST hold when the requested window keeps no entry and the header alone exceeds the bound.
+Notwithstanding the ordinary truncation rule, when the header and the first entry of the requested
+window leave no room in the result cap, the read MUST fail with `representation_too_large` and
+MUST carry no listing and no continuation. The same MUST hold when the requested window keeps no
+entry and the header alone exceeds the cap.
 
 #### Scenario: A listing too wide for its first entry fails closed
 
@@ -230,11 +231,25 @@ same MUST hold when the requested window keeps no entry and the header alone exc
 
 ### Requirement: An unselected read requests the whole source
 
-A text read with no line selector MUST report `requestedRange` from its first line to its
-`lineCount` when the count is known, so a read cut by the bound resumes to the end of the source.
-When the count is unknown, `requestedRange` MUST end at line 2000, the read line ceiling.
+A text file read with no line selector MUST report `requestedRange` from its first line to its
+`lineCount` when the count is known and non-zero, so a read cut by the bound resumes to the end of
+the source. When the count is unknown, `requestedRange` MUST end at line 2000, the read line
+ceiling. An empty file and a directory listing MUST report no `requestedRange`; a listing's
+continuation stays open-ended.
 
 #### Scenario: An unselected read of a counted file requests every line
 
 - **WHEN** the model reads `notes.txt` of a 3,000-line file and the bound cuts it at line 1500
 - **THEN** the result carries `requestedRange` 1..3000 and `nextOffset: 1500`
+
+#### Scenario: An empty file requests no range
+
+- **WHEN** the model reads an empty `notes.txt`
+- **THEN** the result carries `lineCount` 0
+- **AND** it carries no `requestedRange`
+
+#### Scenario: A listing reports no range
+
+- **WHEN** the model reads a directory of two entries
+- **THEN** the result carries no `requestedRange`
+- **AND** its continuation is open-ended

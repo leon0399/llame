@@ -202,6 +202,7 @@ read   <locator>:<start>-<end>[ of <lineCount> lines]
                     end, so a cut at 1500 resumes :1501-, and an explicit
                     :1-2000 cut at 1500 resumes :1501-2000)
        directory:   the stored content as-is (its first line is the path),
+                    then <attribution lines>,
                     then [[<k> more entries. ]Use <locator>:<n+1>- to continue]
        empty:       <locator>: empty                       (not truncated)
        skipped:     <locator>: line <nextOffset> exceeds the result bound and was skipped
@@ -224,6 +225,7 @@ grep   <notice line, when present>
        [more passages in this file; read it to see them]   after a capped 20th
        [warnings: <count> <kind>, …]
        [more results. Continue with cursor: <cursor>]
+       [<truncationNotice>]
 
 bash   exit <code>[, <seconds> s]
        <stdout>
@@ -237,7 +239,11 @@ bash   exit <code>[, <seconds> s]
 Attribution lines render one `<field>: <value>` per field the stored object
 carries, in the order the spec lists; `adapter` joins `id`, `route`, `origin`
 with spaces; `notes` renders one line per entry. The Knowledge and skill
-notices stay verbatim: they are closed templates under `tool-calling`.
+notices stay verbatim: they are closed templates under `tool-calling`. Every
+value the framing prints — the header and continuation paths, the mutation
+locator, a `grep` file locator, each attribution value and note, and the `read`
+and `edit` cap notices — renders on one line, because a stored line break in
+one of them would add an unprefixed line to the framing.
 
 `<k>` is `lineCount - nextOffset` and appears only when `lineCount` is
 stored. Reads stream and stop when the window is full
