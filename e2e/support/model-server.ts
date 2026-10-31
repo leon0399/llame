@@ -445,7 +445,9 @@ const READ_CONTINUATION_RE =
  * tool message names its call only by id, so the assistant turns' calls map
  * the id back to the function name; any other tool's result is not text.
  */
-function readCallResults(messages: ReadonlyArray<ChatMessage>): Array<JsonValue> {
+function readCallResults(
+  messages: ReadonlyArray<ChatMessage>,
+): Array<JsonValue> {
   const readCallIds = new Set<string>();
   for (const message of messages) {
     // SAFETY: a chat message is a JSON record; a turn without calls has no
@@ -456,11 +458,7 @@ function readCallResults(messages: ReadonlyArray<ChatMessage>): Array<JsonValue>
       if (!isJsonObject(call)) continue;
       const id = call["id"];
       const fn = call["function"];
-      if (
-        isJsonString(id) &&
-        isJsonObject(fn) &&
-        fn["name"] === "read"
-      ) {
+      if (isJsonString(id) && isJsonObject(fn) && fn["name"] === "read") {
         readCallIds.add(id);
       }
     }
