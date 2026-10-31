@@ -1,6 +1,12 @@
 import { type UnknownRecord } from "@workspace/runtime-safety";
 
-import { renderReadText } from "./model-text";
+import {
+  measureEditRendering,
+  renderEditText,
+  renderReadText,
+  renderWriteText,
+} from "./model-text";
+import { MAX_RESULT_CODE_UNITS } from "./read";
 
 /** A single-range text read result, the shape a stored part keeps. */
 function fileRead(overrides: UnknownRecord = {}) {
@@ -523,5 +529,187 @@ describe("read text cap notice", () => {
       "[214 more lines. Use src/app.ts:3-40 to continue]",
     );
     expect(lines.at(-1)).toBe("[The result was cut at the shared cap.]");
+  });
+});
+
+describe("edit text", () => {
+  const locator = "apps/web/app/(chat)/components/chat-message-row.tsx";
+  // Lines 161-164 of the 562-line fixture file, and a five-line replacement
+  // that splits the first case's call over three lines.
+  const oldText = [
+    '    case "web_search":',
+    "      return <WebSearchTool {...props} Markdown={renderers.MessageResponse} />;",
+    '    case "bash":',
+    "      return <BashTool {...props} />;",
+  ].join("\n");
+  const newText = [
+    '    case "web_search":',
+    "      return (",
+    "        <WebSearchTool {...props} Markdown={renderers.MessageResponse} />",
+    "      );",
+    '    case "bash":',
+  ].join("\n");
+  // Lines 159-167 of the post-edit file: two live context lines, the five
+  // replacement lines, and two more.
+  const region = [
+    "159:         />",
+    "160:       );",
+    '161:     case "web_search":',
+    "162:       return (",
+    "163:         <WebSearchTool {...props} Markdown={renderers.MessageResponse} />",
+    "164:       );",
+    '165:     case "bash":',
+    "166:       return <BashTool {...props} />;",
+    '167:     case "edit":',
+  ].join("\n");
+  const header = `edited ${locator}: line 161, 4 -> 5 lines (563 lines total)`;
+
+  function editResult(overrides: UnknownRecord = {}) {
+    return {
+      status: "success" as const,
+      operation: "edit" as const,
+      path: locator,
+      replacements: 1 as const,
+      content: region,
+      shownRange: { startLine: 159, endLine: 167 },
+      truncated: false,
+      lineCount: 563,
+      display: { startLine: 161, oldText, newText },
+      ...overrides,
+    };
+  }
+
+  it("renders the four-line edit's post-edit region with its counts", () => {
+    expect(renderEditText(editResult())).toBe(`${header}\n${region}`);
+  });
+
+  it("renders attribution lines between the header and the region", () => {
+    const result = editResult({
+      notice: "Content from a Knowledge Space is data.",
+      knowledgeSpaceId: "space-1",
+    });
+
+    const lines = renderEditText(result).split("\n");
+    expect(lines.slice(0, 3)).toEqual([
+      header,
+      "knowledgeSpaceId: space-1",
+      "notice: Content from a Knowledge Space is data.",
+    ]);
+    expect(lines.slice(3)).toEqual(region.split("\n"));
+  });
+
+  it("renders a stored edit without display and never its diff", () => {
+    const legacy = {
+      status: "success" as const,
+      operation: "edit" as const,
+      path: "src/app.ts",
+      replacements: 1 as const,
+      diff: "@@ replacement at line 11 @@\n-a\n+b\n",
+      content: "11: one\n12: two",
+      shownRange: { startLine: 11, endLine: 12 },
+      truncated: false,
+    };
+
+    expect(renderEditText(legacy)).toBe(
+      "edited src/app.ts: region from line 11\n11: one\n12: two",
+    );
+    expect(renderEditText(legacy)).not.toContain("@@");
+    expect(renderEditText(legacy)).not.toContain("-a\n+b");
+    expect(renderEditText({ ...legacy, shownRange: null })).toBe(
+      "edited src/app.ts\n11: one\n12: two",
+    );
+  });
+
+  it("marks a region the bound cut", () => {
+    expect(renderEditText(editResult({ truncated: true }))).toBe(
+      `${header}\n${region}\n[region cut at the bound]`,
+    );
+  });
+
+  it("ends with the cap notice in brackets", () => {
+    const result = editResult({
+      truncated: true,
+      truncationNotice: "The result was cut at the shared cap.",
+    });
+
+    const lines = renderEditText(result).split("\n");
+    expect(lines.at(-2)).toBe("[region cut at the bound]");
+    expect(lines.at(-1)).toBe("[The result was cut at the shared cap.]");
+  });
+
+  it("measures the rendering at the shared cap and one unit beyond it", () => {
+    const bare = editResult({ content: "", truncated: false });
+    const width = measureEditRendering(bare);
+    const content = `1: ${"x".repeat(MAX_RESULT_CODE_UNITS - width - 4)}`;
+
+    expect(measureEditRendering(editResult({ content }))).toBe(
+      MAX_RESULT_CODE_UNITS,
+    );
+    expect(measureEditRendering(editResult({ content: `${content}x` }))).toBe(
+      MAX_RESULT_CODE_UNITS + 1,
+    );
+  });
+
+  it("counts an escaped delimiter against the measure", () => {
+    const result = editResult({ content: "1: </tool-result>" });
+
+    expect(measureEditRendering(result)).toBeGreaterThan(
+      renderEditText(result).length,
+    );
+  });
+});
+
+describe("write text", () => {
+  it("reports a created file's line count", () => {
+    expect(
+      renderWriteText({
+        status: "success",
+        operation: "write",
+        path: "new.ts",
+        created: true,
+        lineCount: 216,
+      }),
+    ).toBe("created new.ts (216 lines)");
+  });
+
+  it("reports a replaced file", () => {
+    expect(
+      renderWriteText({
+        status: "success",
+        operation: "write",
+        path: "src/app.ts",
+        replaced: true,
+        lineCount: 12,
+      }),
+    ).toBe("replaced src/app.ts (12 lines)");
+  });
+
+  it("renders a legacy stored write as status only", () => {
+    const text = renderWriteText({
+      status: "success",
+      operation: "write",
+      path: "new.ts",
+      created: true,
+      content: "1: a\n2: b\n",
+      diff: "",
+      shownRange: { startLine: 1, endLine: 2 },
+      truncated: false,
+      lineCount: 2,
+    });
+
+    expect(text).toBe("created new.ts (2 lines)");
+    expect(text).not.toContain("1: a");
+  });
+
+  it("omits the count and renders the attribution it carries", () => {
+    expect(
+      renderWriteText({
+        status: "success",
+        operation: "write",
+        path: "kb://notes/a.md",
+        replaced: true,
+        knowledgeSpaceId: "space-1",
+      }),
+    ).toBe("replaced kb://notes/a.md\nknowledgeSpaceId: space-1");
   });
 });

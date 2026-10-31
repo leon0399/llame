@@ -57,7 +57,13 @@ export {
   measureNativeModelOutput,
   serializeNativeModelOutput,
 } from "./serialization";
-export { renderReadText } from "./model-text";
+export {
+  measureEditRendering,
+  renderAttributionLines,
+  renderEditText,
+  renderReadText,
+  renderWriteText,
+} from "./model-text";
 export { statHostPath } from "./stat";
 export type { HostPathStat } from "./stat";
 

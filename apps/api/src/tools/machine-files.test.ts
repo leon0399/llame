@@ -697,9 +697,12 @@ describe('Machine mutations', () => {
             status: 'success',
             operation: 'edit',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'new',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
+            lineCount: 1,
+            display: { startLine: 1, oldText: 'old', newText: 'new' },
           },
         },
       },
@@ -749,9 +752,7 @@ describe('Machine mutations', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/new.txt',
             created: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1453,9 +1454,12 @@ describe('Machine request cancellation', () => {
             status: 'success',
             operation: 'edit',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'new',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
+            lineCount: 1,
+            display: { startLine: 1, oldText: 'old', newText: 'new' },
           },
         },
       },
@@ -1489,9 +1493,7 @@ describe('Machine request cancellation', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/new.txt',
             created: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1711,9 +1713,7 @@ describe('Machine mutation addressing and results', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/new.txt',
             created: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1749,9 +1749,7 @@ describe('Machine mutation addressing and results', () => {
             operation: 'write',
             path: 'machine://devl/srv/app/existing.txt',
             replaced: true,
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },
@@ -1784,9 +1782,12 @@ describe('Machine mutation addressing and results', () => {
             status: 'success',
             operation: 'edit',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'new',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
             truncated: false,
+            lineCount: 1,
+            display: { startLine: 1, oldText: 'old', newText: 'new' },
           },
         },
       },
@@ -1800,6 +1801,120 @@ describe('Machine mutation addressing and results', () => {
     expect(result).toMatchObject({ status: 'success' });
     expect('created' in result).toBe(false);
     expect('replaced' in result).toBe(false);
+  });
+
+  it('forwards a new-shape edit region, display data, and line count', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            replacements: 1,
+            content: '1: changed\n2: tail\n',
+            shownRange: { startLine: 1, endLine: 2 },
+            truncated: false,
+            lineCount: 2,
+            display: { startLine: 1, oldText: 'old', newText: 'changed' },
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      {
+        path: 'machine://devl/srv/app/a.ts',
+        oldText: 'old',
+        newText: 'changed',
+      },
+      context(connector),
+      5,
+    );
+    expect(result).toEqual({
+      status: 'success',
+      operation: 'edit',
+      path: 'machine://devl/srv/app/a.ts',
+      replacements: 1,
+      content: '1: changed\n2: tail\n',
+      shownRange: { startLine: 1, endLine: 2 },
+      truncated: false,
+      lineCount: 2,
+      display: { startLine: 1, oldText: 'old', newText: 'changed' },
+    });
+    expect(result).not.toHaveProperty('diff');
+  });
+
+  it("forwards an old daemon's edit content and shownRange and drops its diff", async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/app/a.ts',
+            diff: '@@ replacement at line 1 @@\n-old\n+new\n',
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: false,
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeEditTool,
+      { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
+      context(connector),
+      5,
+    );
+    expect(result).toEqual({
+      status: 'success',
+      operation: 'edit',
+      path: 'machine://devl/srv/app/a.ts',
+      content: '1: new\n',
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+    });
+    expect(result).not.toHaveProperty('diff');
+    expect(result).not.toHaveProperty('display');
+  });
+
+  it("forwards an old daemon's write content and drops its diff", async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'fs.write': {
+          value: {
+            status: 'success',
+            operation: 'write',
+            path: 'machine://devl/srv/app/new.txt',
+            created: true,
+            diff: '',
+            content: '1: x\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: false,
+          },
+        },
+      },
+    });
+    const result = await runTool(
+      nativeWriteTool,
+      { path: 'machine://devl/srv/app/new.txt', content: 'x\n' },
+      context(connector),
+      5,
+    );
+    expect(result).toEqual({
+      status: 'success',
+      operation: 'write',
+      path: 'machine://devl/srv/app/new.txt',
+      created: true,
+      content: '1: x\n',
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+    });
+    expect(result).not.toHaveProperty('diff');
   });
 
   it('passes a mutation refusal through unchanged', async () => {
@@ -1838,9 +1953,7 @@ describe('Machine mutation addressing and results', () => {
             status: 'error',
             operation: 'write',
             path: 'machine://devl/srv/app/a.ts',
-            diff: '@@',
-            content: 'x',
-            truncated: false,
+            lineCount: 1,
           },
         },
       },

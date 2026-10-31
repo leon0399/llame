@@ -646,7 +646,7 @@ describe("native source reads", () => {
     });
   });
 
-  it("bypasses Markdown ancestors in an edit preview", async () => {
+  it("renders an edit of a Markdown source as its numbered post-edit region", async () => {
     const sourcePath = join(directory, "preview.md");
     await writeFile(sourcePath, "# Root\nintro\nselected\ntrailing\n");
     expect(
@@ -660,10 +660,11 @@ describe("native source reads", () => {
       operation: "edit",
       path: sourcePath,
       replacements: 1,
-      diff: "@@ replacement at line 3 @@\n-selected\n+changed\n",
-      content: "2: intro\n3: changed\n4: trailing\n",
-      shownRange: { startLine: 2, endLine: 4 },
+      content: "1: # Root\n2: intro\n3: changed\n4: trailing\n",
+      shownRange: { startLine: 1, endLine: 4 },
       truncated: false,
+      lineCount: 4,
+      display: { startLine: 3, oldText: "selected", newText: "changed" },
     });
   });
 

@@ -38,10 +38,48 @@ than being retried; see [machine](../locators/machine.md#behavior).
 
 ## Result
 
-A successful edit returns a bounded diff plus the post-edit content with one
-adjacent live line on each side when available. Bytes outside the replacement are
-preserved. The result is the same for a `file://` alias, decoded to the same
-identity as the path it names.
+A successful edit returns the bounded post-edit region and the fields that
+describe it. A model reads the result as plain text — one header line, the
+attribution lines the source adds, and the numbered region — while the owner's
+UI reads the stored object:
+
+```text
+edited src/app.ts: line 161, 4 -> 5 lines (563 lines total)
+161:     case "web_search":
+162:       return (
+163:         <WebSearchTool {...props} Markdown={renderers.MessageResponse} />
+164:       );
+165:     case "bash":
+[region cut at the bound]
+```
+
+The header names the region's first post-edit line, the replaced line count, the
+replacement line count, and then, after one space, the post-edit file's line
+count as `(<total> lines total)` when it is stored. The attribution lines follow
+the header, and the numbered post-edit region follows them: the changed lines
+plus two adjacent live lines on each side when available. A region the result
+bound cut ends with `[region cut at the bound]`, and the shared cap's notice can
+end the text in brackets. The result carries no diff, no old text, and no new
+text as separate blocks, and bytes outside the replacement are preserved.
+
+| Field          | Meaning                                                               |
+| -------------- | --------------------------------------------------------------------- |
+| `content`      | the bounded post-edit region, each line with its `N:` prefix          |
+| `shownRange`   | the post-edit lines actually emitted                                  |
+| `truncated`    | whether the bound cut the region                                      |
+| `lineCount`    | the post-edit file's line count                                       |
+| `display`      | the region's `startLine`, `oldText`, and `newText` for the owner's UI |
+| `replacements` | the number of replacements, always `1`                                |
+| `path`         | the locator the result identifies itself by                           |
+
+`display` is stored with the tool part for the chat UI only: a model never
+receives it, and it counts toward no result or replay budget. A result stored
+before this shape carries `diff`, `content`, and `shownRange` instead; its
+header is `edited <path>: region from line <N>`, the stored region follows, and
+the stored diff is never rendered.
+
+The result is the same for a `file://` alias, decoded to the same identity as
+the path it names.
 
 ## Behavior
 

@@ -24,10 +24,7 @@ const meta = {
       operation: "write" as const,
       path: "docs/release.md",
       created: true as const,
-      diff: "",
-      content: "1: # Release notes\n2: \n3: - Dedicated tool rows\n",
-      shownRange: { startLine: 1, endLine: 3 },
-      truncated: false,
+      lineCount: 3,
     },
     errorText: undefined,
     state: "output-available" as const,
@@ -67,16 +64,41 @@ export const Replaced: Story = {
     input: { path: "docs/release.md", content, replace: true },
     output: {
       status: "success" as const,
+      operation: "write" as const,
+      path: "docs/release.md",
       replaced: true as const,
-      diff: "",
-      content: "",
-      truncated: false,
+      lineCount: 3,
     },
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /write/iu }));
     await expect(canvas.getByText("Replace contents")).toBeInTheDocument();
     await expect(canvas.getByText("Replaced the file")).toBeInTheDocument();
+  },
+};
+
+/**
+ * A stored write names the written file's line count, so the content section's
+ * heading reads it from the result instead of recounting the submitted text.
+ *
+ * @summary for a write whose result names its line count
+ */
+export const LineCount: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "docs/notes.md", content: "one\ntwo\nthree\nfour\n" },
+    output: {
+      status: "success" as const,
+      operation: "write" as const,
+      path: "docs/notes.md",
+      created: true as const,
+      lineCount: 4,
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /write/iu }));
+    await expect(canvas.getByText("4 lines")).toBeInTheDocument();
+    await expect(canvas.getByText("Created the file")).toBeInTheDocument();
   },
 };
 

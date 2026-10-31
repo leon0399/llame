@@ -9,6 +9,8 @@
 import {
   BYTES_NOTIFICATION,
   type JsonValue,
+  type NativeLineRange,
+  type NativeMutationDisplay,
   type NativeMutationResult,
   type RequestEnvelope,
 } from '@workspace/machine-protocol';
@@ -40,7 +42,12 @@ import {
 } from './machine-call';
 import { type ToolContext, type ToolResult } from './types';
 import { NativeFileError, readMediaBytes } from '@workspace/native-file-tools';
-import { isBoolean, isRecord, isString } from '@workspace/runtime-safety';
+import {
+  isBoolean,
+  isNumber,
+  isRecord,
+  isString,
+} from '@workspace/runtime-safety';
 
 /** The three native calls a Machine locator can address. */
 export type MachineFileCall =
@@ -486,28 +493,59 @@ function requestMachineMutation(
       );
 }
 
+/** One stored line range from a daemon answer: both counts, or nothing. */
+function readMutationRange(
+  value: JsonValue | undefined,
+): NativeLineRange | undefined {
+  if (!isRecord(value)) return undefined;
+  const { startLine, endLine } = value;
+  return isNumber(startLine) && isNumber(endLine)
+    ? { startLine, endLine }
+    : undefined;
+}
+
+/** The display data of a new-shape daemon answer, when all three fields a
+ *  header needs are intact. */
+function readMutationDisplay(
+  value: JsonValue | undefined,
+): NativeMutationDisplay | undefined {
+  if (!isRecord(value)) return undefined;
+  const { startLine, oldText, newText } = value;
+  return isNumber(startLine) && isString(oldText) && isString(newText)
+    ? { startLine, oldText, newText }
+    : undefined;
+}
+
+/**
+ * One `fs.edit` or `fs.write` success. The new shape stores a numbered edit
+ * region, its line count, and display data, and no diff; an old daemon's
+ * `content` and `shownRange` are forwarded so the legacy edit form still
+ * renders, and its `diff` is dropped because no rendering reads one. Each
+ * optional field is forwarded only when it is well formed, so a daemon that
+ * predates a field still yields a usable result.
+ */
 function readFsMutateResult(value: JsonValue): ToolResult | undefined {
   const failure = readNativeFailure(value);
   if (failure !== undefined) return failure;
   if (!isRecord(value) || value['status'] !== 'success') return undefined;
-  const { operation, path, diff, content, truncated } = value;
-  if (
-    (operation !== 'edit' && operation !== 'write') ||
-    !isString(path) ||
-    !isString(diff) ||
-    !isString(content) ||
-    !isBoolean(truncated)
-  )
+  const { operation, path, content, truncated, lineCount } = value;
+  if ((operation !== 'edit' && operation !== 'write') || !isString(path))
     return undefined;
-  const result: NativeMutationResult = {
+  const storedRange = value['shownRange'];
+  const shownRange =
+    storedRange === null ? null : readMutationRange(storedRange);
+  const display = readMutationDisplay(value['display']);
+  return {
     status: 'success',
     operation,
     path,
-    diff,
-    content,
-    truncated,
-  };
-  if (value['created'] === true) return { ...result, created: true };
-  if (value['replaced'] === true) return { ...result, replaced: true };
-  return result;
+    ...(value['created'] === true && { created: true }),
+    ...(value['replaced'] === true && { replaced: true }),
+    ...(value['replacements'] === 1 && { replacements: 1 }),
+    ...(isString(content) && { content }),
+    ...(shownRange !== undefined && { shownRange }),
+    ...(isBoolean(truncated) && { truncated }),
+    ...(isNumber(lineCount) && { lineCount }),
+    ...(display !== undefined && { display }),
+  } satisfies NativeMutationResult;
 }

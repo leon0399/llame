@@ -20,11 +20,20 @@ const inputSchema = z.object({
   newText: z.string(),
 });
 
-/** Loose: the runner's oversize cap may add `truncationNotice`. */
+/** The region a current result names for the diff, and the text it replaced. */
+const displaySchema = z.object({
+  startLine: z.number(),
+  oldText: z.string(),
+  newText: z.string(),
+});
+
+/** Loose: the runner's oversize cap may add `truncationNotice`, and a part
+ *  stored before `display` still carries the legacy `diff` instead. */
 const outputSchema = z.looseObject({
   status: z.literal("success"),
   path: z.string(),
-  diff: z.string(),
+  diff: z.string().optional(),
+  display: displaySchema.optional(),
   truncated: z.boolean(),
   truncationNotice: z.string().optional(),
 });
@@ -259,19 +268,29 @@ function EditDiff({
   newText: string;
   output: EditOutput | undefined;
 }) {
-  const header = replacementHeaderPattern.exec(output?.diff ?? "");
-  const rows = diffRows(oldText, newText, header ? Number(header[1]) : null);
+  // A current result names the replaced region, so its diff numbers from the
+  // line the edit landed on. A part stored before `display` still carries the
+  // legacy header naming that line, and no result at all (a running or failed
+  // edit) shows the submitted text unnumbered.
+  const display = output?.display;
+  const before = display?.oldText ?? oldText;
+  const after = display?.newText ?? newText;
+  const header = display
+    ? undefined
+    : replacementHeaderPattern.exec(output?.diff ?? "");
+  const start = display?.startLine ?? (header ? Number(header[1]) : null);
+  const rows = diffRows(before, after, start);
   const removed = rows.filter((row) => row.kind === "removed").length;
   const added = rows.filter((row) => row.kind === "added").length;
   let trailingBreak: string | undefined;
-  if (!oldText.endsWith("\n") && newText.endsWith("\n")) {
+  if (!before.endsWith("\n") && after.endsWith("\n")) {
     trailingBreak = "Adds a trailing line break.";
-  } else if (oldText.endsWith("\n") && !newText.endsWith("\n")) {
+  } else if (before.endsWith("\n") && !after.endsWith("\n")) {
     trailingBreak = "Removes the trailing line break.";
   }
   return (
     <ToolSection label="Diff" aside={`+${added} −${removed}`}>
-      {oldText === newText ? (
+      {before === after ? (
         <p className="text-muted-foreground text-sm">No changes.</p>
       ) : (
         <DiffView rows={rows} />
@@ -297,10 +316,11 @@ function EditResult({ output }: { output: EditOutput }) {
 }
 
 /**
- * Renders a native `edit` invocation as a diff computed from the submitted
- * old and new text, numbered from the line the result names. The diff shows
- * while the edit runs and after a failure, so the attempted change stays
- * reviewable.
+ * Renders a native `edit` invocation as a diff of the region the result names:
+ * `display` from a current result, or else the submitted old and new text
+ * numbered from the legacy result's header. The diff shows while the edit runs
+ * and after a failure, so the attempted change stays reviewable, and it never
+ * repeats the result's numbered region.
  *
  * @summary displays a file edit as a diff inside a collapsible tool row
  */

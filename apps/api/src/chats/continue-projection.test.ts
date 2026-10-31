@@ -385,12 +385,16 @@ describe('the Continue projection', () => {
     });
   });
 
-  it('replays a kept result without its stored display data', () => {
+  it('replays a kept edit without its stored display data', () => {
     const result = {
       status: 'success' as const,
       operation: 'edit' as const,
       path: '/work/call-1',
+      replacements: 1 as const,
       content: '11: const a = 1;',
+      shownRange: { startLine: 11, endLine: 11 },
+      truncated: false,
+      lineCount: 40,
       display: {
         startLine: 11,
         oldText: 'const a = 0;',

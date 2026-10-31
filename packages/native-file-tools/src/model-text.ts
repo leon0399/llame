@@ -2,29 +2,31 @@ import {
   isNumber,
   isRecord,
   isString,
+  neutralizeReservedDelimiters,
   type UnknownRecord,
 } from "@workspace/runtime-safety";
 
 /*
- * The model-facing text of a `read` success
+ * The model-facing text of a `read`, `edit`, or `write` success
  * (tool-result-rendering "The read header names the source and the shown
  * lines", "The read header carries the source total when it is stored",
  * "Attribution fields render as lines after the header", "Continuation is one
- * bracketed notice line", "Source lines use one prefix grammar").
+ * bracketed notice line", "Source lines use one prefix grammar", "An edit
+ * renders its post-edit region", "A write renders one status line").
  *
  * The stored result already numbers its content lines (`N: text`, or
  * unprefixed for a `raw` read) and stores the ranges it showed, so this module
  * adds only the framing: one header line, the attribution lines the result
- * carries, and the continuation notice. It reads a fixed set of fields and
- * ignores every other one — a legacy part without `lineCount`/`entryCount`
- * renders with no total and a selector-only continuation. Every stored value it
- * prints sits on one line: a line break in a path, an attribution value, or the
- * cap notice becomes a space, so no stored value can add an unprefixed line to
- * the framing.
+ * carries, and the notice lines a bound or the cap adds. It reads a fixed set
+ * of fields and ignores every other one — a legacy part without
+ * `lineCount`/`entryCount`/`display` renders its legacy form. Every stored
+ * value it prints sits on one line: a line break in a path, an attribution
+ * value, or the cap notice becomes a space, so no stored value can add an
+ * unprefixed line to the framing.
  *
- * The return value is the raw text; the one reserved-name rule is applied by
+ * The return values are the raw text; the one reserved-name rule is applied by
  * the caller, once, to the whole rendering, and that neutralized text is what
- * the bounds measure.
+ * the bounds measure. `measureEditRendering` is the mutation bound's measure.
  */
 
 type LineRange = { readonly startLine: number; readonly endLine: number };
@@ -103,7 +105,9 @@ function noteLines(value: unknown): Array<string> {
   return lines;
 }
 
-function attributionLines(result: UnknownRecord): Array<string> {
+/** The attribution lines a result carries, in the spec's order — shared by
+ *  every text shape that renders them after its header. */
+export function renderAttributionLines(result: UnknownRecord): Array<string> {
   const lines: Array<string> = [];
   for (const field of ATTRIBUTION_FIELDS) {
     const value = result[field];
@@ -261,12 +265,113 @@ export function renderReadText(result: UnknownRecord): string {
   // attribution follows the listing whose origin it names.
   const lines =
     result.kind === "directory"
-      ? [...bodyLines, ...attributionLines(result)]
-      : [fileHeader(result), ...attributionLines(result), ...bodyLines];
+      ? [...bodyLines, ...renderAttributionLines(result)]
+      : [fileHeader(result), ...renderAttributionLines(result), ...bodyLines];
   const continuation = continuationLine(result);
   if (continuation !== undefined) lines.push(continuation);
   const { truncationNotice } = result;
   if (isNonEmptyString(truncationNotice))
     lines.push(`[${oneLine(truncationNotice)}]`);
   return lines.join("\n");
+}
+
+/** The one bracketed marker a mutation rendering ends with when its bound cut
+ *  the region. */
+const REGION_CUT_MARKER = "[region cut at the bound]";
+
+/** The locator a mutation result identifies itself by. */
+function mutationLocator(result: UnknownRecord): string {
+  return isNonEmptyString(result.path) ? result.path : "";
+}
+
+/** The lines a stored block spans, counted as a source file counts them: a
+ *  trailing newline ends the last line instead of starting another. */
+function blockLineCount(text: string): number {
+  return text.match(/[^\n]*\n|[^\n]+$/gu)?.length ?? 0;
+}
+
+/** The display data of a new-shape edit: the three fields a header needs. A
+ *  part without all of them keeps the legacy form. */
+type EditDisplay = {
+  readonly startLine: number;
+  readonly oldText: string;
+  readonly newText: string;
+};
+
+function editDisplay(result: UnknownRecord): EditDisplay | undefined {
+  const display = result.display;
+  if (!isRecord(display)) return undefined;
+  const { startLine, oldText, newText } = display;
+  return isNumber(startLine) && isString(oldText) && isString(newText)
+    ? { startLine, oldText, newText }
+    : undefined;
+}
+
+/** The header of a new-shape edit: the first post-edit line, the replaced and
+ *  replacement line counts, and the post-edit total when it is stored. */
+function editHeader(result: UnknownRecord, display: EditDisplay): string {
+  const total = isNumber(result.lineCount)
+    ? ` (${result.lineCount} lines total)`
+    : "";
+  const oldLines = blockLineCount(display.oldText);
+  const newLines = blockLineCount(display.newText);
+  return `edited ${mutationLocator(result)}: line ${display.startLine}, ${oldLines} -> ${newLines} lines${total}`;
+}
+
+/** The header of an edit stored before `display` existed: the region the part
+ *  showed, which its stored `diff` never contributes to. */
+function legacyEditHeader(result: UnknownRecord): string {
+  const shown = asRange(result.shownRange);
+  const locator = mutationLocator(result);
+  return shown === undefined
+    ? `edited ${locator}`
+    : `edited ${locator}: region from line ${shown.startLine}`;
+}
+
+/**
+ * The model-facing text of an `edit` success — the header, the attribution
+ * lines, the bounded post-edit region, and the notice lines a cut or the cap
+ * adds. The stored `diff`, if a legacy part carries one, is never rendered.
+ */
+export function renderEditText(result: UnknownRecord): string {
+  const display = editDisplay(result);
+  const content = isNonEmptyString(result.content) ? result.content : "";
+  const body = content.replace(/\n$/u, "");
+  const lines = [
+    display === undefined
+      ? legacyEditHeader(result)
+      : editHeader(result, display),
+    ...renderAttributionLines(result),
+  ];
+  if (body !== "") lines.push(body);
+  if (result.truncated === true) lines.push(REGION_CUT_MARKER);
+  const { truncationNotice } = result;
+  if (isNonEmptyString(truncationNotice)) lines.push(`[${truncationNotice}]`);
+  return lines.join("\n");
+}
+
+/**
+ * The model-facing text of a `write` success — one status line and the
+ * attribution lines. The written content never reaches a model, even when a
+ * legacy part stored it.
+ */
+export function renderWriteText(result: UnknownRecord): string {
+  const action = result.replaced === true ? "replaced" : "created";
+  const total = isNumber(result.lineCount)
+    ? ` (${result.lineCount} lines)`
+    : "";
+  return [
+    `${action} ${mutationLocator(result)}${total}`,
+    ...renderAttributionLines(result),
+  ].join("\n");
+}
+
+/**
+ * Width the model receives for an edit candidate: its text rendering after the
+ * one reserved-name rule, so escaped delimiters count against the mutation
+ * bound (tool-result-rendering "Bounds are measured on the neutralized
+ * rendering").
+ */
+export function measureEditRendering(result: UnknownRecord): number {
+  return neutralizeReservedDelimiters(renderEditText(result)).length;
 }

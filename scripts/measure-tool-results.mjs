@@ -27,7 +27,11 @@ import { readFileSync } from "node:fs";
 
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
 
-import { renderReadText } from "../packages/native-file-tools/dist/index.js";
+import {
+  renderEditText,
+  renderReadText,
+  renderWriteText,
+} from "../packages/native-file-tools/dist/index.js";
 import { neutralizeReservedDelimiters } from "../packages/runtime-safety/dist/index.js";
 
 const FIXTURE = new URL("./fixtures/tool-results/today.json", import.meta.url);
@@ -44,17 +48,31 @@ const storedPath = (locator) =>
 
 const tokens = (text) => encode(text).length;
 
-/** The text rendering of a case this layer renders as text: a `read` success
- *  carrying its `lineCount`. */
+/** The text rendering of a case a text renderer covers. Read and edit successes
+ *  carry the line count their header names. */
 function afterText(name, result) {
-  if (!name.startsWith("read") || result === null) return undefined;
-  return neutralizeReservedDelimiters(
-    renderReadText({
+  if (result === null) return undefined;
+  if (name.startsWith("read")) {
+    return neutralizeReservedDelimiters(
+      renderReadText({
+        ...result,
+        path: storedPath(result.path),
+        lineCount: READ_LINE_COUNT,
+      }),
+    );
+  }
+  if (name.startsWith("edit")) {
+    const stored = {
       ...result,
       path: storedPath(result.path),
-      lineCount: READ_LINE_COUNT,
-    }),
-  );
+      lineCount: READ_LINE_COUNT + 1,
+    };
+    return neutralizeReservedDelimiters(renderEditText(stored));
+  }
+  if (name.startsWith("write")) {
+    return neutralizeReservedDelimiters(renderWriteText(result));
+  }
+  return undefined;
 }
 
 const cases = JSON.parse(readFileSync(FIXTURE, "utf8"));

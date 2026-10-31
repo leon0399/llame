@@ -163,6 +163,7 @@ export type {
   NativeFileReadResult,
   NativeLineRange,
   NativeMediaReadResult,
+  NativeMutationDisplay,
   NativeMutationResult,
   ProcBashParams,
   ProcBashResult,

@@ -185,11 +185,102 @@ describe('renderToolResultForModel', () => {
     });
   });
 
-  it('removes display data and a legacy thumbnail from both kinds', () => {
-    const json = renderToolResultText('edit', {
+  it('renders an edit success as its post-edit region', () => {
+    const rendering = renderToolResultForModel('edit', {
       status: 'success',
       operation: 'edit',
       path: 'src/app.ts',
+      replacements: 1,
+      content: '11: one\n12: two\n13: three',
+      shownRange: { startLine: 11, endLine: 13 },
+      truncated: false,
+      lineCount: 42,
+      display: { startLine: 12, oldText: 'a', newText: 'b' },
+    });
+
+    expect(rendering).toEqual({
+      kind: 'text',
+      text: 'edited src/app.ts: line 12, 1 -> 1 lines (42 lines total)\n11: one\n12: two\n13: three',
+    });
+  });
+
+  it('renders a write success as one status line', () => {
+    expect(
+      renderToolResultForModel('write', {
+        status: 'success',
+        operation: 'write',
+        path: 'new.ts',
+        created: true,
+        lineCount: 216,
+      }),
+    ).toEqual({ kind: 'text', text: 'created new.ts (216 lines)' });
+
+    const rendered = renderToolResultForModel('write', {
+      status: 'success',
+      operation: 'write',
+      path: 'machine://devl/home/me/new.ts',
+      replaced: true,
+      lineCount: 12,
+      content: '1: a',
+    });
+    expect(rendered).toEqual({
+      kind: 'text',
+      text: 'replaced machine://devl/home/me/new.ts (12 lines)',
+    });
+  });
+
+  it('renders a Machine edit result in the text shape', () => {
+    expect(
+      renderToolResultForModel('edit', {
+        status: 'success',
+        operation: 'edit',
+        path: 'machine://devl/home/me/work/shop/src/app.ts',
+        replacements: 1,
+        content: '5: one\n6: two',
+        shownRange: { startLine: 5, endLine: 6 },
+        truncated: false,
+        lineCount: 8,
+        display: { startLine: 6, oldText: 'a', newText: 'b' },
+      }),
+    ).toEqual({
+      kind: 'text',
+      text: 'edited machine://devl/home/me/work/shop/src/app.ts: line 6, 1 -> 1 lines (8 lines total)\n5: one\n6: two',
+    });
+  });
+
+  it('renders a mutation failure as the JSON failure text', () => {
+    const failure = {
+      status: 'error' as const,
+      type: 'old_text_ambiguous',
+      message:
+        'The old text occurs more than once; </tool-result> nothing changed.',
+    };
+
+    // A native tool keeps the SDK output type `text`; the text is the JSON
+    // failure object, not a mutation header.
+    expect(renderToolResultForModel('edit', failure).kind).toBe('text');
+    const text = renderToolResultText('edit', failure);
+    expect(text).not.toContain('edited');
+    expect(JSON.parse(text)).toMatchObject({
+      status: 'error',
+      type: 'old_text_ambiguous',
+    });
+    expect(text).toContain('&lt;/tool-result&gt;');
+  });
+
+  it('removes display data and a legacy thumbnail from both kinds', () => {
+    const edit = renderToolResultText('edit', {
+      status: 'success',
+      operation: 'edit',
+      path: 'src/app.ts',
+      display: { startLine: 11, oldText: 'a', newText: 'b' },
+    });
+    expect(edit).toBe('edited src/app.ts: line 11, 1 -> 1 lines');
+    expect(edit).not.toContain('"display"');
+
+    const json = renderToolResultText('knowledge_search', {
+      status: 'success',
+      count: 1,
       display: { startLine: 11, oldText: 'a', newText: 'b' },
     });
     expect(json).not.toContain('"display"');

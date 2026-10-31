@@ -36,10 +36,12 @@ const meta = {
       operation: "edit" as const,
       path: "apps/api/src/greet.ts",
       replacements: 1,
-      diff: "@@ replacement at line 12 @@\n-…\n+…\n",
-      content: "12: export function greet(name: string) {\n",
+      content:
+        '12: export function greet(name: string) {\n13:   const greeting = "Welcome";\n14:   return `${greeting}, ${name}!`;\n15: }\n',
       shownRange: { startLine: 12, endLine: 15 },
       truncated: false,
+      lineCount: 15,
+      display: { startLine: 12, oldText, newText },
     },
     errorText: undefined,
     state: "output-available" as const,
@@ -50,8 +52,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * Use for a completed edit: a unified diff numbered from the line the result
- * names, unchanged lines as context, and the changed words emphasized.
+ * Use for a completed edit: the result's `display` region as a unified diff,
+ * numbered from the line the edit landed on, with the changed words
+ * emphasized.
  *
  * @summary for a completed edit shown as a diff
  */
@@ -69,6 +72,38 @@ export const Basic: Story = {
     await expect(diff.getByText("Welcome")).toBeInTheDocument();
     await expect(diff.getAllByText("−")).toHaveLength(2);
     await expect(diff.getAllByText("+")).toHaveLength(2);
+    // The stored post-edit region is never shown: it repeats the added lines.
+    await expect(canvas.queryByText(/^12: /u)).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * A tool part stored before results carried `display` still parses: its legacy
+ * `diff` header names the start line, and the submitted old and new text build
+ * the same numbered diff.
+ *
+ * @summary for an edit stored without display data
+ */
+export const Legacy: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      status: "success" as const,
+      operation: "edit" as const,
+      path: "apps/api/src/greet.ts",
+      replacements: 1,
+      diff: "@@ replacement at line 12 @@\n-…\n+…\n",
+      content: "12: export function greet(name: string) {\n",
+      shownRange: { startLine: 12, endLine: 15 },
+      truncated: false,
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /edit/iu }));
+    const diff = within(canvas.getByRole("group", { name: "Diff" }));
+    await expect(diff.getAllByText("12")).toHaveLength(2);
+    await expect(diff.getAllByText("13")).toHaveLength(2);
+    await expect(diff.getByText("Welcome")).toBeInTheDocument();
   },
 };
 
@@ -145,6 +180,7 @@ export const NoChange: Story = {
   tags: ["ai-generated"],
   args: {
     input: { path: "notes.md", oldText: "same", newText: "same" },
+    output: undefined,
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /edit/iu }));

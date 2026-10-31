@@ -171,15 +171,31 @@ export type FsWriteParams = {
   readonly replace?: boolean;
 };
 
+/** Display-only data for the owner UI: the exact replaced and replacement
+ *  text with the post-edit line the region starts at. Never rendered for the
+ *  model. Absent on a daemon that predates the field. */
+export type NativeMutationDisplay = {
+  readonly startLine: number;
+  readonly oldText: string;
+  readonly newText: string;
+};
+
 export type NativeMutationResult = {
   readonly status: "success";
   readonly operation: "edit" | "write";
   readonly path: string;
   readonly created?: true;
   readonly replaced?: true;
-  readonly diff: string;
-  readonly content: string;
-  readonly truncated: boolean;
+  readonly replacements?: 1;
+  /** The numbered post-edit region of an edit. Absent on a write, and on a
+   *  daemon that predates the field. */
+  readonly content?: string;
+  readonly shownRange?: NativeLineRange | null;
+  readonly truncated?: boolean;
+  /** The written or post-edit source's line count. Absent on a daemon that
+   *  predates the field. */
+  readonly lineCount?: number;
+  readonly display?: NativeMutationDisplay;
 };
 
 export type FsMutateResult = NativeMutationResult | NativeFailureResult;
