@@ -992,7 +992,6 @@ describe('Machine bash', () => {
       exitCode: 0,
       stdout: '/srv/app\n',
       stderr: '',
-      truncated: false,
     });
   });
 

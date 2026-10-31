@@ -4,12 +4,13 @@ import { expect, within } from "storybook/test";
 import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { BashTool } from "./bash.js";
 
+/** The stored shape: the executor's own cut is `cut`, present only when set;
+ *  `truncated` belongs to the runner's oversize cap. */
 const success = {
   status: "success" as const,
   exitCode: 0,
   stdout: "apps/\npackages/\nREADME.md\n",
   stderr: "",
-  truncated: false,
   wallTimeMs: 1240,
 };
 
@@ -109,6 +110,24 @@ export const WallTime: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
     await expect(canvas.getByText("Time:")).toBeVisible();
     await expect(canvas.getByText(/1\.2 s/u)).toBeVisible();
+  },
+};
+
+/**
+ * Output the executor cut at its stream bound says so in the details row.
+ *
+ * @summary for a command whose output was cut at the bound
+ */
+export const CutAtBound: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { command: "cat big.log" },
+    output: { ...success, cut: true },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
+    await expect(canvas.getByText("Truncated:")).toBeVisible();
+    await expect(canvas.getByText("yes")).toBeVisible();
   },
 };
 

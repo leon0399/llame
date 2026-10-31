@@ -18,14 +18,17 @@ const inputSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-/** Loose: the runner's oversize cap may add `truncationNotice`, and a part
- *  stored before the wall time may carry the old `operation`/`executor`. */
+/** Loose: the runner's oversize cap may add `truncated`/`truncationNotice`,
+ *  the executor's own stream cut is `cut`, and a part stored before either
+ *  carries `truncated` for the executor cut and may hold the old
+ *  `operation`/`executor`. */
 const outputSchema = z.looseObject({
   status: z.literal("success"),
   exitCode: z.number(),
   stdout: z.string(),
   stderr: z.string(),
-  truncated: z.boolean(),
+  cut: z.boolean().optional(),
+  truncated: z.boolean().optional(),
   wallTimeMs: z.number().optional(),
   truncationNotice: z.string().optional(),
 });
@@ -91,7 +94,12 @@ function BashResult({ output }: { output: BashOutput }) {
       <ToolDetails
         rows={[
           ["Time", wallTime],
-          ["Truncated", output.truncated ? "yes" : undefined],
+          [
+            "Truncated",
+            output.cut === true || output.truncated === true
+              ? "yes"
+              : undefined,
+          ],
           ["Note", output.truncationNotice],
         ]}
       />

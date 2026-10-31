@@ -234,7 +234,7 @@ describe('ssh bash remote outcome', () => {
       cwd: CWD,
     });
 
-    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toMatchObject({ status: 'success', cut: true });
   });
 
   it('marks stderr overflow alone as a truncated result', async () => {
@@ -253,7 +253,7 @@ describe('ssh bash remote outcome', () => {
       cwd: CWD,
     });
 
-    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toMatchObject({ status: 'success', cut: true });
   });
 
   it('treats a refusal that is not the cwd as an outcome it cannot attribute', async () => {

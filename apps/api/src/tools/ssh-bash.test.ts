@@ -151,8 +151,8 @@ describe('ssh bash execution', () => {
       exitCode: 0,
       stdout: 'command out\n',
       stderr: 'command err\n',
-      truncated: false,
     });
+    expect(result).not.toHaveProperty('cut');
     // The wall time is measured, not constant; the dropped fields are gone.
     expect(result).toHaveProperty('wallTimeMs', expect.any(Number));
     expect(result).not.toHaveProperty('operation');
@@ -278,7 +278,7 @@ describe('ssh bash execution', () => {
       cwd: CWD,
     });
 
-    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toMatchObject({ status: 'success', cut: true });
     expect(String(result['stdout'])).toHaveLength(32_000);
   });
 

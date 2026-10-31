@@ -227,7 +227,7 @@ describe('ssh bash over a real sshd', () => {
       client(),
     );
 
-    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toMatchObject({ status: 'success', cut: true });
     const stdout = String(result['stdout']);
     expect(stdout).toMatch(/^x+$/u);
     expect(stdout.length).toBeGreaterThan(0);
