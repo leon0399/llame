@@ -660,6 +660,13 @@ describe("truncateOversizedResult display-aware measures", () => {
     return "x".repeat(total - editWidth(editResult("")));
   }
 
+  /** The legacy shape: the same result with its display set aside. */
+  function withoutDisplay(result: ToolResult): ToolResult {
+    if (result.status !== "success") return result;
+    const { display: _display, ...rest } = result;
+    return rest;
+  }
+
   it("passes a display-carrying result whose rendering is exactly the cap", () => {
     const atCap = editResult(contentOfWidth(RESULT_TRUNCATE_CHARS));
 
@@ -672,9 +679,7 @@ describe("truncateOversizedResult display-aware measures", () => {
 
     // The display-free legacy form measures under the cap, which is what made
     // the old measurement miss this result.
-    expect(editWidth({ ...over, display: undefined })).toBeLessThan(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(editWidth(withoutDisplay(over))).toBeLessThan(RESULT_TRUNCATE_CHARS);
     const cut = truncateOversizedResult(over, editWidth);
     expect(cut).toMatchObject({
       truncated: true,
@@ -695,6 +700,6 @@ describe("truncateOversizedResult display-aware measures", () => {
     truncateOversizedResult(result, measure);
 
     expect(widths[0]).toBe(editWidth(result));
-    expect(widths[0]).not.toBe(editWidth({ ...result, display: undefined }));
+    expect(widths[0]).not.toBe(editWidth(withoutDisplay(result)));
   });
 });
