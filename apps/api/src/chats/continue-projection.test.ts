@@ -682,12 +682,10 @@ describe('the Continue projection', () => {
       value: renderToolResultText('read', read),
     });
     // An independent oracle: whatever the renderer does, the text a model
-    // reads is the JSON object of the kept result, with its content intact.
+    // reads carries the kept result's numbered lines intact.
     const readOutput = results[0]?.output;
     const readText = readOutput?.type === 'text' ? readOutput.value : '';
-    expect(JSON.parse(readText)).toMatchObject({
-      content: '1: </div>\n2: retained',
-    });
+    expect(readText).toContain('\n1: </div>\n2: retained');
     expect(results[1]?.output).toEqual({
       type: 'json',
       value: {

@@ -44,6 +44,7 @@ import {
 import { executeWebRead } from './web-read/execute';
 import { isFileAlias, decodeFileAlias } from './permissions/file-alias';
 import { executeMediaRead } from './media-read';
+import { readAttributionReserve } from './model-text';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { executeMachineNative } from './machine-files';
 import {
@@ -269,7 +270,7 @@ async function readResolvedSkillTarget(
   }
   const options: NativeReadOptions = {
     displayPath: target.locator,
-    reserveCodeUnits: serializeNativeModelOutput(envelope).length,
+    reserveCodeUnits: readAttributionReserve(envelope),
     followSymlinks: true,
     signal: context.abortSignal,
     media: context.media?.readMedia(target.locator, context.toolCallId),
@@ -370,7 +371,7 @@ async function readKnowledge(
   const envelope = knowledgeResultEnvelope(target);
   const options: NativeReadOptions = {
     displayPath: target.locator,
-    reserveCodeUnits: serializeNativeModelOutput(envelope).length,
+    reserveCodeUnits: readAttributionReserve(envelope),
     // A Knowledge result exposes no resolved host path, so a link entry
     // renders without its target.
     linkTargets: false,
@@ -445,8 +446,7 @@ async function settleKnowledgeMutation(
   const result = await performMutation(call, target.hostPath, {
     signal: context.abortSignal,
     displayPath: target.locator,
-    // The envelope is part of what the model receives, so the preview is
-    // bounded against it rather than truncated generically afterwards.
+    // Edit and write still render as JSON here; the reads reserve text width.
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
   });
   return result.status === 'success' ? { ...result, ...envelope } : result;
@@ -521,12 +521,11 @@ function performMutation(
     reserveCodeUnits?: number;
   },
 ): Promise<ToolResult> {
-  if (call.operation === 'edit') {
+  if (call.operation === 'edit')
     return editFile({ ...call.input, path: hostPath }, runtime.signal, {
       displayPath: runtime.displayPath,
       reserveCodeUnits: runtime.reserveCodeUnits,
     });
-  }
   const input = { path: hostPath, content: call.input.content };
   const options = {
     displayPath: runtime.displayPath,

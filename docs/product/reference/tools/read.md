@@ -48,17 +48,56 @@ argument: the selector in `path` carries all of that. See
 ## Result
 
 A successful read returns the selected content plus the fields that describe how
-much of it was shown:
+much of it was shown. A model reads the result as plain text — one header line,
+the attribution lines the source adds, the numbered content, and, when a bound
+cut it, one bracketed continuation line — while the owner's UI reads the stored
+object:
 
-| Field                                | Meaning                                                                                   |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `content`                            | the emitted source lines, each with its `N:` prefix, or the verbatim bytes for a raw read |
-| `requestedRange` / `requestedRanges` | the resolved source scope that was requested                                              |
-| `shownRange` / `shownRanges`         | the source lines actually emitted                                                         |
-| `truncated`                          | whether a bound cut the result                                                            |
-| `nextOffset`                         | the zero-based index of the first omitted source line; resume at `nextOffset + 1`         |
-| `realPath`                           | the canonical absolute path, when it differs from the path as given                       |
-| `path`                               | the path the result identifies itself by                                                  |
+```text
+src/app.ts:1-2001 of 2162 lines
+1: import { app } from './app.ts';
+…
+2001: export default app;
+[162 more lines. Use src/app.ts:2001- to continue]
+```
+
+The header names the source and the shown range: `path:start-end` for one range,
+`path:a-b,c-d` for a comma list, `path:raw:start-end` for a raw read, and
+`path:outline:start-end` for an outline, then, after one space,
+`of <total> lines` when `lineCount` is stored. A null shown range renders
+`path: empty`, or
+`path: line <N> exceeds the result bound and was skipped` when the first line
+itself is larger than the bound; the continuation line resumes after it. A part
+stored before the ranges were kept carries no shown range key at all, so it
+renders the bare locator with `of <total> lines` when one is stored. A directory
+listing renders its `content` as-is (its first line is the path) with no header
+line. The attribution lines follow the header, or a listing's entries, in the
+order the source adds them. The continuation line names the exact read that
+resumes the source in its own form, open-ended once the requested range is
+spent, and states how many lines or entries remain when the count is stored. A
+web locator that carries a query or a fragment takes no selector, so its line
+states the remaining lines and that the locator takes no line selector instead
+of naming a read.
+
+| Field                                | Meaning                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `content`                            | the emitted source lines, each with its `N:` prefix, or the verbatim bytes for a raw read  |
+| `requestedRange` / `requestedRanges` | the resolved source scope that was requested                                               |
+| `shownRange` / `shownRanges`         | the source lines actually emitted                                                          |
+| `truncated`                          | whether a bound cut the result                                                             |
+| `nextOffset`                         | the zero-based index of the first omitted source line; the continuation line resumes there |
+| `lineCount`                          | the source's line count, when it is known                                                  |
+| `entryCount`                         | a directory listing's requested-level entry count                                          |
+| `realPath`                           | the canonical absolute path, when it differs from the path as given                        |
+| `path`                               | the path the result identifies itself by                                                   |
+
+A text read carries `lineCount` when the count is known: a web render, and a
+regular file, `kb://` file, or `skill://` file of at most 32 MiB, counted by a
+byte scan for line feeds without a decode. A larger file and an outline carry
+none, and their header and continuation line then omit the total and the
+remaining count. A directory listing carries `entryCount`, the requested level's
+entry count the listing already computes. A `machine://` read carries the count
+its daemon reports and none when the daemon sends none.
 
 A file read on an absolute path reports `realPath` when a symbolic link in the
 path or in one of its components makes it differ from the normalized path as
@@ -78,22 +117,22 @@ decoded as text: the worker decodes it with the same preparation as an upload,
 creates no media object, and the read returns an image result instead of
 `content`:
 
-| Field       | Meaning                                                             |
-| ----------- | ------------------------------------------------------------------- |
-| `kind`      | `image`                                                             |
-| `mediaType` | the original's format                                               |
-| `width`     | the original's width in pixels                                      |
-| `height`    | the original's height in pixels                                     |
-| `path`      | the path as for a text read of the same source                      |
-| `thumbnail` | a display-only WebP data URL, at most 256 px; never sent to a model |
+| Field               | Meaning                                                             |
+| ------------------- | ------------------------------------------------------------------- |
+| `kind`              | `image`                                                             |
+| `mediaType`         | the original's format                                               |
+| `width`             | the original's width in pixels                                      |
+| `height`            | the original's height in pixels                                     |
+| `path`              | the path as for a text read of the same source                      |
+| `display.thumbnail` | a display-only WebP data URL, at most 256 px; never sent to a model |
 
 The source's attribution stays: `realPath` on a host path, the Space fields and
 notice on `kb://`, the skill fields on `skill://`. The result has no `media`
 field, no line metadata, and takes no selector. The extension never decides: an
 SVG, or any file matching no signature, stays on the text path whatever its
-size. `thumbnail` is one WebP encode at quality 60, transparency flattened onto
-white; an image whose data URL would exceed 65,536 characters has no
-`thumbnail`. It is stored with the tool output for the chat UI only: the model
+size. `display.thumbnail` is one WebP encode at quality 60, transparency
+flattened onto white; an image whose data URL would exceed 65,536 characters has
+no thumbnail. It is stored with the tool output for the chat UI only: the model
 receives the result without it, and it counts toward no result or replay
 budget.
 

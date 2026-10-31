@@ -13,11 +13,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type * as Filesystem from "node:fs/promises";
 import { readFile, readResolvedFile, MAX_RESULT_CODE_UNITS } from "./read";
-import { measureNativeModelOutput } from "./serialization";
+import { measureReadRendering } from "./source-lines";
 import {
   listDirectory,
+  renderCollectedDirectoryParts,
   DIRECTORY_CHILD_CAP,
   DIRECTORY_TRAVERSAL_BUDGET,
+  type DirEntry,
   type DirectoryPort,
 } from "./directory-listing";
 
@@ -324,7 +326,7 @@ describe("directory listing", () => {
     });
     if (result.status !== "success") throw new Error();
     const rendered = result.content.split("\n").filter(Boolean).length - 1;
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
     // The rendered link lines are what the cap counts, so the listing stops
@@ -333,6 +335,148 @@ describe("directory listing", () => {
     expect(rendered).toBeGreaterThan(0);
     expect(rendered).toBeLessThan(names.length);
     expect(result.nextOffset).toBe(rendered);
+  });
+
+  it("fails a flat page whose first entry does not fit instead of repeating it", async () => {
+    await writeFile(join(root, "a.txt"), "");
+    await writeFile(join(root, "b.txt"), "");
+
+    const result = await readResolvedFile(root, {
+      displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS - 20)}`,
+      selector: "1-2",
+    });
+    // The header leaves room for the first entry but not for the continuation
+    // that would name it, so no page can advance: a stored `nextOffset` would
+    // send the next read back to the same entry.
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header and its next entry exceed the result bound, so no page of the listing can be shown.",
+    });
+  });
+
+  it("fails a flat listing whose header alone does not fit", async () => {
+    await writeFile(join(root, "a.txt"), "");
+
+    const result = await readResolvedFile(root, {
+      displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS)}`,
+      selector: "2-",
+    });
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header alone exceeds the result bound, so the listing cannot be shown.",
+    });
+  });
+
+  it("fails a tree listing whose first entry does not fit instead of paging from it", async () => {
+    await writeFile(join(root, "a.txt"), "");
+    await writeFile(join(root, "b.txt"), "");
+
+    const result = await readResolvedFile(root, {
+      displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS - 20)}`,
+    });
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header and its next entry exceed the result bound, so no page of the listing can be shown.",
+    });
+  });
+
+  it("keeps a header-only tree page when the flat continuation can advance", () => {
+    // The first entry is a directory, so its tree line carries an elision
+    // marker the flat continuation drops. At this budget the marker is the
+    // only width that keeps the first entry out of the tree page.
+    const rootEntries: Array<DirEntry> = [
+      { name: "alpha", kind: "directory" },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        name: `f${index}.txt`,
+        kind: "file" as const,
+      })),
+    ];
+    const children = [
+      {
+        name: "alpha",
+        entries: [{ name: "x.txt", kind: "file" as const }],
+        totalCount: 1,
+        overBudget: false,
+      },
+    ];
+    const options = {
+      displayPath: "kb://space/x",
+      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 75,
+    };
+
+    const result = renderCollectedDirectoryParts(
+      "/root",
+      rootEntries,
+      children,
+      options,
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "directory",
+      path: "kb://space/x",
+      content: "kb://space/x\n",
+      truncated: true,
+      entryCount: 11,
+      nextOffset: 0,
+    });
+
+    // The continuation the page names is the flat read of the first entry,
+    // which fits without the marker.
+    const continuation = renderCollectedDirectoryParts(
+      "/root",
+      rootEntries,
+      children,
+      { ...options, offset: 0 },
+    );
+    expect(continuation).toMatchObject({
+      status: "success",
+      content: "kb://space/x\n  - alpha/\n",
+      truncated: true,
+      nextOffset: 1,
+    });
+  });
+
+  it("fails a tree page closed when its flat continuation cannot advance", () => {
+    const rootEntries: Array<DirEntry> = [
+      { name: "alpha", kind: "directory" },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        name: `f${index}.txt`,
+        kind: "file" as const,
+      })),
+    ];
+    const children = [
+      {
+        name: "alpha",
+        entries: [{ name: "x.txt", kind: "file" as const }],
+        totalCount: 1,
+        overBudget: false,
+      },
+    ];
+
+    // The header-only page fits here, but the flat continuation's first entry
+    // does not, so no page advances and the read refuses instead of returning
+    // a page whose continuation fails.
+    const result = renderCollectedDirectoryParts(
+      "/root",
+      rootEntries,
+      children,
+      {
+        displayPath: "kb://space/x",
+        reserveCodeUnits: MAX_RESULT_CODE_UNITS - 70,
+      },
+    );
+    expect(result).toEqual({
+      status: "error",
+      type: "representation_too_large",
+      message:
+        "The listing's header and its next entry exceed the result bound, so no page of the listing can be shown.",
+    });
   });
 
   it("resolves link metadata only for a child directory's capped head", async () => {
@@ -474,7 +618,8 @@ describe("directory listing", () => {
       status: "error",
       type: "directory_too_large",
     });
-    if (result.status !== "error") throw new Error();
+    if (result.status !== "error" || result.type !== "directory_too_large")
+      throw new Error();
     expect(result.count).toBe(DIRECTORY_TRAVERSAL_BUDGET + 100);
   });
 
@@ -577,6 +722,33 @@ describe("directory listing", () => {
     expect(lines).toHaveLength(3);
     const childLines = lines.filter((l) => l.startsWith("    "));
     expect(childLines).toHaveLength(0);
+  });
+
+  it("carries the requested level's entry count on every listing form", async () => {
+    await mkdir(join(root, "sub"));
+    await writeFile(join(root, "a.txt"), "");
+    await writeFile(join(root, "b.txt"), "");
+
+    // A page carries the level's count, not the page's.
+    expect(await readFile({ path: `${root}:2-2` })).toMatchObject({
+      status: "success",
+      kind: "directory",
+      truncated: true,
+      nextOffset: 2,
+      entryCount: 3,
+    });
+    expect(await readFile({ path: root })).toMatchObject({
+      status: "success",
+      kind: "directory",
+      truncated: false,
+      entryCount: 3,
+    });
+    const empty = join(root, "sub");
+    expect(await readFile({ path: empty })).toMatchObject({
+      status: "success",
+      kind: "directory",
+      entryCount: 0,
+    });
   });
 
   it.each([

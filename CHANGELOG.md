@@ -2,6 +2,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-30
 
+- `read` results now render as text instead of JSON text: one header line
+  naming the source and the shown lines (`src/app.ts:11-41 of 216 lines`, with
+  `raw:` and `outline:` forms), the attribution lines the source adds
+  (`realPath`, `finalUrl`, `method`, `adapter`, `notes`, and the Knowledge and
+  skill fields), the numbered source lines, and one bracketed continuation line
+  (`[1000 more lines. Use src/app.ts:2001- to continue]`) instead of a
+  `nextOffset` field to resume from. A directory listing renders its stored
+  content with no second header, and its continuation line names the remaining
+  entries. A text read now stores the source's line count as `lineCount` — by a
+  line-feed byte scan for a regular, `kb://`, or `skill://` file of at most
+  32 MiB, and from the render for a web read — and a listing stores
+  `entryCount`; an outline, a larger file, and a read answered by an old daemon
+  store neither, and render without a total. A `kb://` read's stored `path` is
+  now the Space resource without the read selector, so a header or continuation
+  line names the range once; the selector stays in the call's audit record.
+  The prompt-import body is the same rendering, and `read`'s description names
+  the text shape and the reserved-name rule. See
+  [read](docs/product/reference/tools/read.md).
+
 - Every tool result now reaches a model through one rendering function, live,
   on replay, and in the Continue projection, so the three paths cannot drift.
   Native `read`, `edit`, and `write` keep their JSON text through it; every
