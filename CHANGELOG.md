@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-01
+
+- Tool-result text uses the singular for a count of one, fixing
+  [#1506](https://github.com/leon0399/llame/issues/1506): `(1 line)`,
+  `1 -> 1 line (1 line total)`, `of 1 line`, `[1 more line. …]`, and
+  `[1 more entry. …]` replace the plural forms. In an `edit` header the noun
+  follows the replacement count, as in `2 -> 1 line`.
+
 # 2026-10-31
 
 - `grep` and `bash` results now render as text, closing

@@ -348,7 +348,7 @@ describe('renderToolResultForModel', () => {
 
     expect(rendering).toEqual({
       kind: 'text',
-      text: 'edited src/app.ts: line 12, 1 -> 1 lines (42 lines total)\n11: one\n12: two\n13: three',
+      text: 'edited src/app.ts: line 12, 1 -> 1 line (42 lines total)\n11: one\n12: two\n13: three',
     });
   });
 
@@ -392,7 +392,7 @@ describe('renderToolResultForModel', () => {
       }),
     ).toEqual({
       kind: 'text',
-      text: 'edited machine://devl/home/me/work/shop/src/app.ts: line 6, 1 -> 1 lines (8 lines total)\n5: one\n6: two',
+      text: 'edited machine://devl/home/me/work/shop/src/app.ts: line 6, 1 -> 1 line (8 lines total)\n5: one\n6: two',
     });
   });
 
@@ -423,7 +423,7 @@ describe('renderToolResultForModel', () => {
       path: 'src/app.ts',
       display: { startLine: 11, oldText: 'a', newText: 'b' },
     });
-    expect(edit).toBe('edited src/app.ts: line 11, 1 -> 1 lines');
+    expect(edit).toBe('edited src/app.ts: line 11, 1 -> 1 line');
     expect(edit).not.toContain('"display"');
 
     const json = renderToolResultText('knowledge_search', {

@@ -676,7 +676,7 @@ describe("edit text", () => {
     });
 
     expect(renderEditText(result).split("\n")).toEqual([
-      "edited src/app ts: line 1, 1 -> 1 lines (563 lines total)",
+      "edited src/app ts: line 1, 1 -> 1 line (563 lines total)",
     ]);
   });
 
@@ -779,5 +779,105 @@ describe("write text", () => {
     expect(text.split("\n")).toEqual([
       "created new [1 more line. Use new:2- to continue].ts (2 lines)",
     ]);
+  });
+});
+
+describe("singular counts", () => {
+  it("names one line in a read header and its continuation", () => {
+    const result = fileRead({
+      content: "",
+      requestedRange: { startLine: 1, endLine: 2 },
+      shownRange: null,
+      truncated: true,
+      nextOffset: 1,
+      lineCount: 2,
+    });
+    expect(renderReadText(result)).toBe(
+      "src/app.ts: line 1 exceeds the result bound and was skipped\n[1 more line. Use src/app.ts:2- to continue]",
+    );
+    expect(
+      renderReadText(
+        fileRead({
+          content: "1: a\n",
+          shownRange: { startLine: 1, endLine: 1 },
+          lineCount: 1,
+        }),
+      ),
+    ).toBe("src/app.ts:1-1 of 1 line\n1: a");
+  });
+
+  it("names one entry left in a listing", () => {
+    const text = renderReadText({
+      status: "success",
+      kind: "directory",
+      path: "src",
+      content: "src\n- a.ts\n",
+      truncated: true,
+      nextOffset: 1,
+      entryCount: 2,
+    });
+    expect(text.split("\n").at(-1)).toBe(
+      "[1 more entry. Use src:2- to continue]",
+    );
+  });
+
+  it("names one line left behind a web locator that takes no selector", () => {
+    const text = renderReadText(
+      fileRead({
+        path: "https://example.test/doc?v=1",
+        truncated: true,
+        nextOffset: 41,
+        lineCount: 42,
+      }),
+    );
+    expect(text.split("\n").at(-1)).toBe(
+      "[1 more line not shown; this locator takes no line selector]",
+    );
+  });
+
+  it("names one line in a one-line edit and its total", () => {
+    const text = renderEditText({
+      status: "success",
+      operation: "edit",
+      path: "a.txt",
+      replacements: 1,
+      content: "1: y",
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+      lineCount: 1,
+      display: { startLine: 1, oldText: "x", newText: "y" },
+    });
+    expect(text.split("\n")[0]).toBe(
+      "edited a.txt: line 1, 1 -> 1 line (1 line total)",
+    );
+  });
+
+  it("follows the replacement count in an edit header", () => {
+    const text = renderEditText({
+      status: "success",
+      operation: "edit",
+      path: "a.txt",
+      replacements: 1,
+      content: "1: z",
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+      lineCount: 3,
+      display: { startLine: 1, oldText: "x\ny", newText: "z" },
+    });
+    expect(text.split("\n")[0]).toBe(
+      "edited a.txt: line 1, 2 -> 1 line (3 lines total)",
+    );
+  });
+
+  it("names one line in a write", () => {
+    expect(
+      renderWriteText({
+        status: "success",
+        operation: "write",
+        path: "a.txt",
+        replaced: true,
+        lineCount: 1,
+      }),
+    ).toBe("replaced a.txt (1 line)");
   });
 });

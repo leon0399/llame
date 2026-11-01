@@ -3352,7 +3352,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       // range and the total, and the attribution lines follow it, so every
       // stored fact survives in the text the model reads.
       const replayed = JSON.stringify(replay.messages);
-      expect(replayed).toContain(`${storedPath}:1-1 of 1 lines`);
+      expect(replayed).toContain(`${storedPath}:1-1 of 1 line`);
       expect(replayed).toContain(`knowledgeSpaceName: `);
       expect(replayed).toContain(`knowledgeSpaceId: ${space.id}`);
       expect(replayed).toContain('notice: ');
