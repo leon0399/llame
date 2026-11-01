@@ -64,27 +64,39 @@ type GrepRequest = {
   readonly ignoreCase: boolean;
   readonly cursor: string | undefined;
   readonly budget: GrepBudget;
+  /** Whether the hub's call already progressed in an earlier scope. */
+  readonly progressed: boolean;
 };
 
-function readBudget(source: SerializableRecord): GrepBudget {
+/** The engine budget the wire carries, and whether the call progressed. */
+type WireBudget = {
+  readonly budget: GrepBudget;
+  readonly progressed: boolean;
+};
+
+function readBudget(source: SerializableRecord): WireBudget {
   const budget = requireRecord(source, "budget", FS_GREP_METHOD);
   return {
-    // The wire budget is the page the hub has left for passages; the fields
-    // beside the daemon's own result travel on the hub, never here.
-    files: requireCount(budget, "files", FS_GREP_METHOD),
-    entries: requireCount(budget, "entries", FS_GREP_METHOD),
-    bytes: requireCount(budget, "bytes", FS_GREP_METHOD),
-    // One file never reads past the call's byte bound.
-    maxFileBytes: GREP_LIMITS.bytesRead,
-    deadlineMs: requireCount(budget, "deadlineMs", FS_GREP_METHOD),
-    limit: requireCount(budget, "limit", FS_GREP_METHOD),
-    pageUnits: requireCount(budget, "pageUnits", FS_GREP_METHOD),
-    fixedReserve: 0,
+    budget: {
+      // The wire budget is the page the hub has left for passages; the fields
+      // beside the daemon's own result travel on the hub, never here.
+      files: requireCount(budget, "files", FS_GREP_METHOD),
+      entries: requireCount(budget, "entries", FS_GREP_METHOD),
+      bytes: requireCount(budget, "bytes", FS_GREP_METHOD),
+      // One file never reads past the call's byte bound.
+      maxFileBytes: GREP_LIMITS.bytesRead,
+      deadlineMs: requireCount(budget, "deadlineMs", FS_GREP_METHOD),
+      limit: requireCount(budget, "limit", FS_GREP_METHOD),
+      pageUnits: requireCount(budget, "pageUnits", FS_GREP_METHOD),
+      fixedReserve: 0,
+    },
+    progressed: requireBoolean(budget, "progressed", FS_GREP_METHOD),
   };
 }
 
 function requestOf(params: SerializableValue): GrepRequest {
   const source = paramRecord(params, FS_GREP_METHOD);
+  const wire = readBudget(source);
   return {
     path: requireString(source, "path", FS_GREP_METHOD),
     globSuffix: optionalString(source, "globSuffix", FS_GREP_METHOD),
@@ -97,7 +109,8 @@ function requestOf(params: SerializableValue): GrepRequest {
     literal: requireBoolean(source, "literal", FS_GREP_METHOD),
     ignoreCase: requireBoolean(source, "ignoreCase", FS_GREP_METHOD),
     cursor: optionalString(source, "cursor", FS_GREP_METHOD),
-    budget: readBudget(source),
+    budget: wire.budget,
+    progressed: wire.progressed,
   };
 }
 
@@ -174,6 +187,8 @@ function resultOf(scan: GrepScanResult): FsGrepResult {
     complete: scan.complete,
     warnings: scan.warnings.map((warning) => ({ ...warning })),
     consumed: { ...scan.consumed },
+    progressed: scan.progressed,
+    ...(scan.unfinished !== undefined && { unfinished: scan.unfinished }),
   };
   return scan.cursor === undefined
     ? result
@@ -232,6 +247,7 @@ export async function grepOperation(
         budget: request.budget,
         inputHash,
         now: Date.now,
+        progressed: request.progressed,
         ...(cursor !== undefined && { cursor }),
       }),
     );

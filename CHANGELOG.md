@@ -2,13 +2,29 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-01
 
+- `grep` reads up to eight files at the same time, while the page, cursor,
+  bounds, and skip counts keep the walk order: a file that ends before an
+  earlier one keeps its place. A stop discards the files read ahead, so the
+  next call opens them again. A stop inside a file before the call progressed
+  names that file in `unfinished`, renders
+  `[not searched to the end: <locator>]` after the warnings line, and moves
+  the cursor past it, so the next call does not open it again; a file the
+  `read` group refuses is never named. `fs.grep` carries whether the call
+  progressed in its request and response, and the response also names its
+  own unfinished file; the hub gives the daemon nine tenths of the time
+  left, so a daemon that spends its whole budget still answers. The API and
+  Machine processes widen the libuv pool to sixteen threads when the
+  operator set no `UV_THREADPOOL_SIZE`. See
+  [grep](docs/product/reference/tools/grep.md).
 - `grep` searches files as a stream: the fixed 1 MiB per-file cut becomes the
   call's 32 MiB byte bound, so a file up to 32 MiB is searched. It reads a file
+
   to its end before that file's passages reach the page, so a late invalid byte
   or an over-long line drops every passage of the file, and a line longer than
   4 MiB of UTF-8 bytes skips its file as `oversized`. A passage the page cannot
   show whole is cut at a line it holds and continues on the next call, losing
   no line. See [grep](docs/product/reference/tools/grep.md).
+
 - Tool-result text uses the singular for a count of one, fixing
   [#1506](https://github.com/leon0399/llame/issues/1506): `(1 line)`,
   `1 -> 1 line (1 line total)`, `of 1 line`, `[1 more line. …]`, and

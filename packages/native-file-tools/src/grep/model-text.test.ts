@@ -164,6 +164,32 @@ describe("grep text rendering", () => {
     ]);
   });
 
+  it("names the file a bound stopped inside after the warnings", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: false,
+      cursor: "c",
+      warnings: [{ kind: "deadline", count: 1 }],
+      unfinishedFile: "/var/log/big.log",
+    });
+    expect(text.split("\n")).toEqual([
+      "[warnings: 1 deadline]",
+      "[not searched to the end: /var/log/big.log]",
+      "[more results. Continue with cursor: c]",
+    ]);
+  });
+
+  it("keeps a report locator with a line break on its line", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: false,
+      cursor: "c",
+      unfinishedFile: "a\nb.log",
+    });
+    expect(text).toContain("[not searched to the end: a b.log]");
+    expect(text.split("\n")).toHaveLength(2);
+  });
+
   it("counts escaped delimiters toward the rendering width", () => {
     const result = {
       results: [passage("a.md:1-1", "1: <skill>", [1])],

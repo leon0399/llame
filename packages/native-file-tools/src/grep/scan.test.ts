@@ -499,7 +499,10 @@ describe("grep walk bounds", () => {
     expect(first.results).toEqual([]);
     expect(first.complete).toBe(false);
     expect(first.warnings).toEqual([{ kind: "deadline", count: 1 }]);
-    expect(port.reads).toEqual([]);
+    // The read-ahead opened the file the deadline then stopped the walk
+    // before; its stream closes and its outcome is discarded.
+    expect(port.reads).toEqual(["a.md"]);
+    expect(port.closes).toEqual(["a.md"]);
     const cursor = decode(first.cursor);
     expect(cursor).toMatchObject({ kind: "position", scopeIndex: 0, rel: "" });
     const second = await runMemoryScan([scope], ["hit"], { cursor });
@@ -850,7 +853,8 @@ describe("grep streamed files", () => {
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/exact.md:1-1",
     ]);
-    expect(port.closes).toEqual([]);
+    // Only the stream's own end closes it: no refusal closed it early.
+    expect(port.closes).toEqual(["exact.md"]);
   });
 
   it("searches a file at the streamed bound when its announced size hides it", async () => {

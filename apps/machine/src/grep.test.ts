@@ -47,6 +47,7 @@ const BUDGET: FsGrepBudget & GrepBudget = {
   pageUnits: 15_000,
   // The hub's own result fields never travel on the daemon's page.
   fixedReserve: 0,
+  progressed: false,
 };
 
 beforeEach(async () => {

@@ -1,7 +1,7 @@
 import { renderSourceLine } from "../source-lines";
 import { GREP_LIMITS } from "./limits";
 import type { CompiledGrepPatterns } from "./patterns";
-import type { GrepPassage, GrepReadRefusal } from "./types";
+import type { GrepFileStopReason, GrepPassage, GrepReadRefusal } from "./types";
 
 /** Logical lines between cooperative yields. */
 const YIELD_LINES = 256;
@@ -36,6 +36,18 @@ export interface GrepFileScanInput {
   /** Refuse the file as `oversized` when the stream delivers more. */
   readonly maxFileBytes: number | null;
   readonly resume?: GrepFileResume;
+  /**
+   * Asked before each chunk and between two pattern tests of one line: the
+   * bound that ends the read, when the file is the one the walk waits on. A
+   * stop gives back the bytes read so far, so the file is left unfinished
+   * instead of dropping.
+   */
+  readonly stop?: (bytesRead: number) => GrepFileStopReason | undefined;
+  /**
+   * The scan's own stop signal: an aborted read ends at its next chunk and
+   * closes the stream, so a file nobody will take releases its handle.
+   */
+  readonly signal?: AbortSignal;
 }
 
 export type GrepFileScan =
@@ -56,6 +68,17 @@ export type GrepFileScan =
   | {
       readonly kind: "refused";
       readonly refusal: GrepFileRefusal;
+      readonly bytes: number;
+    }
+  | {
+      readonly kind: "stopped";
+      readonly reason: GrepFileStopReason;
+      /** Bytes the stream delivered before the stop. */
+      readonly bytes: number;
+    }
+  | {
+      readonly kind: "aborted";
+      /** Bytes the stream delivered before the abort. */
       readonly bytes: number;
     };
 
@@ -82,6 +105,9 @@ export async function scanGrepFile(
   let bytes = 0;
   let lines = 0;
   for await (const chunk of input.chunks) {
+    if (input.signal?.aborted === true) return { kind: "aborted", bytes };
+    const early = input.stop?.(bytes);
+    if (early !== undefined) return { kind: "stopped", reason: early, bytes };
     if (!(chunk instanceof Uint8Array))
       return { kind: "refused", refusal: chunk.kind, bytes };
     bytes += chunk.byteLength;
@@ -90,8 +116,11 @@ export async function scanGrepFile(
     const step = stepChunk(reader, chunk);
     if ("refusal" in step)
       return { kind: "refused", refusal: step.refusal, bytes };
+    // Between two pattern tests of one line: a single test cannot be
+    // interrupted, but the next one can still end at the call deadline.
+    const patternsStopped = (): boolean => input.stop?.(bytes) !== undefined;
     for (const text of step.lines) {
-      takeLine(state, text);
+      takeLine(state, text, patternsStopped);
       lines += 1;
       if (lines % YIELD_LINES === 0)
         await new Promise<void>((resolve) => setImmediate(resolve));
@@ -316,14 +345,19 @@ function cutLine(text: string): string {
 }
 
 /** Take one logical line: test it, then hold it for the passages it feeds. */
-function takeLine(state: PassageState, text: string): void {
+function takeLine(
+  state: PassageState,
+  text: string,
+  stopped?: () => boolean,
+): void {
   state.line += 1;
   const display = cutLine(text);
   // A match opens the interval first, so the line it matched is held for the
   // window it starts; a line after one is held while it stays open.
   // `previous` stays the line before this one until both steps are done.
   if (!state.stopped) {
-    if (state.input.patterns.matches(text)) matchLine(state, state.line);
+    if (state.input.patterns.matches(text, stopped))
+      matchLine(state, state.line);
     else if (state.open !== undefined && state.line > state.open.end + 1)
       // No window can merge here any more: close it, so a long gap cannot
       // spend the hold limit on lines no passage will render.

@@ -5,7 +5,12 @@ import { GREP_LIMITS } from "./limits";
 /** One call's compiled disjunction; a line matches when any pattern matches. */
 export interface CompiledGrepPatterns {
   readonly count: number;
-  matches(line: string): boolean;
+  /**
+   * Whether any pattern matches. `stopped` is asked between two pattern tests,
+   * so a long line's tests can end at the call deadline; a stopped line reads
+   * as a non-match, which the caller discards with its file.
+   */
+  matches(line: string, stopped?: () => boolean): boolean;
 }
 
 export type GrepPatternCompileResult =
@@ -41,7 +46,14 @@ export function compileGrepPatterns(
     ok: true,
     compiled: {
       count: matchers.length,
-      matches: (line) => matchers.some((matcher) => matcher.test(line)),
+      matches: (line, stopped) => {
+        for (const [index, matcher] of matchers.entries()) {
+          // Nothing to check before the first test: one pattern has no gap.
+          if (index > 0 && stopped?.() === true) return false;
+          if (matcher.test(line)) return true;
+        }
+        return false;
+      },
     },
   };
 }

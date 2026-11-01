@@ -84,8 +84,22 @@ function openMemoryNode(
   return {
     size: node.announcedSize ?? bytes.byteLength,
     close,
-    chunks: chunkSequence(chunks),
+    // A real stream closes its handle when its last byte arrives; the record
+    // then proves which files the walk opened and released.
+    chunks: closeWhenDone(chunkSequence(chunks), close),
   };
+}
+
+/** One stream that releases its file once its bytes are done. */
+async function* closeWhenDone<T>(
+  items: AsyncIterable<T>,
+  close: () => Promise<void>,
+): AsyncGenerator<T> {
+  try {
+    yield* items;
+  } finally {
+    await close();
+  }
 }
 
 /** One byte array in chunks of at most `width`, the last one short. */
@@ -232,6 +246,8 @@ export function memoryScope(
 
 export interface MemoryScanOptions {
   readonly literal?: boolean;
+  /** The call already progressed in an earlier segment. */
+  readonly progressed?: boolean;
   readonly ignoreCase?: boolean;
   readonly budget?: Partial<GrepBudget>;
   readonly cursor?: DecodedGrepCursor;
@@ -272,6 +288,7 @@ export function runMemoryScan(
     onCandidate: options.onCandidate ?? (() => Promise.resolve(true)),
     budget: memoryBudget(options.budget),
     cursor: options.cursor,
+    progressed: options.progressed,
     inputHash: options.inputHash ?? "input-hash",
     now: options.now ?? (() => 0),
   });

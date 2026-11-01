@@ -132,6 +132,19 @@ export function grepContinuationLine(cursor: string): string {
   return `[more results. Continue with cursor: ${cursor}]`;
 }
 
+/** The one line that names a file a bound stopped inside before any progress. */
+export function grepUnfinishedLine(locator: string): string {
+  return `[not searched to the end: ${oneLine(locator)}]`;
+}
+
+/**
+ * Rendered width of the unfinished line with its separating newline, so the
+ * file the walk waits on keeps its room back before the page admits a passage.
+ */
+export function grepUnfinishedUnits(locator: string): number {
+  return grepUnfinishedLine(locator).length + 1;
+}
+
 /**
  * The model-facing text of a `grep` page: the notice first, each run of
  * passages of one file under its `## <file locator>` line, the warnings line,
@@ -158,6 +171,9 @@ export function renderGrepText(result: UnknownRecord): string {
   }
   const warnings = warningsLine(result.warnings);
   if (warnings !== undefined) lines.push(warnings);
+  const { unfinishedFile } = result;
+  if (isNonEmptyString(unfinishedFile))
+    lines.push(grepUnfinishedLine(unfinishedFile));
   const { complete, cursor } = result;
   if (complete !== true && isNonEmptyString(cursor))
     lines.push(grepContinuationLine(cursor));

@@ -16,4 +16,6 @@ export const GREP_LIMITS = {
   nulProbeBytes: 8 * 1024,
   deadlineMs: 30_000,
   pageCodeUnits: 15_000,
+  /** Files the walk reads at the same time; the walk runs this far ahead. */
+  readAhead: 8,
 } as const;

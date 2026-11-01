@@ -72,6 +72,7 @@ const BUDGET: FsGrepBudget & GrepBudget = {
   pageUnits: 15_000,
   // The hub's own result fields travel outside the daemon's page.
   fixedReserve: 0,
+  progressed: false,
 };
 
 type Fixture = {
@@ -152,6 +153,7 @@ function page(
     complete: true,
     warnings: [],
     consumed: { files: results.length, entries: results.length, bytes: 0 },
+    progressed: false,
     ...overrides,
   };
 }
@@ -694,10 +696,12 @@ describe('Machine scope addresses', () => {
           name: 'nope',
           path: '/srv/app',
           globSuffix: undefined,
+          singleFile: false,
         },
         args: { patterns: ['needle'], literal: false, ignoreCase: false },
         budget: BUDGET,
         resume: undefined,
+        progressed: false,
         admission: createGrepReadAdmission(contextOf),
       }),
     ).toEqual({ status: 'error', result: machineNotFoundResult('nope') });
@@ -718,10 +722,12 @@ describe('Machine scope addresses', () => {
         name: 'devl',
         path: '/srv/app',
         globSuffix: undefined,
+        singleFile: false,
       },
       args: { patterns: ['needle'], literal: false, ignoreCase: false },
       budget: BUDGET,
       resume: undefined,
+      progressed: false,
       admission: createGrepReadAdmission(contextOf),
     };
     await expect(executeMachineScope(search)).rejects.toMatchObject({
@@ -756,6 +762,169 @@ describe('Machine request shape', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('gives the daemon nine tenths of the time left', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { peer, connector } = fixture({
+        answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
+      });
+      const result = await run(context(connector), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      });
+      // The daemon that spends its whole budget still answers, so its page,
+      // cursor, and unfinished file are never lost to the hub's abandon.
+      expect(result).toMatchObject({ status: 'success', complete: true });
+      expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+      const session = await peer.session(0);
+      const search = session.calls.find((call) => call.method === 'fs.grep');
+      expect(search?.params).toMatchObject({
+        envelope: { budgetMs: 30_000 },
+        budget: { deadlineMs: 27_000 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('asks the next page with the progress of the pages before it', async () => {
+    const scope = 'machine://devl/srv/app/**';
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([passage('hidden.go', 1, 1)], {
+                  complete: false,
+                  progressed: true,
+                  cursor: 'daemon-next',
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : page([passage('a.go', 1, 1)], { progressed: true }),
+        };
+      },
+    });
+    const result = await run(
+      context(connector, {
+        permissionPolicy: compileToolPermissionMap(
+          readingRejects('machine://devl/srv/app/hidden.go'),
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: [scope] },
+    );
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    expect(asked).toHaveLength(2);
+    // The call progressed in the first page, so the second request says so.
+    expect(budgetOf(asked[0].params)['progressed']).toBe(false);
+    expect(budgetOf(asked[1].params)['progressed']).toBe(true);
+    expect(success(result)['unfinishedFile']).toBeUndefined();
+  });
+
+  it('does not name an unfinished file the read group refuses', async () => {
+    const scope = 'machine://devl/srv/app/**';
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([], {
+            complete: false,
+            progressed: false,
+            unfinished: 'hidden.go',
+            cursor: encodeGrepCursor({
+              kind: 'position',
+              scopeIndex: 0,
+              rel: 'hidden.go',
+              inputHash: fsGrepCursorKey({
+                path: '/srv/app',
+                globSuffix: '**',
+                patterns: ['needle'],
+                literal: false,
+                ignoreCase: false,
+              }),
+            }),
+          }),
+        },
+      },
+    });
+    const result = await run(
+      context(connector, {
+        permissionPolicy: compileToolPermissionMap(
+          readingRejects('machine://devl/srv/app/hidden.go'),
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: [scope] },
+    );
+    expect(Object.hasOwn(success(result), 'unfinishedFile')).toBe(false);
+    // The file is never named, but the cursor still moves past it.
+    expect(cursorPayloadOf(result)).toMatchObject({
+      kind: 'position',
+      scopeIndex: 0,
+      rel: 'hidden.go',
+    });
+  });
+
+  it('skips an unfinished single-file scope by its ordinal', async () => {
+    const scope = 'machine://devl/var/log/huge.log';
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.stat': { value: { kind: 'file', isLink: false } },
+        'fs.grep': {
+          value: page([], {
+            complete: false,
+            progressed: false,
+            unfinished: '',
+            cursor: encodeGrepCursor({
+              kind: 'position',
+              scopeIndex: 1,
+              rel: '',
+              inputHash: fsGrepCursorKey({
+                path: '/var/log/huge.log',
+                patterns: ['needle'],
+                literal: false,
+                ignoreCase: false,
+              }),
+            }),
+          }),
+        },
+      },
+    });
+    const contextOf = context(connector);
+    const first = await run(contextOf, {
+      patterns: ['needle'],
+      scopes: [scope],
+    });
+    expect(success(first)).toMatchObject({
+      complete: false,
+      unfinishedFile: 'machine://devl/var/log/huge.log',
+    });
+    const cursor = cursorPayloadOf(first);
+    expect(cursor).toMatchObject({ kind: 'position', scopeIndex: 1, rel: '' });
+    const opaque = success(first)['cursor'];
+    if (!isString(opaque)) throw new Error('the page carries a cursor');
+
+    // The next call names an ordinal past the only scope, so it asks the
+    // daemon nothing and answers an empty, complete page.
+    const second = await run(contextOf, {
+      patterns: ['needle'],
+      scopes: [scope],
+      cursor: opaque,
+    });
+    expect(second).toMatchObject({ status: 'success', complete: true });
+    expect(locatorsOf(second)).toEqual([]);
+    const session = await peer.session(0);
+    // One exact-path probe and one search; the resumed call adds neither.
+    expect(
+      session.calls.filter((call) => call.method === 'fs.grep'),
+    ).toHaveLength(1);
   });
 
   it('keeps each passage matches and its truncation flag', async () => {

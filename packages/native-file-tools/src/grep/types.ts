@@ -33,6 +33,12 @@ export interface GrepFileStream {
   close(): Promise<void>;
 }
 
+/**
+ * The bound that ended a file before its last chunk. Only the file the walk
+ * waits on checks them, so a file opened ahead reads to its end.
+ */
+export type GrepFileStopReason = "deadline" | "byte_bound";
+
 /** The abstract directory tree one scope walks. */
 export interface GrepWalkPort {
   /** List one directory. `rel` is ''-rooted, '/'-separated, relative to the scope prefix. Throws GrepPortError on failure. */
@@ -131,6 +137,14 @@ export interface GrepScanResult {
   readRefused: number;
   consumed: { files: number; entries: number; bytes: number };
   /**
+   * Whether the call got past its start point: it emitted a passage, or
+   * reached an entry after it. A stop inside a file before that point names
+   * the file in `unfinished`, so the next call does not open it again.
+   */
+  progressed: boolean;
+  /** The file's locator: relative to the prefix on a Machine, canonical here. */
+  unfinished?: string;
+  /**
    * The page ends where `last` names a passage it emitted, or `position` names
    * the last entry a bound stopped the walk at. Both serve a caller that pages
    * across walks of its own (the tool and the Machine daemon do).
@@ -174,6 +188,8 @@ export interface GrepScanInput {
   budget: GrepBudget;
   /** Already validated against inputHash by the caller. */
   cursor?: DecodedGrepCursor;
+  /** Whether the call already progressed in an earlier segment or scope. */
+  progressed?: boolean;
   /** Hex sha256 over resolved inputs, computed by the caller (see cursor.ts helper). */
   inputHash: string;
   now: () => number;
