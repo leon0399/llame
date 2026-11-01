@@ -1186,10 +1186,12 @@ describe('reconstructDurableAssistant', () => {
       },
     ]);
     // The next turn replays the part: the model reads the fixed message plus
-    // the target it names, so the blocked locator stays identifiable.
+    // the target it names, so the blocked locator stays identifiable. The
+    // failure renders as the JSON object every rendering uses, and `serialized`
+    // is that payload inside a JSON string, so its quotes are escaped.
     const serialized = JSON.stringify(project(result.collector.parts()));
     expect(serialized).toContain(REJECTED_HOP_MESSAGE);
-    expect(serialized).toContain(`rejectedUrl: ${refusedUrl}`);
+    expect(serialized).toContain(String.raw`\"rejectedUrl\":\"${refusedUrl}\"`);
   });
 
   it.each([

@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-30
 
+- Every tool result now reaches a model through one rendering function, live,
+  on replay, and in the Continue projection, so the three paths cannot drift.
+  Native `read`, `edit`, and `write` keep their JSON text through it; every
+  other result, failures included, renders as JSON through the same function.
+  A `display` key on a result is stored with the tool part for the chat UI and
+  never rendered to a model. An image read's inline thumbnail moves there as
+  `display.thumbnail`, and a part stored with a top-level `thumbnail` is still
+  stripped on every path. Tool results are neutralized by one reserved-name
+  rule: a tag-shaped token naming a reserved wrapper, such as `<tool-result>`
+  in any spelling, has its angle brackets escaped, and every other character
+  passes verbatim, including an unmatched `</div>`. That replaces escaping
+  every `<` and `>` and the unmatched-closer rule for tool results. The
+  16,000-unit result cap measures the rendering instead of the raw object.
+  `scripts/measure-tool-results.mjs` reports the model-facing token cost per
+  tool with `o200k_base`, from a committed fixture captured at `64db12c9`.
+
 - Prompt imports now ask native `read` which locator schemes it accepts instead
   of keeping their own list. A scheme `read` gains imports from a prompt through
   one direct `read` unless prompt imports give it a probe, so it can no longer

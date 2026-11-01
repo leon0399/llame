@@ -1,5 +1,5 @@
-import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 import { measureNativeModelOutput } from '@workspace/native-file-tools';
+import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 import { type SkillCatalogEntry } from './skill-catalog';
 import { skillCatalogEnvelope } from './skill-results';
@@ -32,6 +32,27 @@ describe('skillCatalogEnvelope', () => {
     // The continuation resumes exactly where the page stopped, so no entry is
     // skipped between pages.
     expect(listing.nextOffset).toBe(listing.skills.length);
+  });
+
+  it('measures the escaping the reserved-name rule adds', () => {
+    // A description full of reserved delimiters grows by six code units per
+    // token once the listing renders, so a page sized on the raw JSON would be
+    // cut later by the runner and skip its continuation entries.
+    const plain = Array.from({ length: 300 }, (_, index) => entry(index, 1000));
+    const reserved = plain.map((item) => ({
+      ...item,
+      description: '<skill>'.repeat(125),
+    }));
+
+    const plainListing = skillCatalogEnvelope(plain, { offset: 0 });
+    const reservedListing = skillCatalogEnvelope(reserved, { offset: 0 });
+
+    expect(measureNativeModelOutput(reservedListing)).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
+    expect(reservedListing.skills.length).toBeLessThan(
+      plainListing.skills.length,
+    );
   });
 
   it('bounds one call regardless of how large the window is', () => {

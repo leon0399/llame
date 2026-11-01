@@ -40,12 +40,12 @@ const OTHER_SPACE = '11111111-2222-4333-8444-555555555555';
 const pdfFixture = (name: string) =>
   readFile(join(__dirname, '../media/testing/pdf', name));
 
-/** `result` with its thumbnail, checked to be a WebP data URL, set aside. */
+/** `result` with its display data, checked to hold a WebP thumbnail, set aside. */
 function shown(result: unknown) {
-  const { thumbnail, ...rest } = z
-    .looseObject({ thumbnail: z.string() })
+  const { display, ...rest } = z
+    .looseObject({ display: z.object({ thumbnail: z.string() }) })
     .parse(result);
-  expect(thumbnail).toMatch(/^data:image\/webp;base64,/u);
+  expect(display.thumbnail).toMatch(/^data:image\/webp;base64,/u);
   return rest;
 }
 
@@ -241,9 +241,10 @@ describe('native media reads', () => {
       height: upload.model.height,
     });
     expect(upload.model).toMatchObject({ width: 2000, height: 500 });
-    const { thumbnail: url } = z
-      .object({ thumbnail: z.string() })
+    const { display } = z
+      .object({ display: z.object({ thumbnail: z.string() }) })
       .parse(result);
+    const url = display.thumbnail;
     expect(url.length).toBeLessThanOrEqual(THUMBNAIL_MAX_CHARS);
     const thumbnail = await sharp(
       Buffer.from(url.split(',')[1] ?? '', 'base64'),

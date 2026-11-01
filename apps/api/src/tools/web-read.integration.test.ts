@@ -1819,12 +1819,12 @@ describe('web image reads over loopback fixtures', () => {
     ),
   };
 
-  /** `result` with its thumbnail, checked to be a WebP data URL, set aside. */
+  /** `result` with its display data, checked to hold a WebP thumbnail, set aside. */
   const shown = (result: ToolResult) => {
-    const { thumbnail, ...rest } = z
-      .looseObject({ thumbnail: z.string() })
+    const { display, ...rest } = z
+      .looseObject({ display: z.object({ thumbnail: z.string() }) })
       .parse(result);
-    expect(thumbnail).toMatch(/^data:image\/webp;base64,/u);
+    expect(display.thumbnail).toMatch(/^data:image\/webp;base64,/u);
     return rest;
   };
 

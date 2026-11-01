@@ -29,7 +29,7 @@ the Run runs.
 | [`conversation_read`](conversation-read.md)       | none                                                                | message coordinates                                                                                                                                                                            | `conversation_read`     | [conversation recall](../../operator/conversation-recall.md)                                                                                                          |
 | [MCP tools](mcp-tools.md)                         | none                                                                | tool-defined                                                                                                                                                                                   | `mcp__<server>__<tool>` | [MCP tools](../../operator/mcp-tools.md)                                                                                                                              |
 
-Shared behavior lives on its own pages: [selectors](../selectors.md),
-[instruction files](../instruction-files.md),
+Shared behavior lives on its own pages: [model output](model-output.md),
+[selectors](../selectors.md), [instruction files](../instruction-files.md),
 [permission modes](../permission-modes.md), and
 [mutation recovery](../mutation-recovery.md).

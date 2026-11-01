@@ -11,6 +11,7 @@ import {
 } from '@workspace/native-file-tools';
 
 import {
+  neutralizeImportBody,
   promptImportMedia,
   type PromptImportOutcome,
 } from '../chats/prompt-imports-item';
@@ -396,7 +397,9 @@ async function attemptRead(
     recordUnsuccessfulRead(run, attempt, read.admission);
     return;
   }
-  const size = Buffer.byteLength(read.text, 'utf8');
+  // The bound counts the body as the notice renders it, after neutralization;
+  // measuring the raw text would let escaping push the item past the bound.
+  const size = Buffer.byteLength(neutralizeImportBody(read.text), 'utf8');
   if (run.bytes + size > MAX_PROMPT_IMPORT_BYTES) {
     run.outputFull = true;
     run.omitted.push(attempt.target);

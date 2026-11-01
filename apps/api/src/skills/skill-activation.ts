@@ -17,8 +17,7 @@
  * activation can never grant itself authority the read tool lacks.
  */
 
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isRecord, isString, measureJson } from '@workspace/runtime-safety';
 
 import { type AuthoredContextItemPart } from '../chats/context-item';
 import {
@@ -150,7 +149,7 @@ function instructionCeiling(input: ActivationRequest): number {
       'x'.repeat(MAX_OMISSION_IMPORT_LOCATOR_LENGTH + 1),
     ),
   });
-  return MAX_SKILL_ACTIVATION_BYTES - measureNativeModelOutput(worstCase);
+  return MAX_SKILL_ACTIVATION_BYTES - measureJson(worstCase);
 }
 
 type ActivationAttempt = {
@@ -247,7 +246,7 @@ async function attemptMention(
     bytes: budget.bytes,
     ceiling: budget.ceiling,
   });
-  const bytes = measureNativeModelOutput(activation.item);
+  const bytes = measureJson(activation.item);
   return budget.bytes + bytes > budget.ceiling
     ? { kind: 'unattempted' }
     : {
@@ -334,7 +333,7 @@ async function expandActivationImports(
     deadline: one.deadline,
     activity: input.activity,
     canAccept: (imports) =>
-      one.bytes + measureNativeModelOutput(createItem(imports)) <= one.ceiling,
+      one.bytes + measureJson(createItem(imports)) <= one.ceiling,
   });
   return {
     item: createItem(expansion.imports),

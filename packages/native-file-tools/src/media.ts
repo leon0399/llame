@@ -11,9 +11,9 @@ export const MEDIA_SELECTOR_MESSAGE =
 
 /**
  * An image a read decoded without storing it (vision-media D7): the original's
- * format and size, and the display-only `thumbnail` data URL its stored tool
- * output carries and no model ever receives. An image whose thumbnail would
- * exceed the cap has none.
+ * format and size, and the display-only thumbnail data URL its stored tool
+ * output carries under `display` and no model ever receives. An image whose
+ * thumbnail would exceed the cap has none.
  */
 export type MediaDecodeSuccess =
   | {
@@ -22,7 +22,8 @@ export type MediaDecodeSuccess =
       mediaType: string;
       width: number;
       height: number;
-      thumbnail?: string;
+      /** Owner-UI data: stored with the result, never rendered (D2). */
+      display?: { thumbnail?: string };
     }
   | {
       status: "success";

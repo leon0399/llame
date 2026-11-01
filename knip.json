@@ -8,9 +8,10 @@
         "e2e/support/model-server.ts",
         "e2e/support/mcp-server.ts",
         "e2e/support/mcp-stdio-server.mjs",
-        "e2e/support/run-after-ready.ts"
+        "e2e/support/run-after-ready.ts",
+        "scripts/*.mjs"
       ],
-      "project": ["e2e/**/*.ts"],
+      "project": ["e2e/**/*.ts", "scripts/**/*.mjs"],
       "ignoreDependencies": ["tsx"],
       "ignoreBinaries": ["psql"]
     },
