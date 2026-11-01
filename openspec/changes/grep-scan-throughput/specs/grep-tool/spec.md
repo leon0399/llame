@@ -768,7 +768,7 @@ tool MUST NOT refuse `%5B`, `%5D`, `%7B`, or `%7D` as glob operators.
 
 In a host scope, the tool MUST decode the seven literal spellings in the
 literal prefix in one pass before the probe. It MUST NOT decode another percent
-sequence. A Machine scope keeps the full decoding of a `machine://` locator.
+sequence. A Machine scope keeps the full decode of a `machine://` locator.
 In both, the `grep` group and every all-fields rejection MUST see the prefix
 that the walk probes. So an encoded path cannot hide from a reject.
 
