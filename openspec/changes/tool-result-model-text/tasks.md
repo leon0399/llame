@@ -140,24 +140,24 @@ Create `tool-result-model-text/read-text` from `tool-result-model-text/rendering
 Create `tool-result-model-text/mutation-text` from `tool-result-model-text/read-text` with
 `$gh-stack`.
 
-- [ ] 4.1 Change `mutate.ts`: `edit` returns bounded `content` with two context lines, `lineCount`,
+- [x] 4.1 Change `mutate.ts`: `edit` returns bounded `content` with two context lines, `lineCount`,
       and `display { startLine, oldText, newText }`, no `diff`; `write` returns `lineCount`, no
       `content` or `diff`; bounding shrinks `content` only and marks `truncated`; measure on the
       neutralized rendering; the hub's `readFsMutateResult` accepts both shapes, forwards an old
       daemon's `content` and `shownRange`, and drops `diff`; verify with `mutate.test.ts` cases
       that fail on the old shape and a hub mapping test (scenarios "The stored edit carries display
       data and no diff", "A stored write is status only").
-- [ ] 4.2 Add the `edit` and `write` text renderers, with the cut-region marker and the legacy
+- [x] 4.2 Add the `edit` and `write` text renderers, with the cut-region marker and the legacy
       forms for a stored part without `display` or with `content`; wire them into
       `renderToolResultForModel`; verify the four-line edit, created-file, cut-region, and legacy
       scenarios against the fixture file and the live/replay equality test extended to `edit` and
       `write`.
-- [ ] 4.3 UI: `edit.tsx` renders from `display` and falls back to the input-derived diff for parts
+- [x] 4.3 UI: `edit.tsx` renders from `display` and falls back to the input-derived diff for parts
       without it; `write.tsx` keeps rendering from input; verify with stories for a new-shape part,
       a legacy part, and a running edit, and `run-story-tests`.
-- [ ] 4.4 Extend `scripts/measure-tool-results.mjs` with the `edit` and `write` rows from live
+- [x] 4.4 Extend `scripts/measure-tool-results.mjs` with the `edit` and `write` rows from live
       package calls on a temporary copy; verify that it reproduces the proposal's rows.
-- [ ] 4.5 Docs: `apps/api/src/prompts/tools/{edit,write}.md` and
+- [x] 4.5 Docs: `apps/api/src/prompts/tools/{edit,write}.md` and
       `docs/product/reference/tools/{edit,write}.md` describe the text shapes and the legacy
       forms; `docs/product/operator/machines.md` orders the hub before the daemon; dated
       `CHANGELOG.md` entry; verify with `pnpm lint:markdown`.

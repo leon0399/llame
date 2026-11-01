@@ -343,10 +343,7 @@ describe('native files through the model loop and durable worker', () => {
       operation: 'write',
       path,
       replaced: true,
-      diff: '',
-      content: '1: settled bytes\n',
-      shownRange: { startLine: 1, endLine: 1 },
-      truncated: false,
+      lineCount: 1,
     };
     // A redelivery of a Run that already settled a replace: the attempt and
     // its result are recorded, and one tool activity was left open.
@@ -443,10 +440,7 @@ describe('native files through the model loop and durable worker', () => {
       operation: 'write',
       path: locator,
       replaced: true,
-      diff: '',
-      content: '1: settled bytes\n',
-      shownRange: { startLine: 1, endLine: 1 },
-      truncated: false,
+      lineCount: 1,
       knowledgeSpaceId: space.id,
     };
     const deliverySequence = await harness.tenantDb.runAs(

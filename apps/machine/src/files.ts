@@ -6,6 +6,8 @@ import {
   editFile,
   readResolvedFile,
   replaceFile,
+  type EditSuccess,
+  type FileFailure,
   type NativeMutateOptions,
   type NativeReadOptions,
 } from "@workspace/native-file-tools";
@@ -232,6 +234,18 @@ async function createParentDirectories(
   }
 }
 
+/**
+ * The edit answer without the replaced and replacement text. The hub sent both
+ * strings in the call and rebuilds the display from them, so echoing them back
+ * would carry a large replacement over one frame twice, and an answer that
+ * outgrows the frame limit fails after the file has already changed. The start
+ * line is the daemon's own, computed from the post-edit source.
+ */
+function withoutEchoedText(result: EditSuccess | FileFailure): FsMutateResult {
+  if (result.status !== "success") return result;
+  return { ...result, display: { startLine: result.display.startLine } };
+}
+
 export async function editOperation(
   params: SerializableValue,
   context: OperationContext,
@@ -250,7 +264,7 @@ export async function editOperation(
     mutateOptions(options, guarded),
   );
   await verifyUnchanged(context.guard, path, guarded);
-  return result;
+  return withoutEchoedText(result);
 }
 
 export async function writeOperation(

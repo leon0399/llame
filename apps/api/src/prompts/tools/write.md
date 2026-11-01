@@ -11,8 +11,9 @@ Create a new local UTF-8 file, or replace an existing file's contents with repla
 </conditions>
 
 <output>
-- Line-number prefixes are navigation metadata, never file bytes.
-- Model-facing results are standard JSON text; decode JSON escapes before copying source into {{#if tools.edit}}edit oldText{{else}}a later exact replacement{{/if}}.
+- A result is plain text, not JSON: one status line, `created <path>` or `replaced <path>`, continued with ` (<n> lines)` when the written file's line count is stored, then the attribution lines it carries.
+- The written content is never returned, and neither is a diff; read the path to see the bytes you wrote.
+- Text is neutralized for reserved delimiters: a tag-shaped token naming `system-reminder`, `tool-call`, `tool-result`, `user_chat_history`, `user_personalization`, `skill`, or `available_skills` is angle-escaped (`&lt;tool-result&gt;`); every other character is the source as stored.
 </output>{{#if tools.edit}}
 
 <critical>

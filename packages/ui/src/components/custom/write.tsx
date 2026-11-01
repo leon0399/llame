@@ -27,6 +27,7 @@ const outputSchema = z.looseObject({
   status: z.literal("success"),
   created: z.literal(true).optional(),
   replaced: z.literal(true).optional(),
+  lineCount: z.number().optional(),
   truncationNotice: z.string().optional(),
 });
 
@@ -35,14 +36,22 @@ type WriteInput = z.infer<typeof inputSchema>;
 /** Props for the dedicated `write` tool row. */
 export type WriteToolProps = ToolPartProps;
 
-/** The submitted content, numbered from line 1. It is the whole file, while
- *  the result echoes at most its first 2,000 lines. */
-function WriteContent({ input }: { input: WriteInput }) {
+/** The submitted content, numbered from line 1. It is the whole file, so the
+ *  result's line count matches unless a part stored before `lineCount`
+ *  omitted it. */
+function WriteContent({
+  input,
+  lineCount,
+}: {
+  input: WriteInput;
+  lineCount?: number;
+}) {
   const lines = numberLines(input.content);
+  const count = lineCount ?? lines.length;
   return (
     <ToolSection
       label={input.replace ? "Replace contents" : "New file"}
-      aside={`${lines.length} ${lines.length === 1 ? "line" : "lines"}`}
+      aside={`${count} ${count === 1 ? "line" : "lines"}`}
     >
       {lines.length === 0 ? (
         <p className="text-muted-foreground text-sm">Empty file.</p>
@@ -80,7 +89,11 @@ export function WriteTool({
       errorText={errorText}
       state={state}
       showInput={write === undefined}
-      preview={write ? <WriteContent input={write} /> : null}
+      preview={
+        write ? (
+          <WriteContent input={write} lineCount={result?.lineCount} />
+        ) : null
+      }
     >
       {result ? (
         <ToolDetails

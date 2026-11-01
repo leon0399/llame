@@ -172,12 +172,16 @@ describe('live and replayed renderings agree', () => {
     });
   });
 
-  it('replays an edit without its stored display data', () => {
+  it('replays a new-shape edit without its display data', () => {
     const result = {
       status: 'success' as const,
       operation: 'edit',
       path: '/work/source',
+      replacements: 1,
       content: '11: const a = 1;',
+      shownRange: { startLine: 11, endLine: 11 },
+      truncated: false,
+      lineCount: 40,
       display: {
         startLine: 11,
         oldText: 'const a = 0;',
@@ -185,10 +189,50 @@ describe('live and replayed renderings agree', () => {
       },
     };
 
+    const live = liveText('edit', result);
+    expect(live).toBe(
+      'edited /work/source: line 11, 1 -> 1 lines (40 lines total)\n11: const a = 1;',
+    );
     const replayed = projectedOutput(storedPart('edit', result));
-    expect(replayed).toContain(liveText('edit', result));
+    expect(replayed).toContain(live);
     expect(replayed).not.toContain('oldText');
     expect(replayed).not.toContain('const a = 0;');
+  });
+
+  it('replays a stored edit without display as its legacy region', () => {
+    const result = {
+      status: 'success' as const,
+      operation: 'edit',
+      path: '/work/source',
+      replacements: 1,
+      diff: '@@ replacement at line 11 @@\n-const a = 0;\n+const a = 1;\n',
+      content: '11: const a = 1;',
+      shownRange: { startLine: 11, endLine: 11 },
+      truncated: false,
+    };
+
+    const live = liveText('edit', result);
+    expect(live).toBe(
+      'edited /work/source: region from line 11\n11: const a = 1;',
+    );
+    const replayed = projectedOutput(storedPart('edit', result));
+    expect(replayed).toContain(live);
+    expect(replayed).not.toContain('@@ replacement');
+  });
+
+  it('replays a write as its live status text', () => {
+    const result = {
+      status: 'success' as const,
+      operation: 'write',
+      path: '/work/new.ts',
+      created: true,
+      lineCount: 216,
+    };
+
+    expect(liveText('write', result)).toBe('created /work/new.ts (216 lines)');
+    const replayed = projectedOutput(storedPart('write', result));
+    expect(replayed).toContain(liveText('write', result));
+    expect(replayed).toContain('Outcome: success');
   });
 
   it('neutralizes a legacy bare payload that is not a string', () => {

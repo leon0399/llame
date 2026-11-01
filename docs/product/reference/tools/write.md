@@ -44,7 +44,24 @@ being retried; see [machine](../locators/machine.md#behavior).
 ## Result
 
 A successful write reports the mutated locator and is marked `created` or
-`replaced` accordingly.
+`replaced` accordingly, with the written file's line count. A model reads one
+status line, with the attribution lines the source adds after it:
+
+```text
+created new.ts (216 lines)
+```
+
+| Field       | Meaning                                     |
+| ----------- | ------------------------------------------- |
+| `path`      | the locator the result identifies itself by |
+| `created`   | present when create mode ran                |
+| `replaced`  | present when replace mode ran               |
+| `lineCount` | the written file's line count               |
+
+The written content is not stored: the owner's UI renders it from the call's
+`content` argument, and a model never receives it or a diff. A result stored
+before this shape can carry `content` and a diff; its status line is unchanged
+and the stored content is not rendered.
 
 ## Behavior
 

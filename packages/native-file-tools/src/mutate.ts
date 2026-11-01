@@ -13,10 +13,10 @@ import { isNodeError, NativeFileError, parsePathScheme } from "./path";
 import {
   loadText,
   MAX_RESULT_CODE_UNITS,
-  selectSourceLines,
+  renderSourceLine,
   splitSourceLines,
 } from "./read";
-import { measureNativeModelOutput } from "./serialization";
+import { measureEditRendering } from "./model-text";
 import type { FileFailure, LineRange } from "./read";
 
 type EditInput = { path: string; oldText: string; newText: string };
@@ -36,18 +36,44 @@ export type NativeMutateOptions = {
   readonly displayPath?: string | undefined;
   readonly reserveCodeUnits?: number | undefined;
 };
-type MutationSuccess = {
+/** Display-only data for the owner UI: the exact replaced and replacement
+ *  text, with the post-edit line the region starts at. The model never sees
+ *  it, so it does not count against the bound. */
+type MutationDisplay = {
+  startLine: number;
+  oldText: string;
+  newText: string;
+};
+
+/** A completed edit: the numbered post-edit region, where it starts, and the
+ *  display data the owner UI diffs. The model reads the rendering of these
+ *  fields, never the display data. */
+export type EditSuccess = {
   status: "success";
-  operation: "edit" | "write";
+  operation: "edit";
   path: string;
-  replacements?: 1;
-  created?: true;
-  replaced?: true;
-  diff: string;
+  replacements: 1;
   content: string;
   shownRange: LineRange | null;
   truncated: boolean;
+  /** The executor's own bound cut the region. The shared cap overwrites
+   *  `truncated` when it shrinks a result but never this field, so the
+   *  renderer can name a bound cut without claiming a cap cut. */
+  cut?: boolean;
+  lineCount: number;
+  display: MutationDisplay;
 };
+
+type WriteSuccess = {
+  status: "success";
+  operation: "write";
+  path: string;
+  created?: true;
+  replaced?: true;
+  lineCount: number;
+};
+
+type MutationSuccess = EditSuccess | WriteSuccess;
 
 /** An existing target is the create mode's refusal, and the message names the
  *  two ways forward so the caller that wanted an existing file is not left
@@ -70,10 +96,10 @@ let mutations: Promise<void> = Promise.resolve();
  * filesystem reported rather than the operation; an operation that asserts the
  * target exists supplies it, and every other operation keeps the generic one.
  */
-function mutate(
-  operation: () => Promise<MutationSuccess>,
+function mutate<Result extends MutationSuccess>(
+  operation: () => Promise<Result>,
   notFoundMessage?: string,
-): Promise<MutationSuccess | FileFailure> {
+): Promise<Result | FileFailure> {
   const pending = mutations.then(operation);
   mutations = pending.then(
     () => {},
@@ -140,99 +166,132 @@ async function publishFile(
   }
 }
 
-function describeMutation(
+/** How many live lines of context each side of the changed lines the stored
+ *  post-edit region keeps. */
+const EDIT_CONTEXT_LINES = 2;
+
+/** The post-edit source and where the replacement landed: its 1-based start
+ *  line and the number of post-edit lines it occupies, zero when it deleted
+ *  text without inserting any. */
+type EditChange = {
+  content: string;
+  line: number;
+  replacementLines: number;
+};
+
+/** A write is status only: the stored locator, the created/replaced marker,
+ *  and the written file's line count. Its content is never stored, so the
+ *  owner UI renders it from the call's argument. */
+function describeWrite(
   input: WriteInput,
-  region: { offset: number; limit: number; diff: string },
-  kind: "edit" | "create" | "replace",
+  kind: "create" | "replace",
   options: NativeMutateOptions = {},
-): MutationSuccess {
-  const displayPath = options.displayPath ?? input.path;
-  const reserve = options.reserveCodeUnits ?? 0;
-  const read = selectSourceLines(input.content, {
-    path: displayPath,
-    raw: false,
-    offset: region.offset,
-    limit: region.limit,
-    reserveCodeUnits: reserve,
-  });
-  const result: MutationSuccess = {
+): WriteSuccess {
+  return {
     status: "success",
-    operation: kind === "edit" ? "edit" : "write",
-    path: displayPath,
-    ...(kind === "edit"
-      ? { replacements: 1 as const }
-      : kind === "replace"
-        ? { replaced: true as const }
-        : { created: true as const }),
-    diff: region.diff,
-    content: read.content,
-    shownRange: read.shownRange,
-    truncated: read.truncated,
+    operation: "write",
+    path: options.displayPath ?? input.path,
+    ...(kind === "replace"
+      ? { replaced: true as const }
+      : { created: true as const }),
+    lineCount: splitSourceLines(input.content).length,
   };
-  return boundMutationResult(result, reserve);
 }
 
+/** The numbered lines of a stored region, from its 1-based bounds. */
+function regionContent(lines: Array<string>, range: LineRange): string {
+  return lines
+    .slice(range.startLine - 1, range.endLine)
+    .map((text, index) => renderSourceLine(text, range.startLine - 1 + index))
+    .join("");
+}
+
+/** The numbered post-edit region of an edit: the changed lines plus two live
+ *  lines each side, clamped to the file. */
+function describeEdit(
+  input: EditInput,
+  change: EditChange,
+  options: NativeMutateOptions = {},
+): EditSuccess {
+  const lines = splitSourceLines(change.content);
+  const lineCount = lines.length;
+  const startLine = Math.max(1, change.line - EDIT_CONTEXT_LINES);
+  const endLine = Math.min(
+    lineCount,
+    change.line + Math.max(change.replacementLines - 1, 0) + EDIT_CONTEXT_LINES,
+  );
+  const shownRange = lineCount === 0 ? null : { startLine, endLine };
+  return boundMutationResult(
+    {
+      status: "success",
+      operation: "edit",
+      path: options.displayPath ?? input.path,
+      replacements: 1,
+      content: shownRange === null ? "" : regionContent(lines, shownRange),
+      shownRange,
+      truncated: false,
+      lineCount,
+      display: {
+        startLine: change.line,
+        oldText: input.oldText,
+        newText: input.newText,
+      },
+    },
+    options.reserveCodeUnits ?? 0,
+  );
+}
+
+/**
+ * Shrink the numbered region from its end until the model rendering fits what
+ * the caller's envelope left of the shared cap, marking the cut. Only `content`
+ * shrinks: the display data is never rendered and the line count is one number
+ * (tool-result-rendering "Bounds are measured on the neutralized rendering").
+ */
 function boundMutationResult(
-  result: MutationSuccess,
+  result: EditSuccess,
   reserveCodeUnits: number,
-): MutationSuccess {
+): EditSuccess {
   const cap = MAX_RESULT_CODE_UNITS - reserveCodeUnits;
-  const diffLines = splitSourceLines(result.diff);
-  result.diff = "";
-  const contentLines = splitSourceLines(result.content);
-  while (measureNativeModelOutput(result) > cap) {
-    result.truncated = true;
-    if (contentLines.length === 0) throw new NativeFileError("invalid_path");
-    contentLines.pop();
-    result.content = contentLines.join("");
-    if (result.shownRange && contentLines.length > 0)
-      result.shownRange.endLine -= 1;
-    else result.shownRange = null;
-  }
+  if (measureEditRendering(result) <= cap) return result;
+  result.truncated = true;
+  result.cut = true;
+  const lines = splitSourceLines(result.content);
+  // The cut marker is fixed width and the region only shrinks, so the widest
+  // prefix that fits is the longest one the binary search accepts.
   let low = 0;
-  let high = diffLines.length;
+  let high = lines.length;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    const candidate = {
-      ...result,
-      diff: diffLines.slice(0, middle).join(""),
-    };
-    if (measureNativeModelOutput(candidate) <= cap) low = middle;
+    const content = lines.slice(0, middle).join("");
+    if (measureEditRendering({ ...result, content }) <= cap) low = middle;
     else high = middle - 1;
   }
-  result.diff = diffLines.slice(0, low).join("");
-  if (low < diffLines.length) result.truncated = true;
+  const content = lines.slice(0, low).join("");
+  // Only a header wider than the whole cap leaves nothing to keep.
+  if (measureEditRendering({ ...result, content }) > cap)
+    throw new NativeFileError("invalid_path");
+  result.content = content;
+  const startLine = result.shownRange?.startLine;
+  result.shownRange =
+    startLine === undefined || low === 0
+      ? null
+      : { startLine, endLine: startLine + low - 1 };
   return result;
 }
 
-function replacement(source: string, input: EditInput) {
+function replacement(source: string, input: EditInput): EditChange {
   if (input.oldText.length === 0) throw new NativeFileError("invalid_input");
   const position = source.indexOf(input.oldText);
   if (position < 0) throw new NativeFileError("old_text_not_found");
   if (source.indexOf(input.oldText, position + 1) >= 0)
     throw new NativeFileError("old_text_ambiguous");
-  const content =
-    source.slice(0, position) +
-    input.newText +
-    source.slice(position + input.oldText.length);
-  const line = source.slice(0, position).split("\n").length;
-  const totalLines = splitSourceLines(content).length;
-  const offset = Math.min(line - 1, Math.max(0, totalLines - 1));
-  const diff =
-    input.oldText === input.newText
-      ? ""
-      : `@@ replacement at line ${line} @@\n${input.oldText
-          .split("\n")
-          .map((text) => `-${text}`)
-          .join("\n")}\n${input.newText
-          .split("\n")
-          .map((text) => `+${text}`)
-          .join("\n")}\n`;
   return {
-    content,
-    offset,
-    limit: input.newText.split("\n").length,
-    diff,
+    content:
+      source.slice(0, position) +
+      input.newText +
+      source.slice(position + input.oldText.length),
+    line: source.slice(0, position).split("\n").length,
+    replacementLines: splitSourceLines(input.newText).length,
   };
 }
 
@@ -240,8 +299,8 @@ export function editFile(
   input: EditInput,
   signal?: AbortSignal,
   options: NativeMutateOptions = {},
-): Promise<MutationSuccess | FileFailure> {
-  return mutate(async () => {
+): Promise<EditSuccess | FileFailure> {
+  return mutate<EditSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, input.newText, signal);
     // An absolute path is the host's own; a resolved target was authorized as
@@ -251,12 +310,10 @@ export function editFile(
     const source = await loadText(path, displayPath === undefined);
     const change = replacement(source, input);
     validateContent(path, change.content, signal);
-    const result = describeMutation(
-      { path: input.path, content: change.content },
-      change,
-      "edit",
-      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
-    );
+    const result = describeEdit(input, change, {
+      displayPath,
+      reserveCodeUnits: options.reserveCodeUnits,
+    });
     if (input.oldText !== input.newText) {
       const stats = await lstat(path);
       await publishFile(
@@ -272,18 +329,13 @@ export function createFile(
   input: WriteInput,
   signal?: AbortSignal,
   options: NativeMutateOptions = {},
-): Promise<MutationSuccess | FileFailure> {
-  return mutate(async () => {
+): Promise<WriteSuccess | FileFailure> {
+  return mutate<WriteSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, "", signal);
     await requireAbsent(input.path);
     validateContent(input.path, input.content, signal);
-    const result = describeMutation(
-      input,
-      { offset: 0, limit: 2000, diff: "" },
-      "create",
-      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
-    );
+    const result = describeWrite(input, "create", { displayPath });
     // A resolved target's directories were created by its scheme owner, one
     // component at a time under its own symlink refusal; a recursive create
     // here would resolve through a link the owner just refused.
@@ -321,8 +373,8 @@ export function replaceFile(
   input: WriteInput,
   signal?: AbortSignal,
   options: NativeMutateOptions = {},
-): Promise<MutationSuccess | FileFailure> {
-  return mutate(async () => {
+): Promise<WriteSuccess | FileFailure> {
+  return mutate<WriteSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, "", signal);
     const target = await resolveReplaceTarget(
@@ -330,12 +382,7 @@ export function replaceFile(
       displayPath === undefined,
     );
     validateContent(input.path, input.content, signal);
-    const result = describeMutation(
-      input,
-      { offset: 0, limit: 2000, diff: "" },
-      "replace",
-      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
-    );
+    const result = describeWrite(input, "replace", { displayPath });
     await publishFile(
       { path: target.path, content: input.content },
       { create: false, mode: target.mode, signal },
