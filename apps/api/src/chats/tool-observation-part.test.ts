@@ -192,7 +192,7 @@ describe('live and replayed renderings agree', () => {
 
     const live = liveText('edit', result);
     expect(live).toBe(
-      'edited /work/source: line 11, 1 -> 1 lines (40 lines total)\n11: const a = 1;',
+      'edited /work/source: line 11, 1 -> 1 line (40 lines total)\n11: const a = 1;',
     );
     const replayed = projectedOutput(storedPart('edit', result));
     expect(replayed).toContain(live);

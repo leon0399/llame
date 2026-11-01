@@ -119,6 +119,17 @@ export function renderAttributionLines(result: UnknownRecord): Array<string> {
   return lines;
 }
 
+/** The noun a count takes: singular for one, plural otherwise. */
+function noun(count: number, singular: "line" | "entry"): string {
+  if (count === 1) return singular;
+  return singular === "entry" ? "entries" : "lines";
+}
+
+/** A count and its noun, as in `1 line` or `12 lines`. */
+function counted(count: number, singular: "line" | "entry"): string {
+  return `${count} ${noun(count, singular)}`;
+}
+
 /** The header of a file read: the shown range in the form of its
  *  representation with the stored total, or the empty and skipped forms a
  *  null shown range produces. A result stored before the ranges were kept
@@ -130,7 +141,7 @@ function fileHeader(result: UnknownRecord): string {
   const total =
     result.representation === "outline" || !isNumber(result.lineCount)
       ? ""
-      : ` of ${result.lineCount} lines`;
+      : ` of ${counted(result.lineCount, "line")}`;
   const ranges = asRanges(result.shownRanges);
   if (ranges.length > 0) {
     const form = result.representation === "raw" ? "raw:" : "";
@@ -231,9 +242,10 @@ function continuationLine(result: UnknownRecord): string | undefined {
   if (result.kind === "directory") {
     const { entryCount } = result;
     if (isNumber(entryCount))
-      label = `${entryCount - nextOffset} more entries. `;
+      label = `${entryCount - nextOffset} more ${noun(entryCount - nextOffset, "entry")}. `;
   } else if (isNumber(result.lineCount)) {
-    label = `${result.lineCount - nextOffset} more lines. `;
+    const left = result.lineCount - nextOffset;
+    label = `${left} more ${noun(left, "line")}. `;
   }
   const path = isNonEmptyString(result.path) ? oneLine(result.path) : "";
   // Every colon a web locator's query or fragment opened is URL text, so a
@@ -244,7 +256,7 @@ function continuationLine(result: UnknownRecord): string | undefined {
     /^https?:\/\//iu.test(path) && /[?#]/u.test(path);
   if (result.kind !== "directory" && webLocatorTakesNoSelector) {
     const stated = isNumber(result.lineCount)
-      ? `${result.lineCount - nextOffset} more lines not shown`
+      ? `${result.lineCount - nextOffset} more ${noun(result.lineCount - nextOffset, "line")} not shown`
       : "more lines not shown";
     return `[${stated}; this locator takes no line selector]`;
   }
@@ -314,11 +326,11 @@ function editDisplay(result: UnknownRecord): EditDisplay | undefined {
  *  replacement line counts, and the post-edit total when it is stored. */
 function editHeader(result: UnknownRecord, display: EditDisplay): string {
   const total = isNumber(result.lineCount)
-    ? ` (${result.lineCount} lines total)`
+    ? ` (${counted(result.lineCount, "line")} total)`
     : "";
   const oldLines = blockLineCount(display.oldText);
   const newLines = blockLineCount(display.newText);
-  return `edited ${mutationLocator(result)}: line ${display.startLine}, ${oldLines} -> ${newLines} lines${total}`;
+  return `edited ${mutationLocator(result)}: line ${display.startLine}, ${oldLines} -> ${counted(newLines, "line")}${total}`;
 }
 
 /** The header of an edit stored before `display` existed: the region the part
@@ -366,7 +378,7 @@ export function renderEditText(result: UnknownRecord): string {
 export function renderWriteText(result: UnknownRecord): string {
   const action = result.replaced === true ? "replaced" : "created";
   const total = isNumber(result.lineCount)
-    ? ` (${result.lineCount} lines)`
+    ? ` (${counted(result.lineCount, "line")})`
     : "";
   return [
     `${action} ${mutationLocator(result)}${total}`,
