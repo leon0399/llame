@@ -27,7 +27,7 @@ listed, or bytes read. They bound results and time only (design: Prior art).
 - The walk reads up to 8 files at the same time and still returns passages,
   warnings, and the cursor in canonical order.
 - Files are searched as a stream with no size cutoff. A line longer than
-  64 MiB of UTF-8 bytes skips its file as `oversized`. A file that is not
+  4 MiB of UTF-8 bytes skips its file as `oversized`. A file that is not
   valid UTF-8 at any point still contributes no passage.
 - The call deadline derives from the tool call timeout
   (`tools.callTimeoutSeconds`, default 120 s) minus a margin, so a slow walk
@@ -38,8 +38,8 @@ listed, or bytes read. They bound results and time only (design: Prior art).
 - Ignore files: `.ignore` is honored beside `.gitignore`. Ignore files in
   directories above the scope apply (`.gitignore` up to the repository
   directory, `.ignore` up to the filesystem root). The scope directory itself
-  is always searched. Rules are evaluated one at a time, which fixes the #1392
-  layer-voiding defect.
+  is always searched. Each rule decides an entry by the entry's own path, as
+  in Git, which fixes the #1392 layer-voiding defect.
 - The result reports excluded directories: a count and the first five
   locators that the `read` group admits, so a model can scope one of them
   explicitly.
@@ -95,10 +95,17 @@ Assumptions that follow from those answers but were not asked separately:
   call context, grep uses `tools.callTimeoutSeconds`.
 - A Machine request gets nine tenths of the time left, so its answer arrives
   before the API stops waiting.
-- A rule with no slash except a final one matches the entry name at any
-  depth, as in Git. A rule with a slash that matches the scope directory or a
-  re-included directory does not exclude entries below it that it also
-  matches (design D6 ceiling).
+- A rule decides an entry only by the entry's own path, never through a
+  directory above it, as Git does. The walk never enters an excluded
+  directory, so ancestors need no test.
+- Progress means an emitted passage or a finished entry after the start
+  point. Progress is call-wide: it travels between scopes and to and from a
+  Machine. A file one call cannot finish is skipped only without progress.
+- An unfinished single-file scope moves the cursor to the next scope with
+  `complete: false`; a call past the last scope returns an empty complete
+  page.
+- A daemon that refuses `fs.grep` parameters reports as Machine unusable,
+  not as the model's `invalid_input`.
 - The excluded-directory evaluations follow the `grep` per-file exception of
   `tool-call-permissions`: not recorded one by one, not in the refused-file
   count, none in a `bypass` attempt.
@@ -113,11 +120,17 @@ Leo, please confirm these when you review:
 - **A5 stack.** A5 confirmed three implementation layers. Review round 1
   estimated the first above the 2,000-line budget, so streaming and
   read-ahead are separate layers: four implementation layers.
-- **Q13 memory.** Q13 was accepted on a 512 MiB worst case. Review round 1
-  showed the real worst case at 64 MiB per line is 0.9–1.4 GiB (two-byte
-  strings, rope flattening, held passages). The design keeps the 64 MiB limit
-  and adds one process-wide slot for lines above 8 MiB, which brings the worst
-  case back to about 0.5 GiB (design D3).
+- **Q13 line bound: 64 MiB → 4 MiB.** Q13 accepted 64 MiB per line on a
+  512 MiB memory figure, by analogy with OMP, whose regex engine is native.
+  `re2js` runs on the event loop and cannot be interrupted inside one line
+  test. Measured on a 64 MiB line with no match: `(?i)senseshift` took 0.6 s
+  on random text and 3.6 s on other text, and an 8-term case-insensitive
+  alternation took 17 s; up to 8 patterns are tested per line. The real memory
+  worst case was also 0.9–1.4 GiB, not 512 MiB. At 4 MiB a test costs about
+  0.04–1.1 s per pattern and 8 tasks hold about 128 MiB of line text. Today's
+  1 MiB file bound already caps a line at 1 MiB, so 4 MiB is still four times
+  today. Keeping 64 MiB needs a process-wide large-line slot and accepts
+  multi-second event-loop stalls (design D3, Rejected).
 - **Thread pool.** Node runs file reads on a libuv pool of 4 threads by
   default, so 8 reads would run 4 at a time. The API, worker, and daemon set
   `UV_THREADPOOL_SIZE=16` when it is unset (design D2). This was not asked;
@@ -139,13 +152,15 @@ None.
     follow the ignore-file requirements.
   - MODIFIED "Results are ordered, bounded, and paged by a keyset cursor":
     the 5,000-file and 20,000-entry references become the configured bounds;
-    every line of the result counts toward the page, and a call deadline
-    keeps a no-match result incomplete.
+    a file counts toward the file bound when the walk takes it; every line of
+    the result counts toward the page; a call deadline keeps a no-match
+    result incomplete.
   - MODIFIED "Scope backends fail closed per scheme": unset bounds travel as
-    `null`; the request carries call progress and nine tenths of the time
-    left; the daemon returns excluded directories and an unfinished file; the
-    API filters every daemon path through the `read` group; the Machine
-    budget scenario names a configured byte bound.
+    `null`; the request and response carry progress; the daemon gets nine
+    tenths of the time left; the daemon returns excluded directories and an
+    unfinished file; the API filters every daemon path through the `read`
+    group; a daemon that refuses the parameters is Machine unusable; the
+    Machine budget scenario names a configured byte bound.
   - ADDED: opt-in operator bounds; byte-bound counting; the deadline from the
     call timeout; streamed files; concurrent reads in canonical order; the
     unfinished-file rule and its progress rule; ignore files above the scope;
@@ -154,7 +169,8 @@ None.
 - `instance-config`: ADDED the optional `tools.grep` bound settings.
 - `tool-result-rendering`: MODIFIED "A grep page groups consecutive passages
   under one file line" to render the excluded-directory line and the
-  unfinished-file line.
+  unfinished-file line; MODIFIED "Framing values render on one line" so their
+  locators fold line breaks.
 - `tool-call-permissions`: ADDED the `read` evaluation of excluded
   directories under the `grep` per-file exception.
 
@@ -183,7 +199,8 @@ Deliberately unchanged:
 - `tool-result-rendering` "Results that carry content render as text": "A
   `grep` page opens with its notice … or with its first `## <locator>` line"
   describes a page with a passage. A no-match page opens with its warnings
-  line today, and with the warnings or `[ignored …]` line after this change.
+  line today, and after this change with the warnings, `[ignored …]`, or
+  `[not searched to the end: …]` line.
 - `tool-result-rendering` "A grep passage cut at the page bound names the
   cursor": page cutting is unchanged.
 

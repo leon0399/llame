@@ -18,4 +18,4 @@ count of the completion audit. A bypassed Run MUST evaluate no such directory.
 
 - **WHEN** a `bypass` attempt runs a grep walk that excludes `/home/u/repo/node_modules`
 - **THEN** the system evaluates no `read` group for that directory
-- **AND** the result can name it in `ignored`
+- **AND** `ignored.locators` holds `/home/u/repo/node_modules`

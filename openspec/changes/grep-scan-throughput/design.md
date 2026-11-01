@@ -104,36 +104,50 @@ regex engine; no change to `re2js`.
 
 `GREP_LIMITS` keeps only the request-shape and output bounds (patterns,
 scopes, page, passages, line cut, context, passage lines, NUL probe) plus the
-new 64 MiB line bound and the read-ahead width. `filesExamined`,
+new 4 MiB line bound and the read-ahead width. `filesExamined`,
 `entriesListed`, `bytesRead`, `fileBytes`, and `deadlineMs` leave the
 constant. `GrepBudget` fields for files, entries, bytes, and file bytes become
 `number | null`; `null` disables the check. `tools.grep` resolves through the
 existing nullable numeric path that `tools.maxStepsPerRun` uses, so
 interpolation tokens, `null`, and the zero refusal behave the same way.
 
-The engine change (nullable fields, no `fileBytes` constant) lands in layer 1
-with streaming, so the streaming scenarios run without a hidden 1 MiB cut. The
-API keeps passing today's file, entry, and byte numbers until layer 2 replaces
-them with `tools.grep`.
+The engine change (nullable fields, no `fileBytes` constant) lands in the
+stream layer, so the streaming scenarios run without a hidden 1 MiB cut. The
+API keeps passing today's file, entry, and byte numbers until the bounds layer
+replaces them with `tools.grep`.
 
 `maxBytesRead` counts the bytes of files the consumer takes, plus the bytes
-read so far of the head file (D2). Read-ahead can read past the bound; those
-bytes are discarded and never counted. `maxFileBytes` is checked against the
-`fstat` size and again on the streamed byte count, so a file that grows past
-the bound during the read is refused, as `readBoundedFileBytes` does today.
+read so far of the head file (D2), and the walk stops when the count passes
+the bound. Read-ahead can read past the bound; those bytes are discarded and
+never counted. `maxFileBytes` is checked against the `fstat` size and again on
+the streamed byte count, so a file that grows past the bound during the read
+is refused, as `readBoundedFileBytes` does today.
 
 Rejected: generous fixed constants (Q1 A), which keep an arbitrary stop; an
 operator switch that restores the old four (Q5 B).
 
 ### D2: An ordered read-ahead window of 8
 
-The walk generator becomes a producer that runs ahead of the scan. Every walk
-event goes into one FIFO in canonical order: a candidate file (with its started
-task), a reached entry, a counted entry, a link skip, an excluded directory
-(D7), and an entry-bound stop. The consumer dequeues in order and applies each
-event to `ScanState` exactly where the serial walk applies it today, so
+The walk generator becomes a producer that runs ahead of the scan. Walk events
+go into one FIFO in canonical order: a scope start, a candidate file with its
+started task, and the bookkeeping between two candidates. The consumer
+dequeues in order and applies each event to `ScanState` exactly where the
+serial walk applies it today, so `scopeIndex`, the per-scope resume,
 `position`, `reserveFloor`, warnings, bounds, and the cursor only ever reflect
-what the consumer took. The producer pauses while 8 file tasks are queued.
+what the consumer took.
+
+The bookkeeping between two candidates is one coalesced record: the counted
+entry delta, the last reached path, the largest continuation width for
+`reserveFloor`, the link-skip count, and the excluded directories in order. An
+entry-bound stop is its own event. The producer pauses while 8 file tasks are
+queued or while 10,000 excluded paths and records are queued, so a walk with
+few candidates cannot list a whole large tree ahead of a slow head task.
+
+The producer runs the `read` admission (`onCandidate`) before it starts a
+task, because a task must not open a refused file. The refusal is counted
+when the consumer takes the candidate, as `state.readRefused` is today
+(`scan.ts:151-153`), so a refusal past the stop never reaches the completion
+audit.
 
 An entry-bound stop is an ordinary queued event. The consumer finishes every
 file queued before it and stops when it dequeues the event, so a fast listing
@@ -142,24 +156,24 @@ ahead of slow reads cannot strand the walk on the same cursor.
 Bounds count a file when the consumer takes it. The producer never starts more
 tasks than the file bound leaves. On a deadline or byte-bound stop, the
 consumer aborts the queued tasks through a per-call `AbortController`. Each
-task's promise is caught when it is created and its outcome is stored with
-the task. A failure, such as a Knowledge `GrepScopeFailure`, surfaces only
-when the consumer dequeues that task. A discarded task never raises an
-unhandled rejection, and its stream closes its file handle on abort or early
-return.
+task's promise is caught when it is created and its outcome is stored with the
+task. A failure, such as a Knowledge `GrepScopeFailure`, surfaces only when
+the consumer dequeues that task. A discarded task never raises an unhandled
+rejection, and its stream closes its file handle on abort or early return.
 
 The producer also overlaps directory work: one directory's `list`,
 `.gitignore`, and `.ignore` reads run together. Directory listing stays
-depth-first and is not parallelized across directories, because the
-canonical order needs each listing whole before the walk descends.
+depth-first and is not parallelized across directories, because the canonical
+order needs each listing whole before the walk descends.
 
 **Thread pool.** Node runs file system calls on the libuv pool, which defaults
 to 4 threads, so 8 tasks would run 4 at a time. The pool starts at its first
-use, and `Sentry.init` uses it (round-1 probe: 16 parallel `pbkdf2` jobs took
-95–111 ms on a fresh pool sized to 16 and 203–229 ms once `Sentry.init` had
-run, with or without a DSN). The API and worker therefore set
-`UV_THREADPOOL_SIZE=16` inside `setUpSentry` (`apps/api/src/sentry-setup.ts`),
-after `.env.local` loads and before `init`. The daemon sets it at the top of
+use, and `Sentry.init` uses it. Round-1 and round-2 probes: 16 parallel
+`pbkdf2` jobs took 65–111 ms with the size set before `Sentry.init` and
+136–229 ms with it set after, with or without a DSN. The API and worker
+therefore write `UV_THREADPOOL_SIZE=16` to `setup.env` inside `setUpSentry`
+(`apps/api/src/sentry-setup.ts`), after `.env.local` loads and before `init`.
+The daemon, a CJS bundle that loads no dotenv, sets it at the top of
 `apps/machine/src/instrument.ts`. An operator value, including one from
 `.env.local`, stays in place. The drvfs replay took 2.7 s with 4 reads in
 flight and 1.5 s with 16, on a 64-thread pool.
@@ -169,20 +183,20 @@ hold 16 reads, and `dns.lookup` for a provider request then waits behind them.
 Accepted for a personal instance; the 64-thread replay showed no further gain
 past 16, so a larger pool buys nothing for one call.
 
-Rejected: a worker pool (new thread machinery for an I/O-bound cost);
-parallel directory listing (breaks canonical order or needs a reorder
-buffer of whole subtrees); an operator concurrency setting (Q6).
+Rejected: a worker pool (new thread machinery for an I/O-bound cost); parallel
+directory listing (breaks canonical order or needs a reorder buffer of whole
+subtrees); an operator concurrency setting (Q6).
 
 ### D3: Streamed files and incremental passages
 
 The walk port gains a streaming read: `open(rel, signal)` returns the file
-size and an async iterator of byte chunks. The iterator can end with a
-refusal after its last chunk. The Machine port uses that step for its
-containment re-check (`unchanged`, `apps/machine/src/grep-port.ts:137-145`),
-which drops the file as `unreadable` when a directory on the path changed
-during the read. Host, Machine, and skill ports use `fs.open` with the current
-flags and read 64 KiB chunks. The Knowledge adapter streams through
-`this.fileSystem.open` after its per-component `lstat` checks
+size and an async iterator of byte chunks. The iterator can end with a refusal
+after its last chunk. The Machine port uses that step for its containment
+re-check (`unchanged`, `apps/machine/src/grep-port.ts:137-145`), which drops
+the file as `unreadable` when a directory on the path changed during the read.
+Host, Machine, and skill ports use `fs.open` with the current flags and read
+64 KiB chunks. The Knowledge adapter streams through `this.fileSystem.open`
+after its per-component `lstat` checks
 (`apps/api/src/knowledge/knowledge-filesystem.ts:389-405,562-580`).
 
 A file task:
@@ -195,35 +209,41 @@ A file task:
    the file as `invalid_utf8`.
 4. Splits lines on LF, stripping one trailing CR, as `source-lines.ts:65-67`
    does; a CR at a chunk end needs no special case. It counts UTF-8 bytes per
-   line; a line above 64 MiB drops the file as `oversized`. A line is held as
+   line; a line above 4 MiB drops the file as `oversized`. A line is held as
    an array of decoded pieces and joined once for the test, so V8 does not
    flatten a rope of many concatenations.
 5. Tests each full line, then keeps only its 512-unit display cut.
 6. Builds windows, merges, and partitions incrementally with the current
-   rules. It keeps rendered content only up to the page units the call has
-   left (at most 15,000) and keeps the start line, end line, and matched lines
-   of later passages, at most 21 (20 plus the knowledge that a twenty-first
-   exists). A page can never show more than the units left, so content past
-   them is dead weight; a later call scans the file again, as a resumed passage
-   cursor does today.
+   rules, at most 21 passages (20 plus the knowledge that a twenty-first
+   exists). It keeps rendered content for at most 15,000 code units, counted
+   from the first line the page can show: the line after `cursor.endLine` in
+   the cursor's passage, and passages after `cursor.startLine`. Passages
+   before that point are dropped as `continuation` drops them today. A passage
+   whose content stops at the held limit is marked incomplete;
+   `appendGrepFile` treats it as one that does not fit, so it can only be cut,
+   and only within its held lines. A later call scans the file again, as a
+   resumed passage cursor does today.
 7. Reads to EOF before the file gives its passages, so a late invalid byte or
    oversized line drops the file. This keeps every hit readable by `read`,
    which refuses a file that is not valid UTF-8.
 
-**Memory.** A line of 64 MiB of UTF-8 bytes can decode to as many as 64 Mi
-UTF-16 code units, which is 128 MiB as a two-byte string, plus its pieces
-until the join. Eight tasks could hold eight such lines. To keep the Q13
-limit without a 2 GiB worst case, one process-wide slot admits a line above
-8 MiB: a task that grows a line past 8 MiB waits for the slot and releases it
-after the line's test. The worst case is then about 8 × 32 MiB for lines up to
-8 MiB, plus one 256 MiB large line, plus 8 × 64 KiB chunks and 8 × 30 KB of held
-content: about 0.5 GiB. The round-1 review measured the unmitigated worst case
-at 0.9–1.4 GiB; Q13 was accepted on 512 MiB, so this slot is how the design
-meets it.
+**Memory.** A 4 MiB line of UTF-8 bytes decodes to at most 4 Mi UTF-16 code
+units, 8 MiB as a two-byte string, plus its pieces until the join. Eight tasks
+then hold at most about 128 MiB of line text, plus 8 × 64 KiB chunks and
+8 × 30 KB of held content.
 
-Rejected: a whole-file prefilter (Q3 scope; an anchored pattern such as `\A`
-changes meaning on the whole text); keeping the whole file (memory grows with
-file size); lowering the line limit (contradicts Q13).
+**CPU.** `re2js` tests one line at a time on the event loop and cannot be
+interrupted inside a test. Round 2 measured a no-match `(?i)senseshift` over a
+64 MiB line at 0.6 s on random text and 3.6 s on other text, and an 8-term
+case-insensitive alternation at 17 s. That is why the line bound is 4 MiB and
+not the 64 MiB that Q13 accepted: at 4 MiB the same tests cost about 0.04–1.1 s
+per pattern. Today's 1 MiB file bound already caps a line at 1 MiB. The
+proposal lists this as a deviation for Leo to confirm.
+
+Rejected: 64 MiB lines (seconds of blocked event loop per line, and a
+process-wide slot to keep memory near 0.5 GiB, as v2 proposed); a whole-file
+prefilter (Q3 scope; an anchored pattern such as `\A` changes meaning on the
+whole text); keeping the whole file (memory grows with file size).
 
 ### D4: The deadline comes from the call timeout
 
@@ -237,61 +257,78 @@ timeout the walk stops at 108 s. `ToolContext.timeoutMs` is optional
 bounded tools fall back to their own default (`machine-call.ts:51-55`).
 
 The consumer checks the deadline before it takes each file, and the head task
-checks it between chunks, so one large file cannot overrun it. A listing in
-progress is not abortable (`readdir`), so a stop can still arrive late by one
-directory listing.
+checks it between chunks. Two waits can still pass the deadline: a listing in
+progress (`readdir` is not abortable) and one line test (at most about 1 s per
+pattern at the 4 MiB line bound, D3). The margin covers both.
 
 The Machine segment gives the daemon nine tenths of the time left
 (`grep-machine.ts:340,370,467` pass all of it today) and keeps the full time
 for its own abandon. The tenth is the reply margin: a daemon that uses its
-whole budget still answers, so its page, cursor, and `unfinishedFile` are
-not lost.
+whole budget still answers, so its page, cursor, and `unfinished` are not
+lost.
 
 Rejected: a fixed larger deadline (Q4 B); a separate setting (Q4 C).
 
 ### D5: A file one call cannot finish
 
 **Start point and progress.** The start point is the entry that the incoming
-cursor names, or the start of the first scope when the call has no cursor.
-The call progresses when the consumer takes an entry that sorts after the
-start point by `(scopeIndex, compareRel)`. The walk re-reaches the cursor's own
-directory on resume (`walk.ts:171`), so "position is set" is not progress.
+cursor names, or the start of the first scope when the call has no cursor. The
+call progresses when the consumer emits a passage, or when it applies a reached
+event whose `(scopeIndex, rel)` sorts strictly after the start point by
+`compareRel`. A file is reached after its scan (`walk.ts:101`); a directory is
+reached when the walk enters it (`walk.ts:145,171`). A candidate or a counted
+entry is not progress: both arrive before the file is read, so counting them
+would hide the Q14 case. The walk re-reaches the cursor's own directory on
+resume (`walk.ts:171`), which does not sort after the start point.
 
-**Call-wide progress.** Progress belongs to the call, not to one engine run.
-`runGrepScan` takes `progressed` as an input and returns it. The API passes it
-from segment to segment, and the `fs.grep` request carries it to the daemon.
+An emitted passage counts so that a resumed cut passage followed by a stop in
+the next file keeps the passage cursor and opens that file again.
+
+**Call-wide progress.** Progress belongs to the call. `runGrepScan` takes
+`progressed` as an input and returns it. The API passes it from segment to
+segment. The `fs.grep` request carries it to the daemon, the response returns
+the daemon's own `progressed`, and the hub ORs it in after each daemon page,
+including the extra pages that `runDaemonPages` asks for when the `read`
+group refuses every passage of a page (`grep-machine.ts:377-391`).
 
 **The stop.** When the deadline or the byte bound stops the head task inside a
-file and the call has not progressed, the scan:
+file and the call has not progressed, the scan records the file's relative
+path as `unfinished` and emits a position cursor that names the file as
+reached, so the next call lists it and does not open it. For a single-file
+scope, whose walk yields `""` and ignores a cursor (`walk.ts:59-63`), the
+cursor is `(scope.index + 1, "")` with `complete: false`, whether or not that
+ordinal exists. `readCursor` sets no upper bound on `scopeIndex`
+(`cursor.ts:177-179`) and `runGrepScan` skips lower scopes (`scan.ts:86-87`),
+so a cursor past the last scope gives an empty `complete: true` page on the
+next call. On a Machine the daemon walks its one scope at index 0, so the hub
+turns a daemon `unfinished` on a single-file scope into
+`(scope.index + 1, "")` itself; `stoppedPosition` (`grep-machine.ts:517-525`)
+would otherwise keep the scope index and reopen the file.
 
-- records the file's relative path as `unfinished`,
-- emits a position cursor that names the file as reached, so the next call
-  lists it and does not open it,
-- and, for a single-file scope, whose walk yields `""` and ignores a cursor
-  (`walk.ts:59-63`), emits a position cursor on the next scope ordinal. When
-  no scope follows, the result is `complete: true` with `unfinishedFile` set.
+The API applies the `read` group to the locator before it names it. A refused
+file is not named, and the cursor still moves past it. When the call has
+progressed, the cursor stays before the file and the next call opens it with a
+full budget.
 
-The API applies the `read` group to the locator; on a Machine the hub does so
-before it names the path. When the call has progressed, the cursor stays before
-the file and the next call opens it with a full budget.
-
-Progress is guaranteed only for stops inside a file: a call either takes one
-entry or skips one file. A deadline during a slow listing, or a stop before any
-entry is reached, returns the incoming cursor as today (`scan.ts:378-389`).
-On default settings, a file is skipped only when it takes longer than one
-whole call, which at the measured `re2js` rate (33.5 MB in 2.3 s) means more
-than about 1.5 GB of text.
+Progress is guaranteed only for stops inside a file: a call either reaches one
+entry, emits one passage, or skips one file. A deadline during a slow listing,
+or a stop before any entry is reached, returns the incoming cursor as today
+(`scan.ts:378-389`).
 
 ### D6: Ignore files, rule by rule
 
 **Layers.** At scope start, the host port walks up from the prefix to `/`; the
 Machine daemon walks up to the registered root that holds the prefix. At each
 directory it collects `.ignore`, and it collects `.gitignore` up to and
-including the nearest directory that holds `.git` (a directory or a worktree
-file). Inside the scope each directory adds its own pair. In one directory
-`.ignore` sits deeper than `.gitignore`. Neither file is a search candidate:
-`isCandidate` already drops `.gitignore` (`walk.ts:128-129`) and drops
-`.ignore` the same way. Knowledge and skill ports stay without ignore files.
+including the repository directory: the nearest directory that holds `.git` (a
+directory or a worktree file). A Machine looks for the repository directory
+only up to its registered root; without one there, the root is the repository
+directory. Inside the scope each directory adds its own pair. In one directory
+`.ignore` sits deeper than `.gitignore`. Neither file is a candidate of a
+directory scope: `isCandidate` already drops `.gitignore`
+(`walk.ts:128-129`) and drops `.ignore` the same way. An exact-file scope
+still searches either file, as it does today. Knowledge and skill ports stay
+without ignore files.
 
 **Why rule by rule.** `ignore` 7.0.12 decides a path through its ancestors: a
 probe showed rule `build` matching `build/a.js` through both `test()` and
@@ -300,48 +337,49 @@ everything below it. That is the root of the #1392 defect and of the
 explicit-scope problem. Today's code voids a whole layer after a deeper
 re-include (`walk.ts:193-235`), which over-includes.
 
-**Matching.** Each rule compiles to its own `ignore` instance. Git splits rules
-in two:
+**Matching.** `ignore` 7.0.12 passes only the `ignored` verdict down from an
+ancestor, never `unignored`. So a one-rule instance built as a negation,
+`ignore().add('!' + rule)` (or the rule itself when it starts with `!`),
+reports `test(path).unignored` exactly when the rule's pattern matches that
+path itself. Probes on 2026-11-01:
 
-- A rule with no slash except a final one (`node_modules/`, `*.log`, `build*`,
-  `*`) matches the entry name at any depth. The walk tests it against the
-  entry's base name, with a final `/` for a directory. A leading `**/` with no
-  other slash (`**/node_modules`) is the same rule and is tested the same way.
-- Any other rule (`/build`, `docs/*.md`, `a/**`) is relative to its layer
-  directory. The walk tests it against the path relative to that layer, which
-  `ignore` evaluates through the path's ancestors. Its verdict does not count
-  when the same rule also matches the entry's parent directory `D`, because
-  then the verdict is inherited from `D`. `D` was entered, so it is the scope
-  directory, a directory above it, or a directory that a deeper rule included
-  again. The parent test is skipped when `D` is the layer directory itself,
-  where the relative path is empty and `ignore` throws `path must not be
-  empty`.
+| Rule            | Path                          | Own-path match |
+| --------------- | ----------------------------- | -------------- |
+| `node_modules/` | `node_modules/react/`         | no             |
+| `node_modules/` | `node_modules/react/index.js` | no             |
+| `node_modules/` | `a/node_modules/`             | yes            |
+| `docs/**`       | `docs/keep/a.md`              | yes            |
+| `build/`        | `src/build/a.js`              | no             |
+| `*`             | `src/a.js`                    | yes            |
+| `/build`        | `x/build`                     | no             |
+| `a/**`          | `a/b/c`                       | yes            |
+| `logs/**`       | `logs/`                       | no             |
+| `docs/*.md`     | `docs/sub/b.md`               | no             |
 
-In a layer, the last counted matching rule decides, negation included. Across
-layers, the deepest layer with a counted verdict decides. The walk never
-excludes the scope directory or a directory above it.
+Each rule of a layer compiles once into such an instance, with its sign kept
+beside it. For an entry, the walk tests each layer's rules against the
+entry's path relative to that layer, with a final `/` for a directory. In a
+layer, the last rule whose pattern matches decides, negation included. Across
+layers, the deepest layer with a deciding rule wins. Because the walk never
+enters an excluded directory, a match on an ancestor never needs to decide a
+descendant. The walk never tests the scope directory or a directory above it.
 
-Round 1 checked these against `git check-ignore` and `rg --files`:
+The round-2 review ran this method against `git ls-files -o
+--exclude-standard` and `rg --files --hidden` in 26 repositories, and it
+matched `rg` in all of them. These included the v2 table rows, the explicit
+scopes, `docs/**` with `!docs/keep/`, the allow list `*`, `!*/`, `!src/**`,
+anchored and directory-only rules, escapes, character classes, `**/foo/bar`,
+and `a/**/b`.
 
-| Rules                                                   | Path                                 | Result              |
-| ------------------------------------------------------- | ------------------------------------ | ------------------- |
-| `node_modules/` at the root, scope `node_modules/react` | `node_modules/react/index.js`        | searched            |
-| same                                                    | `node_modules/react/x/node_modules/` | excluded            |
-| `build/`, `*.log` at the root; `!build/` in `src`       | `src/build/a.js` / `src/build/a.log` | searched / excluded |
-| `*`, `!*/`, `!*.ts`                                     | `src/b.ts` / `src/a.js`              | searched / excluded |
-| `build*`, `!build-tools/`                               | `build-tools/build.sh`               | excluded            |
-| `*.bak`, scope `archive.bak`                            | `archive.bak/old.bak`                | excluded            |
+A unit test pins the negation behavior to `ignore` 7.0.12, so a dependency
+upgrade that changes it fails CI.
 
-Ceiling: a rule with a slash that matches the scope directory, or a directory
-a deeper rule included again, does not exclude entries below it that it also
-matches directly. Example: `a/**` with scope `repo/a/b` searches
-`repo/a/b/c`, where `rg` skips it. The reference doc records it.
-
-Rejected: dropping a whole ancestor layer that excludes the scope (loses
-`*.log` from the root inside an explicit scope); the private per-rule regular
-expressions of `ignore` (`_rules._rules[i].regex`), which give Git's per-path
-result but tie the walk to a private field of one version; writing a
-gitignore matcher (a second implementation of Git's pattern rules).
+Rejected: v2's parent-match discount (over-excludes after a negation and
+over-includes after a same-layer re-include); dropping a whole ancestor layer
+that excludes the scope (loses `*.log` from the root inside an explicit
+scope); the private per-rule regular expressions (`_rules._rules[i].regex`),
+which the public negation instance makes unnecessary; writing a gitignore
+matcher (a second implementation of Git's pattern rules).
 
 Cost: rules × entries tests. A 100-rule `.gitignore` over 100,000 entries is
 10 million `ignore` tests in the worst case; ignore files in practice hold
@@ -355,26 +393,27 @@ only locators that the `read` group admits.
 
 ### D7: Excluded-directory report
 
-The producer queues an excluded-directory event where it declines to enter a
-directory (D2), so the record follows canonical order and starts at the start
-point (D5). Nested excluded directories are never seen, because the walk does
-not enter their parent. Entries before the start point are listed without
-evaluation, so a resumed page does not repeat earlier exclusions.
+The producer adds an excluded directory to the coalesced record where it
+declines to enter it (D2), so the record follows canonical order and starts at
+the start point (D5). Nested excluded directories are never seen, because the
+walk does not enter their parent. Entries before the start point are listed
+without evaluation, so a resumed page does not repeat earlier exclusions.
 
-The engine keeps the first 1,000 relative paths per call across every scope,
-and sets `atLeast` when it records more. A Machine returns its own list under
-the same cap; the API merges lists in scope order and applies the cap again.
-The API evaluates the `read` group on each locator twice, as written and with a
-final `/`, because literal clauses are substring matches and a reject written
-`/home/u/.ssh/` must hide `/home/u/.ssh` (tool-call-permissions). It counts the
-admitted ones and keeps the first five. These evaluations are not recorded one
-by one and do not enter the refused-file audit count.
+The engine records the first 1,000 excluded directories per call across every
+scope, and sets `atLeast` when it excludes more. A Machine returns its own list
+under the same cap; the API merges lists in scope order and applies the cap
+again. The cap counts recorded directories, before the `read` filter. The API
+evaluates the `read` group on each locator twice, as written and with a final
+`/`, because literal clauses are substring matches and a reject written
+`/home/u/.ssh/` must hide `/home/u/.ssh`. It counts the admitted ones and keeps
+the first five. These evaluations are not recorded one by one and do not enter
+the refused-file audit count (`tool-call-permissions` delta).
 
-**Page room.** The page reserve grows as events arrive, the way `onReach`
+**Page room.** The page reserve grows as records arrive, the way `onReach`
 grows `reserveFloor` for a position cursor today (`scan.ts:108-115`). An
-excluded-directory event raises the reserve to the full `[ignored …]` line,
-which the renderer caps at 2,000 code units by leaving out locators that do not
-fit. A head task raises it for `[not searched to the end: <locator>]` when it
+excluded directory raises the reserve to the full `[ignored …]` line, which
+the renderer caps at 2,000 code units by leaving out locators that do not fit.
+A head task raises it for `[not searched to the end: <locator>]` when it
 starts. The warnings reserve grows from six to seven digits per kind, because
 an unbounded walk can pass 999,999 skips of one kind.
 
@@ -385,14 +424,21 @@ without names (the model cannot recover without guessing).
 
 The request field `budget` is renamed `bounds` and becomes `{ files, entries,
 bytes, fileBytes, deadlineMs, limit, pageUnits, progressed }`, with the first
-four `number | null`. The response adds `ignored: { paths, atLeast } |
-undefined` and `unfinished: string | undefined`, both relative to the display
-prefix. `PROTOCOL_VERSION` stays 1 (Q15). The rename is deliberate: today's
-daemon reads named fields and ignores unknown ones (`apps/machine/src/grep.ts:68-101`),
-so an old daemon would accept a request with all four bounds set and run with
-the old bounds and ignore rules. Without `budget`, an old daemon refuses every
-new request as invalid parameters, which the API reports as Machine
-unusable.
+four `number | null`. The response adds `progressed: boolean`, `ignored: {
+paths, atLeast } | undefined`, and `unfinished: string | undefined`, both
+paths relative to the display prefix. `PROTOCOL_VERSION` stays 1 (Q15).
+
+The rename makes an old daemon fail. Today's daemon reads named fields and
+ignores unknown ones (`apps/machine/src/grep.ts:68-101`), so it would accept a
+request with all four bounds set and run with the old bounds and ignore rules.
+Without `budget`, `requireRecord` throws `invalid_params`
+(`apps/machine/src/grep.ts:69-70`, `params.ts:92-100`). Today
+`machineProtocolFailureResult` maps that to `invalid_input`
+(`machine-call.ts:172-177`), which tells the model its own arguments were
+wrong. `machineGrepFailure` (`grep-machine.ts:534-538`) therefore maps
+`invalid_params` from `fs.grep` to Machine unusable: the API validates the
+patterns and owns the cursor and the bounds, so the only cause is a daemon of
+another build.
 
 ### D9: Proof
 
@@ -401,6 +447,7 @@ unusable.
   passages keep canonical order when later files finish first.
 - A pool-width probe after startup (16 parallel `pbkdf2` jobs) for the
   `UV_THREADPOOL_SIZE` default, not only a check that a preset value is kept.
+- A unit test that pins the `ignore` 7.0.12 negation behavior (D6).
 - Unit tests for every scenario in the delta specs.
 - Before/after timings of the two workloads above, run with the same
   throwaway script, recorded in the read-ahead and bounds layer PR bodies. The
@@ -412,8 +459,9 @@ unusable.
 - [Unbounded default walks run until the deadline on huge trees] → the call
   timeout bounds them, `tools.grep` restores bounds per instance, and the
   cursor continues.
-- [Worker memory] → about 0.5 GiB worst case with the large-line slot (D3);
-  without the slot, 0.9–1.4 GiB.
+- [One line test blocks the event loop] → the 4 MiB line bound keeps a test to
+  about 1 s per pattern in the worst measured case (D3).
+- [Worker memory] → about 128 MiB of line text for 8 tasks (D3).
 - [Reading to EOF after the twentieth passage costs time on large files] →
   needed so that every hit stays readable; D5 skips a file one call cannot
   finish.
@@ -421,11 +469,13 @@ unusable.
   little memory; concurrent grep calls share the pool (D2).
 - [Per-rule ignore matching costs CPU] → measured before the ignore layer
   ships.
-- [D6 ceiling for slash rules over an explicit scope] → documented.
+- [The D6 method depends on how `ignore` 7.0.12 passes verdicts to
+  descendants] → a pinned unit test fails CI if an upgrade changes it.
 - [drvfs fails under high parallelism (`ENOMEM` in the rg run)] → 8 reads per
   call.
 - [An old Machine daemon fails `machine://` grep] → accepted (Q15); the
-  request rename makes the failure certain instead of silent.
+  request rename makes the failure certain instead of silent, and it reports
+  as Machine unusable.
 
 ## Migration Plan
 
@@ -440,6 +490,23 @@ None.
 
 ## Revision history
 
+- **v3 (2026-11-01):** Review round 2 (two reviewers: 0 P0, 16 P1, 19 P2;
+  every P1 verified against code or a probe). Fixed: rule matching now uses a
+  one-rule negation instance of `ignore`, which tests a rule against the
+  entry's own path; it matched `rg` in 26 probe repositories and removes the
+  v2 ceiling and the v2 negation over-exclusion; the line bound drops from
+  64 MiB to 4 MiB because a `re2js` test of a 64 MiB line blocks the event
+  loop for seconds (deviation for Leo), and the v2 large-line slot is gone;
+  progress counts emitted passages and reached events only; a single-file
+  scope skips to the next ordinal with `complete: false`, on the host and on
+  a Machine; the `fs.grep` response returns `progressed`; held content counts
+  from the first showable line and an incomplete passage can only be cut;
+  coalesced walk events with a pause, a scope-start event, and refusal counts
+  on take; `invalid_params` from `fs.grep` maps to Machine unusable; the
+  Machine repository directory stops at the registered root; the framing rule
+  covers the new locators; scenario fixes for the entry bound, the resumed
+  report, the parent-directory cursor, the refused unfinished file, the
+  deadline with no match, and the 1,000 cap. Rejected: none.
 - **v2 (2026-11-01):** Review round 1 (two reviewers: 1 P0, 27 P1, 24 P2;
   overlapping findings merged). Fixed: rule matching now tests rules with no
   slash against the entry name, which fixes the `*`/`!*/` allow list and the
