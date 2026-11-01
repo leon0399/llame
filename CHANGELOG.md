@@ -9,8 +9,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   and answers its own `unfinished`, and the API and Machine widen the libuv
   pool to sixteen threads when the operator set no `UV_THREADPOOL_SIZE`. See
   [grep](docs/product/reference/tools/grep.md).
-- `grep` searches files as a stream: the fixed 1 MiB per-file cut becomes the
-  call's 32 MiB byte bound, so a file up to 32 MiB is searched. It reads a file
+- `grep` searches files as a stream, so a file of any size is searched: the
+  fixed 1 MiB per-file cut is gone, and the call's byte bound and deadline stop
+  a huge file between its chunks. It reads a file
 
   to its end before that file's passages reach the page, so a late invalid byte
   or an over-long line drops every passage of the file, and a line longer than

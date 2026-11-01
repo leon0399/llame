@@ -365,8 +365,9 @@ function grepBudget(limit: number | undefined): CallBudget {
     files: GREP_LIMITS.filesExamined,
     entries: GREP_LIMITS.entriesListed,
     bytes: GREP_LIMITS.bytesRead,
-    // One file never reads past the call's byte bound.
-    maxFileBytes: GREP_LIMITS.bytesRead,
+    // Files of any size are searched: the byte bound and the deadline stop a
+    // file between its chunks, and an unfinished file is skipped by cursor.
+    maxFileBytes: null,
     deadlineMs: GREP_LIMITS.deadlineMs,
     limit: limit ?? GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,

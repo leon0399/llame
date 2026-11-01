@@ -76,8 +76,9 @@ function readBudget(source: SerializableRecord): GrepBudget {
     files: requireCount(budget, "files", FS_GREP_METHOD),
     entries: requireCount(budget, "entries", FS_GREP_METHOD),
     bytes: requireCount(budget, "bytes", FS_GREP_METHOD),
-    // One file never reads past the call's byte bound.
-    maxFileBytes: GREP_LIMITS.bytesRead,
+    // Files of any size are searched: the byte bound and the deadline stop a
+    // file between its chunks, and no file-size bound travels on the wire.
+    maxFileBytes: null,
     deadlineMs: requireCount(budget, "deadlineMs", FS_GREP_METHOD),
     limit: requireCount(budget, "limit", FS_GREP_METHOD),
     pageUnits: requireCount(budget, "pageUnits", FS_GREP_METHOD),
