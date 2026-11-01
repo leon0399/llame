@@ -91,18 +91,22 @@ async function* readFileChunks(
   close: () => Promise<void>,
   signal: AbortSignal | undefined,
 ): AsyncGenerator<Uint8Array | KnowledgeWalkReadRefusal> {
-  let position = 0;
+  let offset = 0;
   try {
     for (;;) {
       throwIfAborted(signal);
       const buffer = Buffer.allocUnsafe(KNOWLEDGE_MAX_READ_CHUNK_BYTES);
-      const bytesRead = await readWalkBytes(file, buffer, position, signal);
+      const bytesRead = await readWalkBytes(file, buffer, offset, signal);
       if (bytesRead === undefined) {
         yield { kind: 'unreadable' };
         return;
       }
-      if (bytesRead === 0) return;
-      position += bytesRead;
+      // The end of the file, or a read that would not move it forward: either
+      // way the stream is over, so no faulty count can repeat it forever.
+      if (bytesRead <= 0) return;
+      const next = offset + bytesRead;
+      if (next <= offset) return;
+      offset = next;
       yield buffer.subarray(0, bytesRead);
     }
   } finally {

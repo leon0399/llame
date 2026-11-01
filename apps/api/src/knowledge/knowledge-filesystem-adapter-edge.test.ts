@@ -1,3 +1,4 @@
+import { collectStreamBytes, drainStream } from '../testing/stream-collect';
 import {
   KnowledgeFilesystemAdapter,
   KNOWLEDGE_MAX_ENTRIES,
@@ -119,13 +120,9 @@ async function walkBytes(
   opened: Awaited<ReturnType<KnowledgeFilesystemAdapter['openWalk']>>,
 ): Promise<Buffer | { readonly kind: string }> {
   if (!('chunks' in opened)) return opened;
-  const chunks: Array<Uint8Array> = [];
-  for await (const chunk of opened.chunks) {
-    if (!(chunk instanceof Uint8Array)) return chunk;
-    chunks.push(chunk);
-  }
+  const bytes = await collectStreamBytes(opened.chunks);
   await opened.close();
-  return Buffer.concat(chunks);
+  return bytes;
 }
 
 describe('Knowledge filesystem adapter edge branches', () => {
@@ -478,8 +475,7 @@ describe('Knowledge filesystem walk probes', () => {
 
     const opened = await adapter.openWalk('note.md');
     if (!('chunks' in opened)) throw new Error('a walk file opens');
-    const seen: Array<Uint8Array | { readonly kind: string }> = [];
-    for await (const chunk of opened.chunks) seen.push(chunk);
+    const seen = await drainStream(opened.chunks, 4);
     expect(seen).toHaveLength(2);
     expect(seen[0]).toBeInstanceOf(Uint8Array);
     expect(seen[1]).toStrictEqual({ kind: 'unreadable' });
@@ -503,8 +499,7 @@ describe('Knowledge filesystem walk probes', () => {
 
       const opened = await adapter.openWalk('note.md');
       if (!('chunks' in opened)) throw new Error('a walk file opens');
-      const seen: Array<Uint8Array | { readonly kind: string }> = [];
-      for await (const chunk of opened.chunks) seen.push(chunk);
+      const seen = await drainStream(opened.chunks, 4);
       expect(seen).toStrictEqual([{ kind: 'unreadable' }]);
     }
   });

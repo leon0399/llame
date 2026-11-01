@@ -17,6 +17,7 @@ import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 
 import { type KnowledgeFilesystemBinding } from '../knowledge/knowledge-filesystem';
+import { collectStreamBytes, drainStream } from '../testing/stream-collect';
 import {
   compileGrepPatterns,
   GREP_LIMITS,
@@ -58,19 +59,6 @@ async function withTree<T>(callback: (root: string) => Promise<T>): Promise<T> {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-}
-
-/** Every byte a streamed open yields, in order. */
-async function collectChunks(
-  chunks: AsyncIterable<Uint8Array | { readonly kind: string }>,
-): Promise<Buffer> {
-  const parts: Array<Uint8Array> = [];
-  for await (const chunk of chunks) {
-    if (!(chunk instanceof Uint8Array))
-      throw new Error(`refused: ${chunk.kind}`);
-    parts.push(chunk);
-  }
-  return Buffer.concat(parts);
 }
 
 /** A FIFO at `target`; `mkfifo` is the one reliable way to make one. */
@@ -243,7 +231,7 @@ describe('createHostWalkPort', () => {
       expect(opened.size).toBe(Buffer.byteLength(text));
       // Compare with `equals`: a deep `toEqual` on a mebibyte walks every
       // byte through the differ and costs seconds on a slow runner.
-      const bytes = await collectChunks(opened.chunks);
+      const bytes = await collectStreamBytes(opened.chunks);
       expect(bytes.equals(Buffer.from(text))).toBe(true);
     });
   });
@@ -273,7 +261,7 @@ describe('createHostWalkPort', () => {
       const opened = await createHostWalkPort(root, undefined).open('note.md');
       if (!('chunks' in opened)) throw new Error('a regular file opens');
       expect(opened.size).toBe(7);
-      expect(await collectChunks(opened.chunks)).toEqual(
+      expect(await collectStreamBytes(opened.chunks)).toEqual(
         Buffer.from('needle\n'),
       );
     });
@@ -297,7 +285,9 @@ describe('createHostWalkPort', () => {
         undefined,
       ).open('');
       if (!('chunks' in stream)) throw new Error('procfs status opens');
-      expect((await collectChunks(stream.chunks)).length).toBeGreaterThan(0);
+      expect((await collectStreamBytes(stream.chunks)).length).toBeGreaterThan(
+        0,
+      );
       expect(wholeFileRead).not.toHaveBeenCalled();
       expect(chunkRead).toHaveBeenCalled();
     } finally {
@@ -315,7 +305,7 @@ describe('createHostWalkPort', () => {
       );
       if (!('chunks' in opened)) throw new Error('a regular file opens');
       controller.abort();
-      await expect(collectChunks(opened.chunks)).rejects.toMatchObject({
+      await expect(collectStreamBytes(opened.chunks)).rejects.toMatchObject({
         name: 'AbortError',
       });
     });
@@ -337,8 +327,7 @@ describe('createHostWalkPort', () => {
         undefined,
       ).open('');
       if (!('chunks' in stream)) throw new Error('procfs status opens');
-      const seen: Array<Uint8Array | { readonly kind: string }> = [];
-      for await (const chunk of stream.chunks) seen.push(chunk);
+      const seen = await drainStream(stream.chunks, 4);
       expect(seen).toStrictEqual([{ kind: 'unreadable' }]);
     } finally {
       chunkRead.mockRestore();
@@ -371,7 +360,7 @@ describe('createHostWalkPort', () => {
       const openHandles = async () => (await readdir('/proc/self/fd')).length;
       const first = await port.open('note.md');
       if (!('chunks' in first)) throw new Error('a regular file opens');
-      expect(await collectChunks(first.chunks)).toEqual(
+      expect(await collectStreamBytes(first.chunks)).toEqual(
         Buffer.from('needle\n'),
       );
       const before = await openHandles();
@@ -379,7 +368,7 @@ describe('createHostWalkPort', () => {
       for (let index = 0; index < 20; index += 1) {
         const opened = await port.open('note.md');
         if (!('chunks' in opened)) throw new Error('a regular file opens');
-        await collectChunks(opened.chunks);
+        await collectStreamBytes(opened.chunks);
       }
       await port.open('absent.md');
 
@@ -517,7 +506,7 @@ describe('createKnowledgeWalkPort', () => {
       expect(opened.size).toBe(Buffer.byteLength(text));
       // Compare with `equals`: a deep `toEqual` on a mebibyte walks every
       // byte through the differ and costs seconds on a slow runner.
-      const bytes = await collectChunks(opened.chunks);
+      const bytes = await collectStreamBytes(opened.chunks);
       expect(bytes.equals(Buffer.from(text))).toBe(true);
       await opened.close();
     });
@@ -662,7 +651,7 @@ describe('createSkillWalkPort', () => {
       await writeFile(file, 'needle\n');
       const opened = await createSkillWalkPort(file, undefined).open('');
       if (!('chunks' in opened)) throw new Error('a package file opens');
-      expect(await collectChunks(opened.chunks)).toEqual(
+      expect(await collectStreamBytes(opened.chunks)).toEqual(
         Buffer.from('needle\n'),
       );
     });
@@ -686,7 +675,7 @@ describe('createSkillWalkPort', () => {
       );
       if (!('chunks' in opened)) throw new Error('a package file opens');
       expect(opened.size).toBe(7);
-      expect(await collectChunks(opened.chunks)).toEqual(
+      expect(await collectStreamBytes(opened.chunks)).toEqual(
         Buffer.from('needle\n'),
       );
     });
@@ -699,7 +688,7 @@ describe('createSkillWalkPort', () => {
       const openHandles = async () => (await readdir('/proc/self/fd')).length;
       const first = await port.open('SKILL.md');
       if (!('chunks' in first)) throw new Error('a package file opens');
-      expect(await collectChunks(first.chunks)).toEqual(
+      expect(await collectStreamBytes(first.chunks)).toEqual(
         Buffer.from('needle\n'),
       );
       const before = await openHandles();
@@ -707,7 +696,7 @@ describe('createSkillWalkPort', () => {
       for (let index = 0; index < 20; index += 1) {
         const opened = await port.open('SKILL.md');
         if (!('chunks' in opened)) throw new Error('a package file opens');
-        await collectChunks(opened.chunks);
+        await collectStreamBytes(opened.chunks);
       }
       await port.open('absent.md');
 
