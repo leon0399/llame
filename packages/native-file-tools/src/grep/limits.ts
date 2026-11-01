@@ -11,7 +11,8 @@ export const GREP_LIMITS = {
   filesExamined: 5000,
   entriesListed: 20_000,
   bytesRead: 32 * 1024 * 1024,
-  fileBytes: 1024 * 1024,
+  /** Longest logical line the walk searches; a longer one drops its file. */
+  lineBytes: 4 * 1024 * 1024,
   nulProbeBytes: 8 * 1024,
   deadlineMs: 30_000,
   pageCodeUnits: 15_000,

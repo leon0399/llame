@@ -25,6 +25,7 @@ import {
 import {
   closeDirectoryAndTranslateFailure,
   closeFileAndTranslateFailure,
+  openWalkFile,
   readAllDirectoryEntries,
   readDirectoryEntriesUpTo,
   readWholeFileBytes,
@@ -141,6 +142,16 @@ export type KnowledgeWalkReadRefusal = {
   readonly kind: 'oversized' | 'unreadable';
 };
 
+/** One opened walk file: the size it announced and its bytes as they arrive. */
+export type KnowledgeWalkStream = {
+  readonly kind: 'file';
+  readonly size: number;
+  readonly chunks: AsyncIterable<Uint8Array | KnowledgeWalkReadRefusal>;
+};
+
+/** What opening one walk file gives: its stream, or the refusal to count. */
+export type KnowledgeWalkOpen = KnowledgeWalkStream | KnowledgeWalkReadRefusal;
+
 export type KnowledgeFilesystemAdapterPort = Pick<
   KnowledgeFilesystemAdapter,
   'search' | 'resolveHostPath' | 'isInsideSpace'
@@ -149,7 +160,7 @@ export type KnowledgeFilesystemAdapterPort = Pick<
 /** The walk half of one bound Space: listing, classification, bounded reads. */
 export type KnowledgeWalkAdapter = Pick<
   KnowledgeFilesystemAdapter,
-  'inspectWalk' | 'listWalk' | 'readWalk'
+  'inspectWalk' | 'listWalk' | 'openWalk'
 >;
 
 /**
@@ -442,19 +453,24 @@ export class KnowledgeFilesystemAdapter {
   }
 
   /**
-   * Read one file of a content walk under its per-file byte bound. A file over
-   * the bound and a file the walk cannot open are skips, never failures of the
-   * walk: the caller counts them. A file that vanished between the listing and
-   * this read is one of those skips, not a result that ends the call.
+   * Open one file of a content walk and stream its bytes, so a file of any
+   * size is searched without being held whole. The caller applies its own
+   * bounds. A file the walk cannot open, or one that is not a regular file
+   * after its `fstat`, is a skip the caller counts; a file that vanished
+   * between the listing and this read is one of those skips, not a result
+   * that ends the call.
    */
-  async readWalk(
+  async openWalk(
     relativePath: string,
-    maxBytes: number,
     signal?: AbortSignal,
-  ): Promise<Buffer | KnowledgeWalkReadRefusal> {
+  ): Promise<KnowledgeWalkOpen> {
     try {
       const hostPath = await this.walkHostPath(relativePath, signal);
-      return await this.readFile(hostPath, maxBytes, signal);
+      const file = await observeResource(
+        () => this.fileSystem.open(hostPath),
+        signal,
+      );
+      return await openWalkFile(file, signal);
     } catch (error) {
       if (
         error instanceof KnowledgeFilesystemError &&
@@ -462,13 +478,7 @@ export class KnowledgeFilesystemAdapter {
       ) {
         throw error;
       }
-      return {
-        kind:
-          error instanceof KnowledgeFilesystemError &&
-          error.code === 'knowledge_limit_exceeded'
-            ? 'oversized'
-            : 'unreadable',
-      };
+      return { kind: 'unreadable' };
     }
   }
 

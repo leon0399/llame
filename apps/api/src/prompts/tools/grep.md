@@ -8,6 +8,7 @@ Search file contents for a pattern and return line-ranged locators that `read` a
 - A scope with no glob operator names one directory, searched recursively, or one file. A scope with a glob uses `*` and `?` inside one path segment and `**` for any number of segments, for example `src/**/*.ts`. A percent-encoded `%2A` or `%3F` is the literal character and never a glob. `{a,b}` and `[ab]` are refused.
 - grep parses no read selector. In a host or Machine scope a colon is part of the path; in a `kb://` or `skill://` scope a literal colon must be written as `%3A`, or the scope is refused.
 - A `kb://` walk refuses symbolic links and a `skill://` walk follows them. A host walk skips `.git` and honors `.gitignore`.
+- A file is searched to its end however large it is. A file that holds a line longer than 4 MiB, or bytes that are not valid UTF-8, contributes no hit and is counted in `warnings` as `oversized` or `invalid_utf8`.
 </instruction>
 
 <output>

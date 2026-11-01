@@ -1,6 +1,12 @@
-import { grepFilePassages } from "./passages";
+import {
+  scanGrepFile,
+  type GrepFileResume,
+  type GrepFileScan,
+} from "./passages";
 import { compileGrepPatterns } from "./patterns";
 import type { CompiledGrepPatterns } from "./patterns";
+import type { GrepPassage, GrepReadRefusal } from "./types";
+import { chunkSequence } from "./memory-port.test-fixture";
 
 function patterns(
   sources: ReadonlyArray<string>,
@@ -21,35 +27,88 @@ function numbered(count: number, content: (line: number) => string): string {
   );
 }
 
+/** One file's text as the byte chunks a port hands over, in `size` pieces. */
+function chunked(
+  content: string,
+  size?: number,
+): AsyncIterable<Uint8Array | GrepReadRefusal> {
+  const bytes = Buffer.from(content, "utf8");
+  const width = size ?? bytes.byteLength;
+  const chunks: Array<Uint8Array> = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += width)
+    chunks.push(bytes.subarray(offset, offset + width));
+  return chunkSequence(chunks);
+}
+
+interface ScanOptions {
+  readonly chunkBytes?: number;
+  readonly resume?: GrepFileResume;
+  readonly maxFileBytes?: number;
+}
+
+/** Search one in-memory file's text under the scan's own defaults. */
+function scan(
+  content: string,
+  sources: ReadonlyArray<string>,
+  options: ScanOptions = {},
+): Promise<GrepFileScan> {
+  return scanGrepFile({
+    fileLocator: "file.md",
+    chunks: chunked(content, options.chunkBytes),
+    patterns: patterns(sources),
+    maxFileBytes: options.maxFileBytes ?? null,
+    ...(options.resume !== undefined && { resume: options.resume }),
+  });
+}
+
+/** The passages of a successful scan, for compact assertions. */
+function passagesOf(result: GrepFileScan): ReadonlyArray<GrepPassage> {
+  if (result.kind !== "passages") throw new Error("the file was refused");
+  return result.passages;
+}
+
+/** The passage locators of a successful scan, for compact assertions. */
+function locatorsOf(result: GrepFileScan): ReadonlyArray<string> {
+  return passagesOf(result).map((passage) => passage.locator);
+}
+
 describe("grep passage extraction", () => {
   it("merges touching windows into one passage", async () => {
     const text = "a\nb\nc\nhit\ne\nhit\ng\nh\ni\nj\n";
-    const passages = await grepFilePassages("file.md", text, patterns(["hit"]));
-    expect(passages).toEqual([
-      {
-        locator: "file.md:3-7",
-        content: "3: c\n4: hit\n5: e\n6: hit\n7: g",
-        matches: [4, 6],
-      },
-    ]);
+    const result = await scan(text, ["hit"]);
+    expect(result).toEqual({
+      kind: "passages",
+      passages: [
+        {
+          locator: "file.md:3-7",
+          content: "3: c\n4: hit\n5: e\n6: hit\n7: g",
+          matches: [4, 6],
+        },
+      ],
+      cappedAt: undefined,
+      bytes: Buffer.byteLength(text),
+    });
   });
 
   it("clips a window at the file start", async () => {
-    const passages = await grepFilePassages(
-      "file.md",
+    const result = await scan(
       numbered(10, (line) => (line === 1 ? "hit" : `line ${line}`)),
-      patterns(["hit"]),
+      ["hit"],
     );
-    expect(passages[0]).toMatchObject({ locator: "file.md:1-2", matches: [1] });
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0]).toMatchObject({
+      locator: "file.md:1-2",
+      matches: [1],
+    });
   });
 
   it("clips a window at the file end", async () => {
-    const passages = await grepFilePassages(
-      "file.md",
+    const result = await scan(
       numbered(10, (line) => (line === 10 ? "hit" : `line ${line}`)),
-      patterns(["hit"]),
+      ["hit"],
     );
-    expect(passages[0]).toMatchObject({
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0]).toMatchObject({
       locator: "file.md:9-10",
       matches: [10],
     });
@@ -57,74 +116,215 @@ describe("grep passage extraction", () => {
 
   it("cuts a long line at 512 code units", async () => {
     const long = `${"x".repeat(897)}hit`;
-    const passages = await grepFilePassages(
-      "file.md",
-      `${long}\n`,
-      patterns(["hit"]),
-    );
-    const line = passages[0].content.split("\n")[0];
+    const result = await scan(`${long}\n`, ["hit"]);
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    const line = result.passages[0].content.split("\n")[0];
     expect(line).toBe(`1: ${"x".repeat(512)}…`);
   });
 
   it("partitions a long merged interval after its last matched line", async () => {
-    const passages = await grepFilePassages(
-      "file.md",
-      numbered(4500, () => "x"),
-      patterns(["x"]),
+    const result = await scan(
+      numbered(4500, () => "h"),
+      ["^h$"],
     );
-    expect(passages.map((passage) => passage.locator)).toEqual([
+    expect(locatorsOf(result)).toEqual([
       "file.md:1-2000",
       "file.md:2001-4000",
       "file.md:4001-4500",
     ]);
-    expect(passages.map((passage) => passage.matches.length)).toEqual([
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages.map((passage) => passage.matches.length)).toEqual([
       2000, 2000, 500,
     ]);
   });
 
   it("drops a trailing context-only remainder", async () => {
-    const text = numbered(2001, (line) => (line === 2001 ? "context" : "hit"));
-    const passages = await grepFilePassages("file.md", text, patterns(["hit"]));
-    expect(passages.map((passage) => passage.locator)).toEqual([
-      "file.md:1-2000",
-    ]);
+    const text = numbered(2001, (line) => (line === 2001 ? "context" : "h"));
+    expect(locatorsOf(await scan(text, ["^h$"]))).toEqual(["file.md:1-2000"]);
   });
 
   it("ignores case on request", async () => {
-    const passages = await grepFilePassages(
-      "file.md",
-      "a\nTODO\nb\n",
-      patterns(["todo"], true),
-    );
-    expect(passages[0]).toMatchObject({ locator: "file.md:1-3", matches: [2] });
+    const compiled = compileGrepPatterns({
+      patterns: ["todo"],
+      literal: false,
+      ignoreCase: true,
+    });
+    if (!compiled.ok) throw new Error(compiled.message);
+    const result = await scanGrepFile({
+      fileLocator: "file.md",
+      chunks: chunked("a\nTODO\nb\n"),
+      patterns: compiled.compiled,
+      maxFileBytes: null,
+    });
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0]).toMatchObject({
+      locator: "file.md:1-3",
+      matches: [2],
+    });
   });
 
   it("keeps CRLF as one delimiter and lone CR as text", async () => {
-    const passages = await grepFilePassages(
-      "file.md",
-      "a\r\nhit\r\nb\rc\r\n",
-      patterns(["hit"]),
-    );
-    expect(passages[0]).toEqual({
+    const result = await scan("a\r\nhit\r\nb\rc\r\n", ["hit"]);
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0]).toEqual({
       locator: "file.md:1-3",
       content: "1: a\n2: hit\n3: b\rc",
       matches: [2],
     });
   });
 
+  it("keeps a CRLF pair split across chunks as one delimiter", async () => {
+    const result = await scan("a\r\nhit\r\nb\n", ["hit"], { chunkBytes: 1 });
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0]).toEqual({
+      locator: "file.md:1-3",
+      content: "1: a\n2: hit\n3: b",
+      matches: [2],
+    });
+  });
+
   it("makes no phantom line from a terminal delimiter", async () => {
-    const passages = await grepFilePassages(
-      "file.md",
-      "hit\n",
-      patterns(["hit"]),
-    );
-    expect(passages.map((passage) => passage.locator)).toEqual(["file.md:1-1"]);
-    expect(passages[0].content).toBe("1: hit");
+    const result = await scan("hit\n", ["hit"], { chunkBytes: 2 });
+    expect(locatorsOf(result)).toEqual(["file.md:1-1"]);
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0].content).toBe("1: hit");
   });
 
   it("returns nothing when no line matches", async () => {
-    expect(
-      await grepFilePassages("file.md", "a\nb\n", patterns(["zzz"])),
-    ).toEqual([]);
+    expect(locatorsOf(await scan("a\nb\n", ["zzz"]))).toEqual([]);
+  });
+
+  it("decodes a multi-byte character split across chunks", async () => {
+    const result = await scan("näïl\n😀 hit\n", ["hit"], { chunkBytes: 1 });
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0]).toMatchObject({
+      locator: "file.md:1-2",
+      matches: [2],
+    });
+  });
+
+  it("keeps a byte-order mark as content", async () => {
+    const result = await scan("\uFEFFhit\n", ["^hit"], {});
+    // The BOM is text under `ignoreBOM`, so an anchored pattern does not match.
+    expect(locatorsOf(result)).toEqual([]);
+  });
+
+  it("searches a log whose last line matches, read in chunks", async () => {
+    const filler = "plain log line\n".repeat(64 * 1024);
+    const text = `${filler}needle at the end\n`;
+    const result = await scan(text, ["needle"], { chunkBytes: 64 * 1024 });
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages).toHaveLength(1);
+    expect(result.passages[0].matches).toEqual([65_537]);
+    expect(result.bytes).toBe(Buffer.byteLength(text));
+  });
+
+  it("refuses a file with a line longer than 4 MiB", async () => {
+    const text = `hit\n${"x".repeat(5 * 1024 * 1024)}\n`;
+    const result = await scan(text, ["hit"], { chunkBytes: 64 * 1024 });
+    expect(result).toMatchObject({ kind: "refused", refusal: "oversized" });
+  });
+
+  it("searches a line exactly at the 4 MiB bound", async () => {
+    const line = `${"x".repeat(4 * 1024 * 1024 - 3)}hit`;
+    const result = await scan(`${line}\n`, ["hit"], { chunkBytes: 64 * 1024 });
+    expect(locatorsOf(result)).toEqual(["file.md:1-1"]);
+  });
+
+  it("drops the file when a late byte is not valid UTF-8", async () => {
+    const head = Buffer.from("a\nb\nhit\n", "utf8");
+    const bytes = Buffer.concat([head, Buffer.from([0xff]), Buffer.from("\n")]);
+    const result = await scanGrepFile({
+      fileLocator: "file.md",
+      chunks: chunkSequence([bytes.subarray(0, 4), bytes.subarray(4)]),
+      patterns: patterns(["hit"]),
+      maxFileBytes: null,
+    });
+    expect(result).toMatchObject({ kind: "refused", refusal: "invalid_utf8" });
+  });
+
+  it("refuses a file that grows past the streamed byte bound", async () => {
+    const result = await scan("0123456789a\n", ["0"], { maxFileBytes: 10 });
+    expect(result).toMatchObject({ kind: "refused", refusal: "oversized" });
+  });
+
+  it("marks a passage the hold limit stops as incomplete", async () => {
+    const text = numbered(40, () => `hit ${"x".repeat(500)}`);
+    const result = await scan(text, ["hit"]);
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages).toHaveLength(1);
+    const [passage] = result.passages;
+    expect(passage.incomplete).toBe(true);
+    const [start, end] = passage.locator
+      .split(":")[1]
+      .split("-")
+      .map((value) => Number(value));
+    expect(start).toBe(1);
+    expect(end).toBeLessThan(40);
+    expect(passage.content.split("\n")).toHaveLength(end - start + 1);
+    expect(passage.matches).toHaveLength(end);
+  });
+
+  it("marks the twentieth passage and reports where it is", async () => {
+    const text = numbered(84, (line) => (line % 4 === 1 ? "hit" : "line"));
+    const result = await scan(text, ["hit"]);
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages).toHaveLength(20);
+    expect(result.passages[19].truncated).toBe(true);
+    expect(result.cappedAt).toBe(
+      Number(result.passages[19].locator.split(":")[1].split("-")[0]),
+    );
+  });
+});
+
+/** Groups of six lines whose first and third match, so a passage holds two. */
+function groupedPassages(count: number): string {
+  const lines: Array<string> = [];
+  for (let group = 0; group < count; group += 1) {
+    lines.push("hit", "filler", "hit", "filler", "filler", "filler");
+  }
+  return numbered(lines.length, (line) => lines[line - 1]);
+}
+
+describe("grep passage extraction of a resumed page", () => {
+  it("gives the rest of a cut passage and the passages after it", async () => {
+    const text = numbered(22, (line) =>
+      line <= 5 || (line >= 20 && line <= 21) ? "hit" : `l${line}`,
+    );
+    const result = await scan(text, ["hit"], {
+      resume: { startLine: 1, endLine: 3, truncated: false },
+    });
+    expect(locatorsOf(result)).toEqual(["file.md:4-6", "file.md:19-22"]);
+  });
+
+  it("starts at the passage after a cursor that was not cut", async () => {
+    const text = numbered(22, (line) =>
+      line <= 5 || (line >= 20 && line <= 21) ? "hit" : `l${line}`,
+    );
+    const result = await scan(text, ["hit"], {
+      resume: { startLine: 3, truncated: false },
+    });
+    expect(locatorsOf(result)).toEqual(["file.md:19-22"]);
+  });
+
+  it("gives the rest of the twentieth passage and nothing after it", async () => {
+    const text = groupedPassages(22);
+    const result = await scan(text, ["hit"], {
+      resume: { startLine: 115, endLine: 115, truncated: true },
+    });
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages.map((passage) => passage.locator)).toEqual([
+      "file.md:116-118",
+    ]);
+    expect(result.passages[0].matches).toEqual([117]);
+    expect(result.cappedAt).toBe(114);
+  });
+
+  it("falls back to the passages after the cursor's start when the file changed", async () => {
+    const text = numbered(20, (line) => (line === 15 ? "hit" : "line"));
+    const result = await scan(text, ["hit"], {
+      resume: { startLine: 1, endLine: 5, truncated: false },
+    });
+    expect(locatorsOf(result)).toEqual(["file.md:14-16"]);
   });
 });

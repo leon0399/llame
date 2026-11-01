@@ -164,7 +164,7 @@ refused file.
 | Files of one call    | 5,000          |
 | Directory entries    | 20,000         |
 | Bytes read           | 32 MiB         |
-| Size of one file     | 1 MiB          |
+| Longest line         | 4 MiB          |
 | Call wall time       | 30 s           |
 
 A page holds at most `limit` files. The rendered model text of the whole
@@ -178,6 +178,16 @@ to continue. A cursor from other inputs is refused as `invalid_input`.
 A file with more than 20 passages returns its first 20 and marks its
 twentieth `truncated`, which adds `[more passages in this file; read it to see
 them]`. A later `read` reaches the rest.
+
+`grep` searches a file as a stream, so a regular file of any size is searched.
+It reads a file to its end before that file's passages reach the page: an
+invalid byte, or a line longer than 4 MiB of UTF-8 bytes, that appears after a
+match drops every passage of that file. The line bound counts the line
+without its delimiter, and the skip reads `oversized`.
+
+A passage the page cannot show whole is cut at a line boundary and marked
+`cut: true`; the cursor continues with the line after the last one printed, so
+a passage of any length loses no line and repeats none.
 
 `warnings` counts every skip and the bound that stopped the walk. The kinds
 are `binary`, `invalid_utf8`, `oversized`, `unreadable`, `link`, `file_bound`,

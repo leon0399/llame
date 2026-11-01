@@ -3,21 +3,22 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
-import { GREP_LIMITS } from "./limits";
 import {
   appendGrepFile,
   createGrepPage,
   type GrepPage,
   type GrepPageLimits,
 } from "./page";
-import { grepFilePassages, passageEndLine, passageStartLine } from "./passages";
+import { passageStartLine, scanGrepFile, type GrepFileScan } from "./passages";
 import type {
   GrepCappedPassage,
   GrepPassage,
+  GrepReadRefusal,
   GrepScanInput,
   GrepScanResult,
   GrepScope,
   GrepWarningKind,
+  GrepFileStream,
 } from "./types";
 import { walkGrepScope } from "./walk";
 
@@ -142,9 +143,10 @@ async function scanFile(
   resume: GrepResume | undefined,
 ): Promise<void> {
   if (!pageHasFileRoom(state)) return;
-  if (state.consumed.files >= state.input.budget.files)
+  const budget = state.input.budget;
+  if (budget.files !== null && state.consumed.files >= budget.files)
     return stopAt(state, "file_bound");
-  if (state.consumed.bytes >= state.input.budget.bytes)
+  if (budget.bytes !== null && state.consumed.bytes >= budget.bytes)
     return stopAt(state, "byte_bound");
   if (state.input.now() > state.deadlineAt) return stopAt(state, "deadline");
   const fileLocator = scope.locatorFor(rel);
@@ -152,25 +154,35 @@ async function scanFile(
     state.readRefused += 1;
     return;
   }
-  const bytes = await scope.port.read(rel, GREP_LIMITS.fileBytes);
+  const opened = await scope.port.open(rel);
   state.consumed.files += 1;
-  if (!(bytes instanceof Uint8Array)) return addWarning(state, bytes.kind);
-  state.consumed.bytes += bytes.byteLength;
-  if (bytes.subarray(0, GREP_LIMITS.nulProbeBytes).includes(0))
-    return addWarning(state, "binary");
-  const text = decodeUtf8(bytes);
-  if (text === undefined) return addWarning(state, "invalid_utf8");
-  const passages = await grepFilePassages(
+  if (isRefusal(opened)) return addWarning(state, opened.kind);
+  // The announced size is the first of the two size checks; the scan makes
+  // the second on the bytes the stream delivers.
+  if (budget.maxFileBytes !== null && opened.size > budget.maxFileBytes)
+    return addWarning(state, "oversized");
+  const scan = await scanGrepFile({
     fileLocator,
-    text,
-    state.input.patterns,
-  );
+    chunks: opened.chunks,
+    patterns: state.input.patterns,
+    maxFileBytes: budget.maxFileBytes,
+    ...(resume !== undefined && { resume: resume.cursor }),
+  });
+  state.consumed.bytes += scan.bytes;
+  if (scan.kind === "refused") return addWarning(state, scan.refusal);
   emitPassages(
     state,
     { scopeIndex: scope.index, rel, fileLocator },
-    passages,
+    scan,
     resume,
   );
+}
+
+/** Whether an open result refuses the file instead of streaming it. */
+function isRefusal(
+  opened: GrepFileStream | GrepReadRefusal,
+): opened is GrepReadRefusal {
+  return "kind" in opened;
 }
 
 /** One page holds at most `limit` files; reaching it ends the page. */
@@ -181,9 +193,9 @@ function pageHasFileRoom(state: ScanState): boolean {
 }
 
 /**
- * A file contributes its first 20 passages and no more; the twentieth is
- * marked so the cursor moves past the whole file. A resumed page continues a
- * cut passage before it emits the passages after it, without repeating a line.
+ * A file's first twenty passages reach the page, with the twentieth marked so
+ * the cursor moves past the whole file. The scan already dropped the passages
+ * a resumed page does not show.
  */
 function emitPassages(
   state: ScanState,
@@ -192,23 +204,11 @@ function emitPassages(
     readonly rel: string;
     readonly fileLocator: string;
   },
-  passages: ReadonlyArray<GrepPassage>,
+  scan: Extract<GrepFileScan, { readonly kind: "passages" }>,
   resume: GrepResume | undefined,
 ): void {
-  const capped = passages.length > GREP_LIMITS.passagesPerFile;
-  const firstTwenty = passages.slice(0, GREP_LIMITS.passagesPerFile);
-  if (capped) {
-    const index = GREP_LIMITS.passagesPerFile - 1;
-    firstTwenty[index] = { ...firstTwenty[index], truncated: true };
-  }
-  const visible =
-    resume === undefined
-      ? firstTwenty
-      : continuation(resume, firstTwenty, file.fileLocator);
-  const twentiethAt = capped
-    ? passageStartLine(firstTwenty[GREP_LIMITS.passagesPerFile - 1].locator)
-    : undefined;
-  const cappedAt = exhaustedAt(resume, visible) ?? twentiethAt;
+  const visible = scan.passages;
+  const cappedAt = exhaustedAt(resume, visible) ?? scan.cappedAt;
   const emitted = appendGrepFile(state.page, state.limits, {
     scopeIndex: file.scopeIndex,
     rel: file.rel,
@@ -259,69 +259,10 @@ function exhaustedAt(
   return passageStartLine(visible[0].locator);
 }
 
-/**
- * The passages a resumed page still owes: the rest of a cut passage first,
- * then the passages after the cursor. A passage the walk no longer renders as
- * the cursor names it — the file changed between calls — falls back to the
- * lines after the cursor's start.
- */
-function continuation(
-  resume: GrepResume,
-  passages: ReadonlyArray<GrepPassage>,
-  fileLocator: string,
-): Array<GrepPassage> {
-  const { cursor } = resume;
-  const index = passages.findIndex(
-    (passage) =>
-      passageStartLine(passage.locator) <= cursor.startLine &&
-      cursor.startLine <= passageEndLine(passage.locator),
-  );
-  if (index === -1)
-    return passages.filter(
-      (passage) => passageStartLine(passage.locator) > cursor.startLine,
-    );
-  const rest = remainder(passages[index], fileLocator, cursor.endLine);
-  const tail = cursor.truncated === true ? [] : passages.slice(index + 1);
-  return rest === undefined ? tail : [rest, ...tail];
-}
-
-/** The lines of a passage after the line the previous page emitted. */
-function remainder(
-  passage: GrepPassage,
-  fileLocator: string,
-  endLine: number | undefined,
-): GrepPassage | undefined {
-  if (endLine === undefined) return undefined;
-  const passageEnd = passageEndLine(passage.locator);
-  if (endLine >= passageEnd) return undefined;
-  const start = endLine + 1;
-  const matches = passage.matches.filter((line) => line >= start);
-  // Context lines alone after the cut are no passage: every passage holds a match.
-  if (matches.length === 0) return undefined;
-  return {
-    locator: `${fileLocator}:${start}-${passageEnd}`,
-    content: passage.content
-      .split("\n")
-      .slice(start - passageStartLine(passage.locator))
-      .join("\n"),
-    matches,
-    ...(passage.truncated === true && { truncated: true as const }),
-  };
-}
-
-function decodeUtf8(bytes: Uint8Array): string | undefined {
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-      bytes,
-    );
-  } catch {
-    return undefined;
-  }
-}
-
 function countEntry(state: ScanState): boolean {
   if (state.stop !== undefined) return false;
-  if (state.consumed.entries >= state.input.budget.entries) {
+  const bound = state.input.budget.entries;
+  if (bound !== null && state.consumed.entries >= bound) {
     stopAt(state, "entry_bound");
     return false;
   }

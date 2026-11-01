@@ -15,9 +15,101 @@ import type {
   KnowledgeFilesystemDirectory,
   KnowledgeFilesystemDirent,
   KnowledgeFilesystemFile,
+  KnowledgeFilesystemStats,
+  KnowledgeWalkOpen,
+  KnowledgeWalkReadRefusal,
 } from './knowledge-filesystem';
 
 const KNOWLEDGE_MAX_READ_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * One already-open walk file: its announced size, and its bytes as they
+ * arrive. A file the Space rules refuse after the open — a FIFO or a link — is
+ * closed again, so the walk counts one skip and holds no handle.
+ */
+export async function openWalkFile(
+  file: KnowledgeFilesystemFile,
+  signal: AbortSignal | undefined,
+): Promise<KnowledgeWalkOpen> {
+  let stats: KnowledgeFilesystemStats;
+  try {
+    stats = await observe(file.stat(), signal);
+  } catch (error) {
+    await closeFileAndTranslateFailure(file, error, signal);
+    return { kind: 'unreadable' };
+  }
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    await closeResource(file, signal);
+    return { kind: 'unreadable' };
+  }
+  return {
+    kind: 'file',
+    size: stats.size,
+    chunks: readFileChunks(file, signal),
+  };
+}
+
+/** What one read of a walk file gave: bytes, the end, or a refusal. */
+type ChunkRead =
+  | { readonly bytes: Uint8Array }
+  | { readonly refusal: KnowledgeWalkReadRefusal }
+  | { readonly done: true };
+
+/** One chunk of an open walk file at `position`. */
+async function readFileChunk(
+  file: KnowledgeFilesystemFile,
+  position: number,
+  signal: AbortSignal | undefined,
+): Promise<ChunkRead> {
+  const buffer = Buffer.allocUnsafe(KNOWLEDGE_MAX_READ_CHUNK_BYTES);
+  let result: { bytesRead: number };
+  try {
+    result = await observe(
+      file.read(buffer, 0, buffer.length, position),
+      signal,
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return { refusal: { kind: 'unreadable' } };
+  }
+  if (
+    !Number.isInteger(result.bytesRead) ||
+    result.bytesRead < 0 ||
+    result.bytesRead > buffer.length
+  ) {
+    return { refusal: { kind: 'unreadable' } };
+  }
+  if (result.bytesRead === 0) return { done: true };
+  return { bytes: buffer.subarray(0, result.bytesRead) };
+}
+
+/**
+ * One already-open file's bytes as they arrive. The handle closes when the
+ * stream ends, when the consumer stops early, or when a read fails: a failure
+ * after the last byte ends the stream with a refusal, so the walk counts the
+ * skip instead of failing the whole call.
+ */
+export async function* readFileChunks(
+  file: KnowledgeFilesystemFile,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<Uint8Array | KnowledgeWalkReadRefusal> {
+  let position = 0;
+  try {
+    for (;;) {
+      throwIfAborted(signal);
+      const read = await readFileChunk(file, position, signal);
+      if ('done' in read) return;
+      if ('refusal' in read) {
+        yield read.refusal;
+        return;
+      }
+      position += read.bytes.byteLength;
+      yield read.bytes;
+    }
+  } finally {
+    await file.close().catch(() => undefined);
+  }
+}
 
 /**
  * Read an already-open, already-validated file's whole content, up to

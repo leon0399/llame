@@ -12,19 +12,33 @@ export interface GrepEntry {
 }
 
 /**
- * What a port's `read` returns when it refuses to hand over content. The
- * walk counts `oversized` and `unreadable` skips.
+ * What a port returns when it refuses to hand over content: at the open of a
+ * candidate, or as the last item of its stream. The walk counts `oversized`
+ * and `unreadable` skips.
  */
 export type GrepReadRefusal = {
   readonly kind: "oversized" | "unreadable";
 };
 
+/**
+ * One opened candidate: the size the filesystem announced and its bytes in
+ * order. The stream may end with a refusal that the file read found after its
+ * last byte, such as a Machine directory swapped for a link during the read.
+ */
+export interface GrepFileStream {
+  readonly size: number;
+  readonly chunks: AsyncIterable<Uint8Array | GrepReadRefusal>;
+}
+
 /** The abstract directory tree one scope walks. */
 export interface GrepWalkPort {
   /** List one directory. `rel` is ''-rooted, '/'-separated, relative to the scope prefix. Throws GrepPortError on failure. */
   list(rel: string): Promise<ReadonlyArray<GrepEntry>>;
-  /** Read up to `maxBytes + 1` bytes. Returns a refusal when the file exceeds maxBytes or cannot be opened. */
-  read(rel: string, maxBytes: number): Promise<Uint8Array | GrepReadRefusal>;
+  /**
+   * Open one candidate without blocking, so a FIFO never stalls the walk.
+   * A path that is not an openable regular file is refused here.
+   */
+  open(rel: string): Promise<GrepFileStream | GrepReadRefusal>;
   /** Ignore-file text for a directory, when this scheme honors .gitignore (host, machine). Absent on kb/skill ports. */
   ignoreFile?(rel: string): Promise<string | undefined>;
   /** True when this port's links are pre-resolved (skill). The engine never follows a `link` entry. */
@@ -49,11 +63,16 @@ export interface GrepScope {
   readonly locatorFor: (rel: string) => string;
 }
 
-/** Remaining budget of one call. */
+/** Remaining budget of one call; `null` disables that bound. */
 export interface GrepBudget {
-  files: number;
-  entries: number;
-  bytes: number;
+  files: number | null;
+  entries: number | null;
+  bytes: number | null;
+  /**
+   * Largest file the walk searches, checked on the size the filesystem
+   * announced and again on the bytes the stream delivers.
+   */
+  maxFileBytes: number | null;
   deadlineMs: number;
   limit: number;
   pageUnits: number;
@@ -73,6 +92,11 @@ export interface GrepPassage {
   cut?: true;
   /** The passage is its file's twentieth: the file holds more after it. */
   truncated?: true;
+  /**
+   * The scan held only this passage's first lines, so a page must cut it
+   * rather than emit it whole: the rest of its lines are not in memory.
+   */
+  incomplete?: true;
 }
 
 /** Every kind of skip or bound a walk can report, so a caller may size them. */

@@ -14,13 +14,15 @@ import type { NativeFailureResult } from "@workspace/machine-protocol";
 import {
   GrepPortError,
   type GrepEntry,
+  type GrepFileStream,
+  type GrepReadRefusal,
   type GrepWalkPort,
 } from "@workspace/native-file-tools";
 import type { RootGuard } from "./guard";
 
 /** The largest `.gitignore` the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
-/** One read of a file at a time; a file never reaches memory whole. */
+/** One chunk of a streamed read; a file never reaches memory whole. */
 const READ_CHUNK_BYTES = 64 * 1024;
 const NOT_FOUND_MESSAGE = "The target does not exist.";
 const NOT_DIRECTORY_MESSAGE = "The target is not a directory.";
@@ -61,7 +63,7 @@ export function createGrepWalkPort(
   return {
     followsLinks: false,
     list: (rel) => listDirectory(walk, rel),
-    read: (rel, maxBytes) => readFileAt(walk, rel, maxBytes),
+    open: (rel) => openFileAt(walk, rel),
     ignoreFile: (rel) => readIgnoreFile(walk, rel),
   };
 }
@@ -120,12 +122,15 @@ async function listDirectory(
   }));
 }
 
-/** One file, opened without following a link or blocking on a FIFO. */
-async function readFileAt(
+/**
+ * One file, opened without following a link or blocking on a FIFO. A path
+ * that is not a regular file after `fstat` is refused, so a device or a pipe
+ * never hands the walk bytes. The handle closes with the stream.
+ */
+async function openFileAt(
   walk: Walk,
   rel: string,
-  maxBytes: number,
-): Promise<Uint8Array | { readonly kind: "oversized" | "unreadable" }> {
+): Promise<GrepFileStream | GrepReadRefusal> {
   walk.signal?.throwIfAborted();
   let handle: FileHandle | undefined;
   try {
@@ -134,19 +139,45 @@ async function readFileAt(
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
     const stats = await handle.stat();
-    if (!stats.isFile()) return { kind: "unreadable" };
-    if (stats.size > maxBytes) return { kind: "oversized" };
-    // Only the bound reaches memory: a file that grew past its declared size
-    // is refused on the extra byte instead of being buffered whole.
-    const bytes = await readBounded(handle, maxBytes, walk.signal);
-    // A file reached through a directory swapped for a link after it was
-    // listed came from outside the roots; its content is thrown away.
-    if (!(await unchanged(walk, rel))) return { kind: "unreadable" };
-    return bytes.byteLength > maxBytes ? { kind: "oversized" } : bytes;
+    if (!stats.isFile()) {
+      await handle.close();
+      return { kind: "unreadable" };
+    }
+    return { size: stats.size, chunks: fileChunks(walk, handle, rel) };
   } catch {
+    await handle?.close().catch(() => undefined);
     return { kind: "unreadable" };
+  }
+}
+
+/**
+ * One open file's bytes as they arrive, then the call's containment re-check:
+ * a file reached through a directory swapped for a link after it was listed
+ * came from outside the roots, so its content ends with a refusal and the
+ * walk counts the file unreadable.
+ */
+async function* fileChunks(
+  walk: Walk,
+  handle: FileHandle,
+  rel: string,
+): AsyncGenerator<Uint8Array | GrepReadRefusal> {
+  try {
+    for (;;) {
+      walk.signal?.throwIfAborted();
+      const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+      let bytesRead: number;
+      try {
+        ({ bytesRead } = await handle.read(chunk, 0, chunk.byteLength, null));
+      } catch {
+        yield { kind: "unreadable" };
+        return;
+      }
+      if (!Number.isInteger(bytesRead) || bytesRead <= 0) break;
+      yield chunk.subarray(0, bytesRead);
+    }
+    if (!(await unchanged(walk, rel))) yield { kind: "unreadable" };
   } finally {
-    await handle?.close();
+    await handle.close().catch(() => undefined);
   }
 }
 

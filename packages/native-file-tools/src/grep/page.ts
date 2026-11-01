@@ -79,7 +79,12 @@ export function appendGrepFile(
   let emitted = 0;
   for (const passage of emission.passages) {
     const added = grepPassageUnits(page.results.at(-1), passage);
-    if (fits(page, limits, pageKey(emission, passage), added)) {
+    // A passage the scan only partly holds can never be emitted whole: a cut
+    // inside its held lines is the only form the page may keep.
+    if (
+      passage.incomplete !== true &&
+      fits(page, limits, pageKey(emission, passage), added)
+    ) {
       page.results.push(passage);
       page.units += added;
       emitted += 1;

@@ -20,7 +20,6 @@ import {
   runGrepScan,
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
-  type GrepBudget,
   type GrepPageEnd,
   type GrepPassage,
   type GrepScanInput,
@@ -43,6 +42,7 @@ import {
 import {
   executeMachineScope,
   isMachineGrepScope,
+  type CallBudget,
   type GrepSearchArguments,
   type MachineGrepScope,
 } from './grep-machine';
@@ -248,7 +248,7 @@ type SegmentRun = {
   readonly patterns: CompiledGrepPatterns;
   readonly inputHash: string;
   readonly segment: GrepSegment;
-  readonly budget: GrepBudget;
+  readonly budget: CallBudget;
   readonly cursor: DecodedGrepCursor | undefined;
 };
 
@@ -354,10 +354,10 @@ function createPageState(): PageState {
  * against.
  */
 function remainingBudget(
-  budget: GrepBudget,
+  budget: CallBudget,
   state: PageState,
   deadlineAt: number,
-): GrepBudget {
+): CallBudget {
   const separator = state.results.length === 0 ? 0 : 1;
   state.units = measureGrepRendering({
     results: state.results,
@@ -367,6 +367,7 @@ function remainingBudget(
     files: Math.max(0, budget.files - state.consumed.files),
     entries: Math.max(0, budget.entries - state.consumed.entries),
     bytes: Math.max(0, budget.bytes - state.consumed.bytes),
+    maxFileBytes: budget.maxFileBytes,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: Math.max(0, budget.limit - state.files.size),
     pageUnits: Math.max(0, budget.pageUnits - state.units - separator),
@@ -374,14 +375,14 @@ function remainingBudget(
   };
 }
 
-function pageIsFull(state: PageState, budget: GrepBudget): boolean {
+function pageIsFull(state: PageState, budget: CallBudget): boolean {
   return state.files.size >= budget.limit;
 }
 
 /** Append one segment while the page holds it; the rest waits for a cursor. */
 function appendSegment(
   state: PageState,
-  budget: GrepBudget,
+  budget: CallBudget,
   page: SegmentPage,
 ): void {
   mergeWarnings(state, page.warnings);
@@ -420,7 +421,7 @@ function appendSegment(
  */
 function fitsPage(
   state: PageState,
-  budget: GrepBudget,
+  budget: CallBudget,
   entry: SegmentEntry,
 ): boolean {
   const file = grepFileLocator(entry.passage.locator);
@@ -565,11 +566,14 @@ function hashOf(
   });
 }
 
-function grepBudget(limit: number | undefined): GrepBudget {
+function grepBudget(limit: number | undefined): CallBudget {
   return {
     files: GREP_LIMITS.filesExamined,
     entries: GREP_LIMITS.entriesListed,
     bytes: GREP_LIMITS.bytesRead,
+    // This layer searches files of any size; `tools.grep.maxFileBytes`
+    // arrives with the bounds layer.
+    maxFileBytes: null,
     deadlineMs: GREP_LIMITS.deadlineMs,
     limit: limit ?? GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,

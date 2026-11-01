@@ -37,8 +37,10 @@ export { GREP_WARNING_KINDS, GrepPortError } from "./types";
 export type {
   GrepBudget,
   GrepEntry,
+  GrepFileStream,
   GrepPageEnd,
   GrepPassage,
+  GrepReadRefusal,
   GrepScanInput,
   GrepScanResult,
   GrepScope,

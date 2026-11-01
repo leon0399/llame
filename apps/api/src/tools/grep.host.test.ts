@@ -185,26 +185,27 @@ describe('host walk policy', () => {
     });
   });
 
-  it('counts binary and oversized files as skips', async () => {
+  it('counts a binary file as a skip and searches a two-mebibyte file', async () => {
     await withRoot(async (root) => {
       await writeAt(
         root,
         'binary.bin',
         Buffer.from([0x6e, 0x65, 0x65, 0x64, 0x6c, 0x65, 0x00]),
       );
-      await writeAt(root, 'large.txt', Buffer.alloc(2 * 1024 * 1024, 0x61));
+      // No fixed file-size cut: a file over one mebibyte is searched, and its
+      // bytes count against the call's byte budget.
+      const large = `${'a'.repeat(2 * 1024 * 1024)}\nneedle\n`;
+      await writeAt(root, 'large.txt', large);
       await writeAt(root, 'plain.txt', 'needle\n');
       const result = await run(contextOf(), {
         patterns: ['needle'],
         scopes: [`${root}/**`],
       });
-      expect(locatorsOf(result)).toEqual([`${root}/plain.txt:1-1`]);
-      expect(warningsOf(result)).toEqual(
-        expect.arrayContaining([
-          { kind: 'binary', count: 1 },
-          { kind: 'oversized', count: 1 },
-        ]),
-      );
+      expect(locatorsOf(result)).toEqual([
+        `${root}/large.txt:1-2`,
+        `${root}/plain.txt:1-1`,
+      ]);
+      expect(warningsOf(result)).toEqual([{ kind: 'binary', count: 1 }]);
     });
   });
 

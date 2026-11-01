@@ -64,6 +64,16 @@ import {
 } from './machine-call';
 import { type ToolContext, type ToolResult } from './types';
 
+/**
+ * One call's budget. This layer always sets the file, entry, and byte counts;
+ * a bound an operator leaves unset arrives with `tools.grep` in a later layer.
+ */
+export type CallBudget = GrepBudget & {
+  files: number;
+  entries: number;
+  bytes: number;
+};
+
 /** One Machine scope: the prefix the daemon searches and its glob suffix. */
 export type MachineGrepScope = {
   readonly index: number;
@@ -109,7 +119,7 @@ export type MachineGrepSearch = {
   readonly scope: MachineGrepScope;
   readonly args: GrepSearchArguments;
   /** What is left of the call's bounds, shared with every other scope. */
-  readonly budget: GrepBudget;
+  readonly budget: CallBudget;
   /** The call's cursor, when it names a passage of this scope. */
   readonly resume: DecodedGrepCursor | undefined;
   readonly admission: GrepReadAdmission;
@@ -294,7 +304,7 @@ function daemonCursor(
 function requestOf(
   search: MachineGrepSearch,
   envelope: FsGrepParams['envelope'],
-  budget: GrepBudget,
+  budget: CallBudget,
   cursor: string | undefined,
 ): FsGrepParams {
   const { scope, args } = search;
@@ -365,7 +375,7 @@ async function runDaemonPages(
   const entries: Array<MachineGrepEntry> = [];
   const warnings = new Map<FsGrepWarningKind, number>();
   const consumed = { files: 0, entries: 0, bytes: 0 };
-  let budget: GrepBudget = {
+  let budget: CallBudget = {
     ...search.budget,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
   };
@@ -453,14 +463,15 @@ function nextCursor(
 
 /** What the call has left after one daemon page. */
 function spent(
-  budget: GrepBudget,
+  budget: CallBudget,
   consumed: FsGrepConsumed,
   deadlineAt: number,
-): GrepBudget {
+): CallBudget {
   return {
     files: Math.max(0, budget.files - consumed.files),
     entries: Math.max(0, budget.entries - consumed.entries),
     bytes: Math.max(0, budget.bytes - consumed.bytes),
+    maxFileBytes: budget.maxFileBytes,
     limit: budget.limit,
     pageUnits: budget.pageUnits,
     fixedReserve: budget.fixedReserve,
@@ -469,7 +480,7 @@ function spent(
 }
 
 /** Whether the remaining budget can buy one more daemon page. */
-function canAskPage(budget: GrepBudget): boolean {
+function canAskPage(budget: CallBudget): boolean {
   return (
     budget.files > 0 &&
     budget.entries > 0 &&
@@ -484,7 +495,7 @@ function canAskPage(budget: GrepBudget): boolean {
 async function requestPage(
   search: MachineGrepSearch,
   connector: MachineConnector,
-  budget: GrepBudget,
+  budget: CallBudget,
   cursor: string | undefined,
 ): Promise<DaemonPage> {
   const { context, scope } = search;

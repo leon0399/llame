@@ -9,19 +9,31 @@ import type {
   DecodedGrepCursor,
   GrepBudget,
   GrepEntry,
+  GrepFileStream,
   GrepScanResult,
   GrepScope,
   GrepWalkPort,
 } from "./index";
 
+/** How a memory file can misbehave, as a real one can. */
+type MemoryFileFaults = {
+  /** Report this size instead of the content's, as a file that grows does. */
+  readonly announcedSize?: number;
+  /** Hand the content over in chunks of at most this many bytes. */
+  readonly chunkBytes?: number;
+  /** Refuse after the last chunk, as a late read failure does. */
+  readonly lateRefusal?: "oversized" | "unreadable";
+};
+
 /** One node of an in-memory tree a test walks instead of a real filesystem. */
 export type MemoryNode =
-  | {
+  | ({
       readonly kind: "file";
       readonly content: string;
+      /** Refuse at open, as a port that cannot hand the file over does. */
       readonly refusal?: "oversized" | "unreadable";
-    }
-  | { readonly kind: "binary"; readonly bytes: Uint8Array }
+    } & MemoryFileFaults)
+  | ({ readonly kind: "binary"; readonly bytes: Uint8Array } & MemoryFileFaults)
   | {
       readonly kind: "directory";
       readonly children: MemoryTree;
@@ -53,18 +65,42 @@ function resolveMemoryNode(
   return node;
 }
 
-function readMemoryNode(
+function openMemoryNode(
   node: MemoryNode | undefined,
-  maxBytes: number,
-): Uint8Array | { readonly kind: "oversized" | "unreadable" } {
+): GrepFileStream | { readonly kind: "oversized" | "unreadable" } {
   if (node === undefined || (node.kind !== "file" && node.kind !== "binary"))
     return { kind: "unreadable" };
   if (node.kind === "file" && node.refusal !== undefined)
     return { kind: node.refusal };
   const bytes =
     node.kind === "file" ? Buffer.from(node.content, "utf8") : node.bytes;
-  if (bytes.byteLength > maxBytes) return { kind: "oversized" };
-  return bytes;
+  const size = node.chunkBytes ?? bytes.byteLength;
+  const chunks: Array<
+    Uint8Array | { readonly kind: "oversized" | "unreadable" }
+  > = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += size)
+    chunks.push(bytes.subarray(offset, offset + size));
+  if (node.lateRefusal !== undefined) chunks.push({ kind: node.lateRefusal });
+  return {
+    size: node.announcedSize ?? bytes.byteLength,
+    chunks: chunkSequence(chunks),
+  };
+}
+
+/** One list handed over as the async chunk sequence a port streams. */
+export function chunkSequence<T>(items: ReadonlyArray<T>): AsyncIterable<T> {
+  let index = 0;
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => {
+        const value = items[index];
+        index += 1;
+        return value === undefined
+          ? Promise.resolve({ done: true, value: undefined })
+          : Promise.resolve({ done: false, value });
+      },
+    }),
+  };
 }
 
 function entryFor(name: string, child: MemoryNode): GrepEntry {
@@ -96,11 +132,9 @@ export function createMemoryPort(
         ),
       );
     },
-    read(rel: string, maxBytes: number) {
+    open(rel: string) {
       reads.push(rel);
-      return Promise.resolve(
-        readMemoryNode(resolveMemoryNode(tree, rel), maxBytes),
-      );
+      return Promise.resolve(openMemoryNode(resolveMemoryNode(tree, rel)));
     },
     ignoreFile(rel: string): Promise<string | undefined> {
       const node = resolveMemoryNode(tree, rel);
@@ -117,7 +151,7 @@ export function createMemoryPort(
 }
 
 /**
- * A port for a single-file scope: `read('')` hands over the named file and
+ * A port for a single-file scope: `open('')` hands over the named file and
  * nothing is ever listed. `ignoreText` stands in for a `.gitignore` the
  * engine must not consult for an exact path.
  */
@@ -133,9 +167,11 @@ export function createSingleFilePort(
     list(rel: string): Promise<ReadonlyArray<GrepEntry>> {
       return Promise.reject(new GrepPortError(`not a directory: ${rel}`));
     },
-    read(rel: string, maxBytes: number) {
+    open(rel: string) {
       reads.push(rel);
-      return Promise.resolve(readMemoryNode(node, maxBytes));
+      return Promise.resolve(
+        openMemoryNode(rel.length === 0 ? node : undefined),
+      );
     },
     ignoreFile(rel: string): Promise<string | undefined> {
       return Promise.resolve(rel.length === 0 ? ignoreText : undefined);
@@ -181,6 +217,7 @@ export function memoryBudget(overrides: Partial<GrepBudget> = {}): GrepBudget {
     files: GREP_LIMITS.filesExamined,
     entries: GREP_LIMITS.entriesListed,
     bytes: GREP_LIMITS.bytesRead,
+    maxFileBytes: null,
     deadlineMs: GREP_LIMITS.deadlineMs,
     limit: GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,

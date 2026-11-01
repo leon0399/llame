@@ -1,6 +1,7 @@
-/** The real Node `fs`-backed `KnowledgeFilesystemPort`, `O_NOFOLLOW`-opened so
- * a symlinked target fails at the syscall rather than relying solely on the
- * adapter's own `lstat` checks. */
+/** The real Node `fs`-backed `KnowledgeFilesystemPort`, opened with `O_NOFOLLOW`
+ * so a symlinked target fails at the syscall rather than relying solely on the
+ * adapter's own `lstat` checks, and with `O_NONBLOCK` so a FIFO at a leaf
+ * returns a handle the adapter's `fstat` refuses instead of stalling the walk. */
 
 import { constants, promises as fs } from 'node:fs';
 
@@ -12,7 +13,7 @@ export const NODE_FILESYSTEM: KnowledgeFilesystemPort = {
   open: async (filePath) => {
     const handle = await fs.open(
       filePath,
-      constants.O_RDONLY | constants.O_NOFOLLOW,
+      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
     return {
       stat: async () => {

@@ -60,6 +60,24 @@ async function withTree<T>(callback: (root: string) => Promise<T>): Promise<T> {
   }
 }
 
+/** Every byte a streamed open yields, in order. */
+async function collectChunks(
+  chunks: AsyncIterable<Uint8Array | { readonly kind: string }>,
+): Promise<Buffer> {
+  const parts: Array<Uint8Array> = [];
+  for await (const chunk of chunks) {
+    if (!(chunk instanceof Uint8Array))
+      throw new Error(`refused: ${chunk.kind}`);
+    parts.push(chunk);
+  }
+  return Buffer.concat(parts);
+}
+
+/** A FIFO at `target`; `mkfifo` is the one reliable way to make one. */
+async function makeFifo(target: string): Promise<void> {
+  await promisify(execFile)('mkfifo', [target]);
+}
+
 function bindingOf(root: string): KnowledgeFilesystemBinding {
   return {
     id: SPACE_ID,
@@ -210,30 +228,58 @@ describe('createHostWalkPort', () => {
 
   it('refuses a file that is not a regular file', async () => {
     // A character device reports size 0, so only the regular-file rule can
-    // refuse it rather than reading its (empty) bytes.
+    // refuse it rather than streaming its (empty) bytes.
     await expect(
-      createHostWalkPort('/dev/null', undefined).read('', 64),
+      createHostWalkPort('/dev/null', undefined).open(''),
     ).resolves.toStrictEqual({ kind: 'unreadable' });
   });
 
-  it('keeps the size bound inclusive at the exact byte count', async () => {
+  it('streams a file larger than one mebibyte whole', async () => {
     await withTree(async (root) => {
-      await writeFile(path.join(root, 'note.md'), 'needle\n');
-      const port = createHostWalkPort(root, undefined);
-
-      await expect(port.read('note.md', 7)).resolves.toEqual(
-        Buffer.from('needle\n'),
-      );
-      await expect(port.read('note.md', 6)).resolves.toStrictEqual({
-        kind: 'oversized',
-      });
+      const text = `${'x'.repeat(1024 * 1024)}tail\n`;
+      await writeFile(path.join(root, 'big.md'), text);
+      const opened = await createHostWalkPort(root, undefined).open('big.md');
+      if (!('chunks' in opened)) throw new Error('a regular file opens');
+      expect(opened.size).toBe(Buffer.byteLength(text));
+      expect(await collectChunks(opened.chunks)).toEqual(Buffer.from(text));
     });
   });
 
-  it('reads only up to the bound when the declared size hides the bytes', async () => {
-    // procfs reports size 0 for a file with content: the declared size clears
-    // the first check, so only the bytes actually read can refuse it. A real
-    // handle names the prototype that holds the read operations.
+  it('refuses a FIFO without blocking the walk', async () => {
+    await withTree(async (root) => {
+      await makeFifo(path.join(root, 'pipe'));
+      await expect(
+        createHostWalkPort(root, undefined).open('pipe'),
+      ).resolves.toStrictEqual({ kind: 'unreadable' });
+    });
+  });
+
+  it('refuses a symbolic link at the opened path', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'note.md'), 'needle\n');
+      await symlink(path.join(root, 'note.md'), path.join(root, 'link.md'));
+      await expect(
+        createHostWalkPort(root, undefined).open('link.md'),
+      ).resolves.toStrictEqual({ kind: 'unreadable' });
+    });
+  });
+
+  it("announces a file's size and streams its bytes", async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'note.md'), 'needle\n');
+      const opened = await createHostWalkPort(root, undefined).open('note.md');
+      if (!('chunks' in opened)) throw new Error('a regular file opens');
+      expect(opened.size).toBe(7);
+      expect(await collectChunks(opened.chunks)).toEqual(
+        Buffer.from('needle\n'),
+      );
+    });
+  });
+
+  it('streams the bytes a declared size hides', async () => {
+    // procfs reports size 0 for a file with content: the stream is what
+    // decides how much reaches the scanner. A real handle names the prototype
+    // that holds the read operations.
     const opened = await open('/proc/self/status', 'r');
     // SAFETY: an open handle's prototype is the FileHandle prototype that
     // carries `read` and `readFile`; the spies intercept that same prototype.
@@ -243,10 +289,12 @@ describe('createHostWalkPort', () => {
     const chunkRead = vi.spyOn(handlePrototype, 'read');
     await opened.close();
     try {
-      await expect(
-        createHostWalkPort('/proc/self/status', undefined).read('', 64),
-      ).resolves.toStrictEqual({ kind: 'oversized' });
-      // The bound, not the file, decides how much reaches memory.
+      const stream = await createHostWalkPort(
+        '/proc/self/status',
+        undefined,
+      ).open('');
+      if (!('chunks' in stream)) throw new Error('procfs status opens');
+      expect((await collectChunks(stream.chunks)).length).toBeGreaterThan(0);
       expect(wholeFileRead).not.toHaveBeenCalled();
       expect(chunkRead).toHaveBeenCalled();
     } finally {
@@ -260,13 +308,19 @@ describe('createHostWalkPort', () => {
       await writeFile(path.join(root, 'note.md'), 'needle\n');
       const port = createHostWalkPort(root, undefined);
       const openHandles = async () => (await readdir('/proc/self/fd')).length;
-      expect(await port.read('note.md', 64)).toEqual(Buffer.from('needle\n'));
+      const first = await port.open('note.md');
+      if (!('chunks' in first)) throw new Error('a regular file opens');
+      expect(await collectChunks(first.chunks)).toEqual(
+        Buffer.from('needle\n'),
+      );
       const before = await openHandles();
 
       for (let index = 0; index < 20; index += 1) {
-        await port.read('note.md', 64);
+        const opened = await port.open('note.md');
+        if (!('chunks' in opened)) throw new Error('a regular file opens');
+        await collectChunks(opened.chunks);
       }
-      await port.read('absent.md', 64);
+      await port.open('absent.md');
 
       expect(await openHandles()).toBeLessThanOrEqual(before + 2);
     });
@@ -360,6 +414,7 @@ describe('createKnowledgeWalkPort', () => {
           files: GREP_LIMITS.filesExamined,
           entries: GREP_LIMITS.entriesListed,
           bytes: GREP_LIMITS.bytesRead,
+          maxFileBytes: null,
           deadlineMs: GREP_LIMITS.deadlineMs,
           limit: GREP_LIMITS.filesPerPage,
           pageUnits: GREP_LIMITS.pageCodeUnits,
@@ -389,13 +444,53 @@ describe('createKnowledgeWalkPort', () => {
     });
   });
 
+  it('streams a file larger than one mebibyte through the Space', async () => {
+    await withTree(async (root) => {
+      const directory = path.join(root, SPACE_ID);
+      await mkdir(directory, { recursive: true });
+      const text = `${'x'.repeat(1024 * 1024)}tail\n`;
+      await writeFile(path.join(directory, 'big.md'), text);
+      const port = createKnowledgeWalkPort(bindingOf(root), '', undefined);
+      const opened = await port.open('big.md');
+      if (!('chunks' in opened)) throw new Error('a Space file opens');
+      expect(opened.size).toBe(Buffer.byteLength(text));
+      expect(await collectChunks(opened.chunks)).toEqual(Buffer.from(text));
+    });
+  });
+
+  it('refuses a FIFO at a leaf without blocking the walk', async () => {
+    await withTree(async (root) => {
+      const directory = path.join(root, SPACE_ID);
+      await mkdir(directory, { recursive: true });
+      await makeFifo(path.join(directory, 'pipe.md'));
+      const port = createKnowledgeWalkPort(bindingOf(root), '', undefined);
+      await expect(port.open('pipe.md')).resolves.toStrictEqual({
+        kind: 'unreadable',
+      });
+    });
+  });
+
+  it('refuses a symbolic link at a component of the path', async () => {
+    await withTree(async (root) => {
+      const directory = path.join(root, SPACE_ID);
+      await mkdir(path.join(root, 'outside'), { recursive: true });
+      await writeFile(path.join(root, 'outside', 'note.md'), 'needle\n');
+      await mkdir(directory, { recursive: true });
+      await symlink(path.join(root, 'outside'), path.join(directory, 'notes'));
+      const port = createKnowledgeWalkPort(bindingOf(root), '', undefined);
+      await expect(port.open('notes/note.md')).resolves.toStrictEqual({
+        kind: 'unreadable',
+      });
+    });
+  });
+
   it('reads a file that vanished between the listing and the read as a skip', async () => {
     await withTree(async (root) => {
       await mkdir(path.join(root, SPACE_ID), { recursive: true });
       const port = createKnowledgeWalkPort(bindingOf(root), '', undefined);
       // The walk never fails for one file the listing named: the engine counts
       // it as an `unreadable` skip and keeps searching.
-      await expect(port.read('absent.md', 64)).resolves.toStrictEqual({
+      await expect(port.open('absent.md')).resolves.toStrictEqual({
         kind: 'unreadable',
       });
     });
@@ -496,37 +591,40 @@ describe('createSkillWalkPort', () => {
     });
   });
 
-  it('reads the scope root itself when no relative path is given', async () => {
+  it('streams the scope root itself when no relative path is given', async () => {
     await withTree(async (root) => {
       const file = path.join(root, 'SKILL.md');
       await writeFile(file, 'needle\n');
-      await expect(
-        createSkillWalkPort(file, undefined).read('', 64),
-      ).resolves.toEqual(Buffer.from('needle\n'));
-    });
-  });
-
-  it('returns the file bytes, and an oversized file as a refusal', async () => {
-    await withTree(async (root) => {
-      const directory = await packageFixture(root);
-      const port = createSkillWalkPort(directory, undefined);
-
-      // The bound is inclusive: a file exactly at it still reads.
-      await expect(port.read('SKILL.md', 7)).resolves.toEqual(
+      const opened = await createSkillWalkPort(file, undefined).open('');
+      if (!('chunks' in opened)) throw new Error('a package file opens');
+      expect(await collectChunks(opened.chunks)).toEqual(
         Buffer.from('needle\n'),
       );
-      await expect(port.read('SKILL.md', 6)).resolves.toStrictEqual({
-        kind: 'oversized',
-      });
     });
   });
 
-  it('refuses bytes a file grew past its declared size to', async () => {
-    // procfs reports size 0 for a file with content, which is the one input
-    // that separates the declared size from the bytes actually read.
-    await expect(
-      createSkillWalkPort('/proc/self/status', undefined).read('', 0),
-    ).resolves.toStrictEqual({ kind: 'oversized' });
+  it('refuses a FIFO at an exact skill scope without blocking', async () => {
+    await withTree(async (root) => {
+      const file = path.join(root, 'SKILL.md');
+      await makeFifo(file);
+      await expect(
+        createSkillWalkPort(file, undefined).open(''),
+      ).resolves.toStrictEqual({ kind: 'unreadable' });
+    });
+  });
+
+  it('streams a package file and announces its size', async () => {
+    await withTree(async (root) => {
+      const directory = await packageFixture(root);
+      const opened = await createSkillWalkPort(directory, undefined).open(
+        'SKILL.md',
+      );
+      if (!('chunks' in opened)) throw new Error('a package file opens');
+      expect(opened.size).toBe(7);
+      expect(await collectChunks(opened.chunks)).toEqual(
+        Buffer.from('needle\n'),
+      );
+    });
   });
 
   it('closes the handle after every read, so a scan cannot exhaust the process', async () => {
@@ -534,13 +632,19 @@ describe('createSkillWalkPort', () => {
       const directory = await packageFixture(root);
       const port = createSkillWalkPort(directory, undefined);
       const openHandles = async () => (await readdir('/proc/self/fd')).length;
-      expect(await port.read('SKILL.md', 64)).toEqual(Buffer.from('needle\n'));
+      const first = await port.open('SKILL.md');
+      if (!('chunks' in first)) throw new Error('a package file opens');
+      expect(await collectChunks(first.chunks)).toEqual(
+        Buffer.from('needle\n'),
+      );
       const before = await openHandles();
 
       for (let index = 0; index < 20; index += 1) {
-        await port.read('SKILL.md', 64);
+        const opened = await port.open('SKILL.md');
+        if (!('chunks' in opened)) throw new Error('a package file opens');
+        await collectChunks(opened.chunks);
       }
-      await port.read('absent.md', 64);
+      await port.open('absent.md');
 
       expect(await openHandles()).toBeLessThanOrEqual(before + 2);
     });
@@ -551,10 +655,10 @@ describe('createSkillWalkPort', () => {
       const directory = await packageFixture(root);
       const port = createSkillWalkPort(directory, undefined);
 
-      await expect(port.read('sub', 1)).resolves.toStrictEqual({
+      await expect(port.open('sub')).resolves.toStrictEqual({
         kind: 'unreadable',
       });
-      await expect(port.read('absent.md', 64)).resolves.toStrictEqual({
+      await expect(port.open('absent.md')).resolves.toStrictEqual({
         kind: 'unreadable',
       });
     });
