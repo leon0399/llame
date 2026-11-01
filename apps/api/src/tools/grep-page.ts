@@ -132,7 +132,9 @@ export function appendSegment(
   state.consumed.bytes += page.consumed.bytes;
   // Progress is the call's: a later segment's stop hides no file behind it.
   if (page.progressed) state.progressed = true;
-  if (state.unfinished === undefined) state.unfinished = page.unfinished;
+  // A segment that names an unfinished file is incomplete, so the call stops
+  // there: no later segment can overwrite it.
+  state.unfinished = page.unfinished;
   for (const entry of page.entries) {
     if (!fitsPage(state, budget, entry)) {
       state.complete = false;

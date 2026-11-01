@@ -2,19 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-01
 
-- `grep` reads up to eight files at the same time, while the page, cursor,
-  bounds, and skip counts keep the walk order: a file that ends before an
-  earlier one keeps its place. A stop discards the files read ahead, so the
-  next call opens them again. A stop inside a file before the call progressed
-  names that file in `unfinished`, renders
-  `[not searched to the end: <locator>]` after the warnings line, and moves
-  the cursor past it, so the next call does not open it again; a file the
-  `read` group refuses is never named. `fs.grep` carries whether the call
-  progressed in its request and response, and the response also names its
-  own unfinished file; the hub gives the daemon nine tenths of the time
-  left, so a daemon that spends its whole budget still answers. The API and
-  Machine processes widen the libuv pool to sixteen threads when the
-  operator set no `UV_THREADPOOL_SIZE`. See
+- `grep` reads up to eight files at the same time, in walk order. A stop
+  inside a file before any progress names it in `unfinishedFile`, renders
+  `[not searched to the end: <locator>]`, and moves the cursor past it; the
+  `read` group still refuses what it refuses. `fs.grep` carries `progressed`
+  and answers its own `unfinished`, and the API and Machine widen the libuv
+  pool to sixteen threads when the operator set no `UV_THREADPOOL_SIZE`. See
   [grep](docs/product/reference/tools/grep.md).
 - `grep` searches files as a stream: the fixed 1 MiB per-file cut becomes the
   call's 32 MiB byte bound, so a file up to 32 MiB is searched. It reads a file

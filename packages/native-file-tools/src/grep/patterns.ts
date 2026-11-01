@@ -2,15 +2,19 @@ import { RE2JS } from "re2js";
 
 import { GREP_LIMITS } from "./limits";
 
+/** Whether a line matched, or the probe ended its tests before an answer. */
+export type GrepLineMatch = boolean | "stopped";
+
 /** One call's compiled disjunction; a line matches when any pattern matches. */
 export interface CompiledGrepPatterns {
   readonly count: number;
   /**
    * Whether any pattern matches. `stopped` is asked between two pattern tests,
-   * so a long line's tests can end at the call deadline; a stopped line reads
-   * as a non-match, which the caller discards with its file.
+   * so a long line's tests can end at the call deadline. A stopped line is
+   * reported as such, never as a miss: the caller ends the file as stopped, so
+   * a match the line still held is not silently lost.
    */
-  matches(line: string, stopped?: () => boolean): boolean;
+  matches(line: string, stopped?: () => boolean): GrepLineMatch;
 }
 
 export type GrepPatternCompileResult =
@@ -49,7 +53,7 @@ export function compileGrepPatterns(
       matches: (line, stopped) => {
         for (const [index, matcher] of matchers.entries()) {
           // Nothing to check before the first test: one pattern has no gap.
-          if (index > 0 && stopped?.() === true) return false;
+          if (index > 0 && stopped?.() === true) return "stopped";
           if (matcher.test(line)) return true;
         }
         return false;

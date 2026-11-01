@@ -124,6 +124,8 @@ type GrepPage = {
     readonly bytes: number;
   };
   readonly cursor: string | undefined;
+  readonly progressed: boolean;
+  readonly unfinished: string | undefined;
 };
 
 function parsePassage(value: SerializableValue): FsGrepPassage {
@@ -183,12 +185,18 @@ function parseGrep(answer: JsonValue): GrepPage {
     !isIntegerValue(bytes)
   )
     throw new Error("the consumed budget is malformed");
+  const { progressed, unfinished } = answer;
+  if (!isBoolean(progressed)) throw new Error("the answer has no progress");
+  if (unfinished !== undefined && !isStringValue(unfinished))
+    throw new Error("the unfinished file is malformed");
   return {
     results: parseList(answer["results"], parsePassage),
     complete,
     warnings: parseList(answer["warnings"], parseWarning),
     consumed: { files, entries, bytes },
     cursor: isStringValue(cursor) ? cursor : undefined,
+    progressed,
+    unfinished: isStringValue(unfinished) ? unfinished : undefined,
   };
 }
 
@@ -268,6 +276,26 @@ describe("fs.grep", () => {
     );
     expect(pathsOf(second)).toEqual(["b.go"]);
     expect(second.complete).toBe(true);
+  });
+
+  it("forwards the call's progress and returns its own", async () => {
+    // A 100 KiB file passes the first probe and crosses the byte bound before
+    // its second chunk, so the walk stops inside it.
+    await writeAt("project/big.log", `${"x".repeat(63)}\n`.repeat(2000));
+    const prefix = join(fixture.root, "project/big.log");
+    const stopped = await grep(
+      request(prefix, { budget: { ...BUDGET, bytes: 4 } }),
+    );
+    expect(stopped.progressed).toBe(false);
+    expect(stopped.unfinished).toBe("");
+    expect(stopped.complete).toBe(false);
+
+    const progressed = await grep(
+      request(prefix, { budget: { ...BUDGET, bytes: 4, progressed: true } }),
+    );
+    expect(progressed.progressed).toBe(true);
+    expect(progressed.unfinished).toBeUndefined();
+    expect(progressed.complete).toBe(false);
   });
 
   it("refuses a cursor issued for other search inputs", async () => {

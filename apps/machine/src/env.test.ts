@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { machineConfigDir, rootsFileFor } from "./env";
 
@@ -42,4 +44,25 @@ describe("machine configuration directory", () => {
       "/etc/llame-machine/roots.json",
     );
   });
+
+  it("widens the libuv pool before Sentry starts", async () => {
+    // The daemon is one bundled file, so only a child that imports its first
+    // module shows the width the SDK's own first pool use inherits. `tsx`
+    // resolves the daemon's extensionless imports; no DSN is set, so the SDK
+    // never talks to a network.
+    const env: NodeJS.ProcessEnv = { ...process.env, SENTRY_DSN: "" };
+    delete env["UV_THREADPOOL_SIZE"];
+    const instrument = join(__dirname, "instrument.ts");
+    const script = [
+      `import(${JSON.stringify(instrument)}).then(() => {`,
+      `  process.stdout.write(process.env['UV_THREADPOOL_SIZE'] ?? 'unset');`,
+      `});`,
+    ].join("\n");
+    const { stdout } = await promisify(execFile)(
+      join(resolve(__dirname, "../../.."), "node_modules/.bin/tsx"),
+      ["-e", script],
+      { env },
+    );
+    expect(stdout).toBe("16");
+  }, 30_000);
 });

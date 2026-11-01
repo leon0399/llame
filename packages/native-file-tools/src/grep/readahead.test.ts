@@ -1,7 +1,14 @@
 import { decodeGrepCursor } from "./cursor";
 import type { DecodedGrepCursor } from "./cursor";
 import { memoryScope, runMemoryScan } from "./memory-port.test-fixture";
+import { grepContinuationUnits } from "./cursor";
+import { GrepPortError } from "./types";
 import type { GrepEntry, GrepFileStream, GrepWalkPort } from "./types";
+
+/** A page bound that leaves `room` units for passages beside the page's own. */
+function reservedRoom(rel: string, room: number): number {
+  return grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) + room;
+}
 
 /** One in-memory file a gated port hands over at the test's pace. */
 type GatedFile = {
@@ -176,7 +183,10 @@ function createGatedPort(
     open(rel: string) {
       const file = files[rel];
       if (file === undefined) return Promise.resolve({ kind: "unreadable" });
-      if (file.failure !== undefined) return Promise.reject(file.failure);
+      if (file.failure !== undefined) {
+        opened.push(rel);
+        return Promise.reject(file.failure);
+      }
       // Each open starts its own read, so a file a second call opens again
       // streams its bytes again.
       newRead(rel);
@@ -194,8 +204,8 @@ function createGatedPort(
 }
 
 /** Let the scan's own microtasks run; nothing else can advance it after this. */
-async function settle(): Promise<void> {
-  for (let turn = 0; turn < 32; turn += 1) await Promise.resolve();
+async function settle(turns = 32): Promise<void> {
+  for (let turn = 0; turn < turns; turn += 1) await Promise.resolve();
 }
 
 /** One cursor a test expects the scan to issue. */
@@ -220,21 +230,57 @@ function numberedFiles(
 }
 
 describe("grep read-ahead", () => {
-  it("holds eight reads and never a ninth", async () => {
+  it("holds eight queued reads and never the whole tree", async () => {
     const port = createGatedPort(
-      numberedFiles(20, { content: "hit\n", holdAfter: 0 }),
+      numberedFiles(200, { content: "hit\n", holdAfter: 0 }),
     );
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"]);
     await port.started(8);
     await settle();
-    expect(port.inFlight()).toBe(8);
-    expect(port.opened).toHaveLength(8);
+    // Eight reads wait in the window, and the one the consumer took frees its
+    // slot at take, so at most nine files are open while a slow head waits.
+    expect(port.opened.length).toBeGreaterThanOrEqual(8);
+    expect(port.opened.length).toBeLessThanOrEqual(9);
     port.releaseAll();
     const result = await run;
-    expect(port.peak()).toBe(8);
+    expect(port.peak()).toBeLessThanOrEqual(9);
     expect(result.results).toHaveLength(20);
-    expect(result.complete).toBe(true);
+    expect(result.complete).toBe(false);
   });
+
+  it("stops the read-ahead at the queued-event cap", async () => {
+    const files = Object.fromEntries(
+      Array.from({ length: 10_100 }, (_, index) => [
+        `f${String(index).padStart(5, "0")}.ts`,
+        index === 0
+          ? { content: "hit\n", holdAfter: 0 }
+          : { content: "miss\n" },
+      ]),
+    );
+    const port = createGatedPort(files);
+    port.releaseAll();
+    const asked: Array<string> = [];
+    const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
+      onCandidate: (locator) => {
+        asked.push(locator);
+        // The head file is held below, so only refusals reach the queue.
+        return Promise.resolve(!locator.endsWith("/f00000.ts"));
+      },
+    });
+    // The head read waits on its gate while refused candidates fill the queue;
+    // the count stops growing only when the cap parks the walk.
+    let admitted = -1;
+    for (let round = 0; round < 40 && asked.length !== admitted; round += 1) {
+      admitted = asked.length;
+      await settle(10_000);
+    }
+    // A refusal costs a record and a candidate, so the 10,000-event queue
+    // parks the walk near 5,000 admitted files instead of all 10,100.
+    expect(asked.length).toBeGreaterThan(4000);
+    expect(asked.length).toBeLessThan(10_000 + 100);
+    port.release("f00000.ts");
+    await run;
+  }, 30_000);
 
   it("keeps canonical order when a later file ends first", async () => {
     const port = createGatedPort({
@@ -348,8 +394,75 @@ describe("grep read-ahead", () => {
     ]);
   });
 
+  it("finds a match whose later pattern the byte bound crosses", async () => {
+    const port = createGatedPort({
+      "a.ts": { content: "hit\n" },
+      "b.ts": { content: "hit\n" },
+    });
+    // The head file is one chunk exactly at the byte bound: the old probe cut
+    // its first line's remaining patterns and silently lost the match.
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["zzz", "hit"],
+      { budget: { bytes: 4 } },
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/a.ts:1-1",
+    ]);
+    expect(result.complete).toBe(false);
+  });
+
+  it("answers the page before a walk failure queued behind it", async () => {
+    const first = createGatedPort({
+      "a.ts": { content: "hit\n" },
+      "b.ts": { content: "hit\n" },
+    });
+    const failing = {
+      followsLinks: false,
+      list: () => Promise.reject(new GrepPortError("later scope list failed")),
+      open: () => Promise.resolve({ kind: "unreadable" as const }),
+    };
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", first), memoryScope(1, "/later/", failing)],
+      ["hit"],
+      { budget: { limit: 1 } },
+    );
+    expect(result.results).toHaveLength(1);
+    expect(result.complete).toBe(false);
+  });
+
+  it("stops a scan whose page filled before the next file", async () => {
+    const long = createGatedPort({
+      "a.ts": { content: "hit\n".repeat(30) },
+      "b.ts": { content: "hit\n" },
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", long)],
+      ["hit"],
+      { budget: { pageUnits: reservedRoom("a.ts", 20) } },
+    );
+    // The page ends on the passage it could not hold whole; a later file's
+    // small match must not follow it, or the cursor would skip it.
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].cut).toBe(true);
+    expect(result.complete).toBe(false);
+  });
+
+  it("adds no bound warning when the page filled on the same file", async () => {
+    const port = createGatedPort(numberedFiles(3));
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+      { budget: { files: 2, limit: 2 } },
+    );
+    expect(result.results).toHaveLength(2);
+    expect(result.complete).toBe(false);
+    expect(result.warnings).toEqual([]);
+  });
+
   it("counts a read refusal only for the file it takes", async () => {
     let clock = 0;
+    const asked: Array<string> = [];
     const port = createGatedPort({
       "a.ts": { content: "" },
       "p.ts": { content: "hit\n" },
@@ -358,7 +471,10 @@ describe("grep read-ahead", () => {
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       {
-        onCandidate: (locator) => Promise.resolve(!locator.endsWith("/p.ts")),
+        onCandidate: (locator) => {
+          asked.push(locator);
+          return Promise.resolve(!locator.endsWith("/p.ts"));
+        },
         budget: { deadlineMs: 10 },
         now: () => (clock += 10),
       },
@@ -368,6 +484,8 @@ describe("grep read-ahead", () => {
     expect(result.warnings).toEqual([{ kind: "deadline", count: 1 }]);
     expect(result.readRefused).toBe(0);
     expect(port.opened).toEqual(["a.ts"]);
+    // The refusal was admitted ahead of the stop, so only the take can count it.
+    expect(asked).toEqual(["/repo/a.ts", "/repo/p.ts"]);
   });
 
   it("never surfaces a failed read the call stopped before", async () => {
@@ -387,6 +505,8 @@ describe("grep read-ahead", () => {
       "/repo/a.ts:1-1",
     ]);
     expect(result.complete).toBe(false);
+    // The failing open ran ahead of the stop; its caught outcome is discarded.
+    expect(port.opened).toContain("boom.ts");
   });
 
   it("surfaces a failed read the call takes", async () => {
@@ -400,6 +520,42 @@ describe("grep read-ahead", () => {
 });
 
 describe("grep unfinished files", () => {
+  it("discards the files opened ahead of a deadline stop", async () => {
+    const clock = { value: 0 };
+    const files = {
+      "a.ts": { content: "miss\n" },
+      "b.ts": { content: "miss\n" },
+      "c.ts": { content: "miss\n" },
+      "d.ts": { content: "miss\n", holdAfter: 0 },
+      "e.ts": { content: "miss\n", holdAfter: 0 },
+    } satisfies Record<string, GatedFile>;
+    const port = createGatedPort(files);
+    const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
+      budget: { deadlineMs: 10 },
+      now: () => clock.value,
+    });
+    await settle(200);
+    clock.value = 40;
+    port.releaseAll();
+    const first = await run;
+    // The deadline stopped the walk at `d.ts`'s take; `d.ts` and `e.ts` were
+    // opened ahead and released unread.
+    expect(first.unfinished).toBeUndefined();
+    expect(first.progressed).toBe(true);
+    expect(first.complete).toBe(false);
+    expect(port.closed).toEqual(expect.arrayContaining(["d.ts", "e.ts"]));
+    const cursor = decode(first.cursor);
+    expect(cursor.kind).toBe("position");
+    expect(["a.ts", "b.ts", "c.ts"]).toContain(cursor.rel);
+
+    const again = createGatedPort(files);
+    again.releaseAll();
+    await runMemoryScan([memoryScope(0, "/repo/", again)], ["hit"], {
+      cursor,
+    });
+    expect(again.opened).toEqual(expect.arrayContaining(["d.ts", "e.ts"]));
+  });
+
   it("names the file a deadline stopped inside and skips it next time", async () => {
     const clock = { value: 0 };
     const files = {

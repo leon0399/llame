@@ -506,8 +506,11 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
   )
     return undefined;
   if (cursor !== undefined && !isText(cursor)) return undefined;
-  if (unfinished !== undefined && !isText(unfinished)) return undefined;
-  if (isText(unfinished) && !isScopeRelativePath(unfinished)) return undefined;
+  if (
+    unfinished !== undefined &&
+    !(isText(unfinished) && isScopeRelativePath(unfinished))
+  )
+    return undefined;
   const success: FsGrepSuccess = {
     ok: true,
     results,

@@ -144,7 +144,9 @@ export function unfinishedPosition(
 ): { readonly scopeIndex: number; readonly rel: string } | undefined {
   const rel = page.unfinished;
   if (rel === undefined) return undefined;
-  return search.scope.singleFile || rel === ''
+  // A single-file walk yields only `""` and ignores a cursor, so the hub moves
+  // past the scope ordinal; a directory scope resumes after the file.
+  return rel === ''
     ? { scopeIndex: search.scope.index + 1, rel: '' }
     : { scopeIndex: search.scope.index, rel };
 }

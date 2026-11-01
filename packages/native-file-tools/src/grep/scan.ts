@@ -28,12 +28,6 @@ import type {
 } from "./types";
 import { compareRel } from "./walk";
 
-/** One scope's resume point, once it is known to belong to that scope. */
-type GrepResume = {
-  readonly cursor: GrepPassageCursor;
-  readonly rel: string;
-};
-
 /** Everything one call carries across scopes and files. */
 type ScanState = {
   readonly input: GrepScanInput;
@@ -84,7 +78,6 @@ export async function runGrepScan(
     deadlineAt: state.deadlineAt,
     now: input.now,
     consumedBytes: () => state.consumed.bytes,
-    widestIndex: state.widestIndex,
   });
   try {
     for (;;) {
@@ -156,6 +149,9 @@ async function takeEvent(
       takeRecord(state, event);
       return false;
     case "stop":
+      // The serial walk checks the page before the bound: a page that filled
+      // on the same file ends there, without the bound's warning.
+      if (state.page.full || !pageHasFileRoom(state)) return true;
       stopAt(state, event.reason);
       return true;
     case "candidate":
@@ -176,7 +172,10 @@ function takeRecord(
   state.position = { scopeIndex, rel: reached };
   // A stop before a passage ends the page at this entry, so the page keeps
   // the room its position cursor takes.
-  state.page.reserveFloor = Math.max(state.page.reserveFloor, record.reserve);
+  state.page.reserveFloor = Math.max(
+    state.page.reserveFloor,
+    grepContinuationUnits({ scopeIndex: state.widestIndex, rel: reached }),
+  );
   if (pastStartPoint(state, reached)) state.progressed = true;
 }
 
@@ -199,13 +198,16 @@ async function takeCandidate(
   walk: GrepWalkRun,
   event: GrepCandidateEvent,
 ): Promise<boolean> {
-  if (!pageHasFileRoom(state)) return true;
+  // A page that filled on units ends here, before any later match is read:
+  // the cursor names the last passage it emitted, so a match after it would be
+  // lost on resume.
+  if (state.page.full || !pageHasFileRoom(state)) return true;
   const bound = boundBeforeFile(state);
   if (bound !== undefined) {
     stopAt(state, bound);
     return true;
   }
-  if (event.refused) {
+  if (event.read === undefined) {
     state.readRefused += 1;
     return false;
   }
@@ -278,18 +280,18 @@ function stopInsideFile(
   stopAt(state, reason);
   if (state.progressed) return;
   state.unfinished = event.fileLocator;
-  // A single-file scope ignores a cursor, so its ordinal moves past the file:
-  // the next call lists that scope, or none, and never opens the file again.
-  state.position = event.singleFile
-    ? { scopeIndex: event.scopeIndex + 1, rel: "" }
-    : { scopeIndex: event.scopeIndex, rel: event.rel };
+  // A single-file scope's walk yields only `""` and ignores a cursor, so its
+  // ordinal moves past the scope: the next call lists it, or none, and never
+  // opens the file again.
+  state.position =
+    event.rel === ""
+      ? { scopeIndex: event.scopeIndex + 1, rel: "" }
+      : { scopeIndex: event.scopeIndex, rel: event.rel };
 }
 
 /** The bound or deadline that stops the walk before this file, if any. */
 function boundBeforeFile(state: ScanState): GrepWarningKind | undefined {
   const budget = state.input.budget;
-  if (budget.files !== null && state.consumed.files >= budget.files)
-    return "file_bound";
   if (budget.bytes !== null && state.consumed.bytes >= budget.bytes)
     return "byte_bound";
   if (state.input.now() > state.deadlineAt) return "deadline";
@@ -314,8 +316,7 @@ function emitPassages(
   scan: Extract<GrepFileOutcome, { readonly kind: "passages" }>,
 ): number {
   const visible = scan.passages;
-  const resume = passageResume(state.input.cursor, event);
-  const cappedAt = exhaustedAt(resume, visible) ?? scan.cappedAt;
+  const cappedAt = exhaustedAt(event.resume, visible) ?? scan.cappedAt;
   const emitted = appendGrepFile(state.page, state.limits, {
     scopeIndex: event.scopeIndex,
     rel: event.rel,
@@ -330,17 +331,6 @@ function emitPassages(
     emitted,
   });
   return emitted;
-}
-
-/** The cursor's passage, when it names the file this candidate opened. */
-function passageResume(
-  cursor: GrepScanInput["cursor"],
-  event: GrepCandidateEvent,
-): GrepResume | undefined {
-  if (cursor === undefined || cursor.kind !== "passage") return undefined;
-  return cursor.scopeIndex === event.scopeIndex && cursor.rel === event.rel
-    ? { cursor, rel: cursor.rel }
-    : undefined;
 }
 
 /** Where one file's twentieth passage stands among the passages it emitted. */
@@ -375,11 +365,10 @@ function cappedMark(state: ScanState, mark: CappedMark): void {
  * carries the twentieth semantics, so a page that ends there names it as such.
  */
 function exhaustedAt(
-  resume: GrepResume | undefined,
+  resume: GrepPassageCursor | undefined,
   visible: ReadonlyArray<GrepPassage>,
 ): number | undefined {
-  if (resume?.cursor.truncated !== true || visible.length === 0)
-    return undefined;
+  if (resume?.truncated !== true || visible.length === 0) return undefined;
   return passageStartLine(visible[0].locator);
 }
 

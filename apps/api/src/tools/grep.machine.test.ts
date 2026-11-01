@@ -696,7 +696,6 @@ describe('Machine scope addresses', () => {
           name: 'nope',
           path: '/srv/app',
           globSuffix: undefined,
-          singleFile: false,
         },
         args: { patterns: ['needle'], literal: false, ignoreCase: false },
         budget: BUDGET,
@@ -722,7 +721,6 @@ describe('Machine scope addresses', () => {
         name: 'devl',
         path: '/srv/app',
         globSuffix: undefined,
-        singleFile: false,
       },
       args: { patterns: ['needle'], literal: false, ignoreCase: false },
       budget: BUDGET,
@@ -762,6 +760,39 @@ describe('Machine request shape', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('asks a later scope with the progress of the earlier one', async () => {
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        const answered = isSerializableRecord(call.params)
+          ? call.params['path']
+          : undefined;
+        return {
+          value:
+            answered === '/srv/a'
+              ? page([passage('a.go', 1, 1)], { progressed: true })
+              : page([passage('b.go', 1, 1)], { progressed: false }),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    expect(locatorsOf(result)).toEqual([
+      'machine://devl/srv/a/a.go:1-1',
+      'machine://devl/srv/b/b.go:1-1',
+    ]);
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    expect(asked).toHaveLength(2);
+    // The first scope's passage progressed the call, so the second request
+    // says so and its own stop would hide no file behind it.
+    expect(budgetOf(asked[0].params)['progressed']).toBe(false);
+    expect(budgetOf(asked[1].params)['progressed']).toBe(true);
   });
 
   it('gives the daemon nine tenths of the time left', async () => {
@@ -805,7 +836,14 @@ describe('Machine request shape', () => {
                   cursor: 'daemon-next',
                   consumed: { files: 1, entries: 1, bytes: 10 },
                 })
-              : page([passage('a.go', 1, 1)], { progressed: true }),
+              : searches === 2
+                ? page([], {
+                    complete: false,
+                    progressed: false,
+                    cursor: 'daemon-third',
+                    consumed: { files: 1, entries: 1, bytes: 10 },
+                  })
+                : page([passage('a.go', 1, 1)], { progressed: false }),
         };
       },
     });
@@ -822,10 +860,12 @@ describe('Machine request shape', () => {
     const asked = (await peer.session(0)).calls.filter(
       (call) => call.method === 'fs.grep',
     );
-    expect(asked).toHaveLength(2);
-    // The call progressed in the first page, so the second request says so.
+    expect(asked).toHaveLength(3);
+    // The call progressed in the first page, and a later page that reports
+    // false cannot erase it: every following request says the call progressed.
     expect(budgetOf(asked[0].params)['progressed']).toBe(false);
     expect(budgetOf(asked[1].params)['progressed']).toBe(true);
+    expect(budgetOf(asked[2].params)['progressed']).toBe(true);
     expect(success(result)['unfinishedFile']).toBeUndefined();
   });
 
@@ -882,6 +922,7 @@ describe('Machine request shape', () => {
             complete: false,
             progressed: false,
             unfinished: '',
+            consumed: { files: 1, entries: 1, bytes: 10 },
             cursor: encodeGrepCursor({
               kind: 'position',
               scopeIndex: 1,

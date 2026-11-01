@@ -752,6 +752,16 @@ describe('readFsGrepResult', () => {
   });
 
   it.each([
+    ['an absent progressed flag', { progressed: undefined }],
+    ['a progressed flag that is not a flag', { progressed: 'yes' }],
+    ['an unfinished path that is not text', { unfinished: 7 }],
+    ['an unfinished absolute path', { unfinished: '/abs/a.go' }],
+    ['an unfinished parent segment', { unfinished: 'a/../b' }],
+  ])('refuses a page with %s', (_case, overrides) => {
+    expect(readFsGrepResult(pageBody([], overrides))).toBeUndefined();
+  });
+
+  it.each([
     ['a kind outside the closed set', [{ kind: 'bogus', count: 1 }]],
     ['an entry that is not a record', [7]],
     ['a count that is not a whole number', [{ kind: 'deadline', count: 1.5 }]],

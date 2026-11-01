@@ -31,8 +31,6 @@ export { runGrepScan } from "./scan";
 export {
   grepFileLocator,
   grepPassageUnits,
-  grepUnfinishedLine,
-  grepUnfinishedUnits,
   measureGrepRendering,
   renderGrepText,
 } from "./model-text";
@@ -40,7 +38,6 @@ export { GREP_WARNING_KINDS, GrepPortError } from "./types";
 export type {
   GrepBudget,
   GrepEntry,
-  GrepFileStopReason,
   GrepFileStream,
   GrepPageEnd,
   GrepPassage,

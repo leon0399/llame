@@ -832,6 +832,8 @@ describe('paging', () => {
       });
       const started = Date.now();
       let calls = 0;
+      // Calls 1-8 are the call's deadline, the candidate's bounds, and the
+      // first chunks of the read; the 9th finds the clock past the deadline.
       const now = vi.spyOn(Date, 'now').mockImplementation(() => {
         calls += 1;
         return calls <= 8 ? started : started + 40_000;

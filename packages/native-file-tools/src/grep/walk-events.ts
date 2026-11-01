@@ -1,31 +1,44 @@
 /**
  * The walk's event vocabulary and the FIFO it travels through (design D2). One
  * ordered queue carries a scope start, the coalesced bookkeeping between two
- * candidates, a candidate with its started read, and the bound that stops the
- * walk; the producer pauses at two bounds, and a stop ends every waiter.
+ * candidates, a candidate with its started read or its refusal, and the bound
+ * that stops the walk. The producer pauses at the read-ahead width — a slot is
+ * held until the consumer takes the candidate — and at the queued-event cap; a
+ * failure waits behind the events already queued, and a stop ends every waiter.
  */
 
+import type { GrepPassageCursor } from "./cursor";
 import type { GrepFileScan } from "./passages";
 import type { GrepReadRefusal, GrepWarningKind } from "./types";
 
 /** Events that may wait in the queue before the walk pauses (design D2). */
 const MAX_QUEUED_EVENTS = 10_000;
 
-/** One candidate file, with the read the producer already started for it. */
-export interface GrepCandidateEvent {
+/** A candidate's identity: the scope it belongs to and the file it names. */
+type GrepCandidate = {
   readonly kind: "candidate";
   readonly scopeIndex: number;
   readonly rel: string;
   readonly fileLocator: string;
-  /** The scope names one file, so a stop inside it skips the scope's ordinal. */
-  readonly singleFile: boolean;
-  /** The `read` group refused the file, so no read was started. */
-  readonly refused: boolean;
-  /** The read's outcome; absent when the file was refused before a read. */
-  readonly outcome: Promise<GrepFileOutcome> | undefined;
-  /** The mark the consumer raises while it waits on this read. */
+  /** The cursor's own passage, when the previous page ended in this file. */
+  readonly resume: GrepPassageCursor | undefined;
+};
+
+/** One queued read: its caught outcome, and the mark the consumer raises. */
+export type GrepStartedRead = {
+  readonly outcome: Promise<GrepFileOutcome>;
   readonly head: number;
-}
+};
+
+/**
+ * One candidate file. `read` is absent when the `read` group refused the file,
+ * so the type rules out a task a refused candidate could never have.
+ */
+export type GrepCandidateEvent = GrepCandidate &
+  ({ readonly read: GrepStartedRead } | { readonly read: undefined });
+
+/** One candidate with a started read, which is the only kind the consumer awaits. */
+export type GrepReadEvent = GrepCandidate & { readonly read: GrepStartedRead };
 
 /** Everything the walk hands the consumer, in canonical order. */
 export type GrepWalkEvent =
@@ -38,8 +51,6 @@ export type GrepWalkEvent =
       readonly links: number;
       /** The last entry the walk reached, for a position cursor. */
       readonly reached: string | undefined;
-      /** Widest continuation line any reached entry of this run takes. */
-      readonly reserve: number;
     }
   | { readonly kind: "stop"; readonly reason: GrepWarningKind }
   | GrepCandidateEvent;
@@ -60,7 +71,7 @@ export type WalkQueue = {
   take(): Promise<GrepWalkEvent | undefined>;
   /** Wait until a read may start: fewer than the width, room in the queue. */
   room(): Promise<boolean>;
-  /** Start one read, counted until it settles, whatever its outcome. */
+  /** Start one read, counted until the consumer takes its candidate. */
   start(run: () => Promise<GrepFileOutcome>): Promise<GrepFileOutcome>;
   close(): void;
   fail(error: unknown): void;
@@ -74,11 +85,12 @@ type QueueState = {
   readonly width: number;
   readonly items: Array<GrepWalkEvent>;
   readonly reads: Set<Promise<GrepFileOutcome>>;
+  /** Reads started and not yet taken: the read-ahead window's slots. */
+  open: number;
   failure: Error | undefined;
   closed: boolean;
   waitingConsumer: (() => void) | undefined;
   waitingProducer: (() => void) | undefined;
-  waitingDrain: (() => void) | undefined;
 };
 
 export function createWalkQueue(width: number): WalkQueue {
@@ -86,11 +98,11 @@ export function createWalkQueue(width: number): WalkQueue {
     width,
     items: [],
     reads: new Set(),
+    open: 0,
     failure: undefined,
     closed: false,
     waitingConsumer: undefined,
     waitingProducer: undefined,
-    waitingDrain: undefined,
   };
   return {
     get closed() {
@@ -98,14 +110,19 @@ export function createWalkQueue(width: number): WalkQueue {
     },
     push: (event) => pushEvent(state, event),
     take: () => takeEvent(state),
-    room: () => awaitRoom(state),
+    room: () =>
+      waitUntil(
+        state,
+        () =>
+          state.open < state.width && state.items.length < MAX_QUEUED_EVENTS,
+      ),
     start: (run) => startRead(state, run),
     close() {
       state.closed = true;
       wake(state);
     },
     fail: (error) => failQueue(state, error),
-    drain: () => drainReads(state),
+    drain: () => Promise.all(state.reads).then(() => undefined),
   };
 }
 
@@ -119,38 +136,57 @@ function wake(state: QueueState): void {
   producer?.();
 }
 
-/** Queue one event once the FIFO has room; false once it closed. */
-function pushEvent(state: QueueState, event: GrepWalkEvent): Promise<boolean> {
+/**
+ * Park the one producer until `ready` holds; false once the queue closed. Only
+ * one producer ever waits, so one slot is enough.
+ */
+function waitUntil(state: QueueState, ready: () => boolean): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const attempt = (): void => {
       if (state.closed) {
         resolve(false);
         return;
       }
-      if (state.items.length >= MAX_QUEUED_EVENTS) {
+      if (!ready()) {
         state.waitingProducer = attempt;
         return;
       }
-      state.items.push(event);
-      wake(state);
       resolve(true);
     };
     attempt();
   });
 }
 
-/** The next event in canonical order; undefined once the walk ended. */
+/** Queue one event when the FIFO has room; false once it closed. */
+async function pushEvent(
+  state: QueueState,
+  event: GrepWalkEvent,
+): Promise<boolean> {
+  if (!(await waitUntil(state, () => state.items.length < MAX_QUEUED_EVENTS)))
+    return false;
+  state.items.push(event);
+  wake(state);
+  return true;
+}
+
+/**
+ * The next event in canonical order. Events already queued come before a
+ * failure, so a listing that failed ahead of the consumer cannot jump the work
+ * the serial walk would have answered first.
+ */
 function takeEvent(state: QueueState): Promise<GrepWalkEvent | undefined> {
   return new Promise<GrepWalkEvent | undefined>((resolve, reject) => {
     const attempt = (): void => {
-      if (state.failure !== undefined) {
-        reject(state.failure);
-        return;
-      }
       const next = state.items.shift();
       if (next !== undefined) {
+        if (next.kind === "candidate" && next.read !== undefined)
+          state.open -= 1;
         wake(state);
         resolve(next);
+        return;
+      }
+      if (state.failure !== undefined) {
+        reject(state.failure);
         return;
       }
       if (state.closed) {
@@ -163,28 +199,7 @@ function takeEvent(state: QueueState): Promise<GrepWalkEvent | undefined> {
   });
 }
 
-/** Wait until a read may start: fewer than the width, room in the queue. */
-function awaitRoom(state: QueueState): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const attempt = (): void => {
-      if (state.closed) {
-        resolve(false);
-        return;
-      }
-      if (
-        state.reads.size >= state.width ||
-        state.items.length >= MAX_QUEUED_EVENTS
-      ) {
-        state.waitingProducer = attempt;
-        return;
-      }
-      resolve(true);
-    };
-    attempt();
-  });
-}
-
-/** Start one read, counted until it settles, whatever its outcome. */
+/** Start one read, counted until the consumer takes its candidate. */
 function startRead(
   state: QueueState,
   run: () => Promise<GrepFileOutcome>,
@@ -194,21 +209,8 @@ function startRead(
     error,
   }));
   state.reads.add(read);
-  void read.then(() => {
-    settleRead(state, read);
-  });
+  state.open += 1;
   return read;
-}
-
-/** Release one read's slot: a stop or a finished file lets a new one start. */
-function settleRead(state: QueueState, read: Promise<GrepFileOutcome>): void {
-  state.reads.delete(read);
-  if (state.reads.size === 0) {
-    const drain = state.waitingDrain;
-    state.waitingDrain = undefined;
-    drain?.();
-  }
-  wake(state);
 }
 
 /** End the queue: a waiting read and a waiting take both return now. */
@@ -216,12 +218,4 @@ function failQueue(state: QueueState, error: unknown): void {
   state.failure ??= error instanceof Error ? error : new Error(String(error));
   state.closed = true;
   wake(state);
-}
-
-/** Resolves once no read this queue started is still running. */
-function drainReads(state: QueueState): Promise<void> {
-  if (state.reads.size === 0) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    state.waitingDrain = resolve;
-  });
 }

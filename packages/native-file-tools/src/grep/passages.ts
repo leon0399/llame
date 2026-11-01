@@ -37,12 +37,17 @@ export interface GrepFileScanInput {
   readonly maxFileBytes: number | null;
   readonly resume?: GrepFileResume;
   /**
-   * Asked before each chunk and between two pattern tests of one line: the
-   * bound that ends the read, when the file is the one the walk waits on. A
-   * stop gives back the bytes read so far, so the file is left unfinished
-   * instead of dropping.
+   * Asked before each chunk: the bound that ends the read, when the file is the
+   * one the walk waits on. A stop gives back the bytes read so far, so the file
+   * is left unfinished instead of dropping.
    */
   readonly stop?: (bytesRead: number) => GrepFileStopReason | undefined;
+  /**
+   * Asked between two pattern tests of one line: only the deadline, because the
+   * byte bound counts whole chunks. A stopped line ends the file as stopped, so
+   * a match it still held is never lost.
+   */
+  readonly deadline?: () => boolean;
   /**
    * The scan's own stop signal: an aborted read ends at its next chunk and
    * closes the stream, so a file nobody will take releases its handle.
@@ -104,33 +109,94 @@ export async function scanGrepFile(
   const state = createPassageState(input);
   let bytes = 0;
   let lines = 0;
+  let yielded = YIELD_LINES;
   for await (const chunk of input.chunks) {
-    if (input.signal?.aborted === true) return { kind: "aborted", bytes };
-    const early = input.stop?.(bytes);
-    if (early !== undefined) return { kind: "stopped", reason: early, bytes };
-    if (!(chunk instanceof Uint8Array))
-      return { kind: "refused", refusal: chunk.kind, bytes };
-    bytes += chunk.byteLength;
-    if (input.maxFileBytes !== null && bytes > input.maxFileBytes)
-      return { kind: "refused", refusal: "oversized", bytes };
-    const step = stepChunk(reader, chunk);
+    const step = takeChunk(reader, chunk, input, bytes);
     if ("refusal" in step)
       return { kind: "refused", refusal: step.refusal, bytes };
-    // Between two pattern tests of one line: a single test cannot be
-    // interrupted, but the next one can still end at the call deadline.
-    const patternsStopped = (): boolean => input.stop?.(bytes) !== undefined;
-    for (const text of step.lines) {
-      takeLine(state, text, patternsStopped);
-      lines += 1;
-      if (lines % YIELD_LINES === 0)
-        await new Promise<void>((resolve) => setImmediate(resolve));
+    if ("stop" in step) return step.stop;
+    bytes += step.bytes;
+    lines += step.lines.length;
+    const early = takeLines(state, step.lines, bytes);
+    if (early !== undefined) return early;
+    if (lines >= yielded) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      yielded = lines + YIELD_LINES;
     }
   }
   const last = flushLines(reader);
   if ("refusal" in last)
     return { kind: "refused", refusal: last.refusal, bytes };
-  for (const text of last.lines) takeLine(state, text);
+  const tail = takeLines(state, last.lines, bytes);
+  if (tail !== undefined) return tail;
   return { kind: "passages", ...passageResult(state), bytes };
+}
+
+/** What one chunk adds, or why the read ended before it. */
+type TakeChunkStep =
+  | { readonly lines: ReadonlyArray<string>; readonly bytes: number }
+  | { readonly refusal: GrepFileRefusal }
+  | {
+      readonly stop: Extract<
+        GrepFileScan,
+        { readonly kind: "stopped" } | { readonly kind: "aborted" }
+      >;
+    };
+
+/**
+ * One chunk's guards and decode: the abort and the bound are asked before its
+ * bytes, then the NUL probe, the streamed size check, and the line split.
+ */
+function takeChunk(
+  reader: LineReader,
+  chunk: Uint8Array | GrepReadRefusal,
+  input: GrepFileScanInput,
+  bytesRead: number,
+): TakeChunkStep {
+  if (input.signal?.aborted === true)
+    return { stop: { kind: "aborted", bytes: bytesRead } };
+  const bound = input.stop?.(bytesRead);
+  if (bound !== undefined)
+    return { stop: { kind: "stopped", reason: bound, bytes: bytesRead } };
+  if (!(chunk instanceof Uint8Array)) return { refusal: chunk.kind };
+  if (
+    input.maxFileBytes !== null &&
+    bytesRead + chunk.byteLength > input.maxFileBytes
+  )
+    return { refusal: "oversized" };
+  const step = stepChunk(reader, chunk);
+  return "refusal" in step
+    ? step
+    : { lines: step.lines, bytes: chunk.byteLength };
+}
+
+/**
+ * Test and hold one chunk's completed lines in order; the stop that ended them,
+ * if the deadline passed between two pattern tests or the read was aborted.
+ */
+function takeLines(
+  state: PassageState,
+  lines: ReadonlyArray<string>,
+  bytes: number,
+):
+  | Extract<GrepFileScan, { kind: "stopped" } | { kind: "aborted" }>
+  | undefined {
+  const { input } = state;
+  // A closure, so the loop re-reads the signal after a line's pattern tests:
+  // an abort during them must end the file as aborted, not as a deadline stop.
+  const aborted = (): boolean => input.signal?.aborted === true;
+  for (const text of lines) {
+    if (aborted()) return { kind: "aborted", bytes };
+    const matched = input.patterns.matches(text, input.deadline);
+    // The patterns after a stop never ran, so the line is not known to miss:
+    // the file ends as stopped instead of dropping a match it still held.
+    if (matched === "stopped")
+      return aborted()
+        ? { kind: "aborted", bytes }
+        : { kind: "stopped", reason: "deadline", bytes };
+    takeLine(state, text, matched);
+  }
+  return undefined;
 }
 
 /** One-based start line of an emitted passage locator. */
@@ -345,19 +411,14 @@ function cutLine(text: string): string {
 }
 
 /** Take one logical line: test it, then hold it for the passages it feeds. */
-function takeLine(
-  state: PassageState,
-  text: string,
-  stopped?: () => boolean,
-): void {
+function takeLine(state: PassageState, text: string, matched: boolean): void {
   state.line += 1;
   const display = cutLine(text);
   // A match opens the interval first, so the line it matched is held for the
   // window it starts; a line after one is held while it stays open.
   // `previous` stays the line before this one until both steps are done.
   if (!state.stopped) {
-    if (state.input.patterns.matches(text, stopped))
-      matchLine(state, state.line);
+    if (matched) matchLine(state, state.line);
     else if (state.open !== undefined && state.line > state.open.end + 1)
       // No window can merge here any more: close it, so a long gap cannot
       // spend the hold limit on lines no passage will render.

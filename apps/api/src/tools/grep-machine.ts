@@ -84,11 +84,6 @@ export type MachineGrepScope = {
   readonly path: string;
   /** The glob text from the first glob segment onward, as submitted. */
   readonly globSuffix: string | undefined;
-  /**
-   * The prefix names one regular file, so a stop inside it names the next
-   * scope ordinal instead of the file.
-   */
-  readonly singleFile: boolean;
 };
 
 /** The compiled search the call resolved before either backend ran. */
@@ -174,15 +169,12 @@ export async function resolveMachineScope(
   if ('result' in verdict) return { result: verdict.result };
   if (verdict.kind === 'refused')
     return { result: machinePathNotFoundResult() };
-  return {
-    machine: { ...parsed, singleFile: verdict.singleFile },
-    root: parsed.name,
-  };
+  return { machine: parsed, root: parsed.name };
 }
 
 /** What the exact-path rule settled for one glob-free Machine scope. */
 type ExactPathVerdict =
-  | { readonly kind: 'walk'; readonly singleFile: boolean }
+  | { readonly kind: 'walk' }
   | { readonly kind: 'refused' }
   | { readonly result: GrepToolError };
 
@@ -204,10 +196,9 @@ async function exactPathVerdict(
   scope: MachineGrepScope,
   admission: GrepReadAdmission,
 ): Promise<ExactPathVerdict> {
-  if (scope.globSuffix !== undefined)
-    return { kind: 'walk', singleFile: false };
+  if (scope.globSuffix !== undefined) return { kind: 'walk' };
   const locator = formatMachineLocator(scope.name, scope.path);
-  if (locator === undefined) return { kind: 'walk', singleFile: false };
+  if (locator === undefined) return { kind: 'walk' };
   try {
     const answer = readFsStatResult(
       await connector.request(
@@ -224,10 +215,8 @@ async function exactPathVerdict(
       ),
     );
     if (answer === undefined || answer.kind !== 'file' || answer.isLink)
-      return { kind: 'walk', singleFile: false };
-    return admission.admit(locator)
-      ? { kind: 'walk', singleFile: true }
-      : { kind: 'refused' };
+      return { kind: 'walk' };
+    return admission.admit(locator) ? { kind: 'walk' } : { kind: 'refused' };
   } catch (error) {
     return { result: machineGrepFailure(scope.name, error) };
   }
@@ -272,8 +261,6 @@ export function machineScopeOf(
     name,
     path: normalizeHostScope(decoded),
     globSuffix: split.globSuffix,
-    // The exact-path probe settles this before the scope runs.
-    singleFile: false,
   };
 }
 
@@ -319,69 +306,41 @@ async function runDaemonPages(
   connector: MachineConnector,
   deadlineAt: number,
 ): Promise<MachineGrepSegment> {
-  const pages: DaemonPages = {
-    search,
-    connector,
-    deadlineAt,
-    entries: [],
-    warnings: new Map(),
-    consumed: { files: 0, entries: 0, bytes: 0 },
-    budget: {
-      ...search.budget,
-      deadlineMs: Math.max(0, deadlineAt - Date.now()),
-    },
-    cursor:
-      search.resume === undefined
-        ? undefined
-        : daemonCursor(search, search.resume),
-    progressed: search.progressed,
-    last: undefined,
-  };
-  const refused = await askPages(pages);
-  if (refused !== undefined) return { status: 'error', result: refused };
-  return segmentOfPages(search, pages);
-}
-
-/** What one Machine scope's page loop carries from page to page. */
-type DaemonPages = {
-  readonly search: MachineGrepSearch;
-  readonly connector: MachineConnector;
-  readonly deadlineAt: number;
-  readonly entries: Array<MachineGrepEntry>;
-  readonly warnings: Map<FsGrepWarningKind, number>;
-  readonly consumed: FsGrepConsumed;
-  budget: CallBudget;
-  cursor: string | undefined;
-  /** Progress belongs to the call: a page past the start point tells the next. */
-  progressed: boolean;
-  last: FsGrepSuccess | undefined;
-};
-
-/** Ask pages until one is kept or complete; the refusal that ends the call. */
-async function askPages(
-  pages: DaemonPages,
-): Promise<GrepToolError | undefined> {
-  const { search, connector, deadlineAt } = pages;
-  while (canAskPage(pages.budget)) {
+  const entries: Array<MachineGrepEntry> = [];
+  const warnings = new Map<FsGrepWarningKind, number>();
+  const consumed = { files: 0, entries: 0, bytes: 0 };
+  let budget = daemonBudget(search.budget, deadlineAt);
+  let cursor = search.resume && daemonCursor(search, search.resume);
+  // Progress belongs to the call: a page that got past the start point lets
+  // the next request know, so its own stop hides no file behind it.
+  let progressed = search.progressed;
+  let last: FsGrepSuccess | undefined;
+  while (canAskPage(budget)) {
     const asked = await requestPage(search, connector, {
-      budget: pages.budget,
-      cursor: pages.cursor,
-      progressed: pages.progressed,
+      budget,
+      cursor,
+      progressed,
     });
-    if ('result' in asked) return asked.result;
+    if ('result' in asked) return { status: 'error', result: asked.result };
     const page = asked.page;
-    pages.last = page;
-    mergePage(pages.warnings, pages.consumed, page);
-    pages.progressed = pages.progressed || page.progressed;
-    const rendered = renderPage(search, page, pages.entries);
-    if ('result' in rendered) return rendered.result;
-    if (rendered.kept > 0 || page.complete) return undefined;
-    const next = nextCursor(page, pages.cursor);
-    if (next === undefined) return undefined;
-    pages.cursor = next;
-    pages.budget = spent(pages.budget, page.consumed, deadlineAt);
+    last = page;
+    mergePage(warnings, consumed, page);
+    progressed = progressed || page.progressed;
+    const rendered = renderPage(search, page, entries);
+    if ('result' in rendered)
+      return { status: 'error', result: rendered.result };
+    const next = keepAsking(rendered.kept, page, cursor);
+    if (next === undefined) break;
+    cursor = next;
+    budget = spent(budget, page.consumed, deadlineAt);
   }
-  return undefined;
+  return segmentOfPages(search, {
+    entries,
+    warnings,
+    consumed,
+    last,
+    progressed,
+  });
 }
 
 /** One Machine scope's pages, as the segment the call's page appends. */
@@ -395,6 +354,26 @@ function segmentOfPages(
       ? undefined
       : (unfinishedPosition(search, last) ?? stoppedPosition(search, last));
   return segmentOf({ ...pages, position });
+}
+
+/**
+ * The next cursor to ask with, or undefined when this page ended the loop. A
+ * page that stopped inside a file answered the call, so another page would
+ * replace the daemon's unfinished file with an empty one.
+ */
+function keepAsking(
+  kept: number,
+  page: FsGrepSuccess,
+  cursor: string | undefined,
+): string | undefined {
+  if (kept > 0 || page.complete || page.unfinished !== undefined)
+    return undefined;
+  return nextCursor(page, cursor);
+}
+
+/** What one daemon page has left: the call's deadline minus the clock now. */
+function daemonBudget(budget: CallBudget, deadlineAt: number): CallBudget {
+  return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
 }
 
 /** What one Machine scope's pages add up to. */
