@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { applySelectorSuffix, type ReadTarget } from "./path";
 import { outlineMarkdown } from "./markdown-outline";
-import { MAX_READ_LINES, splitSourceLines } from "./source-lines";
-
-import { measureNativeModelOutput } from "./serialization";
+import {
+  MAX_READ_LINES,
+  measureReadRendering,
+  splitSourceLines,
+} from "./source-lines";
 
 function target(
   selector = "outline",
@@ -184,7 +186,7 @@ describe("markdown outline reader", () => {
     });
   });
 
-  it("obeys line and serialized bounds and reports zero-based continuation", async () => {
+  it("obeys line and rendered bounds and reports zero-based continuation", async () => {
     const source = "#\n".repeat(MAX_READ_LINES + 4);
     const first = await read(source, "outline", { reserveCodeUnits: -10_000 });
     expect(first.truncated).toBe(true);
@@ -198,20 +200,23 @@ describe("markdown outline reader", () => {
       content: `${first.nextOffset! + 1}: #\n`,
     });
 
-    const budgeted = await read("# one\n# two\n# three\n", "outline", {
-      reserveCodeUnits: 15_800,
+    // A budget half of the whole outline keeps whole structural lines and
+    // measures the continuation line the truncated result ends with.
+    const headings = Array.from(
+      { length: 12 },
+      (_, index) => `# heading number ${index}\n`,
+    ).join("");
+    const whole = await read(headings);
+    const budget = Math.floor(measureReadRendering(whole) / 2);
+    const budgeted = await read(headings, "outline", {
+      reserveCodeUnits: 16_000 - budget,
     });
     expect(budgeted.truncated).toBe(true);
-    expect(budgeted.nextOffset).toBe(0);
-    expect(measureNativeModelOutput(budgeted)).toBeLessThanOrEqual(
-      16_000 - 15_800,
-    );
-    const rangeBudgeted = await read("# H\n" + "\n".repeat(9), "outline", {
-      reserveCodeUnits: 15_782,
+    expect(measureReadRendering(budgeted)).toBeLessThanOrEqual(budget);
+    const rangeBudgeted = await read(headings, "outline:3-6", {
+      reserveCodeUnits: 16_000 - budget,
     });
-    expect(measureNativeModelOutput(rangeBudgeted)).toBeLessThanOrEqual(
-      16_000 - 15_782,
-    );
+    expect(measureReadRendering(rangeBudgeted)).toBeLessThanOrEqual(budget);
   });
 
   it("advances continuations past an oversized ancestor chain", async () => {

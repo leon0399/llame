@@ -1,6 +1,10 @@
-import { RESULT_TRUNCATE_CHARS } from "@workspace/runtime-safety";
+import {
+  neutralizeReservedDelimiters,
+  RESULT_TRUNCATE_CHARS,
+  type UnknownRecord,
+} from "@workspace/runtime-safety";
+import { renderReadText } from "./model-text";
 import { assertResolvedTarget, NativeFileError, type ReadTarget } from "./path";
-import { measureNativeModelOutput } from "./serialization";
 import { selectMarkdownSourceLines } from "./markdown-ancestors";
 export const MAX_READ_LINES = 2000;
 export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
@@ -8,6 +12,26 @@ export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
 /** The shared cap minus any room a caller withheld for its own envelope. */
 export function resultBudget(target: { reserveCodeUnits?: number }): number {
   return MAX_RESULT_CODE_UNITS - (target.reserveCodeUnits ?? 0);
+}
+
+/**
+ * Width the model receives for a read candidate: its text rendering after the
+ * one reserved-name rule, so escaped delimiters and the framing count against
+ * the bound (tool-result-rendering "Bounds are measured on the neutralized
+ * rendering"). A caller measuring a cut candidate passes the next offset it
+ * would store, so the continuation line is inside the measured width.
+ */
+export function measureReadRendering(
+  result: UnknownRecord,
+  nextOffset?: number,
+): number {
+  return neutralizeReservedDelimiters(
+    renderReadText(
+      nextOffset === undefined
+        ? result
+        : { ...result, truncated: true, nextOffset },
+    ),
+  ).length;
 }
 
 export type LineRange = { startLine: number; endLine: number };
@@ -22,6 +46,11 @@ type ReadSuccessBase = {
   content: string;
   nextOffset?: number;
   truncated: boolean;
+  /** The source's line count, when it is known: a text read of a file small
+   *  enough to count by byte scan, or an in-memory selection, whose lines are
+   *  already in hand. Absent for an outline and for a file past
+   *  `READ_LINE_COUNT_MAX_BYTES`. */
+  lineCount?: number;
 };
 
 export type SingleReadSuccess = ReadSuccessBase & {
@@ -62,28 +91,29 @@ export function selectSourceLines(
 ): ReadSuccess {
   if (target.ranges !== undefined) throw new NativeFileError("invalid_input");
   assertResolvedTarget(target);
-  if (mediaType === "text/markdown" && target.offset > 0 && !target.raw)
-    return selectMarkdownSourceLines(source, target);
   const lines = splitSourceLines(source);
+  const placed: ReadTarget = { ...target, lineCount: lines.length };
+  if (mediaType === "text/markdown" && placed.offset > 0 && !placed.raw)
+    return selectMarkdownSourceLines(source, placed);
   if (
-    target.offset >= lines.length &&
-    (lines.length > 0 || target.offset !== 0)
+    placed.offset >= lines.length &&
+    (lines.length > 0 || placed.offset !== 0)
   ) {
     throw new NativeFileError("invalid_selector");
   }
-  const requestedEnd = target.offset + (target.limit ?? MAX_READ_LINES);
+  const requestedEnd = placed.offset + (placed.limit ?? MAX_READ_LINES);
   const boundedEnd = Math.min(
     lines.length,
-    target.offset + boundedReadLineCount(target.limit),
+    placed.offset + boundedReadLineCount(placed.limit),
   );
-  const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
-  const end = target.raw ? boundedEnd : Math.min(lines.length, boundedEnd + 1);
-  const result = emptyReadResult(target, lines.length === 0 ? 0 : requestedEnd);
+  const start = placed.raw ? placed.offset : Math.max(0, placed.offset - 1);
+  const end = placed.raw ? boundedEnd : Math.min(lines.length, boundedEnd + 1);
+  const result = emptyReadResult(placed, lines.length === 0 ? 0 : requestedEnd);
   result.truncated =
     boundedEnd < Math.min(requestedEnd, lines.length) ||
-    (target.limit === undefined && boundedEnd < lines.length);
+    (placed.limit === undefined && boundedEnd < lines.length);
   if (boundedEnd < lines.length) result.nextOffset = boundedEnd;
-  return renderSelection(lines, target, result, { start, end });
+  return renderSelection(lines, placed, result, { start, end });
 }
 
 function renderSelection(
@@ -125,9 +155,13 @@ export function appendReadLine(
     },
   };
   const isFirstLineOfResult = result.content === "";
+  // Measure with the offset the failed append would store: `retryOffset`
+  // resumes at the line inside the window, and at the window end once the
+  // appended line is the trailing context line, whose stored offset is the
+  // window end. A label measured one line ahead can gain a digit.
   const overflows =
     line === undefined ||
-    measureNativeModelOutput({ ...candidate, nextOffset: index + 1 }) >
+    measureReadRendering(candidate, retryOffset(target, index + 1)) >
       resultBudget(target);
   // The only index below the requested offset is the single preceding
   // context line. One that cannot be rendered is unavailable context, not a
@@ -149,10 +183,19 @@ export function appendReadLine(
   return true;
 }
 
+/** An unselected read requests the whole source: when its line count is
+ *  known, that count is the requested end, so a read cut inside the default
+ *  window continues to the end of the file rather than to line 2000. */
 export function emptyReadResult(
   target: ReadTarget,
   endLine: number,
 ): SingleReadSuccess {
+  const requestedEnd =
+    endLine !== 0 &&
+    target.limit === undefined &&
+    target.lineCount !== undefined
+      ? target.lineCount
+      : endLine;
   const result: SingleReadSuccess = {
     status: "success",
     kind: "file",
@@ -160,15 +203,15 @@ export function emptyReadResult(
     representation: target.raw ? "raw" : "text",
     content: "",
     requestedRange:
-      endLine === 0 ? null : { startLine: target.offset + 1, endLine },
+      requestedEnd === 0
+        ? null
+        : { startLine: target.offset + 1, endLine: requestedEnd },
     shownRange: null,
     truncated: false,
   };
   if (target.realPath !== undefined) result.realPath = target.realPath;
-  if (
-    measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
-    resultBudget(target)
-  )
+  if (target.lineCount !== undefined) result.lineCount = target.lineCount;
+  if (measureReadRendering(result, target.offset) > resultBudget(target))
     throw new NativeFileError("invalid_path");
   return result;
 }
@@ -202,10 +245,8 @@ export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
     truncated: false,
   };
   if (target.realPath !== undefined) result.realPath = target.realPath;
-  if (
-    measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
-    resultBudget(target)
-  )
+  if (target.lineCount !== undefined) result.lineCount = target.lineCount;
+  if (measureReadRendering(result, target.offset) > resultBudget(target))
     throw new NativeFileError("invalid_selector");
   return result;
 }
@@ -237,8 +278,7 @@ export function appendMultiReadLine(
   };
   const isFirstLineOfResult = result.content === "";
   const overflows =
-    measureNativeModelOutput({ ...candidate, nextOffset: index + 1 }) >
-    resultBudget(target);
+    measureReadRendering(candidate, index + 1) > resultBudget(target);
   if (overflows) {
     result.truncated = true;
     // A line that fails even as the first line of a fresh result fails again

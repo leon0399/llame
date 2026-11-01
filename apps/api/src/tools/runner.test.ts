@@ -691,7 +691,10 @@ describe('runTool', () => {
       content: '',
       truncated: false,
     };
-    const overhead = renderToolResultText('read', empty).length;
+    // The framing the rendered read adds around its content: one newline
+    // between the header and the content line.
+    const overhead =
+      renderToolResultText('read', { ...empty, content: 'x' }).length - 1;
     const content = 'x'.repeat(RESULT_TRUNCATE_CHARS - overhead);
     const readLike: Tool<{ value: string }> = {
       ...echoTool,

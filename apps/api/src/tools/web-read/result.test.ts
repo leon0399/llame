@@ -1,6 +1,6 @@
 import {
   invalidSelectorMessage,
-  measureNativeModelOutput,
+  measureReadRendering,
   OUTLINE_UNSUPPORTED_MESSAGE,
   renderCollectedDirectory,
   type DirectoryListingEntry,
@@ -91,6 +91,36 @@ describe('buildWebReadResult', () => {
     expect(JSON.stringify(result)).not.toContain('text/markdown');
   });
 
+  it('stores the rendered line count of a text read', async () => {
+    const render = {
+      method: 'negotiated' as const,
+      content: renderedLines(100),
+    };
+    // A selected window still reports the page's own line count.
+    expect(
+      await buildWebReadResult(
+        { url: GUIDE_URL, selector: '10-12' },
+        GUIDE_URL,
+        render,
+      ),
+    ).toMatchObject({ status: 'success', lineCount: 100 });
+    // An outline stores none: its scan can stop early.
+    const outline = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'outline' },
+      GUIDE_URL,
+      {
+        method: 'text',
+        content: '# Guide\n\n## Setup\n',
+        mediaType: 'text/markdown',
+      },
+    );
+    expect(outline).toMatchObject({
+      status: 'success',
+      representation: 'outline',
+    });
+    expect(outline).not.toHaveProperty('lineCount');
+  });
+
   it('matches the native directory renderer, including a selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,
@@ -135,6 +165,7 @@ describe('buildWebReadResult', () => {
   - README.md
 `,
       truncated: false,
+      entryCount: 2,
       finalUrl: DIRECTORY_URL,
       method: 'adapter',
     });
@@ -157,6 +188,7 @@ describe('buildWebReadResult', () => {
 `,
       truncated: true,
       nextOffset: 1,
+      entryCount: 2,
       finalUrl: DIRECTORY_URL,
       method: 'adapter',
     });
@@ -702,6 +734,7 @@ describe('buildWebReadResult', () => {
       shownRange: { startLine: 3, endLine: 5 },
       nextOffset: 4,
       truncated: false,
+      lineCount: 10,
       finalUrl: GUIDE_URL,
       method: 'text',
     });
@@ -725,6 +758,7 @@ describe('buildWebReadResult', () => {
       shownRange: { startLine: 2, endLine: 2 },
       nextOffset: 2,
       truncated: false,
+      lineCount: 10,
       finalUrl: GUIDE_URL,
       method: 'raw',
     });
@@ -758,6 +792,7 @@ describe('buildWebReadResult', () => {
         { startLine: 9, endLine: 10 },
       ],
       truncated: false,
+      lineCount: 10,
       finalUrl: GUIDE_URL,
       method: 'negotiated',
     });
@@ -831,7 +866,7 @@ describe('buildWebReadResult', () => {
       nextOffset: 398,
     });
     expect(result).toHaveProperty('content', readWindow(1, 201));
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
       RESULT_TRUNCATE_CHARS,
     );
   });
@@ -894,7 +929,7 @@ describe('buildWebReadResult', () => {
       'content',
       expect.not.stringContaining('line 1200'),
     );
-    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
       RESULT_TRUNCATE_CHARS,
     );
   });

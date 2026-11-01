@@ -491,6 +491,7 @@ describe('web locator dispatch', () => {
       ],
       nextOffset: 6,
       truncated: false,
+      lineCount: 7,
       finalUrl: url,
       method: 'negotiated',
     });
@@ -523,6 +524,7 @@ describe('web locator dispatch', () => {
         { startLine: 5, endLine: 8 },
       ],
       truncated: false,
+      lineCount: 8,
       finalUrl: url,
       method: 'negotiated',
     });
@@ -546,6 +548,7 @@ describe('web locator dispatch', () => {
       shownRange: { startLine: 5, endLine: 7 },
       nextOffset: 6,
       truncated: false,
+      lineCount: 7,
       finalUrl: url,
       method: 'negotiated',
     });

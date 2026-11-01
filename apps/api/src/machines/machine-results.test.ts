@@ -4,6 +4,7 @@ import {
   type SerializableValue,
 } from '@workspace/machine-protocol';
 
+import { renderToolResultText } from '../tools/model-text';
 import {
   isNativeFailure,
   readFsBytesResult,
@@ -257,24 +258,113 @@ describe('readFsListResult', () => {
 });
 
 describe('readFsReadResult', () => {
-  it('accepts a file read', () => {
+  /** A minimal file read; every optional field is added per case. */
+  const READ_ANSWER = {
+    status: 'success',
+    kind: 'file',
+    path: 'machine://devl/a',
+    content: '1: a\n',
+    truncated: false,
+  } as const;
+
+  const RANGE_FIELDS = [
+    'requestedRange',
+    'shownRange',
+    'requestedRanges',
+    'shownRanges',
+  ] as const;
+
+  type RangeField = (typeof RANGE_FIELDS)[number];
+
+  /** One valid value per range field, as a daemon reports it. */
+  const RANGE_VALUES: Record<RangeField, JsonValue> = {
+    requestedRange: { startLine: 12, endLine: 40 },
+    shownRange: { startLine: 11, endLine: 41 },
+    requestedRanges: [
+      { startLine: 12, endLine: 40 },
+      { startLine: 70, endLine: 80 },
+    ],
+    shownRanges: [
+      { startLine: 11, endLine: 41 },
+      { startLine: 69, endLine: 81 },
+    ],
+  };
+
+  /** One value per range field the hub refuses to forward. */
+  const MALFORMED_RANGES: Record<RangeField, JsonValue> = {
+    requestedRange: { startLine: 12 },
+    shownRange: '11-41',
+    requestedRanges: [{ startLine: 12, endLine: 40 }, { startLine: 70 }],
+    shownRanges: { startLine: 11, endLine: 41 },
+  };
+
+  it.each(RANGE_FIELDS)('forwards the %s a daemon reports', (field) => {
+    const answer = { ...READ_ANSWER, [field]: RANGE_VALUES[field] };
+
+    expect(readFsReadResult(answer)).toStrictEqual({
+      ...READ_ANSWER,
+      [field]: RANGE_VALUES[field],
+    });
+  });
+
+  it.each(RANGE_FIELDS)(
+    'drops a malformed %s without dropping the read',
+    (field) => {
+      const result = readFsReadResult({
+        ...READ_ANSWER,
+        [field]: MALFORMED_RANGES[field],
+      });
+
+      expect(result).toStrictEqual({ ...READ_ANSWER });
+      expect(Object.hasOwn(result ?? {}, field)).toBe(false);
+    },
+  );
+
+  it('keeps every range field a daemon omits absent', () => {
+    const result = readFsReadResult(READ_ANSWER);
+
+    expect(result).toStrictEqual({ ...READ_ANSWER });
+    for (const field of RANGE_FIELDS)
+      expect(Object.hasOwn(result ?? {}, field)).toBe(false);
+  });
+
+  it('keeps an explicit null range as null', () => {
     expect(
       readFsReadResult({
-        status: 'success',
-        kind: 'file',
-        path: 'machine://devl/a',
-        content: 'hello',
-        truncated: false,
-        nextOffset: 0,
+        ...READ_ANSWER,
+        requestedRange: null,
+        shownRange: null,
       }),
-    ).toEqual({
-      status: 'success',
-      kind: 'file',
+    ).toStrictEqual({
+      ...READ_ANSWER,
+      requestedRange: null,
+      shownRange: null,
+    });
+  });
+
+  it('drops a representation outside the closed set', () => {
+    const result = readFsReadResult({ ...READ_ANSWER, representation: 'hex' });
+
+    expect(result).toStrictEqual({ ...READ_ANSWER });
+    expect(Object.hasOwn(result ?? {}, 'representation')).toBe(false);
+  });
+
+  it('forwards a representation inside the closed set', () => {
+    expect(
+      readFsReadResult({ ...READ_ANSWER, representation: 'outline' }),
+    ).toStrictEqual({ ...READ_ANSWER, representation: 'outline' });
+  });
+
+  it('accepts a file read unchanged', () => {
+    const file = {
+      status: 'success' as const,
+      kind: 'file' as const,
       path: 'machine://devl/a',
       content: 'hello',
       truncated: false,
       nextOffset: 0,
-    });
+    };
+    expect(readFsReadResult(file)).toEqual(file);
   });
 
   it('accepts a directory read and a media read', () => {
@@ -300,6 +390,83 @@ describe('readFsReadResult', () => {
       mediaType: 'image/png',
       path: 'machine://devl/a.png',
     });
+  });
+
+  it('forwards the counts a newer daemon reports', () => {
+    expect(
+      readFsReadResult({
+        status: 'success',
+        kind: 'file',
+        path: 'machine://devl/a',
+        content: '1: hello\n',
+        truncated: true,
+        nextOffset: 1,
+        lineCount: 216,
+      }),
+    ).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: 'machine://devl/a',
+      content: '1: hello\n',
+      truncated: true,
+      nextOffset: 1,
+      lineCount: 216,
+    });
+    expect(
+      readFsReadResult({
+        status: 'success',
+        kind: 'directory',
+        path: 'machine://devl/a',
+        content: 'machine://devl/a\n  - b\n',
+        truncated: false,
+        entryCount: 3,
+      }),
+    ).toEqual({
+      status: 'success',
+      kind: 'directory',
+      path: 'machine://devl/a',
+      content: 'machine://devl/a\n  - b\n',
+      truncated: false,
+      entryCount: 3,
+    });
+  });
+
+  it('forwards the representation and shown ranges a daemon reports', () => {
+    const answer = {
+      status: 'success' as const,
+      kind: 'file' as const,
+      path: 'machine://devl/a',
+      representation: 'raw' as const,
+      content: 'a\nb\n',
+      truncated: true,
+      nextOffset: 2,
+      lineCount: 40,
+      requestedRange: null,
+      shownRange: { startLine: 3, endLine: 4 },
+    };
+    expect(readFsReadResult(answer)).toEqual(answer);
+  });
+
+  it('renders a Machine read from the daemon answer it received', () => {
+    // The daemon reports the native result as-is, so the hub must forward the
+    // ranges the header is built from; dropping them renders `: empty`.
+    const result = readFsReadResult({
+      status: 'success',
+      kind: 'file',
+      path: 'machine://devl/a',
+      representation: 'text',
+      content: '12: a\n40: b\n41: c\n',
+      truncated: true,
+      nextOffset: 41,
+      lineCount: 216,
+      requestedRange: { startLine: 12, endLine: 40 },
+      shownRange: { startLine: 11, endLine: 41 },
+    });
+    if (result === undefined) throw new Error('Expected a Machine file read');
+    expect(renderToolResultText('read', result)).toBe(
+      'machine://devl/a:11-41 of 216 lines\n12: a\n40: b\n41: c\n' +
+        '[175 more lines. Use machine://devl/a:42- to continue]',
+    );
   });
 
   it.each([

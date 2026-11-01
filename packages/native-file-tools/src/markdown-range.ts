@@ -143,7 +143,15 @@ function emitPassage(context: PassageContext): boolean {
     mandatory,
     result: state.result,
     emitted: state.emittedLines.size,
-    reserveNextOffset: state.result.nextOffset ?? passage.firstRequested + 1,
+    // A forced offset at or past the last line renders no continuation, so
+    // the estimate uses the nearest cut a real result can report.
+    reserveNextOffset:
+      target.lineCount === undefined
+        ? (state.result.nextOffset ?? passage.firstRequested + 1)
+        : Math.min(
+            state.result.nextOffset ?? passage.firstRequested + 1,
+            Math.max(0, target.lineCount - 1),
+          ),
     target,
     firstRequested: passage.firstRequested,
     firstShownLine: mandatory[0]?.line ?? passage.firstRequested + 1,

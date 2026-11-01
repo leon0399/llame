@@ -17,8 +17,11 @@ import type {
 } from "./read";
 import type { MediaReadSuccess } from "./media";
 import { selectMultiRangeLines } from "./stream-read";
-import { measureNativeModelOutput } from "./serialization";
-import { selectSourceLines, splitSourceLines } from "./source-lines";
+import {
+  measureReadRendering,
+  selectSourceLines,
+  splitSourceLines,
+} from "./source-lines";
 
 /** What a native read reports, before the guard below narrows it. */
 type ReadOutcome =
@@ -83,6 +86,8 @@ describe("in-memory multi-range selection", () => {
         splitSourceLines(source).length,
       ),
     );
+    // Only the line source differs: the file stores the count its scan
+    // produced, and the walk over text in hand counts the lines it holds.
     expect(fromMemory).toEqual(fromFile);
     return fromMemory;
   }
@@ -326,6 +331,7 @@ describe("markdown ancestor range selection", () => {
       ],
       nextOffset: 72,
       truncated: false,
+      lineCount: 73,
     });
   });
 
@@ -358,6 +364,7 @@ describe("markdown ancestor range selection", () => {
       shownRanges: [{ startLine: 3, endLine: 6 }],
       nextOffset: 5,
       truncated: false,
+      lineCount: 6,
     });
   });
 
@@ -392,6 +399,7 @@ describe("markdown ancestor range selection", () => {
       shownRanges: [{ startLine: 1, endLine: 5 }],
       nextOffset: 4,
       truncated: false,
+      lineCount: 5,
     });
   });
 
@@ -400,9 +408,16 @@ describe("markdown ancestor range selection", () => {
     const truncatedSource = "Title\nsubtitle\nextra\n";
     const target = applySelectorSuffix("/doc.md", "2-2");
     const result = selectSourceLines(source, target, "text/markdown");
-    expect(result).toEqual(
-      selectSourceLines(truncatedSource, target, "text/markdown"),
+    const truncated = selectSourceLines(
+      truncatedSource,
+      target,
+      "text/markdown",
     );
+    // The stored total is the source's own, so only the window is shared
+    // with the source that ends sooner.
+    const { lineCount: _sourceTotal, ...window } = result;
+    const { lineCount: _truncatedTotal, ...truncatedWindow } = truncated;
+    expect(window).toEqual(truncatedWindow);
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -413,6 +428,7 @@ describe("markdown ancestor range selection", () => {
       shownRange: { startLine: 1, endLine: 3 },
       nextOffset: 2,
       truncated: false,
+      lineCount: 5,
     });
   });
 
@@ -432,6 +448,7 @@ describe("markdown ancestor range selection", () => {
       shownRanges: [{ startLine: 2, endLine: 5 }],
       nextOffset: 4,
       truncated: false,
+      lineCount: 6,
     });
   });
 
@@ -469,6 +486,7 @@ describe("markdown ancestor range selection", () => {
       ],
       nextOffset: 2001,
       truncated: false,
+      lineCount: 2502,
     });
   });
 
@@ -477,7 +495,7 @@ describe("markdown ancestor range selection", () => {
       `# ${"a".repeat(120)}\n## ${"b".repeat(120)}\n### ${"c".repeat(120)}\ncontext\nselected\n`,
       {
         ...applySelectorSuffix("/doc.md", "5-5"),
-        reserveCodeUnits: 15_700,
+        reserveCodeUnits: 15_800,
       },
       "text/markdown",
     );
@@ -490,6 +508,7 @@ describe("markdown ancestor range selection", () => {
       requestedRange: { startLine: 5, endLine: 5 },
       shownRange: { startLine: 4, endLine: 5 },
       truncated: false,
+      lineCount: 5,
     });
   });
 
@@ -509,6 +528,7 @@ describe("markdown ancestor range selection", () => {
       shownRanges: [{ startLine: 1, endLine: 4 }],
       nextOffset: 3,
       truncated: false,
+      lineCount: 4,
     });
   });
 
@@ -554,6 +574,10 @@ describe("markdown ancestor range selection", () => {
       const fromFile = await readFile({ path: `${markdownPath}:60-72` });
       const fromMemory = selectSourceLines(source, target, "text/markdown");
       expect(fromFile).toEqual(fromMemory);
+      expect(fromFile).toHaveProperty(
+        "lineCount",
+        splitSourceLines(source).length,
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -575,6 +599,7 @@ describe("markdown ancestor range selection", () => {
       shownRange: { startLine: 1, endLine: 3 },
       truncated: false,
       nextOffset: 2,
+      lineCount: 3,
     });
   });
 
@@ -596,7 +621,7 @@ describe("markdown ancestor range selection", () => {
     const source = "# Title\n## Setup\n### Linux\ncontext\nselected\n";
     const result = selectSourceLines(
       source,
-      { ...applySelectorSuffix("/doc.md", "5-5"), reserveCodeUnits: 15_740 },
+      { ...applySelectorSuffix("/doc.md", "5-5"), reserveCodeUnits: 15_890 },
       "text/markdown",
     );
     expect(result).toEqual({
@@ -608,6 +633,7 @@ describe("markdown ancestor range selection", () => {
       requestedRanges: [{ startLine: 5, endLine: 5 }],
       shownRanges: [{ startLine: 3, endLine: 5 }],
       truncated: false,
+      lineCount: 5,
     });
   });
 
@@ -759,8 +785,8 @@ describe("markdown ancestor range selection", () => {
         const result = asMulti(
           await readFile({ path: `${path}:1-300,400-410` }),
         );
-        expect(result.shownRanges).toEqual([{ startLine: 1, endLine: 76 }]);
-        expect(result.nextOffset).toBe(76);
+        expect(result.shownRanges).toEqual([{ startLine: 1, endLine: 77 }]);
+        expect(result.nextOffset).toBe(77);
         expect(result.truncated).toBe(true);
       }
     } finally {
@@ -789,7 +815,7 @@ describe("markdown ancestor range selection", () => {
       ].join("\n") + "\n";
     const result = selectSourceLines(
       source,
-      { ...applySelectorSuffix("/doc.md", "10-10"), reserveCodeUnits: 15_606 },
+      { ...applySelectorSuffix("/doc.md", "10-10"), reserveCodeUnits: 15_800 },
       "text/markdown",
     );
     expect(result).toEqual({
@@ -801,6 +827,7 @@ describe("markdown ancestor range selection", () => {
       requestedRange: { startLine: 10, endLine: 10 },
       shownRange: { startLine: 9, endLine: 10 },
       truncated: false,
+      lineCount: 10,
     });
   });
 
@@ -833,14 +860,14 @@ describe("markdown ancestor range selection", () => {
     expect(continuation.content).not.toBe(first.content);
   });
 
-  it("reserves continuation metadata in Markdown result budgets", () => {
+  it("reserves the continuation line in Markdown result budgets", () => {
     const source =
       [
         "# H",
         "",
         "a".repeat(7000),
         "b".repeat(7000),
-        "c".repeat(1765),
+        "c".repeat(3000),
         "d",
       ].join("\n") + "\n";
     const single = selectSourceLines(
@@ -853,8 +880,11 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "3-5,7-9"),
       "text/markdown",
     );
-    expect(measureNativeModelOutput(single)).toBeLessThanOrEqual(16_000);
-    expect(measureNativeModelOutput(multi)).toBeLessThanOrEqual(16_000);
+    for (const result of [single, multi]) {
+      expect(result.truncated).toBe(true);
+      // The width includes the continuation line the result ends with.
+      expect(measureReadRendering(result)).toBeLessThanOrEqual(16_000);
+    }
   });
 
   it("keeps oversized host and in-memory Markdown scans identical", async () => {
@@ -952,6 +982,7 @@ describe("markdown ancestor range selection", () => {
       ],
       nextOffset: 130,
       truncated: false,
+      lineCount: 140,
     });
   });
 
@@ -981,6 +1012,7 @@ describe("markdown ancestor range selection", () => {
       ],
       nextOffset: 128,
       truncated: false,
+      lineCount: 140,
     });
   });
 
@@ -1011,6 +1043,7 @@ describe("markdown ancestor range selection", () => {
         { startLine: 138, endLine: 140 },
       ],
       truncated: false,
+      lineCount: 140,
     });
   });
 
@@ -1040,6 +1073,7 @@ describe("markdown ancestor range selection", () => {
         { startLine: 139, endLine: 140 },
       ],
       truncated: false,
+      lineCount: 140,
     });
   });
 
@@ -1138,13 +1172,13 @@ describe("markdown ancestor range selection", () => {
     );
     // Both ancestors drop; the pair is the last unit standing.
     expect(result.content).toBe(
-      `3: ${rows[2]}\n4: ${rows[3]}\n7: ${rows[6]}\n8: ${rows[7]}\n`,
+      `3: ${rows[2]}\n4: ${rows[3]}\n7: ${rows[6]}\n8: ${rows[7]}\n9: ${rows[8]}\n`,
     );
     expect(result.truncated).toBe(true);
     if (!("shownRanges" in result)) throw new Error("Expected plural result");
     expect(result.shownRanges).toEqual([
       { startLine: 3, endLine: 4 },
-      { startLine: 7, endLine: 8 },
+      { startLine: 7, endLine: 9 },
     ]);
   });
 
@@ -1339,6 +1373,7 @@ describe("markdown ancestor range selection", () => {
       requestedRanges: [{ startLine: 4, endLine: 4 }],
       shownRanges: [{ startLine: 1, endLine: 4 }],
       truncated: false,
+      lineCount: 4,
     });
   });
 
@@ -1362,6 +1397,7 @@ describe("markdown ancestor range selection", () => {
       shownRanges: [{ startLine: 6, endLine: 9 }],
       nextOffset: 8,
       truncated: false,
+      lineCount: 10,
     });
   });
 });

@@ -33,6 +33,7 @@ import {
   type NativeFailureResult,
   type NativeFailureType,
   type NativeFileReadResult,
+  type NativeLineRange,
   type NativeMediaReadResult,
   type RootsListResult,
   type SerializableRecord,
@@ -73,6 +74,8 @@ const NATIVE_FAILURE_TYPES = {
   unsupported_media_type: true,
 } as const;
 
+const READ_REPRESENTATIONS = { text: true, raw: true, outline: true } as const;
+
 const MCP_TRANSPORTS = { stdio: true, http: true } as const;
 const MCP_STATES = { available: true, unavailable: true } as const;
 
@@ -100,6 +103,41 @@ function isNativeFailureType(
   value: SerializableValue,
 ): value is NativeFailureType {
   return isText(value) && Object.hasOwn(NATIVE_FAILURE_TYPES, value);
+}
+
+function isReadRepresentation(
+  value: SerializableValue,
+): value is 'text' | 'raw' | 'outline' {
+  return isText(value) && Object.hasOwn(READ_REPRESENTATIONS, value);
+}
+
+/** One stored line range: a pair of counts, an explicit null, or malformed. */
+function readLineRange(
+  value: SerializableValue,
+): NativeLineRange | null | undefined {
+  if (value === null) return null;
+  if (!isSerializableRecord(value)) return undefined;
+  const { startLine, endLine } = value;
+  return isCount(startLine) && isCount(endLine)
+    ? { startLine, endLine }
+    : undefined;
+}
+
+/** A range list: every member must be a range, or the whole list is absent. */
+function readLineRanges(
+  value: SerializableValue,
+): ReadonlyArray<NativeLineRange> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  // SAFETY: `Array.isArray` leaves the elements `any`; each one is still
+  // untrusted, and `readLineRange` rebuilds it from validated fields.
+  const entries = value as ReadonlyArray<SerializableValue>;
+  const ranges: Array<NativeLineRange> = [];
+  for (const entry of entries) {
+    const range = readLineRange(entry);
+    if (range === undefined || range === null) return undefined;
+    ranges.push(range);
+  }
+  return ranges;
 }
 
 function isMcpTransportKind(
@@ -273,29 +311,44 @@ function readMediaRead(
   return isText(realPath) ? { ...media, realPath } : media;
 }
 
-/** The file/directory branch: content, truncation, and the next window. */
+/** The file/directory branch: content, truncation, the next window, the
+ *  counts and the shown ranges a daemon that knows them reports. The ranges
+ *  travel because the hub renders the header from them. */
 function readFileRead(
   value: SerializableRecord,
   kind: 'file' | 'directory',
   path: string,
 ): NativeFileReadResult | undefined {
-  const { content, truncated, nextOffset, realPath } = value;
+  const {
+    content,
+    truncated,
+    nextOffset,
+    realPath,
+    lineCount,
+    entryCount,
+    representation,
+  } = value;
   if (!isText(content) || !isFlag(truncated)) return undefined;
-  if (isText(realPath) && isCount(nextOffset))
-    return {
-      status: 'success',
-      kind,
-      path,
-      content,
-      truncated,
-      realPath,
-      nextOffset,
-    };
-  if (isText(realPath))
-    return { status: 'success', kind, path, content, truncated, realPath };
-  if (isCount(nextOffset))
-    return { status: 'success', kind, path, content, truncated, nextOffset };
-  return { status: 'success', kind, path, content, truncated };
+  const requestedRange = readLineRange(value['requestedRange']);
+  const shownRange = readLineRange(value['shownRange']);
+  const requestedRanges = readLineRanges(value['requestedRanges']);
+  const shownRanges = readLineRanges(value['shownRanges']);
+  return {
+    status: 'success',
+    kind,
+    path,
+    content,
+    truncated,
+    ...(isText(realPath) && { realPath }),
+    ...(isCount(nextOffset) && { nextOffset }),
+    ...(isCount(lineCount) && { lineCount }),
+    ...(isCount(entryCount) && { entryCount }),
+    ...(isReadRepresentation(representation) && { representation }),
+    ...(requestedRange !== undefined && { requestedRange }),
+    ...(shownRange !== undefined && { shownRange }),
+    ...(requestedRanges !== undefined && { requestedRanges }),
+    ...(shownRanges !== undefined && { shownRanges }),
+  };
 }
 
 /** A `fs.bytes` answer: the byte length and media type, or a refusal. */

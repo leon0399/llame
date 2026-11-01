@@ -3215,7 +3215,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
       .update(Buffer.from(content, 'utf8'))
       .digest('hex');
 
-    const locator = `kb://${space.id}/${relativePath}:1-1`;
+    // The stored path names the resource; the request selector is the read
+    // header's own suffix.
+    const storedPath = `kb://${space.id}/${relativePath}`;
+    const locator = `${storedPath}:1-1`;
     const seeded = await seedBoundRun(
       `knowledge-attribution-${crypto.randomUUID()}`,
     );
@@ -3271,7 +3274,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           status: 'success',
           kind: 'file',
           knowledgeSpaceId: space.id,
-          path: locator,
+          path: storedPath,
           content: `1: ${content}`,
         },
       });
@@ -3296,7 +3299,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         output: {
           status: 'success',
           knowledgeSpaceId: space.id,
-          path: locator,
+          path: storedPath,
           content: `1: ${content}`,
         },
       });
@@ -3307,7 +3310,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           type: 'tool-read',
           output: expect.objectContaining({
             knowledgeSpaceId: space.id,
-            path: locator,
+            path: storedPath,
             content: `1: ${content}`,
           }),
         }),
@@ -3323,7 +3326,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           toolCallId: 'knowledge-call',
           output: expect.objectContaining({
             knowledgeSpaceId: space.id,
-            path: locator,
+            path: storedPath,
             content: `1: ${content}`,
           }),
           dynamic: true,
@@ -3345,9 +3348,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
         systemPrompt: 'Knowledge replay test',
         requestKind: 'continuation',
       });
+      // The replayed read is the text rendering: the header names the shown
+      // range and the total, and the attribution lines follow it, so every
+      // stored fact survives in the text the model reads.
       const replayed = JSON.stringify(replay.messages);
-      expect(replayed).toContain(space.id);
-      expect(replayed).toContain(relativePath);
+      expect(replayed).toContain(`${storedPath}:1-1 of 1 lines`);
+      expect(replayed).toContain(`knowledgeSpaceName: `);
+      expect(replayed).toContain(`knowledgeSpaceId: ${space.id}`);
+      expect(replayed).toContain('notice: ');
       expect(replayed).toContain(`1: ${content}`);
       expect(replayed).not.toContain(root);
 

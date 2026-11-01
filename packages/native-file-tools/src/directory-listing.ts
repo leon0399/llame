@@ -1,6 +1,11 @@
 import { sliceWindow, type SliceOptions } from "./listing-slice";
 import { resultBudget } from "./source-lines";
-import { measureNativeModelOutput } from "./serialization";
+import {
+  boundFlatResult,
+  directoryResult,
+  fitsResultCap,
+  type DirectoryPage,
+} from "./directory-page";
 
 export const DIRECTORY_TRAVERSAL_BUDGET = 10_000;
 export const DIRECTORY_CHILD_CAP = 20;
@@ -62,6 +67,8 @@ export type DirectorySuccess = {
   content: string;
   truncated: boolean;
   nextOffset?: number;
+  /** Every entry the requested level holds, of which `content` may be a page. */
+  entryCount: number;
 };
 
 export type DirectoryListingOptions = SliceOptions & {
@@ -124,12 +131,20 @@ export function renderCollectedDirectoryParts(
   return renderFlatListing(header, roots, slice, cap);
 }
 
-export type DirectoryFailure = {
-  status: "error";
-  type: "directory_too_large";
-  message: string;
-  count: number;
-};
+export type DirectoryFailure =
+  | {
+      status: "error";
+      type: "directory_too_large";
+      message: string;
+      count: number;
+    }
+  | {
+      /** No page of the listing fits the result bound, so no continuation
+       *  could advance; see `listingTooLarge`. */
+      status: "error";
+      type: "representation_too_large";
+      message: string;
+    };
 
 type ChildBlockInfo = {
   name: string;
@@ -267,27 +282,6 @@ async function resolveTreeLinkTargets(
   );
 }
 
-function fitsResultCap(candidate: DirectorySuccess, cap: number): boolean {
-  return measureNativeModelOutput(candidate) <= cap;
-}
-
-function directoryResult(
-  targetPath: string,
-  content: string,
-  truncated: boolean,
-  nextOffset?: number,
-): DirectorySuccess {
-  const result: DirectorySuccess = {
-    status: "success",
-    kind: "directory",
-    path: targetPath,
-    content,
-    truncated,
-  };
-  if (nextOffset !== undefined) result.nextOffset = nextOffset;
-  return result;
-}
-
 async function readChildDirs(
   rootEntries: Array<DirEntry>,
   targetPath: string,
@@ -357,7 +351,7 @@ function renderFlatListing(
   entries: Array<DirEntry>,
   slice: FlatSlice,
   cap: number,
-): DirectorySuccess {
+): DirectorySuccess | DirectoryFailure {
   const { offset, end, selected } = slice;
 
   const lines: Array<string> = [targetPath];
@@ -366,12 +360,11 @@ function renderFlatListing(
   }
   const content = lines.join("\n") + "\n";
 
-  const result = directoryResult(
-    targetPath,
+  const result = directoryResult(targetPath, entries.length, {
     content,
-    end < entries.length,
-    end < entries.length ? end : undefined,
-  );
+    truncated: end < entries.length,
+    nextOffset: end < entries.length ? end : undefined,
+  });
   return boundFlatResult(result, offset, cap);
 }
 
@@ -426,37 +419,58 @@ function renderTreeListing(
   rootEntries: Array<DirEntry>,
   children: Array<ChildDir>,
   cap: number,
-): DirectorySuccess {
-  if (rootEntries.length === 0) {
-    return directoryResult(
-      targetPath,
-      `${targetPath}\n(empty directory)\n`,
-      false,
-    );
-  }
+): DirectorySuccess | DirectoryFailure {
+  if (rootEntries.length === 0)
+    return directoryResult(targetPath, rootEntries.length, {
+      content: `${targetPath}\n(empty directory)\n`,
+      truncated: false,
+    });
 
   const childMap = new Map<string, ChildDir>();
   for (const child of children) childMap.set(child.name, child);
 
-  const { lines, childBlocks } = assembleTreeLines(
-    targetPath,
-    rootEntries,
-    childMap,
+  const assembled = assembleTreeLines(targetPath, rootEntries, childMap);
+  const fitted = fitTreeContent(
+    { targetPath, rootEntries, childBlocks: assembled.childBlocks },
+    assembled.lines.join("\n") + "\n",
+    cap,
   );
-  let content = lines.join("\n") + "\n";
-  let truncated = false;
+  return fitted === undefined
+    ? truncateRequestedLevel(
+        targetPath,
+        rootEntries,
+        assembled.childBlocks,
+        cap,
+      )
+    : directoryResult(targetPath, rootEntries.length, fitted);
+}
 
-  if (!fitsResultCap(directoryResult(targetPath, content, false), cap)) {
-    const elided = elideChildBlocks(targetPath, rootEntries, childBlocks, cap);
-    content = elided.content;
-    truncated = elided.truncated;
-  }
-
-  if (!fitsResultCap(directoryResult(targetPath, content, truncated), cap)) {
-    return truncateRequestedLevel(targetPath, rootEntries, childBlocks, cap);
-  }
-
-  return directoryResult(targetPath, content, truncated);
+/**
+ * The whole tree when it fits the rendered bound, else the tree with child
+ * blocks elided, else undefined so the caller pages the level instead.
+ */
+function fitTreeContent(
+  tree: {
+    targetPath: string;
+    rootEntries: Array<DirEntry>;
+    childBlocks: Array<ChildBlockInfo>;
+  },
+  content: string,
+  cap: number,
+): DirectoryPage | undefined {
+  const fits = (page: DirectoryPage) =>
+    fitsResultCap(
+      directoryResult(tree.targetPath, tree.rootEntries.length, page),
+      cap,
+    );
+  if (fits({ content, truncated: false })) return { content, truncated: false };
+  const elided = elideChildBlocks(
+    tree.targetPath,
+    tree.rootEntries,
+    tree.childBlocks,
+    cap,
+  );
+  return fits(elided) ? elided : undefined;
 }
 
 function elideChildBlocks(
@@ -473,7 +487,15 @@ function elideChildBlocks(
     if (block.childLines.length === 0) continue;
     elided.add(block.name);
     const content = buildContent(targetPath, rootEntries, blocksByName, elided);
-    if (fitsResultCap(directoryResult(targetPath, content, true), cap)) {
+    if (
+      fitsResultCap(
+        directoryResult(targetPath, rootEntries.length, {
+          content,
+          truncated: true,
+        }),
+        cap,
+      )
+    ) {
       return { content, truncated: true };
     }
   }
@@ -515,77 +537,64 @@ function indexChildBlocks(childBlocks: Array<ChildBlockInfo>) {
   return { byName, elided };
 }
 
+/**
+ * The page for a level whose first entry does not fit. A page cut before the
+ * first entry keeps no entry, but its continuation is a flat read that drops
+ * the elided block's marker, so that read can fit where this page cannot.
+ * Keep the header when the flat page can serve; when it cannot, no page
+ * advances and the read fails closed instead of returning a page that cannot
+ * continue.
+ */
+function pageBeforeFirstEntry(
+  targetPath: string,
+  rootEntries: Array<DirEntry>,
+  cap: number,
+): DirectorySuccess | DirectoryFailure {
+  const flat = renderFlatListing(
+    targetPath,
+    rootEntries,
+    { offset: 0, end: rootEntries.length, selected: rootEntries },
+    cap,
+  );
+  if (flat.status === "error") return flat;
+  const header = directoryResult(targetPath, rootEntries.length, {
+    content: `${targetPath}\n`,
+    truncated: true,
+    nextOffset: 0,
+  });
+  // A header-only page repeats the path in its continuation, so the whole
+  // flat level can fit where the header and that notice do not.
+  return fitsResultCap(header, cap) ? header : flat;
+}
+
 function truncateRequestedLevel(
   targetPath: string,
   rootEntries: Array<DirEntry>,
   childBlocks: Array<ChildBlockInfo>,
   cap: number,
-): DirectorySuccess {
+): DirectorySuccess | DirectoryFailure {
   const { byName, elided } = indexChildBlocks(childBlocks);
-
-  let entryIndex = 0;
   const lines: Array<string> = [targetPath];
-  for (const entry of rootEntries) {
-    const entryLine = formatEntry(entry, "  ");
-    const block =
-      entry.kind === "directory" ? byName.get(entry.name) : undefined;
+  const count = rootEntries.length;
+  const page = (content: string, truncated: boolean, nextOffset?: number) =>
+    directoryResult(targetPath, count, { content, truncated, nextOffset });
+  const fits = (candidate: Array<string>, nextOffset: number) =>
+    fitsResultCap(page(candidate.join("\n") + "\n", true, nextOffset), cap);
+
+  for (const [entryIndex, entry] of rootEntries.entries()) {
+    const block = byName.get(entry.name);
     const marker =
       block && elided.has(block.name)
         ? elisionMarker(block.totalCount)
         : undefined;
-
-    const candidate = [...lines, entryLine];
-    if (marker) candidate.push(marker);
-    const nextIdx = entryIndex + 1;
-    if (
-      !fitsResultCap(
-        directoryResult(targetPath, candidate.join("\n") + "\n", true, nextIdx),
-        cap,
-      )
-    ) {
-      return directoryResult(
-        targetPath,
-        lines.join("\n") + "\n",
-        true,
-        entryIndex,
-      );
+    const added = [formatEntry(entry, "  "), ...(marker ? [marker] : [])];
+    if (!fits([...lines, ...added], entryIndex + 1)) {
+      if (entryIndex === 0)
+        return pageBeforeFirstEntry(targetPath, rootEntries, cap);
+      return page(lines.join("\n") + "\n", true, entryIndex);
     }
-
-    lines.push(entryLine);
-    if (marker) lines.push(marker);
-    entryIndex += 1;
+    lines.push(...added);
   }
 
-  return directoryResult(targetPath, lines.join("\n") + "\n", false);
-}
-
-function boundFlatResult(
-  result: DirectorySuccess,
-  requestOffset: number,
-  cap: number,
-): DirectorySuccess {
-  if (fitsResultCap(result, cap)) return result;
-
-  const lines = result.content.split("\n");
-  while (
-    lines.length > 1 &&
-    !fitsResultCap(
-      {
-        ...result,
-        content: lines.join("\n") + "\n",
-        truncated: true,
-      },
-      cap,
-    )
-  ) {
-    lines.pop();
-  }
-
-  const keptEntries = lines.slice(1).filter((l) => l.length > 0).length;
-  return directoryResult(
-    result.path,
-    lines.join("\n") + "\n",
-    true,
-    requestOffset + keptEntries,
-  );
+  return page(lines.join("\n") + "\n", false);
 }

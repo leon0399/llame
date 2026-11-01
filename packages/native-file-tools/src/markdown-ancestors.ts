@@ -5,13 +5,13 @@ import {
   type MarkdownLine,
 } from "./markdown-structure";
 import { MarkdownRootTableTracker } from "./markdown-tables";
-import { measureNativeModelOutput } from "./serialization";
 import {
   appendReadLine,
   emptyMultiReadResult,
   emptyReadResult,
   MAX_READ_LINES,
   MAX_RESULT_CODE_UNITS,
+  measureReadRendering,
   renderSourceLine,
   resultBudget,
   splitSourceLines,
@@ -233,10 +233,7 @@ export function appendPluralLine(
     shownRanges: withLineRanges(result.shownRanges, [index + 1]),
   };
   const nextOffset = result.nextOffset ?? index + 1;
-  if (
-    measureNativeModelOutput({ ...candidate, nextOffset }) >
-    resultBudget(target)
-  )
+  if (measureReadRendering(candidate, nextOffset) > resultBudget(target))
     return false;
   Object.assign(result, candidate);
   return true;
@@ -294,13 +291,14 @@ function candidateFits(
   const content = candidate
     .map((entry) => renderSourceLine(entry.text, entry.line - 1))
     .join("");
+  const result: MultiReadSuccess = {
+    ...context.result,
+    content: context.result.content + content,
+    shownRanges: withLineRanges(context.result.shownRanges, lines),
+  };
   return (
-    measureNativeModelOutput({
-      ...context.result,
-      content: context.result.content + content,
-      shownRanges: withLineRanges(context.result.shownRanges, lines),
-      nextOffset: context.reserveNextOffset,
-    }) <= resultBudget(context.target)
+    measureReadRendering(result, context.reserveNextOffset) <=
+    resultBudget(context.target)
   );
 }
 
@@ -392,7 +390,12 @@ export class SingleCollector {
     this.scanner.end();
     if (this.target.offset >= count && (count > 0 || this.target.offset !== 0))
       throw new NativeFileError("invalid_selector");
-    return renderSingle(this.selected, count, this.tracker, this.target);
+    return renderSingle({
+      selected: this.selected,
+      count,
+      tracker: this.tracker,
+      target: this.target,
+    });
   }
 }
 
@@ -400,9 +403,10 @@ export function selectMarkdownSourceLines(
   source: string,
   target: ReadTarget,
 ): ReadSuccess {
-  const collector = new SingleCollector(target);
+  const lines = splitSourceLines(source);
+  const collector = new SingleCollector({ ...target, lineCount: lines.length });
   let count = 0;
-  for (const line of splitSourceLines(source)) {
+  for (const line of lines) {
     const keepReading = collector.push(count, markdownLineRecord(line));
     count += 1;
     if (!keepReading) break;
@@ -411,8 +415,9 @@ export function selectMarkdownSourceLines(
 }
 
 function baseMulti(target: ReadTarget, requestedEnd: number): MultiReadSuccess {
+  const base = emptyMultiReadResult(target);
   return {
-    ...emptyMultiReadResult(target),
+    ...base,
     requestedRanges: [{ startLine: target.offset + 1, endLine: requestedEnd }],
   };
 }
@@ -476,16 +481,28 @@ function promoteSingle(context: PromoteSingleContext): MultiReadSuccess {
   return result;
 }
 
-function renderSingle(
-  selected: Map<number, MarkdownLineRecord>,
-  count: number,
-  tracker: MarkdownAncestorTracker,
-  target: ReadTarget,
-): ReadSuccess {
+/** The window a single selection renders, and the count its framing names. */
+type SingleRender = {
+  selected: Map<number, MarkdownLineRecord>;
+  count: number;
+  tracker: MarkdownAncestorTracker;
+  target: ReadTarget;
+};
+
+function renderSingle(context: SingleRender): ReadSuccess {
+  const { selected, count, tracker, target } = context;
   const { result: singular, requestedEnd } = initialSingleResult(target, count);
   const selection = prepareSingleSelection(selected, target);
   const base = baseMulti(target, requestedEnd);
   const firstRequested = target.offset + 1;
+  // The provisional cut reserves one continuation line. A forced offset at or
+  // past the last line would render no continuation at all, so the estimate
+  // uses the nearest cut a real result can report.
+  const estimatedOffset = singular.nextOffset ?? firstRequested;
+  const reserveNextOffset =
+    target.lineCount === undefined
+      ? estimatedOffset
+      : Math.min(estimatedOffset, Math.max(0, target.lineCount - 1));
   const entries = admitAncestorChain({
     units: tracker.ancestorsFor(firstRequested),
     selected: selection.selected,
@@ -493,7 +510,7 @@ function renderSingle(
     mandatory: selection.mandatory,
     result: base,
     emitted: 0,
-    reserveNextOffset: singular.nextOffset ?? firstRequested,
+    reserveNextOffset,
     target,
     firstRequested: target.offset,
     firstShownLine: selection.mandatory[0]?.line ?? firstRequested,

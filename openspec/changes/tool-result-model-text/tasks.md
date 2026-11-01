@@ -98,14 +98,14 @@ Create `tool-result-model-text/rendering-seam` from `tool-result-model-text/prop
 Create `tool-result-model-text/read-text` from `tool-result-model-text/rendering-seam` with
 `$gh-stack`.
 
-- [ ] 3.1 Store `lineCount` by the line-feed byte scan for files of at most 32 MiB on host,
+- [x] 3.1 Store `lineCount` by the line-feed byte scan for files of at most 32 MiB on host,
       `kb://`, and `skill://` reads, from the render for web reads, `entryCount` on listings, none
       on outlines or larger files; add both as optional fields to the `fs.read` wire and the hub
       mapping; verify with `read.test.ts`, `stream-read.test.ts`, `directory-listing.test.ts`,
       `web-read/result.test.ts`, a large-file test that asserts no whole-file scan, an invalid-UTF-8
       tail test, and a Machine mapping test for an answer without the field (scenarios of "A text
       read carries the source line count when it is known").
-- [ ] 3.2 Add the `read` text renderer in `packages/native-file-tools/src/model-text.ts`: header
+- [x] 3.2 Add the `read` text renderer in `packages/native-file-tools/src/model-text.ts`: header
       forms for single, multi-range, raw, outline, empty, and oversized-first-line; directory as
       stored content; attribution lines in the spec's order; the continuation line keyed on
       `truncated` with per-form and open-ended resume selectors and the remaining count;
@@ -113,19 +113,19 @@ Create `tool-result-model-text/read-text` from `tool-result-model-text/rendering
       continuation form and for a stored part without `lineCount` (scenarios of "The read header
       names…", "The read header carries the source total…", "Attribution fields render…",
       "Continuation is one bracketed notice line").
-- [ ] 3.3 Measure `selectSourceLines`, `selectMultiRangeLines`, the directory bound, the Markdown
+- [x] 3.3 Measure `selectSourceLines`, `selectMultiRangeLines`, the directory bound, the Markdown
       ancestor and outline bounds, and `web-read/result.ts` on the neutralized rendering; turn the
       scheme resolvers' `reserveCodeUnits` into attribution-line width; verify with a bound test at
       exactly 16,000 rendered units and an escaping test (scenarios of "Bounds are measured on the
       neutralized rendering").
-- [ ] 3.4 Wire the `read` renderer into `renderToolResultForModel` by tool name, Machine variants
+- [x] 3.4 Wire the `read` renderer into `renderToolResultForModel` by tool name, Machine variants
       included, returning kind `text`; make the prompt-import body in `run-execution.service.ts`
       the same rendering; verify with the live/replay equality test extended to `read`, a Machine
       `read` rendering test, and the prompt-import body test.
-- [ ] 3.5 Extend `scripts/measure-tool-results.mjs` with the "after" column for the `read` rows
+- [x] 3.5 Extend `scripts/measure-tool-results.mjs` with the "after" column for the `read` rows
       from fixture objects with `lineCount` injected and the window held equal; verify that it
       reproduces the proposal's read rows.
-- [ ] 3.6 Docs: `apps/api/src/prompts/tools/read.md` describes the text shape, drops the
+- [x] 3.6 Docs: `apps/api/src/prompts/tools/read.md` describes the text shape, drops the
       JSON-decoding instruction, and names the reserved-name rule;
       `docs/product/reference/tools/read.md`; dated `CHANGELOG.md` entry; verify with
       `pnpm lint:markdown`.

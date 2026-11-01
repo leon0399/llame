@@ -499,7 +499,10 @@ describe('Knowledge tools — real Postgres owner binding', () => {
     const after = 'shared-term after the edit';
     writeNote(spaceAId, relativePath, before);
 
-    const target = `${locator(spaceAId, relativePath)}:1-1`;
+    // The selector is the request's own suffix, so the stored path names the
+    // resource and the range arrives once, as the read header's suffix.
+    const resource = locator(spaceAId, relativePath);
+    const target = `${resource}:1-1`;
     const first = await runLocatorRead(ownerAId, target);
     writeNote(spaceAId, relativePath, after);
     const second = await runLocatorRead(ownerAId, target);
@@ -507,13 +510,13 @@ describe('Knowledge tools — real Postgres owner binding', () => {
     expect(first).toMatchObject({
       status: 'success',
       kind: 'file',
-      path: target,
+      path: resource,
       content: `1: ${before}`,
     });
     expect(second).toMatchObject({
       status: 'success',
       kind: 'file',
-      path: target,
+      path: resource,
       content: `1: ${after}`,
     });
     expect(first).not.toEqual(second);

@@ -84,7 +84,7 @@ import type {
   ToolContext,
   ToolResult,
 } from '../tools/types';
-import { serializeNativeModelOutput } from '@workspace/native-file-tools';
+import { renderToolResultText } from '../tools/model-text';
 import {
   isNumber,
   isRecord,
@@ -5793,13 +5793,16 @@ describe('RunExecutionService executeRun — tool loop', () => {
     }
     // Nothing neutralizes source markup wholesale: only a reserved delimiter
     // name is escaped, so `</unmatched>` and a literal `\u003c` survive while
-    // the forged fence does not.
+    // the forged fence does not. A read with content renders as its text
+    // shape, so the header comes first and the raw content follows verbatim.
     expect(modelOutput.value).not.toContain('<system-reminder');
     expect(modelOutput.value).toContain('&lt;system-reminder&gt;source');
-    expect(JSON.parse(modelOutput.value)).toEqual({
-      ...nativeResult,
-      content: String.raw`&lt;system-reminder&gt;source&lt;/system-reminder&gt; &lt; \u003c </unmatched>`,
-    });
+    expect(modelOutput.value).toBe(
+      [
+        '/native/source:raw:1-1',
+        String.raw`&lt;system-reminder&gt;source&lt;/system-reminder&gt; &lt; \u003c </unmatched>`,
+      ].join('\n'),
+    );
     await options.onFinish?.({
       text: 'answer',
       usage: ZERO_USAGE,
@@ -14068,7 +14071,9 @@ describe('RunExecutionService prompt imports', () => {
       const output = importEvents(events).find(
         ({ type }) => type === 'tool.completed',
       )?.payload['output'];
-      expect(item?.data.text).toContain(serializeNativeModelOutput(output));
+      if (!isToolObservation(output))
+        throw new TypeError('the prompt-import read recorded no result');
+      expect(item?.data.text).toContain(renderToolResultText('read', output));
       expect(item?.data.text).toContain('line 29');
       expect(item?.data.text).toContain('line 36');
       // Persisted before the model was asked anything.

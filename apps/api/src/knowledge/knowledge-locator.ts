@@ -162,6 +162,8 @@ export function formatKnowledgeLocator(parsed: ParsedKnowledgeLocator): string {
 
 export type ResolvedKnowledgeTarget = {
   readonly hostPath: string;
+  /** The canonical logical locator, selector excluded. The stored read `path`
+   *  is this locator, so a header built from it carries the range once. */
   readonly locator: string;
   readonly knowledgeSpaceId: string;
   readonly knowledgeSpaceName: string;
@@ -218,7 +220,13 @@ export async function resolveKnowledgeLocator(
       // `not_found`.
       hostPath:
         parsed.trailingSeparator === true ? `${hostPath}${sep}` : hostPath,
-      locator,
+      // The resource, not the request: a selector is the read header's own
+      // suffix, so it never reaches the stored path or a mutation fence. A
+      // selector-free locator keeps the caller's spelling.
+      locator:
+        parsed.selector === undefined
+          ? locator
+          : formatKnowledgeLocator(parsed),
       knowledgeSpaceId: parsed.knowledgeSpaceId,
       knowledgeSpaceName: access.knowledgeSpaceName,
       createDirectories: () => createDirectories(context, access, parsed),

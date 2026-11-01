@@ -32,6 +32,7 @@ import {
   type ReadSuccess,
 } from "./source-lines";
 import { readMedia, type MediaReadHook, type MediaReadSuccess } from "./media";
+import { countSourceLines, storedLineCount } from "./line-count";
 
 type SourceLineState = {
   partial: string;
@@ -392,13 +393,14 @@ type MultiRangeWalk = {
 type MultiRangeStep = "continue" | "halted" | "exhausted";
 
 function startMultiRangeWalk(target: ReadTarget): MultiRangeWalk {
+  const result = emptyMultiReadResult(target);
   return {
     expanded: target.expandedRanges ?? [],
     rangeIndex: 0,
     count: 0,
     emitted: 0,
     rangeSnapshot: undefined,
-    result: emptyMultiReadResult(target),
+    result,
   };
 }
 
@@ -461,42 +463,15 @@ async function collectMultiWindow(
   return finishMultiWindow(walk.result, target, walk.count);
 }
 
-const LF = 0x0a;
-
-/**
- * The source's line count, in one forward pass on the open handle: LF count
- * plus the final line a file without a trailing LF still has, which is the
- * model `splitSourceLines` reads text with. A selector carrying `N-` or `-K`
- * needs it before any line can be placed, and nothing else on a regular file
- * does.
- */
-async function countSourceLines(
-  file: FileHandle,
-  signal: AbortSignal | undefined,
-): Promise<number> {
-  const buffer = Buffer.allocUnsafe(64 * 1024);
-  let position = 0;
-  let terminators = 0;
-  let last = 0;
-  for (;;) {
-    signal?.throwIfAborted();
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, position);
-    if (bytesRead === 0) break;
-    for (let index = 0; index < bytesRead; index += 1)
-      if (buffer[index] === LF) terminators += 1;
-    last = buffer[bytesRead - 1];
-    position += bytesRead;
-  }
-  return position > 0 ? terminators + (last === LF ? 0 : 1) : 0;
-}
-
 /**
  * The in-memory counterpart of `sourceLines`: the same line sequence for a
  * source already in hand, and the same `undefined` for a line too large to
  * fit any result.
  */
-function* memorySourceLines(source: string): Generator<string | undefined> {
-  for (const line of splitSourceLines(source)) {
+function* memorySourceLines(
+  lines: Array<string>,
+): Generator<string | undefined> {
+  for (const line of lines) {
     yield line.length > MAX_RESULT_CODE_UNITS ? undefined : line;
   }
 }
@@ -515,23 +490,78 @@ export function selectMultiRangeLines(
 ): MultiReadSuccess {
   assertResolvedTarget(target);
   if (target.ranges === undefined) throw new NativeFileError("invalid_input");
+  const lines = splitSourceLines(source);
+  const placed: ReadTarget = { ...target, lineCount: lines.length };
   if (mediaType === "text/markdown" && !target.raw) {
-    const collector = new MultiCollector(target);
+    const collector = new MultiCollector(placed);
     let count = 0;
-    for (const line of splitSourceLines(source)) {
+    for (const line of lines) {
       const keepReading = collector.push(count, markdownLineRecord(line));
       count += 1;
       if (!keepReading) break;
     }
     return collector.finish(count);
   }
-  const walk = startMultiRangeWalk(target);
-  for (const text of memorySourceLines(source)) {
+  const walk = startMultiRangeWalk(placed);
+  for (const text of memorySourceLines(lines)) {
     const step = stepMultiRangeWalk(walk, text, target);
     if (step === "halted") return walk.result;
     if (step === "exhausted") break;
   }
   return finishMultiWindow(walk.result, target, walk.count);
+}
+
+/** One window over an opened file: the Markdown reader when the range needs
+ *  ancestors, the shared walk otherwise. */
+async function collectOpenedWindow(window: {
+  file: FileHandle;
+  target: ReadTarget;
+  mediaType: string | undefined;
+  signal: AbortSignal | undefined;
+}): Promise<ReadSuccess> {
+  const { file, target, mediaType, signal } = window;
+  if (target.ranges !== undefined)
+    return mediaType === "text/markdown" && !target.raw
+      ? await collectMarkdownMultiWindow(file, target, signal)
+      : await collectMultiWindow(file, target, signal);
+  return mediaType === "text/markdown" && target.offset > 0 && !target.raw
+    ? await collectMarkdownWindow(file, target, signal)
+    : await collectWindow(file, target, signal);
+}
+
+/**
+ * The target as the read places it: an end-relative member needs the source's
+ * count before any line can be selected, and that scan is returned so the
+ * stored total reuses it instead of running twice.
+ */
+async function resolveCountedTarget(
+  target: ReadTarget,
+  file: FileHandle,
+  signal: AbortSignal | undefined,
+): Promise<{ target: ReadTarget; counted: number | undefined }> {
+  if (target.pending === undefined) return { target, counted: undefined };
+  const counted = await countSourceLines(file, signal);
+  return { target: resolveEndRelativeSelector(target, counted), counted };
+}
+
+/** The text window over the placed target, carrying the count the scan
+ *  produced so the header's total and the continuation label can use it. */
+async function textWindow(window: {
+  file: FileHandle;
+  target: ReadTarget;
+  size: number;
+  counted: number | undefined;
+  mediaType: string | undefined;
+  signal: AbortSignal | undefined;
+}): Promise<ReadSuccess> {
+  const { file, target, size, counted, mediaType, signal } = window;
+  const lineCount = await storedLineCount(file, size, counted, signal);
+  return await collectOpenedWindow({
+    file,
+    target: lineCount === undefined ? target : { ...target, lineCount },
+    mediaType,
+    signal,
+  });
 }
 
 /**
@@ -554,27 +584,21 @@ export async function streamFileWindow(
     if (!stats.isFile()) throw new NativeFileError("not_regular_file");
     const media = await readMedia(file, stats.size, target, source);
     if (media) return media;
-    const resolved =
-      target.pending === undefined
-        ? target
-        : resolveEndRelativeSelector(
-            target,
-            await countSourceLines(file, source.signal),
-          );
+    const placed = await resolveCountedTarget(target, file, source.signal);
     const mediaType = fileMediaType(source.hostPath);
-    if (resolved.outline)
+    if (placed.target.outline)
       return await outlineReader(mediaType)(
         outlineSourceLines(file, source.signal),
-        resolved,
+        placed.target,
       );
-    if (resolved.ranges !== undefined) {
-      return mediaType === "text/markdown" && !resolved.raw
-        ? await collectMarkdownMultiWindow(file, resolved, source.signal)
-        : await collectMultiWindow(file, resolved, source.signal);
-    }
-    return mediaType === "text/markdown" && resolved.offset > 0 && !resolved.raw
-      ? await collectMarkdownWindow(file, resolved, source.signal)
-      : await collectWindow(file, resolved, source.signal);
+    return await textWindow({
+      file,
+      target: placed.target,
+      size: stats.size,
+      counted: placed.counted,
+      mediaType,
+      signal: source.signal,
+    });
   } finally {
     await file.close();
   }
