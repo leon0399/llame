@@ -7,7 +7,8 @@ For every scheme, the walk MUST obey these rules:
 - The walk MUST skip a file with a NUL byte in its first 8 KiB.
 - The walk MUST skip a file that is not valid UTF-8. An invalid byte at any
   offset skips the file.
-- The walk MUST skip a file with a line longer than 64 MiB as `oversized`.
+- The walk MUST skip a file with a line longer than 64 MiB of UTF-8 bytes as
+  `oversized`.
 - The result MUST count each skip in a `warnings` entry by kind.
 
 The walk has no file, entry, byte, or file-size bound by default. The
@@ -277,17 +278,21 @@ roots. It MUST return `path_not_registered` for a prefix outside them, as
 the rules of this capability.
 
 The request carries the file, entry, byte, and file-size bounds that are left
-for the call, and the time left to the call deadline. An unset bound MUST
-travel as `null`, and the daemon then MUST apply no such bound. The daemon
-MUST stay inside each bound that the request sets.
+for the call. An unset bound MUST travel as `null`, and the daemon then MUST
+apply no such bound. The daemon MUST stay inside each bound that the request
+sets. The request also carries whether the call already reached an entry, as
+the unfinished-file requirement uses it.
+
+The request MUST give the daemon nine tenths of the time left to the call
+deadline. The daemon answer then arrives before the API stops the request. The
+API MUST stop the request at the call deadline.
 
 The daemon MUST return passages, excluded directories, and an unfinished
 file as paths relative to its display prefix only. The request also carries
 the page budget that is left. The API MUST cut a daemon page that is larger
-than that budget. The API MUST stop the request at the call deadline. The API
-MUST build the cursor from the last passage it emitted, never from a daemon
-passage it dropped. The API MUST apply the `read` group to each path that the
-daemon returns before the result names it.
+than that budget. The API MUST build the cursor from the last passage it
+emitted, never from a daemon passage it dropped. The API MUST apply the `read`
+group to each path that the daemon returns before the result names it.
 
 An unreachable or unknown Machine MUST fail the call with the Machine failure
 results that `read` uses. A daemon without the method MUST fail the call as
@@ -351,39 +356,56 @@ Machine unusable.
 
 - **WHEN** `tools.grep` sets no bound and a scope is `machine://build/srv/**`
 - **THEN** the request carries `null` for the file, entry, byte, and file-size bounds
-- **AND** the daemon stops only at the call deadline or at the end of the walk
+- **AND** the daemon applies no file, entry, byte, or file-size bound
 
 ## ADDED Requirements
 
 ### Requirement: Operator bounds limit a grep walk only when configured
 
-The walk MUST apply a file, entry, byte, or file-size bound only when
-`tools.grep` sets it. An unset bound MUST NOT stop the walk.
-`maxFilesExamined` bounds the files that the walk opens for a match.
-`maxEntriesListed` bounds the directory entries that the walk lists.
-`maxBytesRead` bounds the bytes that the walk reads across the call.
-`maxFileBytes` skips a larger regular file as `oversized`. Each bound applies
-across every scope of one call.
+The walk MUST apply a file, entry, byte, or file-size bound only when the
+`tools.grep` configuration object sets it. An unset bound MUST NOT stop the
+walk. `maxFilesExamined` bounds the files that the walk takes for a match.
+`maxEntriesListed` bounds the directory entries that the walk lists. Each
+bound applies across every scope of one call.
 
 #### Scenario: A default walk has no count bound
 
-- **WHEN** `tools.grep` is absent and a scope holds 30,000 text files of 300 MiB in total
+- **WHEN** the `tools.grep` configuration object is absent and a scope holds 30,000 text files of 300 MiB in total
 - **THEN** the walk examines every file if the call deadline allows it
 - **AND** the result carries no `file_bound`, `entry_bound`, or `byte_bound` warning
 
+#### Scenario: A configured file bound stops the walk early
+
+- **WHEN** `tools.grep.maxFilesExamined` is 3 and a scope holds 10 files with no match
+- **THEN** the walk takes 3 files and stops with a `file_bound` warning and a `cursor`
+
+### Requirement: Byte bounds count the bytes that the walk takes
+
+`maxBytesRead` MUST count the bytes of each file that the walk takes in
+canonical order. It MUST also count the bytes that the walk read so far of the
+file that it waits on. Bytes of a file that the walk read ahead and did not
+take MUST NOT count. `maxFileBytes` MUST skip a regular file as `oversized`
+when its size, or the bytes that the walk reads from it, pass the bound.
+
 #### Scenario: A configured byte bound stops the walk
 
-- **WHEN** `tools.grep.maxBytesRead` is 10 MiB and the scope holds 50 MiB of text
-- **THEN** the walk stops after it read 10 MiB
-- **AND** the result carries a `byte_bound` warning and a `cursor`
+- **WHEN** `tools.grep.maxBytesRead` is 10 MiB and a scope holds 50 text files of 1 MiB each with no match
+- **THEN** the walk takes 10 files and stops with a `byte_bound` warning and a `cursor`
+
+#### Scenario: A file that grows past the file-size bound is skipped
+
+- **WHEN** `tools.grep.maxFileBytes` is 1 MiB and a file is 900 KiB when the walk opens it and 2 MiB when the walk reads it
+- **THEN** the file contributes no hit
+- **AND** `warnings` counts one oversized skip
 
 ### Requirement: The grep deadline derives from the tool call timeout
 
-The walk MUST stop at the call deadline. The call deadline is the tool call
-timeout minus a margin. The margin is the larger of 5 seconds and one tenth of
-the timeout. The margin MUST NOT be more than half of the timeout. At the call
-deadline, the result MUST carry the passages found so far, `complete: false`,
-a `deadline` warning, and a `cursor`.
+The walk MUST stop at the call deadline. The call deadline is the call start
+plus the tool call timeout, minus a margin. The margin is the larger of 5
+seconds and one tenth of the timeout, but at most half of it. Without a
+timeout in the call context, the timeout is `tools.callTimeoutSeconds`. At the
+call deadline, the result MUST carry the passages found so far,
+`complete: false`, a `deadline` warning, and a `cursor`.
 
 #### Scenario: The default timeout leaves a margin
 
@@ -400,6 +422,11 @@ a `deadline` warning, and a `cursor`.
 
 - **WHEN** `tools.callTimeoutSeconds` is 6
 - **THEN** the call deadline is 3 seconds after the call starts
+
+#### Scenario: A call without a timeout in its context uses the configured timeout
+
+- **WHEN** a grep call runs with no timeout in its call context and `tools.callTimeoutSeconds` is 120
+- **THEN** the call deadline is 108 seconds after the call starts
 
 ### Requirement: A file is searched as a stream
 
@@ -421,11 +448,16 @@ finds after a match MUST drop each passage of that file.
 
 ### Requirement: Reads run concurrently and keep canonical order
 
-The walk MUST NOT have more than 8 files open for a match at the same time. It
-can open later files in canonical order before an earlier file ends. The page,
-the cursor, and each bound MUST count a file only when the walk takes its
-result in canonical order. A file that the walk opened ahead of a stop MUST
-NOT count as reached.
+The walk MUST NOT have more than 8 files open for a match at the same time.
+When 8 or more admitted candidates wait in canonical order, the walk MUST have
+8 files open. The page, the cursor, each bound, each skip count, and each
+excluded directory MUST take effect in canonical order. A file that the walk
+opened ahead of a stop MUST NOT count as reached.
+
+#### Scenario: Eight reads are in flight
+
+- **WHEN** a scope holds 20 candidates and each read waits until the test releases it
+- **THEN** 8 reads are in flight at the same time, and no more
 
 #### Scenario: A later file that ends first keeps its place
 
@@ -443,13 +475,20 @@ NOT count as reached.
 - **WHEN** `tools.grep.maxFilesExamined` is 3
 - **THEN** the walk opens no more than 3 files for a match in the call
 
-### Requirement: A file that one call cannot finish is skipped and named
+#### Scenario: Files before an entry bound are still searched
 
-When the call deadline or the byte bound stops the walk in a file, the walk
-MUST check its progress. If the call reached no entry after its start point,
-the result MUST name that file in `unfinishedFile`. The cursor MUST then move
-past that file. Otherwise the next call MUST open that file again. The
-`unfinishedFile` field MUST name only a locator that the `read` group admits.
+- **WHEN** the entry bound trips while three earlier candidates are open
+- **THEN** the walk takes those three files before it stops
+- **AND** the cursor names an entry after them
+
+### Requirement: A stop in a file that blocks progress skips that file
+
+The start point of a call is the entry that the cursor of the call names. A
+call without a cursor starts at the start of the first scope. A call reaches
+an entry when it takes that entry in canonical order after its start point.
+The call deadline or the byte bound can stop the walk in a file before the call
+reached an entry. Then the result MUST name that file in `unfinishedFile`, and
+the next call MUST start after that file.
 
 #### Scenario: A file larger than one call is skipped
 
@@ -457,18 +496,45 @@ past that file. Otherwise the next call MUST open that file again. The
 - **THEN** the result names that log in `unfinishedFile`
 - **AND** a later call with the `cursor` starts after that log
 
+#### Scenario: An explicit file scope that one call cannot finish is skipped
+
+- **WHEN** the scopes are `/var/log/huge.log` and `/srv/app`, and the call deadline stops the walk in `huge.log`
+- **THEN** the result names `/var/log/huge.log` in `unfinishedFile`
+- **AND** a later call with the `cursor` starts at `/srv/app`
+
+#### Scenario: A cursor on the parent directory is no progress
+
+- **WHEN** the cursor of the call names the directory `logs` and the call deadline stops the walk in `logs/big.log`
+- **THEN** the result names `logs/big.log` in `unfinishedFile`
+
+### Requirement: A stop after progress opens the file again
+
+When the call reached an entry before a stop in a file, the result MUST NOT
+carry `unfinishedFile`. A later call with the `cursor` MUST open that file
+again. A Machine request and each later scope MUST use the progress of the
+whole call. The `unfinishedFile` field MUST name only a locator that the
+`read` group admits.
+
 #### Scenario: A stop after progress resumes at the file
 
 - **WHEN** the call reached 40 files and the call deadline stops the walk in the forty-first
 - **THEN** the result carries no `unfinishedFile`
 - **AND** a later call with the `cursor` opens the forty-first file again
 
+#### Scenario: Progress in an earlier scope counts
+
+- **WHEN** a host scope reached 10 files and the call deadline then stops a Machine scope in its first file
+- **THEN** the result carries no `unfinishedFile`
+- **AND** a later call with the `cursor` opens that Machine file again
+
 ### Requirement: Ignore files from the scope and above it apply
 
-A host or Machine walk MUST read `.gitignore` and `.ignore` in each directory
-from the filesystem root down to each candidate. On a Machine, the walk starts
-at the registered root that holds the prefix. A deeper ignore file outranks a
-shallower one. In one directory, `.ignore` outranks `.gitignore`.
+A host or Machine walk MUST apply `.ignore` files from the filesystem root
+down to each candidate. It MUST apply `.gitignore` files in the same way,
+under the repository limit of the next requirement. On a Machine, the walk
+starts at the registered root that holds the prefix. A deeper ignore file
+outranks a shallower one. In one directory, `.ignore` outranks `.gitignore`.
+The walk MUST NOT search either file.
 
 #### Scenario: A rule at the repository root applies to a narrower scope
 
@@ -479,6 +545,11 @@ shallower one. In one directory, `.ignore` outranks `.gitignore`.
 
 - **WHEN** `/mnt/d/Projects/.ignore` names `.build-cache/` and a scope is `/mnt/d/Projects/Arduino`
 - **THEN** the walk examines no file below `/mnt/d/Projects/Arduino/libraries/.build-cache`
+
+#### Scenario: An ignore file is not searched
+
+- **WHEN** `/home/u/repo/.ignore` contains a match and a scope is `/home/u/repo`
+- **THEN** no passage names `/home/u/repo/.ignore`
 
 ### Requirement: A gitignore above the scope applies only in its repository
 
@@ -500,11 +571,11 @@ below it. Without a repository directory, the walk MUST NOT apply a
 
 ### Requirement: An ignore rule never excludes the scope directory
 
-An ignore rule MUST NOT exclude the scope directory or a directory above it.
-A rule above the scope excludes an entry only when the rule matches that entry
-or a directory between the scope and that entry. The walk MUST evaluate each
-rule on its own. A deeper `!` rule MUST include again only the paths that it
-matches.
+The scope directory is the directory that the literal prefix of the scope
+names. An ignore rule MUST NOT exclude the scope directory or a directory above
+it. A rule MUST NOT exclude an entry only because the rule matches the scope
+directory, or a directory that a deeper rule includes again. A rule with no
+slash, except a final one, matches the entry name at any depth.
 
 #### Scenario: An explicit scope searches an ignored directory
 
@@ -522,14 +593,31 @@ matches.
 - **THEN** the walk enters `/home/u/repo/src/build`
 - **AND** it examines no `.log` file below it
 
+#### Scenario: A nested ignored directory below an explicit scope is excluded
+
+- **WHEN** `/home/u/repo/.gitignore` names `node_modules/` and a scope is `/home/u/repo/node_modules/react`
+- **THEN** the walk examines no file below `/home/u/repo/node_modules/react/x/node_modules`
+
+#### Scenario: An allow list keeps its files
+
+- **WHEN** `/home/u/repo/.gitignore` names `*`, then `!*/`, then `!*.ts`
+- **THEN** the walk searches `/home/u/repo/src/b.ts`
+- **AND** it examines no `/home/u/repo/src/a.js`
+
+#### Scenario: A negated directory keeps the rule for its files
+
+- **WHEN** `/home/u/repo/.gitignore` names `build*` and `!build-tools/`
+- **THEN** the walk enters `/home/u/repo/build-tools`
+- **AND** it examines no `/home/u/repo/build-tools/build.sh`
+
 ### Requirement: Excluded directories are reported
 
-When an ignore rule excluded a directory, the result MUST carry `ignored`.
-`ignored.count` MUST count the excluded directories whose locator the `read`
-group admits. `ignored.locators` MUST hold the first five of them in canonical
-order. The walk MUST NOT report a directory below an excluded directory, or
-an excluded file. When the walk kept 1,000 excluded paths in one call,
-`ignored.atLeast` MUST be `true`.
+The walk MUST record each directory that an ignore rule excludes at or after
+the start point of the call. It MUST NOT record a directory below an excluded
+directory, or an excluded file. When the `read` group admits at least one
+recorded locator, the result MUST carry `ignored`. `ignored.count` MUST count
+the admitted locators. `ignored.locators` MUST hold the first five of them in
+canonical order.
 
 #### Scenario: The model learns which directory to scope
 
@@ -537,12 +625,41 @@ an excluded file. When the walk kept 1,000 excluded paths in one call,
 - **THEN** `ignored.locators` holds `/home/u/repo/node_modules`
 - **AND** a later scope of `/home/u/repo/node_modules` searches it
 
+#### Scenario: Nested excluded directories are not repeated
+
+- **WHEN** `node_modules/` excluded `/home/u/repo/node_modules`, and that directory holds another `node_modules`
+- **THEN** `ignored.count` counts one directory
+
+#### Scenario: A resumed page does not repeat earlier exclusions
+
+- **WHEN** a first page excluded `/home/u/repo/a/node_modules`, and a second call resumes after `/home/u/repo/a`
+- **THEN** the second result does not count `/home/u/repo/a/node_modules`
+
+### Requirement: The excluded-directory report is filtered and bounded
+
+The `read` group MUST admit a directory locator both as written and with a
+final separator before the result counts or names it. The walk MUST keep at
+most 1,000 recorded directories for one call, across every scope. When it
+records more, `ignored.atLeast` MUST be `true`. The page MUST reserve room for
+the `ignored` line and for the `unfinishedFile` line, so the tool loop never
+cuts the result.
+
 #### Scenario: A refused directory is not named
 
 - **WHEN** an ignore rule excluded `/home/u/repo/secrets` and the `read` group refuses that locator
 - **THEN** `ignored` neither counts nor names `/home/u/repo/secrets`
 
-#### Scenario: Nested excluded directories are not repeated
+#### Scenario: A reject with a final separator hides the directory
 
-- **WHEN** `node_modules/` excluded `/home/u/repo/node_modules`, and that directory holds another `node_modules`
-- **THEN** `ignored.count` counts one directory
+- **WHEN** an ignore rule excluded `/home/u/.ssh` and the `read` group rejects the literal `/home/u/.ssh/`
+- **THEN** `ignored` neither counts nor names `/home/u/.ssh`
+
+#### Scenario: Only refused exclusions leave no report
+
+- **WHEN** the only excluded directory is one that the `read` group refuses
+- **THEN** the result carries no `ignored` field
+
+#### Scenario: A large exclusion count is a lower bound
+
+- **WHEN** ignore rules exclude 1,500 directories in one call
+- **THEN** `ignored.count` is at most 1,000 and `ignored.atLeast` is `true`

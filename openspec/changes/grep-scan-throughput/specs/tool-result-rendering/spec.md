@@ -9,19 +9,21 @@ one `## <locator>` line. That line holds the file locator and no line range.
 capped twentieth passage MUST end with `[more passages in this file; read it
 to see them]`. A Knowledge notice MUST render first.
 
-After the passages, the text MUST render these lines in this order, each only
-when it applies:
+After the passages, the text MUST render the lines below in this order. Each
+line renders only when it applies:
 
 - Non-empty warnings MUST render as one `[warnings: …]` line.
-- An `ignored` field MUST render as one line. The line is `[ignored <count>
-  directories: <locators>; a scope that names one searches it]`.
-  `<locators>` lists `ignored.locators`, with a comma and one space between
-  two locators. When the count is larger than the list, `(+<rest> more)`
-  follows the list after one space. When `ignored.atLeast` is `true`,
-  `<count>` is `<count> or more`.
+- An `ignored` field MUST render as one line of at most 2,000 code units:
+  `[ignored <count> <noun>: <locators>; a scope that names one searches it]`.
+  `<noun>` is `directory` for a count of one and `directories` otherwise.
+  `<locators>` holds the first `ignored.locators` that fit in the line, with a
+  comma and one space between two locators.
+- When the count is larger than the rendered locators, `(+<rest> more)`
+  follows them after one space. When `ignored.atLeast` is `true`, `<count>` is
+  `<count> or more` and the rest is `(+<rest> or more)`.
 - An `unfinishedFile` field MUST render as
   `[not searched to the end: <locator>]`.
-- The continuation line follows last.
+- The continuation line follows them.
 
 #### Scenario: Two passages in one file share a header
 
@@ -45,9 +47,20 @@ when it applies:
 
 #### Scenario: Excluded directories render after the warnings
 
-- **WHEN** `ignored` has count 7 and the locators `/r/node_modules` and `/r/dist`
-- **THEN** the text carries `[ignored 7 directories: /r/node_modules, /r/dist (+5 more); a scope that names one searches it]`
+- **WHEN** `ignored` has count 7 and five locators `/r/a`, `/r/b`, `/r/c`, `/r/d`, and `/r/e`
+- **THEN** the text carries `[ignored 7 directories: /r/a, /r/b, /r/c, /r/d, /r/e (+2 more); a scope that names one searches it]`
 - **AND** that line comes after the `[warnings: …]` line and before the continuation line
+
+#### Scenario: One excluded directory takes the singular
+
+- **WHEN** `ignored` has count 1 and the locator `/r/node_modules`
+- **THEN** the text carries `[ignored 1 directory: /r/node_modules; a scope that names one searches it]`
+
+#### Scenario: A lower-bound count is marked
+
+- **WHEN** `ignored` has count 1,000, five locators, and `atLeast: true`
+- **THEN** the line starts with `[ignored 1000 or more directories:`
+- **AND** the locators end with `(+995 or more)`
 
 #### Scenario: An unfinished file is named
 
