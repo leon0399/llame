@@ -281,10 +281,10 @@ breaks.
 
 ### Requirement: A count of one takes the singular noun
 
-The templates in this capability write `lines` and `entries` for every count. A count of one MUST
-take the singular instead: `1 line`, `1 line total`, `of 1 line`, `1 more line`, `1 more entry`.
-In an `edit` header the noun MUST follow the replacement count, so `2 -> 1 line` and
-`1 -> 2 lines`.
+The `lines` and `entries` in every template of this capability are the plural form of a count,
+and this requirement governs their number: a count of one MUST take the singular, as in `1 line`,
+`1 line total`, `of 1 line`, `1 more line`, and `1 more entry`. In an `edit` header the noun MUST
+follow the replacement count, so `2 -> 1 line` and `1 -> 2 lines`.
 
 #### Scenario: One-line results use the singular
 
