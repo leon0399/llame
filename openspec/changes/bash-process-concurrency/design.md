@@ -84,7 +84,9 @@ cause).
 ### D4. Operator-tunable capacity, default four
 
 `tools.bashMaxProcesses` is a positive safe integer resolved at startup using the
-existing numeric configuration machinery, with a default of four. Reject zero,
+existing numeric configuration machinery, with a default of four. Add a
+`Number.isSafeInteger` check for this setting: `assertPositiveInteger` alone
+accepts unsafe integers. Reject zero,
 negative, fractional, non-finite, unsafe-integer, and wrong-type values with a
 field-specific startup error. Match existing whole-value interpolation behavior
 and validate the resolved value. This is server configuration, never a model

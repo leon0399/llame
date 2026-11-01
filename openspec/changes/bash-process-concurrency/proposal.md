@@ -16,8 +16,8 @@ execution capability is missing.
 ## What Changes
 
 - Raise the worker's managed-process bound above one, so a step's parallel
-  `bash` calls are admitted while the host can run them, and keep refusing
-  beyond the bound rather than queueing.
+  `bash` calls can be admitted up to the configured per-worker bound; refuse
+  beyond that bound rather than queueing.
 - Make the per-worker-process scope the bound's documented meaning: the bound
   belongs to the worker process and every Run that worker executes shares it.
 - Give an exhausted bound its own result classification instead of
@@ -68,8 +68,9 @@ None.
 ## Impact
 
 - `packages/bash-executor`: `types.ts` (context and result union), `execute.ts`
-  (admission and release), `sanitize.ts`, `execute.test.ts`,
-  `sanitize.test.ts`.
+  (admission and release), `sanitize.ts`, `index.ts`, and the executor,
+  sanitizer, recovery, contract, watch, file-context, and acceptance tests;
+  `apps/api/src/tools/bash.test.ts` also migrates from the global test reset.
 - `apps/api/src/tools/bash.ts` (context construction and result mapping),
   `apps/api/src/prompts/tools/bash.md`,
   `docs/product/reference/tools/bash.md`, `CHANGELOG.md`.
@@ -83,6 +84,10 @@ None.
 
 ## Revision history
 
+- **v4 (2026-10-16):** Address PR review: qualify post-unknown admission by
+  available capacity in the existing requirement and scenarios; explicitly require
+  safe-integer validation beyond the existing helper; plan removal of the global
+  test reset and migration of its callers; remove the host-capacity claim.
 - **v3 (2026-10-16):** Rebase onto master `a128882` and reconcile merged #1293:
   live unknown outcomes release their slots without worker quarantine; durable
   unresolved-attempt recovery still never replays. Document that the bound limits
