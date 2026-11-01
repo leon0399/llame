@@ -35,8 +35,9 @@ daemon for `machine://` scopes (`apps/machine/src/grep.ts:205-240`).
   pageUnits }` (`packages/machine-protocol/src/types.ts:230-237`), with no
   per-file bound.
 - Configuration: `tools.callTimeoutSeconds` and `tools.maxStepsPerRun` resolve
-  through `resolveToolNumbers` (`apps/api/src/instance-config/config-loader.ts:256-283`),
-  where `null` means no cap and zero fails startup.
+  through `resolveToolNumbers` (`apps/api/src/instance-config/config-loader.ts:256-283`).
+  `tools.maxStepsPerRun` is nullable, with `null` as no cap; `tools.callTimeoutSeconds`
+  is a required positive integer. Zero fails startup for both.
 
 ### Measurements
 
@@ -140,8 +141,10 @@ The bookkeeping between two candidates is one coalesced record: the counted
 entry delta, the last reached path, the largest continuation width for
 `reserveFloor`, the link-skip count, and the excluded directories in order. An
 entry-bound stop is its own event. The producer pauses while 8 file tasks are
-queued or while 10,000 excluded paths and records are queued, so a walk with
-few candidates cannot list a whole large tree ahead of a slow head task.
+queued, or while 10,000 events of any kind are queued: candidates, refused
+candidates, records, and excluded paths. A walk with few admitted candidates,
+or a large tree the `read` group refuses, then cannot run its listing or its
+admission far ahead of a slow head task.
 
 The producer runs the `read` admission (`onCandidate`) before it starts a
 task, because a task must not open a refused file. The refusal is counted
@@ -194,8 +197,12 @@ size and an async iterator of byte chunks. The iterator can end with a refusal
 after its last chunk. The Machine port uses that step for its containment
 re-check (`unchanged`, `apps/machine/src/grep-port.ts:137-145`), which drops
 the file as `unreadable` when a directory on the path changed during the read.
-Host, Machine, and skill ports use `fs.open` with the current flags and read
-64 KiB chunks. The Knowledge adapter streams through `this.fileSystem.open`
+Host, Machine, and skill ports use `fs.open` with `O_NONBLOCK` and read 64 KiB
+chunks; host and Machine ports also keep `O_NOFOLLOW`. Today the skill port
+opens with a blocking `open(file, 'r')` (`grep-ports.ts:319`), so an exact
+`skill://` scope on a FIFO can block before any abort check. Every streaming
+port therefore opens without blocking and refuses a non-regular file as
+`unreadable` after `fstat`. The Knowledge adapter streams through `this.fileSystem.open`
 after its per-component `lstat` checks
 (`apps/api/src/knowledge/knowledge-filesystem.ts:389-405,562-580`).
 
@@ -207,7 +214,7 @@ A file task:
 3. Decodes with `TextDecoder('utf-8', { fatal: true, ignoreBOM: true })` in
    stream mode, as `stream-read.ts:94-124` already does. A decode error drops
    the file as `invalid_utf8`.
-4. Splits lines on LF, stripping one trailing CR, as `source-lines.ts:65-67`
+4. Splits lines on LF, stripping one trailing CR, as `passages.ts:23-29`
    does; a CR at a chunk end needs no special case. It counts UTF-8 bytes per
    line; a line above 4 MiB drops the file as `oversized`. A line is held as
    an array of decoded pieces and joined once for the test, so V8 does not
@@ -257,9 +264,13 @@ timeout the walk stops at 108 s. `ToolContext.timeoutMs` is optional
 bounded tools fall back to their own default (`machine-call.ts:51-55`).
 
 The consumer checks the deadline before it takes each file, and the head task
-checks it between chunks. Two waits can still pass the deadline: a listing in
-progress (`readdir` is not abortable) and one line test (at most about 1 s per
-pattern at the 4 MiB line bound, D3). The margin covers both.
+checks it between chunks and between the pattern tests of one line. Two waits
+can still pass the deadline: a listing in progress (`readdir` is not
+abortable) and one pattern test of one line (at most about 1 s at the 4 MiB
+line bound, D3). The margin covers both from a 2 s call timeout up; below it,
+the runner's `timeout` can still win, which `tools.callTimeoutSeconds` makes
+the operator's choice. The byte bound is checked between chunks too, so a call
+reads at most one 64 KiB chunk past `maxBytesRead`.
 
 The Machine segment gives the daemon nine tenths of the time left
 (`grep-machine.ts:340,370,467` pass all of it today) and keeps the full time
@@ -399,6 +410,13 @@ the start point (D5). Nested excluded directories are never seen, because the
 walk does not enter their parent. Entries before the start point are listed
 without evaluation, so a resumed page does not repeat earlier exclusions.
 
+Each reported locator is spelled as a scope: a literal `*`, `?`, `[`, `]`, `{`,
+or `}` becomes `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, or `%7D`, and the scope
+grammar accepts the last four encodings as literal characters
+(`packages/native-file-tools/src/grep/scope.ts:26-51` refuses a raw bracket or
+brace today). A Next.js `app/[id]` directory is otherwise unsearchable as a
+scope. The `read` filter evaluates the raw path, not the spelling.
+
 The engine records the first 1,000 excluded directories per call across every
 scope, and sets `atLeast` when it excludes more. A Machine returns its own list
 under the same cap; the API merges lists in scope order and applies the cap
@@ -414,8 +432,9 @@ grows `reserveFloor` for a position cursor today (`scan.ts:108-115`). An
 excluded directory raises the reserve to the full `[ignored …]` line, which
 the renderer caps at 2,000 code units by leaving out locators that do not fit.
 A head task raises it for `[not searched to the end: <locator>]` when it
-starts. The warnings reserve grows from six to seven digits per kind, because
-an unbounded walk can pass 999,999 skips of one kind.
+starts. The warnings reserve stops being a constant: it grows with the
+rendered `[warnings: …]` line as counts arrive, because an unbounded walk has
+no largest count.
 
 Rejected: reporting excluded files (noise from `*.log` and similar); a count
 without names (the model cannot recover without guessing).
@@ -489,6 +508,22 @@ says so. Rollback is a revert of the layer; no persisted state depends on it.
 None.
 
 ## Revision history
+
+- **v4 (2026-11-01):** GitHub review, iteration 1 (cubic, pullfrog,
+  CodeRabbit: 16 threads). Accepted: the byte bound stops when the count
+  reaches it and `maxFileBytes` skips above it; a position cursor can name a
+  scope start, for a stop before the first entry and for a skipped single-file
+  scope; `bypass` attempt wording; deadline checks between pattern tests and
+  the byte bound between chunks; every streaming port opens without blocking
+  (the skill port blocks on a FIFO today); the producer pauses on queued
+  events of any kind; the warnings reserve grows with the rendered line;
+  reported locators are spelled as scopes and `%5B`/`%5D`/`%7B`/`%7D` are
+  literal in a scope; the `callTimeoutSeconds` nullability and `passages.ts`
+  citations; the Knowledge notice wording. Rejected with evidence: setting
+  `UV_THREADPOOL_SIZE` in-process (two probes show it takes effect before the
+  first pool use); keeping a newline in a rendered locator (the framing rule
+  exists to stop an unprefixed line, and the `## <locator>` header already
+  folds).
 
 - **v3 (2026-11-01):** Review round 2 (two reviewers: 0 P0, 16 P1, 19 P2;
   every P1 verified against code or a probe). Fixed: rule matching now uses a

@@ -25,6 +25,11 @@ cursor that names the last entry the walk reached in canonical order. A later
 call MUST list the entries before that entry and that entry itself, and it
 MUST NOT open them. It MUST then continue the walk after that entry.
 
+A position cursor can instead name the start of a scope. It does so when the
+walk reached no entry in that scope, or when it skips an unfinished
+single-file scope and names the next scope. A later call MUST then start that
+scope from its first entry.
+
 #### Scenario: Binary file is skipped and counted
 
 - **WHEN** a candidate contains a NUL byte in its first 8 KiB
@@ -60,6 +65,12 @@ MUST NOT open them. It MUST then continue the walk after that entry.
 - **WHEN** no bound is configured and a candidate holds one line of 5 MiB
 - **THEN** the file contributes no hit
 - **AND** `warnings` counts one oversized skip
+
+#### Scenario: A stop before the first entry resumes at the scope start
+
+- **WHEN** the call deadline stops the walk before it reached an entry of the first scope
+- **THEN** the result carries `complete: false` and a position cursor on the start of that scope
+- **AND** a later call with that `cursor` starts at the first entry of that scope
 
 #### Scenario: A late invalid byte drops the file
 
@@ -391,9 +402,9 @@ bound applies across every scope of one call.
 `maxBytesRead` MUST count the bytes of each file that the walk takes in
 canonical order. It MUST also count the bytes that the walk read so far of the
 file that it waits on. Bytes of any other file that the walk read ahead MUST NOT count. The
-walk MUST stop when the count passes `maxBytesRead`. `maxFileBytes` MUST skip
+walk MUST stop when the count reaches `maxBytesRead`. `maxFileBytes` MUST skip
 a regular file as `oversized` when its size, or the bytes that the walk reads
-from it, pass the bound.
+from it, exceed the bound.
 
 #### Scenario: A configured byte bound stops the walk
 
@@ -730,3 +741,17 @@ cuts the result.
 
 - **WHEN** ignore rules exclude 1,500 directories in one call and the `read` group admits each of them
 - **THEN** `ignored.count` is 1,000 and `ignored.atLeast` is `true`
+
+### Requirement: A reported directory locator is a valid scope
+
+Each locator in `ignored.locators` MUST be a grep scope that names that one
+directory. The tool MUST spell a literal `*`, `?`, `[`, `]`, `{`, or `}` in it
+as `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, or `%7D`. In the path part of a scope,
+`%5B`, `%5D`, `%7B`, and `%7D` MUST name the literal character. The tool MUST
+NOT refuse them as glob operators.
+
+#### Scenario: A reported directory with brackets can be scoped
+
+- **WHEN** `node_modules/` excluded `/home/u/repo/app/[id]/node_modules`
+- **THEN** `ignored.locators` holds `/home/u/repo/app/%5Bid%5D/node_modules`
+- **AND** a later scope of that locator searches that directory

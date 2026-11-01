@@ -6,7 +6,7 @@ The sixth named exception also covers each directory that a `grep` walk
 excludes by an ignore rule. The system MUST evaluate the `read` group on that
 directory locator as written and with a final separator. The system MUST NOT
 record these decisions one by one. They MUST NOT count toward the refused-file
-count of the completion audit. A bypassed Run MUST evaluate no such directory.
+count of the completion audit. A `bypass` attempt MUST evaluate no such directory.
 
 #### Scenario: Directory decisions are not recorded
 

@@ -13,7 +13,7 @@ value MUST become one space:
 - each attribution value and each `notes` entry,
 - the truncation notice of a `read` or `edit` result.
 
-A `grep` notice MUST NOT fold its line breaks.
+The Knowledge `notice` of a `grep` result MUST NOT fold its line breaks.
 
 #### Scenario: A path with a line break renders on one line
 
