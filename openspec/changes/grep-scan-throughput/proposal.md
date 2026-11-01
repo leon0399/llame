@@ -78,6 +78,12 @@ Grilling record of 2026-11-01:
 - Q14 A: skip and name a file one call cannot finish.
 - Q15: no Machine compatibility path; `fs.grep` changes as if new.
 - Q16 A: fold the #1392 ignore-layer defect into this change.
+- Q17 A: host scopes decode only the seven literal spellings; `machine://`
+  scopes keep the full locator decoding on both the probe and admission
+  side.
+- Q18 A: the excluded-directory report spells `%` and the six glob
+  characters as `%XX`, decoded in one pass, so every reported locator
+  works as a scope.
 - A1–A4 confirmed: margin is 10% of the timeout with a 5 s floor; concurrency
   covers listing and ignore lookups; `.ignore` outranks `.gitignore` in one
   directory; one directory is still listed whole.
