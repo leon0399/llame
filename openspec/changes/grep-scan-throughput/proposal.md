@@ -122,7 +122,9 @@ Assumptions that follow from those answers but were not asked separately:
 
 ## Deviations from the grilling record
 
-Leo confirmed these on 2026-11-01 ("the numbers are reasonable"):
+Leo confirmed the numeric deviations, the Q13 line bound and the thread-pool
+size, on 2026-11-01 ("the numbers are reasonable"). The Q5 and A5
+deviations wait for his approval of the revision (task 0.2):
 
 - **Q5 mechanism.** Q5 A sent an unset bound to a Machine as
   `Number.MAX_SAFE_INTEGER` only to avoid a protocol change. Q15 removed that
