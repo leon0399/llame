@@ -279,6 +279,20 @@ breaks.
 - **WHEN** a stored `read` or `edit` part carries a `truncationNotice` with a line break
 - **THEN** the notice renders on one line with one space in place of the break
 
+### Requirement: A count of one takes the singular noun
+
+The templates in this capability write `lines` and `entries` for every count. A count of one MUST
+take the singular instead: `1 line`, `1 line total`, `of 1 line`, `1 more line`, `1 more entry`.
+In an `edit` header the noun MUST follow the replacement count, so `2 -> 1 line` and
+`1 -> 2 lines`.
+
+#### Scenario: One-line results use the singular
+
+- **WHEN** the model writes a one-line file, then replaces its only line with one line
+- **THEN** the texts are `replaced <locator> (1 line)` and
+  `edited <locator>: line 1, 1 -> 1 line (1 line total)`
+- **AND** a read of a two-line file cut after line 1 carries `[1 more line. Use <locator>:2- to continue]`
+
 ### Requirement: Continuation is one bracketed notice line
 
 When a result carries `truncated: true` and a `nextOffset`, the text MUST carry one bracketed
