@@ -42,45 +42,42 @@ export async function openWalkFile(
     await closeResource(file, signal);
     return { kind: 'unreadable' };
   }
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= file.close().catch(() => undefined);
+    return closing;
+  };
   return {
-    kind: 'file',
     size: stats.size,
-    chunks: readFileChunks(file, signal),
+    close,
+    chunks: readFileChunks(file, close, signal),
   };
 }
 
-/** What one read of a walk file gave: bytes, the end, or a refusal. */
-type ChunkRead =
-  | { readonly bytes: Uint8Array }
-  | { readonly refusal: KnowledgeWalkReadRefusal }
-  | { readonly done: true };
-
-/** One chunk of an open walk file at `position`. */
-async function readFileChunk(
+/**
+ * One read of an open walk file at `position`: its byte count, or `undefined`
+ * when the read failed or answered an impossible count. An aborted call keeps
+ * its cancellation instead of becoming a skip.
+ */
+async function readWalkBytes(
   file: KnowledgeFilesystemFile,
+  buffer: Buffer,
   position: number,
   signal: AbortSignal | undefined,
-): Promise<ChunkRead> {
-  const buffer = Buffer.allocUnsafe(KNOWLEDGE_MAX_READ_CHUNK_BYTES);
-  let result: { bytesRead: number };
+): Promise<number | undefined> {
+  let bytesRead: number;
   try {
-    result = await observe(
+    ({ bytesRead } = await observe(
       file.read(buffer, 0, buffer.length, position),
       signal,
-    );
+    ));
   } catch (error) {
     if (signal?.aborted) throw error;
-    return { refusal: { kind: 'unreadable' } };
+    return undefined;
   }
-  if (
-    !Number.isInteger(result.bytesRead) ||
-    result.bytesRead < 0 ||
-    result.bytesRead > buffer.length
-  ) {
-    return { refusal: { kind: 'unreadable' } };
-  }
-  if (result.bytesRead === 0) return { done: true };
-  return { bytes: buffer.subarray(0, result.bytesRead) };
+  const impossible =
+    !Number.isInteger(bytesRead) || bytesRead < 0 || bytesRead > buffer.length;
+  return impossible ? undefined : bytesRead;
 }
 
 /**
@@ -89,25 +86,27 @@ async function readFileChunk(
  * after the last byte ends the stream with a refusal, so the walk counts the
  * skip instead of failing the whole call.
  */
-export async function* readFileChunks(
+async function* readFileChunks(
   file: KnowledgeFilesystemFile,
+  close: () => Promise<void>,
   signal: AbortSignal | undefined,
 ): AsyncGenerator<Uint8Array | KnowledgeWalkReadRefusal> {
   let position = 0;
   try {
     for (;;) {
       throwIfAborted(signal);
-      const read = await readFileChunk(file, position, signal);
-      if ('done' in read) return;
-      if ('refusal' in read) {
-        yield read.refusal;
+      const buffer = Buffer.allocUnsafe(KNOWLEDGE_MAX_READ_CHUNK_BYTES);
+      const bytesRead = await readWalkBytes(file, buffer, position, signal);
+      if (bytesRead === undefined) {
+        yield { kind: 'unreadable' };
         return;
       }
-      position += read.bytes.byteLength;
-      yield read.bytes;
+      if (bytesRead === 0) return;
+      position += bytesRead;
+      yield buffer.subarray(0, bytesRead);
     }
   } finally {
-    await file.close().catch(() => undefined);
+    await close();
   }
 }
 

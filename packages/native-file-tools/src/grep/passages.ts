@@ -65,18 +65,38 @@ export type GrepFileScan =
 export async function scanGrepFile(
   input: GrepFileScanInput,
 ): Promise<GrepFileScan> {
-  const counter = { bytes: 0 };
+  const reader: LineReader = {
+    decoder: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }),
+    pieces: [],
+    units: 0,
+    bytes: 0,
+    exact: false,
+    probed: 0,
+  };
   const state = createPassageState(input);
-  for await (const event of readGrepLines(
-    input.chunks,
-    input.maxFileBytes,
-    counter,
-  )) {
-    if (event.kind === "refused")
-      return { kind: "refused", refusal: event.refusal, bytes: counter.bytes };
-    takeLine(state, event.text);
+  let bytes = 0;
+  let lines = 0;
+  for await (const chunk of input.chunks) {
+    if (!(chunk instanceof Uint8Array))
+      return { kind: "refused", refusal: chunk.kind, bytes };
+    bytes += chunk.byteLength;
+    if (input.maxFileBytes !== null && bytes > input.maxFileBytes)
+      return { kind: "refused", refusal: "oversized", bytes };
+    const step = stepChunk(reader, chunk);
+    if ("refusal" in step)
+      return { kind: "refused", refusal: step.refusal, bytes };
+    for (const text of step.lines) {
+      takeLine(state, text);
+      lines += 1;
+      if (lines % YIELD_LINES === 0)
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    }
   }
-  return { kind: "passages", ...passageResult(state), bytes: counter.bytes };
+  const last = flushLines(reader);
+  if ("refusal" in last)
+    return { kind: "refused", refusal: last.refusal, bytes };
+  for (const text of last.lines) takeLine(state, text);
+  return { kind: "passages", ...passageResult(state), bytes };
 }
 
 /** One-based start line of an emitted passage locator. */
@@ -89,18 +109,17 @@ export function passageEndLine(locator: string): number {
   return Number(locator.slice(locator.lastIndexOf(":") + 1).split("-")[1]);
 }
 
-/** One logical line of the stream, or the refusal that ends the read. */
-type GrepLineEvent =
-  | { readonly kind: "line"; readonly text: string }
-  | { readonly kind: "refused"; readonly refusal: GrepFileRefusal };
-
 /** The decode and line-splitting state one stream carries between chunks. */
 type LineReader = {
   readonly decoder: TextDecoder;
   /** Decoded pieces of the line that is still open. */
   pieces: Array<string>;
-  /** UTF-8 bytes of that line, its delimiter excluded. */
+  /** UTF-16 units of that line, enough to know it cannot reach the bound. */
+  units: number;
+  /** UTF-8 bytes of that line, counted only once it could reach the bound. */
   bytes: number;
+  /** Whether `bytes` is the exact count of the open line. */
+  exact: boolean;
   /** Bytes already checked for a NUL. */
   probed: number;
 };
@@ -109,52 +128,6 @@ type LineReader = {
 type ChunkStep =
   | { readonly lines: Array<string> }
   | { readonly refusal: GrepFileRefusal };
-
-/**
- * Decode and split one file's chunks into logical lines. A BOM is content,
- * LF ends a line, and a CR before it stays text until the line completes, so
- * a chunk boundary needs no special case. A file with a NUL in its first
- * 8 KiB ends the read as `binary`, a line above the byte bound as
- * `oversized`, and a byte the UTF-8 decoder rejects as `invalid_utf8`.
- */
-async function* readGrepLines(
-  chunks: AsyncIterable<Uint8Array | GrepReadRefusal>,
-  maxFileBytes: number | null,
-  counter: { bytes: number },
-): AsyncGenerator<GrepLineEvent> {
-  const reader: LineReader = {
-    decoder: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }),
-    pieces: [],
-    bytes: 0,
-    probed: 0,
-  };
-  let lines = 0;
-  for await (const chunk of chunks) {
-    if (!(chunk instanceof Uint8Array)) {
-      yield { kind: "refused", refusal: chunk.kind };
-      return;
-    }
-    counter.bytes += chunk.byteLength;
-    if (maxFileBytes !== null && counter.bytes > maxFileBytes) {
-      yield { kind: "refused", refusal: "oversized" };
-      return;
-    }
-    const step = stepChunk(reader, chunk);
-    if ("refusal" in step) {
-      yield { kind: "refused", refusal: step.refusal };
-      return;
-    }
-    for (const line of step.lines) {
-      lines += 1;
-      if (lines % YIELD_LINES === 0)
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      yield { kind: "line", text: line };
-    }
-  }
-  const last = flushLines(reader);
-  if ("refusal" in last) yield { kind: "refused", refusal: last.refusal };
-  else for (const line of last.lines) yield { kind: "line", text: line };
-}
 
 /** Everything one chunk completes, after its NUL probe and its decode. */
 function stepChunk(reader: LineReader, chunk: Uint8Array): ChunkStep {
@@ -186,9 +159,9 @@ function splitLines(reader: LineReader, text: string): ChunkStep {
     if (!appendPiece(reader, rest.slice(0, newline)))
       return { refusal: "oversized" };
     rest = rest.slice(newline + 1);
-    lines.push(joinLine(reader.pieces, true));
-    reader.pieces = [];
-    reader.bytes = 0;
+    const line = completeLine(reader);
+    if ("refusal" in line) return line;
+    lines.push(line.line);
   }
   return { lines };
 }
@@ -196,8 +169,37 @@ function splitLines(reader: LineReader, text: string): ChunkStep {
 /** Add one decoded piece to the open line; false once it outgrows the bound. */
 function appendPiece(reader: LineReader, piece: string): boolean {
   reader.pieces.push(piece);
-  reader.bytes += Buffer.byteLength(piece, "utf8");
-  return reader.bytes <= GREP_LIMITS.lineBytes;
+  reader.units += piece.length;
+  // A UTF-16 unit never encodes to more than three UTF-8 bytes, so a short
+  // line needs no exact count.
+  if (!reader.exact && reader.units * 3 <= GREP_LIMITS.lineBytes) return true;
+  if (!reader.exact) {
+    reader.exact = true;
+    reader.bytes = reader.pieces.reduce(
+      (sum, part) => sum + Buffer.byteLength(part, "utf8"),
+      0,
+    );
+  } else {
+    reader.bytes += Buffer.byteLength(piece, "utf8");
+  }
+  // One byte of slack: the CR of a CRLF delimiter is not line content.
+  return reader.bytes <= GREP_LIMITS.lineBytes + 1;
+}
+
+/** One line's text and bound, with the CR of a CRLF delimiter removed. */
+function completeLine(
+  reader: LineReader,
+): { readonly line: string } | { readonly refusal: "oversized" } {
+  const joined = reader.pieces.join("");
+  const delimiter = joined.endsWith("\r") ? 1 : 0;
+  const oversized =
+    reader.exact && reader.bytes - delimiter > GREP_LIMITS.lineBytes;
+  reader.pieces = [];
+  reader.units = 0;
+  reader.bytes = 0;
+  reader.exact = false;
+  if (oversized) return { refusal: "oversized" };
+  return { line: delimiter === 1 ? joined.slice(0, -1) : joined };
 }
 
 /**
@@ -211,18 +213,11 @@ function flushLines(reader: LineReader): ChunkStep {
     return { refusal: "invalid_utf8" };
   }
   if (reader.pieces.length === 0) return { lines: [] };
-  const line = joinLine(reader.pieces, false);
+  if (reader.exact && reader.bytes > GREP_LIMITS.lineBytes)
+    return { refusal: "oversized" };
+  const line = reader.pieces.join("");
   reader.pieces = [];
   return { lines: [line] };
-}
-
-/**
- * One line's text: its decoded pieces joined, with the CR of a CRLF delimiter
- * removed when the line was terminated.
- */
-function joinLine(pieces: ReadonlyArray<string>, terminated: boolean): string {
-  const line = pieces.join("");
-  return terminated && line.endsWith("\r") ? line.slice(0, -1) : line;
 }
 
 /** One line kept for the passages that will render it, with its `N:` prefix. */
@@ -230,7 +225,6 @@ type HeldLine = { readonly line: number; readonly text: string };
 
 /** One finalized wandering window: one-based inclusive lines and matches. */
 type GrepInterval = {
-  start: number;
   end: number;
   matches: Array<number>;
   /** Start of the next passage this interval may emit. */
@@ -240,10 +234,7 @@ type GrepInterval = {
 };
 
 /** How far the resume filter has come through a file's passages. */
-type ShowState =
-  | { readonly kind: "pending" }
-  | { readonly kind: "show" }
-  | { readonly kind: "stop" };
+type ShowState = "pending" | "show" | "stop";
 
 /** What a resumed page shows of one passage: none, its tail, or all of it. */
 type ShowDecision =
@@ -254,9 +245,12 @@ type ShowDecision =
 /** Everything one file's scan carries across its lines. */
 type PassageState = {
   readonly input: GrepFileScanInput;
-  readonly resume: GrepFileResume | undefined;
-  /** Passages in canonical order, with the ordinal each holds in the file. */
-  emitted: Array<{ ordinal: number; passage: GrepPassage }>;
+  emitted: Array<GrepPassage>;
+  /** The file's twentieth passage, once it renders, for the cap mark. */
+  twentieth: GrepPassage | undefined;
+  /** Start line of the file's twentieth passage, once one is finalized. */
+  twentiethLine: number | undefined;
+  cappedAt: number | undefined;
   /** Lines the passages that will render them need, from `heldBase`. */
   held: Array<string>;
   heldBase: number;
@@ -267,9 +261,6 @@ type PassageState = {
   stopped: boolean;
   /** Passages finalized so far, dropped ones included. */
   built: number;
-  /** Start line of the file's twentieth passage, once one is finalized. */
-  twentiethLine: number | undefined;
-  cappedAt: number | undefined;
   show: ShowState;
   open: GrepInterval | undefined;
   previous: HeldLine | undefined;
@@ -280,17 +271,17 @@ type PassageState = {
 function createPassageState(input: GrepFileScanInput): PassageState {
   return {
     input,
-    resume: input.resume,
     emitted: [],
+    twentieth: undefined,
+    twentiethLine: undefined,
+    cappedAt: undefined,
     held: [],
     heldBase: 0,
     heldUnits: 0,
     heldStopped: false,
     stopped: false,
     built: 0,
-    twentiethLine: undefined,
-    cappedAt: undefined,
-    show: input.resume === undefined ? { kind: "show" } : { kind: "pending" },
+    show: input.resume === undefined ? "show" : "pending",
     open: undefined,
     previous: undefined,
     line: 0,
@@ -302,24 +293,29 @@ function passageResult(state: PassageState) {
   if (state.open !== undefined)
     state.open.end = Math.min(state.open.end, state.line);
   finishInterval(state);
-  return {
-    passages: state.emitted.map((entry) => entry.passage),
-    cappedAt: state.cappedAt,
-  };
+  return { passages: state.emitted, cappedAt: state.cappedAt };
+}
+
+/** The 512-unit display of one line, as a flat copy of its own. */
+function cutLine(text: string): string {
+  return text.length > GREP_LIMITS.lineCodeUnits
+    ? [text.slice(0, GREP_LIMITS.lineCodeUnits), "…"].join("")
+    : text;
 }
 
 /** Take one logical line: test it, then hold it for the passages it feeds. */
 function takeLine(state: PassageState, text: string): void {
   state.line += 1;
-  const display =
-    text.length > GREP_LIMITS.lineCodeUnits
-      ? `${text.slice(0, GREP_LIMITS.lineCodeUnits)}…`
-      : text;
+  const display = cutLine(text);
   // A match opens the interval first, so the line it matched is held for the
   // window it starts; a line after one is held while it stays open.
   // `previous` stays the line before this one until both steps are done.
   if (!state.stopped) {
     if (state.input.patterns.matches(text)) matchLine(state, state.line);
+    else if (state.open !== undefined && state.line > state.open.end + 1)
+      // No window can merge here any more: close it, so a long gap cannot
+      // spend the hold limit on lines no passage will render.
+      finishInterval(state);
     if (!state.stopped) holdLine(state, state.line, display);
   }
   state.previous = { line: state.line, text: display };
@@ -341,10 +337,8 @@ function holdLine(state: PassageState, line: number, text: string): void {
   const floor = Math.max(open.passageStart, open.holdStart);
   if (line < floor) return;
   releaseHeld(state, floor - 1);
-  if (state.held.length > 0 && state.heldBase + state.held.length !== line) {
-    for (const held of state.held) state.heldUnits -= held.length;
-    state.held = [];
-  }
+  if (state.held.length > 0 && state.heldBase + state.held.length !== line)
+    releaseHeld(state, state.heldBase + state.held.length - 1);
   if (state.held.length === 0) state.heldBase = line;
   const rendered = renderSourceLine(text, line - 1);
   if (state.heldUnits + rendered.length > HELD_CODE_UNITS) {
@@ -396,10 +390,7 @@ function renderPassage(
 
 /** Mark the twentieth passage when a twenty-first proves the file holds more. */
 function markCapped(state: PassageState): void {
-  const twentieth = state.emitted.find(
-    (entry) => entry.ordinal === GREP_LIMITS.passagesPerFile,
-  );
-  if (twentieth !== undefined) twentieth.passage.truncated = true;
+  if (state.twentieth !== undefined) state.twentieth.truncated = true;
   state.cappedAt = state.twentiethLine;
   state.stopped = true;
 }
@@ -416,7 +407,7 @@ function emitPassage(
   state.built = ordinal;
   if (ordinal > GREP_LIMITS.passagesPerFile) return markCapped(state);
   if (ordinal === GREP_LIMITS.passagesPerFile) state.twentiethLine = start;
-  const decision = showDecision(state.show, state.resume, start, end);
+  const decision = showDecision(state.show, state.input.resume, start, end);
   if (decision.kind === "drop") {
     state.show = decision.next;
     if (state.heldStopped) state.stopped = true;
@@ -426,12 +417,25 @@ function emitPassage(
   const from = decision.kind === "tail" ? decision.from : start;
   const rendered = renderPassage(state, end, from, matches);
   if (rendered !== undefined) {
-    state.emitted.push({ ordinal, passage: rendered.passage });
+    if (ordinal === GREP_LIMITS.passagesPerFile)
+      state.twentieth = rendered.passage;
+    state.emitted.push(rendered.passage);
     // The page keeps what this passage rendered; the scan drops it, so the
     // hold limit bounds the content in flight rather than the whole file.
     releaseHeld(state, rendered.last);
   }
   if (state.heldStopped) state.stopped = true;
+}
+
+/** The last match at or before `limit`, searched from `from`. */
+function lastMatchWithin(
+  matches: ReadonlyArray<number>,
+  from: number,
+  limit: number,
+): number {
+  let cut = from;
+  while (cut + 1 < matches.length && matches[cut + 1] <= limit) cut += 1;
+  return cut;
 }
 
 /** Close the open interval, partitioning what is left of it. */
@@ -449,10 +453,11 @@ function finishInterval(state: PassageState): void {
       emitPassage(state, start, open.end, open.matches.slice(index));
       return;
     }
-    const limit = start + GREP_LIMITS.passageLines - 1;
-    let cut = index;
-    while (cut + 1 < open.matches.length && open.matches[cut + 1] <= limit)
-      cut += 1;
+    const cut = lastMatchWithin(
+      open.matches,
+      index,
+      start + GREP_LIMITS.passageLines - 1,
+    );
     emitPassage(
       state,
       start,
@@ -470,9 +475,7 @@ function partitionInterval(state: PassageState, line: number): void {
   if (open === undefined) return;
   const limit = open.passageStart + GREP_LIMITS.passageLines - 1;
   if (line <= limit) return;
-  let cut = 0;
-  while (cut + 1 < open.matches.length && open.matches[cut + 1] <= limit)
-    cut += 1;
+  const cut = lastMatchWithin(open.matches, 0, limit);
   emitPassage(
     state,
     open.passageStart,
@@ -485,22 +488,21 @@ function partitionInterval(state: PassageState, line: number): void {
 
 /** Start a window at the line before a match; the line itself follows. */
 function openInterval(state: PassageState, start: number, line: number): void {
-  const resume = state.resume;
-  const pending = state.show.kind === "pending";
+  const resume = state.input.resume;
   // A resumed page shows the tail of the passage that holds its cursor, so
   // that interval holds from the line after the cursor's cut; a passage after
   // the cursor's start is shown whole and holds from its own start.
-  const resumeStart = resume === undefined ? 0 : resume.startLine;
-  const showLine =
-    resume === undefined || resume.endLine === undefined
-      ? resumeStart + 1
-      : Math.max(resumeStart + 1, resume.endLine + 1);
+  const holdStart =
+    state.show === "pending" &&
+    resume !== undefined &&
+    start <= resume.startLine
+      ? Math.max(resume.startLine, resume.endLine ?? resume.startLine) + 1
+      : start;
   state.open = {
-    start,
     end: line + GREP_LIMITS.contextLines,
     matches: [line],
     passageStart: start,
-    holdStart: pending && start <= resumeStart ? showLine : start,
+    holdStart,
   };
 }
 
@@ -531,11 +533,10 @@ function showDecision(
   start: number,
   end: number,
 ): ShowDecision {
-  if (state.kind === "show") return { kind: "whole" };
-  if (state.kind === "stop" || resume === undefined)
-    return { kind: "drop", next: { kind: "stop" } };
-  const next: ShowState =
-    resume.truncated === true ? { kind: "stop" } : { kind: "show" };
+  if (state === "show") return { kind: "whole" };
+  if (state === "stop" || resume === undefined)
+    return { kind: "drop", next: "stop" };
+  const next: ShowState = resume.truncated === true ? "stop" : "show";
   if (start <= resume.startLine && resume.startLine <= end) {
     return resume.endLine !== undefined && resume.endLine < end
       ? { kind: "tail", from: resume.endLine + 1, next }

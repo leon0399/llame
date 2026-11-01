@@ -40,7 +40,7 @@ const BUDGET: FsGrepBudget & GrepBudget = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
-  // The wire carries no file-size bound in this layer.
+  // The wire carries no file-size bound.
   maxFileBytes: null,
   deadlineMs: 30_000,
   limit: 20,
@@ -493,6 +493,35 @@ describe("fs.grep", () => {
       "a.go",
       "ignored/b.go",
     ]);
+  });
+
+  it("ends a stream with a refusal when its directory is swapped during the read", async () => {
+    await writeAt(
+      "project/sub/inside.md",
+      `${"x".repeat(128 * 1024)}\nneedle\n`,
+    );
+    const guard = createRootGuard([fixture.root]);
+    const guarded = await guard.resolvePath(join(fixture.root, "project"));
+    const port = createGrepWalkPort(guarded.canonical, guard, undefined);
+    const opened = await port.open("sub/inside.md");
+    if (!("chunks" in opened)) throw new Error("a regular file opens");
+    const iterator = opened.chunks[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    expect(first.value).toBeInstanceOf(Uint8Array);
+    // The listing named a real directory; the swap lands mid-read.
+    await rm(join(fixture.root, "project", "sub"), {
+      recursive: true,
+      force: true,
+    });
+    await symlink(fixture.outside, join(fixture.root, "project", "sub"));
+    const rest: Array<unknown> = [];
+    for (;;) {
+      const next = await iterator.next();
+      if (next.done === true) break;
+      rest.push(next.value);
+    }
+    expect(rest.at(-1)).toStrictEqual({ kind: "unreadable" });
+    await opened.close();
   });
 
   it("drops a subtree swapped for a link outside the roots between list and read", async () => {

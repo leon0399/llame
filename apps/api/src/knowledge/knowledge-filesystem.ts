@@ -139,14 +139,15 @@ export type KnowledgeWalkEntry = {
 
 /** Why a walk read handed back no bytes; the walk counts the skip. */
 export type KnowledgeWalkReadRefusal = {
-  readonly kind: 'oversized' | 'unreadable';
+  readonly kind: 'unreadable';
 };
 
-/** One opened walk file: the size it announced and its bytes as they arrive. */
+/** One opened walk file: its announced size, its bytes, and its close. */
 export type KnowledgeWalkStream = {
-  readonly kind: 'file';
   readonly size: number;
   readonly chunks: AsyncIterable<Uint8Array | KnowledgeWalkReadRefusal>;
+  /** Release the file, for a stream the walk refuses on its announced size. */
+  close(): Promise<void>;
 };
 
 /** What opening one walk file gives: its stream, or the refusal to count. */

@@ -50,6 +50,8 @@ export interface MemoryTree {
 export interface MemoryPort extends GrepWalkPort {
   readonly lists: Array<string>;
   readonly reads: Array<string>;
+  /** Files whose stream was closed, in order, the ones never started too. */
+  readonly closes: Array<string>;
 }
 
 function resolveMemoryNode(
@@ -67,6 +69,7 @@ function resolveMemoryNode(
 
 function openMemoryNode(
   node: MemoryNode | undefined,
+  close: () => Promise<void>,
 ): GrepFileStream | { readonly kind: "oversized" | "unreadable" } {
   if (node === undefined || (node.kind !== "file" && node.kind !== "binary"))
     return { kind: "unreadable" };
@@ -74,17 +77,26 @@ function openMemoryNode(
     return { kind: node.refusal };
   const bytes =
     node.kind === "file" ? Buffer.from(node.content, "utf8") : node.bytes;
-  const size = node.chunkBytes ?? bytes.byteLength;
   const chunks: Array<
     Uint8Array | { readonly kind: "oversized" | "unreadable" }
-  > = [];
-  for (let offset = 0; offset < bytes.byteLength; offset += size)
-    chunks.push(bytes.subarray(offset, offset + size));
+  > = chunkBytes(bytes, node.chunkBytes ?? bytes.byteLength);
   if (node.lateRefusal !== undefined) chunks.push({ kind: node.lateRefusal });
   return {
     size: node.announcedSize ?? bytes.byteLength,
+    close,
     chunks: chunkSequence(chunks),
   };
+}
+
+/** One byte array in chunks of at most `width`, the last one short. */
+export function chunkBytes(
+  bytes: Uint8Array,
+  width: number,
+): Array<Uint8Array> {
+  const chunks: Array<Uint8Array> = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += width)
+    chunks.push(bytes.subarray(offset, offset + width));
+  return chunks;
 }
 
 /** One list handed over as the async chunk sequence a port streams. */
@@ -117,10 +129,12 @@ export function createMemoryPort(
 ): MemoryPort {
   const lists: Array<string> = [];
   const reads: Array<string> = [];
+  const closes: Array<string> = [];
   return {
     followsLinks,
     lists,
     reads,
+    closes,
     list(rel: string): Promise<ReadonlyArray<GrepEntry>> {
       lists.push(rel);
       const node = resolveMemoryNode(tree, rel);
@@ -134,7 +148,13 @@ export function createMemoryPort(
     },
     open(rel: string) {
       reads.push(rel);
-      return Promise.resolve(openMemoryNode(resolveMemoryNode(tree, rel)));
+      const close = (): Promise<void> => {
+        closes.push(rel);
+        return Promise.resolve();
+      };
+      return Promise.resolve(
+        openMemoryNode(resolveMemoryNode(tree, rel), close),
+      );
     },
     ignoreFile(rel: string): Promise<string | undefined> {
       const node = resolveMemoryNode(tree, rel);
@@ -160,17 +180,23 @@ export function createSingleFilePort(
   ignoreText?: string,
 ): MemoryPort {
   const reads: Array<string> = [];
+  const closes: Array<string> = [];
   return {
     followsLinks: false,
     lists: [],
     reads,
+    closes,
     list(rel: string): Promise<ReadonlyArray<GrepEntry>> {
       return Promise.reject(new GrepPortError(`not a directory: ${rel}`));
     },
     open(rel: string) {
       reads.push(rel);
+      const close = (): Promise<void> => {
+        closes.push(rel);
+        return Promise.resolve();
+      };
       return Promise.resolve(
-        openMemoryNode(rel.length === 0 ? node : undefined),
+        openMemoryNode(rel.length === 0 ? node : undefined, close),
       );
     },
     ignoreFile(rel: string): Promise<string | undefined> {

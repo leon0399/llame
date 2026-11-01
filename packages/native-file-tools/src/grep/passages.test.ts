@@ -6,7 +6,7 @@ import {
 import { compileGrepPatterns } from "./patterns";
 import type { CompiledGrepPatterns } from "./patterns";
 import type { GrepPassage, GrepReadRefusal } from "./types";
-import { chunkSequence } from "./memory-port.test-fixture";
+import { chunkBytes, chunkSequence } from "./memory-port.test-fixture";
 
 function patterns(
   sources: ReadonlyArray<string>,
@@ -33,11 +33,7 @@ function chunked(
   size?: number,
 ): AsyncIterable<Uint8Array | GrepReadRefusal> {
   const bytes = Buffer.from(content, "utf8");
-  const width = size ?? bytes.byteLength;
-  const chunks: Array<Uint8Array> = [];
-  for (let offset = 0; offset < bytes.byteLength; offset += width)
-    chunks.push(bytes.subarray(offset, offset + width));
-  return chunkSequence(chunks);
+  return chunkSequence(chunkBytes(bytes, size ?? bytes.byteLength));
 }
 
 interface ScanOptions {
@@ -232,15 +228,25 @@ describe("grep passage extraction", () => {
   });
 
   it("drops the file when a late byte is not valid UTF-8", async () => {
-    const head = Buffer.from("a\nb\nhit\n", "utf8");
-    const bytes = Buffer.concat([head, Buffer.from([0xff]), Buffer.from("\n")]);
+    const head = Buffer.from("hit\n", "utf8");
+    const bytes = Buffer.concat([
+      head,
+      Buffer.from("y".repeat(200_000), "utf8"),
+      Buffer.from([0xff, 0x0a]),
+    ]);
     const result = await scanGrepFile({
       fileLocator: "file.md",
-      chunks: chunkSequence([bytes.subarray(0, 4), bytes.subarray(4)]),
+      chunks: chunkSequence(chunkBytes(bytes, 64 * 1024)),
       patterns: patterns(["hit"]),
       maxFileBytes: null,
     });
     expect(result).toMatchObject({ kind: "refused", refusal: "invalid_utf8" });
+  });
+
+  it("drops the passages of a late over-long line read in later chunks", async () => {
+    const text = `hit\n${"x\n".repeat(100)}${"x".repeat(4 * 1024 * 1024 + 1)}\n`;
+    const result = await scan(text, ["hit"], { chunkBytes: 64 * 1024 });
+    expect(result).toMatchObject({ kind: "refused", refusal: "oversized" });
   });
 
   it("refuses a file that grows past the streamed byte bound", async () => {
@@ -263,6 +269,52 @@ describe("grep passage extraction", () => {
     expect(end).toBeLessThan(40);
     expect(passage.content.split("\n")).toHaveLength(end - start + 1);
     expect(passage.matches).toHaveLength(end);
+  });
+
+  it("keeps a later match after a gap no window can merge across", async () => {
+    const filler = `${"x".repeat(1000)}\n`.repeat(400);
+    const result = await scan(`needle one\n${filler}needle two\n`, ["needle"]);
+    expect(locatorsOf(result)).toEqual(["file.md:1-2", "file.md:401-402"]);
+  });
+
+  it("merges a window whose gap is one line", async () => {
+    const result = await scan("needle a\nl2\nl3\nneedle b\nl5\n", ["needle"]);
+    expect(locatorsOf(result)).toEqual(["file.md:1-5"]);
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.passages[0].matches).toEqual([1, 4]);
+  });
+
+  it("counts UTF-8 bytes, not code units, against the line bound", async () => {
+    const exact = "é".repeat(2 * 1024 * 1024);
+    expect(
+      locatorsOf(await scan(`${exact}\n`, ["é"], { chunkBytes: 64 * 1024 })),
+    ).toEqual(["file.md:1-1"]);
+    const over = "é".repeat(2 * 1024 * 1024 + 1);
+    expect(
+      await scan(`${over}\n`, ["é"], { chunkBytes: 64 * 1024 }),
+    ).toMatchObject({ kind: "refused", refusal: "oversized" });
+  });
+
+  it("keeps the CR of a CRLF delimiter out of the line bound", async () => {
+    const line = `${"x".repeat(4 * 1024 * 1024 - 3)}hit`;
+    const result = await scan(`${line}\r\n`, ["hit"], {
+      chunkBytes: 64 * 1024,
+    });
+    expect(locatorsOf(result)).toEqual(["file.md:1-1"]);
+  });
+
+  it("probes every chunk of the first 8 KiB for a NUL", async () => {
+    const content = `${"x".repeat(5000)}\u0000\n`;
+    const result = await scan(content, ["hit"], { chunkBytes: 1024 });
+    expect(result).toMatchObject({ kind: "refused", refusal: "binary" });
+  });
+
+  it("searches past a NUL after the first 8 KiB", async () => {
+    const content = `${"hit\n"}${"x".repeat(9000)}\u0000\n`;
+    expect(locatorsOf(await scan(content, ["hit"]))).toEqual(["file.md:1-2"]);
+    expect(
+      locatorsOf(await scan(content, ["hit"], { chunkBytes: 1024 })),
+    ).toEqual(["file.md:1-2"]);
   });
 
   it("marks the twentieth passage and reports where it is", async () => {

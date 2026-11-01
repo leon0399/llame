@@ -303,6 +303,64 @@ describe('createHostWalkPort', () => {
     }
   });
 
+  it('aborts a stream between its chunks', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, 'big.md'), 'x'.repeat(200_000));
+      const controller = new AbortController();
+      const opened = await createHostWalkPort(root, controller.signal).open(
+        'big.md',
+      );
+      if (!('chunks' in opened)) throw new Error('a regular file opens');
+      controller.abort();
+      await expect(collectChunks(opened.chunks)).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+    });
+  });
+
+  it('ends a stream with an unreadable refusal when a read fails', async () => {
+    // A real handle names the prototype that holds the read operations.
+    const opened = await open('/proc/self/status', 'r');
+    // SAFETY: an open handle's prototype is the FileHandle prototype that
+    // carries `read`; the spy intercepts that same prototype.
+    // eslint-disable-next-line typescript/no-unsafe-type-assertion
+    const handlePrototype = Object.getPrototypeOf(opened) as FileHandle;
+    const chunkRead = vi.spyOn(handlePrototype, 'read');
+    await opened.close();
+    try {
+      chunkRead.mockRejectedValueOnce(new Error('EIO'));
+      const stream = await createHostWalkPort(
+        '/proc/self/status',
+        undefined,
+      ).open('');
+      if (!('chunks' in stream)) throw new Error('procfs status opens');
+      const seen: Array<Uint8Array | { readonly kind: string }> = [];
+      for await (const chunk of stream.chunks) seen.push(chunk);
+      expect(seen).toStrictEqual([{ kind: 'unreadable' }]);
+    } finally {
+      chunkRead.mockRestore();
+    }
+  });
+
+  it('closes every handle it refuses, so a scan cannot exhaust the process', async () => {
+    await withTree(async (root) => {
+      await makeFifo(path.join(root, 'pipe'));
+      const port = createHostWalkPort(root, undefined);
+      const openHandles = async () => (await readdir('/proc/self/fd')).length;
+      await port.open('pipe');
+      const before = await openHandles();
+      for (let index = 0; index < 20; index += 1) {
+        await expect(port.open('pipe')).resolves.toStrictEqual({
+          kind: 'unreadable',
+        });
+        await expect(
+          createHostWalkPort('/dev/null', undefined).open(''),
+        ).resolves.toStrictEqual({ kind: 'unreadable' });
+      }
+      expect(await openHandles()).toBeLessThanOrEqual(before + 2);
+    });
+  });
+
   it('closes the handle after every read, so a scan cannot exhaust the process', async () => {
     await withTree(async (root) => {
       await writeFile(path.join(root, 'note.md'), 'needle\n');

@@ -64,10 +64,7 @@ import {
 } from './machine-call';
 import { type ToolContext, type ToolResult } from './types';
 
-/**
- * One call's budget. This layer always sets the file, entry, and byte counts;
- * a bound an operator leaves unset arrives with `tools.grep` in a later layer.
- */
+/** One call's budget, with its file, entry, and byte counts always set. */
 export type CallBudget = GrepBudget & {
   files: number;
   entries: number;

@@ -118,12 +118,13 @@ function binding() {
 async function walkBytes(
   opened: Awaited<ReturnType<KnowledgeFilesystemAdapter['openWalk']>>,
 ): Promise<Buffer | { readonly kind: string }> {
-  if (opened.kind !== 'file') return opened;
+  if (!('chunks' in opened)) return opened;
   const chunks: Array<Uint8Array> = [];
   for await (const chunk of opened.chunks) {
     if (!(chunk instanceof Uint8Array)) return chunk;
     chunks.push(chunk);
   }
+  await opened.close();
   return Buffer.concat(chunks);
 }
 
@@ -400,15 +401,112 @@ describe('Knowledge filesystem walk probes', () => {
   });
 
   it("streams a walk file's bytes in order", async () => {
-    const bytes = Buffer.alloc(200 * 1024, 0x61);
+    const bytes = Buffer.from(
+      Array.from({ length: 200 * 1024 }, (_value, index) => index % 251),
+    );
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({ bytes }),
     );
 
     const opened = await adapter.openWalk('note.md');
-    expect(opened).toMatchObject({ kind: 'file', size: bytes.length });
+    if (!('chunks' in opened)) throw new Error('a walk file opens');
+    expect(opened.size).toBe(bytes.length);
     await expect(walkBytes(opened)).resolves.toEqual(bytes);
+  });
+
+  it('refuses a file whose fstat fails, and closes it', async () => {
+    const closed = vi.fn(() => Promise.resolve());
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        openFile: () =>
+          Promise.resolve({
+            stat: () =>
+              Promise.reject(Object.assign(new Error('io'), { code: 'EIO' })),
+            read: () => Promise.resolve({ bytesRead: 0 }),
+            close: closed,
+          }),
+      }),
+    );
+
+    await expect(adapter.openWalk('note.md')).resolves.toStrictEqual({
+      kind: 'unreadable',
+    });
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a file that is not a regular file after the open, and closes it', async () => {
+    const closed = vi.fn(() => Promise.resolve());
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        openFile: () =>
+          Promise.resolve({
+            stat: () => Promise.resolve(directoryStats),
+            read: () => Promise.resolve({ bytesRead: 0 }),
+            close: closed,
+          }),
+      }),
+    );
+
+    await expect(adapter.openWalk('note.md')).resolves.toStrictEqual({
+      kind: 'unreadable',
+    });
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends a stream with a refusal when a later read fails, and closes it', async () => {
+    const closed = vi.fn(() => Promise.resolve());
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        openFile: () =>
+          Promise.resolve({
+            stat: () => Promise.resolve(fileStats(6)),
+            read: vi.fn((_buffer, _offset, _length, position) =>
+              position === 0
+                ? Promise.resolve({ bytesRead: 3 })
+                : Promise.reject(
+                    Object.assign(new Error('io'), { code: 'EIO' }),
+                  ),
+            ),
+            close: closed,
+          }),
+      }),
+    );
+
+    const opened = await adapter.openWalk('note.md');
+    if (!('chunks' in opened)) throw new Error('a walk file opens');
+    const seen: Array<Uint8Array | { readonly kind: string }> = [];
+    for await (const chunk of opened.chunks) seen.push(chunk);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBeInstanceOf(Uint8Array);
+    expect(seen[1]).toStrictEqual({ kind: 'unreadable' });
+    await opened.close();
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends a stream with a refusal when a read reports an impossible length', async () => {
+    for (const bytesRead of [-1, 1.5, 64 * 1024 + 1]) {
+      const adapter = new KnowledgeFilesystemAdapter(
+        binding(),
+        walkPort({
+          openFile: () =>
+            Promise.resolve({
+              stat: () => Promise.resolve(fileStats(6)),
+              read: () => Promise.resolve({ bytesRead }),
+              close: () => Promise.resolve(),
+            }),
+        }),
+      );
+
+      const opened = await adapter.openWalk('note.md');
+      if (!('chunks' in opened)) throw new Error('a walk file opens');
+      const seen: Array<Uint8Array | { readonly kind: string }> = [];
+      for await (const chunk of opened.chunks) seen.push(chunk);
+      expect(seen).toStrictEqual([{ kind: 'unreadable' }]);
+    }
   });
 
   it('reports a file the walk cannot open as unreadable', async () => {

@@ -21,13 +21,16 @@ export type GrepReadRefusal = {
 };
 
 /**
- * One opened candidate: the size the filesystem announced and its bytes in
- * order. The stream may end with a refusal that the file read found after its
- * last byte, such as a Machine directory swapped for a link during the read.
+ * One opened candidate: the size the filesystem announced, its bytes in order,
+ * and the close its opener owes a stream nobody started. The bytes may end
+ * with a refusal that the file read found after its last byte, such as a
+ * Machine directory swapped for a link during the read.
  */
 export interface GrepFileStream {
   readonly size: number;
   readonly chunks: AsyncIterable<Uint8Array | GrepReadRefusal>;
+  /** Release the file, for a stream the walk refuses on its announced size. */
+  close(): Promise<void>;
 }
 
 /** The abstract directory tree one scope walks. */

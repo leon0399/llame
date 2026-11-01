@@ -6,23 +6,23 @@
  * the prefix the hub's request named, which the root guard already admitted.
  */
 
-import { constants, type Dirent } from "node:fs";
+import { type Dirent } from "node:fs";
 import { open, readdir, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import type { NativeFailureResult } from "@workspace/machine-protocol";
 import {
   GrepPortError,
+  openFileStream,
+  openFlags,
   type GrepEntry,
-  type GrepFileStream,
-  type GrepReadRefusal,
   type GrepWalkPort,
 } from "@workspace/native-file-tools";
 import type { RootGuard } from "./guard";
 
 /** The largest `.gitignore` the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
-/** One chunk of a streamed read; a file never reaches memory whole. */
+/** One chunk of a bounded ignore read; a file never reaches memory whole. */
 const READ_CHUNK_BYTES = 64 * 1024;
 const NOT_FOUND_MESSAGE = "The target does not exist.";
 const NOT_DIRECTORY_MESSAGE = "The target is not a directory.";
@@ -63,7 +63,10 @@ export function createGrepWalkPort(
   return {
     followsLinks: false,
     list: (rel) => listDirectory(walk, rel),
-    open: (rel) => openFileAt(walk, rel),
+    open: (rel) =>
+      openFileStream(at(walk.canonical, rel), false, walk.signal, () =>
+        unchanged(walk, rel),
+      ),
     ignoreFile: (rel) => readIgnoreFile(walk, rel),
   };
 }
@@ -123,65 +126,6 @@ async function listDirectory(
 }
 
 /**
- * One file, opened without following a link or blocking on a FIFO. A path
- * that is not a regular file after `fstat` is refused, so a device or a pipe
- * never hands the walk bytes. The handle closes with the stream.
- */
-async function openFileAt(
-  walk: Walk,
-  rel: string,
-): Promise<GrepFileStream | GrepReadRefusal> {
-  walk.signal?.throwIfAborted();
-  let handle: FileHandle | undefined;
-  try {
-    handle = await open(
-      at(walk.canonical, rel),
-      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-    );
-    const stats = await handle.stat();
-    if (!stats.isFile()) {
-      await handle.close();
-      return { kind: "unreadable" };
-    }
-    return { size: stats.size, chunks: fileChunks(walk, handle, rel) };
-  } catch {
-    await handle?.close().catch(() => undefined);
-    return { kind: "unreadable" };
-  }
-}
-
-/**
- * One open file's bytes as they arrive, then the call's containment re-check:
- * a file reached through a directory swapped for a link after it was listed
- * came from outside the roots, so its content ends with a refusal and the
- * walk counts the file unreadable.
- */
-async function* fileChunks(
-  walk: Walk,
-  handle: FileHandle,
-  rel: string,
-): AsyncGenerator<Uint8Array | GrepReadRefusal> {
-  try {
-    for (;;) {
-      walk.signal?.throwIfAborted();
-      const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-      let bytesRead: number;
-      try {
-        ({ bytesRead } = await handle.read(chunk, 0, chunk.byteLength, null));
-      } catch {
-        yield { kind: "unreadable" };
-        return;
-      }
-      if (!Number.isInteger(bytesRead) || bytesRead <= 0) break;
-      yield chunk.subarray(0, bytesRead);
-    }
-    if (!(await unchanged(walk, rel))) yield { kind: "unreadable" };
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
-}
-
-/**
  * At most `maxBytes + 1` bytes of a handle, so a caller can tell an exact fit
  * from an over-long file without ever reading past that byte. A file that
  * announces a small size and then grows is cut at the same place.
@@ -216,10 +160,7 @@ async function readIgnoreFile(
   try {
     // Policy comes from a real file only, under the walk's own rule: a link is
     // never followed and a FIFO never blocks the walk.
-    handle = await open(
-      at(walk.canonical, ignoreRel),
-      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-    );
+    handle = await open(at(walk.canonical, ignoreRel), openFlags(false));
     const stats = await handle.stat();
     if (!stats.isFile() || stats.size > IGNORE_FILE_BYTES) return undefined;
     const bytes = await readBounded(handle, IGNORE_FILE_BYTES, undefined);

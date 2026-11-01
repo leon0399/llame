@@ -838,6 +838,54 @@ describe("grep streamed files", () => {
     expect(result.warnings).toEqual([{ kind: "oversized", count: 1 }]);
   });
 
+  it("searches a file exactly at the announced size bound", async () => {
+    const port = createMemoryPort({
+      "exact.md": { kind: "file", content: "needle\n", announcedSize: 7 },
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["needle"],
+      { budget: { maxFileBytes: 7 } },
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/exact.md:1-1",
+    ]);
+    expect(port.closes).toEqual([]);
+  });
+
+  it("searches a file at the streamed bound when its announced size hides it", async () => {
+    const port = createMemoryPort({
+      "exact.md": {
+        kind: "file",
+        content: "needle\n",
+        announcedSize: 0,
+        chunkBytes: 3,
+      },
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["needle"],
+      { budget: { maxFileBytes: 7 } },
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/exact.md:1-1",
+    ]);
+  });
+
+  it("closes the stream it refuses on the announced size", async () => {
+    const port = createMemoryPort({
+      "big.md": { kind: "file", content: "needle\n", announcedSize: 99 },
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["needle"],
+      { budget: { maxFileBytes: 10 } },
+    );
+    expect(result.warnings).toEqual([{ kind: "oversized", count: 1 }]);
+    expect(result.consumed.bytes).toBe(0);
+    expect(port.closes).toEqual(["big.md"]);
+  });
+
   it("skips a file that grows past the file-size bound", async () => {
     const port = createMemoryPort({
       "grows.md": {
@@ -929,6 +977,41 @@ describe("grep streamed files", () => {
       "/repo/a.md:1-1",
     ]);
     expect(result.warnings).toEqual([{ kind: "unreadable", count: 1 }]);
+    // The refused file's bytes are still the consumer's; both count.
+    expect(result.consumed.bytes).toBe(8);
+  });
+
+  it("keeps a later match after a gap longer than the held content", async () => {
+    const filler = `${"x".repeat(200)}\n`.repeat(2000);
+    const port = createMemoryPort({
+      "gap.md": file(`needle one\n${filler}needle two\n`),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["needle"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/gap.md:1-2",
+      "/repo/gap.md:2001-2002",
+    ]);
+    expect(result.complete).toBe(true);
+  });
+
+  it("drops a file whose late byte across chunks is not valid UTF-8", async () => {
+    const bytes = Buffer.concat([
+      Buffer.from("hit\n", "utf8"),
+      Buffer.from("y".repeat(200_000), "utf8"),
+      Buffer.from([0xff, 0x0a]),
+    ]);
+    const port = createMemoryPort({
+      "late.md": { kind: "binary", bytes, chunkBytes: 64 * 1024 },
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.results).toEqual([]);
+    expect(result.warnings).toEqual([{ kind: "invalid_utf8", count: 1 }]);
   });
 
   it("loses no line of a cut passage that spans several pages", async () => {

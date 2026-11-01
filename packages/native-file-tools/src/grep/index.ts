@@ -1,4 +1,5 @@
 export { GREP_LIMITS } from "./limits";
+export { fileStream, openFileStream } from "./file-stream";
 export { compileGrepPatterns } from "./patterns";
 export type {
   CompiledGrepPatterns,

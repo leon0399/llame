@@ -13,12 +13,10 @@ import { passageStartLine, scanGrepFile, type GrepFileScan } from "./passages";
 import type {
   GrepCappedPassage,
   GrepPassage,
-  GrepReadRefusal,
   GrepScanInput,
   GrepScanResult,
   GrepScope,
   GrepWarningKind,
-  GrepFileStream,
 } from "./types";
 import { walkGrepScope } from "./walk";
 
@@ -143,12 +141,8 @@ async function scanFile(
   resume: GrepResume | undefined,
 ): Promise<void> {
   if (!pageHasFileRoom(state)) return;
-  const budget = state.input.budget;
-  if (budget.files !== null && state.consumed.files >= budget.files)
-    return stopAt(state, "file_bound");
-  if (budget.bytes !== null && state.consumed.bytes >= budget.bytes)
-    return stopAt(state, "byte_bound");
-  if (state.input.now() > state.deadlineAt) return stopAt(state, "deadline");
+  const bound = boundBeforeFile(state);
+  if (bound !== undefined) return stopAt(state, bound);
   const fileLocator = scope.locatorFor(rel);
   if (!(await state.input.onCandidate(fileLocator))) {
     state.readRefused += 1;
@@ -156,16 +150,19 @@ async function scanFile(
   }
   const opened = await scope.port.open(rel);
   state.consumed.files += 1;
-  if (isRefusal(opened)) return addWarning(state, opened.kind);
-  // The announced size is the first of the two size checks; the scan makes
-  // the second on the bytes the stream delivers.
-  if (budget.maxFileBytes !== null && opened.size > budget.maxFileBytes)
+  if (!("chunks" in opened)) return addWarning(state, opened.kind);
+  // The announced size is the first size check; the scan makes the second.
+  const maxFileBytes = state.input.budget.maxFileBytes;
+  if (maxFileBytes !== null && opened.size > maxFileBytes) {
+    // A stream nobody started owes its handle to this refusal.
+    await opened.close();
     return addWarning(state, "oversized");
+  }
   const scan = await scanGrepFile({
     fileLocator,
     chunks: opened.chunks,
     patterns: state.input.patterns,
-    maxFileBytes: budget.maxFileBytes,
+    maxFileBytes,
     ...(resume !== undefined && { resume: resume.cursor }),
   });
   state.consumed.bytes += scan.bytes;
@@ -178,11 +175,15 @@ async function scanFile(
   );
 }
 
-/** Whether an open result refuses the file instead of streaming it. */
-function isRefusal(
-  opened: GrepFileStream | GrepReadRefusal,
-): opened is GrepReadRefusal {
-  return "kind" in opened;
+/** The bound or deadline that stops the walk before this file, if any. */
+function boundBeforeFile(state: ScanState): GrepWarningKind | undefined {
+  const budget = state.input.budget;
+  if (budget.files !== null && state.consumed.files >= budget.files)
+    return "file_bound";
+  if (budget.bytes !== null && state.consumed.bytes >= budget.bytes)
+    return "byte_bound";
+  if (state.input.now() > state.deadlineAt) return "deadline";
+  return undefined;
 }
 
 /** One page holds at most `limit` files; reaching it ends the page. */

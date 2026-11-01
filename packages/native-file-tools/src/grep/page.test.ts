@@ -69,6 +69,22 @@ describe("grep page cuts", () => {
   });
 });
 
+describe("grep page held content", () => {
+  it("cuts a passage the scan only partly holds, however wide the page", () => {
+    const page = createGrepPage();
+    appendGrepFile(
+      page,
+      { pageUnits: 60_000, fixedReserve: 0 },
+      emission([{ ...FIRST, incomplete: true }]),
+    );
+    expect(page.results).toHaveLength(1);
+    expect(page.results[0].cut).toBe(true);
+    expect(page.results[0].incomplete).toBeUndefined();
+    expect(page.last).toMatchObject({ startLine: 40, endLine: 40 });
+    expect(page.full).toBe(true);
+  });
+});
+
 describe("grep page reservation", () => {
   it("sizes the reservation as the cursor's rendered continuation line", () => {
     const cursor = encodeGrepCursor({ ...KEY, inputHash: "f".repeat(64) });

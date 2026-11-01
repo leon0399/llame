@@ -6,15 +6,15 @@
  * exactly as agent-skills does. Only the host port honors `.gitignore`.
  */
 
-import { constants, type Dirent } from 'node:fs';
+import { type Dirent } from 'node:fs';
 import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
 import { type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  openFileStream,
+  openFlags,
   type GrepEntry,
-  type GrepFileStream,
-  type GrepReadRefusal,
   type GrepWalkPort,
 } from '@workspace/native-file-tools';
 
@@ -43,15 +43,8 @@ export function joinedPath(prefix: string, rel: string): string {
   return `${prefix}/${rel}`;
 }
 
-/** The chunk one streamed read asks a handle for, so no file is held whole. */
+/** The chunk a bounded ignore read asks a handle for, so no file is held whole. */
 const READ_CHUNK_BYTES = 64 * 1024;
-
-/** A host read follows no link and blocks on no FIFO. */
-const HOST_READ_FLAGS =
-  constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW;
-
-/** A skill read follows links as agent-skills does, but never blocks on one. */
-const SKILL_READ_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
 
 /** The one file-handle operation a bounded read needs. */
 type BoundedFileReader = {
@@ -126,7 +119,7 @@ export function createHostWalkPort(
   return {
     followsLinks: false,
     list: (rel) => listHostDirectory(root, rel, signal),
-    open: (rel) => openWalkFile(hostPath(root, rel), HOST_READ_FLAGS, signal),
+    open: (rel) => openFileStream(hostPath(root, rel), false, signal),
     ignoreFile: (rel) => readIgnoreFile(root, rel, signal),
   };
 }
@@ -183,58 +176,6 @@ async function refuseNonDirectoryRoot(target: string): Promise<void> {
   if (!ownDirectory) throw new GrepScopeFailure(notFoundResult());
 }
 
-/**
- * One file opened for a streamed read. The flags keep the open from following
- * a link where the scheme refuses one and from blocking on a FIFO; a path that
- * is not a regular file after `fstat` is refused, so a device or a pipe never
- * hands the walk bytes. The handle closes with the stream.
- */
-async function openWalkFile(
-  file: string,
-  flags: number,
-  signal: AbortSignal | undefined,
-): Promise<GrepFileStream | GrepReadRefusal> {
-  signal?.throwIfAborted();
-  let handle: FileHandle | undefined;
-  try {
-    handle = await open(file, flags);
-    const stats = await handle.stat();
-    if (!stats.isFile()) {
-      await handle.close();
-      return { kind: 'unreadable' };
-    }
-    return { size: stats.size, chunks: streamFileChunks(handle, signal) };
-  } catch {
-    await handle?.close().catch(() => undefined);
-    return { kind: 'unreadable' };
-  }
-}
-
-/** One open file's bytes as they arrive; a failed read ends the stream. */
-async function* streamFileChunks(
-  handle: FileHandle,
-  signal: AbortSignal | undefined,
-): AsyncGenerator<Uint8Array | GrepReadRefusal> {
-  try {
-    for (;;) {
-      signal?.throwIfAborted();
-      const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
-      let bytesRead: number;
-      try {
-        ({ bytesRead } = await handle.read(chunk, 0, chunk.byteLength, null));
-      } catch {
-        yield { kind: 'unreadable' };
-        return;
-      }
-      // A short or empty read is the end of the file, as it is for `read`.
-      if (!Number.isInteger(bytesRead) || bytesRead <= 0) return;
-      yield chunk.subarray(0, bytesRead);
-    }
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
-}
-
 function hostPath(root: string, rel: string): string {
   return rel.length === 0 ? root : path.join(root, rel);
 }
@@ -250,10 +191,7 @@ async function readIgnoreFile(
   try {
     // Policy comes from a real file only, opened by the walk's own rule: a
     // link is never followed and a FIFO never blocks the walk.
-    handle = await open(
-      file,
-      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-    );
+    handle = await open(file, openFlags(false));
     const stats = await handle.stat();
     if (!stats.isFile()) return undefined;
     // The cap applies to the bytes read, so a file that announced the wrong
@@ -286,13 +224,7 @@ export function createKnowledgeWalkPort(
     },
     async open(rel) {
       try {
-        const opened = await adapter.openWalk(
-          joinedPath(prefixPath, rel),
-          signal,
-        );
-        return opened.kind === 'file'
-          ? { size: opened.size, chunks: opened.chunks }
-          : opened;
+        return await adapter.openWalk(joinedPath(prefixPath, rel), signal);
       } catch (error) {
         throw new GrepScopeFailure(mapKnowledgeResolutionFailure(error));
       }
@@ -343,7 +275,7 @@ export function createSkillWalkPort(
   return {
     followsLinks: true,
     list: (rel) => listSkillDirectory(root, rel, signal),
-    open: (rel) => openWalkFile(hostPath(root, rel), SKILL_READ_FLAGS, signal),
+    open: (rel) => openFileStream(hostPath(root, rel), true, signal),
   };
 }
 

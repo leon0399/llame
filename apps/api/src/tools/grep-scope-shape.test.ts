@@ -46,7 +46,12 @@ function draft(overrides: Partial<ScopeDraft> = {}): ScopeDraft {
     port: () => ({
       followsLinks: false,
       list: () => Promise.resolve(NO_ENTRIES),
-      open: () => Promise.resolve({ size: 0, chunks: emptyStream() }),
+      open: () =>
+        Promise.resolve({
+          size: 0,
+          chunks: emptyStream(),
+          close: () => Promise.resolve(),
+        }),
     }),
     probe: () => Promise.resolve({ kind: 'directory' }),
     endsWithSeparator: false,
