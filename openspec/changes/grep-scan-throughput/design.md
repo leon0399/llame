@@ -422,12 +422,20 @@ scope. The `read` filter evaluates the raw path, not the spelling.
 Host scopes decode nothing today: `buildHostScope` uses `split.prefix` as
 written (`apps/api/src/tools/grep-scopes.ts:269-275`), unlike `splitScopePath`
 for `kb://` and `skill://` (`grep-scope-shape.ts:66-74`). So the canonical
-"`%2A` names the literal character" holds only for those schemes. The host and
-Machine paths decode exactly the seven spellings in the literal prefix, and no
-other sequence, so an ordinary path that holds `%41` keeps its meaning.
-`projectGrepScope` (`grep-admission.ts:96-97`) projects the decoded prefix, so
-a reject written against `app/[id]` still refuses `app/%5Bid%5D`. The hub
-decodes before it sends `path` to a Machine.
+"`%2A` names the literal character" holds only for those schemes. Host paths
+decode exactly the seven spellings in the literal prefix, in one pass, and no
+other sequence, so an ordinary path that holds `%41` keeps its meaning and
+`%252A` decodes to `%2A`, not `*`. `projectGrepScope`'s host branch
+(`grep-admission.ts:96-97`) projects that decoded prefix, so a reject written
+against `app/[id]` still refuses `app/%5Bid%5D`.
+
+A Machine scope is a `machine://` locator, whose grammar already decodes every
+`%XX` once (`decodeMachinePath`, `machine-locator.ts:114-124`) in the Machine
+projection (`grep-admission.ts:106`). `formatMachineLocator` already writes `%`
+as `%25`, so a reported Machine locator only adds the six glob spellings. The
+Machine walk probes the same fully decoded prefix that admission sees, and the
+hub sends that decoded path to the daemon. Narrowing Machine decoding to seven
+spellings would split admission from the probe.
 
 The engine records the first 1,000 excluded directories per call across every
 scope, and sets `atLeast` when it excludes more. A Machine returns its own list
@@ -520,6 +528,12 @@ says so. Rollback is a revert of the layer; no persisted state depends on it.
 None.
 
 ## Revision history
+
+- **v6 (2026-11-01):** Leo confirmed the numeric deviations ("the numbers are
+  reasonable"). Closed the two pullfrog threads left open at the review cap:
+  the seven-spelling decode applies to host scopes only, in one pass, and a
+  Machine scope keeps full `machine://` decoding on both the probe and the
+  admission side; the `%25` round trip has a scenario.
 
 - **v5 (2026-11-01):** GitHub review, iteration 2 (cubic, pullfrog: 6
   threads). Accepted: the keyset requirement now defines a cursor on a scope

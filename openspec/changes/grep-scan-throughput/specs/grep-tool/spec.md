@@ -758,12 +758,19 @@ tool MUST NOT refuse `%5B`, `%5D`, `%7B`, or `%7D` as glob operators.
 - **THEN** `ignored.locators` holds `/home/u/repo/app/%5Bid%5D/node_modules`
 - **AND** a later scope of that locator searches that directory
 
-### Requirement: Host and Machine scopes decode the literal spellings
+#### Scenario: A reported directory with a percent sign can be scoped
 
-In a host or Machine scope, the tool MUST decode the seven literal spellings
-in the literal prefix before the probe. It MUST NOT decode another percent
-sequence. The `grep` group and every all-fields rejection MUST see the decoded
-prefix. So an encoded path cannot hide from a reject that names it.
+- **WHEN** `node_modules/` excluded `/home/u/repo/100%41/node_modules`
+- **THEN** `ignored.locators` holds `/home/u/repo/100%2541/node_modules`
+- **AND** a later scope of that locator searches `/home/u/repo/100%41/node_modules`
+
+### Requirement: Host scopes decode the literal spellings
+
+In a host scope, the tool MUST decode the seven literal spellings in the
+literal prefix in one pass before the probe. It MUST NOT decode another percent
+sequence. A Machine scope keeps the full decoding of a `machine://` locator.
+In both, the `grep` group and every all-fields rejection MUST see the prefix
+that the walk probes. So an encoded path cannot hide from a reject.
 
 #### Scenario: A host scope with an encoded asterisk names one directory
 
@@ -779,3 +786,13 @@ prefix. So an encoded path cannot hide from a reject that names it.
 
 - **WHEN** a scope is `/home/u/repo/100%41`
 - **THEN** the tool probes the directory `/home/u/repo/100%41`
+
+#### Scenario: A spelled percent decodes once
+
+- **WHEN** a scope is `/home/u/repo/a%252A`
+- **THEN** the tool probes the directory `/home/u/repo/a%2A`
+
+#### Scenario: A Machine scope decodes on both sides
+
+- **WHEN** the `grep` group rejects the literal `machine://build/srv/100A` and a scope is `machine://build/srv/100%41`
+- **THEN** the call is refused
