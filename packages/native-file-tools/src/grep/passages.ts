@@ -109,7 +109,6 @@ export async function scanGrepFile(
   const state = createPassageState(input);
   let bytes = 0;
   let lines = 0;
-  let yielded = YIELD_LINES;
   for await (const chunk of input.chunks) {
     const step = takeChunk(reader, chunk, input, bytes);
     if ("refusal" in step)
@@ -119,9 +118,9 @@ export async function scanGrepFile(
     lines += step.lines.length;
     const early = takeLines(state, step.lines, bytes);
     if (early !== undefined) return early;
-    if (lines >= yielded) {
+    if (lines >= YIELD_LINES) {
       await new Promise<void>((resolve) => setImmediate(resolve));
-      yielded = lines + YIELD_LINES;
+      lines = 0;
     }
   }
   const last = flushLines(reader);
@@ -132,16 +131,17 @@ export async function scanGrepFile(
   return { kind: "passages", ...passageResult(state), bytes };
 }
 
+/** The stop a chunk or a line's pattern tests ended the file with. */
+type GrepFileScanStop = Extract<
+  GrepFileScan,
+  { readonly kind: "stopped" } | { readonly kind: "aborted" }
+>;
+
 /** What one chunk adds, or why the read ended before it. */
 type TakeChunkStep =
   | { readonly lines: ReadonlyArray<string>; readonly bytes: number }
   | { readonly refusal: GrepFileRefusal }
-  | {
-      readonly stop: Extract<
-        GrepFileScan,
-        { readonly kind: "stopped" } | { readonly kind: "aborted" }
-      >;
-    };
+  | { readonly stop: GrepFileScanStop };
 
 /**
  * One chunk's guards and decode: the abort and the bound are asked before its
@@ -178,16 +178,13 @@ function takeLines(
   state: PassageState,
   lines: ReadonlyArray<string>,
   bytes: number,
-):
-  | Extract<GrepFileScan, { kind: "stopped" } | { kind: "aborted" }>
-  | undefined {
-  const { input } = state;
+): GrepFileScanStop | undefined {
   // A closure, so the loop re-reads the signal after a line's pattern tests:
   // an abort during them must end the file as aborted, not as a deadline stop.
-  const aborted = (): boolean => input.signal?.aborted === true;
+  const aborted = (): boolean => state.input.signal?.aborted === true;
   for (const text of lines) {
     if (aborted()) return { kind: "aborted", bytes };
-    const matched = input.patterns.matches(text, input.deadline);
+    const matched = state.input.patterns.matches(text, state.input.deadline);
     // The patterns after a stop never ran, so the line is not known to miss:
     // the file ends as stopped instead of dropping a match it still held.
     if (matched === "stopped")
