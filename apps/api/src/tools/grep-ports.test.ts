@@ -241,7 +241,10 @@ describe('createHostWalkPort', () => {
       const opened = await createHostWalkPort(root, undefined).open('big.md');
       if (!('chunks' in opened)) throw new Error('a regular file opens');
       expect(opened.size).toBe(Buffer.byteLength(text));
-      expect(await collectChunks(opened.chunks)).toEqual(Buffer.from(text));
+      // Compare with `equals`: a deep `toEqual` on a mebibyte walks every
+      // byte through the differ and costs seconds on a slow runner.
+      const bytes = await collectChunks(opened.chunks);
+      expect(bytes.equals(Buffer.from(text))).toBe(true);
     });
   });
 
@@ -512,7 +515,11 @@ describe('createKnowledgeWalkPort', () => {
       const opened = await port.open('big.md');
       if (!('chunks' in opened)) throw new Error('a Space file opens');
       expect(opened.size).toBe(Buffer.byteLength(text));
-      expect(await collectChunks(opened.chunks)).toEqual(Buffer.from(text));
+      // Compare with `equals`: a deep `toEqual` on a mebibyte walks every
+      // byte through the differ and costs seconds on a slow runner.
+      const bytes = await collectChunks(opened.chunks);
+      expect(bytes.equals(Buffer.from(text))).toBe(true);
+      await opened.close();
     });
   });
 
