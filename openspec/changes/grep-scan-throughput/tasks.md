@@ -36,10 +36,14 @@ other items of #1392 stay open.
 
 ## 0. proposal
 
-- [ ] 0.1 Run adversarial review with two independent reviewers per round. Verify each finding against the shipped specs, the engine in `packages/native-file-tools/src/grep/`, `apps/api/src/tools/grep*.ts`, `apps/machine/src/grep*.ts`, and the runner. Commit each round separately.
-- [ ] 0.2 Prove the final revision: `pnpm exec openspec validate grep-scan-throughput --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized diff of each MODIFIED block against canonical that keeps every canonical scenario in order. Record Leo's approval of that revision, including the listed deviations.
-- [ ] 0.3 Self-review the proposal diff before the PR is marked ready. Record the review rounds in the PR body.
-- [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 0.1 Run adversarial review with two independent reviewers per round. Verify each finding against the shipped specs, the engine in `packages/native-file-tools/src/grep/`, `apps/api/src/tools/grep*.ts`, `apps/machine/src/grep*.ts`, and the runner. Commit each round separately.
+  - Evidence: two local rounds (46b7ac67 → 430162fb → 41338870) with spec-consistency and feasibility reviewers, each round a separate commit.
+- [x] 0.2 Prove the final revision: `pnpm exec openspec validate grep-scan-throughput --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized diff of each MODIFIED block against canonical that keeps every canonical scenario in order. Record Leo's approval of that revision, including the listed deviations.
+  - Evidence: strict validation, `pnpm lint:markdown`, format, and the scenario-order script pass on be0bda62. Leo approved the revision in chat on 2026-11-01 (numeric deviations, then Q17/Q18 and "Spec is approved"), recorded on #1511.
+- [x] 0.3 Self-review the proposal diff before the PR is marked ready. Record the review rounds in the PR body.
+  - Evidence: the #1511 body records both local rounds and both GitHub iterations.
+- [x] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1511 resolved all 25 review threads; CI passed on fc029111, with two unrelated `Tests / api` flakes named in a PR comment.
 
 ## 1. stream
 
