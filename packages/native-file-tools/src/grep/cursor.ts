@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { isNumber, isRecord, isString } from "@workspace/runtime-safety";
 
+import { grepContinuationLine } from "./model-text";
+
 /**
  * A keyset cursor naming the last emitted passage and the inputs it belonged
  * to. `rel` is the file's path relative to its scope prefix, so resume never
@@ -68,37 +70,39 @@ export interface GrepCursorPoint {
   readonly capped?: boolean;
 }
 
-/** The units a `cursor` property adds to a result, its comma included. */
-export const GREP_CURSOR_FIELD_OVERHEAD = ',"cursor":""'.length;
-
 /** A hash of a real cursor's length, standing in for the call's input hash. */
 const CURSOR_HASH_PLACEHOLDER = "0".repeat(64);
 
-/**
- * The exact serialized size of the `cursor` field that names this point, so a
- * page can keep that room back before it admits a passage. The encoded cursor
- * is the one a result would carry: a base64url length depends only on the
- * payload's bytes, and every call's hash is a sha256 hex of this length.
- */
-export function grepCursorFieldUnits(point: GrepCursorPoint): number {
+/** The encoded cursor of one page point, with the placeholder hash. */
+function placeholderCursor(point: GrepCursorPoint): string {
   const inputHash = CURSOR_HASH_PLACEHOLDER;
-  const cursor: GrepCursorInput =
-    point.startLine === undefined
-      ? {
-          kind: "position",
-          scopeIndex: point.scopeIndex,
-          rel: point.rel,
-          inputHash,
-        }
-      : {
-          scopeIndex: point.scopeIndex,
-          rel: point.rel,
-          startLine: point.startLine,
-          endLine: point.endLine,
-          truncated: point.capped === true ? true : undefined,
-          inputHash,
-        };
-  return GREP_CURSOR_FIELD_OVERHEAD + encodeGrepCursor(cursor).length;
+  return point.startLine === undefined
+    ? encodeGrepCursor({
+        kind: "position",
+        scopeIndex: point.scopeIndex,
+        rel: point.rel,
+        inputHash,
+      })
+    : encodeGrepCursor({
+        scopeIndex: point.scopeIndex,
+        rel: point.rel,
+        startLine: point.startLine,
+        endLine: point.endLine,
+        truncated: point.capped === true ? true : undefined,
+        inputHash,
+      });
+}
+
+/**
+ * The rendered width of the continuation line that names this point, its
+ * separating newline included, so a page keeps that room back before it admits
+ * a passage (tool-result-rendering "Bounds are measured on the neutralized
+ * rendering"). The encoded length depends only on the payload's bytes, and
+ * every call's hash is a sha256 hex of this length, so the placeholder cursor
+ * measures what a real one costs.
+ */
+export function grepContinuationUnits(point: GrepCursorPoint): number {
+  return grepContinuationLine(placeholderCursor(point)).length + 1;
 }
 
 /** The resolved inputs a cursor is only valid against. */

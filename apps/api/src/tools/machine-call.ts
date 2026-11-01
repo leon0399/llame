@@ -342,7 +342,11 @@ export function readProcBashResult(
   return readRefusedBashResult(value);
 }
 
-/** The managed-bash answer, whose operation and executor name the local shape. */
+/**
+ * The managed-bash answer. Its old `operation` and `executor` fields are
+ * constant names the hub no longer carries, and a daemon that predates the
+ * wall time sends none; both settle unchanged.
+ */
 function readManagedBashResult(
   value: SerializableRecord,
   status: 'success' | 'error',
@@ -351,23 +355,22 @@ function readManagedBashResult(
   const stdout = value['stdout'];
   const stderr = value['stderr'];
   const truncated = value['truncated'];
+  const wallTimeMs = value['wallTimeMs'];
   if (
-    value['operation'] !== 'bash' ||
-    value['executor'] !== 'managed' ||
     !isInteger(exitCode) ||
     !isString(stdout) ||
     !isString(stderr) ||
-    !isBoolean(truncated)
+    !isBoolean(truncated) ||
+    (wallTimeMs !== undefined && !isCount(wallTimeMs))
   )
     return undefined;
   return {
     status,
-    operation: 'bash',
-    executor: 'managed',
     exitCode,
     stdout,
     stderr,
     truncated,
+    ...(wallTimeMs !== undefined && { wallTimeMs }),
   };
 }
 
@@ -376,11 +379,13 @@ function readTimedOutBashResult(
   value: SerializableRecord,
 ): ProcBashResult | undefined {
   const durationMs = value['durationMs'];
+  const wallTimeMs = value['wallTimeMs'];
   const stdout = value['stdout'];
   const stderr = value['stderr'];
   const truncated = value['truncated'];
   if (
     !isCount(durationMs) ||
+    (wallTimeMs !== undefined && !isCount(wallTimeMs)) ||
     !isString(stdout) ||
     !isString(stderr) ||
     !isBoolean(truncated)
@@ -390,6 +395,7 @@ function readTimedOutBashResult(
     status: 'error',
     type: 'timed_out',
     durationMs,
+    ...(wallTimeMs !== undefined && { wallTimeMs }),
     stdout,
     stderr,
     truncated,

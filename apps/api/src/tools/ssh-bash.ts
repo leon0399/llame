@@ -100,24 +100,26 @@ function verdictResult(
   }
 }
 
+/** An SSH run that ended on its own: its streams and trailer are trustworthy. */
+type EndedRun = Extract<SshRunOutcome, { readonly outcome: 'ended' }>;
+
 /** The finished command as the local result shape, under the local bounds. */
 function knownResult(
   frames: SshBashFrames,
-  stdoutOverflow: boolean,
-  stderrOverflow: boolean,
+  outcome: EndedRun,
   executorContext: BashExecutorContext,
+  wallTimeMs: number,
 ): ToolResult {
   const status = frames.status ?? 0;
   return toToolResult(
     sanitizeKnownResult(
       {
         status: status === 0 ? 'success' : 'error',
-        operation: 'bash',
-        executor: 'managed',
         exitCode: status,
         stdout: frames.stdout.toString('utf8'),
         stderr: frames.stderr,
-        truncated: stdoutOverflow || stderrOverflow,
+        truncated: outcome.stdoutOverflow || outcome.stderrOverflow,
+        wallTimeMs,
       },
       executorContext,
     ),
@@ -141,6 +143,7 @@ function commandResult(
   request: RemoteCommand,
   outcome: SshRunOutcome,
   frames: SshBashFrames,
+  wallTimeMs: number,
 ): ToolResult {
   // Only the host can test the cwd, so the durable attempt precedes SSH and a
   // failed `cd` arrives as a refusal frame: a known result, not an attempt-free
@@ -154,18 +157,16 @@ function commandResult(
   // The classifier reports complete only for an ended process; a failed one
   // cannot carry a trailer to trust.
   return outcome.outcome === 'ended'
-    ? knownResult(
-        frames,
-        outcome.stdoutOverflow,
-        outcome.stderrOverflow,
-        request.executorContext,
-      )
+    ? knownResult(frames, outcome, request.executorContext, wallTimeMs)
     : sshOutcomeUnknownResult();
 }
 
 /** Run one command and turn its frames into the tool result. */
 async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
   const { client, binding, context } = request;
+  // Spawn to settlement of the remote command: the SSH client is spawned
+  // inside `run`, and its answer is the settlement.
+  const startedAtMs = performance.now();
   const outcome = await client.run({
     destination: binding.destination,
     resolved: binding,
@@ -195,6 +196,7 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
       outcome.diagnostic,
       request.nonce,
     ),
+    Math.round(performance.now() - startedAtMs),
   );
 }
 /** The Run identity the unbound attempt and its result are recorded under. */

@@ -13,9 +13,12 @@ import * as schema from '../db/schema';
 import { join } from 'node:path';
 import {
   MAX_RESULT_CODE_UNITS,
-  measureNativeModelOutput,
   readFile as readNativeFile,
 } from '@workspace/native-file-tools';
+import {
+  measureJson,
+  neutralizeReservedDelimitersDeep,
+} from '@workspace/runtime-safety';
 import {
   nativeReadTool,
   nativeEditTool,
@@ -1716,9 +1719,9 @@ describe('skill locator resolution', () => {
     const skills = first['skills'];
     if (!Array.isArray(skills)) throw new Error('expected skills');
     expect(skills.length).toBeGreaterThan(0);
-    expect(measureNativeModelOutput(first)).toBeLessThanOrEqual(
-      RESULT_TRUNCATE_CHARS,
-    );
+    expect(
+      measureJson(neutralizeReservedDelimitersDeep(first)),
+    ).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
 
     const nextOffset = first['nextOffset'];
     if (!isNumber(nextOffset)) throw new Error('expected a continuation');

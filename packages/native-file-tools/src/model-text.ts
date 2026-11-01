@@ -52,15 +52,16 @@ const ATTRIBUTION_FIELDS: ReadonlyArray<string> = [
 ];
 
 /** A stored string field, present only when it says something. */
-function isNonEmptyString(value: unknown): value is string {
+export function isNonEmptyString(value: unknown): value is string {
   return isString(value) && value !== "";
 }
 
-/** A stored value as one line. The framing this module prints is positional —
- *  the header is the first line, attribution follows it, the continuation and
- *  the cap notice are the last — so a line break inside a stored value would
- *  add an unprefixed line that can imitate any of them. */
-function oneLine(value: string): string {
+/** A stored framing value as one line. The framing every text shape prints is
+ *  positional — the header is the first line, attribution follows it, the
+ *  continuation and the cap notice are the last — so a line break inside a
+ *  stored value would add an unprefixed line that can imitate any of them.
+ *  One run of line breaks becomes one space. */
+export function oneLine(value: string): string {
   return value.replaceAll(/[\r\n]+/gu, " ");
 }
 

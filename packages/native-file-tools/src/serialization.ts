@@ -16,8 +16,3 @@ export function serializeNativeModelOutput(value: unknown): string {
   const visible = neutralizeReservedDelimitersDeep(modelVisibleResult(value));
   return JSON.stringify(visible ?? null) ?? "null";
 }
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates to the shared serializer above; its input remains the arbitrary native result shape accepted at the model boundary.
-export function measureNativeModelOutput(value: unknown): number {
-  return serializeNativeModelOutput(value).length;
-}

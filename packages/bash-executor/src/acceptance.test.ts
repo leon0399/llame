@@ -2,11 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { editFile, readFile } from "@workspace/native-file-tools";
-import {
-  executeManagedBash,
-  MANAGED_EXECUTOR,
-  resetManagedExecutorForTests,
-} from "./index";
+import { executeManagedBash, resetManagedExecutorForTests } from "./index";
 import type { BashExecutorContext } from "./types";
 
 function context(directory: string): BashExecutorContext {
@@ -47,10 +43,7 @@ describe("alpha acceptance workflow", () => {
       { command: "grep", args: ["-n", "draft", "alpha.json"] },
       context(directory),
     );
-    expect(grep).toMatchObject({
-      status: "success",
-      executor: MANAGED_EXECUTOR,
-    });
+    expect(grep).toMatchObject({ status: "success" });
     if (!("stdout" in grep)) return;
     expect(grep.stdout).toContain("draft");
     expect(grep.truncated).toBe(false);
@@ -78,10 +71,6 @@ describe("alpha acceptance workflow", () => {
       },
       context(directory),
     );
-    expect(python).toMatchObject({
-      status: "success",
-      executor: MANAGED_EXECUTOR,
-      stdout: "ready\n",
-    });
+    expect(python).toMatchObject({ status: "success", stdout: "ready\n" });
   });
 });

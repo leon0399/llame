@@ -10,11 +10,13 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
-  grepCursorFieldUnits,
+  grepContinuationUnits,
+  grepFileLocator,
+  grepPassageUnits,
   GREP_LIMITS,
   GREP_WARNING_KINDS,
   hashGrepInputs,
-  measureNativeModelOutput,
+  measureGrepRendering,
   runGrepScan,
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
@@ -161,7 +163,7 @@ type PageState = {
   readonly consumed: { files: number; entries: number; bytes: number };
   /** Files that contributed a passage, for the page's file bound. */
   readonly files: Set<string>;
-  /** Code units the results array serializes to, brackets included. */
+  /** Rendered width of `results`, kept as entries are appended. */
   units: number;
   complete: boolean;
   resume: ResumePoint | undefined;
@@ -337,17 +339,19 @@ function createPageState(): PageState {
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     files: new Set(),
-    // An array of no element serializes as `[]`.
-    units: 2,
+    units: 0,
     complete: true,
     resume: undefined,
   };
 }
 
 /**
- * What is left of the call's bounds. The page's own brackets and a following
- * separator are subtracted, so the segment the values are handed to can never
- * emit past the call's page.
+ * What is left of the call's bounds. The rendered text of the passages already
+ * held and the newline that separates them from the next segment are
+ * subtracted, so the segment the values are handed to can never emit past the
+ * call's page. The whole page is measured exactly here, once per segment,
+ * which also recalibrates the running total the segment's entries are admitted
+ * against.
  */
 function remainingBudget(
   budget: GrepBudget,
@@ -355,6 +359,10 @@ function remainingBudget(
   deadlineAt: number,
 ): GrepBudget {
   const separator = state.results.length === 0 ? 0 : 1;
+  state.units = measureGrepRendering({
+    results: state.results,
+    complete: true,
+  });
   return {
     files: Math.max(0, budget.files - state.consumed.files),
     entries: Math.max(0, budget.entries - state.consumed.entries),
@@ -368,11 +376,6 @@ function remainingBudget(
 
 function pageIsFull(state: PageState, budget: GrepBudget): boolean {
   return state.files.size >= budget.limit;
-}
-
-/** The locator without its line range, which is the file's identity. */
-function fileOf(locator: string): string {
-  return locator.slice(0, locator.lastIndexOf(':'));
 }
 
 /** Append one segment while the page holds it; the rest waits for a cursor. */
@@ -407,38 +410,42 @@ function appendSegment(
 }
 
 /**
- * Whether one more entry fits the page. The local engine already kept its own
- * cursor and the fixed fields back; a Machine entry names the point the call
- * would resume at, so its cursor field and those fields are added here.
+ * Whether one more entry fits the page, measured on the text the model reads:
+ * the passages the page holds, the widening this entry adds, the continuation
+ * line that names the point the call would resume at, and the fields the
+ * caller adds. A local entry was already fitted by the engine's own page, which
+ * kept that continuation line and these fields back; a Machine entry names its
+ * own resume point, so its line is reserved here at the placeholder cursor's
+ * width.
  */
 function fitsPage(
   state: PageState,
   budget: GrepBudget,
   entry: SegmentEntry,
 ): boolean {
-  const file = fileOf(entry.passage.locator);
+  const file = grepFileLocator(entry.passage.locator);
   if (!state.files.has(file) && state.files.size >= budget.limit) return false;
-  const separator = state.results.length === 0 ? 0 : 1;
-  const reserve =
-    entry.end === undefined
-      ? 0
-      : grepCursorFieldUnits(entry.end) + budget.fixedReserve;
+  const end = entry.end;
+  if (end === undefined) return true;
   return (
-    state.units + separator + passageUnits(entry.passage) + reserve <=
+    state.units +
+      grepPassageUnits(state.results.at(-1), entry.passage) +
+      grepContinuationUnits({
+        scopeIndex: end.scopeIndex,
+        rel: end.rel,
+        startLine: end.startLine,
+        ...(end.endLine !== undefined && { endLine: end.endLine }),
+        capped: end.capped,
+      }) +
+      budget.fixedReserve <=
     budget.pageUnits
   );
 }
 
 function pushPassage(state: PageState, passage: GrepPassage): void {
-  const separator = state.results.length === 0 ? 0 : 1;
+  state.units += grepPassageUnits(state.results.at(-1), passage);
   state.results.push(passage);
-  state.units += separator + passageUnits(passage);
-  state.files.add(fileOf(passage.locator));
-}
-
-/** One passage's code units inside the results array, without its brackets. */
-function passageUnits(passage: GrepPassage): number {
-  return measureNativeModelOutput(passage) - 2;
+  state.files.add(grepFileLocator(passage.locator));
 }
 
 function mergeWarnings(
@@ -571,20 +578,19 @@ function grepBudget(limit: number | undefined): GrepBudget {
 }
 
 /**
- * The units a page's fields beside `results` may take: the status and
- * completeness envelope, one `warnings` entry for every kind with a six-digit
- * count, and the Knowledge notice. The engine keeps exactly this much back
- * from the page's bound, and adds its own cursor to that reservation.
+ * The rendered width of a page's own lines beside `results`: the Knowledge
+ * notice and one `warnings` line naming every kind with a six-digit count, each
+ * with its separating newline. The engine keeps exactly this much back from the
+ * page's bound, and adds its own continuation line to that reservation.
  */
 export function pageFixedReserve(): number {
   return (
-    measureNativeModelOutput({
-      status: 'success',
+    measureGrepRendering({
       results: [],
-      complete: false,
+      complete: true,
       warnings: GREP_WARNING_KINDS.map((kind) => ({ kind, count: 999_999 })),
       notice: KNOWLEDGE_CONTENT_NOTICE,
-    }) - 2
+    }) + 2
   );
 }
 

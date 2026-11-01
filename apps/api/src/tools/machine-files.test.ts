@@ -947,8 +947,6 @@ describe('Machine bash', () => {
 
   const BASH_OK = {
     status: 'success',
-    operation: 'bash',
-    executor: 'managed',
     exitCode: 0,
     stdout: '/srv/app\n',
     stderr: '',
@@ -974,6 +972,42 @@ describe('Machine bash', () => {
       cwd: '/srv/app',
       envelope: { budgetMs: 5000 },
     });
+  });
+
+  it('settles unchanged when the daemon reports no wall time', async () => {
+    stubFence();
+    // A daemon that predates `wallTimeMs` sends neither it nor the dropped
+    // constant fields.
+    const { connector } = fixture({
+      answers: { 'proc.bash': { value: BASH_OK } },
+    });
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'machine://devl/srv/app' },
+      context(connector, { nativeExecutorId: undefined }),
+      5,
+    );
+    expect(result).toEqual({
+      status: 'success',
+      exitCode: 0,
+      stdout: '/srv/app\n',
+      stderr: '',
+    });
+  });
+
+  it('keeps the wall time the daemon measured', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: { 'proc.bash': { value: { ...BASH_OK, wallTimeMs: 1240 } } },
+    });
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'pwd', cwd: 'machine://devl/srv/app' },
+        context(connector, { nativeExecutorId: undefined }),
+        5,
+      ),
+    ).resolves.toMatchObject({ status: 'success', wallTimeMs: 1240 });
   });
 
   it('resolves a relative cwd inside a Machine Workspace on the Machine', async () => {
@@ -1195,8 +1229,6 @@ describe('Machine permission matching', () => {
         'proc.bash': {
           value: {
             status: 'success',
-            operation: 'bash',
-            executor: 'managed',
             exitCode: 0,
             stdout: '',
             stderr: '',
@@ -2082,8 +2114,6 @@ describe('Machine bash working directories', () => {
 
   const BASH_OK = {
     status: 'success',
-    operation: 'bash',
-    executor: 'managed',
     exitCode: 0,
     stdout: '',
     stderr: '',

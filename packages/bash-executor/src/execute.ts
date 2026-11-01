@@ -10,12 +10,9 @@ import type {
   BashUnavailableResult,
 } from "./types";
 import { managedChildEnvironment, managedEnvironmentCollision } from "./env";
-import { MANAGED_EXECUTOR } from "./managed-constants";
 import { requireManagedBoundary } from "./sanitize";
 import { resolveConfiguredTool } from "./tools";
 import { watchManagedChild } from "./watch";
-
-export { MANAGED_EXECUTOR };
 
 let activeProcesses = 0;
 

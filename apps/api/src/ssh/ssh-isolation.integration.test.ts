@@ -147,7 +147,7 @@ describe('ssh operations stay in their owner scope', () => {
     // evaluated anything else would not produce this output.
     expect(result).toMatchObject({
       status: 'success',
-      operation: 'bash',
+      exitCode: 0,
       stdout: 'box\n',
     });
 

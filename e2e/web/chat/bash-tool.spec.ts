@@ -33,6 +33,8 @@ test("renders host bash output and a non-zero exit code", async ({ page }) => {
     .locator("h4")
     .filter({ hasText: "Error" })
     .locator("..");
-  await expect(errorPanel).toContainText(`stdout:\n${BASH_OUTPUT_PATH}`);
-  await expect(errorPanel).toContainText("Command exited with code 7.");
+  // A failing command reads as the same text shape a success does: the exit
+  // code in the header, then the streams.
+  await expect(errorPanel).toContainText("exit 7");
+  await expect(errorPanel).toContainText(BASH_OUTPUT_PATH);
 });

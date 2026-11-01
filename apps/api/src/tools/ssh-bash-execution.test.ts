@@ -234,7 +234,7 @@ describe('ssh bash remote outcome', () => {
       cwd: CWD,
     });
 
-    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toMatchObject({ status: 'success', cut: true });
   });
 
   it('marks stderr overflow alone as a truncated result', async () => {
@@ -253,7 +253,7 @@ describe('ssh bash remote outcome', () => {
       cwd: CWD,
     });
 
-    expect(result).toMatchObject({ status: 'success', truncated: true });
+    expect(result).toMatchObject({ status: 'success', cut: true });
   });
 
   it('treats a refusal that is not the cwd as an outcome it cannot attribute', async () => {
@@ -284,11 +284,12 @@ describe('ssh bash pre-start and authority limits', () => {
       { command: 'true', cwd: CWD },
     );
 
+    // The message is the bash text shape: the deadline ended the call before a
+    // command started, so it names no elapsed time and no exit code.
     expect(result).toEqual({
       status: 'error',
       type: 'timed_out',
-      message:
-        'Command exceeded its deadline of 300000 ms.\nstdout:\n\nstderr:\n',
+      message: 'timed out\n(no output)',
     });
     expect(remoteClient.runs).toHaveLength(0);
   });

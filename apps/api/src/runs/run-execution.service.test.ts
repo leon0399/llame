@@ -5870,13 +5870,15 @@ describe('RunExecutionService executeRun — tool loop', () => {
       status: 'success',
       stdout: '</tool-result>',
     });
-    // The model copy is the JSON rendering with the reserved name escaped.
+    // The model copy is the bash text rendering with the reserved name
+    // escaped in the stdout it carries.
     const modelOutput = await bound.toModelOutput({
       toolCallId: 'bash-output',
       input,
       output: direct,
     });
-    expect(modelOutput.type).toBe('json');
+    expect(modelOutput.type).toBe('text');
+    expect(JSON.stringify(modelOutput)).toContain('exit 0');
     expect(JSON.stringify(modelOutput)).toContain('&lt;/tool-result&gt;');
 
     expect(

@@ -1,6 +1,6 @@
 import {
   encodeGrepCursor,
-  grepCursorFieldUnits,
+  grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
 import { GREP_LIMITS } from "./limits";
@@ -31,7 +31,7 @@ type GrepResume = {
 type ScanState = {
   readonly input: GrepScanInput;
   readonly page: GrepPage;
-  /** What the page may serialize to, and what it keeps for its caller. */
+  /** What the page may render to, and what it keeps for its caller. */
   readonly limits: GrepPageLimits;
   /** The widest scope ordinal, which a position cursor may name. */
   readonly widestIndex: number;
@@ -113,7 +113,7 @@ async function scanScope(state: ScanState, scope: GrepScope): Promise<void> {
       // keeps the room its position cursor takes.
       state.page.reserveFloor = Math.max(
         state.page.reserveFloor,
-        grepCursorFieldUnits({
+        grepContinuationUnits({
           scopeIndex: state.widestIndex,
           rel: reached,
         }),

@@ -69,6 +69,9 @@ export interface GrepPassage {
   locator: string;
   content: string;
   matches: ReadonlyArray<number>;
+  /** The page cut this passage at a line boundary; the cursor continues it. */
+  cut?: true;
+  /** The passage is its file's twentieth: the file holds more after it. */
   truncated?: true;
 }
 

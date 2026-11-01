@@ -392,8 +392,6 @@ describe('readBytesChunk', () => {
 describe('readProcBashResult', () => {
   const MANAGED = {
     status: 'success',
-    operation: 'bash',
-    executor: 'managed',
     exitCode: 0,
     stdout: 'out',
     stderr: 'err',
@@ -420,16 +418,46 @@ describe('readProcBashResult', () => {
     ).toEqual({ ...MANAGED, status: 'error', exitCode: 3 });
   });
 
+  it("maps an old daemon's operation and executor away", () => {
+    expect(
+      readProcBashResult({
+        ...MANAGED,
+        operation: 'bash',
+        executor: 'managed',
+      }),
+    ).toEqual(MANAGED);
+    expect(
+      readProcBashResult({
+        ...MANAGED,
+        operation: 'edit',
+        executor: 'shell',
+      }),
+    ).toEqual(MANAGED);
+  });
+
+  it('keeps the wall time a daemon reports', () => {
+    expect(readProcBashResult({ ...MANAGED, wallTimeMs: 1240 })).toStrictEqual({
+      ...MANAGED,
+      wallTimeMs: 1240,
+    });
+  });
+
+  it('omits the wall time a daemon did not report', () => {
+    const settled = readProcBashResult(MANAGED);
+    expect(settled).toBeDefined();
+    expect(settled !== undefined && 'wallTimeMs' in settled).toBe(false);
+  });
+
   it.each([
-    ['a non-bash operation', { ...MANAGED, operation: 'edit' }],
-    ['an unmanaged executor', { ...MANAGED, executor: 'shell' }],
-    ['a missing operation', { operation: undefined }],
     ['a fractional exit code', { ...MANAGED, exitCode: 1.5 }],
     ['a string exit code', { ...MANAGED, exitCode: '0' }],
     ['a missing exit code', { ...MANAGED, exitCode: undefined }],
     ['a non-string stdout', { ...MANAGED, stdout: 5 }],
     ['a non-string stderr', { ...MANAGED, stderr: null }],
     ['a non-boolean truncation flag', { ...MANAGED, truncated: 'false' }],
+    ['a fractional wall time', { ...MANAGED, wallTimeMs: 1.5 }],
+    ['a negative wall time', { ...MANAGED, wallTimeMs: -1 }],
+    ['a string wall time', { ...MANAGED, wallTimeMs: '10' }],
   ])('rejects a managed result with %s', (_label, value) => {
     expect(readProcBashResult(value)).toBeUndefined();
   });
@@ -444,7 +472,7 @@ describe('readProcBashResult', () => {
         stderr: '',
         truncated: true,
       }),
-    ).toEqual({
+    ).toStrictEqual({
       status: 'error',
       type: 'timed_out',
       durationMs: 100,
@@ -452,6 +480,41 @@ describe('readProcBashResult', () => {
       stderr: '',
       truncated: true,
     });
+  });
+
+  it('keeps the wall time a daemon measured for a deadline refusal', () => {
+    expect(
+      readProcBashResult({
+        status: 'error',
+        type: 'timed_out',
+        durationMs: 300_000,
+        wallTimeMs: 29_940,
+        stdout: 'partial',
+        stderr: '',
+        truncated: false,
+      }),
+    ).toStrictEqual({
+      status: 'error',
+      type: 'timed_out',
+      durationMs: 300_000,
+      wallTimeMs: 29_940,
+      stdout: 'partial',
+      stderr: '',
+      truncated: false,
+    });
+    // A daemon that predates the measured time sends none, and its result
+    // still settles without one.
+    expect(
+      readProcBashResult({
+        status: 'error',
+        type: 'timed_out',
+        durationMs: 300_000,
+        wallTimeMs: -1,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      }),
+    ).toBeUndefined();
   });
 
   it('accepts a zero duration and rejects a negative or fractional one', () => {

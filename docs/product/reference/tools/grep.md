@@ -70,21 +70,38 @@ scheme.
 
 ## Result
 
-```json
-{
-  "results": [
-    {
-      "locator": "kb://<id>/notes/a.md:11-13",
-      "content": "11: text\n12: matched text\n13: text",
-      "matches": [12]
-    }
-  ],
-  "complete": false,
-  "cursor": "<opaque>",
-  "warnings": [{ "kind": "binary", "count": 2 }],
-  "notice": "<the Knowledge untrusted-content notice>"
-}
+```text
+## src/app.ts
+11: export function renderApp() {
+*12:   return <App />;
+13: }
+[more results. Continue with cursor: <opaque>]
 ```
+
+A model reads the page as plain text — one `notice: <text>` line first when
+the result carries the Knowledge notice, then each run of consecutive passages of one file under
+one `## <file locator>` line, then one `[warnings: …]` line, then one
+bracketed continuation line when more passages remain — while the owner's UI
+reads the stored object:
+
+| Field      | Meaning                                                                              |
+| ---------- | ------------------------------------------------------------------------------------ |
+| `results`  | one object per passage: `locator`, `content`, `matches`, `cut`, and `truncated`      |
+| `complete` | whether more passages remain after this page                                         |
+| `cursor`   | the opaque value the continuation line names                                         |
+| `warnings` | every skip and the bound that stopped the walk, by kind and count                    |
+| `notice`   | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the page |
+
+The `## <file locator>` line names the file with no line range. Each passage
+under it prints its lines as `N: text`, `*N: text` for a matched line, and one
+blank line separates the passages of one run. Overlapping scopes repeat the
+file line: each scope's run of passages has its own `##` line, in scope order.
+A file with more than 20 passages ends its twentieth passage with
+`[more passages in this file; read it to see them]`, and a later `read`
+reaches the rest. A passage cut at the page bound ends with `[passage cut at
+the result bound; continue with the cursor]`, and the cursor continues its
+remaining lines. A bracketed cap notice ends the text when the shared result
+cap cut the page.
 
 A result with at least one `kb://` passage carries the closed
 untrusted-content `notice`, the same text a `kb://` read and
@@ -93,7 +110,9 @@ untrusted-content `notice`, the same text a `kb://` read and
 
 A hit holds one matched line with one line of context on each side. Windows
 that touch merge into one passage. `content` carries the ordinary one-based
-`N:` line prefixes. `matches` lists the matched line numbers in the window.
+`N:` line prefixes, which are navigation metadata, never file bytes; a long
+line is cut at 512 code units and ends with `…`. `matches` lists the matched
+line numbers in the window, and those lines print with the `*` prefix.
 
 A hit locator is `<file locator>:<start>-<end>`. It is directly a `read`
 argument. In a `kb://` or `skill://` locator, `grep` spells each segment the
@@ -148,14 +167,17 @@ refused file.
 | Size of one file     | 1 MiB          |
 | Call wall time       | 30 s           |
 
-A page holds at most `limit` files. Its whole serialized result, `results`,
-`warnings`, `notice`, and `cursor` included, fits 15,000 UTF-16 code units, so
-a returned `cursor` is never shortened. When passages remain, the result
-carries `complete: false` and a `cursor`. Submit the same arguments with that
-cursor to continue. A cursor from other inputs is refused as `invalid_input`.
+A page holds at most `limit` files. The rendered model text of the whole
+result — the file lines, passages, `[warnings: …]` line, notice, and
+continuation line included — fits 15,000 UTF-16 code units. The page ends
+before the budget, so the tool loop never cuts a result and a returned
+`cursor` is never shortened. When passages remain, the result carries
+`complete: false` and a `cursor`. Submit the same arguments with that cursor
+to continue. A cursor from other inputs is refused as `invalid_input`.
 
 A file with more than 20 passages returns its first 20 and marks its
-twentieth `truncated`. A later `read` reaches the rest.
+twentieth `truncated`, which adds `[more passages in this file; read it to see
+them]`. A later `read` reaches the rest.
 
 `warnings` counts every skip and the bound that stopped the walk. The kinds
 are `binary`, `invalid_utf8`, `oversized`, `unreadable`, `link`, `file_bound`,

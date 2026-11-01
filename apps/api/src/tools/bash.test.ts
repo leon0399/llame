@@ -480,7 +480,7 @@ describe('bash durable admission', () => {
 
       expect(result).toMatchObject({ status: 'success' });
       if (result.status === 'success') {
-        expect(result.truncated).toBe(false);
+        expect(result).not.toHaveProperty('cut');
         if (!isString(result.stdout)) {
           throw new Error('Expected bash stdout to be a string');
         }
@@ -557,6 +557,10 @@ describe('bash durable admission', () => {
         type: 'timed_out',
       });
       if (timedOut.status === 'error') {
+        // A stopped command names itself and the measured time, never an exit
+        // code it did not report.
+        expect(timedOut.message).toMatch(/^timed out, \d+\.\d s\n/u);
+        expect(timedOut.message).not.toContain('exit ');
         expect(timedOut.message).toContain('partial-stdout');
         expect(timedOut.message).toContain('partial-stderr');
       }
@@ -702,7 +706,7 @@ describe('bash durable admission', () => {
   });
 
   it.each([
-    { truncated: true, note: '\nOutput was truncated.' },
+    { truncated: true, note: '\n[output cut at the bound]' },
     { truncated: false, note: '' },
   ])(
     'maps timed-out output and truncation=$truncated into the error message',
@@ -711,17 +715,109 @@ describe('bash durable admission', () => {
         status: 'error',
         type: 'timed_out',
         durationMs: 100,
+        wallTimeMs: 100,
         stdout: 'partial stdout',
         stderr: 'partial stderr',
         truncated,
       };
+      // The message is the bash text shape: the command was stopped, not
+      // exited, so the header names itself and the 0.1 s measured before the
+      // deadline stopped it.
       expect(toToolResult(result)).toEqual({
         status: 'error',
         type: 'timed_out',
-        message: `Command exceeded its deadline of 100 ms.\nstdout:\npartial stdout\nstderr:\npartial stderr${note}`,
+        message: `timed out, 0.1 s\npartial stdout\n[stderr]\npartial stderr${note}`,
       });
     },
   );
+
+  it('names no elapsed time for a timeout that never started a command', () => {
+    // The admission and the SSH pre-start check can end a call before anything
+    // spawns: the configured deadline is not a measurement, so no seconds.
+    const result: BashResult = {
+      status: 'error',
+      type: 'timed_out',
+      durationMs: 300_000,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+    };
+    expect(toToolResult(result)).toEqual({
+      status: 'error',
+      type: 'timed_out',
+      message: 'timed out\n(no output)',
+    });
+  });
+
+  it('composes a failing command as the bash text shape with its elapsed time', () => {
+    const result: BashResult = {
+      status: 'error',
+      exitCode: 1,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 2460,
+    };
+    expect(toToolResult(result)).toEqual({
+      status: 'error',
+      type: 'command_failed',
+      message: 'exit 1, 2.5 s\n(no output)',
+    });
+  });
+
+  it('drops the constant operation fields and keeps the wall time on success', () => {
+    const result: BashResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 1240,
+    };
+    expect(toToolResult(result)).toStrictEqual({
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+      wallTimeMs: 1240,
+    });
+  });
+
+  it('marks the executor cut with cut, not with the cap flag', () => {
+    const result: BashResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'prefix',
+      stderr: '',
+      truncated: true,
+      wallTimeMs: 1240,
+    };
+    expect(toToolResult(result)).toStrictEqual({
+      status: 'success',
+      exitCode: 0,
+      stdout: 'prefix',
+      stderr: '',
+      cut: true,
+      wallTimeMs: 1240,
+    });
+  });
+
+  it('omits the wall time a result never measured', () => {
+    const result: BashResult = {
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+      truncated: false,
+    };
+    const settled = toToolResult(result);
+    expect(settled).toStrictEqual({
+      status: 'success',
+      exitCode: 0,
+      stdout: 'out\n',
+      stderr: '',
+    });
+  });
 
   it('does not start a command when the durable attempt cannot commit', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));

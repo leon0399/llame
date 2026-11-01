@@ -6,7 +6,6 @@ import {
   admitManagedBash,
   executeManagedBash,
   isConfiguredTool,
-  MANAGED_EXECUTOR,
   managedEnvironmentCollision,
   measureManagedInput,
   requireManagedBoundary,
@@ -47,12 +46,6 @@ describe("managed executor contract", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  it("does not advertise direct host bash", () => {
-    expect(MANAGED_EXECUTOR).toBe("managed");
-    expect(MANAGED_EXECUTOR).not.toBe("native");
-    expect(MANAGED_EXECUTOR).not.toBe("host");
-  });
-
   it("lists ordinary configured tools without a canonical editor", () => {
     expect([...CONFIGURED_TOOLS]).toEqual([
       "bash",
@@ -87,10 +80,21 @@ describe("managed executor contract", () => {
     );
     expect(result).toMatchObject({
       status: "success",
-      executor: "managed",
       exitCode: 0,
       stdout: "hello",
     });
+  });
+
+  it("carries the wall time and no constant operation fields", async () => {
+    const result = await executeManagedBash(
+      { command: "bash", args: ["-c", "true"] },
+      context(directory),
+    );
+    expect(result).toMatchObject({ status: "success", exitCode: 0 });
+    if ("type" in result) throw new Error("Expected a known result");
+    expect(result.wallTimeMs).toBeGreaterThanOrEqual(0);
+    expect(result).not.toHaveProperty("operation");
+    expect(result).not.toHaveProperty("executor");
   });
 
   it.each([

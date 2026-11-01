@@ -18,7 +18,12 @@
  * comparable to today's. The write row creates the fixture's content, so its
  * status names the resulting line count.
  *
- * A case whose renderer lands in a later layer shows `—` in the after columns.
+ * The grep and bash rows render their fixture objects as stored, except for the
+ * bash wall time: the baseline results predate it, and the new header names the
+ * elapsed time, so the row borrows the proposal's `0.0 s` (the header's width
+ * does not depend on the value). The grep row keeps the fixture's cursor, so
+ * the continuation line is part of its text, as the proposal measured it. The
+ * replay-wrapper row mirrors no tool result and shows `—` in the after columns.
  *
  * Two differences from the proposal's table are expected and explained by later
  * decisions rather than by drift: the read header's ` of <total> lines` and the
@@ -26,8 +31,8 @@
  * was measured, so the bound-limited row resumes to `:387-2000` instead of the
  * file's last line and costs one token more.
  *
- * Run: `pnpm --filter @workspace/native-file-tools build && node
- * scripts/measure-tool-results.mjs`
+ * Run: `pnpm --filter @workspace/native-file-tools build && pnpm --filter
+ * @workspace/bash-executor build && node scripts/measure-tool-results.mjs`
  */
 
 import { execFileSync } from "node:child_process";
@@ -37,10 +42,12 @@ import { join } from "node:path";
 
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
 
+import { renderBashText } from "../packages/bash-executor/dist/index.js";
 import {
   createFile,
   editFile,
   renderEditText,
+  renderGrepText,
   renderReadText,
   renderWriteText,
 } from "../packages/native-file-tools/dist/index.js";
@@ -75,6 +82,26 @@ function readAfter(name, result) {
       lineCount: READ_LINE_COUNT,
     }),
   );
+}
+
+/** The fixture bash results predate `wallTimeMs`, and the new header names
+ *  the elapsed time; the proposal measured `0.0 s`, whose width does not
+ *  depend on the value. */
+const FIXTURE_WALL_TIME_MS = 0;
+
+/** The text rendering of the grep and bash success cases, as stored; a grep
+ *  result keeps its cursor, so the continuation line is part of the text. */
+function successAfter(name, result) {
+  if (result === null) return undefined;
+  if (name.startsWith("grep")) {
+    return neutralizeReservedDelimiters(renderGrepText(result));
+  }
+  if (name.startsWith("bash")) {
+    return neutralizeReservedDelimiters(
+      renderBashText({ ...result, wallTimeMs: FIXTURE_WALL_TIME_MS }),
+    );
+  }
+  return undefined;
 }
 
 /** The text rendering of the mutation cases, measured from live package calls.
@@ -122,7 +149,7 @@ const mutations = await measureMutations(cases);
 const rows = cases.map(({ case: name, args, result, todayText }) => {
   const after = name.startsWith("read")
     ? readAfter(name, result)
-    : mutations.get(name);
+    : (successAfter(name, result) ?? mutations.get(name));
   return {
     name,
     args: tokens(JSON.stringify(args)),

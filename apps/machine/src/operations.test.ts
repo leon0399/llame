@@ -425,20 +425,22 @@ describe("fs.bytes", () => {
 
 describe("proc.bash", () => {
   it("runs in the given directory and prints its remote pwd", async () => {
-    await expect(
-      daemon.call("proc.bash", {
-        envelope: envelope(),
-        command: "pwd",
-        cwd: fixture.root,
-      }),
-    ).resolves.toMatchObject({
+    const result = await daemon.call("proc.bash", {
+      envelope: envelope(),
+      command: "pwd",
+      cwd: fixture.root,
+    });
+    expect(result).toMatchObject({
       status: "success",
-      operation: "bash",
       exitCode: 0,
       stdout: `${fixture.root}\n`,
       stderr: "",
       truncated: false,
     });
+    // The daemon measured the wall time; the dropped fields are absent.
+    expect(result).toHaveProperty("wallTimeMs", expect.any(Number));
+    expect(result).not.toHaveProperty("operation");
+    expect(result).not.toHaveProperty("executor");
   });
 
   it("adds declared environment entries to the managed base", async () => {
@@ -476,18 +478,13 @@ describe("proc.bash", () => {
   });
 
   it("reports a failing command as a result, not a protocol error", async () => {
-    await expect(
-      daemon.call("proc.bash", {
-        envelope: envelope(),
-        command: "exit 3",
-        cwd: fixture.root,
-      }),
-    ).resolves.toMatchObject({
-      status: "error",
-      operation: "bash",
-      exitCode: 3,
-      executor: "managed",
+    const result = await daemon.call("proc.bash", {
+      envelope: envelope(),
+      command: "exit 3",
+      cwd: fixture.root,
     });
+    expect(result).toMatchObject({ status: "error", exitCode: 3 });
+    expect(result).toHaveProperty("wallTimeMs", expect.any(Number));
   });
 
   it("runs in the first registered root when no cwd is given", async () => {

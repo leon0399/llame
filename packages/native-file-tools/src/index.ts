@@ -53,10 +53,7 @@ export {
   REPLACE_TARGET_MISSING_MESSAGE,
 } from "./mutate";
 export type { EditSuccess, NativeMutateOptions } from "./mutate";
-export {
-  measureNativeModelOutput,
-  serializeNativeModelOutput,
-} from "./serialization";
+export { serializeNativeModelOutput } from "./serialization";
 export {
   measureEditRendering,
   renderAttributionLines,
