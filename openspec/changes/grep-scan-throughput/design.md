@@ -118,7 +118,7 @@ API keeps passing today's file, entry, and byte numbers until the bounds layer
 replaces them with `tools.grep`.
 
 `maxBytesRead` counts the bytes of files the consumer takes, plus the bytes
-read so far of the head file (D2), and the walk stops when the count passes
+read so far of the head file (D2), and the walk stops when the count reaches
 the bound. Read-ahead can read past the bound; those bytes are discarded and
 never counted. `maxFileBytes` is checked against the `fstat` size and again on
 the streamed byte count, so a file that grows past the bound during the read
@@ -200,8 +200,11 @@ the file as `unreadable` when a directory on the path changed during the read.
 Host, Machine, and skill ports use `fs.open` with `O_NONBLOCK` and read 64 KiB
 chunks; host and Machine ports also keep `O_NOFOLLOW`. Today the skill port
 opens with a blocking `open(file, 'r')` (`grep-ports.ts:319`), so an exact
-`skill://` scope on a FIFO can block before any abort check. Every streaming
-port therefore opens without blocking and refuses a non-regular file as
+`skill://` scope on a FIFO can block before any abort check, and the Knowledge
+filesystem port opens with `O_RDONLY | O_NOFOLLOW` only
+(`apps/api/src/knowledge/knowledge-filesystem-node-port.ts:12-16`), so a FIFO at
+a Knowledge leaf passes the `lstat` checks and blocks the open. Every streaming
+port, the Knowledge port included, therefore opens without blocking and refuses a non-regular file as
 `unreadable` after `fstat`. The Knowledge adapter streams through `this.fileSystem.open`
 after its per-component `lstat` checks
 (`apps/api/src/knowledge/knowledge-filesystem.ts:389-405,562-580`).
@@ -410,12 +413,21 @@ the start point (D5). Nested excluded directories are never seen, because the
 walk does not enter their parent. Entries before the start point are listed
 without evaluation, so a resumed page does not repeat earlier exclusions.
 
-Each reported locator is spelled as a scope: a literal `*`, `?`, `[`, `]`, `{`,
-or `}` becomes `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, or `%7D`, and the scope
-grammar accepts the last four encodings as literal characters
-(`packages/native-file-tools/src/grep/scope.ts:26-51` refuses a raw bracket or
-brace today). A Next.js `app/[id]` directory is otherwise unsearchable as a
+Each reported locator is spelled as a scope: a literal `%`, `*`, `?`, `[`,
+`]`, `{`, or `}` becomes `%25`, `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, or `%7D`.
+`packages/native-file-tools/src/grep/scope.ts:26-51` refuses a raw bracket or
+brace today, so a Next.js `app/[id]` directory is otherwise unsearchable as a
 scope. The `read` filter evaluates the raw path, not the spelling.
+
+Host scopes decode nothing today: `buildHostScope` uses `split.prefix` as
+written (`apps/api/src/tools/grep-scopes.ts:269-275`), unlike `splitScopePath`
+for `kb://` and `skill://` (`grep-scope-shape.ts:66-74`). So the canonical
+"`%2A` names the literal character" holds only for those schemes. The host and
+Machine paths decode exactly the seven spellings in the literal prefix, and no
+other sequence, so an ordinary path that holds `%41` keeps its meaning.
+`projectGrepScope` (`grep-admission.ts:96-97`) projects the decoded prefix, so
+a reject written against `app/[id]` still refuses `app/%5Bid%5D`. The hub
+decodes before it sends `path` to a Machine.
 
 The engine records the first 1,000 excluded directories per call across every
 scope, and sets `atLeast` when it excludes more. A Machine returns its own list
@@ -508,6 +520,13 @@ says so. Rollback is a revert of the layer; no persisted state depends on it.
 None.
 
 ## Revision history
+
+- **v5 (2026-11-01):** GitHub review, iteration 2 (cubic, pullfrog: 6
+  threads). Accepted: the keyset requirement now defines a cursor on a scope
+  start; host and Machine scopes decode exactly seven literal spellings and the
+  admission sees the decoded prefix (host scopes decoded nothing, so the
+  report spelling did not round-trip); the Knowledge filesystem port also opens
+  without blocking; D1 says "reaches"; tasks 2.2 and 3.2 match D4 and D7.
 
 - **v4 (2026-11-01):** GitHub review, iteration 1 (cubic, pullfrog,
   CodeRabbit: 16 threads). Accepted: the byte bound stops when the count

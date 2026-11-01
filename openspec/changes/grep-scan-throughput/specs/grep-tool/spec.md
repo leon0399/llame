@@ -192,7 +192,9 @@ A position cursor names the last entry the walk reached. On resume, the walk
 MUST list the entries before that entry and that entry itself, and it MUST NOT
 open them. Those entries do not count toward a configured entry bound. The walk MUST
 enter a directory that the entry names. It MUST NOT examine again the file
-that the entry names.
+that the entry names. A position cursor on the start of a scope, as "Walks are
+bounded" defines it, names no entry. The walk then lists nothing before the
+first entry of that scope and examines that first entry.
 
 The entry that a position cursor names can be an entry that the `read` group
 refused. The cursor names it only as the point to resume after. It never names
@@ -745,13 +747,35 @@ cuts the result.
 ### Requirement: A reported directory locator is a valid scope
 
 Each locator in `ignored.locators` MUST be a grep scope that names that one
-directory. The tool MUST spell a literal `*`, `?`, `[`, `]`, `{`, or `}` in it
-as `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, or `%7D`. In the path part of a scope,
-`%5B`, `%5D`, `%7B`, and `%7D` MUST name the literal character. The tool MUST
-NOT refuse them as glob operators.
+directory. The tool MUST spell a literal `%`, `*`, `?`, `[`, `]`, `{`, or `}`
+in it as `%25`, `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, or `%7D`. These seven
+spellings MUST name the literal character in the path part of every scope. The
+tool MUST NOT refuse `%5B`, `%5D`, `%7B`, or `%7D` as glob operators.
 
 #### Scenario: A reported directory with brackets can be scoped
 
 - **WHEN** `node_modules/` excluded `/home/u/repo/app/[id]/node_modules`
 - **THEN** `ignored.locators` holds `/home/u/repo/app/%5Bid%5D/node_modules`
 - **AND** a later scope of that locator searches that directory
+
+### Requirement: Host and Machine scopes decode the literal spellings
+
+In a host or Machine scope, the tool MUST decode the seven literal spellings
+in the literal prefix before the probe. It MUST NOT decode another percent
+sequence. The `grep` group and every all-fields rejection MUST see the decoded
+prefix. So an encoded path cannot hide from a reject that names it.
+
+#### Scenario: A host scope with an encoded asterisk names one directory
+
+- **WHEN** a scope is `/home/u/repo/a%2Ab` and `/home/u/repo/a*b` is a directory
+- **THEN** the walk searches `/home/u/repo/a*b`
+
+#### Scenario: An encoded bracket does not pass a reject
+
+- **WHEN** the `grep` group rejects the literal `/home/u/repo/app/[id]` and a scope is `/home/u/repo/app/%5Bid%5D`
+- **THEN** the call is refused
+
+#### Scenario: Another percent sequence stays text
+
+- **WHEN** a scope is `/home/u/repo/100%41`
+- **THEN** the tool probes the directory `/home/u/repo/100%41`

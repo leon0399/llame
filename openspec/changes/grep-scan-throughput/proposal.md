@@ -42,8 +42,10 @@ listed, or bytes read. They bound results and time only (design: Prior art).
   in Git, which fixes the #1392 layer-voiding defect.
 - The result reports excluded directories: a count and the first five
   locators that the `read` group admits, spelled as scopes, so a model can
-  scope one of them explicitly. A scope accepts `%5B`, `%5D`, `%7B`, and `%7D`
-  as literal characters, so a directory such as `app/[id]` is searchable.
+  scope one of them explicitly. Host and Machine scopes decode seven literal
+  spellings (`%25`, `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, `%7D`), and the
+  permission check sees the decoded path, so a directory such as `app/[id]`
+  is searchable and a spelling cannot slip past a reject.
 - **BREAKING** (Machine protocol): `fs.grep` changes in place. The request
   field `budget` becomes `bounds`, with `null` for an unset bound and a
   `progressed` flag. The response gains the excluded-directory and
@@ -166,7 +168,8 @@ None.
     call timeout; streamed files; concurrent reads in canonical order; the
     unfinished-file rule and its progress rule; ignore files above the scope;
     the repository limit for `.gitignore`; the scope-directory rule; the
-    excluded-directory report, its filter and bound, and its scope spelling.
+    excluded-directory report, its filter and bound, and its scope spelling;
+    host and Machine decoding of the seven literal spellings.
 - `instance-config`: ADDED the optional `tools.grep` bound settings.
 - `tool-result-rendering`: MODIFIED "A grep page groups consecutive passages
   under one file line" to render the excluded-directory line and the
