@@ -304,8 +304,12 @@ describe('createHostWalkPort', () => {
         'big.md',
       );
       if (!('chunks' in opened)) throw new Error('a regular file opens');
+      const iterator = opened.chunks[Symbol.asyncIterator]();
+      // The first chunk arrives, so the abort lands between reads rather
+      // than before the first one.
+      expect((await iterator.next()).value).toBeInstanceOf(Uint8Array);
       controller.abort();
-      await expect(collectStreamBytes(opened.chunks)).rejects.toMatchObject({
+      await expect(iterator.next()).rejects.toMatchObject({
         name: 'AbortError',
       });
     });

@@ -1,7 +1,7 @@
 /** The real Node `fs`-backed `KnowledgeFilesystemPort`, opened with `O_NOFOLLOW`
  * so a symlinked target fails at the syscall rather than relying solely on the
  * adapter's own `lstat` checks, and with `O_NONBLOCK` so a FIFO at a leaf
- * returns a handle the adapter's `fstat` refuses instead of stalling the walk. */
+ * returns a handle the walk's `isFile` check refuses instead of stalling. */
 
 import { constants, promises as fs } from 'node:fs';
 

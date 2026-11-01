@@ -47,6 +47,11 @@ export type GrepFileScan =
       readonly cappedAt: number | undefined;
       /** Bytes the stream delivered. */
       readonly bytes: number;
+      /**
+       * The hold limit ended the file before its last match, so a later call
+       * must scan it again instead of treating the page as complete.
+       */
+      readonly holdStopped: boolean;
     }
   | {
       readonly kind: "refused";
@@ -257,7 +262,9 @@ type PassageState = {
   heldUnits: number;
   /** The hold limit was reached: the open passage can only be cut. */
   heldStopped: boolean;
-  /** Nothing more will be built: the hold limit or the twentieth passage. */
+  /** A passage needed content the hold limit kept out of the buffer. */
+  contentLost: boolean;
+  /** Nothing more will be built: lost content or the twentieth passage. */
   stopped: boolean;
   /** Passages finalized so far, dropped ones included. */
   built: number;
@@ -279,6 +286,7 @@ function createPassageState(input: GrepFileScanInput): PassageState {
     heldBase: 0,
     heldUnits: 0,
     heldStopped: false,
+    contentLost: false,
     stopped: false,
     built: 0,
     show: input.resume === undefined ? "show" : "pending",
@@ -293,7 +301,11 @@ function passageResult(state: PassageState) {
   if (state.open !== undefined)
     state.open.end = Math.min(state.open.end, state.line);
   finishInterval(state);
-  return { passages: state.emitted, cappedAt: state.cappedAt };
+  return {
+    passages: state.emitted,
+    cappedAt: state.cappedAt,
+    holdStopped: state.contentLost,
+  };
 }
 
 /** The 512-unit display of one line, as a flat copy of its own. */
@@ -342,8 +354,15 @@ function holdLine(state: PassageState, line: number, text: string): void {
   if (state.held.length === 0) state.heldBase = line;
   const rendered = renderSourceLine(text, line - 1);
   if (state.heldUnits + rendered.length > HELD_CODE_UNITS) {
+    // Finalize what is held. A passage that came out incomplete needed the
+    // content this line would have completed, so matching stops and the page
+    // carries a continuation; a passage that ended before it frees its lines,
+    // so the limit no longer blocks anything and the scan keeps matching.
     state.heldStopped = true;
+    state.contentLost = false;
     finishInterval(state);
+    if (state.contentLost) state.stopped = true;
+    else state.heldStopped = false;
     return;
   }
   state.held.push(rendered);
@@ -376,7 +395,12 @@ function renderPassage(
     last = line;
   }
   const shown = wanted.filter((line) => line <= last);
-  if (shown.length === 0) return undefined;
+  if (shown.length === 0) {
+    // Matches exist, but none of their lines are held.
+    state.contentLost = true;
+    return undefined;
+  }
+  if (incomplete) state.contentLost = true;
   return {
     last,
     passage: {
@@ -410,7 +434,6 @@ function emitPassage(
   const decision = showDecision(state.show, state.input.resume, start, end);
   if (decision.kind === "drop") {
     state.show = decision.next;
-    if (state.heldStopped) state.stopped = true;
     return;
   }
   if (decision.kind === "tail") state.show = decision.next;
@@ -424,7 +447,6 @@ function emitPassage(
     // hold limit bounds the content in flight rather than the whole file.
     releaseHeld(state, rendered.last);
   }
-  if (state.heldStopped) state.stopped = true;
 }
 
 /** The last match at or before `limit`, searched from `from`. */

@@ -63,7 +63,7 @@ export function fileStream(
           yield { kind: "unreadable" };
           return;
         }
-        // A short or empty read is the end of the file.
+        // An empty read is the end of the file; a short read is not.
         if (bytesRead <= 0) break;
         yield chunk.subarray(0, bytesRead);
       }

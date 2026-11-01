@@ -185,9 +185,11 @@ invalid byte, or a line longer than 4 MiB of UTF-8 bytes, that appears after a
 match drops every passage of that file. The line bound counts the line
 without its delimiter, and the skip reads `oversized`.
 
-A passage the page cannot show whole is cut at a line boundary and marked
-`cut: true`; the cursor continues with the line after the last one printed, so
-a passage of any length loses no line and repeats none.
+When the first passage of a page cannot show whole, it is cut at a line
+boundary and marked `cut: true`; the cursor continues with the line after the
+last one printed, so a passage of any length loses no line and repeats none.
+A later passage that does not fit ends the page instead, and the next call
+shows it whole.
 
 `warnings` counts every skip and the bound that stopped the walk. The kinds
 are `binary`, `invalid_utf8`, `oversized`, `unreadable`, `link`, `file_bound`,

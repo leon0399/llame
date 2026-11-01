@@ -41,6 +41,8 @@ type ScanState = {
   readonly capped: Array<GrepCappedPassage>;
   readRefused: number;
   stop: GrepWarningKind | undefined;
+  /** A file's hold limit kept content out, so its later matches wait. */
+  holdStopped: boolean;
   /** The last entry the walk finished handling, for a bound-stop cursor. */
   position: { readonly scopeIndex: number; readonly rel: string } | undefined;
   /** The scope whose walk is running, for a stop before any entry was reached. */
@@ -75,6 +77,7 @@ export async function runGrepScan(
     capped: [],
     readRefused: 0,
     stop: undefined,
+    holdStopped: false,
     position: undefined,
     scopeIndex: undefined,
   };
@@ -167,6 +170,7 @@ async function scanFile(
   });
   state.consumed.bytes += scan.bytes;
   if (scan.kind === "refused") return addWarning(state, scan.refusal);
+  if (scan.holdStopped) state.holdStopped = true;
   emitPassages(
     state,
     { scopeIndex: scope.index, rel, fileLocator },
@@ -281,7 +285,8 @@ function addWarning(state: ScanState, kind: GrepWarningKind): void {
 }
 
 function buildResult(state: ScanState): GrepScanResult {
-  const complete = state.stop === undefined && !state.page.full;
+  const complete =
+    state.stop === undefined && !state.page.full && !state.holdStopped;
   const last = state.page.last;
   const position = state.position;
   return {

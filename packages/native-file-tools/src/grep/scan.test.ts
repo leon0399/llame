@@ -1014,6 +1014,27 @@ describe("grep streamed files", () => {
     expect(result.warnings).toEqual([{ kind: "invalid_utf8", count: 1 }]);
   });
 
+  it("keeps a match after a complete passage frees the hold limit", async () => {
+    const line = (n: number) =>
+      `${n <= 28 || n === 35 ? "hit" : "filler"} ${"x".repeat(493)}`;
+    const content = `${Array.from({ length: 35 }, (_v, index) => line(index + 1)).join("\n")}\n`;
+    const port = createMemoryPort({ "a.md": file(content) });
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"]);
+    expect(first.results.map((passage) => passage.locator)).toEqual([
+      "/repo/a.md:1-29",
+    ]);
+    // The page could not hold the second passage, so the call continues.
+    expect(first.complete).toBe(false);
+    const rest = await runMemoryScan([scope], ["hit"], {
+      cursor: passageCursor(first.cursor),
+    });
+    expect(rest.results.map((passage) => passage.locator)).toEqual([
+      "/repo/a.md:34-35",
+    ]);
+    expect(rest.results[0].matches).toEqual([35]);
+  });
+
   it("loses no line of a cut passage that spans several pages", async () => {
     const lines = Array.from(
       { length: 60 },

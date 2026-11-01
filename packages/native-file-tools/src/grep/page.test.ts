@@ -70,6 +70,18 @@ describe("grep page cuts", () => {
 });
 
 describe("grep page held content", () => {
+  it("ends the page at an incomplete passage after a complete one", () => {
+    const page = createGrepPage();
+    appendGrepFile(
+      page,
+      { pageUnits: 60_000, fixedReserve: 0 },
+      emission([FIRST, { ...SECOND, incomplete: true }]),
+    );
+    expect(page.results).toEqual([FIRST]);
+    expect(page.full).toBe(true);
+    expect(page.last).toMatchObject({ startLine: 40 });
+  });
+
   it("cuts a passage the scan only partly holds, however wide the page", () => {
     const page = createGrepPage();
     appendGrepFile(

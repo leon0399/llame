@@ -114,12 +114,17 @@ describe("file streams", () => {
   it("aborts between chunks and still closes the file", async () => {
     const root = await tree();
     const file = path.join(root, "note.md");
-    await writeFile(file, "needle\n");
+    // More than one chunk, so the abort lands between reads rather than
+    // before the first one.
+    await writeFile(file, "needle\n".repeat(16 * 1024));
     const handle = await open(file, "r");
     const controller = new AbortController();
-    const opened = fileStream(handle, 7, controller.signal);
+    const opened = fileStream(handle, 0, controller.signal);
+    const iterator = opened.chunks[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    expect(first.value).toBeInstanceOf(Uint8Array);
     controller.abort();
-    await expect(drain(opened.chunks)).rejects.toMatchObject({
+    await expect(iterator.next()).rejects.toMatchObject({
       name: "AbortError",
     });
     await expect(handle.stat()).rejects.toMatchObject({ code: "EBADF" });

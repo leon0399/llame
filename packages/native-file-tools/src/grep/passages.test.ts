@@ -83,6 +83,7 @@ describe("grep passage extraction", () => {
       ],
       cappedAt: undefined,
       bytes: Buffer.byteLength(text),
+      holdStopped: false,
     });
   });
 
@@ -254,6 +255,18 @@ describe("grep passage extraction", () => {
     expect(result).toMatchObject({ kind: "refused", refusal: "oversized" });
   });
 
+  it("keeps matching after a complete passage frees the hold limit", async () => {
+    // The lookahead line trips the limit, but the passage ends before it, so
+    // the scan must keep going and find the hit on line 35.
+    const line = (n: number) =>
+      `${n <= 28 || n === 35 ? "hit" : "filler"} ${"x".repeat(493)}`;
+    const content = `${Array.from({ length: 35 }, (_v, index) => line(index + 1)).join("\n")}\n`;
+    const result = await scan(content, ["hit"]);
+    expect(locatorsOf(result)).toEqual(["file.md:1-29", "file.md:34-35"]);
+    if (result.kind !== "passages") throw new Error("the file was refused");
+    expect(result.holdStopped).toBe(false);
+  });
+
   it("marks a passage the hold limit stops as incomplete", async () => {
     const text = numbered(40, () => `hit ${"x".repeat(500)}`);
     const result = await scan(text, ["hit"]);
@@ -269,6 +282,7 @@ describe("grep passage extraction", () => {
     expect(end).toBeLessThan(40);
     expect(passage.content.split("\n")).toHaveLength(end - start + 1);
     expect(passage.matches).toHaveLength(end);
+    expect(result.holdStopped).toBe(true);
   });
 
   it("keeps a later match after a gap no window can merge across", async () => {
@@ -323,9 +337,8 @@ describe("grep passage extraction", () => {
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages).toHaveLength(20);
     expect(result.passages[19].truncated).toBe(true);
-    expect(result.cappedAt).toBe(
-      Number(result.passages[19].locator.split(":")[1].split("-")[0]),
-    );
+    // Hits every fourth line give 21 windows; the twentieth spans 76-78.
+    expect(result.cappedAt).toBe(76);
   });
 });
 

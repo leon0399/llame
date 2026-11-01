@@ -93,6 +93,8 @@ export function chunkBytes(
   bytes: Uint8Array,
   width: number,
 ): Array<Uint8Array> {
+  if (!Number.isInteger(width) || width <= 0)
+    throw new RangeError("a chunk width must be a positive integer");
   const chunks: Array<Uint8Array> = [];
   for (let offset = 0; offset < bytes.byteLength; offset += width)
     chunks.push(bytes.subarray(offset, offset + width));
