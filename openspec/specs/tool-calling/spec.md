@@ -469,14 +469,14 @@ Ordinary isolated failures retain the continuation behavior below.
 
 A tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 120). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result.
 
-Oversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the serialized result, after secret redaction. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. Where the declared field names alone exceed the cap, the cap SHALL win over the declared shape — trailing fields SHALL be omitted and the marker SHALL state how many of how many — so a result above the cap is never emitted. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.
+Oversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the model-facing rendering of the result, after secret redaction; `tool-result-rendering` defines that rendering as the serialized result for a JSON-rendered tool and the text shape for a text-rendered tool. The stored `display` object MUST NOT count toward the cap, and text the rendering builds from its values MUST count. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. Where the declared field names alone exceed the cap, the cap SHALL win over the declared shape — trailing fields SHALL be omitted and the marker SHALL state how many of how many — so a result above the cap is never emitted. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.
 
 An image in a tool result SHALL be carried without image bytes, so the cap measures only the
-result's text; the display-only `thumbnail` SHALL sit outside the cap and SHALL be recorded
-unchanged. Truncation SHALL NOT cut, shorten, or omit the `media` locator of a `media://` image
-result: other values SHALL be shrunk and, at the floor, other fields omitted in its place, so a
-recorded `media://` image result always names the complete `media://` locator of the image it
-carries.
+result's model-facing rendering; the stored `display.thumbnail` SHALL sit outside the cap and
+SHALL be recorded unchanged. Truncation SHALL NOT cut, shorten, or omit the `media` locator of a
+`media://` image result: other values SHALL be shrunk and, at the floor, other fields omitted in
+its place, so a recorded `media://` image result always names the complete `media://` locator of
+the image it carries.
 
 A code-owned tool whose executor is inconsistent with its admitted in-memory id/schema/classification SHALL fail attempt preparation before a provider request. Fresh attempts SHALL resolve from the executing worker's trusted registry; no historical description or template hash SHALL be required. A dynamic source tool that loses its executor, disconnects, or drifts after attempt preparation SHALL instead retain its attempt-local model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
 
@@ -538,7 +538,7 @@ A code-owned tool whose executor is inconsistent with its admitted in-memory id/
 
 #### Scenario: Truncated success result keeps its declared shape
 
-- **WHEN** a successful result serializes above the cap
+- **WHEN** a successful result renders above the cap
 - **THEN** the recorded result keeps `status: "success"` and every top-level field the tool returned, with oversized values shrunk in place rather than replaced by a serialized fragment of the result
 
 #### Scenario: Truncation cuts on a code-point boundary
@@ -589,10 +589,10 @@ A code-owned tool whose executor is inconsistent with its admitted in-memory id/
 
 #### Scenario: A thumbnail does not count toward the cap
 
-- **WHEN** an image result's text fits the cap and its `thumbnail` would push the serialized output
-  above it
+- **WHEN** an image result's rendering fits the cap and its `display.thumbnail` would exceed it
+  were it counted
 - **THEN** the result is recorded without truncation
-- **AND** its `thumbnail` is recorded unchanged
+- **AND** its `display.thumbnail` is recorded unchanged
 
 ### Requirement: Availability comparison retains only committed tool identities and states
 
@@ -1220,15 +1220,15 @@ The live tool loop MUST continue to observe its own results in the turn that pro
 
 ### Requirement: Framing llame authors inside tool results is a packaged template
 
-The untrusted-output framing that wraps every tool result presented to a model, and each closed notice llame places inside a tool result (the prior-conversation notice of `conversation-reads`, the search-excerpt notice of `chat-search`, the Knowledge content notice of `knowledge-tools`, and the path instruction of `agent-skills`), SHALL be a packaged template file owned by the module that authors the text and shipped with the executing process, rendered under the producer-owned-values rule `context-injection` defines for item bodies. These templates SHALL NOT be operator configuration: no configuration key SHALL select, replace, or disable one. Rendered bytes SHALL be identical to the previous inline text, and the neutralization applied to a composed result today SHALL continue to apply to the rendered result.
+The untrusted-output framing that wraps every tool result presented to a model MUST be a packaged template file. So MUST each closed notice llame places inside a tool result: the prior-conversation notice of `conversation-reads`, the search-excerpt notice of `chat-search`, the Knowledge content notice of `knowledge-tools`, and the path instruction of `agent-skills`. The module that authors the text owns the file, and the executing process ships it. The template renders under the producer-owned-values rule `context-injection` defines for item bodies. These templates MUST NOT be operator configuration: no configuration key can select, replace, or disable one. The rendered framing and notice bytes MUST stay identical to the previous inline text. The payload inside the framing MUST be the rendering and neutralization that `tool-result-rendering` defines; the framing itself MUST NOT apply a second neutralization pass.
 
-Result content composed by a tool implementation, the permission layer, or result truncation (error messages, permission rejections, settlement and truncation notices) is not framing and remains outside this requirement.
+Result content composed by a tool implementation, the permission layer, or result truncation is not framing and remains outside this requirement. That content includes error messages, permission rejections, and settlement and truncation notices.
 
 #### Scenario: Wrapped tool output is unchanged by the template migration
 
 - **WHEN** a tool result is presented to a model after this change
-- **THEN** its untrusted-output framing, outcome line, and payload block are byte-identical to the previous inline composition
-- **AND** the composed text is neutralized exactly as before
+- **THEN** its untrusted-output framing and outcome line are byte-identical to the previous inline composition
+- **AND** the payload block is the rendering that `tool-result-rendering` defines, neutralized once
 
 #### Scenario: A result notice is unchanged by the template migration
 
