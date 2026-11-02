@@ -288,7 +288,7 @@ describe('live and replayed renderings agree', () => {
     expect(replayed).toContain('exit 0, 1.2 s\napps/');
   });
 
-  it('replays a grep page as its live rendering, cursor line included', () => {
+  it('replays a grep page as its live rendering, with no cursor line', () => {
     const result = {
       status: 'success' as const,
       results: [
@@ -304,14 +304,12 @@ describe('live and replayed renderings agree', () => {
         },
       ],
       complete: false,
-      cursor: 'cursor-1',
       warnings: [],
     };
 
     const live = liveText('grep', result);
-    expect(live).toBe(
-      '## /work/src/app.ts\n3: a\n*4: hit\n\n*40: hit\n41: b\n[more results. Continue with cursor: cursor-1]',
-    );
+    expect(live).toBe('## /work/src/app.ts\n3: a\n*4: hit\n\n*40: hit\n41: b');
+    expect(live).not.toContain('Continue with cursor');
     const replayed = projectedOutput(
       storedPart('grep', result, { input: { patterns: ['hit'] } }),
     );
