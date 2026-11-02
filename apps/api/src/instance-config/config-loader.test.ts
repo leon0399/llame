@@ -55,6 +55,10 @@ const ENV_KEYS = [
   'EMPTY_TIMEOUT',
   'EMPTY_TOKEN',
   'IC_LOADER_REQUIRED_VAR',
+  'IC_GREP_ENTRIES',
+  'IC_GREP_FILE_BYTES',
+  'IC_GREP_FILES',
+  'IC_GREP_UNSET',
   'MISSING_STDIO_SECRET',
   'PM_BASE_URL',
   'PM_KEY',
@@ -852,6 +856,90 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
   it('rejects an unknown key under tools (strict schema)', () => {
     writeConfig('{ "tools": { "allowedd": [] } }');
     expect(() => loadInstanceConfig()).toThrow(/allowedd/);
+  });
+});
+
+describe('loadInstanceConfig — tools.grep bounds (grep-scan-throughput D1)', () => {
+  const UNSET = {
+    maxFilesExamined: null,
+    maxEntriesListed: null,
+    maxBytesRead: null,
+    maxFileBytes: null,
+  };
+
+  it('sets no bound when the object or every field is absent or null', () => {
+    writeConfig('{ "tools": { "allowed": [] } }');
+    expect(loadInstanceConfig().tools.grep).toEqual(UNSET);
+
+    writeConfig('{ "tools": { "allowed": [], "grep": null } }');
+    expect(loadInstanceConfig().tools.grep).toEqual(UNSET);
+
+    writeConfig(`{
+      "tools": {
+        "allowed": [],
+        "grep": {
+          "maxFilesExamined": null,
+          "maxEntriesListed": null,
+          "maxBytesRead": null,
+          "maxFileBytes": null
+        }
+      }
+    }`);
+    expect(loadInstanceConfig().tools.grep).toEqual(UNSET);
+  });
+
+  it('leaves an absent field unset while its siblings are set', () => {
+    writeConfig('{ "tools": { "grep": { "maxBytesRead": 33554432 } } }');
+    expect(loadInstanceConfig().tools.grep).toEqual({
+      ...UNSET,
+      maxBytesRead: 33_554_432,
+    });
+    writeConfig(
+      '{ "tools": { "grep": { "maxFileBytes": "{env:IC_GREP_UNSET:-}" } } }',
+    );
+    expect(loadInstanceConfig().tools.grep).toEqual(UNSET);
+  });
+
+  it('takes each bound from the file and from interpolation tokens', () => {
+    writeConfig(`{
+      "tools": {
+        "grep": {
+          "maxFilesExamined": 5000,
+          "maxEntriesListed": "{env:IC_GREP_ENTRIES}",
+          "maxBytesRead": 33554432,
+          "maxFileBytes": "{env:IC_GREP_FILE_BYTES:-1048576}"
+        }
+      }
+    }`);
+    expect(loadInstanceConfig({ IC_GREP_ENTRIES: '20000' }).tools.grep).toEqual(
+      {
+        maxFilesExamined: 5000,
+        maxEntriesListed: 20_000,
+        maxBytesRead: 33_554_432,
+        maxFileBytes: 1_048_576,
+      },
+    );
+  });
+
+  it('refuses a bound that resolves to zero, naming the field', () => {
+    writeConfig(
+      '{ "tools": { "grep": { "maxFilesExamined": "{env:IC_GREP_FILES}" } } }',
+    );
+    expect(() => loadInstanceConfig({ IC_GREP_FILES: '0' })).toThrow(
+      'tools.grep.maxFilesExamined: must be a positive integer',
+    );
+  });
+
+  it('refuses a negative or fractional literal, naming the field', () => {
+    writeConfig('{ "tools": { "grep": { "maxEntriesListed": -1 } } }');
+    expect(() => loadInstanceConfig()).toThrow(/tools\/grep\/maxEntriesListed/);
+    writeConfig('{ "tools": { "grep": { "maxEntriesListed": 1.5 } } }');
+    expect(() => loadInstanceConfig()).toThrow(/tools\/grep\/maxEntriesListed/);
+  });
+
+  it('refuses an unknown grep field, naming the path', () => {
+    writeConfig('{ "tools": { "grep": { "deadlineSeconds": 5 } } }');
+    expect(() => loadInstanceConfig()).toThrow(/tools\/grep\/deadlineSeconds/);
   });
 });
 

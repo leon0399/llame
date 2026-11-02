@@ -1,5 +1,30 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-02
+
+- **Breaking**: the `fs.grep` request field `budget` is now `bounds`, with
+  `files`, `entries`, `bytes`, and `fileBytes` nullable; a `null` field means
+  the daemon applies no such bound. A hub and a daemon of different builds
+  cannot search together: each refuses the other's request as invalid
+  parameters. A new API reports an old daemon as Machine unusable; an old API
+  reports a new daemon's refusal as `invalid_input`. Deploy the API
+  and every daemon together. See
+  [Machines](docs/product/operator/machines.md).
+- `grep` walks without a file, entry, byte, or file-size bound by default: the
+  removed fixed 5,000 files, 20,000 entries, and 32 MiB per call are gone, and
+  the call deadline is the only default stop. The deadline is the tool call
+  timeout less the larger of 5 seconds and a tenth of it, at most half, so the
+  default 120 second timeout walks for 108 seconds; a context without a
+  timeout uses `tools.callTimeoutSeconds`. The operator restores bounds per
+  instance through the new `tools.grep` object (`maxFilesExamined`,
+  `maxEntriesListed`, `maxBytesRead`, `maxFileBytes`), each a positive integer,
+  `null`, or an interpolation token; `maxBytesRead` counts the bytes of taken
+  files plus the head file's progress and stops when the count reaches it. The
+  page's `[warnings: …]` reserve now grows with its rendered line instead of
+  reserving six-digit counts. See
+  [grep](docs/product/reference/tools/grep.md) and
+  [Native files](docs/product/operator/native-files.md#grep).
+
 # 2026-11-01
 
 - `grep` reads up to eight files at the same time, in walk order. A stop

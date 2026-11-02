@@ -264,13 +264,14 @@ export interface MemoryScanOptions {
   readonly now?: () => number;
 }
 
+/** The walk's own defaults: no count or size bound, and a generous deadline. */
 export function memoryBudget(overrides: Partial<GrepBudget> = {}): GrepBudget {
   return {
-    files: GREP_LIMITS.filesExamined,
-    entries: GREP_LIMITS.entriesListed,
-    bytes: GREP_LIMITS.bytesRead,
+    files: null,
+    entries: null,
+    bytes: null,
     maxFileBytes: null,
-    deadlineMs: GREP_LIMITS.deadlineMs,
+    deadlineMs: 30_000,
     limit: GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,
     fixedReserve: 0,

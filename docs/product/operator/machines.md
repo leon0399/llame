@@ -133,6 +133,14 @@ build. A box whose handshake listed no git methods keeps serving files and
 `bash`, and a git call on it fails as `machine_update_required` until the
 binary is replaced.
 
+One request shape is not additive: the `fs.grep` request carries its bounds in
+`bounds` (with a nullable `fileBytes`), not in the removed `budget` field. The
+API validates the patterns and owns the cursor and the bounds, so either build
+refuses the other's request as invalid parameters. A new API reports an old
+daemon as Machine unusable; an old API reports a new daemon's refusal as
+`invalid_input` (the Machine refused the request as invalid). Deploy the API
+and every daemon together.
+
 Mutation results are additive in the same way, so update the hub before the
 daemon. A hub newer than the daemon still accepts an old daemon's `edit` and
 `write` results. An old edit keeps its post-edit `content`, `shownRange`, and

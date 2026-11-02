@@ -450,6 +450,10 @@ type ExecutionServiceOptions = {
   sshClientFactory?: SshClientFactory;
   /** The resolved `webSearch` section the declared description renders from. */
   webSearch?: WebSearchConfig;
+  /** The operator's `tools.grep` bounds; absent leaves every bound unset. */
+  grepBounds?: InstanceConfigReader['config']['tools']['grep'];
+  /** The operator's global per-call timeout. */
+  callTimeoutSeconds?: number;
 };
 
 function makeExecutionService(
@@ -485,6 +489,10 @@ function makeExecutionService(
           options.toolPromptFiles ?? BUILT_IN_DEFAULTS.tools.promptFiles,
         permissionModes:
           options.permissionModes ?? BUILT_IN_DEFAULTS.tools.permissionModes,
+        grep: options.grepBounds ?? BUILT_IN_DEFAULTS.tools.grep,
+        callTimeoutSeconds:
+          options.callTimeoutSeconds ??
+          BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
       },
       skills: {
         ...BUILT_IN_DEFAULTS.skills,
@@ -1140,6 +1148,79 @@ describe('RunExecutionService executeRun', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('passes the operator grep bounds and call timeout through the production ToolContext', async () => {
+    mockNormalExecutionRepositories();
+    const root = mkdtempSync(path.join(tmpdir(), 'grep-bounds-context-'));
+    const operator = new McpRuntimeService({});
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () => Promise.resolve([]),
+    });
+    const observedContexts: Array<ToolContext> = [];
+    const capture: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        observedContexts.push(context);
+        return { status: 'success' as const };
+      },
+    };
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+    });
+    const grepBounds = {
+      maxFilesExamined: 7,
+      maxEntriesListed: null,
+      maxBytesRead: 2048,
+      maxFileBytes: null,
+    };
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(capture, 'demo'),
+      'host-a',
+      {
+        allowed: ['enter_workspace', toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          toolDeclaration.id,
+        ]),
+        workspaceMcp,
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo', workspace: true },
+            state: 'available',
+            tool: capture,
+          },
+        ],
+        grepBounds,
+        callTimeoutSeconds: 45,
+      },
+    );
+    try {
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      await executeBoundTool(options, { q: 'context' }, 'grep-bounds');
+      expect(observedContexts).toHaveLength(1);
+      expect(observedContexts[0]?.grepBounds).toEqual(grepBounds);
+      expect(observedContexts[0]?.callTimeoutSeconds).toBe(45);
+      await options.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('stops Workspace MCP clients when the Run has no bound Workspace', async () => {
     mockNormalExecutionRepositories();
     const operator = new McpRuntimeService({});
@@ -14167,6 +14248,40 @@ describe('RunExecutionService prompt imports', () => {
         'tool.started',
         'tool.completed',
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes the operator grep bounds and call timeout through the system-read ToolContext', async () => {
+    const root = repoRoot();
+    try {
+      serveRepositories();
+      bindChat(root);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const grepBounds = {
+        maxFilesExamined: 7,
+        maxEntriesListed: null,
+        maxBytesRead: 2048,
+        maxFileBytes: null,
+      };
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['enter_workspace', 'read'],
+          grepBounds,
+          callTimeoutSeconds: 45,
+        },
+      );
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md:30-35 please'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(read).toHaveBeenCalledOnce();
+      expect(read.mock.calls[0]?.[0].grepBounds).toEqual(grepBounds);
+      expect(read.mock.calls[0]?.[0].callTimeoutSeconds).toBe(45);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

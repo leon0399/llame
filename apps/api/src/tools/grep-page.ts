@@ -10,7 +10,9 @@ import {
   grepContinuationUnits,
   grepFileLocator,
   grepPassageUnits,
+  grepWarningsUnits,
   measureGrepRendering,
+  type GrepBudget,
   type GrepPageEnd,
   type GrepPassage,
   type GrepScanResult,
@@ -20,7 +22,8 @@ import {
 
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
-import { type CallBudget } from './grep-machine';
+import { type DecodedGrepCursor } from '@workspace/native-file-tools';
+
 import { type ToolResult } from './types';
 
 /** One passage the call may emit, with the cursor point it ends at. */
@@ -47,13 +50,29 @@ export type SegmentPage = {
 };
 
 /** Where the call resumes: the last passage it emitted, or the last entry. */
-type ResumePoint =
+export type ResumePoint =
   | { readonly kind: 'passage'; readonly end: GrepPageEnd }
   | {
       readonly kind: 'position';
       readonly scopeIndex: number;
       readonly rel: string;
     };
+
+/** The resume point an incoming cursor names, unchanged. */
+export function resumePointOf(cursor: DecodedGrepCursor): ResumePoint {
+  return cursor.kind === 'position'
+    ? { kind: 'position', scopeIndex: cursor.scopeIndex, rel: cursor.rel }
+    : {
+        kind: 'passage',
+        end: {
+          scopeIndex: cursor.scopeIndex,
+          rel: cursor.rel,
+          startLine: cursor.startLine,
+          ...(cursor.endLine !== undefined && { endLine: cursor.endLine }),
+          capped: cursor.truncated === true,
+        },
+      };
+}
 
 /** Everything one call accumulates across its segments. */
 export type PageState = {
@@ -92,40 +111,113 @@ export function createPageState(): PageState {
  * subtracted, so the segment the values are handed to can never emit past the
  * call's page. The whole page is measured exactly here, once per segment,
  * which also recalibrates the running total the segment's entries are admitted
- * against.
+ * against. The warnings line grows with the counts already merged, so the
+ * reserve grows with it (design D7).
  */
 export function remainingBudget(
-  budget: CallBudget,
+  budget: GrepBudget,
   state: PageState,
   deadlineAt: number,
-): CallBudget {
+): GrepBudget {
   const separator = state.results.length === 0 ? 0 : 1;
   state.units = measureGrepRendering({
     results: state.results,
     complete: true,
   });
   return {
-    files: Math.max(0, budget.files - state.consumed.files),
-    entries: Math.max(0, budget.entries - state.consumed.entries),
-    bytes: Math.max(0, budget.bytes - state.consumed.bytes),
+    files: remainingOf(budget.files, state.consumed.files),
+    entries: remainingOf(budget.entries, state.consumed.entries),
+    bytes: remainingOf(budget.bytes, state.consumed.bytes),
     maxFileBytes: budget.maxFileBytes,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: Math.max(0, budget.limit - state.files.size),
-    pageUnits: Math.max(0, budget.pageUnits - state.units - separator),
+    // The warnings line the page would end with is kept back from the room the
+    // segment may fill; the segment then grows its own reserve from its counts.
+    pageUnits: Math.max(
+      0,
+      budget.pageUnits -
+        state.units -
+        separator -
+        grepWarningsUnits(state.warnings) -
+        deadlineUnits(state.warnings),
+    ),
     fixedReserve: budget.fixedReserve,
   };
 }
 
-export function pageIsFull(state: PageState, budget: CallBudget): boolean {
+/** The hub's own warning when a call ends at its deadline: one fixed count. */
+const HUB_DEADLINE_WARNINGS: ReadonlyMap<string, number> = new Map([
+  ['deadline', 1],
+]);
+
+/**
+ * Rendered width the merged warnings line gains when the hub adds its own
+ * `deadline` count. The hub reserves it before any entry is admitted, so the
+ * stop's line always fits: the spec requires the warning, so unlike a skip's
+ * count it can never be deferred to the next call.
+ */
+export function deadlineUnits(warnings: ReadonlyMap<string, number>): number {
+  if (warnings.has('deadline')) return 0;
+  return (
+    grepWarningsUnits(new Map([...warnings, ...HUB_DEADLINE_WARNINGS])) -
+    grepWarningsUnits(warnings)
+  );
+}
+
+/** The warnings line as it stands once one segment's counts merge in. */
+function warningsWith(
+  warnings: ReadonlyMap<GrepWarningKind, number>,
+  added: ReadonlyArray<GrepWarning>,
+): Map<GrepWarningKind, number> {
+  const merged = new Map(warnings);
+  for (const warning of added)
+    merged.set(warning.kind, (merged.get(warning.kind) ?? 0) + warning.count);
+  return merged;
+}
+
+/** Whether the page's kept results, its resume line, and its own lines fit. */
+function pageHolds(
+  state: PageState,
+  budget: GrepBudget,
+  reserve: number,
+): boolean {
+  return state.units + resumeUnits(state) + reserve <= budget.pageUnits;
+}
+
+/** The continuation line the page's resume point renders, if it has one. */
+function resumeUnits(state: PageState): number {
+  const { resume } = state;
+  if (resume === undefined) return 0;
+  return resume.kind === 'position'
+    ? grepContinuationUnits({ scopeIndex: resume.scopeIndex, rel: resume.rel })
+    : grepContinuationUnits(resume.end);
+}
+
+/** What one bound has left; an unset (`null`) bound stays unset. */
+export function remainingOf(bound: number | null, used: number): number | null {
+  return bound === null ? null : Math.max(0, bound - used);
+}
+
+export function pageIsFull(state: PageState, budget: GrepBudget): boolean {
   return state.files.size >= budget.limit;
 }
 
 /** Append one segment while the page holds it; the rest waits for a cursor. */
 export function appendSegment(
   state: PageState,
-  budget: CallBudget,
+  budget: GrepBudget,
   page: SegmentPage,
 ): void {
+  // A segment can contribute only warning counts. Their line still renders
+  // beside the passages already kept, so a page that cannot hold it ends
+  // before the segment: the next call reports those counts (design D7).
+  const merged = warningsWith(state.warnings, page.warnings);
+  const reserve =
+    budget.fixedReserve + grepWarningsUnits(merged) + deadlineUnits(merged);
+  if (!pageHolds(state, budget, reserve)) {
+    state.complete = false;
+    return;
+  }
   mergeWarnings(state, page.warnings);
   state.consumed.files += page.consumed.files;
   state.consumed.entries += page.consumed.entries;
@@ -136,7 +228,7 @@ export function appendSegment(
   // there: no later segment can overwrite it.
   state.unfinished = page.unfinished;
   for (const entry of page.entries) {
-    if (!fitsPage(state, budget, entry)) {
+    if (!fitsPage(state, budget, reserve, entry)) {
       state.complete = false;
       return;
     }
@@ -167,7 +259,8 @@ export function appendSegment(
  */
 function fitsPage(
   state: PageState,
-  budget: CallBudget,
+  budget: GrepBudget,
+  reserve: number,
   entry: SegmentEntry,
 ): boolean {
   const file = grepFileLocator(entry.passage.locator);
@@ -184,7 +277,7 @@ function fitsPage(
         ...(end.endLine !== undefined && { endLine: end.endLine }),
         capped: end.capped,
       }) +
-      budget.fixedReserve <=
+      reserve <=
     budget.pageUnits
   );
 }

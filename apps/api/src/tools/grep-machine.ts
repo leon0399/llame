@@ -19,6 +19,7 @@ import {
 } from '@workspace/machine-protocol';
 import {
   decodeGrepCursor,
+  grepWarningsUnits,
   normalizeHostScope,
   splitGrepScope,
   type DecodedGrepCursor,
@@ -41,6 +42,7 @@ import {
   readFsStatResult,
 } from '../machines/machine-results';
 import { type GrepReadAdmission } from './grep-admission';
+import { remainingOf } from './grep-page';
 import {
   invalidPathResult,
   machineUnsupportedResult,
@@ -69,13 +71,6 @@ import {
 } from './grep-machine-wire';
 import { type ToolContext, type ToolResult } from './types';
 
-/** One call's budget, with its file, entry, and byte counts always set. */
-export type CallBudget = GrepBudget & {
-  files: number;
-  entries: number;
-  bytes: number;
-};
-
 /** One Machine scope: the prefix the daemon searches and its glob suffix. */
 export type MachineGrepScope = {
   readonly index: number;
@@ -84,6 +79,12 @@ export type MachineGrepScope = {
   readonly path: string;
   /** The glob text from the first glob segment onward, as submitted. */
   readonly globSuffix: string | undefined;
+  /**
+   * The exact-path probe found one regular file, so the daemon walks it
+   * without listing: no entry is counted, and the file bound trips first.
+   * Absent (a directory or glob scope) lists entries before any candidate.
+   */
+  readonly singleFile?: boolean;
 };
 
 /** The compiled search the call resolved before either backend ran. */
@@ -125,7 +126,7 @@ export type MachineGrepSearch = {
   readonly scope: MachineGrepScope;
   readonly args: GrepSearchArguments;
   /** What is left of the call's bounds, shared with every other scope. */
-  readonly budget: CallBudget;
+  readonly budget: GrepBudget;
   /** The call's cursor, when it names a passage of this scope. */
   readonly resume: DecodedGrepCursor | undefined;
   /** Whether the call already progressed in an earlier scope or page. */
@@ -169,12 +170,15 @@ export async function resolveMachineScope(
   if ('result' in verdict) return { result: verdict.result };
   if (verdict.kind === 'refused')
     return { result: machinePathNotFoundResult() };
-  return { machine: parsed, root: parsed.name };
+  return {
+    machine: verdict.singleFile ? { ...parsed, singleFile: true } : parsed,
+    root: parsed.name,
+  };
 }
 
 /** What the exact-path rule settled for one glob-free Machine scope. */
 type ExactPathVerdict =
-  | { readonly kind: 'walk' }
+  | { readonly kind: 'walk'; readonly singleFile: boolean }
   | { readonly kind: 'refused' }
   | { readonly result: GrepToolError };
 
@@ -196,9 +200,10 @@ async function exactPathVerdict(
   scope: MachineGrepScope,
   admission: GrepReadAdmission,
 ): Promise<ExactPathVerdict> {
-  if (scope.globSuffix !== undefined) return { kind: 'walk' };
+  if (scope.globSuffix !== undefined)
+    return { kind: 'walk', singleFile: false };
   const locator = formatMachineLocator(scope.name, scope.path);
-  if (locator === undefined) return { kind: 'walk' };
+  if (locator === undefined) return { kind: 'walk', singleFile: false };
   try {
     const answer = readFsStatResult(
       await connector.request(
@@ -215,8 +220,10 @@ async function exactPathVerdict(
       ),
     );
     if (answer === undefined || answer.kind !== 'file' || answer.isLink)
-      return { kind: 'walk' };
-    return admission.admit(locator) ? { kind: 'walk' } : { kind: 'refused' };
+      return { kind: 'walk', singleFile: false };
+    return admission.admit(locator)
+      ? { kind: 'walk', singleFile: true }
+      : { kind: 'refused' };
   } catch (error) {
     return { result: machineGrepFailure(scope.name, error) };
   }
@@ -307,15 +314,16 @@ async function runDaemonPages(
   deadlineAt: number,
 ): Promise<MachineGrepSegment> {
   const entries: Array<MachineGrepEntry> = [];
-  const warnings = new Map<FsGrepWarningKind, number>();
+  const counts = new Map<FsGrepWarningKind, number>();
   const consumed = { files: 0, entries: 0, bytes: 0 };
+  const base = search.budget.fixedReserve;
   let budget = daemonBudget(search.budget, deadlineAt);
   let cursor = search.resume && daemonCursor(search, search.resume);
   // Progress belongs to the call: a page that got past the start point lets
   // the next request know, so its own stop hides no file behind it.
   let progressed = search.progressed;
   let last: FsGrepSuccess | undefined;
-  while (canAskPage(budget)) {
+  while (canAskPage(budget, search.scope.singleFile === true)) {
     const asked = await requestPage(search, connector, {
       budget,
       cursor,
@@ -324,7 +332,7 @@ async function runDaemonPages(
     if ('result' in asked) return { status: 'error', result: asked.result };
     const page = asked.page;
     last = page;
-    mergePage(warnings, consumed, page);
+    mergePage(counts, consumed, page);
     progressed = progressed || page.progressed;
     const rendered = renderPage(search, page, entries);
     if ('result' in rendered)
@@ -332,11 +340,11 @@ async function runDaemonPages(
     const next = keepAsking(rendered.kept, page, cursor);
     if (next === undefined) break;
     cursor = next;
-    budget = spent(budget, page.consumed, deadlineAt);
+    budget = spent(budget, page, deadlineAt, base + grepWarningsUnits(counts));
   }
   return segmentOfPages(search, {
     entries,
-    warnings,
+    warnings: counts,
     consumed,
     last,
     progressed,
@@ -348,12 +356,39 @@ function segmentOfPages(
   search: MachineGrepSearch,
   pages: Omit<MachineSegmentPage, 'position'>,
 ): MachineGrepSegment {
-  const { entries, last } = pages;
+  const { entries, last, warnings } = pages;
   const position =
     entries.length > 0 || last === undefined
       ? undefined
       : (unfinishedPosition(search, last) ?? stoppedPosition(search, last));
-  return segmentOf({ ...pages, position });
+  // A scope whose bound was spent by an earlier segment is never asked, so
+  // no page can name the stop: the segment reports it instead, in the order
+  // the walk would have tripped it (entries while listing, then files, then
+  // bytes at a candidate).
+  const spent =
+    last === undefined
+      ? spentBound(search.budget, search.scope.singleFile === true)
+      : undefined;
+  const counted =
+    spent !== undefined && !warnings.has(spent)
+      ? new Map([...warnings, [spent, 1] as const])
+      : warnings;
+  return segmentOf({ ...pages, warnings: counted, position });
+}
+
+/**
+ * The count bound a segment starts already spent under, if any, in the order
+ * the walk would trip it: a directory lists entries first, while a direct-file
+ * scope counts none and checks the file bound at its one candidate.
+ */
+function spentBound(
+  budget: GrepBudget,
+  singleFile: boolean,
+): FsGrepWarningKind | undefined {
+  if (!singleFile && budget.entries === 0) return 'entry_bound';
+  if (budget.files === 0) return 'file_bound';
+  if (budget.bytes === 0) return 'byte_bound';
+  return undefined;
 }
 
 /**
@@ -372,7 +407,7 @@ function keepAsking(
 }
 
 /** What one daemon page has left: the call's deadline minus the clock now. */
-function daemonBudget(budget: CallBudget, deadlineAt: number): CallBudget {
+function daemonBudget(budget: GrepBudget, deadlineAt: number): GrepBudget {
   return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
 }
 
@@ -436,33 +471,43 @@ function nextCursor(
     : page.cursor;
 }
 
-/** What the call has left after one daemon page. */
+/**
+ * What the call has left after one daemon page. The next request must leave
+ * the hub's own lines beside it — `base` plus this segment's warnings line so
+ * far — or a page the hub then drops whole would come back on every resume.
+ */
 function spent(
-  budget: CallBudget,
-  consumed: FsGrepConsumed,
+  budget: GrepBudget,
+  page: FsGrepSuccess,
   deadlineAt: number,
-): CallBudget {
+  reserve: number,
+): GrepBudget {
+  const consumed = page.consumed;
   return {
-    files: Math.max(0, budget.files - consumed.files),
-    entries: Math.max(0, budget.entries - consumed.entries),
-    bytes: Math.max(0, budget.bytes - consumed.bytes),
+    files: remainingOf(budget.files, consumed.files),
+    entries: remainingOf(budget.entries, consumed.entries),
+    bytes: remainingOf(budget.bytes, consumed.bytes),
     maxFileBytes: budget.maxFileBytes,
     limit: budget.limit,
     pageUnits: budget.pageUnits,
-    fixedReserve: budget.fixedReserve,
+    fixedReserve: reserve,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
   };
 }
 
-/** Whether the remaining budget can buy one more daemon page. */
-function canAskPage(budget: CallBudget): boolean {
+/**
+ * Whether the remaining budget can buy one more daemon page. A direct-file
+ * scope counts no entry, so a spent entry bound does not stop it, exactly as
+ * the engine's single-file walk never calls the entry counter.
+ */
+function canAskPage(budget: GrepBudget, singleFile: boolean): boolean {
   return (
-    budget.files > 0 &&
-    budget.entries > 0 &&
-    budget.bytes > 0 &&
     budget.limit > 0 &&
     budget.pageUnits > 0 &&
-    budget.deadlineMs > 0
+    budget.deadlineMs > 0 &&
+    (budget.files === null || budget.files > 0) &&
+    (singleFile || budget.entries === null || budget.entries > 0) &&
+    (budget.bytes === null || budget.bytes > 0)
   );
 }
 
@@ -517,7 +562,10 @@ function machineGrepFailure(
     return machineUnavailableResult(name, error.reason);
   if (error instanceof MachineProtocolError) {
     // A daemon older than this hub refuses an unknown method as `internal`.
-    return error.code === 'internal'
+    // `invalid_params` on `fs.grep` means a build that reads another request
+    // shape: the hub validates the patterns and owns the cursor and the
+    // bounds, so the only cause is a daemon of another build (design D8).
+    return error.code === 'internal' || error.code === 'invalid_params'
       ? machineUnusableResult(name)
       : machineProtocolFailureResult(name, error);
   }

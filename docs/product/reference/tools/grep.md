@@ -163,12 +163,23 @@ refused file.
 | Passages of one file | 20             |
 | Lines of one passage | 2,000          |
 | Line length          | 512 code units |
-| Files of one call    | 5,000          |
-| Directory entries    | 20,000         |
-| Bytes read           | 32 MiB         |
 | Longest line         | 4 MiB          |
 | Files read at once   | 8              |
-| Call wall time       | 30 s           |
+
+The walk has no file, entry, byte, or file-size bound by default: the call
+deadline is its only stop, and a huge tree continues from its cursor. An
+operator configures bounds for the whole instance; see
+[Native files](../../operator/native-files.md#grep) for the settings and their
+validation. A file, entry, or byte bound stops the walk, and bytes read ahead
+of the file the walk waits on are not counted. A file over a file-size bound is
+skipped as `oversized` and the walk continues.
+
+The call deadline is the tool call timeout minus a margin: the larger of 5
+seconds and a tenth of the timeout, but at most half of it. The default 120
+second timeout therefore leaves 108 seconds for the walk, and a call without a
+timeout in its context uses `tools.callTimeoutSeconds`. When a file, entry, or
+byte bound stops the walk, or the deadline does, the result carries
+`complete: false`, the warning that names the stop, and a cursor.
 
 A page holds at most `limit` files. The rendered model text of the whole
 result — the file lines, passages, `[warnings: …]` line, notice, and
@@ -217,7 +228,7 @@ the call progressed first, the result names no file, and the next call opens
 the stopped file again with a full budget. A scope that names one file skips
 to the next scope ordinal.
 
-A directory with more than 20,000 entries stops the walk at the entry bound.
+A configured entry bound stops the walk at the bound, across every scope.
 The result is then a partial page with `entry_bound` in `warnings`, not a
 refused call. A file that disappears between the listing and the read is an
 `unreadable` skip.

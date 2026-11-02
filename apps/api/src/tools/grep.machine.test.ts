@@ -9,7 +9,6 @@ import {
   isSerializableRecord,
   PATH_NOT_REGISTERED_MESSAGE,
   type SerializableRecord,
-  type FsGrepBudget,
   type FsGrepPassage,
   type FsGrepSuccess,
   type JsonValue,
@@ -17,6 +16,8 @@ import {
 import {
   encodeGrepCursor,
   grepContinuationUnits,
+  grepPassageUnits,
+  grepWarningsUnits,
   hashGrepInputs,
   measureGrepRendering,
   renderGrepText,
@@ -60,20 +61,22 @@ const MACHINES = {
 
 const STATUS: ReadonlyArray<MachineStatusView> = [];
 
-/** The wire budget, and the engine budget the hub hands the segment with it. */
-const BUDGET: FsGrepBudget & GrepBudget = {
+/** The engine budget the hub hands a segment; a request mirrors it as bounds. */
+const BUDGET: GrepBudget = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
-  // The wire carries no file-size bound.
+  // No file-size bound unless the operator sets `maxFileBytes`.
   maxFileBytes: null,
   deadlineMs: 30_000,
   limit: 20,
   pageUnits: 15_000,
   // The hub's own result fields travel outside the daemon's page.
   fixedReserve: 0,
-  progressed: false,
 };
+
+/** Room the hub keeps for the deadline line it may add when the call ends. */
+const DEADLINE_UNITS = grepWarningsUnits(new Map([['deadline', 1]]));
 
 type Fixture = {
   readonly connector: MachineConnector;
@@ -110,6 +113,9 @@ function context(
     runId: 'run',
     nativeDeliverySequence: 1,
     toolCallId: 'call',
+    // The runner's per-call deadline: 35 s less the 5 s margin is the 30 s
+    // walk these request shapes assert. A frozen clock keeps them exact.
+    timeoutMs: 35_000,
     permissionPolicy: compileTestPermissionPolicy(['grep']),
     tenantDb: {
       runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
@@ -118,6 +124,14 @@ function context(
     machines: connector,
     machineStatus: { list: () => Promise.resolve(STATUS) },
     machineAttemptKey: 'attempt-1',
+    // The operator bounds these tests' budget mirrors; an override replaces
+    // the whole object, so a test can unset every bound.
+    grepBounds: {
+      maxFilesExamined: 5000,
+      maxEntriesListed: 20_000,
+      maxBytesRead: 32 * 1024 * 1024,
+      maxFileBytes: null,
+    },
     ...overrides,
   };
 }
@@ -266,10 +280,11 @@ describe('Machine grep', () => {
       patterns: ['needle'],
       literal: false,
       ignoreCase: false,
-      budget: {
+      bounds: {
         files: BUDGET.files,
         entries: BUDGET.entries,
         bytes: BUDGET.bytes,
+        fileBytes: null,
         limit: BUDGET.limit,
       },
     });
@@ -342,7 +357,7 @@ describe('Machine grep', () => {
     ).toMatchObject({ status: 'error', type: 'machine_protocol_error' });
   });
 
-  it('carries the remaining budget to a second Machine scope', async () => {
+  it('carries the remaining byte bound to a second Machine scope', async () => {
     const { peer, connector } = fixture({
       answers: {
         'fs.grep': {
@@ -352,17 +367,199 @@ describe('Machine grep', () => {
         },
       },
     });
-    const result = await run(context(connector), {
-      patterns: ['needle'],
-      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
-    });
+    const result = await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: 32 * 1024 * 1024,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+      },
+    );
     expect(result.status).toBe('success');
     const session = await peer.session(0);
     expect(session.calls).toHaveLength(2);
     expect(session.calls[1].params).toMatchObject({
       path: '/srv/b',
-      budget: { bytes: 2 * 1024 * 1024, files: 4999, entries: 19_999 },
+      bounds: {
+        bytes: 2 * 1024 * 1024,
+        files: null,
+        entries: null,
+        fileBytes: null,
+      },
     });
+  });
+
+  it('travels an unset bound as null', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
+    });
+    await run(context(connector, { grepBounds: undefined }), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/**'],
+    });
+    const session = await peer.session(0);
+    expect(session.calls[0].params).toMatchObject({
+      bounds: {
+        files: null,
+        entries: null,
+        bytes: null,
+        fileBytes: null,
+      },
+    });
+  });
+
+  it('fails as Machine unusable when the daemon refuses the request shape', async () => {
+    const { connector } = fixture({
+      answers: { 'fs.grep': { error: 'invalid_params' } },
+    });
+    expect(
+      await run(context(connector), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      }),
+    ).toMatchObject({
+      status: 'error',
+      type: 'machine_protocol_error',
+    });
+  });
+
+  it('carries the configured file-size bound to the daemon', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.grep': { value: page([]) } },
+    });
+    await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: null,
+          maxFileBytes: 1024,
+        },
+      }),
+      { patterns: ['needle'], scopes: ['machine://devl/srv/app/**'] },
+    );
+    const session = await peer.session(0);
+    expect(session.calls[0].params).toMatchObject({
+      bounds: { fileBytes: 1024 },
+    });
+  });
+
+  it('always carries the deadline warning on a page filled to the bound', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(0);
+      const rel = 'a.go';
+      const locator = 'machine://devl/srv/a/a.go:1-1';
+      // Fill the page to its new bound: the passage, the cursor's continuation
+      // line, the hub's own lines, and the deadline line it reserves up front.
+      const room =
+        15_000 -
+        pageFixedReserve() -
+        grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+        grepWarningsUnits(new Map([['deadline', 1]])) -
+        grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] });
+      const filled = {
+        ...passage(rel, 1, 1),
+        content: `1: ${'x'.repeat(room)}`,
+        matches: [1],
+      };
+      const { connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.grep') return undefined;
+          // The answer spends the rest of the walk.
+          vi.setSystemTime(109_000);
+          return { value: page([filled]) };
+        },
+      });
+      const result = await run(
+        context(connector, { timeoutMs: undefined, callTimeoutSeconds: 120 }),
+        {
+          patterns: ['needle'],
+          scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+        },
+      );
+      expect(locatorsOf(result)).toEqual([locator]);
+      expect(success(result).complete).toBe(false);
+      // The spec requires this warning at the call deadline, so it is never
+      // dropped to keep the page inside its bound.
+      expect(success(result).warnings).toEqual([
+        { kind: 'deadline', count: 1 },
+      ]);
+      expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses a passage that leaves no room for the deadline line', async () => {
+    // The same page filled without keeping the deadline line's room: the hub
+    // admits no entry there, so the warning it must report always fits.
+    const rel = 'a.go';
+    const locator = 'machine://devl/srv/a/a.go:1-1';
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+      grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] });
+    const oversized = {
+      ...passage(rel, 1, 1),
+      content: `1: ${'x'.repeat(room)}`,
+      matches: [1],
+    };
+    const { connector } = fixture({
+      answer: (call) =>
+        call.method === 'fs.grep' ? { value: page([oversized]) } : undefined,
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**'],
+    });
+    expect(locatorsOf(result)).toEqual([]);
+    expect(success(result).complete).toBe(false);
+    expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+  });
+
+  it('reserves the accumulated warnings line on a second daemon page', async () => {
+    const scope = 'machine://devl/srv/app/**';
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  cursor: 'daemon-next',
+                  warnings: [{ kind: 'binary', count: 5 }],
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : page([passage('b.go', 1, 1)]),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: [scope],
+    });
+    expect(result).toMatchObject({ status: 'success' });
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    expect(asked).toHaveLength(2);
+    // 14,836 = 15,000 less the hub's own lines (120), the deadline line it
+    // reserves (23), and the first page's `[warnings: 5 binary]` line (21), so
+    // the second page's passage survives instead of being dropped for room.
+    expect(boundsOf(asked[1]?.params)).toMatchObject({ pageUnits: 14_836 });
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(success(result).complete).toBe(true);
   });
 
   it('never names a refused passage in the cursor', async () => {
@@ -443,14 +640,14 @@ describe('Machine grep', () => {
   });
 });
 
-/** The budget one request carried, as the peer received it. */
-function budgetOf(params: JsonValue | undefined): SerializableRecord {
+/** The bounds one request carried, as the peer received it. */
+function boundsOf(params: JsonValue | undefined): SerializableRecord {
   if (!isSerializableRecord(params))
     throw new Error('the request carries params');
-  const budget = params['budget'];
-  if (!isSerializableRecord(budget))
-    throw new Error('the request carries a budget');
-  return budget;
+  const bounds = params['bounds'];
+  if (!isSerializableRecord(bounds))
+    throw new Error('the request carries bounds');
+  return bounds;
 }
 
 function passagesOf(result: ToolResult): ReadonlyArray<SerializableRecord> {
@@ -791,8 +988,8 @@ describe('Machine request shape', () => {
     expect(asked).toHaveLength(2);
     // The first scope's passage progressed the call, so the second request
     // says so and its own stop would hide no file behind it.
-    expect(budgetOf(asked[0].params)['progressed']).toBe(false);
-    expect(budgetOf(asked[1].params)['progressed']).toBe(true);
+    expect(boundsOf(asked[0].params)['progressed']).toBe(false);
+    expect(boundsOf(asked[1].params)['progressed']).toBe(true);
   });
 
   it('gives the daemon nine tenths of the time left', async () => {
@@ -813,7 +1010,7 @@ describe('Machine request shape', () => {
       const search = session.calls.find((call) => call.method === 'fs.grep');
       expect(search?.params).toMatchObject({
         envelope: { budgetMs: 30_000 },
-        budget: { deadlineMs: 27_000 },
+        bounds: { deadlineMs: 27_000 },
       });
     } finally {
       vi.useRealTimers();
@@ -863,9 +1060,9 @@ describe('Machine request shape', () => {
     expect(asked).toHaveLength(3);
     // The call progressed in the first page, and a later page that reports
     // false cannot erase it: every following request says the call progressed.
-    expect(budgetOf(asked[0].params)['progressed']).toBe(false);
-    expect(budgetOf(asked[1].params)['progressed']).toBe(true);
-    expect(budgetOf(asked[2].params)['progressed']).toBe(true);
+    expect(boundsOf(asked[0].params)['progressed']).toBe(false);
+    expect(boundsOf(asked[1].params)['progressed']).toBe(true);
+    expect(boundsOf(asked[2].params)['progressed']).toBe(true);
     expect(success(result)['unfinishedFile']).toBeUndefined();
   });
 
@@ -1031,17 +1228,17 @@ describe('Machine page bounds', () => {
       }) + 1;
     expect(session.calls[1].params).toMatchObject({
       path: '/srv/b',
-      budget: {
+      bounds: {
         files: 4999,
         entries: 19_998,
         bytes: 32 * 1024 * 1024 - 100,
         limit: 19,
-        pageUnits: 15_000 - rendered - pageFixedReserve(),
+        pageUnits: 15_000 - rendered - pageFixedReserve() - DEADLINE_UNITS,
       },
     });
-    const budget = budgetOf(session.calls[1].params);
-    expect(budget['deadlineMs']).toBeGreaterThan(0);
-    expect(budget['deadlineMs']).toBeLessThanOrEqual(30_000);
+    const bounds = boundsOf(session.calls[1].params);
+    expect(bounds['deadlineMs']).toBeGreaterThan(0);
+    expect(bounds['deadlineMs']).toBeLessThanOrEqual(30_000);
   });
 
   it('keeps the separators of a page that holds one passage', async () => {
@@ -1063,8 +1260,8 @@ describe('Machine page bounds', () => {
       ],
       complete: true,
     });
-    expect(budgetOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 15_000 - rendered - 1 - pageFixedReserve(),
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
+      pageUnits: 15_000 - rendered - 1 - pageFixedReserve() - DEADLINE_UNITS,
     });
   });
 
@@ -1077,8 +1274,8 @@ describe('Machine page bounds', () => {
       scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
     });
     const session = await peer.session(0);
-    expect(budgetOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 15_000 - pageFixedReserve(),
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
+      pageUnits: 15_000 - pageFixedReserve() - DEADLINE_UNITS,
       limit: 20,
     });
   });
@@ -1120,7 +1317,7 @@ describe('Machine page bounds', () => {
     expect(asked).toHaveLength(2);
     expect(asked[1]?.params).toMatchObject({
       cursor: 'daemon-next',
-      budget: { files: 4999, entries: 19_999, bytes: 32 * 1024 * 1024 - 10 },
+      bounds: { files: 4999, entries: 19_999, bytes: 32 * 1024 * 1024 - 10 },
     });
     expect(JSON.stringify(result)).not.toContain('hidden.go');
   });
@@ -1330,6 +1527,7 @@ describe('Machine page bounds', () => {
     const room =
       15_000 -
       pageFixedReserve() -
+      DEADLINE_UNITS -
       grepContinuationUnits({ scopeIndex: 0, rel: 'a.go', startLine: 1 });
     const filled = fixture({
       answers: {
@@ -1420,7 +1618,12 @@ describe('Machine page bounds', () => {
     const second = {
       ...passage('a.go', 3, 3, []),
       content: 'a'.repeat(
-        15_000 - pageFixedReserve() - continuation - firstWidth - 2,
+        15_000 -
+          pageFixedReserve() -
+          DEADLINE_UNITS -
+          continuation -
+          firstWidth -
+          2,
       ),
     };
     const { connector } = fixture({
@@ -1466,7 +1669,12 @@ describe('Machine page bounds', () => {
     const third = {
       ...passage('a.go', 5, 5, []),
       content: 'c'.repeat(
-        15_000 - pageFixedReserve() - continuation - pairWidth - 2,
+        15_000 -
+          pageFixedReserve() -
+          DEADLINE_UNITS -
+          continuation -
+          pairWidth -
+          2,
       ),
     };
     const { connector } = fixture({
@@ -1508,7 +1716,9 @@ describe('Machine page bounds', () => {
     });
     const cut = {
       ...passage('a.go', 10, 40, []),
-      content: 'a'.repeat(15_000 - pageFixedReserve() - continuation - bare),
+      content: 'a'.repeat(
+        15_000 - pageFixedReserve() - DEADLINE_UNITS - continuation - bare,
+      ),
       cut: true as const,
     };
     const { connector } = fixture({
@@ -1835,5 +2045,467 @@ describe('scope segments', () => {
         `kb://${SPACE_ID}/a.md:1-1`,
       ]);
     });
+  });
+});
+
+describe('grep deadline', () => {
+  /** The walk deadline and the daemon's share of it, from one frozen call. */
+  async function requestDeadlineMs(
+    overrides: Partial<ToolContext>,
+  ): Promise<{ walkMs: number; daemonMs: number }> {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { peer, connector } = fixture({
+        answers: { 'fs.grep': { value: page([]) } },
+      });
+      await run(context(connector, overrides), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      });
+      const session = await peer.session(0);
+      const call = session.calls.find((entry) => entry.method === 'fs.grep');
+      const params = call?.params;
+      if (!isSerializableRecord(params))
+        throw new Error('the request carries params');
+      const envelope = params['envelope'];
+      if (!isSerializableRecord(envelope))
+        throw new Error('the request carries an envelope');
+      const walkMs = envelope['budgetMs'];
+      const daemonMs = boundsOf(params)['deadlineMs'];
+      if (!isNumber(walkMs) || !isNumber(daemonMs))
+        throw new Error('the request carries both deadlines');
+      return { walkMs, daemonMs };
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it('leaves a margin under the default timeout', async () => {
+    expect(await requestDeadlineMs({ timeoutMs: undefined })).toEqual({
+      walkMs: 108_000,
+      daemonMs: 97_200,
+    });
+  });
+
+  it('keeps a partial page at the deadline with its cursor', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(0);
+      let searches = 0;
+      const { peer, connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.grep') return undefined;
+          searches += 1;
+          // The first scope's answer spends the rest of the walk.
+          vi.setSystemTime(109_000);
+          return { value: page([passage('a.go', 1, 1)]) };
+        },
+      });
+      const result = await run(
+        context(connector, { timeoutMs: undefined, callTimeoutSeconds: 120 }),
+        {
+          patterns: ['needle'],
+          scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+        },
+      );
+      expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:1-1']);
+      expect(success(result).complete).toBe(false);
+      expect(success(result).warnings).toEqual([
+        { kind: 'deadline', count: 1 },
+      ]);
+      expect(cursorPointOf(result)).toBeDefined();
+      expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+      // The stopped call asks the second scope for nothing.
+      expect(
+        (await peer.session(0)).calls.filter(
+          (call) => call.method === 'fs.grep',
+        ),
+      ).toHaveLength(1);
+      expect(searches).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives a longer walk under a longer configured timeout', async () => {
+    expect(
+      await requestDeadlineMs({
+        timeoutMs: undefined,
+        callTimeoutSeconds: 300,
+      }),
+    ).toEqual({ walkMs: 270_000, daemonMs: 243_000 });
+  });
+
+  it('keeps half of a short timeout for the walk', async () => {
+    expect(
+      await requestDeadlineMs({ timeoutMs: undefined, callTimeoutSeconds: 6 }),
+    ).toEqual({ walkMs: 3000, daemonMs: 2700 });
+  });
+
+  it('uses the configured timeout when the context carries none', async () => {
+    expect(
+      await requestDeadlineMs({
+        timeoutMs: undefined,
+        callTimeoutSeconds: 60,
+      }),
+    ).toEqual({ walkMs: 54_000, daemonMs: 48_600 });
+  });
+});
+
+describe('daemon page stop conditions', () => {
+  /** One page whose only passage the read group refuses, plus a cursor. */
+  function refusedPage(consumed: {
+    readonly files: number;
+    readonly entries: number;
+    readonly bytes: number;
+  }): FsGrepSuccess {
+    return page([passage('hidden.go', 1, 1)], {
+      complete: false,
+      cursor: 'daemon-next',
+      consumed,
+    });
+  }
+
+  function fsGrepCalls(session: {
+    readonly calls: ReadonlyArray<{ readonly method: string }>;
+  }): number {
+    return session.calls.filter((call) => call.method === 'fs.grep').length;
+  }
+
+  const REJECTED = {
+    permissionPolicy: compileToolPermissionMap(
+      readingRejects('machine://devl/srv/app/hidden.go'),
+      'test',
+    ),
+  };
+
+  it('stops asking once the file bound is spent', async () => {
+    const policy = {
+      maxFilesExamined: 1,
+      maxEntriesListed: null,
+      maxBytesRead: null,
+      maxFileBytes: null,
+    };
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.grep': { value: refusedPage({ files: 1, entries: 1, bytes: 10 }) },
+      },
+    });
+    const result = await run(
+      context(connector, { ...REJECTED, grepBounds: policy }),
+      { patterns: ['needle'], scopes: ['machine://devl/srv/app/**'] },
+    );
+    expect(result).toMatchObject({ status: 'success', complete: false });
+    expect(fsGrepCalls(await peer.session(0))).toBe(1);
+  });
+
+  it('stops asking once the entry bound is spent', async () => {
+    const policy = {
+      maxFilesExamined: null,
+      maxEntriesListed: 1,
+      maxBytesRead: null,
+      maxFileBytes: null,
+    };
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.grep': { value: refusedPage({ files: 1, entries: 1, bytes: 10 }) },
+      },
+    });
+    await run(context(connector, { ...REJECTED, grepBounds: policy }), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(fsGrepCalls(await peer.session(0))).toBe(1);
+  });
+
+  it('stops asking once the byte bound is spent', async () => {
+    const policy = {
+      maxFilesExamined: null,
+      maxEntriesListed: null,
+      maxBytesRead: 1,
+      maxFileBytes: null,
+    };
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.grep': { value: refusedPage({ files: 1, entries: 1, bytes: 10 }) },
+      },
+    });
+    await run(context(connector, { ...REJECTED, grepBounds: policy }), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(fsGrepCalls(await peer.session(0))).toBe(1);
+  });
+
+  it('asks no page when the deadline instant arrives between pages', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(0);
+      const { peer, connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.grep') return undefined;
+          // The page lands exactly on the 30-second walk deadline.
+          vi.setSystemTime(30_000);
+          return { value: refusedPage({ files: 1, entries: 1, bytes: 10 }) };
+        },
+      });
+      await run(context(connector, REJECTED), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      });
+      expect(fsGrepCalls(await peer.session(0))).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives a later scope a cursor when a spent bound skips it', async () => {
+    // The first scope consumes the whole file bound with nothing to show: the
+    // second scope is never asked, and the stop still resumes at its start.
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([], { consumed: { files: 1, entries: 1, bytes: 10 } }),
+        },
+      },
+    });
+    const result = await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: 1,
+          maxEntriesListed: null,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+      },
+    );
+    expect(locatorsOf(result)).toEqual([]);
+    expect(success(result).complete).toBe(false);
+    // The skipped scope names the bound that stopped the call.
+    expect(success(result).warnings).toEqual([
+      { kind: 'file_bound', count: 1 },
+    ]);
+    expect(cursorPayloadOf(result)).toMatchObject({
+      kind: 'position',
+      scopeIndex: 1,
+      rel: '',
+    });
+    expect(fsGrepCalls(await peer.session(0))).toBe(1);
+  });
+
+  it('names a spent entry or byte bound when a later scope is skipped', async () => {
+    const cases = [
+      {
+        policy: {
+          maxFilesExamined: null,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+        warning: 'entry_bound',
+      },
+      {
+        policy: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: 1,
+          maxFileBytes: null,
+        },
+        warning: 'byte_bound',
+      },
+      // A directory lists entries before it reaches a candidate, so the entry
+      // bound is the one that would trip first.
+      {
+        policy: {
+          maxFilesExamined: 1,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+        warning: 'entry_bound',
+      },
+    ] as const;
+    for (const { policy, warning } of cases) {
+      const { connector } = fixture({
+        answers: {
+          'fs.grep': {
+            value: page([], { consumed: { files: 1, entries: 1, bytes: 10 } }),
+          },
+        },
+      });
+      const result = await run(context(connector, { grepBounds: policy }), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+      });
+      expect(success(result).complete).toBe(false);
+      expect(success(result).warnings).toEqual([{ kind: warning, count: 1 }]);
+    }
+  });
+
+  it('searches a direct-file scope when only the entry bound is spent', async () => {
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method === 'fs.stat')
+          return { value: { kind: 'file', isLink: false } };
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], { consumed: { files: 0, entries: 1, bytes: 0 } })
+              : page([passage('', 1, 1)], {
+                  consumed: { files: 1, entries: 0, bytes: 7 },
+                }),
+        };
+      },
+    });
+    const result = await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: null,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/app.go'],
+      },
+    );
+    // The file counts no entry, so the spent entry bound must not drop it.
+    expect(searches).toBe(2);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/b/app.go:1-1']);
+    expect(success(result).complete).toBe(true);
+    expect(success(result).warnings).toEqual([]);
+    expect(fsGrepCalls(await peer.session(0))).toBe(2);
+  });
+
+  it('names the file bound for a skipped direct-file scope', async () => {
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method === 'fs.stat')
+          return { value: { kind: 'file', isLink: false } };
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value: page([], { consumed: { files: 1, entries: 1, bytes: 10 } }),
+        };
+      },
+    });
+    const result = await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: 1,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/app.go'],
+      },
+    );
+    expect(searches).toBe(1);
+    expect(success(result).complete).toBe(false);
+    // A direct-file walk lists no entry, so its file bound trips first even
+    // though the entry bound is spent too.
+    expect(success(result).warnings).toEqual([
+      { kind: 'file_bound', count: 1 },
+    ]);
+    expect(cursorPayloadOf(result)).toMatchObject({
+      kind: 'position',
+      scopeIndex: 1,
+      rel: '',
+    });
+  });
+
+  it('keeps a warning-only segment that exactly fills the page', async () => {
+    const rel = 'a.go';
+    const locator = 'machine://devl/srv/a/a.go:1-1';
+    // The page's own lines once the warning merges: the base reserve plus the
+    // warnings line that already carries the hub's deadline count, so the sum
+    // lands exactly on the bound.
+    const mergedLine = grepWarningsUnits(
+      new Map([
+        ['binary', 1],
+        ['deadline', 1],
+      ]),
+    );
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      mergedLine -
+      grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+      grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] });
+    const filled = {
+      ...passage(rel, 1, 1),
+      content: `1: ${'x'.repeat(room)}`,
+      matches: [1],
+    };
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([filled])
+              : page([], {
+                  warnings: [{ kind: 'binary', count: 1 }],
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                }),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    // The merged line takes the page exactly to its bound, so the counts stay.
+    expect(locatorsOf(result)).toEqual([locator]);
+    expect(success(result).warnings).toEqual([{ kind: 'binary', count: 1 }]);
+    expect(success(result).complete).toBe(true);
+    expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+  });
+
+  it('refuses a passage the warnings line leaves no room for', async () => {
+    const rel = 'a.go';
+    const locator = 'machine://devl/srv/a/a.go:1-1';
+    const warnings = [{ kind: 'binary' as const, count: 5 }];
+    const warningUnits = grepWarningsUnits(new Map([['binary', 5]]));
+    // The largest passage the page holds and then one warning line's worth
+    // more: only an admission that forgot to keep the warnings line back
+    // could take it.
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      DEADLINE_UNITS -
+      warningUnits -
+      grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+      grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] }) +
+      warningUnits;
+    const filled = {
+      ...passage(rel, 1, 1),
+      content: `1: ${'x'.repeat(room)}`,
+      matches: [1],
+    };
+    const { connector } = fixture({
+      answers: { 'fs.grep': { value: page([filled], { warnings }) } },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**'],
+    });
+    expect(locatorsOf(result)).toEqual([]);
+    expect(success(result).complete).toBe(false);
   });
 });

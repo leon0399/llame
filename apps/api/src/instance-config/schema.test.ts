@@ -115,6 +115,25 @@ describe('published schema — raw (pre-interpolation) file validity, as an edit
     expect(validate({ tools: { maxStepsPerRun: 0 } })).toBe(false);
   });
 
+  it('accepts and bounds tools.grep through nullable numbers or tokens', () => {
+    const validate = getConfigValidator();
+    expect(validate({ tools: { grep: null } })).toBe(true);
+    expect(validate({ tools: { grep: { maxBytesRead: 33_554_432 } } })).toBe(
+      true,
+    );
+    expect(
+      validate({ tools: { grep: { maxFilesExamined: '{env:X:-5000}' } } }),
+    ).toBe(true);
+    expect(validate({ tools: { grep: { maxFilesExamined: null } } })).toBe(
+      true,
+    );
+    expect(validate({ tools: { grep: { maxFilesExamined: 0 } } })).toBe(false);
+    expect(validate({ tools: { grep: { maxFilesExamined: 1.5 } } })).toBe(
+      false,
+    );
+    expect(validate({ tools: { grep: { deadlineSeconds: 5 } } })).toBe(false);
+  });
+
   it('a non-token string on a numeric setting fails validation', () => {
     const validate = getConfigValidator();
     expect(validate({ runs: { timeoutSeconds: 'abc' } })).toBe(false);

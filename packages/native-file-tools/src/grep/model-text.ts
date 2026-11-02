@@ -127,6 +127,20 @@ function warningsLine(value: unknown): string | undefined {
     : `[warnings: ${warnings.join(", ")}]`;
 }
 
+/**
+ * Rendered width of the `[warnings: …]` line and its separating newline. A
+ * walk's counts only grow, so the page reserve grows with them (design D7):
+ * an unbounded walk has no largest count to reserve in advance.
+ */
+export function grepWarningsUnits(
+  warnings: ReadonlyMap<string, number>,
+): number {
+  const line = warningsLine(
+    [...warnings].map(([kind, count]) => ({ kind, count })),
+  );
+  return line === undefined ? 0 : line.length + 1;
+}
+
 /** The one bracketed line that carries the cursor of a continuing page. */
 export function grepContinuationLine(cursor: string): string {
   return `[more results. Continue with cursor: ${cursor}]`;

@@ -100,6 +100,15 @@ export function requireRecord(
   return value;
 }
 
+/** A whole, non-negative count, or `null` for an unset bound. */
+export function nullableCount(
+  source: SerializableRecord,
+  key: string,
+  method: string,
+): number | null {
+  return source[key] === null ? null : requireCount(source, key, method);
+}
+
 /** A non-empty bounded list of strings, as a pattern list is. */
 export function requireStringList(
   source: SerializableRecord,

@@ -3,10 +3,11 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
-import { grepUnfinishedUnits } from "./model-text";
+import { grepUnfinishedUnits, grepWarningsUnits } from "./model-text";
 import {
   appendGrepFile,
   createGrepPage,
+  holdsGrownReserve,
   type GrepPage,
   type GrepPageLimits,
 } from "./page";
@@ -146,8 +147,7 @@ async function takeEvent(
       state.scopeIndex = event.scopeIndex;
       return false;
     case "record":
-      takeRecord(state, event);
-      return false;
+      return takeRecord(state, event);
     case "stop":
       // The serial walk checks the page before the bound: a page that filled
       // on the same file ends there, without the bound's warning.
@@ -159,16 +159,19 @@ async function takeEvent(
   }
 }
 
-/** The bookkeeping between two candidates, applied in canonical order. */
+/**
+ * The bookkeeping between two candidates, applied in canonical order; true
+ * once its warnings line no longer fits and the page ends before it.
+ */
 function takeRecord(
   state: ScanState,
   record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
-): void {
+): boolean {
+  if (record.links > 0 && !addWarning(state, "link", record.links)) return true;
   state.consumed.entries += record.entries;
-  if (record.links > 0) addWarning(state, "link", record.links);
   const { reached } = record;
   const scopeIndex = state.scopeIndex;
-  if (reached === undefined || scopeIndex === undefined) return;
+  if (reached === undefined || scopeIndex === undefined) return false;
   state.position = { scopeIndex, rel: reached };
   // A stop before a passage ends the page at this entry, so the page keeps
   // the room its position cursor takes.
@@ -177,6 +180,7 @@ function takeRecord(
     grepContinuationUnits({ scopeIndex: state.widestIndex, rel: reached }),
   );
   if (pastStartPoint(state, reached)) state.progressed = true;
+  return false;
 }
 
 /** Whether an entry sorts strictly after the point the call starts at. */
@@ -239,8 +243,8 @@ function applyOutcome(
       // The call stopped while this read was in flight; it is discarded.
       return true;
     case "skip":
+      if (!addWarning(state, outcome.warning)) return true;
       state.consumed.files += 1;
-      addWarning(state, outcome.warning);
       return false;
     case "stopped":
       state.consumed.files += 1;
@@ -248,9 +252,9 @@ function applyOutcome(
       stopInsideFile(state, event, outcome.reason);
       return true;
     case "refused":
+      if (!addWarning(state, outcome.refusal)) return true;
       state.consumed.files += 1;
       state.consumed.bytes += outcome.bytes;
-      addWarning(state, outcome.refusal);
       return false;
     case "passages":
       state.consumed.files += 1;
@@ -273,7 +277,9 @@ function stopInsideFile(
   event: GrepCandidateEvent,
   reason: GrepWarningKind,
 ): void {
-  stopAt(state, reason);
+  // A page that cannot hold the stop's line ends before it: the file is named
+  // by the next call, which re-checks the bound with a fresh one.
+  if (!stopAt(state, reason)) return;
   if (state.progressed) return;
   // The page ends here with no passage to hold, so the unfinished line and
   // the cursor are what must fit; a file that completes never reserves it.
@@ -374,13 +380,33 @@ function exhaustedAt(
   return passageStartLine(visible[0].locator);
 }
 
-function stopAt(state: ScanState, kind: GrepWarningKind): void {
+function stopAt(state: ScanState, kind: GrepWarningKind): boolean {
+  if (!addWarning(state, kind)) return false;
   state.stop = kind;
-  addWarning(state, kind);
+  return true;
 }
 
-function addWarning(state: ScanState, kind: GrepWarningKind, count = 1): void {
-  state.warnings.set(kind, (state.warnings.get(kind) ?? 0) + count);
+/**
+ * Count one warning, or end the page before it: a warnings line that no
+ * longer fits beside the passages the page keeps belongs to the next call
+ * (design D7). True when the count stays.
+ */
+function addWarning(
+  state: ScanState,
+  kind: GrepWarningKind,
+  count = 1,
+): boolean {
+  const previous = state.warnings.get(kind);
+  state.warnings.set(kind, (previous ?? 0) + count);
+  const reserve = grepWarningsUnits(state.warnings);
+  if (holdsGrownReserve(state.page, state.limits, reserve)) {
+    state.page.warningReserve = reserve;
+    return true;
+  }
+  if (previous === undefined) state.warnings.delete(kind);
+  else state.warnings.set(kind, previous);
+  state.page.full = true;
+  return false;
 }
 
 function buildResult(state: ScanState): GrepScanResult {

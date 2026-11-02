@@ -458,6 +458,31 @@ export type RawWebAdapterEntry =
 /** Schema-validated composite fields consumed from the raw tools block. */
 export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
+  /** The raw `tools.grep` object; an absent or null object bounds nothing,
+   *  and each leaf stays unknown until its resolver narrows it. */
+  grep?: {
+    readonly maxFilesExamined?: unknown;
+    readonly maxEntriesListed?: unknown;
+    readonly maxBytesRead?: unknown;
+    readonly maxFileBytes?: unknown;
+  } | null;
+};
+
+/**
+ * The operator's `grep` walk bounds (grep-scan-throughput D1). Every field
+ * takes the nullable numeric path `tools.maxStepsPerRun` uses: `null` leaves
+ * that bound off, and only a positive integer (or a token resolving to one)
+ * sets it.
+ */
+export type GrepBoundsConfig = {
+  /** Files one call may take for a match, across every scope. */
+  readonly maxFilesExamined: number | null;
+  /** Directory entries one call may list, across every scope. */
+  readonly maxEntriesListed: number | null;
+  /** Bytes one call may read from the files it takes. */
+  readonly maxBytesRead: number | null;
+  /** Largest regular file the walk searches, by announced and read size. */
+  readonly maxFileBytes: number | null;
 };
 
 /**
@@ -630,6 +655,8 @@ export type LlameConfig = {
     maxStepsPerRun: number | null;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
     callTimeoutSeconds: number;
+    /** Opt-in bounds on one `grep` call's walk; every field defaults to `null` (no bound). */
+    grep: GrepBoundsConfig;
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
     promptFiles?: Readonly<Record<string, string | null>>;
     /** Ordered operator-configured web adapters. Absent means no adapters. */
@@ -734,6 +761,12 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     permissionModes: ['default'],
     maxStepsPerRun: null,
     callTimeoutSeconds: 120,
+    grep: {
+      maxFilesExamined: null,
+      maxEntriesListed: null,
+      maxBytesRead: null,
+      maxFileBytes: null,
+    },
     promptFiles: {},
     webAdapters: [],
   },
