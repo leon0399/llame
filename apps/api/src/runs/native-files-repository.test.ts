@@ -100,7 +100,12 @@ describe('NativeFilesRepository prior outcomes', () => {
 
     await expect(
       repository.priorOutcome('run-1', 'bash-call'),
-    ).resolves.toMatchObject({ status: 'error', type: 'outcome_unknown' });
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'outcome_unknown',
+      message:
+        'A previous host command, mutation, or MCP operation may have executed; it will not be repeated.',
+    });
   });
 
   it('keeps the artifact locator of a settled success result', async () => {

@@ -84,7 +84,9 @@ describe('isArtifactLocator', () => {
   });
 
   it('refuses a value the grammar would reformat', () => {
-    // A seq beyond 2^53 parses, then formats to another value.
+    // The scheme parses case-insensitively, then formats to the canonical
+    // spelling; the round-trip check is what refuses the submitted text.
+    expect(isArtifactLocator('ARTIFACT://grep-7')).toBe(false);
     expect(isArtifactLocator('artifact://grep-9007199254740993')).toBe(false);
     expect(isArtifactLocator('artifact://grep-7:1-2')).toBe(false);
     expect(isArtifactLocator(7)).toBe(false);

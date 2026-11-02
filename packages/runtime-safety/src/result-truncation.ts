@@ -264,8 +264,28 @@ function pinnedFields(payload: UnknownRecord): UnknownRecord {
     (payload.kind === "image" || payload.kind === "pdf") &&
     isString(payload.media);
   if (pinsMedia) pinned.media = payload.media;
-  if (isString(payload.artifact)) pinned.artifact = payload.artifact;
+  if (isArtifactLocatorValue(payload.artifact)) {
+    pinned.artifact = payload.artifact;
+  }
   return pinned;
+}
+
+/**
+ * The artifact locator grammar, bounded. This package cannot import the API's
+ * locator parser, so the shared check repeats the one token shape and caps the
+ * length: a result field that merely calls itself `artifact` must not escape
+ * the cap, and a real locator is far below the bound.
+ */
+const ARTIFACT_LOCATOR =
+  /^artifact:\/\/[A-Za-z0-9][A-Za-z0-9_-]*-[1-9]\d*(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?$/u;
+const ARTIFACT_LOCATOR_MAX_LENGTH = 512;
+
+function isArtifactLocatorValue(value: unknown): value is string {
+  return (
+    isString(value) &&
+    value.length <= ARTIFACT_LOCATOR_MAX_LENGTH &&
+    ARTIFACT_LOCATOR.test(value)
+  );
 }
 
 /** The part of a truncation pass that never changes across the binary

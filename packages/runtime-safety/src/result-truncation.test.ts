@@ -674,6 +674,19 @@ describe("truncateOversizedResult artifact results", () => {
     expect(result).toMatchObject({ artifact: ARTIFACT, truncated: true });
   });
 
+  it("caps an oversized artifact value that is not a bounded locator", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      artifact: `artifact://grep-${"9".repeat(20_000)}`,
+      content: "x".repeat(50_000),
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).not.toMatchObject({
+      artifact: `artifact://grep-${"9".repeat(20_000)}`,
+    });
+  });
+
   it("does not pin a media value that is not a locator string", () => {
     const result = truncateOversizedResult({
       status: "success",

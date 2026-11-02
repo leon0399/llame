@@ -412,20 +412,31 @@ describe('toolActivityPart', () => {
     });
   });
 
-  it('stores no artifact field for a value that is not a locator', () => {
-    const result: ToolResult = {
+  it('copies a well-formed locator and stores none for a malformed one', () => {
+    const wellFormed = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'grep',
+      input: { pattern: 'q' },
+      result: {
+        status: 'success',
+        content: 'answer',
+        artifact: 'artifact://grep-7',
+      },
+    });
+    expect(wellFormed.artifact).toBe('artifact://grep-7');
+
+    const malformed: ToolResult = {
       status: 'success',
       content: 'answer',
       artifact: 'artifact://grep-7:1-20',
     };
-
     expect(
       Object.hasOwn(
         toolActivityPart({
           toolCallId: 'call-1',
           toolName: 'grep',
           input: { pattern: 'q' },
-          result,
+          result: malformed,
         }),
         'artifact',
       ),

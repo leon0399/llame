@@ -802,7 +802,11 @@ describe('the Continue state of a Run', () => {
       },
     ]);
 
-    expect(state?.results.get(CALL_ID)).not.toHaveProperty('artifact');
+    expect(state?.results.get(CALL_ID)).toEqual({
+      status: 'error',
+      type: 'command_failed',
+      message: 'exit 1',
+    });
   });
 
   it('maps only the kept calls of the source Run events', () => {

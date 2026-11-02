@@ -50,6 +50,15 @@ export function decidePermission(
 }
 
 /**
+ * Whether this context's permission mode consults the policy at all. A
+ * `bypass` attempt evaluates nothing, so a caller doing policy work of its own
+ * — the artifact finding re-check — skips it without naming the mode.
+ */
+export function evaluatesPermission(context: ToolContext): boolean {
+  return (context.permissionMode ?? DEFAULT_PERMISSION_MODE) !== 'bypass';
+}
+
+/**
  * {@link decidePermission} for a tool call. `undefined` means the context
  * carries no compiled policy, a code error each caller fails closed on.
  */

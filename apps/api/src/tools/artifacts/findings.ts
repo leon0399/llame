@@ -21,6 +21,7 @@ import {
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
 import { readDecision } from '../grep-admission';
+import { evaluatesPermission } from '../permissions/admit';
 import { nativeFileProjection } from '../permissions/locator-projection';
 import { type ToolContext } from '../types';
 import { rejectsWebLocatorRead } from '../web-search/removal';
@@ -139,7 +140,7 @@ export function withholdFindings(
   resolved: ReadTarget,
 ): string {
   if (part.findings === null || part.findings === undefined) return text;
-  if (context.permissionMode === 'bypass') return text;
+  if (!evaluatesPermission(context)) return text;
   const lines = splitSourceLines(text);
   const withheld = withheldLines(context, part, resolved, lines.length);
   if (withheld.size === 0) return text;
@@ -163,7 +164,12 @@ function withheldLines(
 ): Set<number> {
   const withheld = new Set<number>();
   const document = parseArtifactFindings(part.findings);
-  if (document === undefined) {
+  const outOfBounds =
+    document !== undefined &&
+    document.findings.some(
+      ({ start, end }) => start > lineCount || end > lineCount,
+    );
+  if (document === undefined || outOfBounds) {
     // A record this build cannot read names no range to keep, so the part
     // fails closed: a policy tightening must never reveal more than it did.
     for (let line = 1; line <= lineCount; line += 1) withheld.add(line);

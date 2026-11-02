@@ -176,7 +176,14 @@ export class NativeFilesRepository {
  * stored, so the replay still names it (D4).
  */
 function recordedResult(result: UnknownRecord): ToolResult | undefined {
-  if (result.status === 'success') return { ...result, status: 'success' };
+  if (result.status === 'success') {
+    const { artifact, ...rest } = result;
+    return {
+      ...rest,
+      status: 'success',
+      ...(isArtifactLocator(artifact) && { artifact }),
+    };
+  }
   if (result.status !== 'error') return undefined;
   if (!isString(result.type) || !isString(result.message)) return undefined;
   const artifact = result.artifact;

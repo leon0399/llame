@@ -424,6 +424,16 @@ describe('withholdFindings', () => {
     ).toBe(text);
   });
 
+  it('fails closed on a finding that points past the stored text', () => {
+    const text = `${'line\n'.repeat(4)}`;
+
+    expect(
+      withheld(contextOf(allowNothing), text, grepFinding(2, 99), {
+        contentType: PLAIN,
+      }),
+    ).toBe('[withheld]\n[withheld]\n[withheld]\n[withheld]\n');
+  });
+
   it('leaves a bash part with no finding record alone', () => {
     const context = contextOf(policy({ read: { reject: true } }));
 
