@@ -90,15 +90,14 @@ describe("grep text rendering", () => {
     );
   });
 
-  it("marks a passage the page cut as a cut, not as a capped file", () => {
+  it("renders a cut passage's lines with no continuation marker", () => {
     const text = renderGrepText({
       results: [passage("a.md:1-3", "1: x\n2: y\n3: z", [2], { cut: true })],
       complete: true,
     });
-    expect(text).toBe(
-      "## a.md\n1: x\n*2: y\n3: z\n[passage cut at the result bound; continue with the cursor]",
-    );
+    expect(text).toBe("## a.md\n1: x\n*2: y\n3: z");
     expect(text).not.toContain("more passages in this file");
+    expect(text).not.toContain("cursor");
   });
 
   it("ends a cut passage of a capped file with the cap marker", () => {
@@ -111,10 +110,9 @@ describe("grep text rendering", () => {
       ],
       complete: true,
     });
-    expect(text.split("\n").slice(-2)).toEqual([
-      "[passage cut at the result bound; continue with the cursor]",
+    expect(text.split("\n").at(-1)).toBe(
       "[more passages in this file; read it to see them]",
-    ]);
+    );
   });
 
   it("renders the warnings as one line in the order given", () => {
@@ -140,47 +138,35 @@ describe("grep text rendering", () => {
     expect(text.split("\n")[0]).toBe(`notice: ${notice}`);
   });
 
-  it("ends a continuing page with its cursor and a complete one without", () => {
-    const continuing = renderGrepText({
+  it("renders no continuation line, even for an incomplete result", () => {
+    const text = renderGrepText({
       results: [passage("a.md:1-1", "1: a", [1])],
       complete: false,
       cursor: "abc-DEF_123",
     });
-    expect(continuing.split("\n").at(-1)).toBe(
-      "[more results. Continue with cursor: abc-DEF_123]",
-    );
-    const complete = renderGrepText({
-      results: [passage("a.md:1-1", "1: a", [1])],
-      complete: true,
-    });
-    expect(complete).not.toContain("Continue with cursor");
+    expect(text).not.toContain("Continue with cursor");
+    expect(text).toBe("## a.md\n*1: a");
   });
 
-  it("ends with the cut notice last", () => {
+  it("ends with the truncation notice last", () => {
     const text = renderGrepText({
       results: [passage("a.md:1-1", "1: a", [1])],
       complete: false,
-      cursor: "c",
       truncationNotice: "result cut at the bound",
     });
-    expect(text.split("\n").slice(-2)).toEqual([
-      "[more results. Continue with cursor: c]",
-      "[result cut at the bound]",
-    ]);
+    expect(text.split("\n").at(-1)).toBe("[result cut at the bound]");
   });
 
   it("names the file a bound stopped inside after the warnings", () => {
     const text = renderGrepText({
       results: [],
       complete: false,
-      cursor: "c",
       warnings: [{ kind: "deadline", count: 1 }],
       unfinishedFile: "/var/log/big.log",
     });
     expect(text.split("\n")).toEqual([
       "[warnings: 1 deadline]",
       "[not searched to the end: /var/log/big.log]",
-      "[more results. Continue with cursor: c]",
     ]);
   });
 
@@ -188,18 +174,16 @@ describe("grep text rendering", () => {
     const text = renderGrepText({
       results: [],
       complete: false,
-      cursor: "c",
       unfinishedFile: "a\nb.log",
     });
     expect(text).toContain("[not searched to the end: a b.log]");
-    expect(text.split("\n")).toHaveLength(2);
+    expect(text.split("\n")).toHaveLength(1);
   });
 
   it("renders excluded directories after the warnings", () => {
     const text = renderGrepText({
       results: [],
       complete: false,
-      cursor: "c",
       warnings: [{ kind: "deadline", count: 1 }],
       ignored: {
         count: 7,
@@ -209,7 +193,6 @@ describe("grep text rendering", () => {
     expect(text.split("\n")).toEqual([
       "[warnings: 1 deadline]",
       "[ignored 7 directories: /r/a, /r/b, /r/c, /r/d, /r/e (+2 more); a scope that names one searches it]",
-      "[more results. Continue with cursor: c]",
     ]);
   });
 
@@ -268,14 +251,12 @@ describe("grep text rendering", () => {
     const text = renderGrepText({
       results: [],
       complete: false,
-      cursor: "c",
       ignored: { count: 1, locators: ["/r/a"] },
       unfinishedFile: "/var/log/big.log",
     });
     expect(text.split("\n")).toEqual([
       "[ignored 1 directory: /r/a; a scope that names one searches it]",
       "[not searched to the end: /var/log/big.log]",
-      "[more results. Continue with cursor: c]",
     ]);
   });
 

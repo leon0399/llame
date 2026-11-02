@@ -1,10 +1,10 @@
 /**
- * The `machine://` backend of the `grep` tool: one `fs.grep` request per
- * Machine scope, executed on the Machine through `MachineConnector`. The
- * daemon walks and matches locally; this module renders each returned path as
- * a Machine locator, judges the `read` group per file on that locator, and
- * reports the page the call will append. A host path never leaves the daemon,
- * and a passage from a file `read` refuses never reaches the result.
+ * The `machine://` backend of the `grep` tool: one Machine scope, walked by
+ * the daemon through `MachineConnector` over as many `fs.grep` pages as the
+ * scope needs. The daemon walks and matches locally; this module renders each
+ * returned path as a Machine locator, judges the `read` group per file on that
+ * locator, and reports what the call will append. A host path never leaves the
+ * daemon, and a passage from a file `read` refuses never reaches the result.
  */
 
 import {
@@ -18,13 +18,10 @@ import {
   type FsGrepWarningKind,
 } from '@workspace/machine-protocol';
 import {
-  decodeGrepCursor,
   normalizeHostScope,
   splitGrepScope,
-  type DecodedGrepCursor,
   type GrepBudget,
   type GrepIgnored,
-  type GrepPageEnd,
   type GrepPassage,
   type GrepScope,
 } from '@workspace/native-file-tools';
@@ -66,13 +63,10 @@ import {
   machineScopeLocator,
   spent,
   mergePage,
-  requestCursorKey,
   requestOf,
-  unfinishedPosition,
   type DaemonAsk,
   type IgnoredAccumulator,
 } from './grep-machine-wire';
-import { type ScopePosition } from './grep-page';
 import { type ToolContext, type ToolResult } from './types';
 
 /** One Machine scope: the prefix the daemon searches and its glob suffix. */
@@ -98,17 +92,11 @@ export type GrepSearchArguments = {
   readonly ignoreCase: boolean;
 };
 
-/** One kept Machine passage with the cursor point it ends at. */
-export type MachineGrepEntry = {
-  readonly passage: GrepPassage;
-  readonly end: GrepPageEnd;
-};
-
-/** One Machine scope's page, or the result that ends the call. */
+/** One Machine scope's walk, or the result that ends the call. */
 export type MachineGrepSegment =
   | {
       readonly status: 'success';
-      readonly entries: ReadonlyArray<MachineGrepEntry>;
+      readonly passages: ReadonlyArray<GrepPassage>;
       readonly complete: boolean;
       readonly warnings: ReadonlyArray<FsGrepWarning>;
       readonly consumed: { files: number; entries: number; bytes: number };
@@ -117,14 +105,7 @@ export type MachineGrepSegment =
       /** The file a bound stopped the daemon walk inside, relative to the prefix. */
       readonly unfinished?: string;
       /** The excluded directory locators of this scope, capped across its pages. */
-      readonly ignored?: GrepIgnored & {
-        readonly rels: ReadonlyArray<string>;
-      };
-      /**
-       * Where a daemon page below the call's page stopped when it admitted no
-       * passage at all: the call resumes after that entry.
-       */
-      readonly position?: { readonly scopeIndex: number; readonly rel: string };
+      readonly ignored?: GrepIgnored;
     }
   | { readonly status: 'error'; readonly result: ToolResult };
 
@@ -135,8 +116,6 @@ export type MachineGrepSearch = {
   readonly args: GrepSearchArguments;
   /** What is left of the call's bounds, shared with every other scope. */
   readonly budget: GrepBudget;
-  /** The call's cursor, when it names a passage of this scope. */
-  readonly resume: DecodedGrepCursor | undefined;
   /** Whether the call already progressed in an earlier scope or page. */
   readonly progressed: boolean;
   readonly admission: GrepReadAdmission;
@@ -309,15 +288,15 @@ type DaemonPage =
   | { readonly result: GrepToolError };
 
 /**
- * The caller's page from one Machine scope, paged on the daemon position: each
+ * One Machine scope, paged on the daemon position inside the call: each
  * response is asked on after the previous one's position, so a page of refused
- * passages still advances the walk, and a page that kept a passage filled the
- * call's page, so the call stops there.
+ * passages still advances the walk and a page that kept passages asks for the
+ * next one. The walk ends at the scope's end or the bound or deadline that
+ * stopped it.
  *
  * A page that stopped inside a file the daemon could not finish is skipped:
  * the next request starts after that file and never opens it again in this
- * call, while the segment still names it, because its walk is incomplete. A
- * single-file scope records no position, so its stop ends the scope instead.
+ * call, while the segment still names it, because its walk is incomplete.
  *
  * Progress belongs to the call: a page that got past the start point lets the
  * next request know, so its own stop hides no file behind it.
@@ -353,7 +332,7 @@ async function runDaemonPages(
 
 /** One Machine scope's pages, as the loop between them carries them. */
 type MachineSegmentPage = {
-  readonly entries: Array<MachineGrepEntry>;
+  readonly passages: Array<GrepPassage>;
   readonly warnings: Map<FsGrepWarningKind, number>;
   readonly consumed: FsGrepConsumed;
   readonly ignored: IgnoredAccumulator;
@@ -365,6 +344,23 @@ type MachineSegmentPage = {
   /** The file the daemon stopped inside that the call skipped, if any. */
   unfinished: string | undefined;
 };
+
+/** The first page's request state, with nothing accumulated yet. */
+function createPageRun(
+  search: MachineGrepSearch,
+  deadlineAt: number,
+): MachineSegmentPage {
+  return {
+    ...daemonStart(search, deadlineAt),
+    passages: [],
+    warnings: new Map(),
+    consumed: { files: 0, entries: 0, bytes: 0 },
+    ignored: ignoredAccumulator(search.scope),
+    deadlineAt,
+    last: undefined,
+    unfinished: undefined,
+  };
+}
 
 /** One page's effect on the run; `ended` says the scope has no next page. */
 type PageStep =
@@ -380,46 +376,29 @@ function takePage(
   run.last = page;
   mergePage(run.warnings, run.consumed, run.ignored, page);
   run.progressed = run.progressed || page.progressed;
-  const rendered = renderPage(search, page, run.entries);
-  if ('result' in rendered) return { result: rendered.result };
+  const refused = renderPage(search, page, run.passages);
+  if (refused !== undefined) return { result: refused };
   if (page.unfinished !== undefined) {
     // A second stop inside a file ends the scope at the first one: one call
     // names one file, and the next call opens the second with a full budget.
     if (run.unfinished !== undefined) return { ended: true };
     run.unfinished = page.unfinished;
-    // A one-file walk ignores a cursor, so a stop in it can only end the scope;
-    // its ordinal moves past it for the next call (`unfinishedPosition`).
+    // A one-file walk ignores a cursor, so a stop in it can only end the scope.
     if (search.scope.singleFile === true) return { ended: true };
   }
-  const next = keepAsking(rendered.kept, page, run.cursor);
+  const next = keepAsking(page, run.cursor);
   if (next === undefined) return { ended: true };
   run.cursor = next;
-  run.budget = spent(run.budget, page, run.deadlineAt, {
-    base: search.budget.fixedReserve,
-    counts: run.warnings,
-    ignored: run.ignored,
-    unfinished:
-      run.unfinished === undefined
-        ? undefined
-        : machineScopeLocator(search.scope, run.unfinished),
-  });
+  run.budget = spent(run.budget, page, run.deadlineAt);
   return { ended: false };
 }
 
-/** One Machine scope's pages, as the segment the call's page appends. */
+/** One Machine scope's pages, as the segment the call appends. */
 function segmentOfPages(
   search: MachineGrepSearch,
   pages: MachineSegmentPage,
 ): MachineGrepSegment {
-  const { entries, last, warnings } = pages;
-  // The file the call names is where its walk must resume, so the next call
-  // opens it with a full budget: a page the call walked past it without
-  // keeping a passage is walked again, which costs a re-walk rather than a
-  // gap. A call that named no file resumes at the last page's own stop.
-  const stopped =
-    unfinishedPosition(search, pages) ??
-    (last === undefined ? undefined : stoppedPosition(search, last));
-  const position = entries.length > 0 ? undefined : stopped;
+  const { last, warnings } = pages;
   // A scope whose bound was spent by an earlier segment is never asked, so
   // no page can name the stop: the segment reports it instead, in the order
   // the walk would have tripped it (entries while listing, then files, then
@@ -432,7 +411,7 @@ function segmentOfPages(
     spent !== undefined && !warnings.has(spent)
       ? new Map([...warnings, [spent, 1] as const])
       : warnings;
-  return segmentOf({ ...pages, warnings: counted }, position);
+  return segmentOf({ ...pages, warnings: counted });
 }
 
 /**
@@ -452,40 +431,31 @@ function spentBound(
 
 /**
  * The next cursor to ask with, or undefined when this page ended the scope's
- * walk. A page that kept a passage filled the call's page: the call stops and
- * the next one resumes from that passage. A page that kept nothing — refused
- * passages, a skip, or a reach with no match — still advanced the daemon
- * position, so the next request asks on after it.
+ * walk: the page is complete, or asking again would fetch the same page.
  */
 function keepAsking(
-  kept: number,
   page: FsGrepSuccess,
   cursor: string | undefined,
 ): string | undefined {
-  if (kept > 0 || page.complete) return undefined;
+  if (page.complete) return undefined;
   return nextCursor(page, cursor);
 }
 
 /** The segment one Machine scope's pages add up to. */
-function segmentOf(
-  page: MachineSegmentPage,
-  position: ScopePosition | undefined,
-): MachineGrepSegment {
+function segmentOf(page: MachineSegmentPage): MachineGrepSegment {
   return {
     status: 'success',
-    entries: page.entries,
+    passages: page.passages,
     // A skipped file leaves the walk incomplete even when a later page ended
     // the scope: the call knows a file it could not finish.
     complete: page.last?.complete === true && page.unfinished === undefined,
     warnings: [...page.warnings].map(([kind, count]) => ({ kind, count })),
     consumed: page.consumed,
     progressed: page.progressed,
-    ...(position !== undefined && { position }),
     ...(page.unfinished !== undefined && { unfinished: page.unfinished }),
     ...(page.ignored.paths.length > 0 && {
       ignored: {
         paths: page.ignored.paths,
-        rels: page.ignored.rels,
         atLeast: page.ignored.atLeast,
       },
     }),
@@ -550,21 +520,6 @@ async function requestPage(
   return { page: result };
 }
 
-/**
- * Where a daemon page that admitted no passage stopped. Its cursor names a
- * passage of a file the `read` group refused, or the entry a bound stopped the
- * walk at; either way no passage of that file may reach the model, so the call
- * resumes after the file.
- */
-function stoppedPosition(
-  search: MachineGrepSearch,
-  page: FsGrepSuccess,
-): ScopePosition | undefined {
-  if (page.cursor === undefined) return undefined;
-  const decoded = decodeGrepCursor(page.cursor, requestCursorKey(search));
-  if ('error' in decoded) return undefined;
-  return { scopeIndex: search.scope.index, rel: decoded.rel };
-}
 
 /** The Machine failure vocabulary, as `read` maps it, plus the missing method. */
 function machineGrepFailure(
@@ -613,58 +568,34 @@ function admitsFile(
   return allowed;
 }
 
-/** One kept passage, with the cursor point it ends at. */
-function keptEntry(
-  scope: MachineGrepScope,
-  passage: FsGrepPassage,
-  locator: string,
-): MachineGrepEntry {
+/** One kept passage, in the spelling the call's result carries. */
+function keptPassage(passage: FsGrepPassage, locator: string): GrepPassage {
   return {
-    passage: {
-      locator: `${locator}:${String(passage.startLine)}-${String(passage.endLine)}`,
-      content: passage.content,
-      matches: [...passage.matches],
-      ...(passage.cut === true && { cut: true as const }),
-      ...(passage.truncated === true && { truncated: true as const }),
-    },
-    end: {
-      scopeIndex: scope.index,
-      rel: passage.path,
-      startLine: passage.startLine,
-      // Only a passage the page cut continues from its last emitted line.
-      ...(passage.cut === true && { endLine: passage.endLine }),
-      // The daemon marks the file's twentieth passage by its own position in
-      // the file; its passages after it are reachable only through a read.
-      capped: passage.capped === true,
-    },
+    locator: `${locator}:${String(passage.startLine)}-${String(passage.endLine)}`,
+    content: passage.content,
+    matches: [...passage.matches],
+    ...(passage.cut === true && { cut: true as const }),
+    ...(passage.truncated === true && { truncated: true as const }),
   };
 }
 
-/** A rendered page: the passages it contributed, or the refusal that ends the call. */
-type RenderedPage =
-  | { readonly kept: number }
-  | { readonly result: GrepToolError };
-
 /**
  * The passages the page keeps: each file judged once against the `read` group
- * on its Machine locator, a refused file dropped whole, and each kept passage
- * remembered so the cursor can never name a dropped one.
+ * on its Machine locator, a refused file dropped whole. A refused passage
+ * never reaches the result; the daemon position still moves past it.
  */
 function renderPage(
   search: MachineGrepSearch,
   result: FsGrepSuccess,
-  into: Array<MachineGrepEntry>,
-): RenderedPage {
+  into: Array<GrepPassage>,
+): GrepToolError | undefined {
   const locators = locatorsOf(search, result);
-  if (locators === undefined)
-    return { result: machineUnusableResult(search.scope.name) };
+  if (locators === undefined) return machineUnusableResult(search.scope.name);
   const decided = new Map<string, boolean>();
-  let kept = 0;
   for (const [index, passage] of result.results.entries()) {
     const locator = locators[index];
     if (!admitsFile(search.admission, decided, passage.path, locator)) continue;
-    into.push(keptEntry(search.scope, passage, locator));
-    kept += 1;
+    into.push(keptPassage(passage, locator));
   }
-  return { kept };
+  return undefined;
 }

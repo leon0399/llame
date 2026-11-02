@@ -405,7 +405,7 @@ describe('resolveScopes', () => {
         'skill://alpha/',
         'skill://pdf/',
       ]);
-      // Each expanded package is its own scope for the cursor to name.
+      // Each expanded package is its own scope, ordered for the walk.
       expect(outcome.scopes.map((scope) => scope.index)).toEqual([0, 1]);
     });
   });

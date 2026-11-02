@@ -12,12 +12,11 @@ import { passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
 /*
- * The model-facing text of a `grep` page (tool-result-rendering "A grep page
+ * The model-facing text of a `grep` result (tool-result-rendering "A grep page
  * groups consecutive passages under one file line"). Each run of consecutive
  * passages of one file renders under one `## <file locator>` line, passages of
  * one run are separated by one blank line, and a matched line carries the
- * `*N: text` prefix the stored passage already spells as `N: text`. A page
- * that continues ends with one bracketed line carrying its cursor.
+ * `*N: text` prefix the stored passage already spells as `N: text`.
  */
 
 /** One stored passage, as the page's `results` list carries it. */
@@ -28,8 +27,6 @@ interface PassageView {
   readonly startLine: number;
   readonly content: string;
   readonly matches: ReadonlyArray<number>;
-  /** The page cut the passage at a line boundary; the cursor continues it. */
-  readonly cut: boolean;
   /** The passage is its file's twentieth: the file holds more after it. */
   readonly truncated: boolean;
 }
@@ -38,11 +35,6 @@ interface PassageView {
  *  `read` is the only way to see them. */
 const CAPPED_PASSAGE_MARKER =
   "[more passages in this file; read it to see them]";
-
-/** The line a passage cut at the page bound ends with: the cursor continues
- *  it, and the lines after it are on the next page. */
-const CUT_PASSAGE_MARKER =
-  "[passage cut at the result bound; continue with the cursor]";
 
 /** `N: text` from the start of one stored content line. */
 const NUMBERED_LINE = /^(\d+): /u;
@@ -66,7 +58,7 @@ export function grepFileLocator(locator: string): string {
 /** One stored passage, or none when the result entry is not a passage. */
 function passageOf(value: unknown): PassageView | undefined {
   if (!isRecord(value)) return undefined;
-  const { locator, content, matches, cut, truncated } = value;
+  const { locator, content, matches, truncated } = value;
   if (!isNonEmptyString(locator) || !isString(content)) return undefined;
   const startLine = passageStartLine(locator);
   return {
@@ -78,7 +70,6 @@ function passageOf(value: unknown): PassageView | undefined {
     matches: Array.isArray(matches)
       ? matches.filter((line): line is number => isNumber(line))
       : [],
-    cut: cut === true,
     truncated: truncated === true,
   };
 }
@@ -95,9 +86,8 @@ function passagesOf(value: unknown): Array<PassageView> {
 }
 
 /**
- * One passage's lines: the stored `N: text` lines with a `*` before the
- * number of a matched line, then the cut marker of a passage the page cut, and
- * the capped-passage marker of its file's twentieth.
+ * One passage's lines: the stored `N: text` lines with a `*` before the number
+ * of a matched line, then the capped-passage marker of its file's twentieth.
  */
 function passageLines(passage: PassageView): Array<string> {
   const matched = new Set(passage.matches);
@@ -108,7 +98,6 @@ function passageLines(passage: PassageView): Array<string> {
     if (match === null) return line;
     return matched.has(Number(match[1])) ? `*${line}` : line;
   });
-  if (passage.cut) marked.push(CUT_PASSAGE_MARKER);
   if (passage.truncated) marked.push(CAPPED_PASSAGE_MARKER);
   return marked;
 }
@@ -142,7 +131,10 @@ export function grepWarningsUnits(
   return line === undefined ? 0 : line.length + 1;
 }
 
-/** The one bracketed line that carries the cursor of a continuing page. */
+/**
+ * The width of the continuation line an engine page reserves for its own
+ * cursor. The line never reaches the model: the walk pages internally.
+ */
 export function grepContinuationLine(cursor: string): string {
   return `[more results. Continue with cursor: ${cursor}]`;
 }
@@ -244,9 +236,8 @@ export function grepUnfinishedUnits(locator: string): number {
 }
 
 /**
- * The model-facing text of a `grep` page: the notice first, each run of
- * passages of one file under its `## <file locator>` line, the warnings line,
- * and the continuation line of a page that is not complete.
+ * The model-facing text of a `grep` result: the notice first, each run of
+ * passages of one file under its `## <file locator>` line, the warnings line.
  *
  * Two passages of one file merge into one run while their start lines rise;
  * a passage that starts at or before the previous one — an overlapping later
@@ -274,9 +265,6 @@ export function renderGrepText(result: UnknownRecord): string {
   const { unfinishedFile } = result;
   if (isNonEmptyString(unfinishedFile))
     lines.push(grepUnfinishedLine(unfinishedFile));
-  const { complete, cursor } = result;
-  if (complete !== true && isNonEmptyString(cursor))
-    lines.push(grepContinuationLine(cursor));
   const { truncationNotice } = result;
   if (isNonEmptyString(truncationNotice)) lines.push(`[${truncationNotice}]`);
   return lines.join("\n");

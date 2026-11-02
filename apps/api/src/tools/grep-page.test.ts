@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  grepWarningsUnits,
   type GrepBudget,
+  type GrepPassage,
 } from '@workspace/native-file-tools';
 
 import {
+  appendSegment,
   createPageState,
-  deadlineUnits,
+  pageResult,
   remainingBudget,
-  resumePointOf,
+  remainingOf,
 } from './grep-page';
+import { type GrepReadAdmission } from './grep-admission';
 
 const BUDGET: GrepBudget = {
-  files: null,
-  entries: null,
-  bytes: null,
+  files: 10,
+  entries: 20,
+  bytes: 1000,
   maxFileBytes: null,
   deadlineMs: 0,
   limit: 20,
@@ -23,88 +25,163 @@ const BUDGET: GrepBudget = {
   fixedReserve: 120,
 };
 
-/** The deadline line the hub reserves when it adds its own warning. */
-const DEADLINE_LINE = grepWarningsUnits(new Map([['deadline', 1]]));
+/** A `read` group that admits every locator the page names. */
+const OPEN: GrepReadAdmission = {
+  admit: () => true,
+  allows: () => true,
+  refused: 0,
+  recordRefusals: () => undefined,
+};
 
-describe('grep page reserves', () => {
-  it('keeps the warnings and deadline lines back from a segment room', () => {
-    const state = createPageState();
-    state.warnings.set('binary', 5);
-    const remaining = remainingBudget(BUDGET, state, Date.now() + 1000);
-    // The warnings line plus the deadline's marginal width, measured as the
-    // merged line the page would render.
-    expect(remaining.pageUnits).toBe(
-      15_000 -
-        grepWarningsUnits(
-          new Map([
-            ['binary', 5],
-            ['deadline', 1],
-          ]),
-        ),
-    );
-    expect(remaining.fixedReserve).toBe(BUDGET.fixedReserve);
+function passage(
+  locator: string,
+  content: string,
+  matches: ReadonlyArray<number>,
+  marks: { readonly cut?: boolean; readonly truncated?: boolean } = {},
+): GrepPassage {
+  return {
+    locator,
+    content,
+    matches,
+    ...(marks.cut === true && { cut: true as const }),
+    ...(marks.truncated === true && { truncated: true as const }),
+  };
+}
+
+describe('grep page budgets', () => {
+  it('keeps an unset bound unset and stops a set one at zero', () => {
+    expect(remainingOf(null, 10)).toBeNull();
+    expect(remainingOf(10, 4)).toBe(6);
+    expect(remainingOf(10, 12)).toBe(0);
   });
 
-  it('reserves the deadline count once, and nothing once it is reported', () => {
-    expect(deadlineUnits(new Map())).toBe(DEADLINE_LINE);
-    expect(deadlineUnits(new Map([['binary', 5]]))).toBe(
-      grepWarningsUnits(
-        new Map([
-          ['binary', 5],
-          ['deadline', 1],
-        ]),
-      ) - grepWarningsUnits(new Map([['binary', 5]])),
+  it('hands the next segment the bounds the earlier one left', () => {
+    const state = createPageState();
+    state.consumed.files = 3;
+    state.consumed.entries = 7;
+    state.consumed.bytes = 400;
+    const remaining = remainingBudget(BUDGET, state, Date.now() + 1000);
+    expect(remaining).toMatchObject({
+      files: 7,
+      entries: 13,
+      bytes: 600,
+      limit: 20,
+      pageUnits: 15_000,
+    });
+    expect(remaining.deadlineMs).toBeGreaterThan(0);
+  });
+
+  it('reports an expired deadline as zero', () => {
+    const remaining = remainingBudget(
+      BUDGET,
+      createPageState(),
+      Date.now() - 1,
     );
-    // A daemon page that already reported the deadline needs no more room,
-    // even when its count accumulated past a digit boundary.
-    expect(deadlineUnits(new Map([['deadline', 10]]))).toBe(0);
+    expect(remaining.deadlineMs).toBe(0);
   });
 });
 
-describe('grep page resume points', () => {
-  it('keeps an incoming position cursor as a position', () => {
-    expect(
-      resumePointOf({
-        kind: 'position',
-        scopeIndex: 2,
-        rel: 'b.md',
-        inputHash: 'hash',
-      }),
-    ).toStrictEqual({ kind: 'position', scopeIndex: 2, rel: 'b.md' });
+describe('grep page assembly', () => {
+  it('joins the passage a page cut and its continuation', () => {
+    const state = createPageState();
+    appendSegment(
+      state,
+      {
+        results: [
+          passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+          passage('a.md:6-7', '6: d\n7: e', [7]),
+        ],
+        complete: true,
+        warnings: [],
+        consumed: { files: 1, entries: 1, bytes: 10 },
+        progressed: true,
+      },
+      OPEN,
+    );
+    expect(state.results).toEqual([
+      passage('a.md:3-7', '3: a\n4: b\n5: c\n6: d\n7: e', [4, 7]),
+    ]);
   });
 
-  it('hands a passage cursor back with its cut and cap marks', () => {
-    expect(
-      resumePointOf({
-        kind: 'passage',
-        scopeIndex: 1,
-        rel: 'a.go',
-        startLine: 3,
-        endLine: 4,
-        truncated: true,
-        inputHash: 'hash',
-      }),
-    ).toStrictEqual({
-      kind: 'passage',
-      end: {
-        scopeIndex: 1,
-        rel: 'a.go',
-        startLine: 3,
-        endLine: 4,
-        capped: true,
+  it('keeps a cut passage the walk stopped in as it is', () => {
+    const state = createPageState();
+    appendSegment(
+      state,
+      {
+        results: [passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true })],
+        complete: false,
+        warnings: [{ kind: 'deadline', count: 1 }],
+        consumed: { files: 1, entries: 1, bytes: 10 },
+        progressed: true,
       },
+      OPEN,
+    );
+    expect(state.results).toEqual([
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+    ]);
+  });
+
+  it('merges the counts, bounds, and exclusions of two segments', () => {
+    const state = createPageState();
+    appendSegment(
+      state,
+      {
+        results: [passage('a.md:1-1', '1: a', [1])],
+        complete: true,
+        warnings: [{ kind: 'binary', count: 2 }],
+        consumed: { files: 1, entries: 3, bytes: 10 },
+        progressed: false,
+        ignored: { paths: ['/r/skip'], atLeast: false },
+      },
+      OPEN,
+    );
+    appendSegment(
+      state,
+      {
+        results: [passage('b.md:1-1', '1: b', [1])],
+        complete: true,
+        warnings: [{ kind: 'binary', count: 1 }],
+        consumed: { files: 1, entries: 2, bytes: 5 },
+        progressed: true,
+      },
+      OPEN,
+    );
+    const result = pageResult(state);
+    expect(result).toMatchObject({
+      status: 'success',
+      complete: true,
+      warnings: [{ kind: 'binary', count: 3 }],
+      ignored: { count: 1, locators: ['/r/skip'] },
     });
-    expect(
-      resumePointOf({
-        kind: 'passage',
-        scopeIndex: 0,
-        rel: 'a.go',
-        startLine: 1,
-        inputHash: 'hash',
-      }),
-    ).toStrictEqual({
-      kind: 'passage',
-      end: { scopeIndex: 0, rel: 'a.go', startLine: 1, capped: false },
+    expect(state.consumed).toEqual({ files: 2, entries: 5, bytes: 15 });
+    expect(state.progressed).toBe(true);
+  });
+
+  it('carries no cursor, whether the walk ended or a bound stopped it', () => {
+    const stopped = createPageState();
+    appendSegment(
+      stopped,
+      {
+        results: [],
+        complete: false,
+        warnings: [{ kind: 'file_bound', count: 1 }],
+        consumed: { files: 1, entries: 1, bytes: 0 },
+        progressed: false,
+        unfinished: '/r/big.log',
+      },
+      OPEN,
+    );
+    // The caller records a segment's stop on the state, as the walk does.
+    stopped.complete = false;
+    const result = pageResult(stopped);
+    expect(result).toMatchObject({
+      status: 'success',
+      results: [],
+      complete: false,
+      warnings: [{ kind: 'file_bound', count: 1 }],
+      unfinishedFile: '/r/big.log',
     });
+    expect(result).not.toHaveProperty('cursor');
+    expect(pageResult(createPageState())).not.toHaveProperty('cursor');
   });
 });

@@ -46,6 +46,7 @@ export type {
   GrepPositionCursor,
 } from "./cursor";
 export { runGrepScan } from "./scan";
+export { passageEndLine, passageStartLine } from "./passages";
 export { compareRel } from "./walk";
 export {
   grepFileLocator,

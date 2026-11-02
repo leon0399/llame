@@ -1,27 +1,16 @@
 /**
  * The `fs.grep` wire: what one Machine request carries and what its answer's
- * paths mean. The hub validates the patterns and owns the cursor and the
- * bounds, so the request only shapes them for the daemon, and the daemon
- * answers paths relative to its display prefix, which this module spells or
- * resumes from.
+ * paths mean. The hub validates the patterns and owns the bounds, so the
+ * request only shapes them for the daemon, and the daemon answers paths
+ * relative to its display prefix, which this module spells.
  */
 
 import {
-  fsGrepCursorKey,
   type FsGrepParams,
   type FsGrepSuccess,
   type FsGrepWarningKind,
 } from '@workspace/machine-protocol';
-import {
-  encodeGrepCursor,
-  GREP_LIMITS,
-  grepIgnoredUnits,
-  grepUnfinishedUnits,
-  grepWarningsUnits,
-  spellGrepHostScopeLocator,
-  type DecodedGrepCursor,
-  type GrepBudget,
-} from '@workspace/native-file-tools';
+import { GREP_LIMITS, type GrepBudget } from '@workspace/native-file-tools';
 
 import { formatMachineLocator } from '../machines/machine-locator';
 import { remainingOf } from './grep-page';
@@ -66,44 +55,6 @@ export function namedUnfinished(
     : undefined;
 }
 
-/** The key the daemon binds its own page to, built from the same inputs. */
-export function requestCursorKey(search: MachineGrepSearch): string {
-  return fsGrepCursorKey({
-    path: search.scope.path,
-    globSuffix: search.scope.globSuffix,
-    patterns: search.args.patterns,
-    literal: search.args.literal,
-    ignoreCase: search.args.ignoreCase,
-  });
-}
-
-/**
- * The daemon's own cursor for the call's resume point: a passage continues
- * that passage (from its last emitted line when it was cut), a position
- * resumes after the entry a bound stopped at.
- */
-export function daemonCursor(
-  search: MachineGrepSearch,
-  resume: DecodedGrepCursor,
-): string {
-  const inputHash = requestCursorKey(search);
-  return resume.kind === 'position'
-    ? encodeGrepCursor({
-        kind: 'position',
-        scopeIndex: 0,
-        rel: resume.rel,
-        inputHash,
-      })
-    : encodeGrepCursor({
-        scopeIndex: 0,
-        rel: resume.rel,
-        startLine: resume.startLine,
-        ...(resume.endLine !== undefined && { endLine: resume.endLine }),
-        ...(resume.truncated === true && { truncated: true as const }),
-        inputHash,
-      });
-}
-
 /** One `fs.grep` request: the remaining budget and, on resume, the page key. */
 export function requestOf(
   search: MachineGrepSearch,
@@ -130,39 +81,18 @@ export function requestOf(
       // cursor, and unfinished file are never lost.
       deadlineMs: Math.max(1, Math.floor((budget.deadlineMs * 9) / 10)),
       limit: budget.limit,
-      // The daemon reserves its own continuation line only; the hub's
-      // warnings, notice, and envelope lines must also fit, or a daemon page
-      // the hub then drops whole would come back unchanged on every resume.
+      // One protocol message holds one daemon page: the page budget the wire
+      // ships today, less the lines the result's envelope adds beside it.
       pageUnits: Math.max(0, budget.pageUnits - budget.fixedReserve),
       progressed: ask.progressed,
     },
   };
 }
 
-/**
- * Where a daemon that stopped inside a file it named left the call. A Machine
- * single-file scope ignores a cursor, so the hub moves its ordinal past the
- * scope itself; a directory scope resumes after the file.
- */
-export function unfinishedPosition(
-  search: MachineGrepSearch,
-  page: { readonly unfinished?: string },
-): { readonly scopeIndex: number; readonly rel: string } | undefined {
-  const rel = page.unfinished;
-  if (rel === undefined) return undefined;
-  // A single-file walk yields only `""` and ignores a cursor, so the hub moves
-  // past the scope ordinal; a directory scope resumes after the file.
-  return rel === ''
-    ? { scopeIndex: search.scope.index + 1, rel: '' }
-    : { scopeIndex: search.scope.index, rel };
-}
-
 /** The excluded directories one Machine scope's pages report, capped. */
 export type IgnoredAccumulator = {
   readonly scope: MachineGrepScope;
   readonly paths: Array<string>;
-  /** Each locator's scope-relative path, so a page cut can filter them. */
-  readonly rels: Array<string>;
   /** The paths already counted, so a repeated page counts its exclusions once. */
   readonly seen: Set<string>;
   atLeast: boolean;
@@ -174,7 +104,6 @@ export function ignoredAccumulator(
   return {
     scope,
     paths: [],
-    rels: [],
     seen: new Set(),
     atLeast: false,
   };
@@ -214,66 +143,37 @@ export function mergePage(
     const locator = machineScopeLocator(ignored.scope, rel);
     if (locator === undefined) continue;
     ignored.paths.push(locator);
-    ignored.rels.push(rel);
   }
 }
 
-/** The loop's first request state: budget, cursor, and inherited progress. */
+/** The loop's first request state: budget and inherited progress. */
 type DaemonStart = {
   readonly budget: GrepBudget;
   readonly cursor: string | undefined;
   readonly progressed: boolean;
 };
 
-function daemonBudget(budget: GrepBudget, deadlineAt: number): GrepBudget {
-  return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
-}
-
 export function daemonStart(
   search: MachineGrepSearch,
   deadlineAt: number,
 ): DaemonStart {
   return {
-    budget: daemonBudget(search.budget, deadlineAt),
-    cursor: search.resume && daemonCursor(search, search.resume),
+    budget: {
+      ...search.budget,
+      deadlineMs: Math.max(0, deadlineAt - Date.now()),
+    },
+    cursor: undefined,
     progressed: search.progressed,
   };
 }
 
-/**
- * What the call has left after one daemon page. The next request must leave
- * the hub's own lines beside it — `base` plus this segment's warnings line so
- * far — or a page the hub then drops whole would come back on every resume.
- */
+/** What the call has left after one daemon page. */
 export function spent(
   budget: GrepBudget,
   page: FsGrepSuccess,
   deadlineAt: number,
-  lines: {
-    readonly base: number;
-    readonly counts: ReadonlyMap<FsGrepWarningKind, number>;
-    readonly ignored: IgnoredAccumulator;
-    /** The file the scope's walk stopped inside, as the result spells it. */
-    readonly unfinished: string | undefined;
-  },
 ): GrepBudget {
   const consumed = page.consumed;
-  const reserve =
-    lines.base +
-    grepWarningsUnits(lines.counts) +
-    (lines.unfinished === undefined
-      ? 0
-      : grepUnfinishedUnits(lines.unfinished)) +
-    (lines.ignored.paths.length === 0 && !lines.ignored.atLeast
-      ? 0
-      : grepIgnoredUnits(
-          {
-            count: lines.ignored.paths.length,
-            locators: lines.ignored.paths,
-            atLeast: lines.ignored.atLeast,
-          },
-          spellGrepHostScopeLocator,
-        ));
   return {
     files: remainingOf(budget.files, consumed.files),
     entries: remainingOf(budget.entries, consumed.entries),
@@ -281,7 +181,7 @@ export function spent(
     maxFileBytes: budget.maxFileBytes,
     limit: budget.limit,
     pageUnits: budget.pageUnits,
-    fixedReserve: reserve,
+    fixedReserve: budget.fixedReserve,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
   };
 }

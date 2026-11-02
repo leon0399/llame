@@ -12,6 +12,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   result cap must not shorten it. See
   [model output](docs/product/reference/tools/model-output.md) and
   [MCP tools](docs/product/reference/tools/mcp-tools.md).
+- **Breaking**: `grep` no longer has a model-facing `cursor`. The `cursor`
+  input is refused as an unknown property, and no result carries a `cursor`,
+  a continuation line, or a cut-passage cursor marker. One call walks every
+  scope to its end, an operator bound, or the call deadline; the engine's and
+  a Machine's internal pages continue inside that call, and a passage an
+  internal page cut is joined with the passage that continues it, so the
+  result holds the whole walk. A stopped walk still reports `complete: false`
+  and the warning that names the stop. A later call cannot resume a stopped
+  walk ([#1527](https://github.com/leon0399/llame/issues/1527)). See
+  [grep](docs/product/reference/tools/grep.md).
 
 - Tool-result artifacts are now also files on the llame host when `bash` is
   allowlisted and the process has a native executor: `$TMPDIR/llame/chats/<chatId>/artifacts/`

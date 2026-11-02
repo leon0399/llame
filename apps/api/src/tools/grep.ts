@@ -3,7 +3,8 @@
  *
  * The runner admits every scope once against the `grep` group; this module
  * compiles the patterns, resolves each scope into an engine `GrepScope` with
- * per-file `read` admission, and pages the engine's passages.
+ * per-file `read` admission, and walks every scope to its end, a bound, or the
+ * deadline. The engine's pages and the daemon's pages continue inside the call.
  */
 
 import {
@@ -16,7 +17,6 @@ import {
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
   type GrepBudget,
-  type GrepScanInput,
   type GrepScanResult,
   type GrepScope,
 } from '@workspace/native-file-tools';
@@ -42,10 +42,9 @@ import {
   addWarning,
   appendSegment,
   createPageState,
-  pageIsFull,
   pageResult,
   remainingBudget,
-  resumePointOf,
+  remainingOf,
   type PageState,
   type SegmentPage,
 } from './grep-page';
@@ -53,7 +52,6 @@ import { resolveScopes } from './grep-scopes';
 import { type ResolvedScopes } from './grep-scope-shape';
 import {
   GrepScopeFailure,
-  invalidCursorResult,
   invalidInputResult,
   invalidPatternResult,
   type GrepToolError,
@@ -66,7 +64,6 @@ export const grepInputSchema = z.strictObject({
   literal: z.boolean().optional(),
   ignoreCase: z.boolean().optional(),
   limit: z.number().int().min(1).max(20).optional(),
-  cursor: z.string().optional(),
 });
 
 type GrepArguments = z.infer<typeof grepInputSchema>;
@@ -152,29 +149,18 @@ type ScanRequest = {
  */
 type GrepSegment = GrepScope | MachineGrepScope;
 
-/** Page the call's scopes in submitted order; the caller records what policy hid. */
+/** Walk the call's scopes in submitted order; the caller records what policy hid. */
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const { input, patterns, resolved, deadlineAt } = request;
   const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
-  const cursor = resolveCursor(input.cursor, inputHash);
-  if ('result' in cursor) return cursor.result;
-
-  const budget = grepBudget(request.context, input.limit);
-  const resume = cursor.cursor;
+  const budget = grepBudget(request.context);
   const state = createPageState();
-  const segments = segmentsOf(resolved);
-  for (const segment of segments) {
+  for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
-    // A resumed call starts at the cursor's own segment: an earlier host scope
-    // is never walked again, and a Machine scope is skipped before any request
-    // leaves for its box.
-    if (resume !== undefined && segment.index < resume.scopeIndex) continue;
     const remaining = remainingBudget(budget, state, deadlineAt);
-    // A full page continues on the next call; an expired deadline ends here.
-    if (pageIsFull(state, budget) || remaining.deadlineMs <= 0) {
-      if (remaining.deadlineMs <= 0) endAtDeadline(state);
-      else state.complete = false;
-      resumeWithoutCursor(state, resume, segment.index);
+    // An expired deadline ends the walk before another scope is opened.
+    if (remaining.deadlineMs <= 0) {
+      endAtDeadline(state);
       break;
     }
     const outcome = await runSegment({
@@ -183,41 +169,20 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
       inputHash,
       segment,
       budget: remaining,
-      // A cursor continues only the scope it names: an earlier one is skipped
-      // above, and a later one starts at its own beginning.
-      cursor: resume?.scopeIndex === segment.index ? resume : undefined,
+
       progressed: state.progressed,
     });
     if ('result' in outcome) return outcome.result;
-    appendSegment(state, budget, outcome.page, request.admission);
-    if (!outcome.page.complete) state.complete = false;
-    resumeWithoutCursor(state, undefined, segment.index);
+    for (const page of outcome.pages)
+      appendSegment(state, page, request.admission);
+    // The last page of a segment carries its stop: a walked scope is complete
+    // only when no bound or deadline ended it.
+    if (outcome.pages.at(-1)?.complete !== true) state.complete = false;
   }
-  return pageResult(state, inputHash);
+  return pageResult(state);
 }
 
-/**
- * Give an incomplete page a cursor when it stopped before taking any entry:
- * the incoming cursor as it was, or the segment's own start, so the next call
- * resumes instead of repeating the stop (the spec's stop-before-an-entry rule).
- */
-function resumeWithoutCursor(
-  state: PageState,
-  incoming: DecodedGrepCursor | undefined,
-  scopeIndex: number,
-): void {
-  if (state.complete || state.resume !== undefined) return;
-  state.resume =
-    incoming === undefined
-      ? { kind: 'position', scopeIndex, rel: '' }
-      : resumePointOf(incoming);
-}
-
-/**
- * End the page at the deadline. The hub reserved the deadline line's room
- * before any entry was admitted, so the stop the spec requires is always
- * reported, never deferred (design D7).
- */
+/** End the walk at the call deadline with the warning the spec requires. */
 function endAtDeadline(state: PageState): void {
   state.complete = false;
   addWarning(state, 'deadline');
@@ -235,7 +200,7 @@ function segmentsOf(resolved: ResolvedScopes): ReadonlyArray<GrepSegment> {
 }
 
 type SegmentOutcome =
-  | { readonly page: SegmentPage }
+  | { readonly pages: ReadonlyArray<SegmentPage> }
   | { readonly result: ToolResult };
 
 /** What one segment is asked with, under the budget earlier segments left. */
@@ -245,8 +210,7 @@ type SegmentRun = {
   readonly inputHash: string;
   readonly segment: GrepSegment;
   readonly budget: GrepBudget;
-  /** The call's cursor, only when it names this segment's own scope. */
-  readonly cursor: DecodedGrepCursor | undefined;
+
   /** Whether the call already progressed in an earlier segment. */
   readonly progressed: boolean;
 };
@@ -258,7 +222,7 @@ async function runSegment(run: SegmentRun): Promise<SegmentOutcome> {
     : runLocalSegment(run, run.segment);
 }
 
-/** One Machine scope, sent as one `fs.grep` request through its connector. */
+/** One Machine scope, which pages over `fs.grep` on its own box. */
 async function runMachineSegment(
   run: SegmentRun,
   scope: MachineGrepScope,
@@ -268,7 +232,7 @@ async function runMachineSegment(
     scope,
     args: searchArgumentsOf(run.request.input),
     budget: run.budget,
-    resume: run.cursor,
+
     progressed: run.progressed,
     admission: run.request.admission,
   });
@@ -278,67 +242,98 @@ async function runMachineSegment(
       ? undefined
       : namedUnfinished(scope, machine.unfinished, run.request.admission);
   return {
-    page: {
-      entries: machine.entries,
-      complete: machine.complete,
-      warnings: machine.warnings,
-      consumed: machine.consumed,
-      progressed: machine.progressed,
-      ...(unfinished !== undefined && { unfinished }),
-      ...(machine.ignored !== undefined && { ignored: machine.ignored }),
-      ...(machine.position !== undefined && {
-        position: machine.position,
-      }),
-    },
+    pages: [
+      {
+        results: machine.passages,
+        complete: machine.complete,
+        warnings: machine.warnings,
+        consumed: machine.consumed,
+        progressed: machine.progressed,
+        ...(unfinished !== undefined && { unfinished }),
+        ...(machine.ignored !== undefined && { ignored: machine.ignored }),
+      },
+    ],
   };
 }
 
+/** The bound or deadline that ended an engine page, when one did. */
+const PAGE_STOP_KINDS: ReadonlySet<string> = new Set([
+  'file_bound',
+  'entry_bound',
+  'byte_bound',
+  'deadline',
+]);
+
 /**
- * One host scope, walked by the shared engine in one call under the page
- * budget the call has left (design D7).
- *
- * The engine still stops its page at `limit` files, because that page *is* the
- * model-facing page until the artifact holds the walk: `appendSegment` trusts
- * the engine's own page end as the resume point, so an engine page the hub
- * then cut at `limit` would resume past the matches it dropped. The artifact
- * layer drops both stops together, when the page becomes the head of the
- * artifact text.
+ * One host scope, walked by the shared engine over as many pages as its own
+ * page bound asks for (design D7). A page the engine cut at its own bound and
+ * a page a bound or the deadline ended both report an incomplete page; only
+ * the latter stops the walk. Every page resumes from the engine's cursor, so a
+ * walk never opens a file twice.
  */
 async function runLocalSegment(
   run: SegmentRun,
   scope: GrepScope,
 ): Promise<SegmentOutcome> {
-  const scanInput: GrepScanInput = {
-    scopes: [scope],
-    patterns: run.patterns,
-    onCandidate: (locator) =>
-      Promise.resolve(run.request.admission.admit(locator)),
-    budget: run.budget,
-    inputHash: run.inputHash,
-    now: Date.now,
-    progressed: run.progressed,
-  };
-  if (run.cursor !== undefined) scanInput.cursor = run.cursor;
+  const pages: Array<SegmentPage> = [];
+  let cursor: DecodedGrepCursor | undefined;
+  let budget = run.budget;
+  let progressed = run.progressed;
   try {
-    return { page: localPage(await runGrepScan(scanInput)) };
+    for (;;) {
+      const scan = await runGrepScan({
+        scopes: [scope],
+        patterns: run.patterns,
+        onCandidate: (locator) =>
+          Promise.resolve(run.request.admission.admit(locator)),
+        budget,
+        ...(cursor !== undefined && { cursor }),
+        inputHash: run.inputHash,
+        now: Date.now,
+        progressed,
+      });
+      pages.push(localPage(scan));
+      if (scan.complete || scan.cursor === undefined) break;
+      if (scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind)))
+        break;
+      const next = decodeGrepCursor(scan.cursor, run.inputHash);
+      if ('error' in next) break;
+      cursor = next;
+      progressed = progressed || scan.progressed;
+      budget = nextPageBudget(budget, scan, run.request.deadlineAt);
+    }
+    return { pages };
   } catch (error) {
     if (error instanceof GrepScopeFailure) return { result: error.result };
     throw error;
   }
 }
 
+/** What the next engine page walks with after one page consumed its share. */
+function nextPageBudget(
+  budget: GrepBudget,
+  scan: GrepScanResult,
+  deadlineAt: number,
+): GrepBudget {
+  return {
+    ...budget,
+    files: remainingOf(budget.files, scan.consumed.files),
+    entries: remainingOf(budget.entries, scan.consumed.entries),
+    bytes: remainingOf(budget.bytes, scan.consumed.bytes),
+    deadlineMs: Math.max(0, deadlineAt - Date.now()),
+  };
+}
+
 /** The engine's own page, as the call's segment shape. */
 function localPage(scan: GrepScanResult): SegmentPage {
   return {
-    entries: scan.results.map((passage) => ({ passage })),
+    results: scan.results,
     complete: scan.complete,
     warnings: scan.warnings,
     consumed: scan.consumed,
     progressed: scan.progressed,
     ...(scan.unfinished !== undefined && { unfinished: scan.unfinished }),
     ...(scan.ignored !== undefined && { ignored: scan.ignored }),
-    ...(scan.last !== undefined && { last: scan.last }),
-    ...(scan.position !== undefined && { position: scan.position }),
   };
 }
 
@@ -375,22 +370,6 @@ function compileSubmittedPatterns(
     : invalidPatternResult(compiled.index, compiled.message);
 }
 
-type CursorOutcome =
-  | { readonly cursor?: DecodedGrepCursor }
-  | { readonly result: GrepToolError };
-
-/** Decode the submitted cursor; only this call's own inputs can continue it. */
-function resolveCursor(
-  text: string | undefined,
-  inputHash: string,
-): CursorOutcome {
-  if (text === undefined) return {};
-  const decoded = decodeGrepCursor(text, inputHash);
-  return 'error' in decoded
-    ? { result: invalidCursorResult() }
-    : { cursor: decoded };
-}
-
 function hashOf(
   input: GrepArguments,
   projectedScopes: ReadonlyArray<string>,
@@ -407,22 +386,18 @@ function hashOf(
 
 /**
  * What one call may walk with: the operator's `tools.grep` bounds (an unset
- * bound stays `null`), the page shape this process owns, and what is left of
- * the call deadline computed at `executeGrep` entry.
+ * bound stays `null`) and one internal page of the engine or the daemon. Every
+ * segment derives its own remaining time from the call deadline.
  */
-function grepBudget(
-  context: ToolContext,
-  limit: number | undefined,
-): GrepBudget {
+function grepBudget(context: ToolContext): GrepBudget {
   const bounds = context.grepBounds ?? BUILT_IN_DEFAULTS.tools.grep;
   return {
     files: bounds.maxFilesExamined,
     entries: bounds.maxEntriesListed,
     bytes: bounds.maxBytesRead,
     maxFileBytes: bounds.maxFileBytes,
-    // Every segment derives its own remaining time from the call deadline.
     deadlineMs: 0,
-    limit: limit ?? GREP_LIMITS.filesPerPage,
+    limit: GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,
     fixedReserve: pageFixedReserve(),
   };

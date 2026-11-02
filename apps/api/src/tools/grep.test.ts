@@ -30,11 +30,7 @@ import {
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
-import {
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import {
   grepWarningsUnits,
   measureGrepRendering,
@@ -163,17 +159,6 @@ function contextOf(options: ContextOptions = {}): ToolContext {
   };
 }
 
-/** The decoded payload of a cursor a result carries. */
-function cursorPayloadOf(result: ToolResult): UnknownRecord {
-  const cursor = success(result).cursor;
-  if (!isString(cursor)) throw new Error('the page carries a cursor');
-  const payload: unknown = JSON.parse(
-    Buffer.from(cursor, 'base64url').toString('utf8'),
-  );
-  if (!isRecord(payload)) throw new Error('the cursor is an object');
-  return payload;
-}
-
 /** A successful result as an open record, so a field assertion stays checked. */
 function success(result: ToolResult) {
   if (result.status !== 'success') {
@@ -223,11 +208,6 @@ function warningsOf(result: ToolResult): ReadonlyArray<unknown> {
   return Array.isArray(warnings) ? warnings : [];
 }
 
-function cursorOf(result: ToolResult): string | undefined {
-  const cursor = success(result).cursor;
-  return isString(cursor) ? cursor : undefined;
-}
-
 function run(context: ToolContext, args: unknown) {
   const parsed = grepInputSchema.safeParse(args);
   if (!parsed.success) throw new Error('the fixture arguments must parse');
@@ -266,6 +246,7 @@ describe('registration', () => {
       },
     ],
     ['a limit above twenty', { patterns: ['x'], limit: 21 }],
+    ['a cursor', { patterns: ['x'], cursor: 'abc' }],
   ])('refuses %s', (_case, args) => {
     expect(grepInputSchema.safeParse(args).success).toBe(false);
   });
@@ -662,7 +643,7 @@ describe('skill scopes', () => {
   });
 });
 
-describe('paging', () => {
+describe('one walk per call', () => {
   it('reserves the notice and grows the warnings line with its counts', () => {
     // The fixed part holds the Knowledge notice and the two newlines that
     // separate the page's own lines from the passages. The warnings line is
@@ -679,17 +660,11 @@ describe('paging', () => {
     );
   });
 
-  it('reserves the cursor and the notice inside the 15,000-unit page', async () => {
+  it('holds every passage of a walk that fills an engine page', async () => {
     await withRoot(async (root) => {
-      // A long path is rendered once per file, so each note's file line and
-      // its passages fill the page beside the cursor and the notice; a page
-      // measured on its passages alone would push the cursor past the runner's
-      // 16,000-unit cap, which shortens it in place.
-      const directory = Array.from(
-        { length: 28 },
-        (_, index) => `${String(index).padStart(2, '0')}${'d'.repeat(28)}`,
-      ).join('/');
-      // Three lines between matches keep every window its own passage.
+      // Each note gives fourteen passages, so the engine's own 15,000-unit
+      // page fills long before the walk ends; the call keeps walking its
+      // internal pages and the result holds them all.
       const matched = `${'x'.repeat(480)}needle`;
       const lines: Array<string> = [];
       for (let index = 0; index < 14; index += 1)
@@ -699,7 +674,7 @@ describe('paging', () => {
         SPACE_A,
         Object.fromEntries(
           Array.from({ length: 24 }, (_, index) => [
-            `${directory}/note-${String(index).padStart(2, '0')}.md`,
+            `note-${String(index).padStart(2, '0')}.md`,
             lineNumbered(...lines),
           ]),
         ),
@@ -707,29 +682,27 @@ describe('paging', () => {
       const context = contextOf({
         resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
       });
-      const scopes = [`kb://${SPACE_A}/${directory}`];
 
-      const first = await run(context, { patterns: ['needle'], scopes });
-      expect(first).toMatchObject({ status: 'success', complete: false });
-      expect(measureGrepRendering(first)).toBeLessThanOrEqual(15_000);
-      const cursor = cursorOf(first);
-      if (cursor === undefined) throw new Error('the page carries a cursor');
-
-      // The cursor survives the cap intact, so it still resumes the walk.
-      const second = await run(context, {
+      const result = await run(context, {
         patterns: ['needle'],
-        scopes,
-        cursor,
+        scopes: [`kb://${SPACE_A}`],
       });
-      expect(second).toMatchObject({ status: 'success' });
-      expect(locatorsOf(second).length).toBeGreaterThan(0);
+      expect(measureGrepRendering(result)).toBeGreaterThan(15_000);
+      expect(success(result).complete).toBe(true);
+      expect(result).not.toHaveProperty('cursor');
+      const files = new Set(
+        locatorsOf(result).map((locator) =>
+          locator.slice(0, locator.lastIndexOf(':')),
+        ),
+      );
+      expect(files.size).toBe(24);
     });
   });
 
-  it('never walks a scope twice when a page fills near the budget', async () => {
+  it('never walks a scope twice when an engine page fills near the budget', async () => {
     await withRoot(async (root) => {
-      // The page fills only after the walk examined every missing file, so a
-      // call that pages itself again is visible as more than 5,000 reads.
+      // The engine page fills only after the walk examined every missing file,
+      // so a call that restarted its walk is visible as more than 5,000 reads.
       const space = path.join(root, SPACE_A);
       await mkdir(space, { recursive: true });
       const misses = Array.from(
@@ -739,25 +712,13 @@ describe('paging', () => {
       await Promise.all(
         misses.map((name) => writeFile(path.join(space, name), 'miss\n')),
       );
-      // A long file line per note fills the page beside the cursor, so the
-      // call fills before the file bound and must not page itself again.
-      const directory = Array.from(
-        { length: 28 },
-        (_, index) => `z${String(index).padStart(2, '0')}${'d'.repeat(26)}`,
-      ).join('/');
-      await mkdir(path.join(space, ...directory.split('/')), {
-        recursive: true,
-      });
-      const matched = `${'x'.repeat(228)}needle`;
+      const matched = `${'x'.repeat(480)}needle`;
       const lines: Array<string> = [];
       for (let index = 0; index < 20; index += 1)
         lines.push('ctx', matched, 'ctx', 'ctx');
       for (let index = 0; index < 6; index += 1)
         await writeFile(
-          path.join(
-            space,
-            ...`${directory}/note-${String(index)}.md`.split('/'),
-          ),
+          path.join(space, `note-${String(index)}.md`),
           lineNumbered(...lines),
         );
 
@@ -782,16 +743,17 @@ describe('paging', () => {
           }),
           { patterns: ['needle'], scopes: [`kb://${SPACE_A}`] },
         );
-        expect(result).toMatchObject({ status: 'success', complete: false });
-        expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+        expect(result).toMatchObject({ status: 'success', complete: true });
         expect(reads.mock.calls.length).toBeLessThanOrEqual(5000);
+        expect(locatorsOf(result).length).toBe(120);
       } finally {
         reads.mockRestore();
       }
     });
     // The fixture creates and walks about 5,000 files, which is the configured
-    // file bound it proves; the page fills long before the walk stops.
+    // file bound it proves; the engine pages inside that one walk.
   }, 30_000);
+
   it('takes the deadline before scope resolution spends the walk time', async () => {
     await withRoot(async (root) => {
       const space = await spaceFixture(root, SPACE_A, {
@@ -818,59 +780,14 @@ describe('paging', () => {
         expect(result).toMatchObject({ status: 'success', results: [] });
         expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
         expect(success(result).complete).toBe(false);
-        // The stop carries a cursor at the first unsearched scope, so the next
-        // call resumes instead of repeating the resolution.
-        expect(cursorPayloadOf(result)).toMatchObject({
-          kind: 'position',
-          scopeIndex: 0,
-          rel: '',
-        });
+        expect(result).not.toHaveProperty('cursor');
       } finally {
         vi.useRealTimers();
       }
     });
   });
 
-  it('resumes after the cursor and refuses a cursor from other inputs', async () => {
-    await withRoot(async (root) => {
-      const pkg = path.join(root, 'pdf');
-      await mkdir(pkg);
-      for (const name of ['a.md', 'b.md', 'c.md']) {
-        await writeFile(path.join(pkg, name), lineNumbered('needle'));
-      }
-      const context = contextOf({
-        catalog: catalogOf([packageEntry('pdf', pkg)]),
-      });
-      const first = await run(context, {
-        patterns: ['needle'],
-        scopes: ['skill://pdf'],
-        limit: 1,
-      });
-      expect(first).toMatchObject({ status: 'success', complete: false });
-      const cursor = cursorOf(first);
-      expect(locatorsOf(first)).toEqual(['skill://pdf/a.md:1-1']);
-      if (cursor === undefined)
-        throw new Error('the first page carries a cursor');
-
-      const second = await run(context, {
-        patterns: ['needle'],
-        scopes: ['skill://pdf'],
-        limit: 1,
-        cursor,
-      });
-      expect(locatorsOf(second)).toEqual(['skill://pdf/b.md:1-1']);
-
-      const foreign = await run(context, {
-        patterns: ['other'],
-        scopes: ['skill://pdf'],
-        limit: 1,
-        cursor,
-      });
-      expect(foreign).toMatchObject({ status: 'error', type: 'invalid_input' });
-    });
-  });
-
-  it('resumes a bare kb:// page in the Space the cursor ended in', async () => {
+  it('walks every expanded bare kb:// scope in one call', async () => {
     await withRoot(async (root) => {
       const a = await spaceFixture(root, SPACE_A, {
         'note.md': lineNumbered('needle'),
@@ -887,30 +804,20 @@ describe('paging', () => {
         ),
       });
 
-      const first = await run(context, {
+      const result = await run(context, {
         patterns: ['needle'],
         scopes: ['kb://'],
-        limit: 1,
       });
-      expect(locatorsOf(first)).toEqual([`kb://${SPACE_A}/note.md:1-1`]);
-      const cursor = cursorOf(first);
-      if (cursor === undefined)
-        throw new Error('the first page carries a cursor');
-
-      // Every expanded Space is its own scope, so the cursor of the first page
-      // hides only that Space's file, not the identically named file of the
-      // next one.
-      const second = await run(context, {
-        patterns: ['needle'],
-        scopes: ['kb://'],
-        limit: 1,
-        cursor,
-      });
-      expect(locatorsOf(second)).toEqual([`kb://${SPACE_B}/note.md:1-1`]);
+      // Each expanded Space is its own scope, and one call walks them all.
+      expect(locatorsOf(result)).toEqual([
+        `kb://${SPACE_A}/note.md:1-1`,
+        `kb://${SPACE_B}/note.md:1-1`,
+      ]);
+      expect(success(result).complete).toBe(true);
     });
   });
 
-  it('resumes a bare skill:// page in the package the cursor ended in', async () => {
+  it('walks every expanded bare skill:// scope in one call', async () => {
     await withRoot(async (root) => {
       for (const name of ['alpha', 'pdf']) {
         const directory = path.join(root, name);
@@ -927,23 +834,15 @@ describe('paging', () => {
         ]),
       });
 
-      const first = await run(context, {
+      const result = await run(context, {
         patterns: ['needle'],
         scopes: ['skill://'],
-        limit: 1,
       });
-      expect(locatorsOf(first)).toEqual(['skill://alpha/SKILL.md:1-1']);
-      const cursor = cursorOf(first);
-      if (cursor === undefined)
-        throw new Error('the first page carries a cursor');
-
-      const second = await run(context, {
-        patterns: ['needle'],
-        scopes: ['skill://'],
-        limit: 1,
-        cursor,
-      });
-      expect(locatorsOf(second)).toEqual(['skill://pdf/SKILL.md:1-1']);
+      expect(locatorsOf(result)).toEqual([
+        'skill://alpha/SKILL.md:1-1',
+        'skill://pdf/SKILL.md:1-1',
+      ]);
+      expect(success(result).complete).toBe(true);
     });
   });
 
@@ -1109,98 +1008,68 @@ describe('matching modes', () => {
   });
 });
 
-describe('cursor inputs', () => {
-  async function pagedPackage(root: string): Promise<ToolContext> {
-    const pkg = path.join(root, 'pdf');
-    await mkdir(pkg);
-    await writeFile(path.join(pkg, 'a.md'), lineNumbered('needle'));
-    await writeFile(path.join(pkg, 'b.md'), lineNumbered('needle'));
-    return contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) });
-  }
+describe('no model cursor', () => {
+  it('refuses a cursor input as an unknown property', () => {
+    // The strict input object has no `cursor` field any more, so the runner
+    // refuses one before any scope is admitted.
+    expect(
+      grepInputSchema.safeParse({ patterns: ['needle'], cursor: 'abc' })
+        .success,
+    ).toBe(false);
+  });
 
-  it('omits a cursor from a complete result', async () => {
+  it('returns no cursor from a walk a bound stopped', async () => {
     await withRoot(async (root) => {
-      const context = await pagedPackage(root);
-      const result = await run(context, {
-        patterns: ['needle'],
-        scopes: ['skill://pdf'],
+      const pkg = path.join(root, 'pdf');
+      await mkdir(pkg);
+      await writeFile(path.join(pkg, 'a.md'), lineNumbered('miss'));
+      await writeFile(path.join(pkg, 'b.md'), lineNumbered('needle'));
+      const result = await run(
+        contextOf({
+          catalog: catalogOf([packageEntry('pdf', pkg)]),
+          grepBounds: {
+            maxFilesExamined: 1,
+            maxEntriesListed: null,
+            maxBytesRead: null,
+            maxFileBytes: null,
+          },
+        }),
+        { patterns: ['needle'], scopes: ['skill://pdf'] },
+      );
+      expect(result).toMatchObject({
+        status: 'success',
+        results: [],
+        complete: false,
       });
+      expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
       expect(result).not.toHaveProperty('cursor');
     });
   });
 
-  it('keys the cursor on the effective ignoreCase flag', async () => {
+  it('leaves an empty result when a bound stops before the first match', async () => {
     await withRoot(async (root) => {
-      const context = await pagedPackage(root);
-      const page = await run(context, {
-        patterns: ['needle'],
-        ignoreCase: true,
-        scopes: ['skill://pdf'],
-        limit: 1,
-      });
-      const cursor = cursorOf(page);
-      if (cursor === undefined)
-        throw new Error('the first page carries a cursor');
-
-      expect(
-        await run(context, {
-          patterns: ['needle'],
-          ignoreCase: false,
-          scopes: ['skill://pdf'],
-          limit: 1,
-          cursor,
+      const pkg = path.join(root, 'pdf');
+      await mkdir(pkg);
+      // The listing bound stops the walk after the first entry, so the second
+      // file's match is never reached.
+      await writeFile(path.join(pkg, 'a.md'), lineNumbered('miss'));
+      await writeFile(path.join(pkg, 'b.md'), lineNumbered('needle'));
+      const result = await run(
+        contextOf({
+          catalog: catalogOf([packageEntry('pdf', pkg)]),
+          grepBounds: {
+            maxFilesExamined: null,
+            maxEntriesListed: 1,
+            maxBytesRead: null,
+            maxFileBytes: null,
+          },
         }),
-      ).toMatchObject({ status: 'error', type: 'invalid_input' });
-    });
-  });
-
-  it('keys the cursor on the effective literal flag', async () => {
-    await withRoot(async (root) => {
-      const context = await pagedPackage(root);
-      const page = await run(context, {
-        patterns: ['needle'],
-        literal: true,
-        scopes: ['skill://pdf'],
-        limit: 1,
-      });
-      const cursor = cursorOf(page);
-      if (cursor === undefined)
-        throw new Error('the first page carries a cursor');
-
-      expect(
-        await run(context, {
-          patterns: ['needle'],
-          literal: false,
-          scopes: ['skill://pdf'],
-          limit: 1,
-          cursor,
-        }),
-      ).toMatchObject({ status: 'error', type: 'invalid_input' });
-    });
-  });
-
-  it('treats an explicit false as the same input as an omitted flag', async () => {
-    await withRoot(async (root) => {
-      const context = await pagedPackage(root);
-      const omitted = await run(context, {
-        patterns: ['needle'],
-        scopes: ['skill://pdf'],
-        limit: 1,
-      });
-      const cursor = cursorOf(omitted);
-      if (cursor === undefined)
-        throw new Error('the first page carries a cursor');
-
-      expect(
-        await run(context, {
-          patterns: ['needle'],
-          ignoreCase: false,
-          literal: false,
-          scopes: ['skill://pdf'],
-          limit: 1,
-          cursor,
-        }),
-      ).toMatchObject({ status: 'success' });
+        { patterns: ['needle'], scopes: ['skill://pdf'] },
+      );
+      expect(result).toMatchObject({ status: 'success', results: [] });
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'entry_bound', count: 1 }]);
+      expect(result).not.toHaveProperty('cursor');
     });
   });
 });

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   executorUnavailableResult,
   hostPathFailureResult,
-  invalidCursorResult,
   invalidInputResult,
   invalidPathResult,
   invalidPatternResult,
@@ -22,12 +21,6 @@ describe('grep results', () => {
   });
 
   it('spells each refusal the model is told to act on', () => {
-    expect(invalidCursorResult()).toEqual({
-      status: 'error',
-      type: 'invalid_input',
-      message:
-        'The grep cursor is invalid for these inputs; repeat the call without it.',
-    });
     expect(invalidPatternResult(2, 'bad')).toEqual({
       status: 'error',
       type: 'invalid_pattern',
