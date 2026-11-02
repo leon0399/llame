@@ -106,11 +106,6 @@ export function grepArtifactBytes(artifact: GrepArtifact): number {
   return artifact.lineBytes - 1 + artifact.noticeBytes;
 }
 
-/** The bytes the artifact can still take. */
-export function grepArtifactBytesLeft(artifact: GrepArtifact): number {
-  return artifact.maxBytes - grepArtifactBytes(artifact);
-}
-
 /**
  * Keep one page's passages, in walk order, as the artifact text. A passage
  * that does not fit ends the artifact: it is not stored, and the call stops at
