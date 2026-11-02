@@ -17,7 +17,7 @@ import {
   type ToolResult,
 } from '@workspace/runtime-safety';
 
-import { DEFAULT_ARTIFACT_MAX_BYTES } from '../../instance-config/llame-config';
+import { BUILT_IN_DEFAULTS } from '../../instance-config/llame-config';
 import {
   measureToolResultForModel,
   renderToolResultForSpill,
@@ -31,7 +31,7 @@ import { formatArtifactLocator } from './locator';
 
 /** The operator bound, or the built-in one outside the run loop. */
 export function artifactMaxBytes(context: ToolContext): number {
-  return context.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
+  return context.artifactMaxBytes ?? BUILT_IN_DEFAULTS.tools.artifacts.maxBytes;
 }
 
 /**
