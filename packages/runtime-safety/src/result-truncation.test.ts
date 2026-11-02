@@ -674,6 +674,42 @@ describe("truncateOversizedResult artifact results", () => {
     expect(result).toMatchObject({ artifact: ARTIFACT, truncated: true });
   });
 
+  it("does not pin a media value that is not a locator string", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      kind: "image",
+      media: { data: "x".repeat(50_000) },
+      path: "/work/shot.png",
+    });
+
+    expect(result).toMatchObject({ truncated: true });
+    expect(JSON.stringify(result)).not.toContain("x".repeat(50_000));
+  });
+
+  it("keeps artifact and media locators exact together under a tight limit", () => {
+    const MEDIA = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+    const fields = Object.fromEntries(
+      Array.from({ length: 1500 }, (_entry, index) => [
+        `field-${index}`,
+        "y".repeat(40),
+      ]),
+    );
+    const result = truncateOversizedResult({
+      status: "success",
+      kind: "image",
+      artifact: ARTIFACT,
+      media: MEDIA,
+      ...fields,
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({
+      artifact: ARTIFACT,
+      media: MEDIA,
+      truncated: true,
+    });
+  });
+
   it("leaves an error result's artifact untouched", () => {
     const result: ToolResult = {
       status: "error",

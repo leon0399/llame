@@ -230,10 +230,9 @@ export function truncateOversizedResult(
     throw new TypeError("Malformed oversized tool result projection.");
   }
   const { status: _status, ...payload } = parsed;
-  const shrunk = splitPinned(payload);
   const source: TruncationSource = {
-    payload: shrunk.payload,
-    pinned: shrunk.pinned,
+    payload,
+    pinned: pinnedFields(payload),
     totalFields: Object.keys(payload).length,
     json,
     measured,
@@ -254,35 +253,20 @@ export function truncateOversizedResult(
 }
 
 /**
- * A result's pinned fields and the payload the pass shrinks. A media result's
- * locator is its only handle on the file, and an artifact locator is a spilled
- * result's only handle on the content it could not show inline, so neither is
- * ever shortened or omitted. A value that is not a locator string is capped
- * with everything else.
+ * The fields a truncation pass keeps verbatim: a media part's locator and a
+ * spilled result's artifact locator are the only handles on content this
+ * result no longer carries, so the capped copy never replaces them. A value of
+ * the wrong type is not a locator and is capped with everything else.
  */
-function splitPinned(payload: UnknownRecord): SplitPayload {
+function pinnedFields(payload: UnknownRecord): UnknownRecord {
   const pinned: UnknownRecord = {};
-  const pin = (field: string): boolean => {
-    const value = payload[field];
-    if (!isString(value)) return false;
-    pinned[field] = value;
-    return true;
-  };
   const pinsMedia =
-    (payload.kind === "image" || payload.kind === "pdf") && pin("media");
-  const pinsArtifact = pin("artifact");
-  if (!pinsMedia && !pinsArtifact) return { payload, pinned };
-  const rest = { ...payload };
-  if (pinsMedia) delete rest.media;
-  if (pinsArtifact) delete rest.artifact;
-  return { payload: rest, pinned };
+    (payload.kind === "image" || payload.kind === "pdf") &&
+    isString(payload.media);
+  if (pinsMedia) pinned.media = payload.media;
+  if (isString(payload.artifact)) pinned.artifact = payload.artifact;
+  return pinned;
 }
-
-/** One result split for a truncation pass. */
-type SplitPayload = {
-  readonly payload: UnknownRecord;
-  readonly pinned: UnknownRecord;
-};
 
 /** The part of a truncation pass that never changes across the binary
  * search's candidate limits. */
@@ -309,7 +293,7 @@ function buildTruncatedResult(
     { limit, lists, keepAllEntries: keepAllFields },
     "",
   );
-  const kept = { ...source.pinned, ...capped };
+  const kept = { ...capped, ...source.pinned };
   const omittedUnits =
     source.measured - source.measure({ status: "success", ...kept });
   return {
