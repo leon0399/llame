@@ -391,6 +391,12 @@ its example allow list name it.
 
 ## Revision history
 
+- **v5 (2026-11-02):** GitHub review round 2 (13 threads). The reader gate
+  needs the `read` group to admit the `artifact://` locator. A Machine part
+  holds the protocol-bounded capture. A line piece ends one unit early at a
+  surrogate pair. The `web_search` artifact rules yield to the byte bound and
+  name the no-artifact path. The left-out rule excludes results with an
+  omitted-range line.
 - **v4 (2026-11-02):** GitHub review round 1 (29 threads).
   - **Machine paging.** Today's 15,000-unit page; resume after the daemon
     position, so refused pages still advance.

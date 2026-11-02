@@ -17,7 +17,7 @@ is `day`, `week`, `month`, or `year`. Optional `limit` is an integer from 1 to
 
 #### Scenario: Default limit
 
-- **WHEN** the model calls `web_search` with only a query and the engine that answers returns 15 results
+- **WHEN** the model calls `web_search` with only a query, the engine that answers returns 15 results, and the Run can read artifacts
 - **THEN** the inline text shows a maximum of 10 results
 - **AND** the artifact of the call holds all 15 results
 
@@ -117,7 +117,7 @@ units each. When more notes are due, the tenth MUST record the rest as
 
 The inline text MUST hold at most `limit` results and MUST fit in 15,000 UTF-16
 units, with its other lines. When a result does not fit, the inline text MUST
-end before it. The artifact MUST hold every result of the call. An `answer`
+end before it. An artifact of the call MUST hold every result. An `answer`
 output MUST keep at least its first citation inline. When it still does not
 fit, the tool MUST cut the answer text further until it does. The tool MUST NOT cut
 a URL.
@@ -278,7 +278,8 @@ citations. When the inline text is over 15,000 units, results MUST leave the
 inline text from the end first. Then citations MUST leave from the end of each
 answer, last answer first, and each answer MUST keep one. Then the tool MUST
 cut answer text, last answer first. Then whole answers MUST leave from the end. The
-artifact MUST hold every result, answer, and citation. Each step MUST add one
+artifact, when one is stored, MUST hold every result, answer, and citation.
+Each step MUST add one
 inline note with its count.
 
 #### Scenario: Results go before answers
@@ -288,7 +289,7 @@ inline note with its count.
 
 #### Scenario: Whole answers go last
 
-- **WHEN** eight attached answers each keep one citation with a URL of 2,048 units
+- **WHEN** eight attached answers each keep one citation with a URL of 2,048 units, and the Run can read artifacts
 - **THEN** whole answers leave the inline text from the end until it fits, with one note
 - **AND** the artifact holds all eight answers
 
@@ -301,15 +302,15 @@ inline note with its count.
 
 ### Requirement: Results past the inline part go to an artifact
 
-The inline text can leave out a result, an answer, or a citation. When it
-does, the Run can read artifacts, and the output fits `tools.artifacts.maxBytes`,
-the system MUST store the whole output as one artifact. The artifact uses the `web_search` text shape. The inline text MUST
-end with the artifact notice. A call whose whole output fits inline MUST NOT
-create an artifact.
+The inline text can leave out a result, an answer, or a citation. The system MUST
+then store the whole output as one artifact in the `web_search` text shape,
+when the Run can read artifacts and the output fits `tools.artifacts.maxBytes`. The inline text MUST then end with its notice. In other cases the
+`tool-artifacts` no-artifact result applies. A call whose whole output fits
+inline MUST NOT create an artifact.
 
 #### Scenario: Twenty results with a limit of ten
 
-- **WHEN** `webSearch.fetchLimit` is 20, `limit` is 10, and the engine returns 20 results
+- **WHEN** `webSearch.fetchLimit` is 20, `limit` is 10, the engine returns 20 results, and the Run can read artifacts
 - **THEN** ten results render inline
 - **AND** `artifact://web_search-<n>` holds all 20 results in rank order
 

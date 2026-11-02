@@ -338,11 +338,11 @@ on one line".
 
 ### Requirement: A left-out line counts what no artifact holds
 
-When a result does not fit and no artifact stores it, the text MUST end with
-one `[left out: <count> <noun>; full result not stored]` line. `<noun>` is
+When a result does not fit, no artifact stores it, and it carries no
+omitted-range line, the text MUST end with one `[left out: <count> <noun>;
+full result not stored]` line. `<noun>` is
 `lines`, `files`, or `results`. An omitted-range line without an artifact MUST
-read `[lines <a>-<b> omitted; full result not stored]`. A result with that
-line needs no left-out line.
+read `[lines <a>-<b> omitted; full result not stored]`.
 
 #### Scenario: A failed write keeps the bash tail inline
 

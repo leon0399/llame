@@ -162,7 +162,8 @@ Assumptions that follow from these but were never asked:
     ordinary host storage.
   - Without `bash`, no file exists and no path is shown.
   - Please confirm this exception.
-- **Host files can outlive a deleted Chat by up to 7 days (Q7).** The rows go
+- **Host files go 7 days after their last reconcile, at the next worker or
+  attempt start (Q7).** The rows go
   at once with the Chat. The files are a cache on each worker host, and a
   deletion on the API host cannot reach every worker. So each worker removes a
   Chat directory that no attempt reconciled for 7 days.
@@ -246,7 +247,8 @@ Assumptions that follow from these but were never asked:
     - "Attached answers fit the result cap after results"
   - ADDED: output past the inline part goes to an artifact.
 - **`prompt-imports`.** MODIFIED: "Prompt imports cover every native read
-  scheme", which excludes `artifact://`.
+  scheme" and "Prompt targets resolve as native read locators", which exclude
+  `artifact://`.
 - **`owner-chat-forks`.** ADDED: a fork copies the artifacts that its copied
   parts name.
 - **`tool-call-permissions`.**

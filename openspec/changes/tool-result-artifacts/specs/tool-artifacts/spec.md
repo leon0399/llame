@@ -29,8 +29,9 @@ locator. It MUST NOT store the content after the inline part.
 ### Requirement: An artifact needs a way to read it
 
 The system MUST store an artifact only when the Run can read it. The Run can
-read it when `read` is in `tools.allowed`, or when its `bash` runs on the
-llame host and gets host files. Otherwise the
+read it through `read` when `read` is in `tools.allowed` and the `read` group
+admits its `artifact://` locator. The Run can also read it when its `bash`
+runs on the llame host and gets host files. Otherwise the
 tool MUST return its bounded inline result. The result MUST then state how
 many lines, files, or results it left out.
 
@@ -97,8 +98,8 @@ JSON result with one member or item on each line.
 ### Requirement: Artifact lines are at most 8,000 units long
 
 Artifact line numbers MUST count a source line longer than 8,000 UTF-16 code
-units as one line for each 8,000 units. A piece MUST end on a code-point
-boundary. Every read, notice, and range MUST use that count. A host file MUST keep the source lines as the source wrote
+units as one line for each 8,000 units. A piece that would split a surrogate
+pair MUST end one unit early, and the next piece starts at that pair. Every read, notice, and range MUST use that count. A host file MUST keep the source lines as the source wrote
 them.
 
 #### Scenario: A one-line JSON stdout is read in pieces
@@ -307,7 +308,8 @@ still state that narrower arguments recover the omitted content.
 ### Requirement: A bash call spills each stream before it is recorded
 
 `bash` MUST keep the head and the tail of each stream that does not fit
-inline. When the Run can read artifacts, it MUST store that stream as a part. A `command_failed` or `timed_out`
+inline. When the Run can read artifacts, it MUST store that stream as a part.
+A Machine part holds the capture that the protocol bound allows. A `command_failed` or `timed_out`
 result MUST spill like a success. The run event of the call MUST hold the
 inline result and the locator, not the full streams. The result of a settled
 open call MUST keep its locator.

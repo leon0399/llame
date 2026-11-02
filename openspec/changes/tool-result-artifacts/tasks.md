@@ -109,7 +109,7 @@ without its first consumers. Every implementation layer stays inside about
 
 ## 6. bash-spill
 
-- [ ] 6.1 Add the byte bound to `packages/bash-executor` for the hub context only, with the `ssh://` multiplier at 1 (design D4). Verify "A host stream larger than the old bound is kept" and "Oversized output is bounded".
+- [ ] 6.1 Add the byte bound to `packages/bash-executor` for the hub context only, with the `ssh://` multiplier at 1 (design D4). Verify "A host stream within the default bound is kept" and "Oversized output is bounded".
 - [ ] 6.2 Spill inside the native fence before `native.result` on host, `ssh://`, and Machine paths, for success, `command_failed`, and `timed_out`. Verify:
   - "A large bash output is stored", "A build that fails keeps its log tail inline", and "A timeout with large output is stored";
   - "A settled open bash call keeps its artifact" and "A Machine command that fails keeps its tail";
