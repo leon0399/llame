@@ -177,6 +177,7 @@ d('artifact store', () => {
     it('stores the parts, digest, and findings in one transaction', async () => {
       const chat = await createChat(tenantDb, owner, 'Parts');
       const written = await write(chat, {
+        toolName: 'bash',
         parts: [
           {
             name: 'stdout',
@@ -192,7 +193,7 @@ d('artifact store', () => {
         ],
       });
       const found = await tenantDb.runAs(owner, (tx) =>
-        new ArtifactsRepository(tx).findParts(chat, 'grep', written.seq),
+        new ArtifactsRepository(tx).findParts(chat, 'bash', written.seq),
       );
 
       expect(written.byteSize).toBe(10);
@@ -371,7 +372,16 @@ d('artifact store', () => {
     it('deletes every artifact and part row with its Chat', async () => {
       const chat = await createChat(tenantDb, owner, 'Cascade');
       const grep = await write(chat);
-      const bash = await write(chat, { toolName: 'bash' });
+      const bash = await write(chat, {
+        toolName: 'bash',
+        parts: [
+          {
+            name: 'stdout',
+            contentType: 'text/plain',
+            content: Buffer.from('x\n'),
+          },
+        ],
+      });
       const artifactIds = [grep.id, bash.id];
       const partsBefore = await tenantDb.runAs(owner, (tx) =>
         tx
@@ -454,7 +464,16 @@ d('artifact store', () => {
     it('lists the Chat artifacts oldest first with their sizes', async () => {
       const chat = await createChat(tenantDb, owner, 'List');
       await write(chat, { content: 'a\nb\n' });
-      await write(chat, { toolName: 'bash' });
+      await write(chat, {
+        toolName: 'bash',
+        parts: [
+          {
+            name: 'stdout',
+            contentType: 'text/plain',
+            content: Buffer.from('x\n'),
+          },
+        ],
+      });
 
       const result = await read('artifact://', chat);
       const content = contentOf(result);

@@ -1,5 +1,7 @@
 import { parsePathScheme } from '@workspace/native-file-tools';
 
+import { TOOL_ID_PATTERN } from '../tool-id';
+
 /**
  * The `artifact://` locator grammar (tool-result-artifacts D1, D2).
  *
@@ -13,7 +15,7 @@ import { parsePathScheme } from '@workspace/native-file-tools';
 export const ARTIFACT_SCHEME = 'artifact';
 
 /** The largest `<n>` a Postgres `integer` column holds. */
-export const ARTIFACT_SEQ_MAX = 2_147_483_647;
+const ARTIFACT_SEQ_MAX = 2_147_483_647;
 
 export type ArtifactLocator = {
   readonly toolName: string;
@@ -22,9 +24,8 @@ export type ArtifactLocator = {
   readonly part: string | undefined;
 };
 
-/** A registered tool name and a stream name share this token shape. */
-const NAME_SOURCE = String.raw`[A-Za-z0-9][A-Za-z0-9_-]*`;
-const NAME = new RegExp(`^${NAME_SOURCE}$`, 'u');
+/** A registered tool name and a stream name share the tool-id token shape. */
+const NAME_SOURCE = TOOL_ID_PATTERN.source.slice(1, -1);
 const LOCATOR = new RegExp(
   `^(${NAME_SOURCE})-([1-9]\\d*)(?:/(${NAME_SOURCE}))?$`,
   'u',
@@ -37,11 +38,6 @@ export function formatArtifactLocator(
 ): string {
   const locator = `${ARTIFACT_SCHEME}://${toolName}-${seq}`;
   return part === undefined || part === '' ? locator : `${locator}/${part}`;
-}
-
-/** Whether a value is a well-formed tool or stream name in a locator. */
-export function isLocatorName(value: string): boolean {
-  return NAME.test(value);
 }
 
 /**

@@ -1,8 +1,6 @@
 import {
   ARTIFACT_SCHEME,
-  ARTIFACT_SEQ_MAX,
   formatArtifactLocator,
-  isLocatorName,
   parseArtifactLocatorText,
 } from './locator';
 
@@ -36,16 +34,14 @@ describe('artifact locator', () => {
     ).toBeUndefined();
   });
 
-  it('refuses a number above the storable integer', () => {
-    expect(
-      parseArtifactLocatorText(`artifact://grep-${ARTIFACT_SEQ_MAX}`),
-    ).toEqual({
+  it('refuses a number above the Postgres integer', () => {
+    expect(parseArtifactLocatorText('artifact://grep-2147483647')).toEqual({
       toolName: 'grep',
-      seq: ARTIFACT_SEQ_MAX,
+      seq: 2_147_483_647,
       part: undefined,
     });
     expect(
-      parseArtifactLocatorText(`artifact://grep-${ARTIFACT_SEQ_MAX + 1}`),
+      parseArtifactLocatorText('artifact://grep-2147483648'),
     ).toBeUndefined();
     expect(
       parseArtifactLocatorText('artifact://grep-99999999999999999999'),
@@ -62,9 +58,20 @@ describe('artifact locator', () => {
     expect(ARTIFACT_SCHEME).toBe('artifact');
   });
 
-  it('accepts the token shape a tool and a stream name share', () => {
-    expect(isLocatorName('web_search')).toBe(true);
-    expect(isLocatorName('mcp__docs__fetch')).toBe(true);
-    expect(isLocatorName('bad name')).toBe(false);
+  it('accepts the shared tool-id grammar, leading separators included', () => {
+    expect(parseArtifactLocatorText('artifact://_hidden-1')).toEqual({
+      toolName: '_hidden',
+      seq: 1,
+      part: undefined,
+    });
+    expect(parseArtifactLocatorText('artifact://-tool-2/-stream')).toEqual({
+      toolName: '-tool',
+      seq: 2,
+      part: '-stream',
+    });
+    expect(parseArtifactLocatorText('artifact://tool name-1')).toBeUndefined();
+    expect(
+      parseArtifactLocatorText(`artifact://${'a'.repeat(65)}-1`),
+    ).toBeUndefined();
   });
 });

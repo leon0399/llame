@@ -37,11 +37,13 @@ describe('artifact locators through the tools', () => {
       createdAt: new Date('2026-11-02T10:00:00.000Z'),
       parts: [{ name: '', lineCount: 1, byteSize: 6 }],
     });
-    vi.spyOn(ArtifactsRepository.prototype, 'readPart').mockResolvedValue({
-      contentType: 'text/markdown',
-      content: Buffer.from('stored\n'),
-      lineCount: 1,
-    });
+    const readPart = vi
+      .spyOn(ArtifactsRepository.prototype, 'readPart')
+      .mockResolvedValue({
+        contentType: 'text/markdown',
+        content: Buffer.from('stored\n'),
+        lineCount: 1,
+      });
 
     const result = await runTool(
       nativeReadTool,
@@ -56,6 +58,7 @@ describe('artifact locators through the tools', () => {
       content: '1: stored\n',
     });
     expect(JSON.stringify(result)).not.toContain('executor_unavailable');
+    expect(readPart).toHaveBeenCalledWith(CHAT_ID, 'grep', 1, '');
   });
 
   it('refuses edit of an artifact locator', async () => {

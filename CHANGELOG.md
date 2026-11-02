@@ -18,7 +18,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   a failed write, and a reused `(chat, run, tool call)` key is a failed write
   rather than a lookup. No tool writes an artifact yet: the producers,
   read-time finding re-checks, and host files arrive with later layers. See
-  [artifacts](docs/product/reference/tools/artifacts.md).
+  [artifact](docs/product/reference/locators/artifact.md).
 
 - `web_search` results and answers now reach the model as plain text instead of
   JSON, while the stored part and the web chat renderer are unchanged. See

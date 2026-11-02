@@ -20,6 +20,7 @@ import {
 const CHAT_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = 'owner-1';
 const CREATED_AT = new Date('2026-11-02T10:00:00.000Z');
+const ASIDE = '00000000-0000-4000-8000-000000000002';
 
 function contextOf(chatId = CHAT_ID): ToolContext {
   const db = drizzle.mock({ schema });
@@ -204,19 +205,24 @@ describe('readArtifact', () => {
     expect(first).toMatchObject({ truncated: true });
     if (first.status !== 'success' || !isNumber(first['nextOffset']))
       throw new Error('Expected a paged listing');
+    const page = contentOf(first).trimEnd().split('\n');
+    expect(page[1]).toContain('artifact://mcp__docs__fetch-1 (');
+    expect(page.at(-1)).toContain(
+      `artifact://mcp__docs__fetch-${first['nextOffset']} (`,
+    );
     const next = await readArtifact(
       contextOf(),
       'read',
       `artifact://:${first['nextOffset'] + 1}-`,
     );
-    expect(contentOf(next)).toContain(
+    expect(contentOf(next).split('\n')[1]).toContain(
       `artifact://mcp__docs__fetch-${first['nextOffset'] + 1} (`,
     );
   });
 
   it('reads a named part with the ordinary selectors', async () => {
     const scripted = scriptRepository();
-    scripted.readPart.mockResolvedValue(part('a\nb\nc\n', 3));
+    scripted.readPart.mockResolvedValue(part('a\nb\nc\nd\ne\nf\ng\n', 7));
 
     const ranged = await readArtifact(
       contextOf(),
@@ -230,15 +236,17 @@ describe('readArtifact', () => {
       'read',
       'artifact://grep-1/stdout:raw',
     );
-    expect(contentOf(raw)).toBe('a\nb\nc\n');
+    expect(contentOf(raw)).toBe('a\nb\nc\nd\ne\nf\ng\n');
 
     const multi = await readArtifact(
       contextOf(),
       'read',
-      'artifact://grep-1/stdout:1,3',
+      'artifact://grep-1/stdout:1,5',
     );
-    expect(contentOf(multi)).toContain('1: a');
-    expect(contentOf(multi)).toContain('3: c');
+    // Each member keeps one context line, so lines 3 and 7 prove the gaps.
+    expect(contentOf(multi)).toContain('5: e');
+    expect(contentOf(multi)).not.toContain('3: c');
+    expect(contentOf(multi)).not.toContain('7: g');
     expect(scripted.readPart).toHaveBeenCalledWith(
       CHAT_ID,
       'grep',
@@ -327,6 +335,29 @@ describe('readArtifact', () => {
     expect(
       await readArtifact(contextOf(), 'read', 'artifact://bash-2:1-2,-3'),
     ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+  });
+
+  it('scopes the read to the context Chat', async () => {
+    const scripted = scriptRepository();
+    scripted.findParts.mockImplementation((chatId) =>
+      Promise.resolve(
+        chatId === CHAT_ID
+          ? {
+              createdAt: CREATED_AT,
+              parts: [{ name: '', lineCount: 1, byteSize: 2 }],
+            }
+          : undefined,
+      ),
+    );
+    scripted.readPart.mockResolvedValue(part('x\n', 1, 'text/plain'));
+
+    expect(
+      await readArtifact(contextOf(ASIDE), 'read', 'artifact://grep-1'),
+    ).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(scripted.findParts).toHaveBeenCalledWith(ASIDE, 'grep', 1);
+    expect(
+      contentOf(await readArtifact(contextOf(), 'read', 'artifact://grep-1')),
+    ).toBe('1: x\n');
   });
 
   it('returns not_found for a missing artifact and an unknown part', async () => {

@@ -5,9 +5,12 @@ import {
   ArtifactsRepository,
   type NewArtifactPart,
 } from './artifacts-repository';
+import { TOOL_ID_PATTERN } from '../tool-id';
 import { artifactLineCount } from './lines';
-import { formatArtifactLocator, isLocatorName } from './locator';
+import { formatArtifactLocator } from './locator';
 
+/** The one tool whose artifact has a part for each stream. */
+const STREAMED_TOOL = 'bash';
 /** A part name a host-file path can be built from. */
 const PART_NAME = /^[a-z][a-z0-9_-]*$/u;
 
@@ -93,28 +96,39 @@ function prepareParts(
   request: ArtifactWriteRequest,
   maxBytes: number,
 ): Array<NewArtifactPart> {
-  if (!isLocatorName(request.toolName)) {
+  if (!TOOL_ID_PATTERN.test(request.toolName)) {
     throw new Error(`"${request.toolName}" is not a usable artifact tool name`);
   }
   const parts = request.parts.map((part) => preparePart(part, maxBytes));
-  assertPartNames(parts.map((part) => part.name));
+  assertPartNames(
+    request.toolName,
+    parts.map((part) => part.name),
+  );
   return parts;
 }
 
 /**
- * A part set is either one unnamed part or only named parts, and each name is
- * unique and path-safe, because the materialize layer builds a host file path
- * from it.
+ * The shape the locator grammar can expose (tool-artifacts D1, D2): a `bash`
+ * artifact names every part by stream, and every other artifact has exactly
+ * one unnamed part, so a locator names a part only where one exists. Each
+ * stream name is unique and path-safe, because the materialize layer builds a
+ * host file path from it.
  */
-function assertPartNames(names: ReadonlyArray<string>): void {
+function assertPartNames(toolName: string, names: ReadonlyArray<string>): void {
   if (names.length === 0) {
     throw new Error('An artifact needs at least one part.');
   }
-  if (names.length > 1 && names.some((name) => name === '')) {
-    throw new Error('An artifact with several parts names every part.');
+  if (toolName !== STREAMED_TOOL) {
+    if (names.length !== 1 || names[0] !== '') {
+      throw new Error('An artifact of this tool has one unnamed part.');
+    }
+    return;
+  }
+  if (names.some((name) => name === '')) {
+    throw new Error('A bash artifact names every part by stream.');
   }
   for (const name of names) {
-    if (name !== '' && !PART_NAME.test(name)) {
+    if (!PART_NAME.test(name)) {
       throw new Error(`"${name}" is not a usable artifact part name`);
     }
   }

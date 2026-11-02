@@ -14,19 +14,28 @@ export const ARTIFACT_LINE_UNITS = 8000;
 /**
  * The part's text as the reader numbers it: each source line's content, with a
  * line longer than {@link ARTIFACT_LINE_UNITS} split into pieces. Terminators
- * are not part of a piece, so {@link artifactText} can join the pieces back.
+ * are not part of a piece or of its 8,000-unit count — `\r\n` included, so a
+ * CRLF line of 8,000 units stays one line — and {@link artifactText} can join
+ * the pieces back.
  */
 export function artifactLinePieces(source: string): Array<string> {
   return splitSourceLines(source).flatMap((line) =>
-    splitCodeUnits(line.endsWith('\n') ? line.slice(0, -1) : line),
+    splitCodeUnits(lineBody(line)),
   );
+}
+
+/** One source line without its terminator; a lone `\r` stays content. */
+function lineBody(line: string): string {
+  if (line.endsWith('\r\n')) return line.slice(0, -2);
+  return line.endsWith('\n') ? line.slice(0, -1) : line;
 }
 
 /**
  * The text whose lines are the artifact's lines: the pieces joined by a line
- * terminator, with the source's own final terminator kept. A part without a
- * line over the bound reproduces its source exactly; a pieced line becomes one
- * line per piece, which is what the shared read selectors then number.
+ * terminator, with the source's own final terminator kept. An LF source
+ * without a line over the bound reproduces exactly; a pieced line becomes one
+ * line per piece, which is what the shared read selectors then number, and a
+ * CRLF terminator renders as the LF between lines.
  */
 export function artifactText(source: string): string {
   const text = artifactLinePieces(source).join('\n');

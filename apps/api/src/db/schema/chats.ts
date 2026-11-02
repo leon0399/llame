@@ -154,8 +154,9 @@ export const chats = pgTable(
     workspaceTold: text('workspace_told'),
     // The Chat's tool-result artifact counter (tool-result-artifacts D1). The
     // writer takes the next number with `UPDATE … RETURNING` in its own short
-    // transaction, so a Chat's artifacts are numbered 1, 2, 3… without a lock
-    // held across an insert of up to `tools.artifacts.maxBytes`.
+    // transaction, so the numbers of a Chat are unique and increasing without
+    // a lock held across an insert of up to `tools.artifacts.maxBytes`. A
+    // failed write leaves a gap; the numbers are not dense.
     artifactSeq: integer('artifact_seq').notNull().default(0),
     // The availability of the bound Machine Workspace the model and owner were
     // last TOLD about: `true` for available, `false` for unavailable, NULL for

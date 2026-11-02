@@ -86,6 +86,23 @@ describe('artifact line numbering', () => {
     expect(artifactLinePieces(body).join('')).toBe(body);
   });
 
+  it('treats a CRLF terminator as the line break, not line content', () => {
+    const source = `${units('a', ARTIFACT_LINE_UNITS)}\r\nb\r\n`;
+
+    expect(artifactLineCount(source)).toBe(2);
+    expect(artifactLinePieces(source)).toEqual([
+      units('a', ARTIFACT_LINE_UNITS),
+      'b',
+    ]);
+    expect(artifactText(source)).toBe(
+      `${units('a', ARTIFACT_LINE_UNITS)}\nb\n`,
+    );
+
+    // 8,002 UTF-16 units with the terminator, one artifact line.
+    expect(artifactLineCount(`${units('a', ARTIFACT_LINE_UNITS)}\r\n`)).toBe(1);
+    expect(artifactLinePieces('a\rb\r\n')).toEqual(['a\rb']);
+  });
+
   it('reproduces a source without a long line and keeps its terminator', () => {
     expect(artifactText('a\nb\n')).toBe('a\nb\n');
     expect(artifactText('a\nb')).toBe('a\nb');

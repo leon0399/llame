@@ -12,11 +12,10 @@ import {
 import { type ToolResult } from './types';
 
 /**
- * One in-memory source read, the shape every reader of already-held text
- * shares: the SSH read, the web read, and the artifact read all number lines
- * of a string they hold rather than of a file. The target's end-relative
- * members resolve against `lineCount`, which the caller may know already (a
- * stored artifact line count) or count from the text.
+ * One in-memory source read, the shape the SSH read and the artifact read
+ * share: both number lines of a string they hold rather than of a file. The
+ * target's end-relative members resolve against `lineCount`, which the caller
+ * may know already (a stored artifact line count) or count from the text.
  */
 export type InMemoryTextSelection = {
   readonly target: ReadTarget;

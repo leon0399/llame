@@ -959,7 +959,7 @@
         "artifacts": {
           "type": ["object", "null"],
           "additionalProperties": false,
-          "description": "Optional bounds on stored tool-result artifacts. A part holds the whole result that did not fit inline, and every `read(\"artifact://…\")` serves it. Absent takes the built-in 8 MiB bound.",
+          "description": "Optional bounds on stored tool-result artifacts. A part holds the whole result that did not fit inline, and every `read(\"artifact://…\")` serves it. Absent or null takes the built-in 8 MiB bound, as an absent `tools.grep` bounds nothing.",
           "properties": {
             "maxBytes": {
               "$ref": "#/$defs/artifactMaxBytesOrToken",

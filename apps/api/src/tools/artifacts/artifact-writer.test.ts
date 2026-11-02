@@ -165,7 +165,7 @@ describe('writeToolArtifact', () => {
     ).rejects.toThrow('An artifact needs at least one part.');
   });
 
-  it('refuses an unnamed part beside a named one', async () => {
+  it('refuses a named part on a tool that has one unnamed part', async () => {
     scriptRepository();
 
     await expect(
@@ -178,12 +178,46 @@ describe('writeToolArtifact', () => {
               contentType: 'text/plain',
               content: Buffer.from('o'),
             },
+          ],
+        }),
+        { maxBytes: MAX_BYTES },
+      ),
+    ).rejects.toThrow('An artifact of this tool has one unnamed part.');
+
+    await expect(
+      writeToolArtifact(
+        tenantRunner(),
+        request({
+          parts: [
+            { contentType: 'text/plain', content: Buffer.from('o') },
             { contentType: 'text/plain', content: Buffer.from('e') },
           ],
         }),
         { maxBytes: MAX_BYTES },
       ),
-    ).rejects.toThrow('An artifact with several parts names every part.');
+    ).rejects.toThrow('An artifact of this tool has one unnamed part.');
+  });
+
+  it('refuses an unnamed part on a bash artifact', async () => {
+    scriptRepository();
+
+    await expect(
+      writeToolArtifact(
+        tenantRunner(),
+        request({
+          toolName: 'bash',
+          parts: [
+            {
+              name: 'stdout',
+              contentType: 'text/plain',
+              content: Buffer.from('o'),
+            },
+            { contentType: 'text/plain', content: Buffer.from('e') },
+          ],
+        }),
+        { maxBytes: MAX_BYTES },
+      ),
+    ).rejects.toThrow('A bash artifact names every part by stream.');
   });
 
   it('refuses a part name a host path cannot carry', async () => {
@@ -194,6 +228,7 @@ describe('writeToolArtifact', () => {
         writeToolArtifact(
           tenantRunner(),
           request({
+            toolName: 'bash',
             parts: [
               { name, contentType: 'text/plain', content: Buffer.from('x') },
             ],
@@ -211,6 +246,7 @@ describe('writeToolArtifact', () => {
       writeToolArtifact(
         tenantRunner(),
         request({
+          toolName: 'bash',
           parts: [
             {
               name: 'stdout',
