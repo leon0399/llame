@@ -7,7 +7,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the daemon applies no such bound. A hub and a daemon of different builds
   cannot search together: each refuses the other's request as invalid
   parameters. A new API reports an old daemon as Machine unusable; an old API
-  reports a new daemon's refusal as a Machine protocol failure. Deploy the API
+  reports a new daemon's refusal as `invalid_input`. Deploy the API
   and every daemon together. See
   [Machines](docs/product/operator/machines.md).
 - `grep` walks without a file, entry, byte, or file-size bound by default: the

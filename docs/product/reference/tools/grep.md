@@ -167,30 +167,19 @@ refused file.
 | Files read at once   | 8              |
 
 The walk has no file, entry, byte, or file-size bound by default: the call
-deadline is its only stop, and a huge tree continues from its cursor. The
-operator sets those bounds for the whole instance through `tools.grep`:
-
-| Setting            | Bound                                                          |
-| ------------------ | -------------------------------------------------------------- |
-| `maxFilesExamined` | files the call takes for a match, across every scope           |
-| `maxEntriesListed` | directory entries the call lists, across every scope           |
-| `maxBytesRead`     | bytes of the files the call takes, and of the file it waits on |
-| `maxFileBytes`     | largest regular file the walk searches                         |
-
-Each setting is a positive integer, an interpolation token that resolves to
-one, or `null`/absent for no bound. `maxBytesRead` counts the bytes of every
-file the walk takes in walk order plus what it read so far of the file it
-waits on; bytes read ahead of that file are discarded and never counted, and
-the walk stops when the count reaches the bound. `maxFileBytes` is checked on
-the announced size and again on the bytes read, so a file that grows past it
-is skipped as `oversized`.
+deadline is its only stop, and a huge tree continues from its cursor. An
+operator configures bounds for the whole instance; see
+[Native files](../../operator/native-files.md#grep) for the settings and their
+validation. A file, entry, or byte bound stops the walk, and bytes read ahead
+of the file the walk waits on are not counted. A file over a file-size bound is
+skipped as `oversized` and the walk continues.
 
 The call deadline is the tool call timeout minus a margin: the larger of 5
 seconds and a tenth of the timeout, but at most half of it. The default 120
 second timeout therefore leaves 108 seconds for the walk, and a call without a
-timeout in its context uses `tools.callTimeoutSeconds`. At a bound or the
-deadline the result carries `complete: false`, the warning that names the
-stop, and a cursor.
+timeout in its context uses `tools.callTimeoutSeconds`. When a file, entry, or
+byte bound stops the walk, or the deadline does, the result carries
+`complete: false`, the warning that names the stop, and a cursor.
 
 A page holds at most `limit` files. The rendered model text of the whole
 result — the file lines, passages, `[warnings: …]` line, notice, and

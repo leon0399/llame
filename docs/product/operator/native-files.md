@@ -136,9 +136,8 @@ Each field takes a positive integer, `null`, or a whole-value
 `{env:...}`/`{path:...}` token that resolves to one; `null` (or an absent
 object) leaves that bound off. `maxBytesRead` counts the bytes of files the
 walk takes plus what it read so far of the file it waits on. Zero, a negative
-number, a fraction, and an unknown field fail startup naming the field. The
-bounds reach a Machine inside the `fs.grep` request, so a run that uses them
-needs daemons of the same build.
+number, a fraction, and an unknown field fail startup naming the field. Every Machine `grep` call reaches a daemon through the `fs.grep`
+`bounds` field, so the API and every Machine daemon must be the same build.
 
 `grep` then runs the `read` group on every candidate file. It sets `path` to
 the canonical locator of that file. A file that `read` refuses contributes no

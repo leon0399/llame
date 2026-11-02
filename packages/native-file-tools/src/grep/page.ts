@@ -118,16 +118,15 @@ export function appendGrepFile(
  * Whether a page that keeps results still holds them once its own lines grow
  * to `warningReserve`: the passages it keeps, the continuation line of the
  * point it would resume at, the caller's fixed lines, and that wider warnings
- * line. A page that keeps none has nothing to overflow; its passage bound
- * decides instead. A page that cannot hold them ends before the entry whose
- * line grew, and the next call reports it (design D7).
+ * line. A page that keeps no passage still renders that warnings line, so the
+ * check applies to it too; one that cannot hold them ends before the entry
+ * whose line grew, and the next call reports it (design D7).
  */
 export function holdsGrownReserve(
   page: GrepPage,
   limits: GrepPageLimits,
   warningReserve: number,
 ): boolean {
-  if (page.results.length === 0) return true;
   const resume =
     page.last === undefined
       ? page.reserveFloor

@@ -45,6 +45,7 @@ import {
   pageIsFull,
   pageResult,
   remainingBudget,
+  resumePointOf,
   type PageState,
   type SegmentPage,
 } from './grep-page';
@@ -160,7 +161,8 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const budget = grepBudget(request.context, input.limit);
   const resume = cursor.cursor;
   const state = createPageState();
-  for (const segment of segmentsOf(resolved)) {
+  const segments = segmentsOf(resolved);
+  for (const segment of segments) {
     if (!state.complete) break;
     // The engine skips local scopes before the cursor itself; a Machine scope
     // is skipped here, before any request leaves for its box.
@@ -175,6 +177,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     if (pageIsFull(state, budget) || remaining.deadlineMs <= 0) {
       if (remaining.deadlineMs <= 0) endAtDeadline(state);
       else state.complete = false;
+      resumeWithoutCursor(state, resume, segment.index);
       break;
     }
     const outcome = await runSegment({
@@ -189,8 +192,26 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     if ('result' in outcome) return outcome.result;
     appendSegment(state, budget, outcome.page);
     if (!outcome.page.complete) state.complete = false;
+    resumeWithoutCursor(state, undefined, segment.index);
   }
   return pageResult(state, inputHash);
+}
+
+/**
+ * Give an incomplete page a cursor when it stopped before taking any entry:
+ * the incoming cursor as it was, or the segment's own start, so the next call
+ * resumes instead of repeating the stop (the spec's stop-before-an-entry rule).
+ */
+function resumeWithoutCursor(
+  state: PageState,
+  incoming: DecodedGrepCursor | undefined,
+  scopeIndex: number,
+): void {
+  if (state.complete || state.resume !== undefined) return;
+  state.resume =
+    incoming === undefined
+      ? { kind: 'position', scopeIndex, rel: '' }
+      : resumePointOf(incoming);
 }
 
 /**
