@@ -226,11 +226,15 @@ export type FsBytesResult =
   | { readonly size: number; readonly mediaType: string }
   | NativeFailureResult;
 
-/** What is left of one call's search bounds when a request reaches a Machine. */
-export type FsGrepBudget = {
-  readonly files: number;
-  readonly entries: number;
-  readonly bytes: number;
+/** What is left of one call's search bounds when a request reaches a Machine.
+ *  A `null` bound is unset: the daemon applies no file, entry, byte, or
+ *  file-size bound for it. */
+export type FsGrepBounds = {
+  readonly files: number | null;
+  readonly entries: number | null;
+  readonly bytes: number | null;
+  /** Largest file the daemon searches, by announced and read size. */
+  readonly fileBytes: number | null;
   readonly deadlineMs: number;
   readonly limit: number;
   readonly pageUnits: number;
@@ -249,7 +253,7 @@ export type FsGrepParams = {
   readonly ignoreCase: boolean;
   /** The daemon's own page key, issued for the same search inputs. */
   readonly cursor?: string;
-  readonly budget: FsGrepBudget;
+  readonly bounds: FsGrepBounds;
 };
 
 /** The skips a walk counts, by kind; the same vocabulary as the local walk. */

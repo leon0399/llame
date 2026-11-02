@@ -244,6 +244,7 @@ function resolveToolsConfig(
       ...readLeaf(raw, 'tools', 'permissionModes'),
     }),
     ...resolveToolNumbers(raw, env),
+    grep: resolveGrepBounds(raw, env),
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, env),
   };
@@ -279,6 +280,36 @@ function resolveToolNumbers(
       }),
       'tools.callTimeoutSeconds',
     ),
+  };
+}
+
+/**
+ * The operator `tools.grep` walk bounds (grep-scan-throughput D1). Each field
+ * resolves through the same nullable numeric path as `tools.maxStepsPerRun`,
+ * so an absent field, an explicit `null`, and an empty-resolving token all
+ * mean "no bound", and zero, a negative number, or a fraction fails startup
+ * naming the field. An absent or `null` object bounds nothing.
+ */
+function resolveGrepBounds(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+): LlameConfig['tools']['grep'] {
+  const bounds = raw?.tools?.grep;
+  if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.grep;
+  const resolve = (key: keyof LlameConfig['tools']['grep']) =>
+    resolveNumeric({
+      configPath: `tools.grep.${key}`,
+      present: Object.hasOwn(bounds, key),
+      raw: bounds[key],
+      builtInDefault: null,
+      nullable: true,
+      env,
+    });
+  return {
+    maxFilesExamined: resolve('maxFilesExamined'),
+    maxEntriesListed: resolve('maxEntriesListed'),
+    maxBytesRead: resolve('maxBytesRead'),
+    maxFileBytes: resolve('maxFileBytes'),
   };
 }
 

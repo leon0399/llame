@@ -10,7 +10,10 @@ import {
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
-import { type WebAdapterConfig } from '../instance-config/llame-config';
+import {
+  type GrepBoundsConfig,
+  type WebAdapterConfig,
+} from '../instance-config/llame-config';
 import { type WebSearchConfig } from '../instance-config/web-search-config';
 import { type CompiledPolicy } from './permissions/types';
 import { type PermissionMode } from './permissions/permission-mode';
@@ -145,6 +148,17 @@ export interface ToolContext {
   readonly webAdapters?: ReadonlyArray<WebAdapterConfig>;
   /** Ordered, boot-validated web search engines enabled by instance configuration. */
   readonly webSearch?: WebSearchConfig;
+  /**
+   * Operator `tools.grep` walk bounds. Absent (a context built outside the run
+   * loop) means no file, entry, byte, or file-size bound, exactly as an absent
+   * configuration object does.
+   */
+  readonly grep?: GrepBoundsConfig;
+  /**
+   * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
+   * the runner supplied no per-call `timeoutMs`.
+   */
+  readonly callTimeoutSeconds?: number;
   /**
    * Trusted model-client factory for model-hosted web search engines, never
    * model supplied. A host double that only validates selections leaves

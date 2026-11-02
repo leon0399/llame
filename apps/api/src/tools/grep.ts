@@ -10,18 +10,19 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   GREP_LIMITS,
-  GREP_WARNING_KINDS,
   hashGrepInputs,
   measureGrepRendering,
   runGrepScan,
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
+  type GrepBudget,
   type GrepScanInput,
   type GrepScanResult,
   type GrepScope,
 } from '@workspace/native-file-tools';
 import { z } from 'zod';
 
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
@@ -33,7 +34,6 @@ import {
 import {
   executeMachineScope,
   isMachineGrepScope,
-  type CallBudget,
   type GrepSearchArguments,
   type MachineGrepScope,
 } from './grep-machine';
@@ -86,6 +86,9 @@ async function executeGrep(
   context: ToolContext,
   input: GrepArguments,
 ): Promise<ToolResult> {
+  // The walk's deadline starts here, before scope resolution, so Knowledge
+  // lookups, skill resolution, and host probes spend the walk's own time.
+  const deadlineAt = Date.now() + grepWalkMs(context);
   context.abortSignal?.throwIfAborted();
   const root = context.workspaceRoot?.current();
   const submitted = grepScopeStrings(input, root);
@@ -98,21 +101,38 @@ async function executeGrep(
     const resolved = await resolveScopes(context, submitted, admission);
     if ('result' in resolved) return resolved.result;
 
-    return await scanPassages({
-      context,
-      input,
-      patterns,
-      admission,
-      resolved,
-      projectedScopes: submitted.map(
-        (scope) => projectGrepScope(scope, root).prefix,
-      ),
-    });
+    return await scanPassages(
+      {
+        context,
+        input,
+        patterns,
+        admission,
+        resolved,
+        projectedScopes: submitted.map(
+          (scope) => projectGrepScope(scope, root).prefix,
+        ),
+      },
+      deadlineAt,
+    );
   } finally {
     // A scope refusal can have counted files too, so the audit sees them on
     // every exit after resolution began, not only on a completed page.
     admission.recordRefusals();
   }
+}
+
+/**
+ * How long one call's walk may run: the call timeout minus the margin a
+ * listing in progress or one over-long line test can add past the check. The
+ * margin is the larger of 5 s and a tenth of the timeout, but at most half of
+ * it, so a short call keeps half its time for the walk.
+ */
+function grepWalkMs(context: ToolContext): number {
+  const timeoutMs =
+    context.timeoutMs ??
+    (context.callTimeoutSeconds ?? BUILT_IN_DEFAULTS.tools.callTimeoutSeconds) *
+      1000;
+  return timeoutMs - Math.min(timeoutMs / 2, Math.max(5000, timeoutMs / 10));
 }
 
 type ScanRequest = {
@@ -130,14 +150,16 @@ type GrepSegment =
   | { readonly index: number; readonly machine: MachineGrepScope };
 
 /** Page the call's scopes in submitted order; the caller records what policy hid. */
-async function scanPassages(request: ScanRequest): Promise<ToolResult> {
+async function scanPassages(
+  request: ScanRequest,
+  deadlineAt: number,
+): Promise<ToolResult> {
   const { input, patterns, resolved } = request;
   const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
   const cursor = resolveCursor(input.cursor, inputHash);
   if ('result' in cursor) return cursor.result;
 
-  const budget = grepBudget(input.limit);
-  const deadlineAt = Date.now() + budget.deadlineMs;
+  const budget = grepBudget(request.context, input.limit, deadlineAt);
   const resume = cursor.cursor;
   const state = createPageState();
   for (const segment of segmentsOf(resolved)) {
@@ -209,7 +231,7 @@ type SegmentRun = {
   readonly patterns: CompiledGrepPatterns;
   readonly inputHash: string;
   readonly segment: GrepSegment;
-  readonly budget: CallBudget;
+  readonly budget: GrepBudget;
   readonly cursor: DecodedGrepCursor | undefined;
   /** Whether the call already progressed in an earlier segment. */
   readonly progressed: boolean;
@@ -360,15 +382,23 @@ function hashOf(
   });
 }
 
-function grepBudget(limit: number | undefined): CallBudget {
+/**
+ * What one call may walk with: the operator's `tools.grep` bounds (an unset
+ * bound stays `null`), the page shape this process owns, and what is left of
+ * the call deadline computed at `executeGrep` entry.
+ */
+function grepBudget(
+  context: ToolContext,
+  limit: number | undefined,
+  deadlineAt: number,
+): GrepBudget {
+  const bounds = context.grep;
   return {
-    files: GREP_LIMITS.filesExamined,
-    entries: GREP_LIMITS.entriesListed,
-    bytes: GREP_LIMITS.bytesRead,
-    // Files of any size are searched: the byte bound and the deadline stop a
-    // file between its chunks, and an unfinished file is skipped by cursor.
-    maxFileBytes: null,
-    deadlineMs: GREP_LIMITS.deadlineMs,
+    files: bounds?.maxFilesExamined ?? null,
+    entries: bounds?.maxEntriesListed ?? null,
+    bytes: bounds?.maxBytesRead ?? null,
+    maxFileBytes: bounds?.maxFileBytes ?? null,
+    deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: limit ?? GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,
     fixedReserve: pageFixedReserve(),
@@ -377,16 +407,16 @@ function grepBudget(limit: number | undefined): CallBudget {
 
 /**
  * The rendered width of a page's own lines beside `results`: the Knowledge
- * notice and one `warnings` line naming every kind with a six-digit count, each
- * with its separating newline. The engine keeps exactly this much back from the
- * page's bound, and adds its own continuation line to that reservation.
+ * notice and one newline, each with its separating newline. The engine keeps
+ * exactly this much back from the page's bound, adds its own continuation line
+ * to that reservation, and grows the `[warnings: …]` line's share as counts
+ * arrive (design D7), because an unbounded walk has no largest count.
  */
 export function pageFixedReserve(): number {
   return (
     measureGrepRendering({
       results: [],
       complete: true,
-      warnings: GREP_WARNING_KINDS.map((kind) => ({ kind, count: 999_999 })),
       notice: KNOWLEDGE_CONTENT_NOTICE,
     }) + 2
   );

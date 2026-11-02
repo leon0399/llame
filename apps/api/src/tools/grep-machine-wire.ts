@@ -13,19 +13,16 @@ import {
 import {
   encodeGrepCursor,
   type DecodedGrepCursor,
+  type GrepBudget,
 } from '@workspace/native-file-tools';
 
 import { formatMachineLocator } from '../machines/machine-locator';
 import { type GrepReadAdmission } from './grep-admission';
-import {
-  type CallBudget,
-  type MachineGrepScope,
-  type MachineGrepSearch,
-} from './grep-machine';
+import { type MachineGrepScope, type MachineGrepSearch } from './grep-machine';
 
 /** One daemon page a request asks for. */
 export type DaemonAsk = {
-  readonly budget: CallBudget;
+  readonly budget: GrepBudget;
   readonly cursor: string | undefined;
   /** Whether the call already progressed before this page. */
   readonly progressed: boolean;
@@ -115,10 +112,11 @@ export function requestOf(
     literal: args.literal,
     ignoreCase: args.ignoreCase,
     ...(cursor !== undefined && { cursor }),
-    budget: {
+    bounds: {
       files: budget.files,
       entries: budget.entries,
       bytes: budget.bytes,
+      fileBytes: budget.maxFileBytes,
       // Nine tenths of the time left: a daemon that spends its whole budget
       // still answers before the hub abandons the request, so its page,
       // cursor, and unfinished file are never lost.

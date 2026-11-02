@@ -926,6 +926,29 @@
           "$ref": "#/$defs/numberOrToken",
           "description": "Global timeout, in seconds, for a single tool call (a tool may declare a per-tool override at registration — a code-level property, not a config key). Falls back to the built-in default, 120."
         },
+        "grep": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Optional walk bounds for the `grep` tool, per call and across every scope. Absent or null bounds nothing: the call timeout is then the only stop, and a huge tree continues from its cursor. Each field is a positive integer, null, or a whole-value {env:}/{path:} token; zero, a negative number, a fraction, or an unknown field fails startup naming the path. Byte fields count bytes, so 33554432 is 32 MiB.",
+          "properties": {
+            "maxFilesExamined": {
+              "$ref": "#/$defs/nullableNumberOrToken",
+              "description": "Files one grep call may take for a match. Omitted or null = no file bound; at the bound the walk stops with a `file_bound` warning and a cursor."
+            },
+            "maxEntriesListed": {
+              "$ref": "#/$defs/nullableNumberOrToken",
+              "description": "Directory entries one grep call may list. Omitted or null = no entry bound; at the bound the walk stops with an `entry_bound` warning and a cursor."
+            },
+            "maxBytesRead": {
+              "$ref": "#/$defs/nullableNumberOrToken",
+              "description": "Bytes one grep call may read from the files it takes, plus what it read so far of the file it waits on. Omitted or null = no byte bound; at the bound the walk stops with a `byte_bound` warning and a cursor."
+            },
+            "maxFileBytes": {
+              "$ref": "#/$defs/nullableNumberOrToken",
+              "description": "Largest regular file the walk searches, checked on the announced size and again on the bytes it reads. Omitted or null = a file of any size is searched; a larger file is skipped and counted as `oversized`."
+            }
+          }
+        },
         "promptFiles": {
           "type": "object",
           "description": "Optional instance-wide whole-file replacements for llame-owned tool descriptions, keyed by registered llame-owned tool id. Each file is a complete description rendered through the same template language and variable projection as system prompts. Relative paths resolve from the active configuration file's directory; absolute paths remain absolute. A model's models[].toolPromptFiles entry for the same id wins over this one, which wins over the packaged default. Keys naming an unregistered or MCP-authored tool are rejected at boot. Missing, unreadable, or empty files fail that execution worker's startup rather than falling back.",

@@ -31,6 +31,7 @@ export { runGrepScan } from "./scan";
 export {
   grepFileLocator,
   grepPassageUnits,
+  grepWarningsUnits,
   measureGrepRendering,
   renderGrepText,
 } from "./model-text";

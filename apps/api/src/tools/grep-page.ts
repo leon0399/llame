@@ -10,7 +10,9 @@ import {
   grepContinuationUnits,
   grepFileLocator,
   grepPassageUnits,
+  grepWarningsUnits,
   measureGrepRendering,
+  type GrepBudget,
   type GrepPageEnd,
   type GrepPassage,
   type GrepScanResult,
@@ -20,7 +22,6 @@ import {
 
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
-import { type CallBudget } from './grep-machine';
 import { type ToolResult } from './types';
 
 /** One passage the call may emit, with the cursor point it ends at. */
@@ -92,38 +93,51 @@ export function createPageState(): PageState {
  * subtracted, so the segment the values are handed to can never emit past the
  * call's page. The whole page is measured exactly here, once per segment,
  * which also recalibrates the running total the segment's entries are admitted
- * against.
+ * against. The warnings line grows with the counts already merged, so the
+ * reserve grows with it (design D7).
  */
 export function remainingBudget(
-  budget: CallBudget,
+  budget: GrepBudget,
   state: PageState,
   deadlineAt: number,
-): CallBudget {
+): GrepBudget {
   const separator = state.results.length === 0 ? 0 : 1;
   state.units = measureGrepRendering({
     results: state.results,
     complete: true,
   });
   return {
-    files: Math.max(0, budget.files - state.consumed.files),
-    entries: Math.max(0, budget.entries - state.consumed.entries),
-    bytes: Math.max(0, budget.bytes - state.consumed.bytes),
+    files: remainingOf(budget.files, state.consumed.files),
+    entries: remainingOf(budget.entries, state.consumed.entries),
+    bytes: remainingOf(budget.bytes, state.consumed.bytes),
     maxFileBytes: budget.maxFileBytes,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: Math.max(0, budget.limit - state.files.size),
     pageUnits: Math.max(0, budget.pageUnits - state.units - separator),
-    fixedReserve: budget.fixedReserve,
+    fixedReserve: budget.fixedReserve + warningsUnitsOf(state),
   };
 }
 
-export function pageIsFull(state: PageState, budget: CallBudget): boolean {
+/** What one bound has left; an unset (`null`) bound stays unset. */
+export function remainingOf(bound: number | null, used: number): number | null {
+  return bound === null ? null : Math.max(0, bound - used);
+}
+
+/** Rendered width of the `[warnings: …]` line the page would end with. */
+function warningsUnitsOf(state: PageState): number {
+  return grepWarningsUnits(
+    [...state.warnings].map(([kind, count]) => ({ kind, count })),
+  );
+}
+
+export function pageIsFull(state: PageState, budget: GrepBudget): boolean {
   return state.files.size >= budget.limit;
 }
 
 /** Append one segment while the page holds it; the rest waits for a cursor. */
 export function appendSegment(
   state: PageState,
-  budget: CallBudget,
+  budget: GrepBudget,
   page: SegmentPage,
 ): void {
   mergeWarnings(state, page.warnings);
@@ -167,7 +181,7 @@ export function appendSegment(
  */
 function fitsPage(
   state: PageState,
-  budget: CallBudget,
+  budget: GrepBudget,
   entry: SegmentEntry,
 ): boolean {
   const file = grepFileLocator(entry.passage.locator);
@@ -184,7 +198,8 @@ function fitsPage(
         ...(end.endLine !== undefined && { endLine: end.endLine }),
         capped: end.capped,
       }) +
-      budget.fixedReserve <=
+      budget.fixedReserve +
+      warningsUnitsOf(state) <=
     budget.pageUnits
   );
 }

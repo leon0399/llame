@@ -163,12 +163,34 @@ refused file.
 | Passages of one file | 20             |
 | Lines of one passage | 2,000          |
 | Line length          | 512 code units |
-| Files of one call    | 5,000          |
-| Directory entries    | 20,000         |
-| Bytes read           | 32 MiB         |
 | Longest line         | 4 MiB          |
 | Files read at once   | 8              |
-| Call wall time       | 30 s           |
+
+The walk has no file, entry, byte, or file-size bound by default: the call
+deadline is its only stop, and a huge tree continues from its cursor. The
+operator sets those bounds for the whole instance through `tools.grep`:
+
+| Setting            | Bound                                                          |
+| ------------------ | -------------------------------------------------------------- |
+| `maxFilesExamined` | files the call takes for a match, across every scope           |
+| `maxEntriesListed` | directory entries the call lists, across every scope           |
+| `maxBytesRead`     | bytes of the files the call takes, and of the file it waits on |
+| `maxFileBytes`     | largest regular file the walk searches                         |
+
+Each setting is a positive integer, an interpolation token that resolves to
+one, or `null`/absent for no bound. `maxBytesRead` counts the bytes of every
+file the walk takes in walk order plus what it read so far of the file it
+waits on; bytes read ahead of that file are discarded and never counted, and
+the walk stops when the count reaches the bound. `maxFileBytes` is checked on
+the announced size and again on the bytes read, so a file that grows past it
+is skipped as `oversized`.
+
+The call deadline is the tool call timeout minus a margin: the larger of 5
+seconds and a tenth of the timeout, but at most half of it. The default 120
+second timeout therefore leaves 108 seconds for the walk, and a call without a
+timeout in its context uses `tools.callTimeoutSeconds`. At a bound or the
+deadline the result carries `complete: false`, the warning that names the
+stop, and a cursor.
 
 A page holds at most `limit` files. The rendered model text of the whole
 result — the file lines, passages, `[warnings: …]` line, notice, and
@@ -217,7 +239,7 @@ the call progressed first, the result names no file, and the next call opens
 the stopped file again with a full budget. A scope that names one file skips
 to the next scope ordinal.
 
-A directory with more than 20,000 entries stops the walk at the entry bound.
+A configured entry bound stops the walk at the bound, across every scope.
 The result is then a partial page with `entry_bound` in `warnings`, not a
 refused call. A file that disappears between the listing and the read is an
 `unreadable` skip.

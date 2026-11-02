@@ -41,6 +41,8 @@ type ContextOptions = {
   readonly executor?: boolean;
   readonly run?: boolean;
   readonly map?: ToolPermissionMap;
+  /** Operator `tools.grep` bounds; absent means every bound is unset. */
+  readonly grep?: ToolContext['grep'];
 };
 
 function contextOf(options: ContextOptions = {}): ToolContext {
@@ -60,6 +62,7 @@ function contextOf(options: ContextOptions = {}): ToolContext {
         Promise.reject(new Error('grep never opens a tenant transaction')),
     },
     skillCatalog: NO_CATALOG,
+    grep: options.grep,
     workspaceRoot:
       options.root === undefined
         ? undefined
@@ -438,5 +441,156 @@ describe('host authority', () => {
     expect(
       await run(context, { patterns: ['x'], scopes: ['skill://'] }),
     ).toMatchObject({ status: 'success', results: [], complete: true });
+  });
+});
+
+describe('operator bounds', () => {
+  it('has no count bound when the operator sets none', async () => {
+    await withRoot(async (root) => {
+      // Thirty listed files before the one match: a default count bound would
+      // stop the walk short of it with a bound warning.
+      const misses = Array.from(
+        { length: 30 },
+        (_, index) => `m${String(index)}.md`,
+      );
+      await Promise.all(misses.map((name) => writeAt(root, name, 'miss\n')));
+      await writeAt(root, 'z.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/z.md:1-1`]);
+      expect(success(result).complete).toBe(true);
+      expect(warningsOf(result)).toEqual([]);
+    });
+  });
+
+  it('stops the walk at the configured file bound', async () => {
+    await withRoot(async (root) => {
+      for (const name of ['a.md', 'b.md', 'c.md']) {
+        await writeAt(root, name, 'miss\n');
+      }
+      await writeAt(root, 'd.md', 'needle\n');
+      const context = contextOf({
+        grep: {
+          maxFilesExamined: 3,
+          maxEntriesListed: null,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+      });
+      const first = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+      });
+      expect(first).toMatchObject({ status: 'success', results: [] });
+      expect(success(first).complete).toBe(false);
+      expect(warningsOf(first)).toEqual([{ kind: 'file_bound', count: 1 }]);
+      const cursor = cursorOf(first);
+      if (cursor === undefined) throw new Error('the page carries a cursor');
+
+      // The bound stopped after the third file, so the next call reaches the
+      // match without reopening a file the first call examined.
+      const second = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+        cursor,
+      });
+      expect(locatorsOf(second)).toEqual([`${root}/d.md:1-1`]);
+      expect(success(second).complete).toBe(true);
+    });
+  });
+
+  it('stops the walk at the configured byte bound', async () => {
+    await withRoot(async (root) => {
+      // Four KiB files against an eight KiB bound: two files fill it, which is
+      // the ten one-MiB files of the spec's example at a test's scale.
+      const kib = `${'x'.repeat(4095)}\n`;
+      await writeAt(root, 'a.md', kib);
+      await writeAt(root, 'b.md', kib);
+      await writeAt(root, 'c.md', 'needle\n');
+      const context = contextOf({
+        grep: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: 8192,
+          maxFileBytes: null,
+        },
+      });
+      const first = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+      });
+      expect(first).toMatchObject({ status: 'success', results: [] });
+      expect(success(first).complete).toBe(false);
+      expect(warningsOf(first)).toEqual([{ kind: 'byte_bound', count: 1 }]);
+      const cursor = cursorOf(first);
+      if (cursor === undefined) throw new Error('the page carries a cursor');
+
+      const second = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+        cursor,
+      });
+      expect(locatorsOf(second)).toEqual([`${root}/c.md:1-1`]);
+      expect(success(second).complete).toBe(true);
+    });
+  });
+
+  it('names a first file the byte bound stops inside', async () => {
+    await withRoot(async (root) => {
+      // Larger than one 64 KiB read chunk, so the bound stops the file
+      // between its chunks rather than after it ended.
+      await writeAt(root, 'big.log', `${'x'.repeat(63)}\n`.repeat(4000));
+      await writeAt(root, 'z.md', 'needle\n');
+      const context = contextOf({
+        grep: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: 8192,
+          maxFileBytes: null,
+        },
+      });
+      const first = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+      });
+      expect(first).toMatchObject({
+        status: 'success',
+        results: [],
+        unfinishedFile: `${root}/big.log`,
+      });
+      expect(warningsOf(first)).toEqual([{ kind: 'byte_bound', count: 1 }]);
+      const cursor = cursorOf(first);
+      if (cursor === undefined) throw new Error('the page carries a cursor');
+
+      // The cursor moves past the log the bound stopped inside.
+      const second = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+        cursor,
+      });
+      expect(locatorsOf(second)).toEqual([`${root}/z.md:1-1`]);
+    });
+  });
+
+  it('skips a file over the configured file-size bound', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'big.log', 'needle\n'.repeat(300));
+      await writeAt(root, 'small.md', 'needle\n');
+      const result = await run(
+        contextOf({
+          grep: {
+            maxFilesExamined: null,
+            maxEntriesListed: null,
+            maxBytesRead: null,
+            maxFileBytes: 1024,
+          },
+        }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      expect(locatorsOf(result)).toEqual([`${root}/small.md:1-1`]);
+      expect(warningsOf(result)).toEqual([{ kind: 'oversized', count: 1 }]);
+    });
   });
 });

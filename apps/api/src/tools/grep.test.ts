@@ -35,7 +35,7 @@ import {
 } from '../skills/skill-catalog';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import {
-  GREP_WARNING_KINDS,
+  grepWarningsUnits,
   measureGrepRendering,
   renderGrepText,
 } from '@workspace/native-file-tools';
@@ -139,6 +139,8 @@ type ContextOptions = {
   readonly map?: ToolPermissionMap;
   readonly selection?: ReadonlySet<string>;
   readonly onDerivedDecision?: (decision: DerivedDecision) => void;
+  /** Operator `tools.grep` bounds; absent means every bound is unset. */
+  readonly grep?: ToolContext['grep'];
 };
 
 function contextOf(options: ContextOptions = {}): ToolContext {
@@ -157,6 +159,7 @@ function contextOf(options: ContextOptions = {}): ToolContext {
     skillCatalog: options.catalog,
     skillSelection: options.selection,
     onDerivedDecision: options.onDerivedDecision,
+    grep: options.grep,
   };
 }
 
@@ -661,18 +664,20 @@ describe('skill scopes', () => {
 });
 
 describe('paging', () => {
-  it('reserves the worst-case page lines and their separators', () => {
-    // The reserve holds the Knowledge notice and one warning of every kind at
-    // a six-digit count, plus the two newlines that separate those lines from
-    // the passages. A smaller reserve lets a page render past its bound; a
-    // larger one needlessly refuses a passage that fits.
-    const worstCase = measureGrepRendering({
+  it('reserves the notice and grows the warnings line with its counts', () => {
+    // The fixed part holds the Knowledge notice and the two newlines that
+    // separate the page's own lines from the passages. The warnings line is
+    // not part of it: it grows as counts arrive (design D7), because an
+    // unbounded walk has no largest count to reserve in advance.
+    const notice = measureGrepRendering({
       results: [],
       complete: true,
-      warnings: GREP_WARNING_KINDS.map((kind) => ({ kind, count: 999_999 })),
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
-    expect(pageFixedReserve()).toBe(worstCase + 2);
+    expect(pageFixedReserve()).toBe(notice + 2);
+    expect(grepWarningsUnits([{ kind: 'binary', count: 1 }])).toBe(
+      grepWarningsUnits([{ kind: 'binary', count: 999_999 }]) - 5,
+    );
   });
 
   it('reserves the cursor and the notice inside the 15,000-unit page', async () => {
@@ -769,6 +774,12 @@ describe('paging', () => {
                 ],
               ]),
             ),
+            grep: {
+              maxFilesExamined: 5000,
+              maxEntriesListed: null,
+              maxBytesRead: null,
+              maxFileBytes: null,
+            },
           }),
           { patterns: ['needle'], scopes: [`kb://${SPACE_A}`] },
         );
@@ -779,8 +790,8 @@ describe('paging', () => {
         reads.mockRestore();
       }
     });
-    // The fixture creates and walks about 5,000 files, which is the bound it
-    // proves; the page fills long before the walk stops.
+    // The fixture creates and walks about 5,000 files, which is the configured
+    // file bound it proves; the page fills long before the walk stops.
   }, 30_000);
   it('mints a position cursor when the deadline stops a walk before any passage', async () => {
     await withRoot(async (root) => {
@@ -793,11 +804,12 @@ describe('paging', () => {
       });
       const started = Date.now();
       let calls = 0;
-      // The call's own deadline, then the first file's check, pass at once;
-      // the second file's check finds the deadline gone.
+      // The call deadline at entry, the segment's remaining time, the scan's
+      // own deadline, and the first file's checks pass at once; the second
+      // file's check finds the 108-second walk deadline gone.
       const now = vi.spyOn(Date, 'now').mockImplementation(() => {
         calls += 1;
-        return calls <= 4 ? started : started + 31_000;
+        return calls <= 6 ? started : started + 109_000;
       });
       try {
         const result = await run(context, {
@@ -833,10 +845,10 @@ describe('paging', () => {
       const started = Date.now();
       let calls = 0;
       // Calls 1-8 are the call's deadline, the candidate's bounds, and the
-      // first chunks of the read; the 9th finds the clock past the deadline.
+      // first chunks of the read; the 9th is past the 108-second deadline.
       const now = vi.spyOn(Date, 'now').mockImplementation(() => {
         calls += 1;
-        return calls <= 8 ? started : started + 40_000;
+        return calls <= 8 ? started : started + 109_000;
       });
       try {
         const first = await run(context, {

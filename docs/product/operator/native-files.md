@@ -112,6 +112,34 @@ rejects the whole call.
 }
 ```
 
+`grep` walks without a file, entry, byte, or file-size bound unless the
+operator sets one. The call deadline is its only default stop: the tool call
+timeout (120 seconds unless `tools.callTimeoutSeconds` says otherwise), less
+the larger of 5 seconds and a tenth of it, but at most half. A bound that
+stops a walk returns `complete: false` with a warning and a cursor, never a
+refused call, and each bound applies across every scope of the call.
+
+```jsonc
+{
+  "tools": {
+    "grep": {
+      "maxFilesExamined": 5000,
+      "maxEntriesListed": 20000,
+      "maxBytesRead": 33554432,
+      "maxFileBytes": null,
+    },
+  },
+}
+```
+
+Each field takes a positive integer, `null`, or a whole-value
+`{env:...}`/`{path:...}` token that resolves to one; `null` (or an absent
+object) leaves that bound off. `maxBytesRead` counts the bytes of files the
+walk takes plus what it read so far of the file it waits on. Zero, a negative
+number, a fraction, and an unknown field fail startup naming the field. The
+bounds reach a Machine inside the `fs.grep` request, so a run that uses them
+needs daemons of the same build.
+
 `grep` then runs the `read` group on every candidate file. It sets `path` to
 the canonical locator of that file. A file that `read` refuses contributes no
 hit. The result does not count the refused files. The completion audit does.

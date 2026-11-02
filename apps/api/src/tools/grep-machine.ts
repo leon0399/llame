@@ -41,6 +41,7 @@ import {
   readFsStatResult,
 } from '../machines/machine-results';
 import { type GrepReadAdmission } from './grep-admission';
+import { remainingOf } from './grep-page';
 import {
   invalidPathResult,
   machineUnsupportedResult,
@@ -68,13 +69,6 @@ import {
   type DaemonAsk,
 } from './grep-machine-wire';
 import { type ToolContext, type ToolResult } from './types';
-
-/** One call's budget, with its file, entry, and byte counts always set. */
-export type CallBudget = GrepBudget & {
-  files: number;
-  entries: number;
-  bytes: number;
-};
 
 /** One Machine scope: the prefix the daemon searches and its glob suffix. */
 export type MachineGrepScope = {
@@ -125,7 +119,7 @@ export type MachineGrepSearch = {
   readonly scope: MachineGrepScope;
   readonly args: GrepSearchArguments;
   /** What is left of the call's bounds, shared with every other scope. */
-  readonly budget: CallBudget;
+  readonly budget: GrepBudget;
   /** The call's cursor, when it names a passage of this scope. */
   readonly resume: DecodedGrepCursor | undefined;
   /** Whether the call already progressed in an earlier scope or page. */
@@ -372,7 +366,7 @@ function keepAsking(
 }
 
 /** What one daemon page has left: the call's deadline minus the clock now. */
-function daemonBudget(budget: CallBudget, deadlineAt: number): CallBudget {
+function daemonBudget(budget: GrepBudget, deadlineAt: number): GrepBudget {
   return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
 }
 
@@ -438,14 +432,14 @@ function nextCursor(
 
 /** What the call has left after one daemon page. */
 function spent(
-  budget: CallBudget,
+  budget: GrepBudget,
   consumed: FsGrepConsumed,
   deadlineAt: number,
-): CallBudget {
+): GrepBudget {
   return {
-    files: Math.max(0, budget.files - consumed.files),
-    entries: Math.max(0, budget.entries - consumed.entries),
-    bytes: Math.max(0, budget.bytes - consumed.bytes),
+    files: remainingOf(budget.files, consumed.files),
+    entries: remainingOf(budget.entries, consumed.entries),
+    bytes: remainingOf(budget.bytes, consumed.bytes),
     maxFileBytes: budget.maxFileBytes,
     limit: budget.limit,
     pageUnits: budget.pageUnits,
@@ -455,14 +449,14 @@ function spent(
 }
 
 /** Whether the remaining budget can buy one more daemon page. */
-function canAskPage(budget: CallBudget): boolean {
+function canAskPage(budget: GrepBudget): boolean {
   return (
-    budget.files > 0 &&
-    budget.entries > 0 &&
-    budget.bytes > 0 &&
     budget.limit > 0 &&
     budget.pageUnits > 0 &&
-    budget.deadlineMs > 0
+    budget.deadlineMs > 0 &&
+    (budget.files === null || budget.files > 0) &&
+    (budget.entries === null || budget.entries > 0) &&
+    (budget.bytes === null || budget.bytes > 0)
   );
 }
 
@@ -517,7 +511,10 @@ function machineGrepFailure(
     return machineUnavailableResult(name, error.reason);
   if (error instanceof MachineProtocolError) {
     // A daemon older than this hub refuses an unknown method as `internal`.
-    return error.code === 'internal'
+    // `invalid_params` on `fs.grep` means a build that reads another request
+    // shape: the hub validates the patterns and owns the cursor and the
+    // bounds, so the only cause is a daemon of another build (design D8).
+    return error.code === 'internal' || error.code === 'invalid_params'
       ? machineUnusableResult(name)
       : machineProtocolFailureResult(name, error);
   }

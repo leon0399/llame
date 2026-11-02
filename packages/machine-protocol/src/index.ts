@@ -104,7 +104,7 @@ export type {
   FsBytesChunk,
   FsBytesParams,
   FsBytesResult,
-  FsGrepBudget,
+  FsGrepBounds,
   FsGrepConsumed,
   FsGrepParams,
   FsGrepPassage,

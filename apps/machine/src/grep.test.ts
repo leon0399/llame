@@ -10,7 +10,7 @@ import {
   isSerializableRecord,
   isStringValue,
   PATH_NOT_REGISTERED_MESSAGE,
-  type FsGrepBudget,
+  type FsGrepBounds,
   type FsGrepParams,
   type FsGrepPassage,
   type JsonValue,
@@ -35,19 +35,28 @@ import { envelope, startDaemon, type TestDaemon } from "./testing/harness";
 let fixture: RootFixture;
 let daemon: TestDaemon;
 
-/** The wire budget, and the engine budget the daemon runs it under. */
-const BUDGET: FsGrepBudget & GrepBudget = {
+/** The bounds a hub request carries; the daemon maps them to its own budget. */
+const BOUNDS: FsGrepBounds = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
-  // The wire carries no file-size bound.
+  fileBytes: null,
+  deadlineMs: 30_000,
+  limit: 20,
+  pageUnits: 15_000,
+  progressed: false,
+};
+
+/** An unbound engine budget, for the walks this file builds itself. */
+const ENGINE_BUDGET: GrepBudget = {
+  files: null,
+  entries: null,
+  bytes: null,
   maxFileBytes: null,
   deadlineMs: 30_000,
   limit: 20,
   pageUnits: 15_000,
-  // The hub's own result fields never travel on the daemon's page.
   fixedReserve: 0,
-  progressed: false,
 };
 
 beforeEach(async () => {
@@ -105,7 +114,7 @@ function request(
     patterns: ["needle"],
     literal: false,
     ignoreCase: false,
-    budget: BUDGET,
+    bounds: BOUNDS,
     ...overrides,
   };
 }
@@ -262,7 +271,7 @@ describe("fs.grep", () => {
     await writeAt("project/b.go", "needle\n");
     const prefix = join(fixture.root, "project");
     const first = await grep(
-      request(prefix, { budget: { ...BUDGET, limit: 1 } }),
+      request(prefix, { bounds: { ...BOUNDS, limit: 1 } }),
     );
     expect(pathsOf(first)).toEqual(["a.go"]);
     expect(first.complete).toBe(false);
@@ -270,7 +279,7 @@ describe("fs.grep", () => {
       throw new Error("the page carries a cursor");
     const second = await grep(
       request(prefix, {
-        budget: { ...BUDGET, limit: 1 },
+        bounds: { ...BOUNDS, limit: 1 },
         cursor: first.cursor,
       }),
     );
@@ -284,14 +293,14 @@ describe("fs.grep", () => {
     await writeAt("project/big.log", `${"x".repeat(63)}\n`.repeat(2000));
     const prefix = join(fixture.root, "project/big.log");
     const stopped = await grep(
-      request(prefix, { budget: { ...BUDGET, bytes: 4 } }),
+      request(prefix, { bounds: { ...BOUNDS, bytes: 4 } }),
     );
     expect(stopped.progressed).toBe(false);
     expect(stopped.unfinished).toBe("");
     expect(stopped.complete).toBe(false);
 
     const progressed = await grep(
-      request(prefix, { budget: { ...BUDGET, bytes: 4, progressed: true } }),
+      request(prefix, { bounds: { ...BOUNDS, bytes: 4, progressed: true } }),
     );
     expect(progressed.progressed).toBe(true);
     expect(progressed.unfinished).toBeUndefined();
@@ -316,6 +325,20 @@ describe("fs.grep", () => {
       FS_GREP_METHOD,
       request(prefix, { cursor }),
     );
+    expect(outcome.ok).toBe(false);
+    expect(outcome.error).toMatchObject({ code: "invalid_params" });
+  });
+
+  it("refuses a request that carries no bounds", async () => {
+    await writeAt("project/a.go", "needle\n");
+    // A hub of another build sends the same fields without `bounds`; the
+    // daemon must refuse the shape rather than run with old bounds.
+    const full = request(join(fixture.root, "project"));
+    // The wire message itself: the other build's request never carried the
+    // field, so the parsed message has no `bounds` key at all.
+    const legacy = { ...full };
+    Reflect.deleteProperty(legacy, "bounds");
+    const outcome = await daemon.attempt(FS_GREP_METHOD, legacy);
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toMatchObject({ code: "invalid_params" });
   });
@@ -347,7 +370,7 @@ describe("fs.grep", () => {
     await writeAt("project/b.go", "needle\n");
     const page = await grep(
       request(join(fixture.root, "project"), {
-        budget: { ...BUDGET, files: 1 },
+        bounds: { ...BOUNDS, files: 1 },
       }),
     );
     expect(pathsOf(page)).toEqual(["a.go"]);
@@ -396,7 +419,7 @@ describe("fs.grep", () => {
     await writeAt("project/b.md", "needle\n");
     const prefix = join(fixture.root, "project");
     const first = await grep(
-      request(prefix, { budget: { ...BUDGET, files: 1 } }),
+      request(prefix, { bounds: { ...BOUNDS, files: 1 } }),
     );
     expect(pathsOf(first)).toEqual([]);
     expect(first.complete).toBe(false);
@@ -438,8 +461,8 @@ describe("fs.grep", () => {
     const split = await grep(
       request(prefix, {
         // Ten passages and the cursor field that names the tenth.
-        budget: {
-          ...BUDGET,
+        bounds: {
+          ...BOUNDS,
           pageUnits:
             unitsOf(whole.results.slice(0, 10)) +
             grepContinuationUnits({
@@ -471,8 +494,8 @@ describe("fs.grep", () => {
     const first = await grep(
       request(prefix, {
         // A page that leaves 400 units for the passages themselves.
-        budget: {
-          ...BUDGET,
+        bounds: {
+          ...BOUNDS,
           pageUnits: pageRoom("a.go", 1, 400),
         },
       }),
@@ -628,7 +651,7 @@ describe("fs.grep", () => {
       ],
       patterns: compiled.compiled,
       onCandidate: () => Promise.resolve(true),
-      budget: BUDGET,
+      budget: ENGINE_BUDGET,
       inputHash: "swapped-subtree",
       now: () => Date.now(),
     });

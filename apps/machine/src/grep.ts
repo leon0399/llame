@@ -33,6 +33,7 @@ import type { OperationContext } from "./dispatch-types";
 import { invalidParams } from "./errors";
 import { createGrepWalkPort, GrepWalkFailure } from "./grep-port";
 import {
+  nullableCount,
   optionalString,
   paramRecord,
   requireBoolean,
@@ -68,26 +69,35 @@ type GrepRequest = {
   readonly progressed: boolean;
 };
 
-function readBudget(source: SerializableRecord): GrepBudget {
-  const budget = requireRecord(source, "budget", FS_GREP_METHOD);
+/**
+ * The request's `bounds` as the engine budget. A `null` bound is unset, so the
+ * daemon applies no file, entry, byte, or file-size bound for it; the page
+ * shape and the time left are always numbers.
+ */
+function readBounds(
+  source: SerializableRecord,
+): Pick<GrepRequest, "budget" | "progressed"> {
+  const bounds = requireRecord(source, "bounds", FS_GREP_METHOD);
   return {
-    // The wire budget is the page the hub has left for passages; the fields
-    // beside the daemon's own result travel on the hub, never here.
-    files: requireCount(budget, "files", FS_GREP_METHOD),
-    entries: requireCount(budget, "entries", FS_GREP_METHOD),
-    bytes: requireCount(budget, "bytes", FS_GREP_METHOD),
-    // Files of any size are searched: the byte bound and the deadline stop a
-    // file between its chunks, and no file-size bound travels on the wire.
-    maxFileBytes: null,
-    deadlineMs: requireCount(budget, "deadlineMs", FS_GREP_METHOD),
-    limit: requireCount(budget, "limit", FS_GREP_METHOD),
-    pageUnits: requireCount(budget, "pageUnits", FS_GREP_METHOD),
-    fixedReserve: 0,
+    budget: {
+      // The wire bounds are the page the hub has left for passages; the fields
+      // beside the daemon's own result travel on the hub, never here.
+      files: nullableCount(bounds, "files", FS_GREP_METHOD),
+      entries: nullableCount(bounds, "entries", FS_GREP_METHOD),
+      bytes: nullableCount(bounds, "bytes", FS_GREP_METHOD),
+      maxFileBytes: nullableCount(bounds, "fileBytes", FS_GREP_METHOD),
+      deadlineMs: requireCount(bounds, "deadlineMs", FS_GREP_METHOD),
+      limit: requireCount(bounds, "limit", FS_GREP_METHOD),
+      pageUnits: requireCount(bounds, "pageUnits", FS_GREP_METHOD),
+      fixedReserve: 0,
+    },
+    progressed: requireBoolean(bounds, "progressed", FS_GREP_METHOD),
   };
 }
 
 function requestOf(params: SerializableValue): GrepRequest {
   const source = paramRecord(params, FS_GREP_METHOD);
+  const bounds = readBounds(source);
   return {
     path: requireString(source, "path", FS_GREP_METHOD),
     globSuffix: optionalString(source, "globSuffix", FS_GREP_METHOD),
@@ -100,12 +110,8 @@ function requestOf(params: SerializableValue): GrepRequest {
     literal: requireBoolean(source, "literal", FS_GREP_METHOD),
     ignoreCase: requireBoolean(source, "ignoreCase", FS_GREP_METHOD),
     cursor: optionalString(source, "cursor", FS_GREP_METHOD),
-    budget: readBudget(source),
-    progressed: requireBoolean(
-      requireRecord(source, "budget", FS_GREP_METHOD),
-      "progressed",
-      FS_GREP_METHOD,
-    ),
+    budget: bounds.budget,
+    progressed: bounds.progressed,
   };
 }
 

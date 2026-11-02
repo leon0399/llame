@@ -28,6 +28,12 @@ export interface GrepPage {
    * room is kept.
    */
   reserveFloor: number;
+  /**
+   * Rendered width of the `[warnings: …]` line as this walk's counts stand.
+   * It grows with each count, because an unbounded walk has no largest count
+   * to reserve in advance.
+   */
+  warningReserve: number;
   /** Rendered width of `results` as a complete page, kept as they grow. */
   units: number;
 }
@@ -57,6 +63,7 @@ export function createGrepPage(): GrepPage {
     full: false,
     last: undefined,
     reserveFloor: 0,
+    warningReserve: 0,
     units: 0,
   };
 }
@@ -121,7 +128,10 @@ function fits(
   added: number,
 ): boolean {
   const reserve = Math.max(grepContinuationUnits(key), page.reserveFloor);
-  return page.units + added + reserve + limits.fixedReserve <= limits.pageUnits;
+  return (
+    page.units + added + reserve + page.warningReserve + limits.fixedReserve <=
+    limits.pageUnits
+  );
 }
 
 function pageKey(

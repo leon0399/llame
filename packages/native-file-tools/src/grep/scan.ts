@@ -3,7 +3,7 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
-import { grepUnfinishedUnits } from "./model-text";
+import { grepUnfinishedUnits, grepWarningsUnits } from "./model-text";
 import {
   appendGrepFile,
   createGrepPage,
@@ -381,6 +381,14 @@ function stopAt(state: ScanState, kind: GrepWarningKind): void {
 
 function addWarning(state: ScanState, kind: GrepWarningKind, count = 1): void {
   state.warnings.set(kind, (state.warnings.get(kind) ?? 0) + count);
+  // The page keeps the room the rendered warnings line now takes: an
+  // unbounded walk's counts are not known in advance.
+  state.page.warningReserve = grepWarningsUnits(
+    [...state.warnings].map(([warningKind, warningCount]) => ({
+      kind: warningKind,
+      count: warningCount,
+    })),
+  );
 }
 
 function buildResult(state: ScanState): GrepScanResult {

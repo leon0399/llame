@@ -3,9 +3,10 @@
  * more entries than one call may list is a partial page with an `entry_bound`
  * warning, never a refused call (grep-tool spec, "Walks are bounded").
  *
- * The fixture is 20,001 links because the bound is a fixed number of listed
- * entries and a link is counted without being opened. It lives in its own file
- * so the tree is built once, in a module graph that holds nothing else.
+ * The fixture is 20,001 links because the test sets the operator's
+ * `tools.grep.maxEntriesListed` to 20,000, and a link is counted without being
+ * opened. It lives in its own file so the tree is built once, in a module
+ * graph that holds nothing else.
  */
 
 import {
@@ -57,6 +58,13 @@ function contextOf(binding: KnowledgeFilesystemBinding): ToolContext {
         Promise.reject(new Error('grep never opens a tenant transaction')),
     },
     knowledgeResolver: resolver,
+    grep: {
+      // The bound this fixture proves; every other bound stays unset.
+      maxFilesExamined: null,
+      maxEntriesListed: 20_000,
+      maxBytesRead: null,
+      maxFileBytes: null,
+    },
   };
 }
 

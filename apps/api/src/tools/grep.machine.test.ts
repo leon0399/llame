@@ -9,7 +9,6 @@ import {
   isSerializableRecord,
   PATH_NOT_REGISTERED_MESSAGE,
   type SerializableRecord,
-  type FsGrepBudget,
   type FsGrepPassage,
   type FsGrepSuccess,
   type JsonValue,
@@ -60,8 +59,8 @@ const MACHINES = {
 
 const STATUS: ReadonlyArray<MachineStatusView> = [];
 
-/** The wire budget, and the engine budget the hub hands the segment with it. */
-const BUDGET: FsGrepBudget & GrepBudget = {
+/** The engine budget the hub hands a segment; a request mirrors it as bounds. */
+const BUDGET: GrepBudget = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
@@ -72,7 +71,6 @@ const BUDGET: FsGrepBudget & GrepBudget = {
   pageUnits: 15_000,
   // The hub's own result fields travel outside the daemon's page.
   fixedReserve: 0,
-  progressed: false,
 };
 
 type Fixture = {
@@ -110,6 +108,9 @@ function context(
     runId: 'run',
     nativeDeliverySequence: 1,
     toolCallId: 'call',
+    // The runner's per-call deadline: 35 s less the 5 s margin is the 30 s
+    // walk these request shapes assert. A frozen clock keeps them exact.
+    timeoutMs: 35_000,
     permissionPolicy: compileTestPermissionPolicy(['grep']),
     tenantDb: {
       runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
@@ -118,6 +119,14 @@ function context(
     machines: connector,
     machineStatus: { list: () => Promise.resolve(STATUS) },
     machineAttemptKey: 'attempt-1',
+    // The operator bounds these tests' budget mirrors; an override replaces
+    // the whole object, so a test can unset every bound.
+    grep: {
+      maxFilesExamined: 5000,
+      maxEntriesListed: 20_000,
+      maxBytesRead: 32 * 1024 * 1024,
+      maxFileBytes: null,
+    },
     ...overrides,
   };
 }
@@ -266,10 +275,11 @@ describe('Machine grep', () => {
       patterns: ['needle'],
       literal: false,
       ignoreCase: false,
-      budget: {
+      bounds: {
         files: BUDGET.files,
         entries: BUDGET.entries,
         bytes: BUDGET.bytes,
+        fileBytes: null,
         limit: BUDGET.limit,
       },
     });
@@ -342,7 +352,7 @@ describe('Machine grep', () => {
     ).toMatchObject({ status: 'error', type: 'machine_protocol_error' });
   });
 
-  it('carries the remaining budget to a second Machine scope', async () => {
+  it('carries the remaining byte bound to a second Machine scope', async () => {
     const { peer, connector } = fixture({
       answers: {
         'fs.grep': {
@@ -352,16 +362,65 @@ describe('Machine grep', () => {
         },
       },
     });
-    const result = await run(context(connector), {
-      patterns: ['needle'],
-      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
-    });
+    const result = await run(
+      context(connector, {
+        grep: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: 32 * 1024 * 1024,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+      },
+    );
     expect(result.status).toBe('success');
     const session = await peer.session(0);
     expect(session.calls).toHaveLength(2);
     expect(session.calls[1].params).toMatchObject({
       path: '/srv/b',
-      budget: { bytes: 2 * 1024 * 1024, files: 4999, entries: 19_999 },
+      bounds: {
+        bytes: 2 * 1024 * 1024,
+        files: null,
+        entries: null,
+        fileBytes: null,
+      },
+    });
+  });
+
+  it('travels an unset bound as null', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
+    });
+    await run(context(connector, { grep: undefined }), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/**'],
+    });
+    const session = await peer.session(0);
+    expect(session.calls[0].params).toMatchObject({
+      bounds: {
+        files: null,
+        entries: null,
+        bytes: null,
+        fileBytes: null,
+      },
+    });
+  });
+
+  it('fails as Machine unusable when the daemon refuses the request shape', async () => {
+    const { connector } = fixture({
+      answers: { 'fs.grep': { error: 'invalid_params' } },
+    });
+    expect(
+      await run(context(connector), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      }),
+    ).toMatchObject({
+      status: 'error',
+      type: 'machine_protocol_error',
     });
   });
 
@@ -443,14 +502,14 @@ describe('Machine grep', () => {
   });
 });
 
-/** The budget one request carried, as the peer received it. */
-function budgetOf(params: JsonValue | undefined): SerializableRecord {
+/** The bounds one request carried, as the peer received it. */
+function boundsOf(params: JsonValue | undefined): SerializableRecord {
   if (!isSerializableRecord(params))
     throw new Error('the request carries params');
-  const budget = params['budget'];
-  if (!isSerializableRecord(budget))
-    throw new Error('the request carries a budget');
-  return budget;
+  const bounds = params['bounds'];
+  if (!isSerializableRecord(bounds))
+    throw new Error('the request carries bounds');
+  return bounds;
 }
 
 function passagesOf(result: ToolResult): ReadonlyArray<SerializableRecord> {
@@ -791,8 +850,8 @@ describe('Machine request shape', () => {
     expect(asked).toHaveLength(2);
     // The first scope's passage progressed the call, so the second request
     // says so and its own stop would hide no file behind it.
-    expect(budgetOf(asked[0].params)['progressed']).toBe(false);
-    expect(budgetOf(asked[1].params)['progressed']).toBe(true);
+    expect(boundsOf(asked[0].params)['progressed']).toBe(false);
+    expect(boundsOf(asked[1].params)['progressed']).toBe(true);
   });
 
   it('gives the daemon nine tenths of the time left', async () => {
@@ -813,7 +872,7 @@ describe('Machine request shape', () => {
       const search = session.calls.find((call) => call.method === 'fs.grep');
       expect(search?.params).toMatchObject({
         envelope: { budgetMs: 30_000 },
-        budget: { deadlineMs: 27_000 },
+        bounds: { deadlineMs: 27_000 },
       });
     } finally {
       vi.useRealTimers();
@@ -863,9 +922,9 @@ describe('Machine request shape', () => {
     expect(asked).toHaveLength(3);
     // The call progressed in the first page, and a later page that reports
     // false cannot erase it: every following request says the call progressed.
-    expect(budgetOf(asked[0].params)['progressed']).toBe(false);
-    expect(budgetOf(asked[1].params)['progressed']).toBe(true);
-    expect(budgetOf(asked[2].params)['progressed']).toBe(true);
+    expect(boundsOf(asked[0].params)['progressed']).toBe(false);
+    expect(boundsOf(asked[1].params)['progressed']).toBe(true);
+    expect(boundsOf(asked[2].params)['progressed']).toBe(true);
     expect(success(result)['unfinishedFile']).toBeUndefined();
   });
 
@@ -1031,7 +1090,7 @@ describe('Machine page bounds', () => {
       }) + 1;
     expect(session.calls[1].params).toMatchObject({
       path: '/srv/b',
-      budget: {
+      bounds: {
         files: 4999,
         entries: 19_998,
         bytes: 32 * 1024 * 1024 - 100,
@@ -1039,9 +1098,9 @@ describe('Machine page bounds', () => {
         pageUnits: 15_000 - rendered - pageFixedReserve(),
       },
     });
-    const budget = budgetOf(session.calls[1].params);
-    expect(budget['deadlineMs']).toBeGreaterThan(0);
-    expect(budget['deadlineMs']).toBeLessThanOrEqual(30_000);
+    const bounds = boundsOf(session.calls[1].params);
+    expect(bounds['deadlineMs']).toBeGreaterThan(0);
+    expect(bounds['deadlineMs']).toBeLessThanOrEqual(30_000);
   });
 
   it('keeps the separators of a page that holds one passage', async () => {
@@ -1063,7 +1122,7 @@ describe('Machine page bounds', () => {
       ],
       complete: true,
     });
-    expect(budgetOf(session.calls[1].params)).toMatchObject({
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
       pageUnits: 15_000 - rendered - 1 - pageFixedReserve(),
     });
   });
@@ -1077,7 +1136,7 @@ describe('Machine page bounds', () => {
       scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
     });
     const session = await peer.session(0);
-    expect(budgetOf(session.calls[1].params)).toMatchObject({
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
       pageUnits: 15_000 - pageFixedReserve(),
       limit: 20,
     });
@@ -1120,7 +1179,7 @@ describe('Machine page bounds', () => {
     expect(asked).toHaveLength(2);
     expect(asked[1]?.params).toMatchObject({
       cursor: 'daemon-next',
-      budget: { files: 4999, entries: 19_999, bytes: 32 * 1024 * 1024 - 10 },
+      bounds: { files: 4999, entries: 19_999, bytes: 32 * 1024 * 1024 - 10 },
     });
     expect(JSON.stringify(result)).not.toContain('hidden.go');
   });
@@ -1835,5 +1894,69 @@ describe('scope segments', () => {
         `kb://${SPACE_ID}/a.md:1-1`,
       ]);
     });
+  });
+});
+
+describe('grep deadline', () => {
+  /** The walk deadline and the daemon's share of it, from one frozen call. */
+  async function requestDeadlineMs(
+    overrides: Partial<ToolContext>,
+  ): Promise<{ walkMs: number; daemonMs: number }> {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { peer, connector } = fixture({
+        answers: { 'fs.grep': { value: page([]) } },
+      });
+      await run(context(connector, overrides), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      });
+      const session = await peer.session(0);
+      const call = session.calls.find((entry) => entry.method === 'fs.grep');
+      const params = call?.params;
+      if (!isSerializableRecord(params))
+        throw new Error('the request carries params');
+      const envelope = params['envelope'];
+      if (!isSerializableRecord(envelope))
+        throw new Error('the request carries an envelope');
+      const walkMs = envelope['budgetMs'];
+      const daemonMs = boundsOf(params)['deadlineMs'];
+      if (!isNumber(walkMs) || !isNumber(daemonMs))
+        throw new Error('the request carries both deadlines');
+      return { walkMs, daemonMs };
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it('leaves a margin under the default timeout', async () => {
+    expect(await requestDeadlineMs({ timeoutMs: undefined })).toEqual({
+      walkMs: 108_000,
+      daemonMs: 97_200,
+    });
+  });
+
+  it('gives a longer walk under a longer configured timeout', async () => {
+    expect(
+      await requestDeadlineMs({
+        timeoutMs: undefined,
+        callTimeoutSeconds: 300,
+      }),
+    ).toEqual({ walkMs: 270_000, daemonMs: 243_000 });
+  });
+
+  it('keeps half of a short timeout for the walk', async () => {
+    expect(
+      await requestDeadlineMs({ timeoutMs: undefined, callTimeoutSeconds: 6 }),
+    ).toEqual({ walkMs: 3000, daemonMs: 2700 });
+  });
+
+  it('uses the configured timeout when the context carries none', async () => {
+    expect(
+      await requestDeadlineMs({
+        timeoutMs: undefined,
+        callTimeoutSeconds: 120,
+      }),
+    ).toEqual({ walkMs: 108_000, daemonMs: 97_200 });
   });
 });
