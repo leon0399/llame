@@ -18,7 +18,7 @@ master
 
 | Layer      | Parent     | Ownership                                                                                                              | Authored estimate | Closes |
 | ---------- | ---------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------- | ------ |
-| `proposal` | `master`   | Proposal, design, deltas, and this task list.                                                                          | ~900              | none   |
+| `proposal` | `master`   | Proposal, design, deltas, and this task list.                                                                          | ~1,100            | none   |
 | `api`      | `proposal` | The mode value, configuration, migration, effective mode, the ceiling, the reason, Workspace MCP, live protocol, docs. | ~1,400            | none   |
 | `web`      | `api`      | The composer selector, send, Continue, and Regenerate for `read-only`, the regenerated client, stories.                | ~400              | #1548  |
 | `finalize` | `web`      | Spec sync, task records, and archive movement only.                                                                    | ~700              | none   |
