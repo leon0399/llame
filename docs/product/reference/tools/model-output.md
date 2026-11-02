@@ -52,5 +52,5 @@ the result names no artifact. A Run that cannot read artifacts keeps today's bou
 result and no locator.
 
 A tool that declares `spill: 'tool'` builds its own inline part and artifact, so
-the result cap does not shorten it. See [artifacts](artifacts.md) and
+the result cap does not shorten it. See [artifact](../locators/artifact.md) and
 [native files](../../operator/native-files.md#artifact-reads) for the bound.

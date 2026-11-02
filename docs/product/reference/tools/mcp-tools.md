@@ -39,7 +39,7 @@ line count, and the line to continue from. The model reads the rest with
 `read("artifact://mcp__<server>__<tool>-<n>:<line>-")`. A rendering above the
 operator-configured artifact bound, a failed write, or a Run that cannot read
 artifacts returns the cut inline JSON, with `[full result not stored]` when a
-write was attempted. See [artifacts](artifacts.md),
+write was attempted. See [artifact](../locators/artifact.md),
 [model output](model-output.md), and
 [native files](../../operator/native-files.md#artifact-reads) for the bound.
 
