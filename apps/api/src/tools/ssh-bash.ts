@@ -102,6 +102,25 @@ function verdictResult(
 /** An SSH run that ended on its own: its streams and trailer are trustworthy. */
 type EndedRun = Extract<SshRunOutcome, { readonly outcome: 'ended' }>;
 
+/**
+ * Decode the retained bytes, dropping an incomplete trailing sequence: the
+ * byte bound can cut a UTF-8 character, and half of one must not become a
+ * replacement character in the result or the artifact.
+ */
+function decodeUtf8(bytes: Buffer): string {
+  let end = bytes.length;
+  for (let attempt = 0; attempt < 4 && end > 0; attempt += 1) {
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(
+        bytes.subarray(0, end),
+      );
+    } catch {
+      end -= 1;
+    }
+  }
+  return new TextDecoder('utf-8').decode(bytes.subarray(0, end));
+}
+
 /** The finished command as the local result shape, under the local bounds. */
 async function knownResult(
   request: RemoteCommand,
@@ -116,7 +135,7 @@ async function knownResult(
       {
         status: status === 0 ? 'success' : 'error',
         exitCode: status,
-        stdout: frames.stdout.toString('utf8'),
+        stdout: decodeUtf8(frames.stdout),
         stderr: frames.stderr,
         truncated: outcome.stdoutOverflow || outcome.stderrOverflow,
         wallTimeMs,

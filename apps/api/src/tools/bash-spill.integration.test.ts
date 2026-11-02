@@ -22,7 +22,9 @@ import { spillBashResult } from './bash-spill';
 import { type ToolContext, type ToolResult } from './types';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const d = TEST_DB_URL ? describe : describe.skip;
+if (!TEST_DB_URL) {
+  throw new Error('TEST_DATABASE_URL is required for bash spill tests');
+}
 
 const MAX_BYTES = 8_388_608;
 
@@ -34,14 +36,14 @@ function largeLog(): string {
   ).join('\n');
 }
 
-d('bash stream spill', () => {
+describe('bash stream spill', () => {
   let sql: Sql;
   let tenantDb: TenantDbService;
   let owner: string;
 
   beforeAll(async () => {
-    sql = postgres(TEST_DB_URL!, {
-      ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
+    sql = postgres(TEST_DB_URL, {
+      ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
       max: 4,
     });
     tenantDb = new TenantDbService(drizzle(sql, { schema }));

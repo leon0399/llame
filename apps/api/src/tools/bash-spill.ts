@@ -26,6 +26,7 @@ import type {
   BashResult,
   BashTimedOutResult,
 } from '@workspace/bash-executor';
+import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
   writeToolArtifact,
   type WrittenArtifact,
@@ -38,6 +39,17 @@ import { type ToolContext } from './types';
 
 /** A stream that carries the executor's own output. */
 export type BashObservedResult = BashKnownResult | BashTimedOutResult;
+
+/**
+ * The one omitted-range line, packaged as `prompts/bash-spill-omitted.md`: the
+ * stored variant names the part and the range that holds the rest, and the
+ * not-stored variant says the full result is not stored.
+ */
+const renderOmittedLine = loadPackagedTemplate<{
+  first: number;
+  last: number;
+  locator?: string;
+}>(__dirname, 'bash-spill-omitted');
 
 const STREAM_NAMES = ['stdout', 'stderr'] as const;
 type StreamName = (typeof STREAM_NAMES)[number];
@@ -279,11 +291,13 @@ function omittedLine(
   written: WrittenArtifact | undefined,
   name: StreamName,
 ): string {
-  const where =
-    written === undefined
-      ? 'full result not stored'
-      : `read ${formatArtifactLocator('bash', written.seq, name)}:${range.first}-${range.last}`;
-  return `[lines ${range.first}-${range.last} omitted; ${where}]`;
+  return renderOmittedLine({
+    first: range.first,
+    last: range.last,
+    ...(written !== undefined && {
+      locator: formatArtifactLocator('bash', written.seq, name),
+    }),
+  });
 }
 
 /**
@@ -316,7 +330,7 @@ async function writeStreamParts(
   const { runId, toolCallId, userId, chatId } = context;
   if (runId === undefined || toolCallId === undefined) return undefined;
   if (!runCanReadArtifacts(context, 'bash')) return undefined;
-  try {
+  return writeWhileLive(context, async () => {
     const written = await writeToolArtifact(
       context.tenantDb,
       {
@@ -343,9 +357,31 @@ async function writeStreamParts(
     return runCanReadArtifacts(context, 'bash', written.seq)
       ? written
       : undefined;
-  } catch {
+  });
+}
+
+/**
+ * Run the write while the call is still live: an aborted Run or an expired
+ * call deadline publishes no locator, and a write that fails — or lands after
+ * the abort — leaves the inline result as the only copy.
+ */
+async function writeWhileLive(
+  context: ToolContext,
+  write: () => Promise<WrittenArtifact | undefined>,
+): Promise<WrittenArtifact | undefined> {
+  if (context.abortSignal?.aborted || context.timeoutSignal?.aborted)
     return undefined;
-  }
+  const signal = context.abortSignal;
+  if (signal === undefined) return await write().catch(() => undefined);
+  return await new Promise<WrittenArtifact | undefined>((resolve) => {
+    const onAbort = () => resolve(undefined);
+    signal.addEventListener('abort', onAbort, { once: true });
+    const settle = (value: WrittenArtifact | undefined): void => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(value);
+    };
+    void write().then(settle, () => settle(undefined));
+  });
 }
 
 /**

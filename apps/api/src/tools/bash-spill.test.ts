@@ -379,8 +379,9 @@ describe('the bash spill failure paths', () => {
   });
 
   it('records an artifact the bound cut as incomplete', async () => {
+    // The stream is the executor's capture at a 20,000-byte bound.
     await spillBashResult(
-      testContext(),
+      testContext({ artifactMaxBytes: 20_000 }),
       success('a'.repeat(20_000), { truncated: true }),
     );
     expect(insertWrites.insertArtifact).toHaveBeenCalledWith(

@@ -32,6 +32,9 @@ export type WatchRequest = {
 type StreamState = {
   stdout: string;
   stderr: string;
+  /** One decoder per pipe: a character split across chunks decodes once. */
+  readonly stdoutDecoder: StringDecoder;
+  readonly stderrDecoder: StringDecoder;
   /** Each stream's own measure against its bound, updated per chunk. */
   stdoutUsed: number;
   stderrUsed: number;
@@ -73,20 +76,27 @@ type OutputDrainState = {
   settled: boolean;
 };
 
+/** One call's streams, each with its own decoder and its measure used so far. */
+function emptyStreams(): StreamState {
+  return {
+    stdout: "",
+    stderr: "",
+    stdoutDecoder: new StringDecoder("utf8"),
+    stderrDecoder: new StringDecoder("utf8"),
+    stdoutUsed: 0,
+    stderrUsed: 0,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+  };
+}
+
 export function watchManagedChild(
   child: ChildProcess,
   request: WatchRequest,
   resolve: (result: BashResult) => void,
 ): void {
   const controls: WatchControls = { settling: false };
-  const streams: StreamState = {
-    stdout: "",
-    stderr: "",
-    stdoutUsed: 0,
-    stderrUsed: 0,
-    stdoutTruncated: false,
-    stderrTruncated: false,
-  };
+  const streams = emptyStreams();
   const finish = once(resolve, () => clearWatch(request, controls));
   const pgid = child.pid;
   if (pgid === undefined) {
@@ -252,6 +262,7 @@ function finishOutputDrain(state: OutputDrainState, timedOut: boolean): void {
   if (state.settled) return;
   state.settled = true;
   if (state.timer !== undefined) clearTimeout(state.timer);
+  flushDecoders(state.session);
   for (const stream of state.streams) {
     const listener = state.listeners.get(stream);
     if (listener !== undefined) {
@@ -265,6 +276,39 @@ function finishOutputDrain(state: OutputDrainState, timedOut: boolean): void {
     }
   }
   state.resolve();
+}
+
+/**
+ * Emit the bytes each decoder still holds: a command that ends on an
+ * incomplete UTF-8 sequence keeps that sequence's replacement text, and a
+ * stream stopped mid-character still reports its output.
+ */
+function flushDecoders(session: WatchSession): void {
+  const bound = streamOutputBound(session.request.context);
+  const stdout = session.streams.stdoutDecoder.end();
+  if (stdout !== "") {
+    const next = appendBound(
+      session.streams.stdout,
+      session.streams.stdoutUsed,
+      stdout,
+      bound,
+    );
+    session.streams.stdout = next.text;
+    session.streams.stdoutUsed = next.used;
+    session.streams.stdoutTruncated ||= next.truncated;
+  }
+  const stderr = session.streams.stderrDecoder.end();
+  if (stderr !== "") {
+    const next = appendBound(
+      session.streams.stderr,
+      session.streams.stderrUsed,
+      stderr,
+      bound,
+    );
+    session.streams.stderr = next.text;
+    session.streams.stderrUsed = next.used;
+    session.streams.stderrTruncated ||= next.truncated;
+  }
 }
 
 function markOutputTruncated(session: WatchSession, stream: Readable): void {
@@ -339,15 +383,16 @@ function once(
 
 function attachStreams(session: WatchSession): void {
   const bound = streamOutputBound(session.request.context);
-  // One decoder per pipe, so a multibyte character split across two chunks is
-  // decoded once instead of becoming a replacement character in each.
-  const stdoutDecoder = new StringDecoder("utf8");
-  const stderrDecoder = new StringDecoder("utf8");
   session.child.stdout?.on("data", (chunk: Buffer) => {
+    // Decoding a chunk a full stream will discard buys nothing.
+    if (session.streams.stdoutUsed >= bound.limit) {
+      session.streams.stdoutTruncated = true;
+      return;
+    }
     const next = appendBound(
       session.streams.stdout,
       session.streams.stdoutUsed,
-      stdoutDecoder.write(chunk),
+      session.streams.stdoutDecoder.write(chunk),
       bound,
     );
     session.streams.stdout = next.text;
@@ -355,10 +400,14 @@ function attachStreams(session: WatchSession): void {
     session.streams.stdoutTruncated ||= next.truncated;
   });
   session.child.stderr?.on("data", (chunk: Buffer) => {
+    if (session.streams.stderrUsed >= bound.limit) {
+      session.streams.stderrTruncated = true;
+      return;
+    }
     const next = appendBound(
       session.streams.stderr,
       session.streams.stderrUsed,
-      stderrDecoder.write(chunk),
+      session.streams.stderrDecoder.write(chunk),
       bound,
     );
     session.streams.stderr = next.text;

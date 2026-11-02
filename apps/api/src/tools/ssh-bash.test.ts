@@ -3,7 +3,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import {
   resetManagedExecutorForTests,
   reserveManagedProcessSlot,
-  streamOutputBound,
 } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
@@ -164,9 +163,8 @@ describe('ssh bash execution', () => {
       resolved: { user: 'box', host: 'box', port: 22 },
       remoteCommand: ['bash', '-s'],
     });
-    expect(run?.stderrTailBytes).toBe(
-      streamOutputBound(managedBashContext(context(remoteClient))).limit,
-    );
+    // The default byte bound, pinned independently of the code that sets it.
+    expect(run?.stderrTailBytes).toBe(8_388_608);
     const script = String(run?.input);
     expect(script).toContain("p='/tmp'");
     // The entries are exported inside the command's subshell, so no key can

@@ -53,6 +53,11 @@ describe("the stream output bound", () => {
     expect(cutToBound(text, UNITS)).toBe(text);
   });
 
+  it("backs off a byte cut inside a multibyte character", () => {
+    // Four bytes would split the four-byte emoji, so only the ASCII byte stays.
+    expect(cutToBound("a😀b", { kind: "bytes", limit: 4 })).toBe("a");
+  });
+
   it("cuts bytes without splitting a surrogate pair", () => {
     // Four bytes for the emoji, then four ASCII bytes fill the bound.
     expect(cutToBound("😀abcd", { kind: "bytes", limit: 7 })).toBe("😀abc");
