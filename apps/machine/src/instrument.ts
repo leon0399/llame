@@ -6,6 +6,11 @@
 import * as Sentry from "@sentry/node";
 import { sentryOptions } from "./env";
 
+// The libuv pool takes its width at its first use, and file, DNS, and crypto
+// work all share it. A grep walk reads eight files at once, so the daemon
+// widens it before the SDK starts; an operator's own value stays.
+process.env["UV_THREADPOOL_SIZE"] ??= "16";
+
 const options = sentryOptions();
 if (options !== undefined) {
   Sentry.init({

@@ -80,17 +80,19 @@ scheme.
 
 A model reads the page as plain text — one `notice: <text>` line first when
 the result carries the Knowledge notice, then each run of consecutive passages of one file under
-one `## <file locator>` line, then one `[warnings: …]` line, then one
-bracketed continuation line when more passages remain — while the owner's UI
-reads the stored object:
+one `## <file locator>` line, then one `[warnings: …]` line, then the
+`[not searched to the end: <locator>]` line when the call stopped inside a
+file, then one bracketed continuation line when more passages remain — while
+the owner's UI reads the stored object:
 
-| Field      | Meaning                                                                              |
-| ---------- | ------------------------------------------------------------------------------------ |
-| `results`  | one object per passage: `locator`, `content`, `matches`, `cut`, and `truncated`      |
-| `complete` | whether more passages remain after this page                                         |
-| `cursor`   | the opaque value the continuation line names                                         |
-| `warnings` | every skip and the bound that stopped the walk, by kind and count                    |
-| `notice`   | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the page |
+| Field            | Meaning                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| `results`        | one object per passage: `locator`, `content`, `matches`, `cut`, and `truncated`      |
+| `complete`       | whether more passages remain after this page                                         |
+| `cursor`         | the opaque value the continuation line names                                         |
+| `warnings`       | every skip and the bound that stopped the walk, by kind and count                    |
+| `unfinishedFile` | the file a bound stopped the walk inside before any progress, as its locator         |
+| `notice`         | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the page |
 
 The `## <file locator>` line names the file with no line range. Each passage
 under it prints its lines as `N: text`, `*N: text` for a matched line, and one
@@ -164,8 +166,8 @@ refused file.
 | Files of one call    | 5,000          |
 | Directory entries    | 20,000         |
 | Bytes read           | 32 MiB         |
-| Size of one file     | 32 MiB         |
 | Longest line         | 4 MiB          |
+| Files read at once   | 8              |
 | Call wall time       | 30 s           |
 
 A page holds at most `limit` files. The rendered model text of the whole
@@ -180,9 +182,12 @@ A file with more than 20 passages returns its first 20 and marks its
 twentieth `truncated`, which adds `[more passages in this file; read it to see
 them]`. A later `read` reaches the rest.
 
-`grep` searches a file as a stream, so a regular file up to the 32 MiB byte
-bound of the call is searched, and a larger one is an `oversized` skip.
-It reads a file to its end before that file's passages reach the page: an
+`grep` searches a file as a stream, so a regular file of any size is searched:
+the call's byte bound and deadline stop the file between its chunks. When the
+call has not yet progressed, the result names that file in `unfinishedFile`;
+after earlier output it names no file, and the next call opens the stopped
+file again. It reads a file to its end before that file's passages reach the
+page: an
 invalid byte, or a line longer than 4 MiB of UTF-8 bytes, that appears after a
 match drops every passage of that file. The line bound counts the line
 without its delimiter, and the skip reads `oversized`.
@@ -196,6 +201,21 @@ shows it whole.
 `warnings` counts every skip and the bound that stopped the walk. The kinds
 are `binary`, `invalid_utf8`, `oversized`, `unreadable`, `link`, `file_bound`,
 `entry_bound`, `byte_bound`, and `deadline`.
+
+`grep` reads up to eight files at the same time, and its page, cursor, bounds,
+and skip counts still follow the walk order: a file that ends before an
+earlier one keeps its place. A stop discards the files it read ahead, so the
+next call opens them again. The API and Machine processes run file reads on a
+sixteen-thread libuv pool when the operator sets none.
+
+A stop inside a file ends the walk before anything was emitted or reached.
+`grep` then names that file in `unfinishedFile`, renders its locator as
+`[not searched to the end: <locator>]`, and issues a position cursor that
+moves past the file, so the next call does not open it again. A file the
+`read` group refuses is never named, and the cursor still moves past it. When
+the call progressed first, the result names no file, and the next call opens
+the stopped file again with a full budget. A scope that names one file skips
+to the next scope ordinal.
 
 A directory with more than 20,000 entries stops the walk at the entry bound.
 The result is then a partial page with `entry_bound` in `warnings`, not a

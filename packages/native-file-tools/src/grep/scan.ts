@@ -3,13 +3,21 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
+import { grepUnfinishedUnits } from "./model-text";
 import {
   appendGrepFile,
   createGrepPage,
   type GrepPage,
   type GrepPageLimits,
 } from "./page";
-import { passageStartLine, scanGrepFile, type GrepFileScan } from "./passages";
+import { passageStartLine } from "./passages";
+import {
+  startGrepWalk,
+  type GrepCandidateEvent,
+  type GrepFileOutcome,
+  type GrepWalkEvent,
+  type GrepWalkRun,
+} from "./readahead";
 import type {
   GrepCappedPassage,
   GrepPassage,
@@ -18,13 +26,7 @@ import type {
   GrepScope,
   GrepWarningKind,
 } from "./types";
-import { walkGrepScope } from "./walk";
-
-/** One scope's resume point, once it is known to belong to that scope. */
-type GrepResume = {
-  readonly cursor: GrepPassageCursor;
-  readonly rel: string;
-};
+import { compareRel } from "./walk";
 
 /** Everything one call carries across scopes and files. */
 type ScanState = {
@@ -37,9 +39,17 @@ type ScanState = {
   readonly warnings: Map<GrepWarningKind, number>;
   readonly consumed: { files: number; entries: number; bytes: number };
   readonly deadlineAt: number;
+  /** The entry the call starts at: its cursor's, or the first scope's start. */
+  readonly startPoint:
+    | { readonly scopeIndex: number; readonly rel: string }
+    | undefined;
   /** The passages that are their file's twentieth and reached the page. */
   readonly capped: Array<GrepCappedPassage>;
   readRefused: number;
+  /** The call got past its start point; a stop no longer hides a file. */
+  progressed: boolean;
+  /** The file a bound stopped inside before the call progressed. */
+  unfinished: string | undefined;
   stop: GrepWarningKind | undefined;
   /** A file's hold limit kept content out, so its later matches wait. */
   holdStopped: boolean;
@@ -58,7 +68,34 @@ type ScanState = {
 export async function runGrepScan(
   input: GrepScanInput,
 ): Promise<GrepScanResult> {
-  const state: ScanState = {
+  const state = createScanState(input);
+  const walk = startGrepWalk({
+    scopes: input.scopes,
+    patterns: input.patterns,
+    budget: input.budget,
+    cursor: input.cursor,
+    onCandidate: input.onCandidate,
+    deadlineAt: state.deadlineAt,
+    now: input.now,
+    consumedBytes: () => state.consumed.bytes,
+  });
+  try {
+    for (;;) {
+      const event = await walk.take();
+      if (event === undefined) break;
+      if (await takeEvent(state, walk, event)) break;
+    }
+  } finally {
+    // A stop, a page that filled, and an answer all end the same way: the
+    // reads still queued release their files before the call returns.
+    walk.stop();
+    await walk.done;
+  }
+  return buildResult(state);
+}
+
+function createScanState(input: GrepScanInput): ScanState {
+  return {
     input,
     page: createGrepPage(),
     limits: {
@@ -74,116 +111,189 @@ export async function runGrepScan(
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     deadlineAt: input.now() + input.budget.deadlineMs,
+    startPoint: startPointOf(input),
     capped: [],
     readRefused: 0,
+    progressed: input.progressed === true,
+    unfinished: undefined,
     stop: undefined,
     holdStopped: false,
     position: undefined,
     scopeIndex: undefined,
   };
-  for (const scope of [...input.scopes].sort(
-    (left, right) => left.index - right.index,
-  )) {
-    if (state.stop !== undefined || state.page.full) break;
-    if (input.cursor !== undefined && scope.index < input.cursor.scopeIndex)
-      continue;
-    await scanScope(state, scope);
-  }
-  return buildResult(state);
 }
 
-async function scanScope(state: ScanState, scope: GrepScope): Promise<void> {
-  state.scopeIndex = scope.index;
-  const cursor = state.input.cursor;
-  const scopeCursor =
-    cursor !== undefined && cursor.scopeIndex === scope.index
-      ? cursor
-      : undefined;
-  const resume =
-    scopeCursor?.kind === "passage"
-      ? { cursor: scopeCursor, rel: scopeCursor.rel }
-      : undefined;
-  for await (const rel of walkGrepScope({
-    scope,
-    cursorRel: scopeCursor?.rel,
-    cursorKind: scopeCursor?.kind,
-    onEntry: () => countEntry(state),
-    onLink: () => addWarning(state, "link"),
-    onReach: (reached) => {
-      state.position = { scopeIndex: scope.index, rel: reached };
-      // A stop before a passage ends the page at this entry, so the page
-      // keeps the room its position cursor takes.
-      state.page.reserveFloor = Math.max(
-        state.page.reserveFloor,
-        grepContinuationUnits({
-          scopeIndex: state.widestIndex,
-          rel: reached,
-        }),
-      );
-    },
-  })) {
-    const fileResume =
-      resume !== undefined && rel === resume.rel ? resume : undefined;
-    // The cursor's file is exhausted: its twentieth passage hides the rest.
-    if (
-      fileResume?.cursor.truncated === true &&
-      fileResume.cursor.endLine === undefined
-    )
-      continue;
-    await scanFile(state, scope, rel, fileResume);
-    // A stopped or full page ends the walk here, before the walker records
-    // this file as reached: a later call must examine it again.
-    if (state.stop !== undefined || state.page.full) return;
-  }
-}
-
-async function scanFile(
-  state: ScanState,
-  scope: GrepScope,
-  rel: string,
-  resume: GrepResume | undefined,
-): Promise<void> {
-  if (!pageHasFileRoom(state)) return;
-  const bound = boundBeforeFile(state);
-  if (bound !== undefined) return stopAt(state, bound);
-  const fileLocator = scope.locatorFor(rel);
-  if (!(await state.input.onCandidate(fileLocator))) {
-    state.readRefused += 1;
-    return;
-  }
-  const opened = await scope.port.open(rel);
-  state.consumed.files += 1;
-  if (!("chunks" in opened)) return addWarning(state, opened.kind);
-  // The announced size is the first size check; the scan makes the second.
-  const maxFileBytes = state.input.budget.maxFileBytes;
-  if (maxFileBytes !== null && opened.size > maxFileBytes) {
-    // A stream nobody started owes its handle to this refusal.
-    await opened.close();
-    return addWarning(state, "oversized");
-  }
-  const scan = await scanGrepFile({
-    fileLocator,
-    chunks: opened.chunks,
-    patterns: state.input.patterns,
-    maxFileBytes,
-    ...(resume !== undefined && { resume: resume.cursor }),
-  });
-  state.consumed.bytes += scan.bytes;
-  if (scan.kind === "refused") return addWarning(state, scan.refusal);
-  if (scan.holdStopped) state.holdStopped = true;
-  emitPassages(
-    state,
-    { scopeIndex: scope.index, rel, fileLocator },
-    scan,
-    resume,
+/** The entry a call starts at: its cursor's, or the first scope's start. */
+function startPointOf(input: GrepScanInput): ScanState["startPoint"] {
+  if (input.cursor !== undefined)
+    return { scopeIndex: input.cursor.scopeIndex, rel: input.cursor.rel };
+  const first = input.scopes.reduce<GrepScope | undefined>(
+    (earliest, scope) =>
+      earliest === undefined || scope.index < earliest.index ? scope : earliest,
+    undefined,
   );
+  return first === undefined ? undefined : { scopeIndex: first.index, rel: "" };
+}
+
+/** Apply one walk event; true once the call stops and the walk ends. */
+async function takeEvent(
+  state: ScanState,
+  walk: GrepWalkRun,
+  event: GrepWalkEvent,
+): Promise<boolean> {
+  switch (event.kind) {
+    case "scope":
+      state.scopeIndex = event.scopeIndex;
+      return false;
+    case "record":
+      takeRecord(state, event);
+      return false;
+    case "stop":
+      // The serial walk checks the page before the bound: a page that filled
+      // on the same file ends there, without the bound's warning.
+      if (state.page.full || !pageHasFileRoom(state)) return true;
+      stopAt(state, event.reason);
+      return true;
+    case "candidate":
+      return takeCandidate(state, walk, event);
+  }
+}
+
+/** The bookkeeping between two candidates, applied in canonical order. */
+function takeRecord(
+  state: ScanState,
+  record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
+): void {
+  state.consumed.entries += record.entries;
+  if (record.links > 0) addWarning(state, "link", record.links);
+  const { reached } = record;
+  const scopeIndex = state.scopeIndex;
+  if (reached === undefined || scopeIndex === undefined) return;
+  state.position = { scopeIndex, rel: reached };
+  // A stop before a passage ends the page at this entry, so the page keeps
+  // the room its position cursor takes.
+  state.page.reserveFloor = Math.max(
+    state.page.reserveFloor,
+    grepContinuationUnits({ scopeIndex: state.widestIndex, rel: reached }),
+  );
+  if (pastStartPoint(state, reached)) state.progressed = true;
+}
+
+/** Whether an entry sorts strictly after the point the call starts at. */
+function pastStartPoint(state: ScanState, rel: string): boolean {
+  const start = state.startPoint;
+  const scopeIndex = state.scopeIndex;
+  if (start === undefined || scopeIndex === undefined) return false;
+  if (scopeIndex !== start.scopeIndex) return scopeIndex > start.scopeIndex;
+  return compareRel(rel, start.rel) > 0;
+}
+
+/**
+ * One candidate, in the order the serial walk applied it: page room, the
+ * bounds, the refusal the producer recorded, then the read's outcome — which
+ * only surfaces here, when the call takes the file.
+ */
+async function takeCandidate(
+  state: ScanState,
+  walk: GrepWalkRun,
+  event: GrepCandidateEvent,
+): Promise<boolean> {
+  // A page that filled on units ends here, before any later match is read:
+  // the cursor names the last passage it emitted, so a match after it would be
+  // lost on resume.
+  if (state.page.full || !pageHasFileRoom(state)) return true;
+  const bound = boundBeforeFile(state);
+  if (bound !== undefined) {
+    stopAt(state, bound);
+    return true;
+  }
+  if (event.read === undefined) {
+    state.readRefused += 1;
+    return false;
+  }
+  reserveForFile(state, event);
+  return applyOutcome(state, event, await walk.awaitTask(event));
+}
+
+/** Room the position cursor that names this file takes on a stopped page. */
+function reserveForFile(state: ScanState, event: GrepCandidateEvent): void {
+  state.page.reserveFloor = Math.max(
+    state.page.reserveFloor,
+    grepContinuationUnits({
+      scopeIndex: state.widestIndex,
+      rel: event.rel,
+    }),
+  );
+}
+
+/** Apply one read's outcome; true once the call stops. */
+function applyOutcome(
+  state: ScanState,
+  event: GrepCandidateEvent,
+  outcome: GrepFileOutcome,
+): boolean {
+  switch (outcome.kind) {
+    case "failed":
+      throw outcome.error;
+    case "aborted":
+      // The call stopped while this read was in flight; it is discarded.
+      return true;
+    case "skip":
+      state.consumed.files += 1;
+      addWarning(state, outcome.warning);
+      return false;
+    case "stopped":
+      state.consumed.files += 1;
+      state.consumed.bytes += outcome.bytes;
+      stopInsideFile(state, event, outcome.reason);
+      return true;
+    case "refused":
+      state.consumed.files += 1;
+      state.consumed.bytes += outcome.bytes;
+      addWarning(state, outcome.refusal);
+      return false;
+    case "passages":
+      state.consumed.files += 1;
+      state.consumed.bytes += outcome.bytes;
+      // A file whose hold limit kept content out may hold matches the page
+      // never saw, so the call cannot claim to be complete.
+      if (outcome.holdStopped) state.holdStopped = true;
+      if (emitPassages(state, event, outcome)) state.progressed = true;
+      return false;
+  }
+}
+
+/**
+ * A bound ended the file the call waited on. A call that has not progressed is
+ * stuck behind it, so the result names the file and the cursor moves past it;
+ * a call that progressed resumes at the file with a full budget.
+ */
+function stopInsideFile(
+  state: ScanState,
+  event: GrepCandidateEvent,
+  reason: GrepWarningKind,
+): void {
+  stopAt(state, reason);
+  if (state.progressed) return;
+  // The page ends here with no passage to hold, so the unfinished line and
+  // the cursor are what must fit; a file that completes never reserves it.
+  state.page.reserveFloor = Math.max(
+    state.page.reserveFloor,
+    grepUnfinishedUnits(event.fileLocator),
+  );
+  state.unfinished = event.fileLocator;
+  // A single-file scope's walk yields only `""` and ignores a cursor, so its
+  // ordinal moves past the scope: the next call lists it, or none, and never
+  // opens the file again.
+  state.position =
+    event.rel === ""
+      ? { scopeIndex: event.scopeIndex + 1, rel: "" }
+      : { scopeIndex: event.scopeIndex, rel: event.rel };
 }
 
 /** The bound or deadline that stops the walk before this file, if any. */
 function boundBeforeFile(state: ScanState): GrepWarningKind | undefined {
   const budget = state.input.budget;
-  if (budget.files !== null && state.consumed.files >= budget.files)
-    return "file_bound";
   if (budget.bytes !== null && state.consumed.bytes >= budget.bytes)
     return "byte_bound";
   if (state.input.now() > state.deadlineAt) return "deadline";
@@ -200,28 +310,29 @@ function pageHasFileRoom(state: ScanState): boolean {
 /**
  * A file's first twenty passages reach the page, with the twentieth marked so
  * the cursor moves past the whole file. The scan already dropped the passages
- * a resumed page does not show.
+ * a resumed page does not show. The count it returns is the page's progress.
  */
 function emitPassages(
   state: ScanState,
-  file: {
-    readonly scopeIndex: number;
-    readonly rel: string;
-    readonly fileLocator: string;
-  },
-  scan: Extract<GrepFileScan, { readonly kind: "passages" }>,
-  resume: GrepResume | undefined,
-): void {
+  event: GrepCandidateEvent,
+  scan: Extract<GrepFileOutcome, { readonly kind: "passages" }>,
+): number {
   const visible = scan.passages;
-  const cappedAt = exhaustedAt(resume, visible) ?? scan.cappedAt;
+  const cappedAt = exhaustedAt(event.resume, visible) ?? scan.cappedAt;
   const emitted = appendGrepFile(state.page, state.limits, {
-    scopeIndex: file.scopeIndex,
-    rel: file.rel,
-    fileLocator: file.fileLocator,
+    scopeIndex: event.scopeIndex,
+    rel: event.rel,
+    fileLocator: event.fileLocator,
     passages: visible,
     cappedAt,
   });
-  cappedMark(state, { file, visible, cappedAt, emitted });
+  cappedMark(state, {
+    file: event,
+    visible,
+    cappedAt,
+    emitted,
+  });
+  return emitted;
 }
 
 /** Where one file's twentieth passage stands among the passages it emitted. */
@@ -256,23 +367,11 @@ function cappedMark(state: ScanState, mark: CappedMark): void {
  * carries the twentieth semantics, so a page that ends there names it as such.
  */
 function exhaustedAt(
-  resume: GrepResume | undefined,
+  resume: GrepPassageCursor | undefined,
   visible: ReadonlyArray<GrepPassage>,
 ): number | undefined {
-  if (resume?.cursor.truncated !== true || visible.length === 0)
-    return undefined;
+  if (resume?.truncated !== true || visible.length === 0) return undefined;
   return passageStartLine(visible[0].locator);
-}
-
-function countEntry(state: ScanState): boolean {
-  if (state.stop !== undefined) return false;
-  const bound = state.input.budget.entries;
-  if (bound !== null && state.consumed.entries >= bound) {
-    stopAt(state, "entry_bound");
-    return false;
-  }
-  state.consumed.entries += 1;
-  return true;
 }
 
 function stopAt(state: ScanState, kind: GrepWarningKind): void {
@@ -280,8 +379,8 @@ function stopAt(state: ScanState, kind: GrepWarningKind): void {
   addWarning(state, kind);
 }
 
-function addWarning(state: ScanState, kind: GrepWarningKind): void {
-  state.warnings.set(kind, (state.warnings.get(kind) ?? 0) + 1);
+function addWarning(state: ScanState, kind: GrepWarningKind, count = 1): void {
+  state.warnings.set(kind, (state.warnings.get(kind) ?? 0) + count);
 }
 
 function buildResult(state: ScanState): GrepScanResult {
@@ -296,6 +395,8 @@ function buildResult(state: ScanState): GrepScanResult {
     warnings: [...state.warnings].map(([kind, count]) => ({ kind, count })),
     readRefused: state.readRefused,
     consumed: { ...state.consumed },
+    progressed: state.progressed,
+    ...(state.unfinished !== undefined && { unfinished: state.unfinished }),
     ...(last !== undefined && { last: { ...last } }),
     ...(position !== undefined && { position: { ...position } }),
     ...(state.capped.length > 0 && {

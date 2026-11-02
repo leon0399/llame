@@ -14,10 +14,15 @@ export type SentrySetup = {
 /**
  * Loads `.env.local` (ConfigModule reads it only once Nest boots, which is
  * too late for the SDK; dotenv never overrides a variable the process already
- * has), then starts Sentry when `SENTRY_DSN` is set.
+ * has), widens the libuv pool, then starts Sentry when `SENTRY_DSN` is set.
  */
 export function setUpSentry(setup: SentrySetup): void {
   setup.loadEnvFile({ path: '.env.local', quiet: true });
+  // Node runs file, DNS, and crypto work on the libuv pool, and the pool takes
+  // its width at its first use — which `Sentry.init` performs. A grep walk
+  // reads eight files at once, so sixteen threads are set here, before init,
+  // and an operator's own value (from the shell or `.env.local`) stays.
+  setup.env.UV_THREADPOOL_SIZE ??= '16';
   const options = sentryOptions(setup.env, setup.entrypoint);
   if (options !== undefined) setup.init(options);
 }

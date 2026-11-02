@@ -73,13 +73,15 @@ async function* walkDirectory(
   rel: string,
 ): AsyncGenerator<string> {
   const { scope } = state.walk;
-  const layer =
-    scope.port.ignoreFile === undefined
-      ? undefined
-      : await loadIgnoreLayer(state, rel);
+  // One directory's listing and its ignore file read together: the listing is
+  // the depth-first order the walk needs whole, so directories never overlap.
+  const [layer, listed] = await Promise.all([
+    loadIgnoreLayer(state, rel),
+    scope.port.list(rel),
+  ]);
   if (layer !== undefined) state.layers.push(layer);
   // Encode each name once; a comparator that encodes allocates per comparison.
-  const entries = (await scope.port.list(rel))
+  const entries = listed
     .map((entry) => ({ entry, key: Buffer.from(entry.name, "utf8") }))
     .sort((left, right) => Buffer.compare(left.key, right.key))
     .map(({ entry }) => entry);
@@ -256,7 +258,7 @@ function cursorPosition(
 }
 
 /** Segment-wise byte order, which is the walk's canonical order. */
-function compareRel(left: string, right: string): number {
+export function compareRel(left: string, right: string): number {
   const leftParts = left.split("/");
   const rightParts = right.split("/");
   const shared = Math.min(leftParts.length, rightParts.length);

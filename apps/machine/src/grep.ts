@@ -64,6 +64,8 @@ type GrepRequest = {
   readonly ignoreCase: boolean;
   readonly cursor: string | undefined;
   readonly budget: GrepBudget;
+  /** Whether the hub's call already progressed in an earlier scope. */
+  readonly progressed: boolean;
 };
 
 function readBudget(source: SerializableRecord): GrepBudget {
@@ -74,8 +76,9 @@ function readBudget(source: SerializableRecord): GrepBudget {
     files: requireCount(budget, "files", FS_GREP_METHOD),
     entries: requireCount(budget, "entries", FS_GREP_METHOD),
     bytes: requireCount(budget, "bytes", FS_GREP_METHOD),
-    // One file never reads past the call's byte bound.
-    maxFileBytes: GREP_LIMITS.bytesRead,
+    // Files of any size are searched: the byte bound and the deadline stop a
+    // file between its chunks, and no file-size bound travels on the wire.
+    maxFileBytes: null,
     deadlineMs: requireCount(budget, "deadlineMs", FS_GREP_METHOD),
     limit: requireCount(budget, "limit", FS_GREP_METHOD),
     pageUnits: requireCount(budget, "pageUnits", FS_GREP_METHOD),
@@ -98,6 +101,11 @@ function requestOf(params: SerializableValue): GrepRequest {
     ignoreCase: requireBoolean(source, "ignoreCase", FS_GREP_METHOD),
     cursor: optionalString(source, "cursor", FS_GREP_METHOD),
     budget: readBudget(source),
+    progressed: requireBoolean(
+      requireRecord(source, "budget", FS_GREP_METHOD),
+      "progressed",
+      FS_GREP_METHOD,
+    ),
   };
 }
 
@@ -174,6 +182,8 @@ function resultOf(scan: GrepScanResult): FsGrepResult {
     complete: scan.complete,
     warnings: scan.warnings.map((warning) => ({ ...warning })),
     consumed: { ...scan.consumed },
+    progressed: scan.progressed,
+    ...(scan.unfinished !== undefined && { unfinished: scan.unfinished }),
   };
   return scan.cursor === undefined
     ? result
@@ -232,6 +242,7 @@ export async function grepOperation(
         budget: request.budget,
         inputHash,
         now: Date.now,
+        progressed: request.progressed,
         ...(cursor !== undefined && { cursor }),
       }),
     );

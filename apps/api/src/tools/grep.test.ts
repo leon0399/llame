@@ -37,6 +37,7 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import {
   GREP_WARNING_KINDS,
   measureGrepRendering,
+  renderGrepText,
 } from '@workspace/native-file-tools';
 import { type ToolResult } from './types';
 import { type KnowledgeToolResolver, type ToolContext } from './types';
@@ -813,6 +814,62 @@ describe('paging', () => {
           scopeIndex: 0,
           rel: 'a.md',
         });
+      } finally {
+        now.mockRestore();
+      }
+    });
+  });
+
+  it('names a file the deadline stopped inside and skips it next time', async () => {
+    await withRoot(async (root) => {
+      // Two mebibytes of short lines: the walk's own chunked read reaches the
+      // deadline inside the file, before the call emitted anything.
+      const space = await spaceFixture(root, SPACE_A, {
+        'big.log': `${'x'.repeat(63)}\n`.repeat(32_000),
+      });
+      const context = contextOf({
+        resolver: knowledgeResolver(new Map([[SPACE_A, space.binding]])),
+      });
+      const started = Date.now();
+      let calls = 0;
+      // Calls 1-8 are the call's deadline, the candidate's bounds, and the
+      // first chunks of the read; the 9th finds the clock past the deadline.
+      const now = vi.spyOn(Date, 'now').mockImplementation(() => {
+        calls += 1;
+        return calls <= 8 ? started : started + 40_000;
+      });
+      try {
+        const first = await run(context, {
+          patterns: ['needle'],
+          scopes: [`kb://${SPACE_A}/big.log`],
+        });
+        expect(first).toMatchObject({
+          status: 'success',
+          complete: false,
+          unfinishedFile: `kb://${SPACE_A}/big.log`,
+        });
+        expect(warningsOf(first)).toEqual([{ kind: 'deadline', count: 1 }]);
+        expect(locatorsOf(first)).toEqual([]);
+        expect(cursorPayload(first)).toMatchObject({
+          kind: 'position',
+          scopeIndex: 1,
+          rel: '',
+        });
+        // The page keeps the unfinished line inside its bound.
+        expect(measureGrepRendering(first)).toBeLessThanOrEqual(15_000);
+        expect(renderGrepText(first)).toContain(
+          `[not searched to the end: kb://${SPACE_A}/big.log]`,
+        );
+
+        const opaque = cursorOf(first);
+        if (opaque === undefined) throw new Error('the page carries a cursor');
+        const second = await run(context, {
+          patterns: ['needle'],
+          scopes: [`kb://${SPACE_A}/big.log`],
+          cursor: opaque,
+        });
+        expect(second).toMatchObject({ status: 'success', complete: true });
+        expect(locatorsOf(second)).toEqual([]);
       } finally {
         now.mockRestore();
       }

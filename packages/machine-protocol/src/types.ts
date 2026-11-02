@@ -234,6 +234,8 @@ export type FsGrepBudget = {
   readonly deadlineMs: number;
   readonly limit: number;
   readonly pageUnits: number;
+  /** Whether the call already progressed in an earlier segment or scope. */
+  readonly progressed: boolean;
 };
 
 export type FsGrepParams = {
@@ -304,6 +306,13 @@ export type FsGrepSuccess = {
   readonly cursor?: string;
   readonly warnings: ReadonlyArray<FsGrepWarning>;
   readonly consumed: FsGrepConsumed;
+  /** Whether the daemon walk got past the point the call started at. */
+  readonly progressed: boolean;
+  /**
+   * The file a bound stopped the daemon walk inside before any progress,
+   * relative to the request's prefix; the next call does not open it again.
+   */
+  readonly unfinished?: string;
 };
 
 export type FsGrepResult = FsGrepSuccess | NativeFailureResult;

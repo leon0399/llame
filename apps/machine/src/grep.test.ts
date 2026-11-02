@@ -47,6 +47,7 @@ const BUDGET: FsGrepBudget & GrepBudget = {
   pageUnits: 15_000,
   // The hub's own result fields never travel on the daemon's page.
   fixedReserve: 0,
+  progressed: false,
 };
 
 beforeEach(async () => {
@@ -123,6 +124,8 @@ type GrepPage = {
     readonly bytes: number;
   };
   readonly cursor: string | undefined;
+  readonly progressed: boolean;
+  readonly unfinished: string | undefined;
 };
 
 function parsePassage(value: SerializableValue): FsGrepPassage {
@@ -182,12 +185,18 @@ function parseGrep(answer: JsonValue): GrepPage {
     !isIntegerValue(bytes)
   )
     throw new Error("the consumed budget is malformed");
+  const { progressed, unfinished } = answer;
+  if (!isBoolean(progressed)) throw new Error("the answer has no progress");
+  if (unfinished !== undefined && !isStringValue(unfinished))
+    throw new Error("the unfinished file is malformed");
   return {
     results: parseList(answer["results"], parsePassage),
     complete,
     warnings: parseList(answer["warnings"], parseWarning),
     consumed: { files, entries, bytes },
     cursor: isStringValue(cursor) ? cursor : undefined,
+    progressed,
+    unfinished: isStringValue(unfinished) ? unfinished : undefined,
   };
 }
 
@@ -269,6 +278,26 @@ describe("fs.grep", () => {
     expect(second.complete).toBe(true);
   });
 
+  it("forwards the call's progress and returns its own", async () => {
+    // A 100 KiB file passes the first probe and crosses the byte bound before
+    // its second chunk, so the walk stops inside it.
+    await writeAt("project/big.log", `${"x".repeat(63)}\n`.repeat(2000));
+    const prefix = join(fixture.root, "project/big.log");
+    const stopped = await grep(
+      request(prefix, { budget: { ...BUDGET, bytes: 4 } }),
+    );
+    expect(stopped.progressed).toBe(false);
+    expect(stopped.unfinished).toBe("");
+    expect(stopped.complete).toBe(false);
+
+    const progressed = await grep(
+      request(prefix, { budget: { ...BUDGET, bytes: 4, progressed: true } }),
+    );
+    expect(progressed.progressed).toBe(true);
+    expect(progressed.unfinished).toBeUndefined();
+    expect(progressed.complete).toBe(false);
+  });
+
   it("refuses a cursor issued for other search inputs", async () => {
     await writeAt("project/a.go", "needle\n");
     const prefix = join(fixture.root, "project");
@@ -327,14 +356,19 @@ describe("fs.grep", () => {
     expect(page.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
   });
 
-  it("searches a file larger than the bytes left and stops the next one at the byte bound", async () => {
+  it("searches a file whose chunk passes the byte bound and stops the next one", async () => {
     await writeAt("project/a.go", "needle one\n");
     await writeAt("project/b.go", "needle two\n");
     const prefix = join(fixture.root, "project");
     const page = await grep(
       request(prefix, { budget: { ...BUDGET, bytes: 1 } }),
     );
+    // A file of any size is searched: `a.go` is one chunk, so the 1-byte bound
+    // is crossed after its bytes and never cuts it. The bound then stops the
+    // walk before `b.go`, and the call progressed, so no file is unfinished.
     expect(pathsOf(page)).toEqual(["a.go"]);
+    expect(page.progressed).toBe(true);
+    expect(page.unfinished).toBeUndefined();
     expect(page.complete).toBe(false);
     expect(page.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
     if (page.cursor === undefined) throw new Error("the page carries a cursor");
@@ -350,6 +384,8 @@ describe("fs.grep", () => {
       ),
     ).toMatchObject({ kind: "passage", rel: "a.go" });
 
+    // The passage cursor resumes after `a.go`: the walk re-lists it, opens
+    // nothing of it, and searches `b.go`.
     const second = await grep(request(prefix, { cursor: page.cursor }));
     expect(pathsOf(second)).toEqual(["b.go"]);
     expect(second.complete).toBe(true);

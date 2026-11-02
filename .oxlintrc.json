@@ -63,6 +63,7 @@
           "apps/api/src/worker.ts",
           "apps/api/vitest.integration.global-setup.mts",
           "apps/api/vitest.integration.setup.ts",
+          "apps/machine/src/instrument.ts",
           "apps/web/components/sidebar-row-title.tsx",
           "apps/web/instrumentation-client.ts",
           "apps/web/instrumentation.ts",

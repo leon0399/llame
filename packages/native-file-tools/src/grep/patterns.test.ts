@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import { compileGrepPatterns } from "./patterns";
 import type { CompiledGrepPatterns } from "./patterns";
 
@@ -80,5 +81,19 @@ describe("grep pattern compilation", () => {
       ignoreCase: false,
     });
     expect(result).toMatchObject({ ok: false, index: 0 });
+  });
+
+  it("asks the stop probe only between two pattern tests", () => {
+    const stopped = vi.fn(() => true);
+    const both = compiled(["zzz", "hit"]);
+
+    // One pattern has no gap: the probe is never asked.
+    expect(compiled(["a"]).matches("a", stopped)).toBe(true);
+    expect(stopped).not.toHaveBeenCalled();
+    // Between two tests the probe ends the line instead of reporting a miss,
+    // so a later pattern's match is never silently lost.
+    expect(both.matches("hit", stopped)).toBe("stopped");
+    expect(stopped).toHaveBeenCalledTimes(1);
+    expect(compiled(["hit", "zzz"]).matches("hit", stopped)).toBe(true);
   });
 });

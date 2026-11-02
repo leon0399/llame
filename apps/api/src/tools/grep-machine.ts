@@ -10,9 +10,7 @@
 import {
   FS_GREP_METHOD,
   FS_STAT_METHOD,
-  fsGrepCursorKey,
   MachineProtocolError,
-  type FsGrepParams,
   type FsGrepConsumed,
   type FsGrepPassage,
   type FsGrepSuccess,
@@ -21,7 +19,6 @@ import {
 } from '@workspace/machine-protocol';
 import {
   decodeGrepCursor,
-  encodeGrepCursor,
   normalizeHostScope,
   splitGrepScope,
   type DecodedGrepCursor,
@@ -62,6 +59,14 @@ import {
   machineUnusableResult,
   type MachineFailureResult,
 } from './machine-call';
+import {
+  daemonCursor,
+  machineScopeLocator,
+  requestCursorKey,
+  requestOf,
+  unfinishedPosition,
+  type DaemonAsk,
+} from './grep-machine-wire';
 import { type ToolContext, type ToolResult } from './types';
 
 /** One call's budget, with its file, entry, and byte counts always set. */
@@ -102,6 +107,10 @@ export type MachineGrepSegment =
       readonly complete: boolean;
       readonly warnings: ReadonlyArray<FsGrepWarning>;
       readonly consumed: { files: number; entries: number; bytes: number };
+      /** Whether this scope's walk got past the point the call started at. */
+      readonly progressed: boolean;
+      /** The file a bound stopped the daemon walk inside, relative to the prefix. */
+      readonly unfinished?: string;
       /**
        * Where a daemon page below the call's page stopped when it admitted no
        * passage at all: the call resumes after that entry.
@@ -119,6 +128,8 @@ export type MachineGrepSearch = {
   readonly budget: CallBudget;
   /** The call's cursor, when it names a passage of this scope. */
   readonly resume: DecodedGrepCursor | undefined;
+  /** Whether the call already progressed in an earlier scope or page. */
+  readonly progressed: boolean;
   readonly admission: GrepReadAdmission;
 };
 
@@ -253,80 +264,6 @@ export function machineScopeOf(
   };
 }
 
-/** The path two parts join to: no separator for an empty relative part. */
-function machinePath(prefix: string, rel: string): string {
-  if (rel.length === 0) return prefix;
-  return prefix === '/' ? `/${rel}` : `${prefix}/${rel}`;
-}
-
-/** The key the daemon binds its own page to, built from the same inputs. */
-function requestCursorKey(search: MachineGrepSearch): string {
-  return fsGrepCursorKey({
-    path: search.scope.path,
-    globSuffix: search.scope.globSuffix,
-    patterns: search.args.patterns,
-    literal: search.args.literal,
-    ignoreCase: search.args.ignoreCase,
-  });
-}
-
-/**
- * The daemon's own cursor for the call's resume point: a passage continues
- * that passage (from its last emitted line when it was cut), a position
- * resumes after the entry a bound stopped at.
- */
-function daemonCursor(
-  search: MachineGrepSearch,
-  resume: DecodedGrepCursor,
-): string {
-  const inputHash = requestCursorKey(search);
-  return resume.kind === 'position'
-    ? encodeGrepCursor({
-        kind: 'position',
-        scopeIndex: 0,
-        rel: resume.rel,
-        inputHash,
-      })
-    : encodeGrepCursor({
-        scopeIndex: 0,
-        rel: resume.rel,
-        startLine: resume.startLine,
-        ...(resume.endLine !== undefined && { endLine: resume.endLine }),
-        ...(resume.truncated === true && { truncated: true as const }),
-        inputHash,
-      });
-}
-
-/** One `fs.grep` request: the remaining budget and, on resume, the page key. */
-function requestOf(
-  search: MachineGrepSearch,
-  envelope: FsGrepParams['envelope'],
-  budget: CallBudget,
-  cursor: string | undefined,
-): FsGrepParams {
-  const { scope, args } = search;
-  return {
-    envelope,
-    path: scope.path,
-    ...(scope.globSuffix !== undefined && { globSuffix: scope.globSuffix }),
-    patterns: args.patterns,
-    literal: args.literal,
-    ignoreCase: args.ignoreCase,
-    ...(cursor !== undefined && { cursor }),
-    budget: {
-      files: budget.files,
-      entries: budget.entries,
-      bytes: budget.bytes,
-      deadlineMs: budget.deadlineMs,
-      limit: budget.limit,
-      // The daemon reserves its own continuation line only; the hub's
-      // warnings, notice, and envelope lines must also fit, or a daemon page
-      // the hub then drops whole would come back unchanged on every resume.
-      pageUnits: Math.max(0, budget.pageUnits - budget.fixedReserve),
-    },
-  };
-}
-
 /**
  * Run one Machine scope. The connector's refusals become the Machine results
  * `read` uses; a daemon that does not know the method is Machine unusable.
@@ -372,35 +309,71 @@ async function runDaemonPages(
   const entries: Array<MachineGrepEntry> = [];
   const warnings = new Map<FsGrepWarningKind, number>();
   const consumed = { files: 0, entries: 0, bytes: 0 };
-  let budget: CallBudget = {
-    ...search.budget,
-    deadlineMs: Math.max(0, deadlineAt - Date.now()),
-  };
-  let cursor =
-    search.resume === undefined
-      ? undefined
-      : daemonCursor(search, search.resume);
+  let budget = daemonBudget(search.budget, deadlineAt);
+  let cursor = search.resume && daemonCursor(search, search.resume);
+  // Progress belongs to the call: a page that got past the start point lets
+  // the next request know, so its own stop hides no file behind it.
+  let progressed = search.progressed;
   let last: FsGrepSuccess | undefined;
   while (canAskPage(budget)) {
-    const asked = await requestPage(search, connector, budget, cursor);
+    const asked = await requestPage(search, connector, {
+      budget,
+      cursor,
+      progressed,
+    });
     if ('result' in asked) return { status: 'error', result: asked.result };
     const page = asked.page;
     last = page;
     mergePage(warnings, consumed, page);
+    progressed = progressed || page.progressed;
     const rendered = renderPage(search, page, entries);
     if ('result' in rendered)
       return { status: 'error', result: rendered.result };
-    if (rendered.kept > 0 || page.complete) break;
-    const next = nextCursor(page, cursor);
+    const next = keepAsking(rendered.kept, page, cursor);
     if (next === undefined) break;
     cursor = next;
     budget = spent(budget, page.consumed, deadlineAt);
   }
+  return segmentOfPages(search, {
+    entries,
+    warnings,
+    consumed,
+    last,
+    progressed,
+  });
+}
+
+/** One Machine scope's pages, as the segment the call's page appends. */
+function segmentOfPages(
+  search: MachineGrepSearch,
+  pages: Omit<MachineSegmentPage, 'position'>,
+): MachineGrepSegment {
+  const { entries, last } = pages;
   const position =
     entries.length > 0 || last === undefined
       ? undefined
-      : stoppedPosition(search, last);
-  return segmentOf({ entries, warnings, consumed, last, position });
+      : (unfinishedPosition(search, last) ?? stoppedPosition(search, last));
+  return segmentOf({ ...pages, position });
+}
+
+/**
+ * The next cursor to ask with, or undefined when this page ended the loop. A
+ * page that stopped inside a file answered the call, so another page would
+ * replace the daemon's unfinished file with an empty one.
+ */
+function keepAsking(
+  kept: number,
+  page: FsGrepSuccess,
+  cursor: string | undefined,
+): string | undefined {
+  if (kept > 0 || page.complete || page.unfinished !== undefined)
+    return undefined;
+  return nextCursor(page, cursor);
+}
+
+/** What one daemon page has left: the call's deadline minus the clock now. */
+function daemonBudget(budget: CallBudget, deadlineAt: number): CallBudget {
+  return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
 }
 
 /** What one Machine scope's pages add up to. */
@@ -412,6 +385,7 @@ type MachineSegmentPage = {
   readonly position:
     | { readonly scopeIndex: number; readonly rel: string }
     | undefined;
+  readonly progressed: boolean;
 };
 
 /** The segment one Machine scope's pages add up to. */
@@ -422,7 +396,11 @@ function segmentOf(page: MachineSegmentPage): MachineGrepSegment {
     complete: page.last?.complete === true,
     warnings: [...page.warnings].map(([kind, count]) => ({ kind, count })),
     consumed: page.consumed,
+    progressed: page.progressed,
     ...(page.position !== undefined && { position: page.position }),
+    ...(page.last?.unfinished !== undefined && {
+      unfinished: page.last.unfinished,
+    }),
   };
 }
 
@@ -492,8 +470,7 @@ function canAskPage(budget: CallBudget): boolean {
 async function requestPage(
   search: MachineGrepSearch,
   connector: MachineConnector,
-  budget: CallBudget,
-  cursor: string | undefined,
+  ask: DaemonAsk,
 ): Promise<DaemonPage> {
   const { context, scope } = search;
   const raw = await connector.request(
@@ -503,10 +480,9 @@ async function requestPage(
       search,
       machineCallEnvelope(
         context,
-        machineBudgetMs(context, Math.max(1, budget.deadlineMs)),
+        machineBudgetMs(context, Math.max(1, ask.budget.deadlineMs)),
       ),
-      budget,
-      cursor,
+      ask,
     ),
     { signal: context.abortSignal },
   );
@@ -555,10 +531,7 @@ function locatorsOf(
 ): ReadonlyArray<string> | undefined {
   const locators: Array<string> = [];
   for (const passage of result.results) {
-    const locator = formatMachineLocator(
-      search.scope.name,
-      machinePath(search.scope.path, passage.path),
-    );
+    const locator = machineScopeLocator(search.scope, passage.path);
     if (locator === undefined) return undefined;
     locators.push(locator);
   }

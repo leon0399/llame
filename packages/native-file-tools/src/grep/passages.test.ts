@@ -385,6 +385,21 @@ describe("grep passage extraction of a resumed page", () => {
     expect(result.cappedAt).toBe(114);
   });
 
+  it("ends the file as stopped when the deadline ends a line's tests", async () => {
+    const scan = await scanGrepFile({
+      fileLocator: "file.md",
+      chunks: chunked("aaa\nhit\n"),
+      // The first pattern misses, so only the probe between the two tests can
+      // end the line; the second pattern would have matched it.
+      patterns: patterns(["zzz", "hit"]),
+      maxFileBytes: null,
+      deadline: () => true,
+    });
+    // A stopped line ends the file: its remaining patterns never ran, so it is
+    // not known to miss, and the file must not report a complete page.
+    expect(scan).toMatchObject({ kind: "stopped", reason: "deadline" });
+  });
+
   it("falls back to the passages after the cursor's start when the file changed", async () => {
     const text = numbered(20, (line) => (line === 15 ? "hit" : "line"));
     const result = await scan(text, ["hit"], {

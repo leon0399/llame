@@ -635,6 +635,7 @@ describe('readFsGrepResult', () => {
       complete: true,
       warnings: [],
       consumed: { files: results.length, entries: results.length, bytes: 40 },
+      progressed: false,
       ...overrides,
     };
   }
@@ -648,6 +649,8 @@ describe('readFsGrepResult', () => {
             complete: false,
             warnings: [{ kind: 'deadline', count: 2 }],
             cursor: 'daemon-cursor',
+            progressed: true,
+            unfinished: 'nested/a.go',
           },
         ),
       ),
@@ -673,6 +676,8 @@ describe('readFsGrepResult', () => {
       complete: false,
       warnings: [{ kind: 'deadline', count: 2 }],
       consumed: { files: 2, entries: 2, bytes: 40 },
+      progressed: true,
+      unfinished: 'nested/a.go',
       cursor: 'daemon-cursor',
     });
   });
@@ -692,6 +697,7 @@ describe('readFsGrepResult', () => {
       complete: true,
       warnings: [],
       consumed: { files: 1, entries: 1, bytes: 40 },
+      progressed: false,
     });
   });
 
@@ -743,6 +749,17 @@ describe('readFsGrepResult', () => {
     expect(
       readFsGrepResult(pageBody([passageBody(overrides)])),
     ).toBeUndefined();
+  });
+
+  it.each([
+    ['an absent progressed flag', { progressed: undefined }],
+    ['a progressed flag that is not a flag', { progressed: 'yes' }],
+    ['an unfinished path that is not text', { unfinished: 7 }],
+    ['an unfinished absolute path', { unfinished: '/abs/a.go' }],
+    ['an unfinished parent segment', { unfinished: 'a/../b' }],
+    ['an unfinished file on a complete page', { unfinished: 'a.go' }],
+  ])('refuses a page with %s', (_case, overrides) => {
+    expect(readFsGrepResult(pageBody([], overrides))).toBeUndefined();
   });
 
   it.each([

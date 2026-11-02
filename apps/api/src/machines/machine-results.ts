@@ -493,7 +493,7 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
   const failure = readNativeFailure(value);
   if (failure !== undefined) return failure;
   if (!isSerializableRecord(value) || value['ok'] !== true) return undefined;
-  const { complete, cursor } = value;
+  const { complete, cursor, progressed, unfinished } = value;
   const results = readGrepPassages(fieldOf(value, 'results') ?? null);
   const warnings = readGrepWarnings(fieldOf(value, 'warnings') ?? null);
   const consumed = readGrepConsumed(fieldOf(value, 'consumed') ?? null);
@@ -501,16 +501,30 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
     results === undefined ||
     warnings === undefined ||
     consumed === undefined ||
-    !isFlag(complete)
+    !isFlag(complete) ||
+    !isFlag(progressed)
   )
     return undefined;
   if (cursor !== undefined && !isText(cursor)) return undefined;
+  if (
+    unfinished !== undefined &&
+    !(isText(unfinished) && isScopeRelativePath(unfinished))
+  )
+    return undefined;
+  // A complete page has resumed past every file: naming one as unfinished
+  // would let the hub answer "complete" with no cursor to resume from.
+  if (complete && unfinished !== undefined) return undefined;
   const success: FsGrepSuccess = {
     ok: true,
     results,
     complete,
     warnings,
     consumed,
+    progressed,
   };
-  return isText(cursor) ? { ...success, cursor } : success;
+  return {
+    ...success,
+    ...(isText(cursor) && { cursor }),
+    ...(isText(unfinished) && { unfinished }),
+  };
 }
