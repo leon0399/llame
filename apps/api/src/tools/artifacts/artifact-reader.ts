@@ -4,9 +4,11 @@ import {
   directoryResult,
   MAX_RESULT_CODE_UNITS,
   parsePathScheme,
+  resolveEndRelativeSelector,
   splitSelectorSuffix,
 } from '@workspace/native-file-tools';
 
+import { type Db } from '../../db/tenant-db.service';
 import { placeListingSelector, type ListingRefusal } from '../listing-window';
 import { nativeErrorResult, selectInMemoryText } from '../text-selection';
 import { type ToolContext, type ToolResult } from '../types';
@@ -16,6 +18,7 @@ import {
   type StoredPart,
 } from './artifacts-repository';
 import { artifactText } from './lines';
+import { withholdFindings } from './findings';
 import {
   ARTIFACT_SCHEME,
   formatArtifactLocator,
@@ -32,10 +35,17 @@ const BARE_LOCATOR = `${ARTIFACT_SCHEME}://`;
  * artifacts; a multi-part (or `bash`) artifact lists its streams; a locator that
  * names no part reads the artifact's single unnamed part.
  */
+export type ArtifactReadRepository = Pick<
+  ArtifactsRepository,
+  'readPart' | 'findParts'
+>;
+
 export async function readArtifact(
   context: ToolContext,
   operation: 'read' | 'edit' | 'write',
   submitted: string,
+  repository: (db: Db) => ArtifactReadRepository = (db) =>
+    new ArtifactsRepository(db),
 ): Promise<ToolResult> {
   if (operation !== 'read') {
     return {
@@ -55,7 +65,7 @@ export async function readArtifact(
 
   context.abortSignal?.throwIfAborted();
   return context.tenantDb.runAs(context.userId, (db) =>
-    readLocator(new ArtifactsRepository(db), {
+    readLocator(context, repository(db), {
       chatId: context.chatId,
       path,
       locator,
@@ -71,8 +81,9 @@ type LocatorRead = {
   readonly selector: string | undefined;
 };
 
-async function readLocator(
-  repository: ArtifactsRepository,
+export async function readLocator(
+  context: ToolContext,
+  repository: ArtifactReadRepository,
   { chatId, path, locator, selector }: LocatorRead,
 ): Promise<ToolResult> {
   if (locator.part !== undefined) {
@@ -84,7 +95,7 @@ async function readLocator(
     );
     return part === undefined
       ? notFoundResult()
-      : readStoredPart(path, part, selector);
+      : readStoredPart(context, path, part, selector);
   }
   const found = await repository.findParts(
     chatId,
@@ -101,7 +112,7 @@ async function readLocator(
     );
     return part === undefined
       ? notFoundResult()
-      : readStoredPart(path, part, selector);
+      : readStoredPart(context, path, part, selector);
   }
   return listStreams(path, locator, found, selector);
 }
@@ -135,19 +146,27 @@ function listStreams(
 
 /**
  * One stored part's text, numbered by its stored line count and then placed by
- * the shared selectors. The part's text is split once here, because the pieces
- * are what the selectors number.
+ * the shared selectors. Findings are withheld before selection, so every line
+ * keeps its number and an outline built afterwards names no withheld file (D5).
  */
 async function readStoredPart(
+  context: ToolContext,
   path: string,
   part: StoredPart,
   selector: string | undefined,
 ): Promise<ToolResult> {
   try {
     const target = applySelectorSuffix(path, selector);
+    const source = part.content.toString('utf8');
+    const text = withholdFindings(
+      context,
+      part,
+      artifactText(source),
+      resolveEndRelativeSelector(target, part.lineCount),
+    );
     return await selectInMemoryText({
       target,
-      text: artifactText(part.content.toString('utf8')),
+      text,
       lineCount: part.lineCount,
       mediaType: part.contentType,
     });

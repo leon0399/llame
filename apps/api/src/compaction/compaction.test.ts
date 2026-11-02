@@ -1227,6 +1227,35 @@ describe('buildCompactionRequest', () => {
     expect(serialized).toContain('VISIBLE_ANSWER');
   });
 
+  it('replays an absorbed turn’s artifact locator, not its stored lines', () => {
+    const question = msg('what did the search find?');
+    const answer = msg('', 'assistant');
+    answer.parts = [
+      {
+        type: 'tool-grep',
+        toolCallId: 'call-1',
+        state: 'output-available',
+        input: { pattern: 'needle' },
+        output: { status: 'success', content: '1: needle' },
+        outcome: 'success',
+        artifact: 'artifact://grep-1',
+      },
+    ];
+
+    const request = buildCompactionRequest({
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: [question, answer],
+    });
+    const serialized = JSON.stringify(request.messages);
+
+    // The locator is part of the pair's outcome; the artifact's own lines live
+    // in the store, and the checkpoint request carries no artifact field or
+    // content of its own.
+    expect(serialized).toContain('Artifact: artifact://grep-1');
+    expect(serialized).not.toContain('"artifact"');
+  });
+
   it('requests the stable operational-handoff Markdown sections and rules, in order', () => {
     const EXPECTED_HEADINGS = [
       'Latest Request',

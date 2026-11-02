@@ -29,6 +29,8 @@ export type StoredPart = {
   readonly contentType: string;
   readonly content: Buffer;
   readonly lineCount: number;
+  /** The read-time finding record (`grep` and `web_search` only). */
+  readonly findings: unknown;
 };
 
 export type NewArtifact = {
@@ -169,6 +171,7 @@ export class ArtifactsRepository {
         contentType: toolArtifactParts.contentType,
         content: toolArtifactParts.content,
         lineCount: toolArtifactParts.lineCount,
+        findings: toolArtifactParts.findings,
       })
       .from(toolArtifactParts)
       .innerJoin(

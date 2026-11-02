@@ -756,6 +756,55 @@ describe('the Continue state of a Run', () => {
     ).toBeUndefined();
   });
 
+  it('keeps the artifact locator of a recorded error result', () => {
+    const state = continueStateFromEvents([
+      {
+        eventType: 'run.continued',
+        payload: {
+          parts: [],
+          steps: {},
+          results: {
+            [CALL_ID]: {
+              status: 'error',
+              type: 'command_failed',
+              message: 'exit 1',
+              artifact: 'artifact://bash-4/stderr',
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(state?.results.get(CALL_ID)).toEqual({
+      status: 'error',
+      type: 'command_failed',
+      message: 'exit 1',
+      artifact: 'artifact://bash-4/stderr',
+    });
+  });
+
+  it('drops an artifact value that is not a locator', () => {
+    const state = continueStateFromEvents([
+      {
+        eventType: 'run.continued',
+        payload: {
+          parts: [],
+          steps: {},
+          results: {
+            [CALL_ID]: {
+              status: 'error',
+              type: 'command_failed',
+              message: 'exit 1',
+              artifact: 'artifact://bash-4/stderr:1-5',
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(state?.results.get(CALL_ID)).not.toHaveProperty('artifact');
+  });
+
   it('maps only the kept calls of the source Run events', () => {
     expect(
       continuedRecords({

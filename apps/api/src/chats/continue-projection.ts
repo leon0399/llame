@@ -47,7 +47,8 @@ import {
   type ProjectedToolObservationPair,
 } from './tool-observation-part';
 import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
-import type { ToolResult } from '../tools/types';
+import { type ToolResult } from '../tools/types';
+import { isArtifactLocator } from '../tools/artifacts/locator';
 
 /**
  * The `toolCallId -> stepNumber` map `run.continued` stores: a wire shape
@@ -150,11 +151,13 @@ function toolResultFromRecord(value: unknown): ToolResult | undefined {
     return undefined;
   }
   const rejectedUrl = value['rejectedUrl'];
+  const artifact = value['artifact'];
   return {
     status,
     type,
     message,
     ...(isString(rejectedUrl) && { rejectedUrl }),
+    ...(isString(artifact) && isArtifactLocator(artifact) && { artifact }),
   };
 }
 

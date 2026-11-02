@@ -33,7 +33,12 @@ function part(
   lineCount: number,
   contentType = 'text/markdown',
 ): StoredPart {
-  return { contentType, content: Buffer.from(content), lineCount };
+  return {
+    contentType,
+    content: Buffer.from(content),
+    lineCount,
+    findings: null,
+  };
 }
 
 function contentOf(result: ToolResult): string {

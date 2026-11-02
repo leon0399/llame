@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
+- Tool-result artifacts now check each `grep` and `web_search` finding again
+  when `read` serves it: a `read` rule added after the artifact was stored
+  withholds a refused file, result, or answer as `[withheld]` lines with
+  unchanged line numbers, a withheld heading leaves the `:outline`, and a
+  bypassed attempt withholds nothing. A spilled result carries its `artifact`
+  locator through the stored tool part and the history response, replay keeps
+  an `Artifact: <locator>` line after the outcome even once the payload is
+  cleared, and a settled open call keeps the locator the earlier attempt
+  stored. See [artifacts](docs/product/reference/locators/artifact.md).
+
 - Stored tool-result artifacts: `read` now accepts
   `artifact://<toolName>-<n>` and `artifact://<toolName>-<n>/<part>`. The
   artifact store is two Chat-scoped Postgres tables under the Chat owner's

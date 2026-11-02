@@ -11,6 +11,15 @@ import {
 } from './types';
 
 /**
+ * The context fields permission evaluation reads. A finding re-check holds a
+ * stored part, not a call, so it supplies only this much.
+ */
+export type PermissionContext = Pick<
+  ToolContext,
+  'permissionPolicy' | 'permissionMode'
+>;
+
+/**
  * The mode an owner HTTP route decides under. It has no Run and no permission
  * mode, so it gets `default` semantics: the policy is always evaluated.
  */
@@ -54,7 +63,7 @@ export function decidePermission(
  * carries no compiled policy, a code error each caller fails closed on.
  */
 export function admitPermission(
-  context: ToolContext,
+  context: PermissionContext,
   decide: (evaluate: EvaluateCall) => PermissionDecision,
 ): PermissionDecision | undefined {
   const policy = context.permissionPolicy;

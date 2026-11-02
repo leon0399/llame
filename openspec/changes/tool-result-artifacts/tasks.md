@@ -100,14 +100,19 @@ without its first consumers. Every implementation layer stays inside about
 
 ## 4. store-authority
 
-- [ ] 4.1 Apply the finding re-check and its permission exception (design D5). With a test producer that writes findings, verify:
+- [x] 4.1 Apply the finding re-check and its permission exception (design D5). With a test producer that writes findings, verify:
   - "A new reject withholds a grep finding", "A withheld file leaves the outline", and "A bash part has no finding to check";
   - "A web result is withheld after a reject", "A web result without an allow stays visible", and "A bypassed Run sees every finding";
   - "Finding decisions are not recorded".
-- [ ] 4.2 Add projection tests for `artifact://`. Verify both scenarios of "Artifact locators match as their logical text".
-- [ ] 4.3 Carry the `artifact` field in both `ToolResult` variants through `runTool`, `tool.completed`, `toolActivityPart`, `StoredToolPart`, `priorOutcome`, continue projection, and the chat DTO (design D6). Emit `Artifact:` in replay (design D8). Verify the three scenarios of "A replayed pair keeps its artifact locator", "A checkpoint does not carry the artifact", and "An old artifact still reads".
-- [ ] 4.4 Update the artifacts reference with the re-check, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 4.5 Verify the layer: as task 3.8.
+  - Evidence: `tools/artifacts/findings.ts` (parse/validate the stored document, withhold the served overlapping findings before selection, `[withheld]` lines keep their numbers, malformed fails closed) wired into `artifact-reader.ts`; `findings.test.ts` covers the allow-only and reject-only rules, bypass, multi-citation answers, the served-window and Markdown-ancestor overlap, the malformed record, and no decision record; `artifact-findings.integration.test.ts` (Testcontainers) covers each named scenario with a real producer and live policy, including a bash part under a whole-tool reject, the outline, and `onDerivedDecision` never firing.
+- [x] 4.2 Add projection tests for `artifact://`. Verify both scenarios of "Artifact locators match as their logical text".
+  - Evidence: `locator-projection.test.ts` "artifact locator permission projection" (selector-free logical text, no host-path substitution, a `^artifact://bash-` reject, a `^artifact://` allow) and `artifact-findings.integration.test.ts` "reaches only the Chat of an allowed artifact locator" (the allow admits the call and another Chat still returns `not_found`).
+- [x] 4.3 Carry the `artifact` field in both `ToolResult` variants through `runTool`, `tool.completed`, `toolActivityPart`, `StoredToolPart`, `priorOutcome`, continue projection, and the chat DTO (design D6). Emit `Artifact:` in replay (design D8). Verify the three scenarios of "A replayed pair keeps its artifact locator", "A checkpoint does not carry the artifact", and "An old artifact still reads".
+  - Evidence: the error variant gains `artifact` (`packages/runtime-safety/src/types.ts`), `truncateOversizedResult` pins it like a media locator so `runTool` cannot shorten it (`result-truncation.test.ts`, 112 package tests), `toolActivityPart`/`ToolActivityPart` copy and validate it and `toolResultFromPayload` keeps it (`assistant-transcript.test.ts`), `StoredToolPart` validates it and the packaged framing renders `Artifact:` in both the full and cleared pair (`tool-observation-part.test.ts`: line position, survives clearing, absent, invalid, dropped pair), `priorOutcome` keeps it (`native-files-repository.test.ts`), the Continue state keeps it (`continue-projection.test.ts`), and the history DTO passes it through (`chats.dto.test.ts`). The checkpoint request carries the locator line but no artifact field or content (`compaction.test.ts`), and an artifact still reads after a checkpoint row exists (`artifact-findings.integration.test.ts`).
+- [x] 4.4 Update the artifacts reference with the re-check, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `docs/product/reference/locators/artifact.md` "Finding re-check"; the 2026-11-02 `CHANGELOG.md` entry; `pnpm lint:markdown` reports 0 issues.
+- [x] 4.5 Verify the layer: as task 3.8.
+  - Evidence: `pnpm --filter @workspace/runtime-safety lint`/`test` (112), `pnpm --filter api lint`, `pnpm exec tsc --noEmit`, the focused unit suites (456 tests across 11 files), `artifact-findings.integration.test.ts` (8 tests), `pnpm lint:markdown`, `oxfmt --check`, and `git diff --check` all pass.
 - [ ] 4.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 4.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

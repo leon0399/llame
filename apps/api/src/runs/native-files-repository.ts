@@ -1,9 +1,15 @@
 import { RunEventsRepository } from './runs-repository';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import { isRecord, isString, type ToolResult } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type ToolResult,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { runEvents, runs } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { nonTerminalRun } from './run-status';
+import { isArtifactLocator } from '../tools/artifacts/locator';
 
 /** Absolute paths bind the Run to one host; a resolved locator binds nothing. */
 export type NativeFenceMode =
@@ -152,16 +158,8 @@ export class NativeFilesRepository {
     if (!event) return undefined;
     if (event.eventType === 'native.result' && isRecord(event.payload)) {
       const result = event.payload.result;
-      if (isRecord(result) && result.status === 'success')
-        return { ...result, status: 'success' };
-      if (
-        isRecord(result) &&
-        result.status === 'error' &&
-        isString(result.type) &&
-        isString(result.message)
-      ) {
-        return { status: 'error', type: result.type, message: result.message };
-      }
+      const recorded = isRecord(result) ? recordedResult(result) : undefined;
+      if (recorded !== undefined) return recorded;
     }
     return {
       status: 'error',
@@ -170,6 +168,23 @@ export class NativeFilesRepository {
         'A previous host command, mutation, or MCP operation may have executed; it will not be repeated.',
     };
   }
+}
+
+/**
+ * A recorded `native.result`: the success record as stored, or the error it
+ * described. A settled open call keeps the artifact locator the earlier attempt
+ * stored, so the replay still names it (D4).
+ */
+function recordedResult(result: UnknownRecord): ToolResult | undefined {
+  if (result.status === 'success') return { ...result, status: 'success' };
+  if (!isString(result.type) || !isString(result.message)) return undefined;
+  const artifact = result.artifact;
+  return {
+    status: 'error',
+    type: result.type,
+    message: result.message,
+    ...(isString(artifact) && isArtifactLocator(artifact) && { artifact }),
+  };
 }
 
 function executorUnavailable(): ToolResult {

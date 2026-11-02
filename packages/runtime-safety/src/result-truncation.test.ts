@@ -622,6 +622,63 @@ describe("truncateOversizedResult media results", () => {
   });
 });
 
+describe("truncateOversizedResult artifact results", () => {
+  const ARTIFACT = "artifact://grep-7";
+
+  it("keeps the artifact locator whole while another field shrinks", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      artifact: ARTIFACT,
+      content: "x".repeat(50_000),
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({
+      status: "success",
+      artifact: ARTIFACT,
+      truncated: true,
+    });
+  });
+
+  it("omits other fields before the artifact locator at the floor", () => {
+    const payload = Object.fromEntries(
+      Array.from({ length: 4000 }, (_entry, index) => [
+        `field-number-${index}`,
+        `value ${index}`,
+      ]),
+    );
+    const result = truncateOversizedResult({
+      status: "success",
+      ...payload,
+      artifact: ARTIFACT,
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({ artifact: ARTIFACT, truncated: true });
+  });
+
+  it("caps an artifact field that is not a string", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      artifact: { text: "x".repeat(50_000) },
+    });
+
+    expect(result).toMatchObject({ truncated: true });
+    expect(JSON.stringify(result)).not.toContain("x".repeat(50_000));
+  });
+
+  it("leaves an error result's artifact untouched", () => {
+    const result: ToolResult = {
+      status: "error",
+      type: "command_failed",
+      message: "x".repeat(50_000),
+      artifact: ARTIFACT,
+    };
+
+    expect(truncateOversizedResult(result)).toBe(result);
+  });
+});
+
 describe("truncateOversizedResult display-aware measures", () => {
   /** A measure shaped like an edit's rendering: the header names the line
    *  `display` starts at, so display changes the measured width. */

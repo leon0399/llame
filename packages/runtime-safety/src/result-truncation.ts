@@ -230,14 +230,10 @@ export function truncateOversizedResult(
     throw new TypeError("Malformed oversized tool result projection.");
   }
   const { status: _status, ...payload } = parsed;
-  // A media result's locator is its only handle on the file, so no pass may
-  // shorten or omit it.
-  const { media, ...rest } = payload;
-  const pinsMedia =
-    (payload.kind === "image" || payload.kind === "pdf") && isString(media);
+  const shrunk = splitPinned(payload);
   const source: TruncationSource = {
-    payload: pinsMedia ? rest : payload,
-    pinned: pinsMedia ? { media } : {},
+    payload: shrunk.payload,
+    pinned: shrunk.pinned,
     totalFields: Object.keys(payload).length,
     json,
     measured,
@@ -256,6 +252,37 @@ export function truncateOversizedResult(
     ? preserved
     : searchLargestFittingLimit(source, false);
 }
+
+/**
+ * A result's pinned fields and the payload the pass shrinks. A media result's
+ * locator is its only handle on the file, and an artifact locator is a spilled
+ * result's only handle on the content it could not show inline, so neither is
+ * ever shortened or omitted. A value that is not a locator string is capped
+ * with everything else.
+ */
+function splitPinned(payload: UnknownRecord): SplitPayload {
+  const pinned: UnknownRecord = {};
+  const pin = (field: string): boolean => {
+    const value = payload[field];
+    if (!isString(value)) return false;
+    pinned[field] = value;
+    return true;
+  };
+  const pinsMedia =
+    (payload.kind === "image" || payload.kind === "pdf") && pin("media");
+  const pinsArtifact = pin("artifact");
+  if (!pinsMedia && !pinsArtifact) return { payload, pinned };
+  const rest = { ...payload };
+  if (pinsMedia) delete rest.media;
+  if (pinsArtifact) delete rest.artifact;
+  return { payload: rest, pinned };
+}
+
+/** One result split for a truncation pass. */
+type SplitPayload = {
+  readonly payload: UnknownRecord;
+  readonly pinned: UnknownRecord;
+};
 
 /** The part of a truncation pass that never changes across the binary
  * search's candidate limits. */
