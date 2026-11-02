@@ -161,7 +161,6 @@ export function remainingBudget(
         state.units -
         separator -
         grepWarningsUnits(state.warnings) -
-        grepWarningsUnits(state.warnings) -
         deadlineUnits(state.warnings) -
         state.ignoredUnits,
     ),
@@ -265,7 +264,6 @@ export function appendSegment(
   const cutRel = appendEntries(state, budget, reserve, page);
   if (cutRel !== undefined) {
     state.ignored = prior;
-    state.ignoredUnits = 0;
     mergeIgnored(state, page.ignored, admission, cutRel);
   }
   // A walk's own page end is trusted only when every passage it named was
@@ -300,13 +298,7 @@ function fitsPage(
   return (
     state.units +
       grepPassageUnits(state.results.at(-1), entry.passage) +
-      grepContinuationUnits({
-        scopeIndex: end.scopeIndex,
-        rel: end.rel,
-        startLine: end.startLine,
-        ...(end.endLine !== undefined && { endLine: end.endLine }),
-        capped: end.capped,
-      }) +
+      endContinuationUnits(end) +
       reserve <=
     budget.pageUnits
   );
@@ -352,12 +344,14 @@ function mergeIgnored(
     if (state.ignored.paths.length < GREP_LIMITS.ignoredLocators)
       state.ignored.paths.push(locator);
   }
-  if (state.ignored.count === 0) return;
-  state.ignoredUnits = grepIgnoredUnits({
-    count: state.ignored.count,
-    locators: state.ignored.paths,
-    atLeast: state.ignored.atLeast,
-  });
+  state.ignoredUnits =
+    state.ignored.count === 0
+      ? 0
+      : grepIgnoredUnits({
+          count: state.ignored.count,
+          locators: state.ignored.paths,
+          atLeast: state.ignored.atLeast,
+        });
 }
 
 /**
@@ -391,15 +385,8 @@ function appendEntries(
 
 /** End the page before a segment whose grown reserve no longer fits. */
 function endBeforeSegment(state: PageState, prior: PageState['ignored']): void {
+  // The warnings were never merged: the page ends before them too.
   state.ignored = prior;
-  state.ignoredUnits =
-    prior.count === 0
-      ? 0
-      : grepIgnoredUnits({
-          count: prior.count,
-          locators: prior.paths,
-          atLeast: prior.atLeast,
-        });
   state.complete = false;
 }
 

@@ -19,6 +19,7 @@ import {
 } from '@workspace/machine-protocol';
 import {
   decodeGrepCursor,
+  grepIgnoredUnits,
   grepWarningsUnits,
   normalizeHostScope,
   splitGrepScope,
@@ -63,7 +64,7 @@ import {
   type MachineFailureResult,
 } from './machine-call';
 import {
-  daemonCursor,
+  daemonStart,
   ignoredAccumulator,
   machineScopeLocator,
   mergePage,
@@ -337,8 +338,8 @@ async function runDaemonPages(
       progressed,
     });
     if ('result' in asked) return { status: 'error', result: asked.result };
-    const page = asked.page;
-    last = page;
+    last = asked.page;
+    const page = last;
     mergePage(counts, consumed, ignored, page);
     progressed = progressed || page.progressed;
     const rendered = renderPage(search, page, entries);
@@ -347,7 +348,7 @@ async function runDaemonPages(
     const next = keepAsking(rendered.kept, page, cursor);
     if (next === undefined) break;
     cursor = next;
-    budget = spent(budget, page, deadlineAt, base + grepWarningsUnits(counts));
+    budget = spent(budget, page, deadlineAt, { base, counts, ignored });
   }
   return segmentOfPages(search, {
     entries,
@@ -414,29 +415,6 @@ function keepAsking(
   return nextCursor(page, cursor);
 }
 
-/** The loop's first request state: budget, cursor, and inherited progress. */
-type DaemonStart = {
-  readonly budget: GrepBudget;
-  readonly cursor: string | undefined;
-  readonly progressed: boolean;
-};
-
-function daemonStart(
-  search: MachineGrepSearch,
-  deadlineAt: number,
-): DaemonStart {
-  return {
-    budget: daemonBudget(search.budget, deadlineAt),
-    cursor: search.resume && daemonCursor(search, search.resume),
-    progressed: search.progressed,
-  };
-}
-
-/** What one daemon page has left: the call's deadline minus the clock now. */
-function daemonBudget(budget: GrepBudget, deadlineAt: number): GrepBudget {
-  return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
-}
-
 /** What one Machine scope's pages add up to. */
 type MachineSegmentPage = {
   readonly entries: ReadonlyArray<MachineGrepEntry>;
@@ -498,9 +476,23 @@ function spent(
   budget: GrepBudget,
   page: FsGrepSuccess,
   deadlineAt: number,
-  reserve: number,
+  lines: {
+    readonly base: number;
+    readonly counts: ReadonlyMap<FsGrepWarningKind, number>;
+    readonly ignored: IgnoredAccumulator;
+  },
 ): GrepBudget {
   const consumed = page.consumed;
+  const reserve =
+    lines.base +
+    grepWarningsUnits(lines.counts) +
+    (lines.ignored.paths.length === 0 && !lines.ignored.atLeast
+      ? 0
+      : grepIgnoredUnits({
+          count: lines.ignored.paths.length,
+          locators: lines.ignored.paths,
+          atLeast: lines.ignored.atLeast,
+        }));
   return {
     files: remainingOf(budget.files, consumed.files),
     entries: remainingOf(budget.entries, consumed.entries),

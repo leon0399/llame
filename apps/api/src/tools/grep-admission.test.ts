@@ -119,6 +119,27 @@ describe('projectGrepScope', () => {
     );
   });
 
+  it('decodes only the model text of a relative scope under a root', () => {
+    expect(projectGrepScope('src/%2A/**', '/w/a%2Ab').prefix).toBe(
+      '/w/a%2Ab/src/*/',
+    );
+    expect(projectGrepScope('../a%5Bb%5D', '/w/root').prefix).toBe('/w/a[b]');
+    expect(projectGrepScope('sub/a%5Bb%5D', '/w/p%25q').prefix).toBe(
+      '/w/p%25q/sub/a[b]',
+    );
+    expect(projectGrepScope('%2A/x/**', '/').prefix).toBe('/*/x/');
+  });
+
+  it('decodes a whole absolute scope but not one that names the root', () => {
+    expect(projectGrepScope('/w/a%2Ab/src/**', '/w/a%2Ab').prefix).toBe(
+      '/w/a*b/src/',
+    );
+    expect(projectGrepScope('/w/a%2Ab/', '/w/a%2Ab').prefix).toBe('/w/a%2Ab/');
+    expect(projectGrepScope('/elsewhere/x%2A/**', '/w/a%2Ab').prefix).toBe(
+      '/elsewhere/x*/',
+    );
+  });
+
   it('decodes a spelled percent once', () => {
     expect(projectGrepScope('/home/u/repo/a%252A', undefined).prefix).toBe(
       '/home/u/repo/a%2A',

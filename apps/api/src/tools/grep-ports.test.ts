@@ -431,6 +431,23 @@ describe('createHostWalkPort', () => {
     });
   });
 
+  it('stops the ancestor walk when the call aborts', async () => {
+    await withTree(async (root) => {
+      await mkdir(path.join(root, 'repo/sub'), { recursive: true });
+      const controller = new AbortController();
+      controller.abort();
+      const port = createHostWalkPort(
+        path.join(root, 'repo/sub'),
+        controller.signal,
+      );
+      if (port.ignoreAncestors === undefined)
+        throw new Error('a host port reads ancestor ignore files');
+      await expect(port.ignoreAncestors()).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+    });
+  });
+
   it('collects ancestor ignore files with the repository limit', async () => {
     await withTree(async (root) => {
       await mkdir(path.join(root, 'repo/.git'), { recursive: true });

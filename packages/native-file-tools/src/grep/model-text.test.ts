@@ -319,6 +319,17 @@ describe("grep text rendering", () => {
     expect(grepIgnoredUnits(ignored)).toBe(text.length + 1);
   });
 
+  it("counts the remainder of a capped locator list", () => {
+    const ignored = {
+      count: 7,
+      locators: ["/r/a", "/r/b", "/r/c", "/r/d", "/r/e"],
+      atLeast: false,
+    };
+    const text = renderGrepText({ results: [], complete: true, ignored });
+    expect(text).toContain("(+2 more)");
+    expect(grepIgnoredUnits(ignored)).toBe(text.length + 1);
+  });
+
   it("counts escaped delimiters toward the rendering width", () => {
     const result = {
       results: [passage("a.md:1-1", "1: <skill>", [1])],

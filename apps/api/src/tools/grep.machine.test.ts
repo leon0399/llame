@@ -1323,6 +1323,45 @@ describe('Machine page bounds', () => {
     });
   });
 
+  it('keeps the exclusions of a re-asked daemon page in the next reserve', async () => {
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([passage('hidden.go', 1, 1)], {
+                  complete: false,
+                  cursor: 'daemon-cursor',
+                  ignored: { paths: ['m'], atLeast: false },
+                })
+              : page([]),
+        };
+      },
+    });
+    await run(
+      context(connector, {
+        permissionPolicy: compileToolPermissionMap(
+          readingRejects('machine://devl/srv/app/hidden.go'),
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: ['machine://devl/srv/app/**'] },
+    );
+    const ignoredUnits = grepIgnoredUnits({
+      count: 1,
+      locators: ['machine://devl/srv/app/m'],
+      atLeast: false,
+    });
+    const session = await peer.session(0);
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
+      pageUnits:
+        15_000 - ignoredUnits - deadlineUnits(new Map()) - pageFixedReserve(),
+    });
+  });
+
   it('keeps asking the daemon while every passage of a page is refused', async () => {
     const scope = 'machine://devl/srv/app/**';
     let searches = 0;
@@ -1637,7 +1676,14 @@ describe('Machine page bounds', () => {
           ignored: { paths: ['m'], atLeast: false },
         }),
       });
-    const over = fixture({ answer: byPath(room) });
+    const threshold = room - ignoredUnits;
+    const fitted = fixture({ answer: byPath(threshold + 2) });
+    const kept = await run(context(fitted.connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    expect(ignoredOf(kept)?.count).toBe(1);
+    const over = fixture({ answer: byPath(threshold + 3) });
     const ended = await run(context(over.connector), {
       patterns: ['needle'],
       scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
@@ -1645,12 +1691,149 @@ describe('Machine page bounds', () => {
     expect(locatorsOf(ended)).toEqual(['machine://devl/srv/a/a.go:1-1']);
     expect(ignoredOf(ended)).toBeUndefined();
     expect(success(ended).complete).toBe(false);
-    const fitted = fixture({ answer: byPath(room - ignoredUnits) });
-    const kept = await run(context(fitted.connector), {
+  });
+
+  it("restores a dropped segment's warnings", async () => {
+    const ignoredUnits = grepIgnoredUnits({
+      count: 1,
+      locators: ['machine://devl/srv/b/m'],
+      atLeast: false,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: 'a.go',
+      startLine: 1,
+    });
+    const room =
+      15_000 - pageFixedReserve() - deadlineUnits(new Map()) - continuation;
+    const { connector } = fixture({
+      answer: answeredByPath({
+        '/srv/a': page([
+          {
+            ...passage('a.go', 1, 1),
+            content: contentOfUnits(locatorAt('a.go', 1, 1), room),
+          },
+        ]),
+        '/srv/b': page([], {
+          warnings: [
+            { kind: 'link', count: 3 },
+            { kind: 'binary', count: 2 },
+          ],
+          ignored: { paths: ['m'], atLeast: false },
+        }),
+      }),
+    });
+    const result = await run(context(connector), {
       patterns: ['needle'],
       scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
     });
-    expect(ignoredOf(kept)?.count).toBe(1);
+    expect(ignoredOf(result)).toBeUndefined();
+    expect(success(result).warnings).toEqual([]);
+    expect(ignoredUnits).toBeGreaterThan(0);
+  });
+
+  it("drops a segment's exclusions when its first entry does not fit", async () => {
+    const ignoredUnits = grepIgnoredUnits({
+      count: 1,
+      locators: ['machine://devl/srv/b/m'],
+      atLeast: false,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: 'a.go',
+      startLine: 1,
+    });
+    const room =
+      15_000 - pageFixedReserve() - deadlineUnits(new Map()) - continuation;
+    const { connector } = fixture({
+      answer: answeredByPath({
+        '/srv/a': page([
+          {
+            ...passage('a.go', 1, 1),
+            content: contentOfUnits(
+              locatorAt('a.go', 1, 1),
+              room - ignoredUnits,
+            ),
+          },
+        ]),
+        '/srv/b': page([passage('z.go', 1, 1)], {
+          ignored: { paths: ['m'], atLeast: false },
+        }),
+      }),
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:1-1']);
+    expect(ignoredOf(result)).toBeUndefined();
+    expect(success(result).complete).toBe(false);
+  });
+
+  it('reserves the remainder of a capped exclusion list at the bound', async () => {
+    const paths = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const ignoredUnits = grepIgnoredUnits({
+      count: paths.length,
+      locators: paths
+        .slice(0, 5)
+        .map((path) => `machine://devl/srv/app/${path}`),
+      atLeast: false,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: 'a.go',
+      startLine: 1,
+    });
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      deadlineUnits(new Map()) -
+      continuation -
+      ignoredUnits;
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page(
+            [
+              {
+                ...passage('a.go', 1, 1),
+                content: contentOfUnits(locatorAt('a.go', 1, 1), room),
+              },
+            ],
+            { ignored: { paths, atLeast: false } },
+          ),
+        },
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(ignoredOf(result)?.count).toBe(7);
+    expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+  });
+
+  it('subtracts the warnings line once from a following scope', async () => {
+    const { peer, connector } = fixture({
+      answer: answeredByPath({
+        '/srv/a': page([], { warnings: [{ kind: 'binary', count: 5 }] }),
+        '/srv/b': page([]),
+      }),
+    });
+    await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    const warnings = new Map([['binary', 5]]);
+    const session = await peer.session(0);
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
+      pageUnits:
+        15_000 -
+        grepWarningsUnits(warnings) -
+        deadlineUnits(warnings) -
+        pageFixedReserve(),
+    });
   });
 
   it("keeps the ignored line's room from the first passage", async () => {
@@ -2442,6 +2625,33 @@ describe('Machine excluded-directory report', () => {
       scopes: ['machine://devl/srv/app'],
     });
     expect(ignoredOf(result)).toMatchObject({ count: 1000, atLeast: true });
+  });
+
+  it('does not reserve an exclusion the read group refuses', async () => {
+    const { peer, connector } = fixture({
+      answer: answeredByPath({
+        '/srv/a': page([], {
+          ignored: { paths: ['m'], atLeast: false },
+        }),
+        '/srv/b': page([]),
+      }),
+    });
+    await run(
+      context(connector, {
+        permissionPolicy: compileToolPermissionMap(
+          readingRejects('machine://devl/srv/a/m'),
+          'test',
+        ),
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+      },
+    );
+    const session = await peer.session(0);
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
+      pageUnits: 15_000 - deadlineUnits(new Map()) - pageFixedReserve(),
+    });
   });
 
   it('counts recorded directories before the read filter', async () => {

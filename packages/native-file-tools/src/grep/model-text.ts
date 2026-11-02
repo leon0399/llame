@@ -237,6 +237,7 @@ export function grepIgnoredUnits(ignored: {
   const head = `[ignored ${count} ${noun}: `;
   const tail = "; a scope that names one searches it]";
   let width = 0;
+  let lineWidth = 0;
   let chosen = 0;
   for (const locator of ignored.locators.slice(
     0,
@@ -255,9 +256,10 @@ export function grepIgnoredUnits(ignored: {
       tail.length;
     if (candidate > IGNORED_LINE_UNITS) break;
     width += (chosen === 0 ? 0 : 2) + spelledWidth(locator);
+    lineWidth = candidate;
     chosen = next;
   }
-  if (chosen > 0) return head.length + width + tail.length + 1;
+  if (chosen > 0) return lineWidth + 1;
   // Not one locator fits: the remainder follows the colon.
   const remainder = `(+${String(ignored.count)}${
     ignored.atLeast ? " or more" : " more"

@@ -201,3 +201,25 @@ export function mergePage(
     ignored.rels.push(rel);
   }
 }
+
+/** The loop's first request state: budget, cursor, and inherited progress. */
+type DaemonStart = {
+  readonly budget: GrepBudget;
+  readonly cursor: string | undefined;
+  readonly progressed: boolean;
+};
+
+function daemonBudget(budget: GrepBudget, deadlineAt: number): GrepBudget {
+  return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
+}
+
+export function daemonStart(
+  search: MachineGrepSearch,
+  deadlineAt: number,
+): DaemonStart {
+  return {
+    budget: daemonBudget(search.budget, deadlineAt),
+    cursor: search.resume && daemonCursor(search, search.resume),
+    progressed: search.progressed,
+  };
+}

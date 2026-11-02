@@ -126,7 +126,7 @@ export function createHostWalkPort(
     ignoreFiles: (rel) => readIgnoreFiles(root, rel, signal),
     ignoreAncestors: () =>
       collectAncestorIgnoreFiles(
-        { prefix: root, root: '/', fallbackRepository: undefined },
+        { prefix: root, root: '/', fallbackRepository: undefined, signal },
         (directory, name) => readIgnoreText(directory, name, signal),
       ),
   };

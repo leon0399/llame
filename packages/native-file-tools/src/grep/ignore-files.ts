@@ -81,6 +81,7 @@ export type AncestorIgnoreInput = {
   readonly root: string;
   /** The repository directory when no `.git` is found up to `root`. */
   readonly fallbackRepository: string | undefined;
+  readonly signal?: AbortSignal;
 };
 
 /**
@@ -98,6 +99,7 @@ export async function collectAncestorIgnoreFiles(
   );
   const files: Array<GrepIgnoreFile> = [];
   for (const directory of ignoreAncestorDirectories(input.prefix, input.root)) {
+    input.signal?.throwIfAborted();
     const above = ignoreAbovePath(directory, input.prefix);
     if (repository !== undefined && isAtOrBelow(directory, repository)) {
       const gitignore = await read(directory, ".gitignore");

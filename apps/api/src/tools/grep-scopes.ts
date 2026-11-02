@@ -62,7 +62,7 @@ import {
 import {
   buildScope,
   hasGlobOperator,
-  sameHostPath,
+  hostLiteralStart,
   splitScopePath,
   type ResolvedScopes,
   type ScopeOutcome,
@@ -250,46 +250,8 @@ async function resolveHostScope(
   return buildHostScope(context, placed, {
     index,
     admission,
-    literalStart: hostLiteralStart(context, scope, placed),
+    literalStart: hostLiteralStart(scope, root, placed),
   });
-}
-
-/**
- * Where a placed host path stops being the Workspace root's own text: a
- * relative scope starts after the root, the root itself decodes nowhere, and
- * an explicit absolute scope decodes whole.
- */
-function hostLiteralStart(
-  context: ToolContext,
-  scope: string,
-  placed: string,
-): number {
-  const root = context.workspaceRoot?.current();
-  if (root === undefined || isFileAlias(scope)) return 0;
-  const rootText = normalizeHostScope(root);
-  if (!isWorkspaceRelative(scope)) {
-    return sameHostPath(normalizeHostScope(scope), rootText)
-      ? placed.length
-      : 0;
-  }
-  return rootText === '/' ? 1 : rootText.length + 1;
-}
-
-/**
- * The seven literal spellings decode in the prefix only, after the glob cut,
- * so a reported `%5B` names the directory and no encoded bracket is refused
- * as a glob operator. Only the model-supplied part decodes: a Workspace root
- * is a real path, so its own `%25` must survive.
- */
-function decodedHostPrefix(
-  encodedPrefix: string,
-  literalStart: number,
-): string {
-  const cut = Math.min(literalStart, encodedPrefix.length);
-  return (
-    encodedPrefix.slice(0, cut) +
-    decodeGrepLiteralSpelling(encodedPrefix.slice(cut))
-  );
 }
 
 /** The authority and path checks every host scope passes first. */
@@ -302,6 +264,22 @@ function hostScopeRefusal(
   return !path.isAbsolute(normalized) || normalized.includes('\0')
     ? invalidPathResult('The scope path is invalid.')
     : undefined;
+}
+
+/**
+ * The seven literal spellings decode in the prefix only, after the glob cut,
+ * so a reported `%5B` names the directory and no encoded bracket is refused
+ * as a glob operator. Only the model-supplied part decodes: a Workspace root
+ * is a real path, so its own `%25` must survive.
+ */
+function decodedHostPrefix(
+  encodedPrefix: string,
+  literalStart: number,
+): string {
+  return (
+    encodedPrefix.slice(0, literalStart) +
+    decodeGrepLiteralSpelling(encodedPrefix.slice(literalStart))
+  );
 }
 
 /** What one host scope settles: its ordinal, admission, and literal start. */
