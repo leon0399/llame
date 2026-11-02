@@ -1074,9 +1074,12 @@ describe('Machine page bounds', () => {
     );
     expect(result).toMatchObject({ status: 'success', complete: false });
     expect(locatorsOf(result)).toEqual([]);
-    // The file budget is spent, so the call stops, and the refused file is
-    // named nowhere: the walk never reports a passage a `read` cannot reach.
-    expect(success(result).warnings).toEqual([]);
+    // The file budget is spent, so the call stops and names that bound, and
+    // the refused file is named nowhere: the walk never reports a passage a
+    // `read` cannot reach.
+    expect(success(result).warnings).toEqual([
+      { kind: 'file_bound', count: 1 },
+    ]);
     expect(result).not.toHaveProperty('cursor');
     expect(JSON.stringify(result)).not.toContain('hidden.go');
   });
@@ -1391,7 +1394,41 @@ describe('Machine pages within one call', () => {
     expect(asked).toHaveLength(2);
   });
 
-  it('reports the daemon deadline once across its pages', async () => {
+  it('names the bound a page spent at its own page end', async () => {
+    // The daemon fills its page with the last files the file bound leaves and
+    // ends before it reports the stop, so the hub names the bound itself.
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page(
+            Array.from({ length: 20 }, (_, index) =>
+              passage(`f${String(index)}.go`, 1, 1),
+            ),
+            {
+              complete: false,
+              cursor: 'daemon-next',
+              consumed: { files: 20, entries: 20, bytes: 200 },
+            },
+          ),
+        },
+      },
+    });
+    const result = await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: 20,
+          maxEntriesListed: null,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+      }),
+      { patterns: ['needle'], scopes: ['machine://devl/srv/app/**'] },
+    );
+    expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
+    expect(success(result).complete).toBe(false);
+  });
+
+  it('drops the daemon page deadline when the walk completed', async () => {
     let searches = 0;
     const { connector } = fixture({
       answer: (call) => {
@@ -1406,7 +1443,37 @@ describe('Machine pages within one call', () => {
                   consumed: { files: 1, entries: 1, bytes: 10 },
                   warnings: [{ kind: 'deadline', count: 1 }],
                 })
-              : page([passage('b.go', 1, 1)], {
+              : page([passage('b.go', 1, 1)]),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    // One response's time budget did not stop the walk.
+    expect(success(result).complete).toBe(true);
+    expect(warningsOf(result)).toEqual([]);
+    expect(locatorsOf(result)).toHaveLength(2);
+  });
+
+  it('reports the daemon deadline once on a stopped walk', async () => {
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([passage('a.go', 1, 1)], {
+                  complete: false,
+                  cursor: 'daemon-next',
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                  warnings: [{ kind: 'deadline', count: 1 }],
+                })
+              : page([], {
+                  complete: false,
                   warnings: [{ kind: 'deadline', count: 1 }],
                 }),
         };
@@ -1416,10 +1483,8 @@ describe('Machine pages within one call', () => {
       patterns: ['needle'],
       scopes: ['machine://devl/srv/app/**'],
     });
-    // The daemon's own time budget is one stop of the call, however many pages
-    // it ends.
+    expect(success(result).complete).toBe(false);
     expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
-    expect(locatorsOf(result)).toHaveLength(2);
   });
 
   it('counts a directory a second daemon page repeated once', async () => {

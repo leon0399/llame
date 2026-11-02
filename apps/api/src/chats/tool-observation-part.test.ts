@@ -304,11 +304,13 @@ describe('live and replayed renderings agree', () => {
         },
       ],
       complete: false,
-      warnings: [],
+      warnings: [{ kind: 'deadline', count: 1 }],
     };
 
     const live = liveText('grep', result);
-    expect(live).toBe('## /work/src/app.ts\n3: a\n*4: hit\n\n*40: hit\n41: b');
+    expect(live).toBe(
+      '## /work/src/app.ts\n3: a\n*4: hit\n\n*40: hit\n41: b\n[warnings: 1 deadline]',
+    );
     expect(live).not.toContain('Continue with cursor');
     const replayed = projectedOutput(
       storedPart('grep', result, { input: { patterns: ['hit'] } }),

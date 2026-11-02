@@ -628,9 +628,9 @@ describe('the grep text shape', () => {
         },
       ],
       complete: false,
-      warnings: [],
+      warnings: [{ kind: 'deadline', count: 1 }],
     });
-    expect(text).toBe('## a.md\n*1: hit\n2: b');
+    expect(text).toBe('## a.md\n*1: hit\n2: b\n[warnings: 1 deadline]');
     expect(text).not.toContain('more passages in this file');
     expect(text).not.toContain('cursor');
   });

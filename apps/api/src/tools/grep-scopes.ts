@@ -149,7 +149,6 @@ export async function resolveScopes(
   admission: GrepReadAdmission,
 ): Promise<ResolvedScopes | { readonly result: GrepToolError }> {
   const scopes: Array<GrepScope> = [];
-  const roots: Array<string> = [];
   // A bare `kb://` or `skill://` scope expands to one scope per Space or
   // package. Each expansion is its own scope, so it takes its own ordinal in
   // the walk order.
@@ -161,16 +160,14 @@ export async function resolveScopes(
     if ('machine' in outcome) {
       machines.push({ ...outcome.machine, index: ordinal });
       ordinal += 1;
-      roots.push(outcome.root);
       continue;
     }
     for (const resolved of outcome.scopes) {
       scopes.push({ ...resolved, index: ordinal });
       ordinal += 1;
     }
-    roots.push(...outcome.roots);
   }
-  return { scopes, roots, machines };
+  return { scopes, machines };
 }
 
 async function resolveScope(
@@ -335,7 +332,6 @@ async function buildHostScope(
     probe: () => probeHostPath(prefixPath, context.abortSignal),
     endsWithSeparator: split.endsWithSeparator,
     admission: request.admission,
-    root: prefixPath,
   });
 }
 
@@ -366,7 +362,7 @@ async function resolveSkillScope(
     signal: context.abortSignal,
   });
   if ('result' in outcome || 'machine' in outcome) return outcome;
-  return { scopes: outcome.scopes, roots: [name] };
+  return { scopes: outcome.scopes };
 }
 
 /** A package whose directory this process can walk. */
@@ -398,7 +394,7 @@ async function resolveEverySkill(
   index: number,
   admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
-  if (context.skillCatalog === undefined) return { scopes: [], roots: [] };
+  if (context.skillCatalog === undefined) return { scopes: [] };
   const snapshot = readSkillCatalog(context);
   if ('result' in snapshot) return snapshot;
   const selection = selectionOf(context);
@@ -427,7 +423,7 @@ async function resolveEverySkill(
     if ('result' in outcome || 'machine' in outcome) return outcome;
     scopes.push(...outcome.scopes);
   }
-  return { scopes, roots: packages.map((entry) => entry.name) };
+  return { scopes };
 }
 
 function selectionOf(context: ToolContext): SkillSelection {
@@ -489,7 +485,6 @@ async function resolveSkillPackage(
     probe: () => probeSkillPath(root, input.signal),
     endsWithSeparator: parsed.endsWithSeparator,
     admission: input.admission,
-    root: input.name,
   });
 }
 

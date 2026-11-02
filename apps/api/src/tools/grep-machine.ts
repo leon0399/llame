@@ -129,7 +129,7 @@ export function isMachineGrepScope(
 
 /** The resolution of one `machine://` scope: its search target, or a refusal. */
 export type MachineScopeResolution =
-  | { readonly machine: MachineGrepScope; readonly root: string }
+  | { readonly machine: MachineGrepScope }
   | { readonly result: GrepToolError };
 
 /**
@@ -158,7 +158,6 @@ export async function resolveMachineScope(
     return { result: machinePathNotFoundResult() };
   return {
     machine: verdict.singleFile ? { ...parsed, singleFile: true } : parsed,
-    root: parsed.name,
   };
 }
 
@@ -386,21 +385,30 @@ function segmentOfPages(
   search: MachineGrepSearch,
   pages: MachineSegmentPage,
 ): MachineGrepSegment {
-  // Every page whose consumed counts are zero, i.e. a scope skipped by a bound
-  // an earlier segment spent. The walk's own order is entries while listing,
-  // then files, then bytes at a candidate.
-  const spent =
-    pages.last === undefined
-      ? spentBound(search.budget, search.scope.singleFile === true)
-      : undefined;
-  if (spent !== undefined && !pages.warnings.has(spent))
-    pages.warnings.set(spent, 1);
+  const singleFile = search.scope.singleFile === true;
+  // A skipped file leaves the walk incomplete even when a later page ended
+  // the scope: the call knows a file it could not finish.
+  const complete =
+    pages.last?.complete === true && pages.unfinished === undefined;
+  if (complete) {
+    // The daemon's own nine-tenths time budget belongs to one response: a walk
+    // that finished after it did not stop at the call deadline.
+    pages.warnings.delete('deadline');
+  } else if (!namesStop(pages.warnings)) {
+    // The walk stopped without a reported reason: name the bound that left no
+    // budget for another page, or the call deadline it reached. A page can
+    // spend its bound exactly at its own page end, before it reports the stop.
+    const budget = pages.last === undefined ? search.budget : pages.budget;
+    const stopped = canAskPage(budget, singleFile)
+      ? undefined
+      : (spentBound(budget, singleFile) ??
+        (budget.deadlineMs <= 0 ? 'deadline' : undefined));
+    if (stopped !== undefined) pages.warnings.set(stopped, 1);
+  }
   return {
     status: 'success',
     passages: pages.passages,
-    // A skipped file leaves the walk incomplete even when a later page ended
-    // the scope: the call knows a file it could not finish.
-    complete: pages.last?.complete === true && pages.unfinished === undefined,
+    complete,
     warnings: [...pages.warnings].map(([kind, count]) => ({ kind, count })),
     consumed: pages.consumed,
     progressed: pages.progressed,
@@ -412,6 +420,18 @@ function segmentOfPages(
       },
     }),
   };
+}
+
+/** The warnings that name a bound or deadline a walk stopped at. */
+const STOP_WARNING_KINDS: ReadonlyArray<FsGrepWarningKind> = [
+  'file_bound',
+  'entry_bound',
+  'byte_bound',
+  'deadline',
+];
+
+function namesStop(warnings: ReadonlyMap<FsGrepWarningKind, number>): boolean {
+  return STOP_WARNING_KINDS.some((kind) => warnings.has(kind));
 }
 
 /**

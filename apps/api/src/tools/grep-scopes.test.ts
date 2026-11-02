@@ -108,7 +108,7 @@ function scopesOf(outcome: ScopeOutcome) {
 }
 
 describe('resolveScopes', () => {
-  it('resolves one package directory scope with its prefix and root', async () => {
+  it('resolves one package directory scope with its prefix', async () => {
     await withPackage(async (root, directory) => {
       const outcome = scopesOf(
         await resolveScopes(
@@ -118,7 +118,6 @@ describe('resolveScopes', () => {
         ),
       );
 
-      expect(outcome.roots).toEqual(['pdf']);
       expect(outcome.scopes).toHaveLength(1);
       expect(outcome.scopes[0]).toMatchObject({
         index: 0,
@@ -142,7 +141,6 @@ describe('resolveScopes', () => {
         ),
       );
 
-      expect(outcome.roots).toEqual(['pdf']);
       expect(outcome.scopes[0]).toMatchObject({
         locatorPrefix: 'skill://pdf/SKILL.md',
         singleFile: true,
@@ -380,7 +378,6 @@ describe('resolveScopes', () => {
           });
           return;
         }
-        expect(scopesOf(outcome).roots).toEqual(['manual']);
       });
     },
   );
@@ -400,7 +397,6 @@ describe('resolveScopes', () => {
         await resolveScopes(contextOf({ catalog }), ['skill://'], admission),
       );
 
-      expect(outcome.roots).toEqual(['alpha', 'pdf']);
       expect(outcome.scopes.map((scope) => scope.locatorPrefix)).toEqual([
         'skill://alpha/',
         'skill://pdf/',
@@ -413,7 +409,6 @@ describe('resolveScopes', () => {
   it('expands a bare skill scope to nothing without a catalog', async () => {
     expect(await resolveScopes(contextOf(), ['skill://'], admission)).toEqual({
       scopes: [],
-      roots: [],
       machines: [],
     });
   });
