@@ -26,6 +26,7 @@ import {
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { SSH_SCHEME } from '../ssh/ssh-locator';
 import { readAcceptsScheme } from '../tools/native-files';
+import { ARTIFACT_SCHEME } from '../tools/artifacts/locator';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
@@ -256,6 +257,9 @@ function planScheme(
   if (scheme === MEDIA_LOCATOR_SCHEME) {
     return { kind: 'media', readPath: target };
   }
+  // An artifact belongs to the current Chat, not to the prompt's author, so an
+  // `@artifact://` marker stays prose (tool-result-artifacts D12).
+  if (scheme === ARTIFACT_SCHEME) return undefined;
   // A probe would cost a connection and admission resolves asynchronously, so
   // `ssh://` reads directly like web: `read` itself admits it (ssh-locator D6a).
   if (scheme === SSH_SCHEME && !request.sshAvailable) return undefined;

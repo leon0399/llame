@@ -943,6 +943,52 @@ describe('loadInstanceConfig — tools.grep bounds (grep-scan-throughput D1)', (
   });
 });
 
+describe('loadInstanceConfig — tools.artifacts bound (tool-result-artifacts D13)', () => {
+  it('applies the 8 MiB default when the object is absent', () => {
+    writeConfig('{ "tools": { "allowed": [] } }');
+
+    expect(loadInstanceConfig().tools.artifacts).toEqual({
+      maxBytes: 8_388_608,
+    });
+    writeConfig('{ "tools": { "allowed": [], "artifacts": null } }');
+    expect(loadInstanceConfig().tools.artifacts).toEqual({
+      maxBytes: 8_388_608,
+    });
+  });
+
+  it('takes the bound from the file and from an interpolation token', () => {
+    writeConfig('{ "tools": { "artifacts": { "maxBytes": 262144 } } }');
+    expect(loadInstanceConfig().tools.artifacts).toEqual({
+      maxBytes: 262_144,
+    });
+
+    writeConfig(
+      '{ "tools": { "artifacts": { "maxBytes": "{env:IC_ARTIFACT_BYTES}" } } }',
+    );
+    expect(
+      loadInstanceConfig({ IC_ARTIFACT_BYTES: '1048576' }).tools.artifacts,
+    ).toEqual({ maxBytes: 1_048_576 });
+  });
+
+  it('fails startup below the 128 KiB floor, naming the path', () => {
+    writeConfig('{ "tools": { "artifacts": { "maxBytes": 4096 } } }');
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]artifacts[./]maxBytes/,
+    );
+  });
+
+  it('refuses a fraction and an unknown field, naming the path', () => {
+    writeConfig('{ "tools": { "artifacts": { "maxBytes": 1.5 } } }');
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]artifacts[./]maxBytes/,
+    );
+
+    writeConfig('{ "tools": { "artifacts": { "maxByte": 200000 } } }');
+    expect(() => loadInstanceConfig()).toThrow(/tools[./]artifacts[./]maxByte/);
+  });
+});
+
 describe('loadInstanceConfig — tools.webAdapters', () => {
   type RewriteEntryOverrides = Partial<{
     readonly id: string;

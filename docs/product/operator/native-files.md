@@ -255,6 +255,42 @@ Permission clauses on a `file://` alias match the decoded host path, not the URL
 form, so prefer `^/path/` over `^file:///path/`; see
 [tool-call permissions](tool-call-permissions.md).
 
+## `artifact://` reads
+
+A tool result too large for the model-facing bound is stored as a Chat
+resource and read back with `artifact://<toolName>-<n>`; see
+[artifacts](../reference/tools/artifacts.md). The store is Postgres, so the
+scheme needs no `nativeExecutorId` and no `bash`: `read` serves it whenever it
+is allowlisted. A part is bounded by `tools.artifacts.maxBytes` (default 8 MiB,
+floor 128 KiB).
+
+With a whole-tool allow on `read`, every `artifact://` read is admitted. A
+field-allow allowlist must name the scheme explicitly, as it must name
+`^media://`, or the read is rejected as `no_allow` before any lookup:
+
+```jsonc
+{
+  "tools": {
+    "permissions": {
+      "read": {
+        "allow": [
+          { "field": "path", "regex": "^/" },
+          { "field": "path", "regex": "^kb://" },
+          { "field": "path", "regex": "^skill://" },
+          { "field": "path", "regex": "^media://" },
+          { "field": "path", "regex": "^artifact://" },
+          { "field": "path", "regex": "^https://docs\\.example\\.com/" },
+        ],
+      },
+    },
+  },
+}
+```
+
+The locator still resolves only inside the Chat that made it, under its
+owner's row-level security, so the clause widens which locators the model may
+try, never which rows it may see.
+
 ## Instruction files
 
 Per-directory project instruction files are loaded into the model's context by

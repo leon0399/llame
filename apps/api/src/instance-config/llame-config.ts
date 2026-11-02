@@ -458,6 +458,10 @@ export type RawWebAdapterEntry =
 /** Schema-validated composite fields consumed from the raw tools block. */
 export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
+  /** The raw `tools.artifacts` object; absent means the built-in bound. */
+  artifacts?: {
+    readonly maxBytes?: unknown;
+  } | null;
   /** The raw `tools.grep` object; an absent or null object bounds nothing,
    *  and each leaf stays unknown until its resolver narrows it. */
   grep?: {
@@ -483,6 +487,20 @@ export type GrepBoundsConfig = {
   readonly maxBytesRead: number | null;
   /** Largest regular file the walk searches, by announced and read size. */
   readonly maxFileBytes: number | null;
+};
+
+/** The smallest artifact byte bound; a Machine stream always fits it. */
+export const ARTIFACT_MAX_BYTES_FLOOR = 131_072;
+/** The built-in `tools.artifacts.maxBytes` (8 MiB). */
+export const DEFAULT_ARTIFACT_MAX_BYTES = 8_388_608;
+
+/**
+ * The one byte bound on every artifact part (tool-result-artifacts D13). A
+ * producer that streams stops at it and marks its result incomplete; a whole
+ * result larger than it is not stored at all.
+ */
+export type ArtifactBoundsConfig = {
+  readonly maxBytes: number;
 };
 
 /**
@@ -657,6 +675,8 @@ export type LlameConfig = {
     callTimeoutSeconds: number;
     /** Opt-in bounds on one `grep` call's walk; every field defaults to `null` (no bound). */
     grep: GrepBoundsConfig;
+    /** The one byte bound on every stored tool-result artifact part. */
+    artifacts: ArtifactBoundsConfig;
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
     promptFiles?: Readonly<Record<string, string | null>>;
     /** Ordered operator-configured web adapters. Absent means no adapters. */
@@ -767,6 +787,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
       maxBytesRead: null,
       maxFileBytes: null,
     },
+    artifacts: { maxBytes: DEFAULT_ARTIFACT_MAX_BYTES },
     promptFiles: {},
     webAdapters: [],
   },

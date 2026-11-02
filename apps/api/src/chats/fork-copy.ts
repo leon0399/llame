@@ -113,6 +113,9 @@ export function inheritForkedChatState(
       workspaceRoot: source.workspaceRoot,
       workspaceExecutorId: source.workspaceExecutorId,
       workspaceGeneration: source.workspaceGeneration,
+      // The fork copies the cited artifacts, so its counter continues where
+      // the source's stopped.
+      artifactSeq: source.artifactSeq,
     } satisfies ChatInheritedValues,
   };
 }

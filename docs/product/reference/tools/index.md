@@ -31,5 +31,6 @@ the Run runs.
 
 Shared behavior lives on its own pages: [model output](model-output.md),
 [selectors](../selectors.md), [instruction files](../instruction-files.md),
-[permission modes](../permission-modes.md), and
-[mutation recovery](../mutation-recovery.md).
+[permission modes](../permission-modes.md),
+[mutation recovery](../mutation-recovery.md), and
+[artifacts](artifacts.md) — the store behind an `artifact://` read.

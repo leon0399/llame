@@ -27,6 +27,7 @@ export {
   OUTLINE_UNSUPPORTED_MESSAGE,
 } from "./representations";
 export { renderCollectedDirectory } from "./collected-directory";
+export { boundFlatResult, directoryResult } from "./directory-page";
 /** The local entry order: directories first, then by name, as every listing sorts. */
 export { compareEntries } from "./directory-listing";
 export type {

@@ -241,6 +241,7 @@ coexist:
           { "field": "path", "regex": "^kb://" },
           { "field": "path", "regex": "^skill://" },
           { "field": "path", "regex": "^media://" },
+          { "field": "path", "regex": "^artifact://" },
           { "field": "path", "regex": "^https://docs\\.example\\.com/" },
         ],
       },

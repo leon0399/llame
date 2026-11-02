@@ -645,6 +645,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             resolved.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
           callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
           grep: BUILT_IN_DEFAULTS.tools.grep,
+          artifacts: BUILT_IN_DEFAULTS.tools.artifacts,
         },
       },
     };

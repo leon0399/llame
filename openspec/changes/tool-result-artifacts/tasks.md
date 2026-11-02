@@ -76,17 +76,25 @@ without its first consumers. Every implementation layer stays inside about
 
 ## 3. store
 
-- [ ] 3.1 Add `tool_artifacts`, `tool_artifact_parts`, and `chats.artifact_seq` with forced RLS and cascade (design D1). Generate the migration with Drizzle and run `pnpm db:provision-rls`. Verify "Another owner cannot read it", "A query without identity reads nothing", and "A deleted Chat leaves no artifact row" in integration tests.
-- [ ] 3.2 Add the writer: the number in its own transaction, the parts in one transaction, the `(chat_id, run_id, tool_call_id)` key, and the per-part bound. Verify "Numbers increase across tools" and "Concurrent calls get different numbers" with a test producer.
-- [ ] 3.3 Register the `artifact` reader with line selectors, `:raw`, `:outline`, 8,000-unit line pieces, the Chat list, and the stream list (design D2). Refuse the scheme in `edit` and `write`. With a test producer, verify:
+- [x] 3.1 Add `tool_artifacts`, `tool_artifact_parts`, and `chats.artifact_seq` with forced RLS and cascade (design D1). Generate the migration with Drizzle and run `pnpm db:provision-rls`. Verify "Another owner cannot read it", "A query without identity reads nothing", and "A deleted Chat leaves no artifact row" in integration tests.
+  - Evidence: `20261102174231_large_paper_doll.sql` (FORCE re-appended per AGENTS P1) and `apps/api/src/db/schema/tool-artifacts.ts`; `artifact-store.integration.test.ts` covers ENABLED+FORCED, no identity, another owner, a foreign insert, and the cascade; `tool-artifacts.test.ts` pins the keys, cascades, policies, and counter.
+- [x] 3.2 Add the writer: the number in its own transaction, the parts in one transaction, the `(chat_id, run_id, tool_call_id)` key, and the per-part bound. Verify "Numbers increase across tools" and "Concurrent calls get different numbers" with a test producer.
+  - Evidence: `tools/artifacts/artifact-writer.ts`; `artifact-store.integration.test.ts` "numbers across tools from one Chat counter", "gives concurrent calls different numbers", "stores the parts, digest, and findings in one transaction", "refuses a part above the byte bound and writes no artifact", "treats a reused tool call id as a failed write".
+- [x] 3.3 Register the `artifact` reader with line selectors, `:raw`, `:outline`, 8,000-unit line pieces, the Chat list, and the stream list (design D2). Refuse the scheme in `edit` and `write`. With a test producer, verify:
   - "A range of an artifact is read", "An artifact is read without a native executor", "An unknown part is not found", and "An artifact cannot be edited";
   - "The Chat list names each artifact", "An artifact of a replaced reply stays listed", and "A bash artifact lists its streams";
   - "Another Chat of the same owner cannot read it".
-- [ ] 3.4 Copy the cited artifacts and the counter in `copyOwnedChat` with `INSERT … SELECT` (design D11). Verify the five scenarios of "A fork copies the artifacts that its copied parts name".
-- [ ] 3.5 Skip `artifact://` in prompt imports. Verify "An artifact marker stays prose" and the changed "A marker for each read scheme gets an outcome".
-- [ ] 3.6 Add `tools.artifacts.maxBytes` to the loader, the published schema, and `apps/api/llame.config.jsonc.example`. Verify both scenarios of "Operator configuration bounds tool-result artifacts".
-- [ ] 3.7 Add `docs/product/reference/tools/artifacts.md`, the `read` reference and prompt text for the scheme, and the `^artifact://` allow in `docs/product/operator/native-files.md` (design D13). Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 3.8 Verify the layer: `pnpm --filter api lint`, `typecheck`, focused unit tests, the API integration suite with the isolation tests, `pnpm format:check`, `git diff --check`.
+  - Evidence: `tools/artifacts/artifact-reader.ts` registered in `LOCATOR_READERS`; `artifact-store.integration.test.ts` covers the range, the executor-free read, an unknown part, edit/write refusal, the Chat list, a replaced reply, the stream list, another Chat of the owner, long-line pieces, outline/raw, and malformed locators.
+- [x] 3.4 Copy the cited artifacts and the counter in `copyOwnedChat` with `INSERT … SELECT` (design D11). Verify the five scenarios of "A fork copies the artifacts that its copied parts name".
+  - Evidence: `apps/api/src/chats/fork-artifacts.ts` and the `artifactSeq` inherited value; `fork-artifacts.integration.test.ts` covers the copied locator and counter, the deleted source, the after-prefix artifact, the shared fork, and another Chat's artifact.
+- [x] 3.5 Skip `artifact://` in prompt imports. Verify "An artifact marker stays prose" and the changed "A marker for each read scheme gets an outcome".
+  - Evidence: `prompt-imports.ts` skips the scheme; `prompt-imports.test.ts` "keeps an artifact marker as prose and records nothing", plus the artifact-filtered marker loop and the added scheme in the accepted list.
+- [x] 3.6 Add `tools.artifacts.maxBytes` to the loader, the published schema, and `apps/api/llame.config.jsonc.example`. Verify both scenarios of "Operator configuration bounds tool-result artifacts".
+  - Evidence: `llame-config.ts`, `config-loader.ts` (floor 131,072), `llame.config.schema.json` (`artifactMaxBytesOrToken`), and the example; `config-loader.test.ts` covers the default, the file/token value, the below-floor refusal, a fraction, and an unknown field.
+- [x] 3.7 Add `docs/product/reference/tools/artifacts.md`, the `read` reference and prompt text for the scheme, and the `^artifact://` allow in `docs/product/operator/native-files.md` (design D13). Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: the new reference, the `read` reference/prompt additions, the locator and tools indexes, the operator section and field-allow example, and the 2026-11-02 changelog entry; `pnpm lint:markdown` reports 0 issues.
+- [x] 3.8 Verify the layer: `pnpm --filter api lint`, `typecheck`, focused unit tests, the API integration suite with the isolation tests, `pnpm format:check`, `git diff --check`.
+  - Evidence: `lint` and `typecheck` clean; the focused unit suites (662 tests) and `artifact-store`, `fork-artifacts`, and `fork-chat` integration suites pass; `pnpm format:check` and `git diff --check` clean.
 - [ ] 3.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 3.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

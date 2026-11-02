@@ -270,6 +270,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceGeneration: 0,
+      artifactSeq: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
       workspaceToldAvailable: null,

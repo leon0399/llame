@@ -1326,9 +1326,11 @@ describe('resolvePromptImports native read schemes', () => {
     ['kb', KB],
     ['media', MEDIA],
   ]);
-  const markers = readLocatorSchemes().map(
-    (scheme) => probed.get(scheme) ?? `${scheme}://host/doc.md`,
-  );
+  // `artifact://` names a resource of the current Chat, so its marker stays
+  // prose (tool-result-artifacts D12) and is not one of the attempted targets.
+  const markers = readLocatorSchemes()
+    .filter((scheme) => scheme !== 'artifact')
+    .map((scheme) => probed.get(scheme) ?? `${scheme}://host/doc.md`);
 
   it('keeps every scheme native read accepts today', () => {
     expect(readLocatorSchemes()).toEqual(
@@ -1340,6 +1342,7 @@ describe('resolvePromptImports native read schemes', () => {
         'http',
         'https',
         'ssh',
+        'artifact',
       ]),
     );
   });
@@ -1355,6 +1358,16 @@ describe('resolvePromptImports native read schemes', () => {
 
     expect(calls.readLocators).toEqual(markers);
     expect(result.outcomes.map((outcome) => outcome.locator)).toEqual(markers);
+  });
+
+  it('keeps an artifact marker as prose and records nothing', async () => {
+    const { calls, run } = createHarness();
+
+    const result = await run('@artifact://grep-7');
+
+    expect(calls.admits).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
   });
 
   it('keeps a scheme native read does not accept as prose', async () => {

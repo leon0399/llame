@@ -285,6 +285,7 @@ const chat: Chat = {
   workspaceRoot: null,
   workspaceExecutorId: null,
   workspaceGeneration: 0,
+  artifactSeq: 0,
   workspaceTold: null,
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
@@ -891,6 +892,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: root,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -1018,6 +1020,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: root,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
     vi.spyOn(
       WorkspaceBindingRepository.prototype,
@@ -1108,6 +1111,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: root,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -1171,6 +1175,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: root,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
     const grepBounds = {
       maxFilesExamined: 7,
@@ -1515,6 +1520,7 @@ describe('RunExecutionService executeRun', () => {
       ),
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
     const execution = makeExecutionService(
       createFakeModelClient(['answer']),
@@ -1545,6 +1551,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: root,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
       workspaceDetachReason: null,
@@ -1628,6 +1635,7 @@ describe('RunExecutionService executeRun', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceDetachReason: 'root_missing',
@@ -1677,6 +1685,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceGeneration: 5,
+      artifactSeq: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
       workspaceDetachReason: 'root_missing',
@@ -1725,6 +1734,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: '/workspace/project',
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
       workspaceTold: '/workspace/project',
       workspaceToldFrom: null,
       workspaceDetachReason: null,
@@ -2112,6 +2122,7 @@ describe('RunExecutionService executeRun', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
+        artifactSeq: 0,
         workspaceTold: root,
         workspaceToldFrom: null,
         workspaceDetachReason: null,
@@ -2361,6 +2372,7 @@ describe('RunExecutionService executeRun', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
+        artifactSeq: 0,
         workspaceTold: root,
         workspaceToldFrom: null,
         workspaceDetachReason: null,
@@ -3345,6 +3357,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: machineRoot,
       workspaceExecutorId: 'machine:devl',
       workspaceGeneration: 4,
+      artifactSeq: 0,
       workspaceTold: machineRoot,
       workspaceToldFrom: null,
       workspaceToldAvailable: false,
@@ -3401,6 +3414,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceRoot: machineRoot,
       workspaceExecutorId: 'machine:devl',
       workspaceGeneration: 4,
+      artifactSeq: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
       workspaceToldAvailable: true,
@@ -3622,6 +3636,7 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
     workspaceRoot: input.root,
     workspaceExecutorId: input.boundExecutorId,
     workspaceGeneration: 4,
+    artifactSeq: 0,
     workspaceTold: input.toldRoot ?? null,
     workspaceToldFrom: null,
     workspaceDetachReason: null,
@@ -12140,6 +12155,7 @@ describe('RunExecutionService instruction files', () => {
       workspaceRoot: root,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
   }
 
@@ -13309,6 +13325,7 @@ describe('RunExecutionService instruction files', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
+        artifactSeq: 0,
         skillCatalogBaseline: {
           entries: [{ name: 'pdf', description: 'Extract text' }],
           omitted: 0,
@@ -13395,6 +13412,7 @@ describe('RunExecutionService instruction files', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'gone-host',
         workspaceGeneration: 2,
+        artifactSeq: 0,
       });
       const append = vi.spyOn(RunEventsRepository.prototype, 'append');
       const detachExecution = makeExecutionService(
@@ -13430,6 +13448,7 @@ describe('RunExecutionService instruction files', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
+        artifactSeq: 0,
         workspaceTold: root,
         workspaceToldFrom: null,
       });
@@ -13539,6 +13558,7 @@ describe('RunExecutionService instruction files', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
+        artifactSeq: 0,
         workspaceTold: root,
         workspaceToldFrom: null,
       });
@@ -13857,6 +13877,7 @@ describe('RunExecutionService instruction files', () => {
             workspaceRoot: root,
             workspaceExecutorId: 'gone-host',
             workspaceGeneration: 2,
+            artifactSeq: 0,
           });
         },
       );
@@ -13975,6 +13996,7 @@ describe('RunExecutionService prompt imports', () => {
       workspaceRoot: root,
       workspaceExecutorId: executorId,
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
   }
 
@@ -15353,6 +15375,7 @@ describe('RunExecutionService retained read media', () => {
       workspaceRoot: root,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
+      artifactSeq: 0,
     });
   }
 

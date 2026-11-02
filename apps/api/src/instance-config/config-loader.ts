@@ -12,6 +12,7 @@ import { parse as parseYaml } from 'yaml';
 import { parse as parseToml } from 'smol-toml';
 
 import {
+  ARTIFACT_MAX_BYTES_FLOOR,
   BUILT_IN_DEFAULTS,
   DEFAULT_EMBEDDING_BATCH_SIZE,
   type EmbeddingModelCatalogEntry,
@@ -245,6 +246,7 @@ function resolveToolsConfig(
     }),
     ...resolveToolNumbers(raw, env),
     grep: resolveGrepBounds(raw, env),
+    artifacts: resolveArtifactBounds(raw, env),
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, env),
   };
@@ -310,6 +312,34 @@ function resolveGrepBounds(
     maxEntriesListed: resolve('maxEntriesListed'),
     maxBytesRead: resolve('maxBytesRead'),
     maxFileBytes: resolve('maxFileBytes'),
+  };
+}
+
+/**
+ * The one byte bound on every artifact part (tool-result-artifacts D13). It is
+ * a required positive integer with a floor of 128 KiB, so a Machine stream
+ * always fits; a smaller value, a fraction, or an unknown key fails startup
+ * naming the path.
+ */
+function resolveArtifactBounds(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+): LlameConfig['tools']['artifacts'] {
+  const bounds = raw?.tools?.artifacts;
+  if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.artifacts;
+  return {
+    maxBytes: requireResolvedNumber(
+      resolveNumeric({
+        configPath: 'tools.artifacts.maxBytes',
+        present: Object.hasOwn(bounds, 'maxBytes'),
+        raw: bounds.maxBytes,
+        builtInDefault: BUILT_IN_DEFAULTS.tools.artifacts.maxBytes,
+        nullable: false,
+        env,
+        min: ARTIFACT_MAX_BYTES_FLOOR,
+      }),
+      'tools.artifacts.maxBytes',
+    ),
   };
 }
 

@@ -55,6 +55,7 @@ import {
 } from '../machines/machine-locator';
 import { executeSshNative } from './ssh-files';
 import { SSH_SCHEME } from '../ssh/ssh-locator';
+import { ARTIFACT_SCHEME, readArtifact } from './artifacts/artifact-reader';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -152,6 +153,8 @@ const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
       context.sshClient === undefined
         ? Promise.resolve(unknownSchemeResult())
         : executeSshNative(context, call.operation, call.input.path),
+    [ARTIFACT_SCHEME]: (context, call) =>
+      readArtifact(context, call.operation, call.input.path),
   } satisfies Record<string, LocatorReader>),
 );
 
@@ -606,9 +609,5 @@ export const nativeWriteTool: Tool<{
 };
 
 export function isNativeFileTool(tool: Tool): boolean {
-  return (
-    tool === nativeReadTool ||
-    tool === nativeEditTool ||
-    tool === nativeWriteTool
-  );
+  return [nativeReadTool, nativeEditTool, nativeWriteTool].includes(tool);
 }

@@ -899,6 +899,14 @@
     //   "maxBytesRead": 33554432,
     //   "maxFileBytes": null
     // },
+    // The largest one stored tool-result artifact part may be, in UTF-8 bytes.
+    // Unset (as here) means 8388608 (8 MiB). The floor is 131072 (128 KiB), so
+    // a Machine stream always fits; a smaller value, a fraction, or an unknown
+    // key fails boot. A producer that streams stops at the bound and marks its
+    // result incomplete, and a whole result above it is not stored.
+    // "artifacts": {
+    //   "maxBytes": 8388608
+    // },
   },
 
   // Optional remote Machines (experimental). Declaring one makes

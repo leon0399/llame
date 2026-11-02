@@ -56,6 +56,7 @@ const chat: Chat = {
   workspaceRoot: MACHINE_ROOT,
   workspaceExecutorId: 'machine:devl',
   workspaceGeneration: 3,
+  artifactSeq: 0,
   workspaceTold: null,
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
@@ -453,6 +454,7 @@ describe('detachedBinding', () => {
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceGeneration: 4,
+      artifactSeq: 0,
       workspaceDetachReason: 'root_moved',
     });
     expect(Object.keys(binding)).toEqual(['chat']);
