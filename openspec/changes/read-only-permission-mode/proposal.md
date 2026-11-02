@@ -94,9 +94,9 @@ None.
   enabled modes per chat` (sends any non-default mode).
 - `tool-call-permissions`: MODIFIED `A Run's effective permission mode selects
   whether the policy is evaluated` (the `read-only` value and its resolution).
-  ADDED `A read-only attempt admits only calls that change no state`, `A
-  read-only rejection is recorded before the policy is evaluated`, and `A
-  read-only attempt rejects worktree entry`.
+  ADDED `A read-only attempt admits only reads and plain Workspace
+  transitions`, `A read-only rejection is recorded before the policy is
+  evaluated`, and `A read-only attempt rejects worktree entry`.
 - `instance-config`: MODIFIED `Operator configuration enables Run permission
   modes` (accepts `"read-only"`).
 - `mcp-tools`: ADDED `A read-only attempt starts and uses no Workspace MCP
@@ -104,9 +104,16 @@ None.
 - `chat-creation`: MODIFIED `The Workspace step uses the request permission
   mode` (any mode the process does not enable answers 422; `read-only`
   decides paths as `default`).
+- `workspace-entry`: MODIFIED `The Workspace binding is Chat-scoped and
+  persists across Runs` (a creation request can use any enabled mode; a
+  `read-only` request decides paths as `default`).
 
 Deliberately unchanged, with the reading under which each holds:
 
+- `tool-call-permissions` `Safe decision provenance and non-fatal rejection`:
+  its fixed-template list is read as extended by the template that the ADDED
+  `A read-only rejection is recorded before the policy is evaluated` fixes
+  for its own reason.
 - `tool-call-permissions` `Execution policy is frozen per process and
   reevaluated after restart`: "resolved against the enabled modes of the
   process that executes it" holds under the modified resolution rule, which
@@ -116,10 +123,12 @@ Deliberately unchanged, with the reading under which each holds:
   separate`, `tool-calling` `Each execution attempt applies the operator
   availability gate and per-call permission`, `workspace-entry` `Workspace
   tools require native authority, allowlisting, and their own permission
-  gates`, and the Purpose of `native-file-tools`: "governs an attempt whose
-  effective permission mode is `default`" also governs an admitted call of a
-  `read-only` attempt, because the modified effective-mode requirement says a
-  `read-only` attempt evaluates the policy exactly as `default`.
+  gates`, the Purpose of `native-file-tools`, and `native-file-tools` `Web
+  locators are fetched by the native read tool`: "governs an attempt whose
+  effective permission mode is `default`" (or "a `default`-mode attempt")
+  also governs an admitted call of a `read-only` attempt, because the
+  modified effective-mode requirement says a `read-only` attempt evaluates
+  the policy exactly as `default`.
 - `web-search` `The call removes the results that the read permission group
   rejects`: "the effective permission mode is `default` here" holds for
   `read-only`, which removes rejected hosts like `default`.
@@ -127,11 +136,20 @@ Deliberately unchanged, with the reading under which each holds:
   lifecycle-managed per Chat`, `workspace-entry` `Entry switches one binding
   and exit clears it` and `Each Run attempt re-checks the binding and detaches
   invalid state`, `owner-chat-forks` `The fork's Chat row carries the source's
-  frozen context`, and `tool-calling` `Trusted in-Run tool additions are
-  admitted and made unavailable with Workspace state`: each "starts its
-  matching clients" or "adds Workspace declarations" statement governs a
-  `default` or `bypass` attempt. The ADDED `mcp-tools` requirement states
-  that it takes precedence for a `read-only` attempt.
+  frozen context`, `remote-machines` `Machine Workspace MCP lifetime follows
+  local Workspace rules`, and `tool-calling` `Trusted in-Run tool additions
+  are admitted and made unavailable with Workspace state`: each statement
+  that starts clients, adds Workspace declarations, or makes a same-root
+  re-entry skip the configuration read governs a `default` or `bypass`
+  attempt. The two ADDED `mcp-tools` requirements state their precedence for
+  a `read-only` attempt. The attempt-start discard of stale clients still
+  applies to `read-only`.
+- `mcp-tools` `Workspace MCP configuration is portable and protects
+  interpolated values` and `remote-machines` `Workspace MCP servers of a
+  Machine Workspace run from the Machine`: a `read-only` entry lists servers
+  through these same readers, so file precedence, interpolation, protected
+  values, and Machine-side resolution are unchanged. The listing starts no
+  process.
 - `tool-calling` `Tool registry with mandatory safety classification`: the
   classification set and its meaning are unchanged; the mode reads it.
 - `permission-modes` `Usage records a bypassed turn` and `The usage badge marks
@@ -143,11 +161,16 @@ Deliberately unchanged, with the reading under which each holds:
 
 - API: the mode constant, configuration schema and validation, the
   `runs.permission_mode` check constraint (one migration), effective-mode
-  resolution, the admission entry point, the decision reason vocabulary and
-  its fixed message, the transcript reason allowlist, Workspace MCP startup at
-  attempt start and at entry, regenerated OpenAPI.
-- Web: the composer selector details, the send and restore conditions, the
-  regenerated client.
+  resolution, the call-level ceiling in the runner, the decision reason
+  vocabulary and its fixed message, the transcript reason allowlist,
+  Workspace MCP start, hold, resolver, and entry for a `read-only` attempt,
+  regenerated OpenAPI and the API copy of the live WebSocket protocol.
+- Web: the composer selector details, the send condition, the regenerated
+  client and live protocol. A reopened chat starts at `default`, as the
+  composer requirement says; the code's present `bypass` restore from usage
+  is not extended to `read-only`.
+- The permission-modes Purpose, which describes two modes, is updated at
+  spec sync.
 - Docs: `docs/product/reference/permission-modes.md`, the operator
   configuration example, `docs/product/operator/native-files.md`.
 
