@@ -416,7 +416,7 @@ function keepAsking(
 
 /** The loop's first request state: budget, cursor, and inherited progress. */
 type DaemonStart = {
-  readonly budget: CallBudget;
+  readonly budget: GrepBudget;
   readonly cursor: string | undefined;
   readonly progressed: boolean;
 };

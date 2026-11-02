@@ -247,8 +247,10 @@ export function appendSegment(
     grepWarningsUnits(merged) +
     deadlineUnits(merged) +
     state.ignoredUnits;
+  // A line that the passages already on the page cannot hold ends the page
+  // before this segment; the next call reports the exclusions instead.
   if (!pageHolds(state, budget, reserve)) {
-    state.complete = false;
+    endBeforeSegment(state, prior);
     return;
   }
   mergeWarnings(state, page.warnings);
@@ -385,6 +387,20 @@ function appendEntries(
     }
   }
   return undefined;
+}
+
+/** End the page before a segment whose grown reserve no longer fits. */
+function endBeforeSegment(state: PageState, prior: PageState['ignored']): void {
+  state.ignored = prior;
+  state.ignoredUnits =
+    prior.count === 0
+      ? 0
+      : grepIgnoredUnits({
+          count: prior.count,
+          locators: prior.paths,
+          atLeast: prior.atLeast,
+        });
+  state.complete = false;
 }
 
 function pushPassage(state: PageState, passage: GrepPassage): void {

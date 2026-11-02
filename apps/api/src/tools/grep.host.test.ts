@@ -882,19 +882,19 @@ describe('operator bounds', () => {
     await withRoot(async (root) => {
       // Larger than one 64 KiB read chunk, so the bound stops the file
       // between its chunks rather than after it ended.
-      await writeAt(root, 'big.log', `${'x'.repeat(63)}\n`.repeat(4000));
-      await writeAt(root, 'z.md', 'needle\n');
+      await writeAt(root, 'data/big.log', `${'x'.repeat(63)}\n`.repeat(4000));
+      await writeAt(root, 'data/z.md', 'needle\n');
       const context = contextOf({
         grepBounds: bounds({ maxBytesRead: 8192 }),
       });
       const first = await run(context, {
         patterns: ['needle'],
-        scopes: [`${root}/**`],
+        scopes: [`${root}/data/**`],
       });
       expect(first).toMatchObject({
         status: 'success',
         results: [],
-        unfinishedFile: `${root}/big.log`,
+        unfinishedFile: `${root}/data/big.log`,
       });
       expect(warningsOf(first)).toEqual([{ kind: 'byte_bound', count: 1 }]);
       const cursor = cursorOf(first);
@@ -903,10 +903,10 @@ describe('operator bounds', () => {
       // The cursor moves past the log the bound stopped inside.
       const second = await run(context, {
         patterns: ['needle'],
-        scopes: [`${root}/**`],
+        scopes: [`${root}/data/**`],
         cursor,
       });
-      expect(locatorsOf(second)).toEqual([`${root}/z.md:1-1`]);
+      expect(locatorsOf(second)).toEqual([`${root}/data/z.md:1-1`]);
     });
   });
 

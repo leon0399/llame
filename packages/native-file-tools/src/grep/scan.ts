@@ -49,7 +49,7 @@ type ScanState = {
     | { readonly scopeIndex: number; readonly rel: string }
     | undefined;
   /** Directories an ignore rule excluded, capped across the call. */
-  readonly ignored: { readonly paths: Array<string>; atLeast: boolean };
+  ignored: { paths: Array<string>; atLeast: boolean };
   /** The passages that are their file's twentieth and reached the page. */
   readonly capped: Array<GrepCappedPassage>;
   readRefused: number;
@@ -176,7 +176,7 @@ function takeRecord(
 ): boolean {
   if (record.links > 0 && !addWarning(state, "link", record.links)) return true;
   state.consumed.entries += record.entries;
-  takeIgnored(state, record);
+  if (!takeIgnored(state, record)) return true;
   const { reached } = record;
   const scopeIndex = state.scopeIndex;
   if (reached === undefined || scopeIndex === undefined) return false;
@@ -198,15 +198,19 @@ function takeRecord(
 function takeIgnored(
   state: ScanState,
   record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
-): void {
-  if (record.ignored.length === 0 && !record.ignoredAtLeast) return;
+): boolean {
+  if (record.ignored.length === 0 && !record.ignoredAtLeast) return true;
+  const prior = {
+    ...state.ignored,
+    paths: [...state.ignored.paths],
+  };
   if (record.ignoredAtLeast) state.ignored.atLeast = true;
   // The producer caps the whole call at `ignoredReported`, so every path the
   // record carries is new here.
   state.ignored.paths.push(...record.ignored);
   // The ignored line renders beside the continuation line, so it adds to the
   // reserve the page keeps back rather than replacing the cursor's room.
-  state.limits = {
+  const limits = {
     ...state.limits,
     fixedReserve:
       state.input.budget.fixedReserve +
@@ -216,6 +220,15 @@ function takeIgnored(
         atLeast: state.ignored.atLeast,
       }),
   };
+  // A line the page can no longer hold ends it before this exclusion; the
+  // next call reports the directory instead.
+  if (!holdsGrownReserve(state.page, limits, state.page.warningReserve)) {
+    state.ignored = prior;
+    state.page.full = true;
+    return false;
+  }
+  state.limits = limits;
+  return true;
 }
 
 /** Whether an entry sorts strictly after the point the call starts at. */

@@ -45,6 +45,7 @@ import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { grepInputSchema, nativeGrepTool, pageFixedReserve } from './grep';
 import { createGrepReadAdmission, projectGrepScope } from './grep-admission';
 import { executeMachineScope, type MachineGrepSearch } from './grep-machine';
+import { deadlineUnits } from './grep-page';
 import { machineNotFoundResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
@@ -1316,8 +1317,9 @@ describe('Machine page bounds', () => {
       atLeast: false,
     });
     const session = await peer.session(0);
-    expect(budgetOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 15_000 - ignoredUnits - pageFixedReserve(),
+    expect(boundsOf(session.calls[1].params)).toMatchObject({
+      pageUnits:
+        15_000 - ignoredUnits - pageFixedReserve() - deadlineUnits(new Map()),
     });
   });
 
@@ -1610,6 +1612,47 @@ describe('Machine page bounds', () => {
     expect(locatorsOf(dropped)).toEqual([]);
   });
 
+  it('ends the page before an exclusion whose line no longer fits', async () => {
+    const ignoredUnits = grepIgnoredUnits({
+      count: 1,
+      locators: ['machine://devl/srv/b/m'],
+      atLeast: false,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: 'a.go',
+      startLine: 1,
+    });
+    const room =
+      15_000 - pageFixedReserve() - deadlineUnits(new Map()) - continuation;
+    const byPath = (passageRoom: number) =>
+      answeredByPath({
+        '/srv/a': page([
+          {
+            ...passage('a.go', 1, 1),
+            content: contentOfUnits(locatorAt('a.go', 1, 1), passageRoom),
+          },
+        ]),
+        '/srv/b': page([], {
+          ignored: { paths: ['m'], atLeast: false },
+        }),
+      });
+    const over = fixture({ answer: byPath(room) });
+    const ended = await run(context(over.connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    expect(locatorsOf(ended)).toEqual(['machine://devl/srv/a/a.go:1-1']);
+    expect(ignoredOf(ended)).toBeUndefined();
+    expect(success(ended).complete).toBe(false);
+    const fitted = fixture({ answer: byPath(room - ignoredUnits) });
+    const kept = await run(context(fitted.connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    expect(ignoredOf(kept)?.count).toBe(1);
+  });
+
   it("keeps the ignored line's room from the first passage", async () => {
     const contextIgnored = grepIgnoredUnits({
       count: 1,
@@ -1619,6 +1662,7 @@ describe('Machine page bounds', () => {
     const room =
       15_000 -
       pageFixedReserve() -
+      deadlineUnits(new Map()) -
       grepContinuationUnits({ scopeIndex: 0, rel: 'a.go', startLine: 1 }) -
       contextIgnored;
     const pageWith = (units: number) =>
@@ -2230,6 +2274,9 @@ describe('grep deadline', () => {
         callTimeoutSeconds: 60,
       }),
     ).toEqual({ walkMs: 54_000, daemonMs: 48_600 });
+  });
+});
+
 describe('Machine excluded-directory report', () => {
   it('spells a daemon exclusion as a Machine scope', async () => {
     const { connector } = fixture({

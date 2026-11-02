@@ -522,6 +522,77 @@ describe("grep excluded-directory report", () => {
     expect(control.results).toEqual([expected]);
   });
 
+  it("ends the page before an exclusion whose line no longer fits", async () => {
+    const inputHash = "a".repeat(64);
+    const ignoredUnits = grepIgnoredUnits({
+      count: 1,
+      locators: ["/repo/node_modules"],
+      atLeast: false,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: "a.md",
+      startLine: 1,
+    });
+    const room = 15_000 - continuation;
+    const line = (width: number): string => "a".repeat(width);
+    const passageOf = (widthsOf: ReadonlyArray<number>) => ({
+      locator: `/repo/a.md:1-${widthsOf.length}`,
+      content: widthsOf
+        .map((width, index) => `${String(index + 1)}: ${line(width)}`)
+        .join("\n"),
+      matches: widthsOf.map((_, index) => index + 1),
+    });
+    const unitsOfLines = (count: number): number =>
+      grepPassageUnits(
+        undefined,
+        passageOf(Array.from({ length: count }, () => 20)),
+      );
+    let low = 1;
+    let high = 2000;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      if (unitsOfLines(middle) <= room) low = middle;
+      else high = middle - 1;
+    }
+    const widths = Array.from({ length: low }, () => 20);
+    let units = unitsOfLines(low);
+    widths[widths.length - 1] += room - units;
+    units = grepPassageUnits(undefined, passageOf(widths));
+    expect(units).toBe(room);
+    const tree = createMemoryPort({
+      ".gitignore": file("node_modules/\n"),
+      "a.md": file(`${widths.map(line).join("\n")}\n`),
+      node_modules: directory({ "dep.js": hit() }),
+    });
+    const first = await runMemoryScan([memoryScope(0, "/repo/", tree)], ["a"], {
+      literal: true,
+      inputHash,
+      budget: { pageUnits: 15_000, fixedReserve: 0 },
+    });
+    expect(first.results.map((passage) => passage.locator)).toEqual([
+      `/repo/a.md:1-${widths.length}`,
+    ]);
+    expect(first.ignored).toBeUndefined();
+    expect(first.complete).toBe(false);
+    expect(measureGrepRendering({ ...first })).toBeLessThanOrEqual(15_000);
+    const decoded = decodeGrepCursor(first.cursor ?? "", inputHash);
+    if ("error" in decoded) throw new Error(decoded.error);
+    const second = await runMemoryScan(
+      [memoryScope(0, "/repo/", tree)],
+      ["a"],
+      {
+        literal: true,
+        inputHash,
+        cursor: decoded,
+        budget: { pageUnits: 15_000, fixedReserve: 0 },
+      },
+    );
+    expect(second.ignored?.paths).toEqual(["/repo/node_modules"]);
+    expect(second.complete).toBe(true);
+    expect(ignoredUnits + room + continuation).toBeGreaterThan(15_000);
+  });
+
   it("marks the count a lower bound after one thousand directories", async () => {
     const children = {
       ".gitignore": file("*.tmp/\n"),
