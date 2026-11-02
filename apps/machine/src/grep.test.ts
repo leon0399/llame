@@ -330,15 +330,29 @@ describe("fs.grep", () => {
   it("searches a file larger than the bytes left and stops the next one at the byte bound", async () => {
     await writeAt("project/a.go", "needle one\n");
     await writeAt("project/b.go", "needle two\n");
+    const prefix = join(fixture.root, "project");
     const page = await grep(
-      request(join(fixture.root, "project"), {
-        budget: { ...BUDGET, bytes: 1 },
-      }),
+      request(prefix, { budget: { ...BUDGET, bytes: 1 } }),
     );
     expect(pathsOf(page)).toEqual(["a.go"]);
     expect(page.complete).toBe(false);
     expect(page.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
-    expect(page.cursor).toBeDefined();
+    if (page.cursor === undefined) throw new Error("the page carries a cursor");
+    expect(
+      decodeGrepCursor(
+        page.cursor,
+        fsGrepCursorKey({
+          path: prefix,
+          patterns: ["needle"],
+          literal: false,
+          ignoreCase: false,
+        }),
+      ),
+    ).toMatchObject({ kind: "passage", rel: "a.go" });
+
+    const second = await grep(request(prefix, { cursor: page.cursor }));
+    expect(pathsOf(second)).toEqual(["b.go"]);
+    expect(second.complete).toBe(true);
   });
 
   it("resumes after the entry a position cursor names", async () => {
