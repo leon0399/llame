@@ -1,6 +1,6 @@
 Track [#1397](https://github.com/leon0399/llame/issues/1397), the ignore-layer
 item of [#1392](https://github.com/leon0399/llame/issues/1392), and their PR
-layers through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+layers through [Project tracking](../../../../CONTRIBUTING.md#project-tracking).
 Carry forward the recorded proposal approval and recheck native blockers
 before you start. Keep live status in the Project.
 
