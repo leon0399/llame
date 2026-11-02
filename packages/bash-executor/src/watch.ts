@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
 import type { BashResult } from "./types";
 import { completeAttemptUnknown } from "./attempt-ledger";
@@ -338,11 +339,15 @@ function once(
 
 function attachStreams(session: WatchSession): void {
   const bound = streamOutputBound(session.request.context);
+  // One decoder per pipe, so a multibyte character split across two chunks is
+  // decoded once instead of becoming a replacement character in each.
+  const stdoutDecoder = new StringDecoder("utf8");
+  const stderrDecoder = new StringDecoder("utf8");
   session.child.stdout?.on("data", (chunk: Buffer) => {
     const next = appendBound(
       session.streams.stdout,
       session.streams.stdoutUsed,
-      chunk,
+      stdoutDecoder.write(chunk),
       bound,
     );
     session.streams.stdout = next.text;
@@ -353,7 +358,7 @@ function attachStreams(session: WatchSession): void {
     const next = appendBound(
       session.streams.stderr,
       session.streams.stderrUsed,
-      chunk,
+      stderrDecoder.write(chunk),
       bound,
     );
     session.streams.stderr = next.text;
@@ -371,14 +376,13 @@ function attachStreams(session: WatchSession): void {
 function appendBound(
   current: string,
   used: number,
-  chunk: Buffer,
+  text: string,
   bound: StreamBound,
 ): BoundChunk {
   if (used >= bound.limit) {
     const truncated: BoundChunk = { text: current, used, truncated: true };
     return truncated;
   }
-  const text = chunk.toString("utf8");
   const size = boundedLength(text, bound);
   if (used + size <= bound.limit) {
     const exact: BoundChunk = {

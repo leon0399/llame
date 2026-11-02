@@ -29,6 +29,26 @@ export type BashSpill = {
   readonly notice: string;
 };
 
+/** A failure that carries the executor's streams, in the bash text shape. */
+function failureResult(
+  type: 'timed_out' | 'command_failed',
+  result: BashKnownResult | BashTimedOutResult,
+  spill: BashSpill | undefined,
+): ToolResult {
+  return {
+    status: 'error',
+    type,
+    message: renderBashText({
+      ...result,
+      // A notice also tells the renderer the result was shortened, so the
+      // executor's own cut must be explicit or its marker disappears.
+      ...(result.truncated && { cut: true }),
+      ...(spill !== undefined && { truncationNotice: spill.notice }),
+    }),
+    ...(spill !== undefined && { artifact: spill.artifact }),
+  };
+}
+
 /** A failure the executor already classified; a timeout keeps its streams. */
 function typedFailureResult(
   result: BashTimedOutResult | BashUnknownResult | BashUnavailableResult,
@@ -36,17 +56,7 @@ function typedFailureResult(
 ): ToolResult {
   if (result.type !== 'timed_out')
     return { status: 'error', type: result.type, message: result.message };
-  return {
-    status: 'error',
-    type: 'timed_out',
-    // The type tells the renderer this command was stopped, not exited, so the
-    // header names the measured elapsed time and no exit code.
-    message: renderBashText({
-      ...result,
-      ...(spill !== undefined && { truncationNotice: spill.notice }),
-    }),
-    ...(spill !== undefined && { artifact: spill.artifact }),
-  };
+  return failureResult('timed_out', result, spill);
 }
 
 /** A command that ended non-zero: the same shape, with its own exit code. */
@@ -54,15 +64,7 @@ function commandFailedResult(
   result: BashKnownResult,
   spill: BashSpill | undefined,
 ): ToolResult {
-  return {
-    status: 'error',
-    type: 'command_failed',
-    message: renderBashText({
-      ...result,
-      ...(spill !== undefined && { truncationNotice: spill.notice }),
-    }),
-    ...(spill !== undefined && { artifact: spill.artifact }),
-  };
+  return failureResult('command_failed', result, spill);
 }
 
 /** The observation the model reads, with the exit code and streams it holds. */

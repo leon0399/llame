@@ -7,6 +7,7 @@
  * inline result.
  */
 
+import { tmpdir } from 'node:os';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -17,9 +18,12 @@ import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { runTool } from './runner';
+import { executeSshBash } from './ssh-bash';
+import { type SshClient, type SshRunOutcome } from '../ssh/ssh-client';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { bashTool } from './bash';
-import { spillBashResult } from './bash-spill';
+import { previewStream, spillBashResult, spillBashStreams } from './bash-spill';
 import { renderToolResultText } from './model-text';
 import { type MockInstance } from 'vitest';
 import { type ToolContext, type ToolResult } from './types';
@@ -44,6 +48,8 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
     chatId: 'chat',
     runId: 'run',
     toolCallId: 'call-1',
+    nativeExecutorId: 'host',
+    nativeDeliverySequence: 1,
     permissionPolicy: compileTestPermissionPolicy(),
     artifactReadable: true,
     tenantDb: {
@@ -56,7 +62,7 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 /** One 100-character line, so 40 fill the head's 4,000 units exactly. */
 function logLine(index: number): string {
-  return `line ${String(index).padStart(4, '0')} ${'x'.repeat(90)}`;
+  return `line ${String(index).padStart(4, '0')} ${'x'.repeat(89)}`;
 }
 
 function longLog(lines = 5000): string {
@@ -82,7 +88,6 @@ function textOf(result: ToolResult): string {
 }
 
 beforeEach(() => {
-  vi.restoreAllMocks();
   insertWrites = {
     nextSeq: vi
       .spyOn(ArtifactsRepository.prototype, 'nextSeq')
@@ -102,6 +107,84 @@ function writtenParts() {
 }
 
 describe('the bash stream preview', () => {
+  it('spills 200,000 empty lines with an omitted-range line', async () => {
+    const result = await spillBashResult(
+      testContext(),
+      success('\n'.repeat(200_000)),
+    );
+
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') return;
+    expect(String(result.stdout)).toContain('[lines ');
+    expect(result.truncationNotice).toContain(
+      'full result: artifact://bash-5/stdout',
+    );
+  });
+
+  it('keeps a middle omitted when thousands of one-character lines spill', async () => {
+    const result = await spillBashStreams(testContext(), {
+      stdout: 'a\n'.repeat(9000),
+      stderr: '',
+    });
+
+    expect(
+      result.streams.stdout
+        .split('\n')
+        .some((line) => /^\[lines \d+-\d+ omitted;/u.test(line)),
+    ).toBe(true);
+    expect(result.notice).toBeDefined();
+  });
+
+  it('keeps a middle omitted for a stream of long short lines', async () => {
+    const result = await spillBashStreams(testContext(), {
+      stdout: 'ab\n'.repeat(50_000),
+      stderr: '',
+    });
+
+    expect(
+      result.streams.stdout
+        .split('\n')
+        .some((line) => /^\[lines \d+-\d+ omitted;/u.test(line)),
+    ).toBe(true);
+  });
+
+  it('keeps a stream of exactly its share inline', async () => {
+    const result = await spillBashStreams(testContext(), {
+      stdout: 'a'.repeat(16_000),
+      stderr: '',
+    });
+
+    expect(result.streams.stdout).toBe('a'.repeat(16_000));
+    expect(result.artifact).toBeUndefined();
+    expect(insertWrites.insertParts).not.toHaveBeenCalled();
+  });
+
+  it('divides the budget again when the other stream is small', async () => {
+    const result = await spillBashStreams(testContext(), {
+      stdout: 'a'.repeat(16_000),
+      stderr: 'x',
+    });
+
+    expect(result.streams.stderr).toBe('x');
+    expect(result.streams.stdout).toContain('[lines ');
+  });
+
+  it('cuts the first line and the tail on whole code points', () => {
+    const cut = previewStream('a'.repeat(20_000), 16_000);
+    expect(cut.head).toEqual(['a'.repeat(4000)]);
+    expect(cut.omitted).toEqual({ first: 1, last: 2 });
+
+    const tailCut = previewStream('a'.repeat(20_000), 9);
+    expect(tailCut.tail).toHaveLength(1);
+    expect(tailCut.tail[0]).toHaveLength(7);
+  });
+
+  it('keeps a tail cut on a whole emoji', () => {
+    const preview = previewStream('😀'.repeat(10), 9);
+
+    expect([...preview.head, ...preview.tail].join('')).toBe('😀😀😀😀');
+  });
+
   it('keeps the first 40 lines, names lines 41 to 4880, and keeps the last 120', async () => {
     const result = await spillBashResult(testContext(), success(longLog()));
 
@@ -129,7 +212,7 @@ describe('the bash stream preview', () => {
 
     expect(text).not.toContain('[output cut at the bound]');
     expect(text).toContain(
-      '[lines 1-1 omitted; read artifact://bash-5/stdout:1-1]',
+      '[lines 1-2 omitted; read artifact://bash-5/stdout:1-2]',
     );
     expect(text.endsWith(']')).toBe(true);
   });
@@ -260,6 +343,65 @@ describe('the bash artifact parts', () => {
 });
 
 describe('the bash spill failure paths', () => {
+  it('marks the executor cut on a spilled failure and a timeout', async () => {
+    const failure = await spillBashResult(
+      testContext(),
+      success('', {
+        status: 'error',
+        exitCode: 1,
+        stderr: 'e'.repeat(20_000),
+        truncated: true,
+      }),
+    );
+    const timeout = await spillBashResult(testContext(), {
+      status: 'error',
+      type: 'timed_out',
+      durationMs: 30_000,
+      wallTimeMs: 30_000,
+      stdout: 'o'.repeat(20_000),
+      stderr: '',
+      truncated: true,
+    });
+
+    for (const result of [failure, timeout]) {
+      expect(result.status).toBe('error');
+      if (result.status !== 'error') return;
+      const lines = result.message.split('\n');
+      expect(lines).toContain('[output cut at the bound]');
+      expect(lines.at(-1)).toMatch(/^\[full result: artifact:\/\/bash-5\//u);
+    }
+  });
+
+  it('records an artifact the bound cut as incomplete', async () => {
+    await spillBashResult(
+      testContext(),
+      success('a'.repeat(20_000), { truncated: true }),
+    );
+    expect(insertWrites.insertArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ complete: false }),
+    );
+  });
+
+  it('records an uncut artifact as complete', async () => {
+    await spillBashResult(testContext(), success('a'.repeat(20_000)));
+    expect(insertWrites.insertArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ complete: true }),
+    );
+  });
+
+  it('keeps the inline result when the call has no durable identity', async () => {
+    const result = await spillBashResult(
+      testContext({ runId: undefined, toolCallId: undefined }),
+      success(longLog()),
+    );
+
+    expect(insertWrites.insertParts).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
+    expect(textOf(result)).toContain(
+      '[lines 41-4880 omitted; full result not stored]',
+    );
+  });
+
   it('keeps the inline result when the artifact write fails', async () => {
     insertWrites.insertParts.mockRejectedValue(
       new Error('the database refused the write'),
@@ -317,6 +459,106 @@ describe('the bash spill failure paths', () => {
 
     expect(insertWrites.insertParts).not.toHaveBeenCalled();
     expect(result).not.toHaveProperty('artifact');
+  });
+});
+
+describe('the bash tool spill on the host and over ssh', () => {
+  it('keeps a self-spilled result out of the generic result cap', async () => {
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    vi.stubEnv('BASH_WORKING_DIRECTORY', tmpdir());
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: "printf 'a%.0s' {1..20000}" },
+        testContext(),
+        10,
+      );
+
+      expect(result).toMatchObject({ status: 'success' });
+      expect(result).not.toHaveProperty('truncated');
+      expect(result).toHaveProperty(
+        'truncationNotice',
+        expect.stringContaining('full result: artifact://bash-5/stdout'),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('spills an ssh:// command whose stderr does not fit', async () => {
+    const stderr = 'e'.repeat(20_000);
+    const client: SshClient = {
+      resolve: () =>
+        Promise.resolve({
+          outcome: 'resolved',
+          destination: { user: 'box', host: 'box', port: 22 },
+        }),
+      run: (request): Promise<SshRunOutcome> => {
+        const nonce =
+          /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
+            String(request.input),
+          )?.[1] ?? '';
+        return Promise.resolve({
+          outcome: 'ended',
+          stdout: Buffer.from(`${nonce}:start\n`),
+          stdoutOverflow: false,
+          diagnostic: `${nonce}:start\n${stderr}${nonce}:end:1\n`,
+          stderrOverflow: false,
+          code: 1,
+          signal: null,
+        });
+      },
+      sshConfigText: () => undefined,
+      dispose: () => undefined,
+    };
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    const result = await executeSshBash(
+      {
+        ...testContext(),
+        sshClient: client,
+        sshBinding: {
+          destination: 'box',
+          user: 'box',
+          host: 'box',
+          port: 22,
+          locator: 'ssh://box@box:22/tmp',
+        },
+      },
+      { command: 'true', cwd: 'ssh://box/tmp' },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'command_failed',
+      artifact: 'artifact://bash-5',
+    });
+    if (result.status !== 'error') return;
+    expect(result.message).toContain(
+      '[lines 1-2 omitted; read artifact://bash-5/stderr:1-2]',
+    );
+    expect(writtenParts()[0]).toMatchObject({
+      name: 'stderr',
+      content: Buffer.from(stderr, 'utf8'),
+    });
   });
 });
 

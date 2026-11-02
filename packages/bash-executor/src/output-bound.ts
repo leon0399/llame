@@ -44,6 +44,7 @@ export function cutToBound(text: string, bound: StreamBound): string {
  * dropped whole.
  */
 function cutToUtf8Bytes(text: string, limit: number): string {
+  if (Buffer.byteLength(text, "utf8") <= limit) return text;
   let bytes = 0;
   let index = 0;
   while (index < text.length) {

@@ -10,7 +10,7 @@
 
 import { type BashExecutorContext } from '@workspace/bash-executor';
 
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { artifactMaxBytes } from './artifacts/spill';
 import { bashWorkingDirectory } from './env';
 import { type ToolContext } from './types';
 
@@ -22,8 +22,7 @@ export function managedBashContext(context: ToolContext): BashExecutorContext {
     // ponytail: alpha host claims; managed Sandbox must prove these for stronger isolation.
     secretBoundary: true,
     processIsolation: true,
-    outputBoundBytes:
-      context.artifactMaxBytes ?? BUILT_IN_DEFAULTS.tools.artifacts.maxBytes,
+    outputBoundBytes: artifactMaxBytes(context),
     inputBound: Number('8000'),
     durationMs: Number('300000'),
     maxProcesses: 1,

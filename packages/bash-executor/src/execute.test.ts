@@ -483,6 +483,21 @@ describe("managed executor contract", () => {
     expect(Buffer.byteLength(result.stdout, "utf8")).toBe(30);
   });
 
+  it("keeps a stream full once the byte cut lands short of the bound", async () => {
+    // The first chunk is a two-byte character under a one-byte bound: the cut
+    // keeps nothing, and the later ASCII chunk must not reopen the stream.
+    const result = await executeManagedBash(
+      {
+        command: "bash",
+        args: ["-c", "printf '\u00e9'; sleep 0.05; printf x"],
+      },
+      context(directory, { outputBoundBytes: 1 }),
+    );
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (result.status !== "success") return;
+    expect(result.stdout).toBe("");
+  });
+
   it("keeps no byte after an exceeded bound reaches the result", async () => {
     const result = await executeManagedBash(
       { command: "bash", args: ["-c", "printf abcdefghij"] },

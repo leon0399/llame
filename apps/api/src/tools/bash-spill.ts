@@ -49,7 +49,6 @@ export type BashStreams = Record<StreamName, string>;
 type SpillingStream = {
   readonly name: StreamName;
   readonly text: string;
-  readonly share: number;
   readonly preview: StreamPreview;
 };
 
@@ -78,7 +77,7 @@ export async function spillBashResult(
 ): Promise<ToolResult> {
   if (!carriesStreams(result)) return toToolResult(result);
   const streams = { stdout: result.stdout, stderr: result.stderr };
-  const spilled = await spillBashStreams(context, streams);
+  const spilled = await spillBashStreams(context, streams, !result.truncated);
   const inline: BashObservedResult = {
     ...result,
     stdout: spilled.streams.stdout,
@@ -112,10 +111,11 @@ export type SpilledBashStreams = {
 export async function spillBashStreams(
   context: ToolContext,
   streams: BashStreams,
+  complete = true,
 ): Promise<SpilledBashStreams> {
   const spilling = spillingStreams(streams);
   if (spilling.length === 0) return { streams };
-  const written = await writeStreamParts(context, spilling);
+  const written = await writeStreamParts(context, spilling, complete);
   const rendered = STREAM_NAMES.map((name) => {
     const spill = spilling.find((stream) => stream.name === name);
     return spill === undefined ? streams[name] : previewText(spill, written);
@@ -139,7 +139,7 @@ function spillingStreams(streams: BashStreams): Array<SpillingStream> {
     const share = shares[name];
     if (share === undefined) return [];
     const text = streams[name];
-    return [{ name, text, share, preview: previewStream(text, share) }];
+    return [{ name, text, preview: previewStream(text, share) }];
   });
 }
 
@@ -168,8 +168,9 @@ const HEAD_SHARE = 4;
 
 /**
  * The head lines, the omitted range, and the tail lines of one stream. A line
- * longer than the budget it faces is cut by code units; whole lines fill the
- * rest, so the inline text keeps the stream's own line breaks.
+ * longer than the budget it faces is cut by code units, and every kept line is
+ * measured with the newline that joins it, so the preview never exceeds its
+ * share. The inline text keeps the stream's own line breaks.
  */
 export function previewStream(text: string, share: number): StreamPreview {
   const pieces = artifactLinePieces(text);
@@ -208,9 +209,9 @@ function takeHead(pieces: ReadonlyArray<string>, budget: number): HeadLines {
   let index = 0;
   while (index < pieces.length) {
     const piece = pieces[index];
-    if (used + piece.length <= budget) {
+    if (used + piece.length + 1 <= budget) {
       lines.push(piece);
-      used += piece.length;
+      used += piece.length + 1;
       index += 1;
       continue;
     }
@@ -234,9 +235,9 @@ function takeTail(
   let start = pieces.length;
   while (start > headConsumed) {
     const piece = pieces[start - 1];
-    if (used + piece.length <= budget) {
+    if (used + piece.length + 1 <= budget) {
       lines.unshift(piece);
-      used += piece.length;
+      used += piece.length + 1;
       start -= 1;
       continue;
     }
@@ -248,9 +249,11 @@ function takeTail(
 
 /** The last `budget` code units of a line, never splitting a surrogate pair. */
 function tailCut(piece: string, budget: number): string {
-  if (piece.length <= budget) return piece;
-  const index = codePointSafeCutIndex(piece, piece.length - budget);
-  return piece.slice(index === piece.length - budget ? index : index + 1);
+  const start = piece.length - budget;
+  // A pair straddling the start moves the cut one unit forward, so the kept
+  // text opens on a whole code point rather than a lone low surrogate.
+  const safe = codePointSafeCutIndex(piece, start);
+  return piece.slice(safe === start ? start : start + 1);
 }
 
 /** One stream's inline text: its head, the omitted-range line, its tail. */
@@ -308,6 +311,7 @@ function storedNotice(
 async function writeStreamParts(
   context: ToolContext,
   spilling: ReadonlyArray<SpillingStream>,
+  complete: boolean,
 ): Promise<WrittenArtifact | undefined> {
   const { runId, toolCallId, userId, chatId } = context;
   if (runId === undefined || toolCallId === undefined) return undefined;
@@ -321,9 +325,10 @@ async function writeStreamParts(
         runId,
         toolCallId,
         toolName: 'bash',
-        // The executor's bound already stopped every stream, so the capture
-        // is complete as far as this call can ever hold it.
-        complete: true,
+        // A stream the executor bound cut is incomplete: the artifact holds
+        // only what the capture kept (tool-result-artifacts "An artifact is
+        // complete or absent").
+        complete,
         parts: spilling.map((stream) => ({
           name: stream.name,
           contentType: streamContentType(stream.text),
@@ -342,10 +347,8 @@ async function writeStreamParts(
  * (D2), so a one-line JSON `stdout` reads with the JSON content type.
  */
 function streamContentType(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed === '') return 'text/plain';
   try {
-    JSON.parse(trimmed);
+    JSON.parse(text);
     return 'application/json';
   } catch {
     return 'text/plain';
