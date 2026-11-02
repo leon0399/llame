@@ -79,6 +79,12 @@ export type MachineGrepScope = {
   readonly path: string;
   /** The glob text from the first glob segment onward, as submitted. */
   readonly globSuffix: string | undefined;
+  /**
+   * The exact-path probe found one regular file, so the daemon walks it
+   * without listing: no entry is counted, and the file bound trips first.
+   * Absent (a directory or glob scope) lists entries before any candidate.
+   */
+  readonly singleFile?: boolean;
 };
 
 /** The compiled search the call resolved before either backend ran. */
@@ -164,12 +170,15 @@ export async function resolveMachineScope(
   if ('result' in verdict) return { result: verdict.result };
   if (verdict.kind === 'refused')
     return { result: machinePathNotFoundResult() };
-  return { machine: parsed, root: parsed.name };
+  return {
+    machine: verdict.singleFile ? { ...parsed, singleFile: true } : parsed,
+    root: parsed.name,
+  };
 }
 
 /** What the exact-path rule settled for one glob-free Machine scope. */
 type ExactPathVerdict =
-  | { readonly kind: 'walk' }
+  | { readonly kind: 'walk'; readonly singleFile: boolean }
   | { readonly kind: 'refused' }
   | { readonly result: GrepToolError };
 
@@ -191,9 +200,10 @@ async function exactPathVerdict(
   scope: MachineGrepScope,
   admission: GrepReadAdmission,
 ): Promise<ExactPathVerdict> {
-  if (scope.globSuffix !== undefined) return { kind: 'walk' };
+  if (scope.globSuffix !== undefined)
+    return { kind: 'walk', singleFile: false };
   const locator = formatMachineLocator(scope.name, scope.path);
-  if (locator === undefined) return { kind: 'walk' };
+  if (locator === undefined) return { kind: 'walk', singleFile: false };
   try {
     const answer = readFsStatResult(
       await connector.request(
@@ -210,8 +220,10 @@ async function exactPathVerdict(
       ),
     );
     if (answer === undefined || answer.kind !== 'file' || answer.isLink)
-      return { kind: 'walk' };
-    return admission.admit(locator) ? { kind: 'walk' } : { kind: 'refused' };
+      return { kind: 'walk', singleFile: false };
+    return admission.admit(locator)
+      ? { kind: 'walk', singleFile: true }
+      : { kind: 'refused' };
   } catch (error) {
     return { result: machineGrepFailure(scope.name, error) };
   }
@@ -353,7 +365,10 @@ function segmentOfPages(
   // no page can name the stop: the segment reports it instead, in the order
   // the walk would have tripped it (entries while listing, then files, then
   // bytes at a candidate).
-  const spent = last === undefined ? spentBound(search.budget) : undefined;
+  const spent =
+    last === undefined
+      ? spentBound(search.budget, search.scope.singleFile === true)
+      : undefined;
   const counted =
     spent !== undefined && !warnings.has(spent)
       ? new Map([...warnings, [spent, 1] as const])
@@ -361,9 +376,16 @@ function segmentOfPages(
   return segmentOf({ ...pages, warnings: counted, position });
 }
 
-/** The count bound a segment starts already spent under, if any. */
-function spentBound(budget: GrepBudget): FsGrepWarningKind | undefined {
-  if (budget.entries === 0) return 'entry_bound';
+/**
+ * The count bound a segment starts already spent under, if any, in the order
+ * the walk would trip it: a directory lists entries first, while a direct-file
+ * scope counts none and checks the file bound at its one candidate.
+ */
+function spentBound(
+  budget: GrepBudget,
+  singleFile: boolean,
+): FsGrepWarningKind | undefined {
+  if (!singleFile && budget.entries === 0) return 'entry_bound';
   if (budget.files === 0) return 'file_bound';
   if (budget.bytes === 0) return 'byte_bound';
   return undefined;

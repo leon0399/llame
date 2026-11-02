@@ -2317,6 +2317,17 @@ describe('daemon page stop conditions', () => {
         },
         warning: 'byte_bound',
       },
+      // A directory lists entries before it reaches a candidate, so the entry
+      // bound is the one that would trip first.
+      {
+        policy: {
+          maxFilesExamined: 1,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+        warning: 'entry_bound',
+      },
     ] as const;
     for (const { policy, warning } of cases) {
       const { connector } = fixture({
@@ -2333,6 +2344,47 @@ describe('daemon page stop conditions', () => {
       expect(success(result).complete).toBe(false);
       expect(success(result).warnings).toEqual([{ kind: warning, count: 1 }]);
     }
+  });
+
+  it('names the file bound for a skipped direct-file scope', async () => {
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method === 'fs.stat')
+          return { value: { kind: 'file', isLink: false } };
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value: page([], { consumed: { files: 1, entries: 1, bytes: 10 } }),
+        };
+      },
+    });
+    const result = await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: 1,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/app.go'],
+      },
+    );
+    expect(searches).toBe(1);
+    expect(success(result).complete).toBe(false);
+    // A direct-file walk lists no entry, so its file bound trips first even
+    // though the entry bound is spent too.
+    expect(success(result).warnings).toEqual([
+      { kind: 'file_bound', count: 1 },
+    ]);
+    expect(cursorPayloadOf(result)).toMatchObject({
+      kind: 'position',
+      scopeIndex: 1,
+      rel: '',
+    });
   });
 
   it('keeps a warning-only segment that exactly fills the page', async () => {
