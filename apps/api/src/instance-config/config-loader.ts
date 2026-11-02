@@ -301,7 +301,7 @@ function resolveGrepBounds(
       configPath: `tools.grep.${key}`,
       present: Object.hasOwn(bounds, key),
       raw: bounds[key],
-      builtInDefault: null,
+      builtInDefault: BUILT_IN_DEFAULTS.tools.grep[key],
       nullable: true,
       env,
     });

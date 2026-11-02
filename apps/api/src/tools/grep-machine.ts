@@ -19,6 +19,7 @@ import {
 } from '@workspace/machine-protocol';
 import {
   decodeGrepCursor,
+  grepWarningsUnits,
   normalizeHostScope,
   splitGrepScope,
   type DecodedGrepCursor,
@@ -301,8 +302,9 @@ async function runDaemonPages(
   deadlineAt: number,
 ): Promise<MachineGrepSegment> {
   const entries: Array<MachineGrepEntry> = [];
-  const warnings = new Map<FsGrepWarningKind, number>();
+  const counts = new Map<FsGrepWarningKind, number>();
   const consumed = { files: 0, entries: 0, bytes: 0 };
+  const base = search.budget.fixedReserve;
   let budget = daemonBudget(search.budget, deadlineAt);
   let cursor = search.resume && daemonCursor(search, search.resume);
   // Progress belongs to the call: a page that got past the start point lets
@@ -318,7 +320,7 @@ async function runDaemonPages(
     if ('result' in asked) return { status: 'error', result: asked.result };
     const page = asked.page;
     last = page;
-    mergePage(warnings, consumed, page);
+    mergePage(counts, consumed, page);
     progressed = progressed || page.progressed;
     const rendered = renderPage(search, page, entries);
     if ('result' in rendered)
@@ -326,11 +328,11 @@ async function runDaemonPages(
     const next = keepAsking(rendered.kept, page, cursor);
     if (next === undefined) break;
     cursor = next;
-    budget = spent(budget, page.consumed, deadlineAt);
+    budget = spent(budget, page, deadlineAt, base + grepWarningsUnits(counts));
   }
   return segmentOfPages(search, {
     entries,
-    warnings,
+    warnings: counts,
     consumed,
     last,
     progressed,
@@ -430,12 +432,18 @@ function nextCursor(
     : page.cursor;
 }
 
-/** What the call has left after one daemon page. */
+/**
+ * What the call has left after one daemon page. The next request must leave
+ * the hub's own lines beside it — `base` plus this segment's warnings line so
+ * far — or a page the hub then drops whole would come back on every resume.
+ */
 function spent(
   budget: GrepBudget,
-  consumed: FsGrepConsumed,
+  page: FsGrepSuccess,
   deadlineAt: number,
+  reserve: number,
 ): GrepBudget {
+  const consumed = page.consumed;
   return {
     files: remainingOf(budget.files, consumed.files),
     entries: remainingOf(budget.entries, consumed.entries),
@@ -443,7 +451,7 @@ function spent(
     maxFileBytes: budget.maxFileBytes,
     limit: budget.limit,
     pageUnits: budget.pageUnits,
-    fixedReserve: budget.fixedReserve,
+    fixedReserve: reserve,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
   };
 }

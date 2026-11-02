@@ -1,4 +1,8 @@
-import { measureGrepRendering, renderGrepText } from "./model-text";
+import {
+  grepPassageUnits,
+  measureGrepRendering,
+  renderGrepText,
+} from "./model-text";
 
 import { decodeGrepCursor, grepContinuationUnits } from "./cursor";
 import type { DecodedGrepCursor, GrepPassageCursor } from "./cursor";
@@ -341,6 +345,51 @@ describe("grep walk bounds", () => {
     expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
     expect(decode(result.cursor).rel).toBe("b.md");
+  });
+
+  it("ends the page before a warning line that no longer fits", async () => {
+    // One passage plus its cursor fills the page but for one unit, so the
+    // `[warnings: …]` line the binary skip would add has no room.
+    const tree = {
+      "a.md": hit(),
+      "b.bin": binary(Uint8Array.of(0x00, 0x01)),
+    };
+    const whole = await runMemoryScan(
+      [memoryScope(0, "/repo/", createMemoryPort(tree))],
+      ["hit"],
+    );
+    const passage = whole.results[0];
+    if (passage === undefined) throw new Error("the fixture has a passage");
+    const pageUnits =
+      grepPassageUnits(undefined, passage) +
+      grepContinuationUnits({ scopeIndex: 0, rel: "a.md", startLine: 1 }) +
+      1;
+    const port = createMemoryPort(tree);
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { pageUnits },
+    });
+    expect(first.results.map((entry) => entry.locator)).toEqual([
+      "/repo/a.md:1-1",
+    ]);
+    // The skip's line belongs to the next call, so this page reports no count
+    // and still renders inside its bound.
+    expect(first.warnings).toEqual([]);
+    expect(first.complete).toBe(false);
+    expect(
+      measureGrepRendering({
+        results: first.results,
+        complete: first.complete,
+        warnings: first.warnings,
+        ...(first.cursor !== undefined && { cursor: first.cursor }),
+      }),
+    ).toBeLessThanOrEqual(pageUnits);
+
+    const second = await runMemoryScan([scope], ["hit"], {
+      cursor: passageCursor(first.cursor),
+    });
+    expect(second.warnings).toEqual([{ kind: "binary", count: 1 }]);
+    expect(second.complete).toBe(true);
   });
 
   it("names the last reached file when the file bound stops a walk without a passage", async () => {

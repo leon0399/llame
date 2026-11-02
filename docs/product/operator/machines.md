@@ -135,9 +135,10 @@ binary is replaced.
 
 One request shape is not additive: the `fs.grep` request carries its bounds in
 `bounds` (with a nullable `fileBytes`), not in the removed `budget` field. The
-API validates the patterns and owns the cursor and the bounds, so a request
-either build cannot read is refused as invalid parameters, which the hub
-reports as Machine unusable. Deploy the API and every daemon together.
+API validates the patterns and owns the cursor and the bounds, so either build
+refuses the other's request as invalid parameters. A new API reports an old
+daemon as Machine unusable; an old API reports a new daemon's refusal as a
+Machine protocol failure. Deploy the API and every daemon together.
 
 Mutation results are additive in the same way, so update the hub before the
 daemon. A hub newer than the daemon still accepts an old daemon's `edit` and

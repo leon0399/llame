@@ -14,7 +14,6 @@ import {
   type FsGrepPassage,
   type FsGrepResult,
   type NativeFailureResult,
-  type SerializableRecord,
   type SerializableValue,
 } from "@workspace/machine-protocol";
 import {
@@ -69,16 +68,23 @@ type GrepRequest = {
   readonly progressed: boolean;
 };
 
-/**
- * The request's `bounds` as the engine budget. A `null` bound is unset, so the
- * daemon applies no file, entry, byte, or file-size bound for it; the page
- * shape and the time left are always numbers.
- */
-function readBounds(
-  source: SerializableRecord,
-): Pick<GrepRequest, "budget" | "progressed"> {
+function requestOf(params: SerializableValue): GrepRequest {
+  const source = paramRecord(params, FS_GREP_METHOD);
   const bounds = requireRecord(source, "bounds", FS_GREP_METHOD);
   return {
+    path: requireString(source, "path", FS_GREP_METHOD),
+    globSuffix: optionalString(source, "globSuffix", FS_GREP_METHOD),
+    patterns: requireStringList(
+      source,
+      "patterns",
+      FS_GREP_METHOD,
+      GREP_LIMITS.maxPatterns,
+    ),
+    literal: requireBoolean(source, "literal", FS_GREP_METHOD),
+    ignoreCase: requireBoolean(source, "ignoreCase", FS_GREP_METHOD),
+    cursor: optionalString(source, "cursor", FS_GREP_METHOD),
+    // A `null` bound is unset, so the daemon applies no file, entry, byte, or
+    // file-size bound for it; the page shape and the time left are numbers.
     budget: {
       // The wire bounds are the page the hub has left for passages; the fields
       // beside the daemon's own result travel on the hub, never here.
@@ -92,26 +98,6 @@ function readBounds(
       fixedReserve: 0,
     },
     progressed: requireBoolean(bounds, "progressed", FS_GREP_METHOD),
-  };
-}
-
-function requestOf(params: SerializableValue): GrepRequest {
-  const source = paramRecord(params, FS_GREP_METHOD);
-  const bounds = readBounds(source);
-  return {
-    path: requireString(source, "path", FS_GREP_METHOD),
-    globSuffix: optionalString(source, "globSuffix", FS_GREP_METHOD),
-    patterns: requireStringList(
-      source,
-      "patterns",
-      FS_GREP_METHOD,
-      GREP_LIMITS.maxPatterns,
-    ),
-    literal: requireBoolean(source, "literal", FS_GREP_METHOD),
-    ignoreCase: requireBoolean(source, "ignoreCase", FS_GREP_METHOD),
-    cursor: optionalString(source, "cursor", FS_GREP_METHOD),
-    budget: bounds.budget,
-    progressed: bounds.progressed,
   };
 }
 

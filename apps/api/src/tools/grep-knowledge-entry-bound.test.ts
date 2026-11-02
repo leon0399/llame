@@ -58,7 +58,7 @@ function contextOf(binding: KnowledgeFilesystemBinding): ToolContext {
         Promise.reject(new Error('grep never opens a tenant transaction')),
     },
     knowledgeResolver: resolver,
-    grep: {
+    grepBounds: {
       // The bound this fixture proves; every other bound stays unset.
       maxFilesExamined: null,
       maxEntriesListed: 20_000,

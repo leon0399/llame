@@ -414,6 +414,45 @@ describe("fs.grep", () => {
     expect(second.complete).toBe(true);
   });
 
+  it("skips a file over the file-size bound the request carries", async () => {
+    await writeAt("project/a.go", "needle\n");
+    const page = await grep(
+      request(join(fixture.root, "project"), {
+        bounds: { ...BOUNDS, fileBytes: 4 },
+      }),
+    );
+    expect(pathsOf(page)).toEqual([]);
+    expect(page.warnings).toEqual([{ kind: "oversized", count: 1 }]);
+    expect(page.complete).toBe(true);
+  });
+
+  it("searches with every count bound unset", async () => {
+    await writeAt("project/a.go", "needle one\n");
+    await writeAt("project/b.go", "needle two\n");
+    const page = await grep(
+      request(join(fixture.root, "project"), {
+        bounds: { ...BOUNDS, files: null, entries: null, bytes: null },
+      }),
+    );
+    expect(pathsOf(page)).toEqual(["a.go", "b.go"]);
+    expect(page.complete).toBe(true);
+  });
+
+  it("refuses a negative or fractional bound", async () => {
+    await writeAt("project/a.go", "needle\n");
+    const prefix = join(fixture.root, "project");
+    const negative = await daemon.attempt(
+      FS_GREP_METHOD,
+      request(prefix, { bounds: { ...BOUNDS, files: -1 } }),
+    );
+    expect(negative.error).toMatchObject({ code: "invalid_params" });
+    const fractional = await daemon.attempt(
+      FS_GREP_METHOD,
+      request(prefix, { bounds: { ...BOUNDS, entries: 1.5 } }),
+    );
+    expect(fractional.error).toMatchObject({ code: "invalid_params" });
+  });
+
   it("resumes after the entry a position cursor names", async () => {
     await writeAt("project/a.md", "nothing here\n");
     await writeAt("project/b.md", "needle\n");

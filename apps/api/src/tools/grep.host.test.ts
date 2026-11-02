@@ -12,6 +12,7 @@ import path from 'node:path';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi } from 'vitest';
 
+import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { grepInputSchema, nativeGrepTool } from './grep';
 import { machineUnsupportedResult } from './grep-results';
@@ -42,7 +43,7 @@ type ContextOptions = {
   readonly run?: boolean;
   readonly map?: ToolPermissionMap;
   /** Operator `tools.grep` bounds; absent means every bound is unset. */
-  readonly grep?: ToolContext['grep'];
+  readonly grepBounds?: GrepBoundsConfig;
 };
 
 function contextOf(options: ContextOptions = {}): ToolContext {
@@ -62,7 +63,7 @@ function contextOf(options: ContextOptions = {}): ToolContext {
         Promise.reject(new Error('grep never opens a tenant transaction')),
     },
     skillCatalog: NO_CATALOG,
-    grep: options.grep,
+    grepBounds: options.grepBounds,
     workspaceRoot:
       options.root === undefined
         ? undefined
@@ -93,6 +94,17 @@ async function writeAt(
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, content);
   return target;
+}
+
+/** Operator grep bounds, every field unset unless named. */
+function bounds(overrides: Partial<GrepBoundsConfig> = {}): GrepBoundsConfig {
+  return {
+    maxFilesExamined: null,
+    maxEntriesListed: null,
+    maxBytesRead: null,
+    maxFileBytes: null,
+    ...overrides,
+  };
 }
 
 function run(context: ToolContext, args: unknown) {
@@ -445,10 +457,10 @@ describe('host authority', () => {
 });
 
 describe('operator bounds', () => {
-  it('has no count bound when the operator sets none', async () => {
+  it('reports no bound warning on an unconfigured walk', async () => {
     await withRoot(async (root) => {
-      // Thirty listed files before the one match: a default count bound would
-      // stop the walk short of it with a bound warning.
+      // Thirty listed files before the one match, and no bound warning: the
+      // machine tests prove an unset bound travels as null on the wire.
       const misses = Array.from(
         { length: 30 },
         (_, index) => `m${String(index)}.md`,
@@ -472,12 +484,7 @@ describe('operator bounds', () => {
       }
       await writeAt(root, 'd.md', 'needle\n');
       const context = contextOf({
-        grep: {
-          maxFilesExamined: 3,
-          maxEntriesListed: null,
-          maxBytesRead: null,
-          maxFileBytes: null,
-        },
+        grepBounds: bounds({ maxFilesExamined: 3 }),
       });
       const first = await run(context, {
         patterns: ['needle'],
@@ -510,12 +517,7 @@ describe('operator bounds', () => {
       await writeAt(root, 'b.md', kib);
       await writeAt(root, 'c.md', 'needle\n');
       const context = contextOf({
-        grep: {
-          maxFilesExamined: null,
-          maxEntriesListed: null,
-          maxBytesRead: 8192,
-          maxFileBytes: null,
-        },
+        grepBounds: bounds({ maxBytesRead: 8192 }),
       });
       const first = await run(context, {
         patterns: ['needle'],
@@ -544,12 +546,7 @@ describe('operator bounds', () => {
       await writeAt(root, 'big.log', `${'x'.repeat(63)}\n`.repeat(4000));
       await writeAt(root, 'z.md', 'needle\n');
       const context = contextOf({
-        grep: {
-          maxFilesExamined: null,
-          maxEntriesListed: null,
-          maxBytesRead: 8192,
-          maxFileBytes: null,
-        },
+        grepBounds: bounds({ maxBytesRead: 8192 }),
       });
       const first = await run(context, {
         patterns: ['needle'],
@@ -580,12 +577,7 @@ describe('operator bounds', () => {
       await writeAt(root, 'small.md', 'needle\n');
       const result = await run(
         contextOf({
-          grep: {
-            maxFilesExamined: null,
-            maxEntriesListed: null,
-            maxBytesRead: null,
-            maxFileBytes: 1024,
-          },
+          grepBounds: bounds({ maxFileBytes: 1024 }),
         }),
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );

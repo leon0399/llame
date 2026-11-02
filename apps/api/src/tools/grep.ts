@@ -45,6 +45,7 @@ import {
   pageIsFull,
   pageResult,
   remainingBudget,
+  type PageState,
   type SegmentPage,
 } from './grep-page';
 import { resolveScopes } from './grep-scopes';
@@ -101,19 +102,17 @@ async function executeGrep(
     const resolved = await resolveScopes(context, submitted, admission);
     if ('result' in resolved) return resolved.result;
 
-    return await scanPassages(
-      {
-        context,
-        input,
-        patterns,
-        admission,
-        resolved,
-        projectedScopes: submitted.map(
-          (scope) => projectGrepScope(scope, root).prefix,
-        ),
-      },
+    return await scanPassages({
+      context,
+      input,
+      patterns,
+      admission,
+      resolved,
+      projectedScopes: submitted.map(
+        (scope) => projectGrepScope(scope, root).prefix,
+      ),
       deadlineAt,
-    );
+    });
   } finally {
     // A scope refusal can have counted files too, so the audit sees them on
     // every exit after resolution began, not only on a completed page.
@@ -142,6 +141,8 @@ type ScanRequest = {
   readonly admission: GrepReadAdmission;
   readonly resolved: ResolvedScopes;
   readonly projectedScopes: ReadonlyArray<string>;
+  /** The instant the walk stops, computed at `executeGrep` entry. */
+  readonly deadlineAt: number;
 };
 
 /** One ordered unit of work: local scopes the engine walks, or one Machine. */
@@ -150,16 +151,13 @@ type GrepSegment =
   | { readonly index: number; readonly machine: MachineGrepScope };
 
 /** Page the call's scopes in submitted order; the caller records what policy hid. */
-async function scanPassages(
-  request: ScanRequest,
-  deadlineAt: number,
-): Promise<ToolResult> {
-  const { input, patterns, resolved } = request;
+async function scanPassages(request: ScanRequest): Promise<ToolResult> {
+  const { input, patterns, resolved, deadlineAt } = request;
   const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
   const cursor = resolveCursor(input.cursor, inputHash);
   if ('result' in cursor) return cursor.result;
 
-  const budget = grepBudget(request.context, input.limit, deadlineAt);
+  const budget = grepBudget(request.context, input.limit);
   const resume = cursor.cursor;
   const state = createPageState();
   for (const segment of segmentsOf(resolved)) {
@@ -175,8 +173,8 @@ async function scanPassages(
     const remaining = remainingBudget(budget, state, deadlineAt);
     // A full page continues on the next call; an expired deadline ends here.
     if (pageIsFull(state, budget) || remaining.deadlineMs <= 0) {
-      if (remaining.deadlineMs <= 0) addWarning(state, 'deadline');
-      state.complete = false;
+      if (remaining.deadlineMs <= 0) endAtDeadline(state, budget, inputHash);
+      else state.complete = false;
       break;
     }
     const outcome = await runSegment({
@@ -193,6 +191,22 @@ async function scanPassages(
     if (!outcome.page.complete) state.complete = false;
   }
   return pageResult(state, inputHash);
+}
+
+/**
+ * End the page at the deadline. The deadline is the hub's own warning, so its
+ * line must fit beside the passages already kept; otherwise the page ends
+ * here and the next call reports the stop (design D7).
+ */
+function endAtDeadline(
+  state: PageState,
+  budget: GrepBudget,
+  inputHash: string,
+): void {
+  state.complete = false;
+  addWarning(state, 'deadline');
+  if (measureGrepRendering(pageResult(state, inputHash)) > budget.pageUnits)
+    state.warnings.delete('deadline');
 }
 
 /**
@@ -390,15 +404,15 @@ function hashOf(
 function grepBudget(
   context: ToolContext,
   limit: number | undefined,
-  deadlineAt: number,
 ): GrepBudget {
-  const bounds = context.grep;
+  const bounds = context.grepBounds ?? BUILT_IN_DEFAULTS.tools.grep;
   return {
-    files: bounds?.maxFilesExamined ?? null,
-    entries: bounds?.maxEntriesListed ?? null,
-    bytes: bounds?.maxBytesRead ?? null,
-    maxFileBytes: bounds?.maxFileBytes ?? null,
-    deadlineMs: Math.max(0, deadlineAt - Date.now()),
+    files: bounds.maxFilesExamined,
+    entries: bounds.maxEntriesListed,
+    bytes: bounds.maxBytesRead,
+    maxFileBytes: bounds.maxFileBytes,
+    // Every segment derives its own remaining time from the call deadline.
+    deadlineMs: 0,
     limit: limit ?? GREP_LIMITS.filesPerPage,
     pageUnits: GREP_LIMITS.pageCodeUnits,
     fixedReserve: pageFixedReserve(),
@@ -407,10 +421,10 @@ function grepBudget(
 
 /**
  * The rendered width of a page's own lines beside `results`: the Knowledge
- * notice and one newline, each with its separating newline. The engine keeps
- * exactly this much back from the page's bound, adds its own continuation line
- * to that reservation, and grows the `[warnings: …]` line's share as counts
- * arrive (design D7), because an unbounded walk has no largest count.
+ * notice line, its separating newline, and one spare newline. The engine keeps
+ * exactly this much back from the page's bound and adds its own continuation
+ * line; the `[warnings: …]` line and its newline are reserved separately as
+ * counts arrive (design D7).
  */
 export function pageFixedReserve(): number {
   return (

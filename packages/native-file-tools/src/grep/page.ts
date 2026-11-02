@@ -28,11 +28,7 @@ export interface GrepPage {
    * room is kept.
    */
   reserveFloor: number;
-  /**
-   * Rendered width of the `[warnings: …]` line as this walk's counts stand.
-   * It grows with each count, because an unbounded walk has no largest count
-   * to reserve in advance.
-   */
+  /** Rendered width of the `[warnings: …]` line as this walk's counts stand. */
   warningReserve: number;
   /** Rendered width of `results` as a complete page, kept as they grow. */
   units: number;
@@ -42,7 +38,10 @@ export interface GrepPage {
 export interface GrepPageLimits {
   /** The whole page's bound, its own lines and the cursor included. */
   readonly pageUnits: number;
-  /** Rendered width of the caller's result fields beside the passages. */
+  /**
+   * Rendered width of the caller's result fields beside the passages, the
+   * warnings line excluded: a segment grows its own reserve from its counts.
+   */
   readonly fixedReserve: number;
 }
 
@@ -116,10 +115,34 @@ export function appendGrepFile(
 }
 
 /**
+ * Whether a page that keeps results still holds them once its own lines grow
+ * to `warningReserve`: the passages it keeps, the continuation line of the
+ * point it would resume at, the caller's fixed lines, and that wider warnings
+ * line. A page that keeps none has nothing to overflow; its passage bound
+ * decides instead. A page that cannot hold them ends before the entry whose
+ * line grew, and the next call reports it (design D7).
+ */
+export function holdsGrownReserve(
+  page: GrepPage,
+  limits: GrepPageLimits,
+  warningReserve: number,
+): boolean {
+  if (page.results.length === 0) return true;
+  const resume =
+    page.last === undefined
+      ? page.reserveFloor
+      : Math.max(grepContinuationUnits(page.last), page.reserveFloor);
+  return (
+    page.units + resume + warningReserve + limits.fixedReserve <=
+    limits.pageUnits
+  );
+}
+
+/**
  * Whether one more result fits the page: the passages it already holds, the
- * widening this one adds, the continuation line that names it, and the room
- * the caller's own lines take. A page that ends before its first passage keeps
- * the room of the position cursor that then carries it.
+ * widening this one adds, the continuation line that names it, the warnings
+ * line so far, and the room the caller's own lines take. A page that ends
+ * before its first passage keeps the position cursor's room instead.
  */
 function fits(
   page: GrepPage,

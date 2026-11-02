@@ -884,6 +884,18 @@ describe('loadInstanceConfig — tools.grep bounds (grep-scan-throughput D1)', (
     expect(loadInstanceConfig().tools.grep).toEqual(UNSET);
   });
 
+  it('leaves an absent field unset while its siblings are set', () => {
+    writeConfig('{ "tools": { "grep": { "maxBytesRead": 33554432 } } }');
+    expect(loadInstanceConfig().tools.grep).toEqual({
+      ...UNSET,
+      maxBytesRead: 33_554_432,
+    });
+    writeConfig(
+      '{ "tools": { "grep": { "maxFileBytes": "{env:IC_GREP_UNSET:-}" } } }',
+    );
+    expect(loadInstanceConfig().tools.grep).toEqual(UNSET);
+  });
+
   it('takes each bound from the file and from interpolation tokens', () => {
     writeConfig(`{
       "tools": {
@@ -924,11 +936,6 @@ describe('loadInstanceConfig — tools.grep bounds (grep-scan-throughput D1)', (
   it('refuses an unknown grep field, naming the path', () => {
     writeConfig('{ "tools": { "grep": { "deadlineSeconds": 5 } } }');
     expect(() => loadInstanceConfig()).toThrow(/tools\/grep\/deadlineSeconds/);
-  });
-
-  it('bounds nothing on a grep context built without configuration', () => {
-    writeConfig('{ "tools": { "allowed": [] } }');
-    expect(BUILT_IN_DEFAULTS.tools.grep).toEqual(UNSET);
   });
 });
 

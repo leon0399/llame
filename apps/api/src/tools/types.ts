@@ -153,7 +153,7 @@ export interface ToolContext {
    * loop) means no file, entry, byte, or file-size bound, exactly as an absent
    * configuration object does.
    */
-  readonly grep?: GrepBoundsConfig;
+  readonly grepBounds?: GrepBoundsConfig;
   /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.

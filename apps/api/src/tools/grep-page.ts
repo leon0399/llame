@@ -113,21 +113,22 @@ export function remainingBudget(
     maxFileBytes: budget.maxFileBytes,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: Math.max(0, budget.limit - state.files.size),
-    pageUnits: Math.max(0, budget.pageUnits - state.units - separator),
-    fixedReserve: budget.fixedReserve + warningsUnitsOf(state),
+    // The warnings line the page would end with is kept back from the room the
+    // segment may fill; the segment then grows its own reserve from its counts.
+    pageUnits: Math.max(
+      0,
+      budget.pageUnits -
+        state.units -
+        separator -
+        grepWarningsUnits(state.warnings),
+    ),
+    fixedReserve: budget.fixedReserve,
   };
 }
 
 /** What one bound has left; an unset (`null`) bound stays unset. */
 export function remainingOf(bound: number | null, used: number): number | null {
   return bound === null ? null : Math.max(0, bound - used);
-}
-
-/** Rendered width of the `[warnings: …]` line the page would end with. */
-function warningsUnitsOf(state: PageState): number {
-  return grepWarningsUnits(
-    [...state.warnings].map(([kind, count]) => ({ kind, count })),
-  );
 }
 
 export function pageIsFull(state: PageState, budget: GrepBudget): boolean {
@@ -141,6 +142,9 @@ export function appendSegment(
   page: SegmentPage,
 ): void {
   mergeWarnings(state, page.warnings);
+  // The page's own lines are fixed once its warnings are merged, so measure
+  // them once, not per entry.
+  const reserve = budget.fixedReserve + grepWarningsUnits(state.warnings);
   state.consumed.files += page.consumed.files;
   state.consumed.entries += page.consumed.entries;
   state.consumed.bytes += page.consumed.bytes;
@@ -150,7 +154,7 @@ export function appendSegment(
   // there: no later segment can overwrite it.
   state.unfinished = page.unfinished;
   for (const entry of page.entries) {
-    if (!fitsPage(state, budget, entry)) {
+    if (!fitsPage(state, budget, reserve, entry)) {
       state.complete = false;
       return;
     }
@@ -182,6 +186,7 @@ export function appendSegment(
 function fitsPage(
   state: PageState,
   budget: GrepBudget,
+  reserve: number,
   entry: SegmentEntry,
 ): boolean {
   const file = grepFileLocator(entry.passage.locator);
@@ -198,8 +203,7 @@ function fitsPage(
         ...(end.endLine !== undefined && { endLine: end.endLine }),
         capped: end.capped,
       }) +
-      budget.fixedReserve +
-      warningsUnitsOf(state) <=
+      reserve <=
     budget.pageUnits
   );
 }

@@ -129,13 +129,15 @@ function warningsLine(value: unknown): string | undefined {
 
 /**
  * Rendered width of the `[warnings: …]` line and its separating newline. A
- * walk's counts only grow, so the page reserve grows with them: an unbounded
- * walk has no largest count to reserve in advance.
+ * walk's counts only grow, so the page reserve grows with them (design D7):
+ * an unbounded walk has no largest count to reserve in advance.
  */
 export function grepWarningsUnits(
-  warnings: ReadonlyArray<{ readonly kind: string; readonly count: number }>,
+  warnings: ReadonlyMap<string, number>,
 ): number {
-  const line = warningsLine(warnings);
+  const line = warningsLine(
+    [...warnings].map(([kind, count]) => ({ kind, count })),
+  );
   return line === undefined ? 0 : line.length + 1;
 }
 

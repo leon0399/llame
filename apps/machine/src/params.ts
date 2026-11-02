@@ -106,14 +106,7 @@ export function nullableCount(
   key: string,
   method: string,
 ): number | null {
-  const value = source[key];
-  if (value === null) return null;
-  if (!isIntegerValue(value) || value < 0)
-    throw invalidParams(
-      method,
-      `parameter ${key} must be a whole number of at least 0, or null`,
-    );
-  return value;
+  return source[key] === null ? null : requireCount(source, key, method);
 }
 
 /** A non-empty bounded list of strings, as a pattern list is. */

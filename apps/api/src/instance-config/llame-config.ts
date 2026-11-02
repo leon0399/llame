@@ -455,20 +455,17 @@ export type RawWebAdapterEntry =
         | 'linkedin';
     };
 
-/** The raw `tools.grep` object; each leaf stays unknown until its resolver
- *  narrows it with its own runtime check. */
-export type RawGrepBoundsConfig = {
-  readonly maxFilesExamined?: unknown;
-  readonly maxEntriesListed?: unknown;
-  readonly maxBytesRead?: unknown;
-  readonly maxFileBytes?: unknown;
-};
-
 /** Schema-validated composite fields consumed from the raw tools block. */
 export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
-  /** An absent or null object bounds nothing. */
-  grep?: RawGrepBoundsConfig | null;
+  /** The raw `tools.grep` object; an absent or null object bounds nothing,
+   *  and each leaf stays unknown until its resolver narrows it. */
+  grep?: {
+    readonly maxFilesExamined?: unknown;
+    readonly maxEntriesListed?: unknown;
+    readonly maxBytesRead?: unknown;
+    readonly maxFileBytes?: unknown;
+  } | null;
 };
 
 /**

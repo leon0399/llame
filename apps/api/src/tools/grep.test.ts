@@ -12,14 +12,11 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  isSerializableRecord,
-  type SerializableRecord,
-} from '@workspace/machine-protocol';
-import {
   KnowledgeFilesystemAdapter,
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
+import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { MachineConnector } from '../machines/machine-connector.service';
 import {
   TOOL_PROMPT_IDS,
@@ -37,7 +34,6 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import {
   grepWarningsUnits,
   measureGrepRendering,
-  renderGrepText,
 } from '@workspace/native-file-tools';
 import { type ToolResult } from './types';
 import { type KnowledgeToolResolver, type ToolContext } from './types';
@@ -140,7 +136,7 @@ type ContextOptions = {
   readonly selection?: ReadonlySet<string>;
   readonly onDerivedDecision?: (decision: DerivedDecision) => void;
   /** Operator `tools.grep` bounds; absent means every bound is unset. */
-  readonly grep?: ToolContext['grep'];
+  readonly grepBounds?: GrepBoundsConfig;
 };
 
 function contextOf(options: ContextOptions = {}): ToolContext {
@@ -159,7 +155,7 @@ function contextOf(options: ContextOptions = {}): ToolContext {
     skillCatalog: options.catalog,
     skillSelection: options.selection,
     onDerivedDecision: options.onDerivedDecision,
-    grep: options.grep,
+    grepBounds: options.grepBounds,
   };
 }
 
@@ -215,18 +211,6 @@ function warningsOf(result: ToolResult): ReadonlyArray<unknown> {
 function cursorOf(result: ToolResult): string | undefined {
   const cursor = success(result).cursor;
   return isString(cursor) ? cursor : undefined;
-}
-
-/** The decoded payload of an opaque grep cursor, which a test may read. */
-function cursorPayload(result: ToolResult): SerializableRecord {
-  const cursor = cursorOf(result);
-  if (cursor === undefined) throw new Error('the page carries a cursor');
-  const payload: unknown = JSON.parse(
-    Buffer.from(cursor, 'base64url').toString('utf8'),
-  );
-  if (!isSerializableRecord(payload))
-    throw new Error('the cursor is an object');
-  return payload;
 }
 
 function run(context: ToolContext, args: unknown) {
@@ -675,8 +659,8 @@ describe('paging', () => {
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
     expect(pageFixedReserve()).toBe(notice + 2);
-    expect(grepWarningsUnits([{ kind: 'binary', count: 1 }])).toBe(
-      grepWarningsUnits([{ kind: 'binary', count: 999_999 }]) - 5,
+    expect(grepWarningsUnits(new Map([['binary', 1]]))).toBe(
+      grepWarningsUnits(new Map([['binary', 999_999]])) - 5,
     );
   });
 
@@ -774,7 +758,7 @@ describe('paging', () => {
                 ],
               ]),
             ),
-            grep: {
+            grepBounds: {
               maxFilesExamined: 5000,
               maxEntriesListed: null,
               maxBytesRead: null,
@@ -793,97 +777,34 @@ describe('paging', () => {
     // The fixture creates and walks about 5,000 files, which is the configured
     // file bound it proves; the page fills long before the walk stops.
   }, 30_000);
-  it('mints a position cursor when the deadline stops a walk before any passage', async () => {
+  it('takes the deadline before scope resolution spends the walk time', async () => {
     await withRoot(async (root) => {
       const space = await spaceFixture(root, SPACE_A, {
-        'a.md': lineNumbered('miss'),
-        'b.md': lineNumbered('needle'),
+        'a.md': lineNumbered('needle'),
       });
-      const context = contextOf({
-        resolver: knowledgeResolver(new Map([[SPACE_A, space.binding]])),
-      });
-      const started = Date.now();
-      let calls = 0;
-      // The call deadline at entry, the segment's remaining time, the scan's
-      // own deadline, and the first file's checks pass at once; the second
-      // file's check finds the 108-second walk deadline gone.
-      const now = vi.spyOn(Date, 'now').mockImplementation(() => {
-        calls += 1;
-        return calls <= 6 ? started : started + 109_000;
-      });
+      const resolver: KnowledgeToolResolver = {
+        ...knowledgeResolver(new Map([[SPACE_A, space.binding]])),
+        // Resolving the scope spends the whole 108-second walk. A deadline
+        // taken after resolution would leave a fresh one and find the needle.
+        resolveBindingForOwnerById: (owner, id) => {
+          vi.setSystemTime(109_000);
+          return knowledgeResolver(
+            new Map([[SPACE_A, space.binding]]),
+          ).resolveBindingForOwnerById(owner, id);
+        },
+      };
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(0);
       try {
-        const result = await run(context, {
+        const result = await run(contextOf({ resolver }), {
           patterns: ['needle'],
           scopes: [`kb://${SPACE_A}`],
         });
-        expect(result).toMatchObject({ status: 'success', complete: false });
-        expect(locatorsOf(result)).toEqual([]);
+        expect(result).toMatchObject({ status: 'success', results: [] });
         expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
-        // The cursor names the last entry the walk reached, never a file it
-        // did not examine.
-        expect(cursorPayload(result)).toMatchObject({
-          kind: 'position',
-          scopeIndex: 0,
-          rel: 'a.md',
-        });
+        expect(success(result).complete).toBe(false);
       } finally {
-        now.mockRestore();
-      }
-    });
-  });
-
-  it('names a file the deadline stopped inside and skips it next time', async () => {
-    await withRoot(async (root) => {
-      // Two mebibytes of short lines: the walk's own chunked read reaches the
-      // deadline inside the file, before the call emitted anything.
-      const space = await spaceFixture(root, SPACE_A, {
-        'big.log': `${'x'.repeat(63)}\n`.repeat(32_000),
-      });
-      const context = contextOf({
-        resolver: knowledgeResolver(new Map([[SPACE_A, space.binding]])),
-      });
-      const started = Date.now();
-      let calls = 0;
-      // Calls 1-8 are the call's deadline, the candidate's bounds, and the
-      // first chunks of the read; the 9th is past the 108-second deadline.
-      const now = vi.spyOn(Date, 'now').mockImplementation(() => {
-        calls += 1;
-        return calls <= 8 ? started : started + 109_000;
-      });
-      try {
-        const first = await run(context, {
-          patterns: ['needle'],
-          scopes: [`kb://${SPACE_A}/big.log`],
-        });
-        expect(first).toMatchObject({
-          status: 'success',
-          complete: false,
-          unfinishedFile: `kb://${SPACE_A}/big.log`,
-        });
-        expect(warningsOf(first)).toEqual([{ kind: 'deadline', count: 1 }]);
-        expect(locatorsOf(first)).toEqual([]);
-        expect(cursorPayload(first)).toMatchObject({
-          kind: 'position',
-          scopeIndex: 1,
-          rel: '',
-        });
-        // The page keeps the unfinished line inside its bound.
-        expect(measureGrepRendering(first)).toBeLessThanOrEqual(15_000);
-        expect(renderGrepText(first)).toContain(
-          `[not searched to the end: kb://${SPACE_A}/big.log]`,
-        );
-
-        const opaque = cursorOf(first);
-        if (opaque === undefined) throw new Error('the page carries a cursor');
-        const second = await run(context, {
-          patterns: ['needle'],
-          scopes: [`kb://${SPACE_A}/big.log`],
-          cursor: opaque,
-        });
-        expect(second).toMatchObject({ status: 'success', complete: true });
-        expect(locatorsOf(second)).toEqual([]);
-      } finally {
-        now.mockRestore();
+        vi.useRealTimers();
       }
     });
   });
