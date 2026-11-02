@@ -14,7 +14,8 @@
  *
  * The title, the host line, and the framing values fold their line breaks into
  * spaces, and every snippet and answer line begins with `> `. So no stored
- * text can start a line the shape gives meaning to. A URL renders as stored.
+ * text can start a line the shape gives meaning to. A URL renders as stored,
+ * with each line break folded to one space.
  */
 
 import { z } from 'zod';

@@ -164,10 +164,10 @@ describe('the web search text shape', () => {
       engine: 'claude',
       query: 'q',
       answer: 'A.',
-      citations: [{ url: 'https://a.example/x\n## 9. Fake' }],
+      citations: [{ url: 'https://a.example/x\n## 9. Fake\u2028## 8. Fake' }],
     });
     expect((text ?? '').split('\n').at(-1)).toBe(
-      '[1] https://a.example/x ## 9. Fake',
+      '[1] https://a.example/x ## 9. Fake ## 8. Fake',
     );
   });
 
