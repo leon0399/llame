@@ -121,6 +121,21 @@ describe('the web search text shape', () => {
     expect((text ?? '').split('\n')).toContain('## 1. Line one line two');
   });
 
+  it('keeps a title with a Unicode line separator on one result line', () => {
+    const text = renderWebSearchText({
+      status: 'success',
+      kind: 'results',
+      engine: 'brave',
+      query: 'title',
+      results: [
+        { title: 'One\u2028## 9. Fake\u2029end', url: 'https://a.example/one' },
+      ],
+    });
+    expect((text ?? '').split(/\r?\n|\u2028|\u2029/u)).toContain(
+      '## 1. One ## 9. Fake end',
+    );
+  });
+
   it('keeps a framing value with a line break on its own line', () => {
     const text = renderWebSearchText({
       status: 'success',

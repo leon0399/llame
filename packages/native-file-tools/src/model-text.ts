@@ -62,7 +62,7 @@ export function isNonEmptyString(value: unknown): value is string {
  *  stored value would add an unprefixed line that can imitate any of them.
  *  One run of line breaks becomes one space. */
 export function oneLine(value: string): string {
-  return value.replaceAll(/[\r\n]+/gu, " ");
+  return value.replaceAll(/[\r\n\u2028\u2029]+/gu, " ");
 }
 
 function asRange(value: unknown): LineRange | undefined {

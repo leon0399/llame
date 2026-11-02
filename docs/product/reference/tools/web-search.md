@@ -99,11 +99,12 @@ An aggregate's results output can also carry `answers`, one entry per grounded a
 
 `engine` is the answering operator id; both shapes carry validated `query` and may carry `notes`. A result has `title`/`url`, optional `snippet`/ISO-date `published`; an answer has non-empty `answer` and at least one citation. No vendor-specific fields are returned.
 
-## Model-facing text
+### Model-facing text
 
 The model reads the call as plain text, while the owner's UI reads the stored
 object above; the stored part is that object, so a reload shows what the call
-returned.
+returned. A stored part that matches neither closed shape, or a result whose URL
+has no host, keeps the JSON rendering for the whole call.
 
 ```text
 [engine: brave; query: deployment decision]
@@ -120,7 +121,7 @@ example.org
 
 One `[engine: <id>; query: <query>]` line opens the text; a line break in
 either value renders as one space. Each result is one block: a
-`## <rank>. <title>` line, then its URL as stored, then the URL's host with
+`## <rank>. <title>` line (the URL when the title is blank), then its URL as stored, then the URL's host with
 `· <date>` when `published` is known, then its snippet with a `>` mark and one
 space before each line. One blank line separates two results. An answer output,
 and each answer an aggregate attaches, is one block after the results: a
