@@ -11,6 +11,7 @@ behavior:
   - ../reference/tools/enter-workspace.md
   - ../reference/tools/exit-workspace.md
   - ../reference/locators/index.md
+  - ../reference/locators/artifact.md
   - ../reference/selectors.md
   - ../reference/instruction-files.md
   - ../reference/context-documents.md
@@ -254,6 +255,34 @@ is [exit_workspace](../reference/tools/exit-workspace.md).
 Permission clauses on a `file://` alias match the decoded host path, not the URL
 form, so prefer `^/path/` over `^file:///path/`; see
 [tool-call permissions](tool-call-permissions.md).
+
+## `artifact://` reads
+
+A tool result too large for the model-facing bound is stored as a Chat
+resource and read back with `artifact://<toolName>-<n>`; see
+[artifact](../reference/locators/artifact.md). The store is Postgres, so the
+scheme needs no `nativeExecutorId` and no `bash`: `read` serves it whenever it
+is allowlisted and its `read` group admits the locator. With a whole-tool allow
+on `read` that is every artifact read; a field-allow group must also name
+`^artifact://`, as it must name `^media://`, or the read is rejected as
+`no_allow` before any lookup. The canonical allowlist is in
+[tool-call permissions](tool-call-permissions.md).
+
+One byte bound applies to every stored part. It is a positive integer from
+131,072 to 268,435,456 bytes, or a whole-value `{env:...}`/`{path:...}` token;
+the built-in default is 8,388,608 (8 MiB), and a value outside the range, a
+fraction, or an unknown key fails startup naming the path. The floor keeps a
+Machine stream readable and the ceiling keeps a part small enough to read back.
+
+```jsonc
+{
+  "tools": {
+    "artifacts": {
+      "maxBytes": 8388608,
+    },
+  },
+}
+```
 
 ## Instruction files
 

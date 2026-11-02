@@ -75,6 +75,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     workspaceRoot: null,
     workspaceExecutorId: null,
     workspaceGeneration: 0,
+    artifactSeq: 0,
     workspaceTold: null,
     workspaceToldFrom: null,
     workspaceToldAvailable: null,
@@ -237,6 +238,7 @@ describe('ChatsService message windows, updates and forks', () => {
     workspaceRoot: null,
     workspaceExecutorId: null,
     workspaceGeneration: 0,
+    artifactSeq: 0,
     workspaceTold: null,
     workspaceToldFrom: null,
     workspaceToldAvailable: null,
@@ -523,6 +525,7 @@ describe('ChatsService message windows, updates and forks', () => {
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceGeneration: 0,
+      artifactSeq: 0,
     };
 
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {

@@ -1,6 +1,16 @@
-import { timestamp } from 'drizzle-orm/pg-core';
+import { customType, timestamp } from 'drizzle-orm/pg-core';
 
 type TimestampOptions = Parameters<typeof timestamp>[1];
+
+/**
+ * The one way to declare a `bytea` column. drizzle-orm/pg-core has none, and
+ * postgres.js maps this one to a `Buffer` in both directions.
+ */
+export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
 
 /**
  * The one way to declare a timestamp column.

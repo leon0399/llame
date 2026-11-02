@@ -29,6 +29,7 @@ import {
   selectForkMessages,
   type CopyableMessage,
 } from './fork-copy';
+import { citedArtifacts, copyCitedArtifacts } from './fork-artifacts';
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { pgErrorCode } from '../db/pg-error';
@@ -555,6 +556,11 @@ export class ChatsService {
       inherited,
       messageIds,
     );
+    await copyCitedArtifacts(tx, {
+      sourceChatId: chatId,
+      targetChatId: created.id,
+      citations: citedArtifacts(toCopy.flatMap((message) => message.parts)),
+    });
     return created;
   }
 

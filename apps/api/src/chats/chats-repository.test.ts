@@ -180,6 +180,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           workspaceRoot: string | null;
           workspaceExecutorId: string | null;
           workspaceGeneration: number;
+          artifactSeq: number;
           workspaceTold: string | null;
           workspaceToldFrom: string | null;
           workspaceToldAvailable: boolean | null;
@@ -214,6 +215,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
@@ -249,6 +251,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
@@ -284,6 +287,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
@@ -323,6 +327,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
@@ -357,6 +362,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
@@ -389,6 +395,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
@@ -423,6 +430,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
@@ -730,6 +738,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceGeneration: 0,
+      artifactSeq: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
       workspaceToldAvailable: null,
@@ -771,6 +780,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
         workspaceGeneration: 0,
+        artifactSeq: 0,
         workspaceTold: null,
         workspaceToldFrom: null,
         workspaceToldAvailable: null,

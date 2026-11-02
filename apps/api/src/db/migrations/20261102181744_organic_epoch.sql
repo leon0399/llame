@@ -1,0 +1,2 @@
+DROP INDEX "tool_artifact_parts_artifact_idx";--> statement-breakpoint
+ALTER TABLE "tool_artifact_parts" ADD CONSTRAINT "tool_artifact_parts_artifact_name_unique" UNIQUE NULLS NOT DISTINCT("artifact_id","name");

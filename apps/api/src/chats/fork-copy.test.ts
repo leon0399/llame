@@ -35,6 +35,7 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   workspaceRoot: null,
   workspaceExecutorId: null,
   workspaceGeneration: 0,
+  artifactSeq: 0,
   workspaceTold: null,
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
@@ -166,6 +167,7 @@ describe('inheritForkedChatState', () => {
       workspaceRoot: '/work/project',
       workspaceExecutorId: 'worker-a',
       workspaceGeneration: 7,
+      artifactSeq: 5,
     });
 
     const { inherited } = inheritForkedChatState(source, prefix);
@@ -179,6 +181,7 @@ describe('inheritForkedChatState', () => {
       workspaceRoot: '/work/project',
       workspaceExecutorId: 'worker-a',
       workspaceGeneration: 7,
+      artifactSeq: 5,
       recencyDigestRebakedFrom: null,
       skillCatalogRebakedFrom: null,
     });

@@ -44,6 +44,19 @@ argument: the selector in `path` carries all of that. See
 | [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only    |
 | [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process  |
 | [`media://`](../locators/media.md)             | no       | no      | the owner's stored media, read-only      |
+| [`artifact://`](../locators/artifact.md)       | no       | no      | this Chat's stored tool results          |
+
+### Artifact locators
+
+`artifact://<toolName>-<n>` reads the whole result a tool call stored when it
+did not fit inline, and `artifact://<toolName>-<n>/<part>` reads one part of a
+`bash` artifact. It routes before local path resolution and needs no executor:
+the store is the Chat's own Postgres rows. A bare `artifact://` lists the
+Chat's artifacts, and a `bash` artifact's locator lists its streams. Artifact
+lines count 8,000-unit pieces of a long source line, and `:outline` reads a
+Markdown part. Another Chat, another owner, and a missing part are
+`not_found`; `edit` and `write` refuse the scheme with `invalid_path`. See
+[artifact](../locators/artifact.md).
 
 ## Result
 

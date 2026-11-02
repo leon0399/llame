@@ -88,6 +88,7 @@ const chat: Chat = {
   workspaceRoot: null,
   workspaceExecutorId: null,
   workspaceGeneration: 0,
+  artifactSeq: 0,
   workspaceTold: null,
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
@@ -891,6 +892,7 @@ describe('ChatCreationService resend rules', () => {
       workspaceRoot: ROOT,
       workspaceExecutorId: 'host',
       workspaceGeneration: 1,
+      artifactSeq: 0,
     });
     const service = makeService({ stubs });
     service.validateTurn.mockResolvedValue(turn());

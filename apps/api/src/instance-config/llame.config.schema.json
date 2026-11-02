@@ -325,6 +325,13 @@
         "reject": { "$ref": "#/$defs/permissionMatcher" }
       }
     },
+    "artifactMaxBytesOrToken": {
+      "description": "The artifact part bound: an integer from 131072 (128 KiB) to 268435456 (256 MiB), or a whole-value interpolation token that resolves to one.",
+      "oneOf": [
+        { "type": "integer", "minimum": 131072, "maximum": 268435456 },
+        { "$ref": "#/$defs/interpolationToken" }
+      ]
+    },
     "heartbeatSecondsOrToken": {
       "description": "The job-queue's native worker-liveness window: a positive integer >= 10 (pg-boss's own floor for queue heartbeatSeconds), or a whole-value interpolation token that resolves to one.",
       "oneOf": [
@@ -946,6 +953,17 @@
             "maxFileBytes": {
               "$ref": "#/$defs/nullableNumberOrToken",
               "description": "Largest regular file the walk searches, checked on the announced size and again on the bytes it reads. Omitted or null = a file of any size is searched; a larger file is skipped and counted as `oversized`."
+            }
+          }
+        },
+        "artifacts": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Optional bounds on stored tool-result artifacts. A part holds the whole result that did not fit inline, and every `read(\"artifact://…\")` serves it. Absent or null takes the built-in 8 MiB bound, as an absent `tools.grep` bounds nothing.",
+          "properties": {
+            "maxBytes": {
+              "$ref": "#/$defs/artifactMaxBytesOrToken",
+              "description": "The largest one artifact part may be, in UTF-8 bytes, from 131072 to 268435456. A producer that streams stops at the bound and marks its result incomplete; a whole result above it is not stored. Default: 8388608 (8 MiB)."
             }
           }
         },

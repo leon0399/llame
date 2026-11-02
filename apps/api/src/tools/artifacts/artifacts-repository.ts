@@ -1,0 +1,188 @@
+import { and, asc, eq, sql } from 'drizzle-orm';
+
+import { chats, toolArtifactParts, toolArtifacts } from '../../db/schema';
+import { type Db } from '../../db/tenant-db.service';
+
+/** One artifact as the Chat list shows it. */
+export type ArtifactSummary = {
+  readonly seq: number;
+  readonly toolName: string;
+  readonly createdAt: Date;
+  readonly lineCount: number;
+  readonly byteSize: number;
+};
+
+/** One part as a `bash` artifact's stream list shows it. */
+export type ArtifactPartSummary = {
+  readonly name: string;
+  readonly lineCount: number;
+  readonly byteSize: number;
+};
+
+/** One artifact's parts, with the creation time both lists show. */
+export type ArtifactParts = {
+  readonly createdAt: Date;
+  readonly parts: ReadonlyArray<ArtifactPartSummary>;
+};
+
+export type StoredPart = {
+  readonly contentType: string;
+  readonly content: Buffer;
+  readonly lineCount: number;
+};
+
+export type NewArtifact = {
+  readonly chatId: string;
+  readonly seq: number;
+  readonly toolName: string;
+  readonly toolCallId: string;
+  readonly runId: string;
+  readonly complete: boolean;
+};
+
+export type NewArtifactPart = {
+  readonly name: string;
+  readonly contentType: string;
+  readonly content: Buffer;
+  readonly sha256: string;
+  readonly byteSize: number;
+  readonly lineCount: number;
+  readonly findings: unknown;
+};
+
+/**
+ * Owner-scoped access to the artifact tables (tool-result-artifacts D1). RLS is
+ * the isolation guarantee; every query also names its Chat as a seatbelt, so a
+ * locator from another Chat of the same owner resolves to nothing.
+ */
+export class ArtifactsRepository {
+  constructor(private readonly db: Db) {}
+
+  /**
+   * The Chat's next artifact number. It runs in its own short transaction, so
+   * the Chat row lock is not held across the part insert; a failed write
+   * therefore leaves a gap in the numbers, which D1 accepts.
+   */
+  async nextSeq(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<number | undefined> {
+    const [row] = await this.db
+      .update(chats)
+      .set({ artifactSeq: sql`${chats.artifactSeq} + 1` })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .returning({ seq: chats.artifactSeq });
+    return row?.seq;
+  }
+
+  async insertArtifact(artifact: NewArtifact): Promise<string> {
+    const [row] = await this.db
+      .insert(toolArtifacts)
+      .values(artifact)
+      .returning({ id: toolArtifacts.id });
+    return row.id;
+  }
+
+  /** Every part of one artifact, inserted in the caller's transaction. */
+  async insertParts(
+    artifactId: string,
+    parts: ReadonlyArray<NewArtifactPart>,
+  ): Promise<void> {
+    await this.db
+      .insert(toolArtifactParts)
+      .values(parts.map((part) => ({ ...part, artifactId })));
+  }
+
+  /** The Chat's artifacts, oldest first, with their size in lines and bytes. */
+  async listChat(chatId: string): Promise<Array<ArtifactSummary>> {
+    return this.db
+      .select({
+        seq: toolArtifacts.seq,
+        toolName: toolArtifacts.toolName,
+        createdAt: toolArtifacts.createdAt,
+        lineCount:
+          sql<number>`coalesce(sum(${toolArtifactParts.lineCount}), 0)`.mapWith(
+            Number,
+          ),
+        byteSize:
+          sql<number>`coalesce(sum(${toolArtifactParts.byteSize}), 0)`.mapWith(
+            Number,
+          ),
+      })
+      .from(toolArtifacts)
+      .leftJoin(
+        toolArtifactParts,
+        eq(toolArtifactParts.artifactId, toolArtifacts.id),
+      )
+      .where(eq(toolArtifacts.chatId, chatId))
+      .groupBy(toolArtifacts.id)
+      .orderBy(asc(toolArtifacts.seq));
+  }
+
+  /** One artifact's parts and creation time, or undefined for a missing one. */
+  async findParts(
+    chatId: string,
+    toolName: string,
+    seq: number,
+  ): Promise<ArtifactParts | undefined> {
+    const rows = await this.db
+      .select({
+        createdAt: toolArtifacts.createdAt,
+        name: toolArtifactParts.name,
+        lineCount: toolArtifactParts.lineCount,
+        byteSize: toolArtifactParts.byteSize,
+      })
+      .from(toolArtifacts)
+      .innerJoin(
+        toolArtifactParts,
+        eq(toolArtifactParts.artifactId, toolArtifacts.id),
+      )
+      .where(
+        and(
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.toolName, toolName),
+          eq(toolArtifacts.seq, seq),
+        ),
+      )
+      .orderBy(asc(toolArtifactParts.name));
+    const [first] = rows;
+    if (first === undefined) return undefined;
+    return {
+      createdAt: first.createdAt,
+      parts: rows.map(({ name, lineCount, byteSize }) => ({
+        name,
+        lineCount,
+        byteSize,
+      })),
+    };
+  }
+
+  /** One named part of one artifact, with its bytes, in one joined query. */
+  async readPart(
+    chatId: string,
+    toolName: string,
+    seq: number,
+    name: string,
+  ): Promise<StoredPart | undefined> {
+    const [row] = await this.db
+      .select({
+        contentType: toolArtifactParts.contentType,
+        content: toolArtifactParts.content,
+        lineCount: toolArtifactParts.lineCount,
+      })
+      .from(toolArtifactParts)
+      .innerJoin(
+        toolArtifacts,
+        eq(toolArtifacts.id, toolArtifactParts.artifactId),
+      )
+      .where(
+        and(
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.toolName, toolName),
+          eq(toolArtifacts.seq, seq),
+          eq(toolArtifactParts.name, name),
+        ),
+      );
+    return row;
+  }
+}

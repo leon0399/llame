@@ -105,6 +105,7 @@ export type ChatInheritedValues = Partial<
     | 'workspaceRoot'
     | 'workspaceExecutorId'
     | 'workspaceGeneration'
+    | 'artifactSeq'
   >
 >;
 

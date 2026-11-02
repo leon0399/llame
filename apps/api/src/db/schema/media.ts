@@ -1,7 +1,6 @@
 import { InferSelectModel, sql } from 'drizzle-orm';
 import {
   check,
-  customType,
   integer,
   pgEnum,
   pgPolicy,
@@ -12,16 +11,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { timestamptz } from '../columns';
+import { bytea, timestamptz } from '../columns';
 import { users } from './auth';
-
-// drizzle-orm/pg-core has no `bytea` column; postgres.js maps it to a Buffer
-// in both directions.
-const bytea = customType<{ data: Buffer; driverData: Buffer }>({
-  dataType() {
-    return 'bytea';
-  },
-});
 
 export const mediaVariant = pgEnum('media_variant', ['original', 'model']);
 

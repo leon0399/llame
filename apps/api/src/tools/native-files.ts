@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
-  applySelectorSuffix,
   createFile,
   editFile,
   parsePathScheme,
@@ -9,10 +8,8 @@ import {
   readResolvedFile,
   replaceFile,
   REPLACE_TARGET_MISSING_MESSAGE,
-  resolveEndRelativeSelector,
   serializeNativeModelOutput,
   type NativeReadOptions,
-  type ReadTarget,
 } from '@workspace/native-file-tools';
 import {
   KNOWLEDGE_LOCATOR_SCHEME,
@@ -55,6 +52,9 @@ import {
 } from '../machines/machine-locator';
 import { executeSshNative } from './ssh-files';
 import { SSH_SCHEME } from '../ssh/ssh-locator';
+import { readArtifact } from './artifacts/artifact-reader';
+import { ARTIFACT_SCHEME } from './artifacts/locator';
+import { placeListingSelector } from './listing-window';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -152,6 +152,8 @@ const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
       context.sshClient === undefined
         ? Promise.resolve(unknownSchemeResult())
         : executeSshNative(context, call.operation, call.input.path),
+    [ARTIFACT_SCHEME]: (context, call) =>
+      readArtifact(context, call.operation, call.input.path),
   } satisfies Record<string, LocatorReader>),
 );
 
@@ -322,30 +324,17 @@ function catalogWindow(
   selector: string | undefined,
   count: number,
 ): { readonly offset: number; readonly limit?: number } | ToolResult {
-  if (selector === undefined) return { offset: 0 };
-  let target: ReadTarget;
-  try {
-    target = applySelectorSuffix(SKILL_CATALOG_LOCATOR, selector);
-  } catch {
+  const placed = placeListingSelector(SKILL_CATALOG_LOCATOR, selector, count);
+  if ('refusal' in placed) {
     return invalidCatalogSelectorResult(
-      'The skill catalog selector is invalid.',
+      placed.refusal === 'invalid'
+        ? 'The skill catalog selector is invalid.'
+        : placed.refusal === 'outline'
+          ? 'The :outline member is not supported for the skill catalog.'
+          : 'The skill catalog accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.',
     );
   }
-  if (target.outline) {
-    return invalidCatalogSelectorResult(
-      'The :outline member is not supported for the skill catalog.',
-    );
-  }
-  if (
-    target.raw ||
-    target.ranges !== undefined ||
-    target.pending?.includes(',') === true
-  ) {
-    return invalidCatalogSelectorResult(
-      'The skill catalog accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.',
-    );
-  }
-  return resolveEndRelativeSelector(target, count);
+  return placed.window;
 }
 
 const SKILL_CATALOG_LOCATOR = 'skill://';
@@ -606,9 +595,5 @@ export const nativeWriteTool: Tool<{
 };
 
 export function isNativeFileTool(tool: Tool): boolean {
-  return (
-    tool === nativeReadTool ||
-    tool === nativeEditTool ||
-    tool === nativeWriteTool
-  );
+  return [nativeReadTool, nativeEditTool, nativeWriteTool].includes(tool);
 }

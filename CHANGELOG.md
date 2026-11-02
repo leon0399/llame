@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
+- Stored tool-result artifacts: `read` now accepts
+  `artifact://<toolName>-<n>` and `artifact://<toolName>-<n>/<part>`. The
+  artifact store is two Chat-scoped Postgres tables under the Chat owner's
+  forced row-level security, with a per-Chat counter on `chats`; a deleted
+  Chat or owner deletes its rows, and an owner fork copies the artifacts its
+  copied tool parts name and continues the source's counter. A bare
+  `artifact://` lists the Chat's artifacts oldest first, a `bash` artifact's
+  locator lists its streams, and a part serves the ordinary selectors, `:raw`,
+  and `:outline` on Markdown; a source line longer than 8,000 UTF-16 code
+  units is numbered in pieces that end on a code-point boundary. `edit` and
+  `write` refuse the scheme with `invalid_path`, an `@artifact://` marker
+  stays prose instead of importing, and `tools.artifacts.maxBytes` (default
+  8,388,608, floor 131,072) bounds each stored part. A part over the bound is
+  a failed write, and a reused `(chat, run, tool call)` key is a failed write
+  rather than a lookup. No tool writes an artifact yet: the producers,
+  read-time finding re-checks, and host files arrive with later layers. See
+  [artifact](docs/product/reference/locators/artifact.md).
+
 - `web_search` results and answers now reach the model as plain text instead of
   JSON, while the stored part and the web chat renderer are unchanged. See
   [web_search](docs/product/reference/tools/web-search.md).
