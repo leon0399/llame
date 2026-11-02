@@ -2346,6 +2346,44 @@ describe('daemon page stop conditions', () => {
     }
   });
 
+  it('searches a direct-file scope when only the entry bound is spent', async () => {
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method === 'fs.stat')
+          return { value: { kind: 'file', isLink: false } };
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], { consumed: { files: 0, entries: 1, bytes: 0 } })
+              : page([passage('', 1, 1)]),
+        };
+      },
+    });
+    const result = await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: null,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/app.go'],
+      },
+    );
+    // The file counts no entry, so the spent entry bound must not drop it.
+    expect(searches).toBe(2);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/b/app.go:1-1']);
+    expect(success(result).complete).toBe(true);
+    expect(success(result).warnings).toEqual([]);
+    expect(fsGrepCalls(await peer.session(0))).toBe(2);
+  });
+
   it('names the file bound for a skipped direct-file scope', async () => {
     let searches = 0;
     const { connector } = fixture({

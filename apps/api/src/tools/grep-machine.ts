@@ -323,7 +323,7 @@ async function runDaemonPages(
   // the next request know, so its own stop hides no file behind it.
   let progressed = search.progressed;
   let last: FsGrepSuccess | undefined;
-  while (canAskPage(budget)) {
+  while (canAskPage(budget, search.scope.singleFile === true)) {
     const asked = await requestPage(search, connector, {
       budget,
       cursor,
@@ -495,14 +495,18 @@ function spent(
   };
 }
 
-/** Whether the remaining budget can buy one more daemon page. */
-function canAskPage(budget: GrepBudget): boolean {
+/**
+ * Whether the remaining budget can buy one more daemon page. A direct-file
+ * scope counts no entry, so a spent entry bound does not stop it, exactly as
+ * the engine's single-file walk never calls the entry counter.
+ */
+function canAskPage(budget: GrepBudget, singleFile: boolean): boolean {
   return (
     budget.limit > 0 &&
     budget.pageUnits > 0 &&
     budget.deadlineMs > 0 &&
     (budget.files === null || budget.files > 0) &&
-    (budget.entries === null || budget.entries > 0) &&
+    (singleFile || budget.entries === null || budget.entries > 0) &&
     (budget.bytes === null || budget.bytes > 0)
   );
 }
