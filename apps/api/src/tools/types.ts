@@ -169,8 +169,9 @@ export interface ToolContext {
   readonly artifactReadable?: boolean;
   /**
    * `bash` is in `tools.allowed` and this process has a native executor, so a
-   * Run's artifacts are also files under `$TMPDIR/llame/chats/<chatId>/`
-   * (tool-result-artifacts D10). Absent means no host file is written.
+   * Run keeps its artifacts as files under `$TMPDIR/llame/chats/<chatId>/`
+   * when the host directories verify (tool-result-artifacts D10). Absent
+   * means no host file is written.
    */
   readonly artifactHostFiles?: boolean;
   /**

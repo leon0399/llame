@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import { admitManagedBash, type BashResult } from '@workspace/bash-executor';
@@ -34,6 +35,8 @@ import {
 } from './machine-call';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
+
+const bashLogger = new Logger('BashTool');
 
 type AdmittedBashExecution = Extract<
   ReturnType<typeof admitManagedBash>,
@@ -320,7 +323,9 @@ async function runHostBash(
   // Repair the Chat's artifact files before this command can open them; a
   // failed reconcile leaves them as they were (tool-result-artifacts D10).
   if (context.artifactHostFiles === true) {
-    await reconcileArtifactFiles(context).catch(() => undefined);
+    await reconcileArtifactFiles(context).catch((error: unknown) => {
+      bashLogger.warn(`Artifact file reconcile failed: ${String(error)}`);
+    });
   }
   // Always wrap in bash -c: the managed allowlist only admits basenames like
   // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.

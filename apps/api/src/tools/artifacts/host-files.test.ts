@@ -20,6 +20,7 @@ import {
 import { chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../../db/schema';
@@ -209,7 +210,67 @@ describe('writing host files after the commit', () => {
     });
 
     expect(written).toBeUndefined();
-    expect(existsSync(path.join(temporaryRoot, 'escape'))).toBe(false);
+    // `../escape` resolves beside the verified `chats` root, under `llame`.
+    expect(existsSync(path.join(temporaryRoot, 'llame', 'escape'))).toBe(false);
+  });
+
+  it('writes nothing when a bash command replaced the artifact directory', async () => {
+    const outside = mkdtempSync(path.join(temporaryRoot, 'outside-'));
+    const directory = artifactDirectory(CHAT);
+    mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
+    symlinkSync(outside, directory);
+
+    const written = await writeArtifactHostFiles({
+      chatId: CHAT,
+      toolName: 'bash',
+      seq: 1,
+      createdAt: CREATED_AT,
+      parts: bashParts(),
+    });
+
+    expect(written).toBeUndefined();
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it('writes nothing when the Run has already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const written = await writeArtifactHostFiles({
+      chatId: CHAT,
+      toolName: 'bash',
+      seq: 1,
+      createdAt: CREATED_AT,
+      parts: bashParts(),
+      abortSignal: controller.signal,
+    });
+
+    expect(written).toBeUndefined();
+    expect(existsSync(artifactDirectory(CHAT))).toBe(false);
+  });
+
+  it('logs a fixed failure code when the write cannot land', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    mkdirSync(path.dirname(artifactDirectory(CHAT)), {
+      recursive: true,
+      mode: 0o700,
+    });
+    // A regular file where the artifact directory must be makes mkdir fail.
+    writeFileSync(artifactDirectory(CHAT), '');
+
+    const written = await writeArtifactHostFiles({
+      chatId: CHAT,
+      toolName: 'bash',
+      seq: 1,
+      createdAt: CREATED_AT,
+      parts: bashParts(),
+    });
+
+    expect(written).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/^Artifact host file write failed: /u),
+    );
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain(temporaryRoot);
   });
 });
 
@@ -249,6 +310,7 @@ describe('reconciling host files', () => {
 
     await reconcileArtifactFiles(context());
 
+    expect(find).toHaveBeenCalledWith(CHAT, 'artifact-12', 'stdout');
     expect(find).toHaveBeenCalledTimes(2);
     const directory = path.join(artifactDirectory(CHAT), 'bash-12');
     expect(readFileSync(path.join(directory, 'stdout.txt'), 'utf8')).toBe(
@@ -376,6 +438,19 @@ describe('reconciling host files', () => {
     expect(statSync(chatRoot(CHAT)).mtimeMs).toBeGreaterThan(
       seen.getTime() + DAY_MS,
     );
+  });
+
+  it('reads no part when the Run has already aborted', async () => {
+    const list = vi.spyOn(ArtifactsRepository.prototype, 'listChatPartFiles');
+    const controller = new AbortController();
+    controller.abort();
+
+    await reconcileArtifactFiles({
+      ...context(),
+      abortSignal: controller.signal,
+    });
+
+    expect(list).not.toHaveBeenCalled();
   });
 
   it('reads no part when the host root is not private', async () => {

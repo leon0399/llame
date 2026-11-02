@@ -857,9 +857,14 @@ function serveCheckpointPublication(id = publishedCheckpointId) {
 }
 
 describe('RunExecutionService executeRun', () => {
+  const hostRoots: Array<string> = [];
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+    for (const root of hostRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   const ARTIFACT_CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
@@ -867,6 +872,7 @@ describe('RunExecutionService executeRun', () => {
   /** A private `$TMPDIR` for host artifact files, scoped to one test. */
   function hostTmpdir(): string {
     const root = mkdtempSync(path.join(tmpdir(), 'artifact-attempt-'));
+    hostRoots.push(root);
     vi.stubEnv('TMPDIR', root);
     return root;
   }
@@ -908,7 +914,7 @@ describe('RunExecutionService executeRun', () => {
     ).mockResolvedValue(Buffer.from('hello\n'));
   }
 
-  it('restores the Chat artifact files and sweeps stale directories before the first request', async () => {
+  it('restores the Chat artifact files before the first request and sweeps stale directories at attempt start', async () => {
     mockNormalExecutionRepositories();
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
@@ -939,7 +945,8 @@ describe('RunExecutionService executeRun', () => {
 
     expect(seenAtRequest()).toBe(true);
     expect(readFileSync(restored, 'utf8')).toBe('hello\n');
-    expect(existsSync(staleChat)).toBe(false);
+    // The attempt-start sweep runs in the background.
+    await vi.waitFor(() => expect(existsSync(staleChat)).toBe(false));
   });
 
   it('keeps no host file when bash is not allowlisted', async () => {
@@ -995,7 +1002,7 @@ describe('RunExecutionService executeRun', () => {
     }).service.executeRun(executionInput(createFakeModelClient(['answer'])));
 
     expect(list).not.toHaveBeenCalled();
-    expect(existsSync(staleChat)).toBe(false);
+    await vi.waitFor(() => expect(existsSync(staleChat)).toBe(false));
   });
 
   it('continues the Run when the artifact files cannot be reconciled', async () => {

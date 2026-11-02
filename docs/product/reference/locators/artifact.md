@@ -80,30 +80,29 @@ Host files keep the content as admitted. Only `read` on `artifact://` checks
 findings again, so a command that reads a host file sees what the artifact
 stored.
 
-## Host files
+### Host files
 
 When `bash` is allowlisted and the process has a native executor, every part is
 also a file on the llame host under
 `$TMPDIR/llame/chats/<chatId>/artifacts/`: `<toolName>-<n>.<ext>` for a tool's
-single part, and `bash-<n>/<stream>.<ext>` for a `bash` stream. The extension
-of the content type is `.md`, `.json`, or `.txt`, so the ordinary readers apply.
-The notice names the directory (`; host files in <directory>`), or says
-`; host files on the llame host only` in a Machine Workspace and when `bash`
-runs on an `ssh://` host, because neither opens a llame host path. A Run whose
-only route is a host `bash` is given the directory with `on the llame host`
-after it instead, so the notice always names a usable route. The worker
-creates `llame/` and `llame/chats/` private to its own OS user (mode `0700`)
-and writes no file, and sweeps nothing, when either is a symbolic link or
-another user's.
+single part, and `bash-<n>/<stream>.<ext>` for a `bash` stream, with `.md`,
+`.json`, or `.txt` chosen from the content type so the ordinary readers apply.
+The notice names that directory, or says `; host files on the llame host only`
+in a Machine Workspace and when `bash` runs on an `ssh://` host, because
+neither opens a llame host path; a Run whose only route is a host `bash` is
+given the directory with `on the llame host` after it, so the notice always
+names a usable route.
 
 A host file holds the content as it was admitted; only `read` on
-`artifact://` checks findings again, so a `bash` command that opens the file
-sees what the artifact stored. Postgres stays the authority: at the start of
-each attempt and before each `bash` call, the system compares the Chat's files
-with their stored size and modification time and rewrites what is absent or
-changed. Files are not isolated per owner, because `bash` runs as the worker's
-OS user; the [operator runbook](../../operator/native-files.md#host-files) owns
-`$TMPDIR`, the seven-day sweep, and that trust boundary.
+`artifact://` checks findings again, so a command that opens the file sees what
+the artifact stored. The files are a cache: Postgres stays the authority, and
+the system compares them with the stored size and modification time at the
+start of each attempt and before each host `bash` call. The worker creates the
+root and the Chat and artifact directories private to its own OS user, and it
+writes no file, and follows no such directory, when one is a symbolic link,
+another user's, or carries any group or other permission. `$TMPDIR`, the
+seven-day sweep, and the lack of owner isolation are the
+[operator runbook](../../operator/native-files.md#host-files)'s subject.
 
 ## Bounds
 

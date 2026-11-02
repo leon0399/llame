@@ -802,6 +802,8 @@ describe('the bash artifact host files', () => {
     );
 
     expect(result.artifact).toBe('artifact://bash-5');
+    // Pin the base independently of the production path helper.
+    expect(hostDirectory().startsWith(temporaryRoot)).toBe(true);
     expect(textOf(result)).toContain(
       `[full result: artifact://bash-5/stdout (3 lines); host files in ${hostDirectory()}]`,
     );

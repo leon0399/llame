@@ -926,14 +926,14 @@ describe("truncateOversizedResult head spill", () => {
       locator: LOCATOR,
       lineCount: 900,
       hostFiles: {
-        directory: "/tmp/llame/chats/c/artifacts/mcp__docs__fetch-4.json",
+        directory: "/tmp/llame/chats/c/artifacts",
         elsewhere: false,
         readable: false,
       },
     });
 
     expect(noticeOf(result)).toContain(
-      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-; host files in /tmp/llame/chats/c/artifacts/mcp__docs__fetch-4.json]`,
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-; host files in /tmp/llame/chats/c/artifacts]`,
     );
   });
 

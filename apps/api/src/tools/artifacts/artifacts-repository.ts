@@ -231,17 +231,25 @@ export class ArtifactsRepository {
 
   /**
    * One part's bytes only, for the reconcile's repair (D10): the findings and
-   * the reader's counts are not needed there.
+   * the reader's counts are not needed there. The Chat filter keeps the
+   * seatbelt every query of this class carries, so a stray artifact id from
+   * another Chat resolves to nothing.
    */
   async findPartContent(
+    chatId: string,
     artifactId: string,
     name: string,
   ): Promise<Buffer | undefined> {
     const [row] = await this.db
       .select({ content: toolArtifactParts.content })
       .from(toolArtifactParts)
+      .innerJoin(
+        toolArtifacts,
+        eq(toolArtifacts.id, toolArtifactParts.artifactId),
+      )
       .where(
         and(
+          eq(toolArtifacts.chatId, chatId),
           eq(toolArtifactParts.artifactId, artifactId),
           eq(toolArtifactParts.name, name),
         ),

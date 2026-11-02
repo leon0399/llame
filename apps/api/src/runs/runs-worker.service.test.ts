@@ -9,7 +9,13 @@
  * markFinished's first-writer-wins guard (a no-op when the run is already
  * terminal).
  */
-import { existsSync, mkdirSync, mkdtempSync, utimesSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { dirname } from 'node:path';
 import { Logger } from '@nestjs/common';
@@ -207,9 +213,23 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     userMessage: { id: 'msg-1', seq: 1, parts: [] },
   };
 
+  const hostRoots: Array<string> = [];
+
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    for (const root of hostRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
+
+  /** A private `$TMPDIR` for this test's artifact root. */
+  function hostTmpdir(): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
+    hostRoots.push(root);
+    vi.stubEnv('TMPDIR', root);
+    return root;
+  }
 
   it('registers a consumer on the runs.dead dead-letter queue at bootstrap', async () => {
     const tx = makeFakeTx();
@@ -222,8 +242,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   });
 
   it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
-    const hostRoot = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
-    vi.stubEnv('TMPDIR', hostRoot);
+    hostTmpdir();
     const stale = path.join(
       artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
       'bash-1',
@@ -244,13 +263,15 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
 
     await service.onApplicationBootstrap();
 
-    expect(existsSync(dirname(dirname(stale)))).toBe(false);
+    // The startup sweep runs in the background.
+    await vi.waitFor(() =>
+      expect(existsSync(dirname(dirname(stale)))).toBe(false),
+    );
     expect(existsSync(dirname(dirname(live)))).toBe(true);
   });
 
   it('sweeps nothing when the worker keeps no host files', async () => {
-    const hostRoot = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
-    vi.stubEnv('TMPDIR', hostRoot);
+    hostTmpdir();
     const stale = path.join(
       artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
       'bash-1',

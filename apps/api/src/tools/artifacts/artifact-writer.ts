@@ -42,7 +42,11 @@ export type WrittenArtifact = {
   readonly locator: string;
   readonly lineCount: number;
   readonly byteSize: number;
-  /** The Chat's artifact directory when host files were written (D10). */
+  /**
+   * The directory holding the host files, when they were written (D10): the
+   * Chat's `artifacts` directory for an unnamed part, or `<tool>-<n>` for a
+   * named-part artifact such as `bash`.
+   */
   readonly hostDirectory?: string;
 };
 
@@ -57,7 +61,13 @@ export type WrittenArtifact = {
 export async function writeToolArtifact(
   tenantDb: TenantRunner,
   request: ArtifactWriteRequest,
-  options: { readonly maxBytes: number; readonly hostFiles?: boolean },
+  options: {
+    readonly maxBytes: number;
+    readonly hostFiles?: boolean;
+    /** Stops host-file materialization when the Run or the call aborts. */
+    readonly abortSignal?: AbortSignal | undefined;
+    readonly timeoutSignal?: AbortSignal | undefined;
+  },
 ): Promise<WrittenArtifact> {
   const parts = prepareParts(request, options.maxBytes);
   const seq = await nextSeq(tenantDb, request);
@@ -70,6 +80,8 @@ export async function writeToolArtifact(
           seq,
           createdAt: written.createdAt,
           parts,
+          abortSignal: options.abortSignal,
+          timeoutSignal: options.timeoutSignal,
         })
       : undefined;
 

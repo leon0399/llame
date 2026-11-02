@@ -109,7 +109,9 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // sweeps them; the sweep swallows its own failures, so it cannot fail
     // startup.
     if (hostFilesEnabled(this.instanceConfig.config.tools)) {
-      await sweepArtifactDirectories();
+      // In the background: the walk cannot reject, and it must not delay
+      // queue consumption or an HTTP listen in the co-located API process.
+      void sweepArtifactDirectories();
     }
     await this.canonicalSearchCoverage.assertReady();
     await this.queue.ensureQueue(

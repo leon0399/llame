@@ -348,7 +348,7 @@ function bashHostFiles(
   return {
     directory,
     elsewhere,
-    readable: readAdmitsArtifact(context, 'bash'),
+    readable: readAdmitsArtifact(context, 'bash', written.seq),
   };
 }
 
@@ -387,12 +387,21 @@ async function writeStreamParts(
       {
         maxBytes: artifactMaxBytes(context),
         hostFiles: context.artifactHostFiles === true,
+        abortSignal: context.abortSignal,
+        timeoutSignal: context.timeoutSignal,
       },
     );
     // The probe before the write cannot know the counter value, so the
     // allocated locator is judged again: a denied one is never advertised, and
-    // its row stays an orphan the store has no delete for (D4).
-    return canReadArtifacts(context, 'bash', written.seq) ? written : undefined;
+    // its row stays an orphan the store has no delete for (D4). A host route
+    // needs the file it would name; without one only `read` reaches it.
+    return (
+      written.hostDirectory === undefined
+        ? readAdmitsArtifact(context, 'bash', written.seq)
+        : canReadArtifacts(context, 'bash', written.seq)
+    )
+      ? written
+      : undefined;
   });
 }
 

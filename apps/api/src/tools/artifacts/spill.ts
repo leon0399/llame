@@ -134,10 +134,13 @@ async function storeHeadRendering(
     rendering,
   });
   // A sequence-specific `read` rule is judged on the allocated locator; when
-  // neither path admits it, the row stays an orphan and nothing is promised.
-  if (!canReadArtifacts(context, toolName, written.seq)) {
-    return { kind: 'not-stored' };
-  }
+  // neither path admits it, the row stays an orphan and nothing is promised. A
+  // host route needs the file it would name; without one only `read` reaches it.
+  const reachable =
+    written.hostDirectory === undefined
+      ? readAdmitsArtifact(context, toolName, written.seq)
+      : canReadArtifacts(context, toolName, written.seq);
+  if (!reachable) return { kind: 'not-stored' };
   const hostFiles = headHostFiles(context, toolName, written);
   return {
     kind: 'stored',
@@ -175,6 +178,8 @@ function writeHeadArtifact(
     {
       maxBytes: artifactMaxBytes(context),
       hostFiles: context.artifactHostFiles === true,
+      abortSignal: context.abortSignal,
+      timeoutSignal: context.timeoutSignal,
     },
   );
 }
@@ -196,6 +201,6 @@ function headHostFiles(
     directory,
     elsewhere:
       machineWorkspaceRoot(context.workspaceRoot?.current()) !== undefined,
-    readable: readAdmitsArtifact(context, toolName),
+    readable: readAdmitsArtifact(context, toolName, written.seq),
   };
 }
