@@ -920,6 +920,36 @@ describe("truncateOversizedResult head spill", () => {
     expect(notice).not.toContain("(1 lines)");
   });
 
+  it("names the host directory when the spill wrote host files", () => {
+    const result = truncateOversizedResult(oversized(), undefined, {
+      kind: "stored",
+      locator: LOCATOR,
+      lineCount: 900,
+      hostFiles: {
+        directory: "/tmp/llame/chats/c/artifacts/mcp__docs__fetch-4.json",
+        elsewhere: false,
+        readable: false,
+      },
+    });
+
+    expect(noticeOf(result)).toContain(
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-; host files in /tmp/llame/chats/c/artifacts/mcp__docs__fetch-4.json]`,
+    );
+  });
+
+  it("carries no host clause when the spill wrote no file", () => {
+    const result = truncateOversizedResult(oversized(), undefined, {
+      kind: "stored",
+      locator: LOCATOR,
+      lineCount: 900,
+    });
+
+    expect(noticeOf(result)).toContain(
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-]`,
+    );
+    expect(noticeOf(result)).not.toContain("host files");
+  });
+
   it("says the full result is not stored when the write did not happen", () => {
     const result = truncateOversizedResult(oversized(), undefined, {
       kind: "not-stored",

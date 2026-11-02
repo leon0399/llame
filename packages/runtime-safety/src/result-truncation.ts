@@ -205,7 +205,8 @@ function spillPhrase(spill: CappedResultSpill | undefined): string {
     [{ locator: spill.locator, lines: spill.lineCount }],
     {
       continueWith: { locator: spill.locator, next: 1 },
-      ...(spill.hostFiles !== undefined && { hostFiles: spill.hostFiles }),
+      // Absent host files read as no clause, so the field needs no guard.
+      hostFiles: spill.hostFiles,
     },
   )}`;
 }
