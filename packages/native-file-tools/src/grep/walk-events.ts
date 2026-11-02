@@ -209,6 +209,11 @@ function startRead(
     error,
   }));
   state.reads.add(read);
+  // A settled read leaves the drain set, so a long scan holds only the reads
+  // that still run instead of every outcome it produced.
+  void read.then(() => {
+    state.reads.delete(read);
+  });
   state.open += 1;
   return read;
 }

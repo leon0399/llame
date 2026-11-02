@@ -258,17 +258,16 @@ describe("grep read-ahead", () => {
       ]),
     );
     const port = createGatedPort(files);
-    port.releaseAll();
     const asked: Array<string> = [];
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
       onCandidate: (locator) => {
         asked.push(locator);
-        // The head file is held below, so only refusals reach the queue.
-        return Promise.resolve(!locator.endsWith("/f00000.ts"));
+        // The head file is admitted and held; every later file is refused.
+        return Promise.resolve(locator.endsWith("/f00000.ts"));
       },
     });
-    // The head read waits on its gate while refused candidates fill the queue;
-    // the count stops growing only when the cap parks the walk.
+    // The consumer waits on the gated head while refused candidates fill the
+    // queue; the count stops growing only when the cap parks the walk.
     let admitted = -1;
     for (let round = 0; round < 40 && asked.length !== admitted; round += 1) {
       admitted = asked.length;
@@ -545,15 +544,14 @@ describe("grep unfinished files", () => {
     expect(first.complete).toBe(false);
     expect(port.closed).toEqual(expect.arrayContaining(["d.ts", "e.ts"]));
     const cursor = decode(first.cursor);
-    expect(cursor.kind).toBe("position");
-    expect(["a.ts", "b.ts", "c.ts"]).toContain(cursor.rel);
+    expect(cursor).toMatchObject({ kind: "position", rel: "c.ts" });
 
     const again = createGatedPort(files);
     again.releaseAll();
     await runMemoryScan([memoryScope(0, "/repo/", again)], ["hit"], {
       cursor,
     });
-    expect(again.opened).toEqual(expect.arrayContaining(["d.ts", "e.ts"]));
+    expect(again.opened).toEqual(["d.ts", "e.ts"]);
   });
 
   it("names the file a deadline stopped inside and skips it next time", async () => {

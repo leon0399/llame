@@ -215,14 +215,10 @@ async function takeCandidate(
   return applyOutcome(state, event, await walk.awaitTask(event));
 }
 
-/**
- * Room a stop inside this file needs: the position cursor that names it, and
- * the `[not searched to the end: …]` line a call without progress renders.
- */
+/** Room the position cursor that names this file takes on a stopped page. */
 function reserveForFile(state: ScanState, event: GrepCandidateEvent): void {
   state.page.reserveFloor = Math.max(
     state.page.reserveFloor,
-    state.progressed ? 0 : grepUnfinishedUnits(event.fileLocator),
     grepContinuationUnits({
       scopeIndex: state.widestIndex,
       rel: event.rel,
@@ -279,6 +275,12 @@ function stopInsideFile(
 ): void {
   stopAt(state, reason);
   if (state.progressed) return;
+  // The page ends here with no passage to hold, so the unfinished line and
+  // the cursor are what must fit; a file that completes never reserves it.
+  state.page.reserveFloor = Math.max(
+    state.page.reserveFloor,
+    grepUnfinishedUnits(event.fileLocator),
+  );
   state.unfinished = event.fileLocator;
   // A single-file scope's walk yields only `""` and ignores a cursor, so its
   // ordinal moves past the scope: the next call lists it, or none, and never

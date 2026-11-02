@@ -164,7 +164,12 @@ export function createMemoryPort(
     },
     open(rel: string) {
       reads.push(rel);
+      // One release per opened stream: a cancel closes it, and the stream's
+      // own end closes it again.
+      let released = false;
       const close = (): Promise<void> => {
+        if (released) return Promise.resolve();
+        released = true;
         closes.push(rel);
         return Promise.resolve();
       };
@@ -207,7 +212,10 @@ export function createSingleFilePort(
     },
     open(rel: string) {
       reads.push(rel);
+      let released = false;
       const close = (): Promise<void> => {
+        if (released) return Promise.resolve();
+        released = true;
         closes.push(rel);
         return Promise.resolve();
       };

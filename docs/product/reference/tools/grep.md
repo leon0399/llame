@@ -85,14 +85,14 @@ one `## <file locator>` line, then one `[warnings: …]` line, then the
 file, then one bracketed continuation line when more passages remain — while
 the owner's UI reads the stored object:
 
-| Field        | Meaning                                                                              |
-| ------------ | ------------------------------------------------------------------------------------ |
-| `results`    | one object per passage: `locator`, `content`, `matches`, `cut`, and `truncated`      |
-| `complete`   | whether more passages remain after this page                                         |
-| `cursor`     | the opaque value the continuation line names                                         |
-| `warnings`   | every skip and the bound that stopped the walk, by kind and count                    |
-| `unfinished` | the file a bound stopped the walk inside before any progress, as its locator         |
-| `notice`     | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the page |
+| Field            | Meaning                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| `results`        | one object per passage: `locator`, `content`, `matches`, `cut`, and `truncated`      |
+| `complete`       | whether more passages remain after this page                                         |
+| `cursor`         | the opaque value the continuation line names                                         |
+| `warnings`       | every skip and the bound that stopped the walk, by kind and count                    |
+| `unfinishedFile` | the file a bound stopped the walk inside before any progress, as its locator         |
+| `notice`         | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the page |
 
 The `## <file locator>` line names the file with no line range. Each passage
 under it prints its lines as `N: text`, `*N: text` for a matched line, and one
@@ -183,9 +183,11 @@ twentieth `truncated`, which adds `[more passages in this file; read it to see
 them]`. A later `read` reaches the rest.
 
 `grep` searches a file as a stream, so a regular file of any size is searched:
-the call's byte bound and deadline stop the file between its chunks, and the
-result then names it in `unfinishedFile`. It reads a file to its end before
-that file's passages reach the page: an
+the call's byte bound and deadline stop the file between its chunks. When the
+call has not yet progressed, the result names that file in `unfinishedFile`;
+after earlier output it names no file, and the next call opens the stopped
+file again. It reads a file to its end before that file's passages reach the
+page: an
 invalid byte, or a line longer than 4 MiB of UTF-8 bytes, that appears after a
 match drops every passage of that file. The line bound counts the line
 without its delimiter, and the skip reads `oversized`.
@@ -207,7 +209,7 @@ next call opens them again. The API and Machine processes run file reads on a
 sixteen-thread libuv pool when the operator sets none.
 
 A stop inside a file ends the walk before anything was emitted or reached.
-`grep` then names that file in `unfinished`, renders its locator as
+`grep` then names that file in `unfinishedFile`, renders its locator as
 `[not searched to the end: <locator>]`, and issues a position cursor that
 moves past the file, so the next call does not open it again. A file the
 `read` group refuses is never named, and the cursor still moves past it. When

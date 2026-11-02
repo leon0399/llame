@@ -511,6 +511,9 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
     !(isText(unfinished) && isScopeRelativePath(unfinished))
   )
     return undefined;
+  // A complete page has resumed past every file: naming one as unfinished
+  // would let the hub answer "complete" with no cursor to resume from.
+  if (complete && unfinished !== undefined) return undefined;
   const success: FsGrepSuccess = {
     ok: true,
     results,

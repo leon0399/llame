@@ -757,6 +757,7 @@ describe('readFsGrepResult', () => {
     ['an unfinished path that is not text', { unfinished: 7 }],
     ['an unfinished absolute path', { unfinished: '/abs/a.go' }],
     ['an unfinished parent segment', { unfinished: 'a/../b' }],
+    ['an unfinished file on a complete page', { unfinished: 'a.go' }],
   ])('refuses a page with %s', (_case, overrides) => {
     expect(readFsGrepResult(pageBody([], overrides))).toBeUndefined();
   });

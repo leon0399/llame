@@ -962,10 +962,13 @@ describe('Machine request shape', () => {
     expect(second).toMatchObject({ status: 'success', complete: true });
     expect(locatorsOf(second)).toEqual([]);
     const session = await peer.session(0);
-    // One exact-path probe and one search; the resumed call adds neither.
-    expect(
-      session.calls.filter((call) => call.method === 'fs.grep'),
-    ).toHaveLength(1);
+    // The resumed call still probes the exact path, but it asks for no second
+    // search: the cursor's ordinal is past the only scope.
+    expect(session.calls.map((call) => call.method)).toEqual([
+      'fs.stat',
+      'fs.grep',
+      'fs.stat',
+    ]);
   });
 
   it('keeps each passage matches and its truncation flag', async () => {

@@ -16,6 +16,9 @@ export const GREP_LIMITS = {
   nulProbeBytes: 8 * 1024,
   deadlineMs: 30_000,
   pageCodeUnits: 15_000,
-  /** Files the walk reads at the same time; the walk runs this far ahead. */
+  /**
+   * Queued read-ahead slots. A slot frees when the consumer takes a candidate,
+   * so the head read is one more: at most nine files are open at once.
+   */
   readAhead: 8,
 } as const;

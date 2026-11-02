@@ -108,25 +108,19 @@ export async function scanGrepFile(
   };
   const state = createPassageState(input);
   let bytes = 0;
-  let lines = 0;
   for await (const chunk of input.chunks) {
     const step = takeChunk(reader, chunk, input, bytes);
     if ("refusal" in step)
       return { kind: "refused", refusal: step.refusal, bytes };
     if ("stop" in step) return step.stop;
     bytes += step.bytes;
-    lines += step.lines.length;
-    const early = takeLines(state, step.lines, bytes);
+    const early = await takeLines(state, step.lines, bytes);
     if (early !== undefined) return early;
-    if (lines >= YIELD_LINES) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      lines = 0;
-    }
   }
   const last = flushLines(reader);
   if ("refusal" in last)
     return { kind: "refused", refusal: last.refusal, bytes };
-  const tail = takeLines(state, last.lines, bytes);
+  const tail = await takeLines(state, last.lines, bytes);
   if (tail !== undefined) return tail;
   return { kind: "passages", ...passageResult(state), bytes };
 }
@@ -174,15 +168,19 @@ function takeChunk(
  * Test and hold one chunk's completed lines in order; the stop that ended them,
  * if the deadline passed between two pattern tests or the read was aborted.
  */
-function takeLines(
+async function takeLines(
   state: PassageState,
   lines: ReadonlyArray<string>,
   bytes: number,
-): GrepFileScanStop | undefined {
+): Promise<GrepFileScanStop | undefined> {
   // A closure, so the loop re-reads the signal after a line's pattern tests:
   // an abort during them must end the file as aborted, not as a deadline stop.
   const aborted = (): boolean => state.input.signal?.aborted === true;
-  for (const text of lines) {
+  for (const [index, text] of lines.entries()) {
+    // A native chunk can hold tens of thousands of short lines: hand the event
+    // loop a turn every YIELD_LINES of them, as the serial scan did.
+    if (index > 0 && index % YIELD_LINES === 0)
+      await new Promise<void>((resolve) => setImmediate(resolve));
     if (aborted()) return { kind: "aborted", bytes };
     const matched = state.input.patterns.matches(text, state.input.deadline);
     // The patterns after a stop never ran, so the line is not known to miss:

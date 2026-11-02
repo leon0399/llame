@@ -389,11 +389,9 @@ describe("grep passage extraction of a resumed page", () => {
     const scan = await scanGrepFile({
       fileLocator: "file.md",
       chunks: chunked("aaa\nhit\n"),
-      // The probe fires between the two tests on the first line.
-      patterns: {
-        count: 2,
-        matches: (_line, stopped) => (stopped?.() === true ? "stopped" : true),
-      },
+      // The first pattern misses, so only the probe between the two tests can
+      // end the line; the second pattern would have matched it.
+      patterns: patterns(["zzz", "hit"]),
       maxFileBytes: null,
       deadline: () => true,
     });
