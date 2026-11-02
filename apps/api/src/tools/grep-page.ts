@@ -9,6 +9,7 @@ import {
   encodeGrepCursor,
   GREP_LIMITS,
   grepContinuationUnits,
+  compareRel,
   grepFileLocator,
   grepIgnoredUnits,
   grepPassageUnits,
@@ -29,9 +30,6 @@ import { type CallBudget } from './grep-machine';
 import { spellGrepScopeLocator } from './grep-scopes';
 import { type ToolResult } from './types';
 
-/** The most excluded-directory locators a result names. */
-const IGNORED_LOCATORS = 5;
-
 /** One passage the call may emit, with the cursor point it ends at. */
 export type SegmentEntry = {
   readonly passage: GrepPassage;
@@ -49,9 +47,13 @@ export type SegmentPage = {
   readonly progressed: boolean;
   /** The file a bound stopped the segment inside before any progress. */
   readonly unfinished?: string;
-  /** The excluded directory locators of the segment, before the `read` filter. */
+  /**
+   * The excluded directory locators of the segment, before the `read` filter;
+   * `rels` carries each one's scope-relative position, when the segment has it.
+   */
   readonly ignored?: {
     readonly paths: ReadonlyArray<string>;
+    readonly rels?: ReadonlyArray<string>;
     readonly atLeast: boolean;
   };
   /** The walk's own page end, when every entry of the segment is a kept one. */
@@ -257,17 +259,8 @@ export function appendSegment(
   // A segment that names an unfinished file is incomplete, so the call stops
   // there: no later segment can overwrite it.
   state.unfinished = page.unfinished;
-  for (const entry of page.entries) {
-    if (!fitsPage(state, budget, reserve, entry)) {
-      state.complete = false;
-      return;
-    }
-    pushPassage(state, entry.passage);
-    // A Machine entry names its own cursor point, so a page the call cuts
-    // short still resumes from the last passage it kept.
-    if (entry.end !== undefined)
-      state.resume = { kind: 'passage', end: entry.end };
-  }
+  const cutRel = appendEntries(state, budget, reserve, page);
+  mergeIgnored(state, page.ignored, admission, cutRel);
   // A walk's own page end is trusted only when every passage it named was
   // kept: it is the furthest point the segment itself reached.
   if (page.last !== undefined)
@@ -321,10 +314,19 @@ function mergeIgnored(
   state: PageState,
   ignored: SegmentPage['ignored'],
   admission: GrepReadAdmission,
+  cutRel: string | undefined,
 ): void {
   if (ignored === undefined) return;
   if (ignored.atLeast) state.ignored.atLeast = true;
-  for (const locator of ignored.paths) {
+  for (const [index, locator] of ignored.paths.entries()) {
+    const rel = ignored.rels?.[index];
+    // A directory after the page's cut is walked again by the next call.
+    if (
+      cutRel !== undefined &&
+      rel !== undefined &&
+      compareRel(rel, cutRel) >= 0
+    )
+      continue;
     if (state.ignored.recorded >= GREP_LIMITS.ignoredReported) {
       state.ignored.atLeast = true;
       break;
@@ -335,8 +337,8 @@ function mergeIgnored(
     if (!admission.allows(locator) || !admission.allows(`${locator}/`))
       continue;
     state.ignored.count += 1;
-    if (state.ignored.paths.length < IGNORED_LOCATORS)
-      state.ignored.paths.push(spellGrepScopeLocator(locator));
+    if (state.ignored.paths.length < GREP_LIMITS.ignoredLocators)
+      state.ignored.paths.push(locator);
   }
   if (state.ignored.count === 0) return;
   state.ignoredUnits = grepIgnoredUnits({
@@ -344,6 +346,34 @@ function mergeIgnored(
     locators: state.ignored.paths,
     atLeast: state.ignored.atLeast,
   });
+}
+
+/**
+ * Append a segment's entries while the page holds them. Returns the resume
+ * point's relative path when the page cuts, so exclusions at or after it wait
+ * for the next call instead of being reported twice; `""` means nothing of the
+ * segment was kept.
+ */
+function appendEntries(
+  state: PageState,
+  budget: CallBudget,
+  page: SegmentPage,
+): string | undefined {
+  let lastKept: string | undefined;
+  for (const entry of page.entries) {
+    if (!fitsPage(state, budget, reserve, entry)) {
+      state.complete = false;
+      return lastKept ?? '';
+    }
+    pushPassage(state, entry.passage);
+    // A Machine entry names its own cursor point, so a page the call cuts
+    // short still resumes from the last passage it kept.
+    if (entry.end !== undefined) {
+      state.resume = { kind: 'passage', end: entry.end };
+      lastKept = entry.end.rel;
+    }
+  }
+  return undefined;
 }
 
 function pushPassage(state: PageState, passage: GrepPassage): void {
@@ -380,7 +410,7 @@ export function pageResult(state: PageState, inputHash: string): ToolResult {
     ...(state.ignored.count > 0 && {
       ignored: {
         count: state.ignored.count,
-        locators: state.ignored.paths,
+        locators: state.ignored.paths.map(spellGrepScopeLocator),
         ...(state.ignored.atLeast && { atLeast: true }),
       },
     }),

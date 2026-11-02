@@ -2272,6 +2272,66 @@ describe('Machine excluded-directory report', () => {
     ]);
   });
 
+  it('keeps an exclusion before the page cut and drops those after it', async () => {
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([passage('a.go', 1, 1), passage('z.go', 1, 1)], {
+            ignored: { paths: ['0', 'm'], atLeast: false },
+          }),
+        },
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+      limit: 1,
+    });
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(ignoredOf(result)).toEqual({
+      count: 1,
+      locators: ['machine://devl/srv/app/0'],
+      atLeast: false,
+    });
+  });
+
+  it('reports an exclusion after the page cut on the next call only', async () => {
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([passage('a.go', 1, 1), passage('z.go', 1, 1)], {
+            ignored: { paths: ['m'], atLeast: false },
+          }),
+        },
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+      limit: 1,
+    });
+    expect(ignoredOf(result)).toBeUndefined();
+  });
+
+  it('carries the daemon lower bound', async () => {
+    const paths = Array.from(
+      { length: 1000 },
+      (_, index) => `d${String(index).padStart(4, '0')}`,
+    );
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([], { ignored: { paths, atLeast: true } }),
+        },
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app'],
+    });
+    expect(ignoredOf(result)).toMatchObject({ count: 1000, atLeast: true });
+  });
+
   it('caps the merged list again after a daemon that reports more', async () => {
     const paths = Array.from(
       { length: 1001 },

@@ -30,6 +30,7 @@ import {
   projectNativeFilePath,
 } from './permissions/locator-projection';
 import { type PermissionDecision } from './permissions/types';
+import { sameHostPath } from './grep-scope-shape';
 import { type ToolContext } from './types';
 import {
   isWorkspaceRelative,
@@ -97,9 +98,13 @@ export function projectGrepScope(
     const normalized = normalizeHostScope(projectNativeFilePath(placed));
     // The host prefix decodes the seven literal spellings, exactly as the walk
     // probes it, so a reject written against `app/[id]` sees `app/%5Bid%5D`.
+    // A Workspace root is a real path: only the text after it is decoded.
+    const prefix = prefixOf(normalized);
+    const start = hostPrefixStart(root, scope, prefix.length);
     return {
       submitted: scope,
-      prefix: decodeGrepLiteralSpelling(prefixOf(normalized)),
+      prefix:
+        prefix.slice(0, start) + decodeGrepLiteralSpelling(prefix.slice(start)),
     };
   }
   const head = placed.slice(0, placed.length - scheme.rest.length);
@@ -110,6 +115,20 @@ export function projectGrepScope(
     authorityEnd === -1 ? '' : scheme.rest.slice(authorityEnd + 1);
   const prefix = `${head}${authority}${prefixOf(pathPart)}`;
   return { submitted: scope, prefix: projectNativeFilePath(prefix) };
+}
+
+/** Where a projected host prefix stops being the Workspace root's own text. */
+function hostPrefixStart(
+  root: string | undefined,
+  scope: string,
+  length: number,
+): number {
+  if (root === undefined || isFileAlias(scope)) return 0;
+  const rootText = normalizeHostScope(root);
+  if (!isWorkspaceRelative(scope))
+    return sameHostPath(normalizeHostScope(scope), rootText) ? length : 0;
+  const start = rootText === '/' ? 1 : rootText.length + 1;
+  return Math.min(start, length);
 }
 
 function prefixOf(pathText: string): string {

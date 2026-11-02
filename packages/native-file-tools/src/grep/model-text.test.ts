@@ -263,6 +263,35 @@ describe("grep text rendering", () => {
     expect(text.length).toBeLessThanOrEqual(2000);
   });
 
+  it("renders the ignored line before the unfinished file", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: false,
+      cursor: "c",
+      ignored: { count: 1, locators: ["/r/a"] },
+      unfinishedFile: "/var/log/big.log",
+    });
+    expect(text.split("\n")).toEqual([
+      "[ignored 1 directory: /r/a; a scope that names one searches it]",
+      "[not searched to the end: /var/log/big.log]",
+      "[more results. Continue with cursor: c]",
+    ]);
+  });
+
+  it("stops at the first locator that does not fit", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: {
+        count: 5,
+        locators: ["/r/a", `/${"b".repeat(3000)}`, "/r/c", "/r/d", "/r/e"],
+      },
+    });
+    expect(text).toBe(
+      "[ignored 5 directories: /r/a (+4 more); a scope that names one searches it]",
+    );
+  });
+
   it("counts the ignored line and its newline as reserved width", () => {
     const ignored = { count: 2, locators: ["/r/a", "/r/b"], atLeast: false };
     const text = renderGrepText({ results: [], complete: true, ignored });

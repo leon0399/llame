@@ -380,7 +380,9 @@ descendant. The walk never tests the scope directory or a directory above it.
 
 The round-2 review ran this method against `git ls-files -o
 --exclude-standard` and `rg --files --hidden` in 26 repositories, and it
-matched `rg` in all of them. These included the v2 table rows, the explicit
+matched `rg` in all of them. One case differs by spec: a deeper `.gitignore`
+negation outranks a shallower `.ignore` rule, while ripgrep ranks every
+`.ignore` match above every `.gitignore` match at any depth. These included the v2 table rows, the explicit
 scopes, `docs/**` with `!docs/keep/`, the allow list `*`, `!*/`, `!src/**`,
 anchored and directory-only rules, escapes, character classes, `**/foo/bar`,
 and `a/**/b`.

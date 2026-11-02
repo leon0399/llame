@@ -7,6 +7,7 @@ import {
 } from "@workspace/runtime-safety";
 
 import { isNonEmptyString, oneLine } from "../model-text";
+import { GREP_LIMITS } from "./limits";
 import { passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
@@ -154,9 +155,6 @@ export function grepUnfinishedLine(locator: string): string {
 /** The most code units one `[ignored …]` line may take. */
 const IGNORED_LINE_UNITS = 2000;
 
-/** The most locators an `ignored` field carries. */
-const IGNORED_LOCATORS = 5;
-
 /** One stored `ignored` field: the admitted count and its first locators. */
 interface IgnoredView {
   readonly count: number;
@@ -173,7 +171,7 @@ function ignoredOf(value: unknown): IgnoredView | undefined {
   const kept: Array<string> = [];
   for (const locator of locators) {
     if (!isNonEmptyString(locator)) return undefined;
-    if (kept.length < IGNORED_LOCATORS) kept.push(locator);
+    if (kept.length < GREP_LIMITS.ignoredLocators) kept.push(locator);
   }
   return { count, locators: kept, atLeast: atLeast === true };
 }
@@ -213,16 +211,58 @@ function grepIgnoredLine(ignored: IgnoredView): string {
   })${tail}`;
 }
 
+/** The seven characters a reported scope writes as three code units. */
+const SPELLABLE = /[%*?[\]{}]/gu;
+
+/** One raw locator's width as the scope spelling it is reported with. */
+function spelledWidth(locator: string): number {
+  const folded = oneLine(locator);
+  return folded.length + (folded.match(SPELLABLE)?.length ?? 0) * 2;
+}
+
 /**
- * Rendered width of the `ignored` line with its separating newline, so a page
- * that reports an excluded directory keeps its room before the next passage.
+ * Widest the `ignored` line can render for a page that reports these raw
+ * locators: at most the five it names, each measured in its scope spelling.
+ * The page keeps this width and its newline back before the next passage.
  */
 export function grepIgnoredUnits(ignored: {
   readonly count: number;
   readonly locators: ReadonlyArray<string>;
   readonly atLeast: boolean;
 }): number {
-  return grepIgnoredLine(ignored).length + 1;
+  const count = ignored.atLeast
+    ? `${String(ignored.count)} or more`
+    : String(ignored.count);
+  const noun = ignored.count === 1 ? "directory" : "directories";
+  const head = `[ignored ${count} ${noun}: `;
+  const tail = "; a scope that names one searches it]";
+  let width = 0;
+  let chosen = 0;
+  for (const locator of ignored.locators.slice(
+    0,
+    GREP_LIMITS.ignoredLocators,
+  )) {
+    const next = chosen + 1;
+    const rest = ignored.count - next;
+    const candidate =
+      head.length +
+      width +
+      (chosen === 0 ? 0 : 2) +
+      spelledWidth(locator) +
+      (rest > 0
+        ? ` (+${String(rest)}${ignored.atLeast ? " or more" : " more"})`.length
+        : 0) +
+      tail.length;
+    if (candidate > IGNORED_LINE_UNITS) break;
+    width += (chosen === 0 ? 0 : 2) + spelledWidth(locator);
+    chosen = next;
+  }
+  if (chosen > 0) return head.length + width + tail.length + 1;
+  // Not one locator fits: the remainder follows the colon.
+  const remainder = `(+${String(ignored.count)}${
+    ignored.atLeast ? " or more" : " more"
+  })`;
+  return head.length + remainder.length + tail.length + 1;
 }
 
 /**

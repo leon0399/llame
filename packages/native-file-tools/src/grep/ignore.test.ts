@@ -47,6 +47,13 @@ describe("compileIgnoreRules", () => {
     expect(decides("\\!keep\n", "!keep")).toBe(true);
   });
 
+  it("gates the per-rule loop on any matching rule", () => {
+    const layer = compileIgnoreRules("build/\n!build-tools/\n");
+    expect(layer.matchesAny("build/")).toBe(true);
+    expect(layer.matchesAny("build-tools/")).toBe(true);
+    expect(layer.matchesAny("src/a.js")).toBe(false);
+  });
+
   it("lets the last matching rule of one file decide", () => {
     expect(decides("build*/\n!build-tools/\n", "build-tools/")).toBe(false);
     expect(decides("!build-tools/\nbuild*/\n", "build-tools/")).toBe(true);

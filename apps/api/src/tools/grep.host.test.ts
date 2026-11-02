@@ -418,6 +418,26 @@ describe('host excluded-directory report', () => {
     });
   });
 
+  it('judges a directory as written with a regex reject', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'secrets/\n');
+      await writeAt(root, 'secrets/key.txt', 'needle\n');
+      const result = await run(
+        contextOf({
+          map: {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', regex: '/secrets$' }],
+            },
+          },
+        }),
+        { patterns: ['needle'], scopes: [root] },
+      );
+      expect(ignoredOf(result)).toBeUndefined();
+    });
+  });
+
   it('does not name a directory the read group refuses', async () => {
     await withRoot(async (root) => {
       await writeAt(root, '.gitignore', 'node_modules/\nsecrets/\n');
@@ -582,6 +602,22 @@ describe('host scope spellings', () => {
 });
 
 describe('host Workspace rule', () => {
+  it('does not decode a percent spelling in the Workspace root', async () => {
+    await withRoot(async (root) => {
+      const workspace = `${root}/100%2541`;
+      await writeAt(workspace, 'a.md', 'needle\n');
+      const absolute = await run(contextOf({ root: workspace }), {
+        patterns: ['needle'],
+      });
+      expect(locatorsOf(absolute)).toEqual([`${workspace}/a.md:1-1`]);
+      const relative = await run(contextOf({ root: workspace }), {
+        patterns: ['needle'],
+        scopes: ['a.md'],
+      });
+      expect(locatorsOf(relative)).toEqual([`${workspace}/a.md:1-1`]);
+    });
+  });
+
   it('searches the Workspace root when scopes are omitted', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');

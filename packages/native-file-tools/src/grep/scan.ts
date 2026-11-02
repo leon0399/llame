@@ -40,8 +40,6 @@ type ScanState = {
   readonly page: GrepPage;
   /** What the page may render to, and what it keeps for its caller. */
   limits: GrepPageLimits;
-  /** The caller's own reserve, before the ignored line grows it. */
-  readonly baseReserve: number;
   /** The widest scope ordinal, which a position cursor may name. */
   readonly widestIndex: number;
   readonly warnings: Map<GrepWarningKind, number>;
@@ -112,7 +110,6 @@ function createScanState(input: GrepScanInput): ScanState {
       pageUnits: input.budget.pageUnits,
       fixedReserve: input.budget.fixedReserve,
     },
-    baseReserve: input.budget.fixedReserve,
     // A position cursor names the scope its walk stopped in; the widest
     // ordinal reserves the digits every one of them can take.
     widestIndex: input.scopes.reduce(
@@ -217,7 +214,7 @@ function takeIgnored(
   state.limits = {
     ...state.limits,
     fixedReserve:
-      state.baseReserve +
+      state.input.budget.fixedReserve +
       grepIgnoredUnits({
         count: state.ignored.paths.length,
         locators: state.ignored.paths,

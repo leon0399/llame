@@ -62,6 +62,7 @@ import {
 import {
   buildScope,
   hasGlobOperator,
+  sameHostPath,
   splitScopePath,
   type ResolvedScopes,
   type ScopeOutcome,
@@ -219,7 +220,7 @@ async function resolveScope(
     if (!alias.ok) return { result: invalidPathResult(alias.message) };
     // A local alias is a host path that the Workspace rule never re-places,
     // exactly as `read` and the grep scope projection treat it.
-    return buildHostScope(context, alias.hostPath, index, admission);
+    return buildHostScope(context, alias.hostPath, { index, admission });
   }
   const scheme = parsePathScheme(scope);
   if (scheme === undefined) {
@@ -282,8 +283,70 @@ async function resolveHostScope(
       ? resolveMachineScope(context, placed, index, admission)
       : { result: invalidPathResult('This path scheme cannot be searched.') };
   }
-  return buildHostScope(context, placed, index, admission);
+  return buildHostScope(context, placed, {
+    index,
+    admission,
+    literalStart: hostLiteralStart(context, scope, placed),
+  });
 }
+
+/**
+ * Where a placed host path stops being the Workspace root's own text: a
+ * relative scope starts after the root, the root itself decodes nowhere, and
+ * an explicit absolute scope decodes whole.
+ */
+function hostLiteralStart(
+  context: ToolContext,
+  scope: string,
+  placed: string,
+): number {
+  const root = context.workspaceRoot?.current();
+  if (root === undefined || isFileAlias(scope)) return 0;
+  const rootText = normalizeHostScope(root);
+  if (!isWorkspaceRelative(scope)) {
+    return sameHostPath(normalizeHostScope(scope), rootText)
+      ? placed.length
+      : 0;
+  }
+  return rootText === '/' ? 1 : rootText.length + 1;
+}
+
+/**
+ * The seven literal spellings decode in the prefix only, after the glob cut,
+ * so a reported `%5B` names the directory and no encoded bracket is refused
+ * as a glob operator. Only the model-supplied part decodes: a Workspace root
+ * is a real path, so its own `%25` must survive.
+ */
+function decodedHostPrefix(
+  encodedPrefix: string,
+  literalStart: number,
+): string {
+  const cut = Math.min(literalStart, encodedPrefix.length);
+  return (
+    encodedPrefix.slice(0, cut) +
+    decodeGrepLiteralSpelling(encodedPrefix.slice(cut))
+  );
+}
+
+/** The authority and path checks every host scope passes first. */
+function hostScopeRefusal(
+  context: ToolContext,
+  normalized: string,
+): GrepToolError | undefined {
+  if (context.runId === undefined || context.nativeExecutorId === undefined)
+    return executorUnavailableResult();
+  return !path.isAbsolute(normalized) || normalized.includes('\0')
+    ? invalidPathResult('The scope path is invalid.')
+    : undefined;
+}
+
+/** What one host scope settles: its ordinal, admission, and literal start. */
+type HostScopeRequest = {
+  readonly index: number;
+  readonly admission: GrepReadAdmission;
+  /** Where the model-supplied text starts in the prefix; 0 decodes whole. */
+  readonly literalStart?: number;
+};
 
 /**
  * One host path, already decoded from a `file:` alias or placed by the
@@ -292,16 +355,11 @@ async function resolveHostScope(
 async function buildHostScope(
   context: ToolContext,
   hostPath: string,
-  index: number,
-  admission: GrepReadAdmission,
+  request: HostScopeRequest,
 ): Promise<ScopeOutcome> {
-  if (context.runId === undefined || context.nativeExecutorId === undefined) {
-    return { result: executorUnavailableResult() };
-  }
   const normalized = normalizeHostScope(hostPath);
-  if (!path.isAbsolute(normalized) || normalized.includes('\0')) {
-    return { result: invalidPathResult('The scope path is invalid.') };
-  }
+  const refused = hostScopeRefusal(context, normalized);
+  if (refused !== undefined) return { result: refused };
   // A colon is path text here: grep parses no read selector.
   const split = splitGrepScope(normalized);
   if ('error' in split)
@@ -310,12 +368,12 @@ async function buildHostScope(
     split.prefix.endsWith('/') && split.prefix !== '/'
       ? split.prefix.slice(0, -1)
       : split.prefix;
-  // The seven literal spellings decode in the prefix only, after the glob cut,
-  // so a reported `%5B` names the directory and no encoded bracket is refused
-  // as a glob operator. The probe and the admission projection see this path.
-  const prefixPath = decodeGrepLiteralSpelling(encodedPrefix);
+  const prefixPath = decodedHostPrefix(
+    encodedPrefix,
+    request.literalStart ?? 0,
+  );
   return buildScope({
-    index,
+    index: request.index,
     locatorFor: (rel) =>
       rel.length === 0
         ? prefixPath
@@ -329,7 +387,7 @@ async function buildHostScope(
     port: () => createHostWalkPort(prefixPath, context.abortSignal),
     probe: () => probeHostPath(prefixPath, context.abortSignal),
     endsWithSeparator: split.endsWithSeparator,
-    admission,
+    admission: request.admission,
     root: prefixPath,
   });
 }

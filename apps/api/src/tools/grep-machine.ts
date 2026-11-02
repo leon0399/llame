@@ -118,6 +118,7 @@ export type MachineGrepSegment =
       /** The excluded directory locators of this scope, capped across its pages. */
       readonly ignored?: {
         readonly paths: ReadonlyArray<string>;
+        readonly rels: ReadonlyArray<string>;
         readonly atLeast: boolean;
       };
       /**
@@ -466,6 +467,7 @@ function segmentOf(page: MachineSegmentPage): MachineGrepSegment {
     ...(page.ignored.paths.length > 0 && {
       ignored: {
         paths: page.ignored.paths,
+        rels: page.ignored.rels,
         atLeast: page.ignored.atLeast,
       },
     }),

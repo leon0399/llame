@@ -156,6 +156,8 @@ export function unfinishedPosition(
 export type IgnoredAccumulator = {
   readonly scope: MachineGrepScope;
   readonly paths: Array<string>;
+  /** Each locator's scope-relative path, so a page cut can filter them. */
+  readonly rels: Array<string>;
   recorded: number;
   atLeast: boolean;
 };
@@ -163,7 +165,7 @@ export type IgnoredAccumulator = {
 export function ignoredAccumulator(
   scope: MachineGrepScope,
 ): IgnoredAccumulator {
-  return { scope, paths: [], recorded: 0, atLeast: false };
+  return { scope, paths: [], rels: [], recorded: 0, atLeast: false };
 }
 
 /**
@@ -194,6 +196,8 @@ export function mergePage(
     }
     ignored.recorded += 1;
     const locator = machineScopeLocator(ignored.scope, rel);
-    if (locator !== undefined) ignored.paths.push(locator);
+    if (locator === undefined) continue;
+    ignored.paths.push(locator);
+    ignored.rels.push(rel);
   }
 }

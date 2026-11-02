@@ -187,7 +187,7 @@ async function readIgnoreFiles(
   for (const name of IGNORE_FILE_NAMES) {
     const text = await readIgnoreText(
       walk,
-      at(walk.canonical, join(rel, name)),
+      at(walk.canonical, path.join(rel, name)),
     );
     if (text !== undefined) texts.push(text);
   }
@@ -246,10 +246,6 @@ function isAtOrBelow(directory: string, ancestor: string): boolean {
   );
 }
 
-function join(rel: string, name: string): string {
-  return rel.length === 0 ? name : path.join(rel, name);
-}
-
 /** One ignore file's text, when it is a bounded regular file inside the roots. */
 async function readIgnoreText(
   walk: Walk,
@@ -266,7 +262,8 @@ async function readIgnoreText(
     // An ignore file reached through a swapped directory or replaced by a
     // link applies no rules, exactly as a link at the address would not.
     const after = await walk.guard.resolvePath(file).catch(() => undefined);
-    if (after === undefined || after.canonical !== file) return undefined;
+    if (after === undefined || after.isLink || after.canonical !== file)
+      return undefined;
     return bytes.byteLength > IGNORE_FILE_BYTES
       ? undefined
       : bytes.toString("utf8");

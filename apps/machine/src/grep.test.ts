@@ -317,6 +317,34 @@ describe("fs.grep", () => {
     ).toEqual(["README.md", "a.go"]);
   });
 
+  it("limits a .gitignore above the prefix to its repository", async () => {
+    await writeAt(".gitignore", "*.md\n");
+    await mkdir(join(fixture.root, "a/.git"), { recursive: true });
+    await writeAt("a/.gitignore", "dist/\n");
+    await writeAt("a/sub/README.md", "needle\n");
+    await writeAt("a/sub/dist/out.go", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "a/sub"))))).toEqual([
+      "README.md",
+    ]);
+  });
+
+  it("treats a .git file as a repository", async () => {
+    await writeAt(".gitignore", "*.md\n");
+    await writeAt("b/.git", "gitdir: elsewhere\n");
+    await writeAt("b/sub/README.md", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "b/sub"))))).toEqual([
+      "README.md",
+    ]);
+  });
+
+  it("never searches a .ignore of the scope", async () => {
+    await writeAt(".ignore", "needle\n");
+    await writeAt("project/a.go", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "project"))))).toEqual(
+      ["a.go"],
+    );
+  });
+
   it("reports the excluded directory the hub spells as a scope", async () => {
     await writeAt("project/.gitignore", "node_modules/\n");
     await writeAt("project/node_modules/dep.js", "needle\n");

@@ -18,16 +18,28 @@ function ruleLine(line: string): string | undefined {
   return text;
 }
 
+/** One ignore file: its rules, and the gate that saves the per-rule loop. */
+export interface CompiledIgnoreLayer {
+  /** One instance per rule, in file order. */
+  readonly rules: ReadonlyArray<CompiledIgnoreRule>;
+  /**
+   * Whether any rule matches the path or one of its ancestors. `ignore` sets
+   * `ignored` or `unignored` for every match, so a false gate means no rule of
+   * the layer can decide this path and the per-rule loop is skipped. A single
+   * instance also keeps the per-rule caches from growing over every entry.
+   */
+  matchesAny(pathname: string): boolean;
+}
+
 /**
  * Compile each rule of one ignore file, in file order. A rule is added to its
  * own one-rule instance as a negation, so `unignored` means the pattern matched
  * that path itself and not one of its ancestors. Comment lines are dropped
  * before the `!` is added: an ignore file's `#` line is a comment, while `!#`
- * would be a negation rule matching a file named `# …`.
+ * would be a negation rule matching a file named `# …`. The whole file also
+ * compiles once as the layer's gate.
  */
-export function compileIgnoreRules(
-  text: string,
-): ReadonlyArray<CompiledIgnoreRule> {
+export function compileIgnoreRules(text: string): CompiledIgnoreLayer {
   const rules: Array<CompiledIgnoreRule> = [];
   for (const line of text.split("\n")) {
     const rule = ruleLine(line);
@@ -41,7 +53,14 @@ export function compileIgnoreRules(
       match: (pathname) => manager.test(pathname).unignored,
     });
   }
-  return rules;
+  const gate = ignore({ ignorecase: false }).add(text);
+  return {
+    rules,
+    matchesAny: (pathname) => {
+      const verdict = gate.test(pathname);
+      return verdict.ignored || verdict.unignored;
+    },
+  };
 }
 
 /**
@@ -50,11 +69,12 @@ export function compileIgnoreRules(
  * the layer matches, so a deeper layer's decision is the one that counts.
  */
 export function decideIgnoreLayer(
-  rules: ReadonlyArray<CompiledIgnoreRule>,
+  layer: CompiledIgnoreLayer,
   pathname: string,
 ): boolean | undefined {
+  if (!layer.matchesAny(pathname)) return undefined;
   let verdict: boolean | undefined;
-  for (const rule of rules) {
+  for (const rule of layer.rules) {
     if (rule.match(pathname)) verdict = rule.ignored;
   }
   return verdict;

@@ -682,6 +682,24 @@ describe('readFsGrepResult', () => {
     });
   });
 
+  it('accepts an excluded-directory report', () => {
+    const page = readFsGrepResult(
+      pageBody([], { ignored: { paths: ['m', 'n/x'], atLeast: false } }),
+    );
+    expect(page).toMatchObject({
+      ignored: { paths: ['m', 'n/x'], atLeast: false },
+    });
+  });
+
+  it.each([
+    [{ paths: ['../x'], atLeast: false }],
+    [{ paths: ['/abs'], atLeast: false }],
+    [{ paths: 'x', atLeast: false }],
+    [{ paths: [], atLeast: 1 }],
+  ])('refuses a malformed excluded-directory report %j', (ignored) => {
+    expect(readFsGrepResult(pageBody([], { ignored }))).toBeUndefined();
+  });
+
   it('keeps an absent truncation flag absent', () => {
     expect(readFsGrepResult(pageBody([passageBody()]))).toStrictEqual({
       ok: true,

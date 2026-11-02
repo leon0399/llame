@@ -22,6 +22,16 @@ import {
 } from './grep-results';
 import { type ScopeProbe } from './grep-ports';
 
+/** One normalized host path without a trailing separator but for `/`. */
+function trimHostSeparator(value: string): string {
+  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+/** Two normalized host paths are equal, a trailing separator aside. */
+export function sameHostPath(left: string, right: string): boolean {
+  return trimHostSeparator(left) === trimHostSeparator(right);
+}
+
 /** One scope set a call resolved, plus the roots its cursor is keyed on. */
 export type ResolvedScopes = {
   readonly scopes: ReadonlyArray<GrepScope>;

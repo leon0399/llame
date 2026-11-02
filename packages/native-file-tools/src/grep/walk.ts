@@ -1,7 +1,7 @@
 import {
   compileIgnoreRules,
   decideIgnoreLayer,
-  type CompiledIgnoreRule,
+  type CompiledIgnoreLayer,
 } from "./ignore";
 
 import type { GrepEntry, GrepScope } from "./types";
@@ -12,7 +12,7 @@ type IgnoreLayer = {
   readonly below: string;
   /** Path from the file's directory to the prefix, for a file above it. */
   readonly above: string;
-  readonly rules: ReadonlyArray<CompiledIgnoreRule>;
+  readonly layer: CompiledIgnoreLayer;
 };
 
 /** The two ignore files a directory scope never searches. */
@@ -73,8 +73,9 @@ async function ancestorLayers(walk: GrepWalk): Promise<Array<IgnoreLayer>> {
   if (port.ignoreAncestors === undefined) return [];
   const layers: Array<IgnoreLayer> = [];
   for (const file of await port.ignoreAncestors()) {
-    const rules = compileIgnoreRules(file.text);
-    if (rules.length > 0) layers.push({ below: "", above: file.above, rules });
+    const layer = compileIgnoreRules(file.text);
+    if (layer.rules.length > 0)
+      layers.push({ below: "", above: file.above, layer });
   }
   return layers;
 }
@@ -94,8 +95,9 @@ async function* walkDirectory(
   ]);
   const depth = state.layers.length;
   for (const text of texts) {
-    const rules = compileIgnoreRules(text);
-    if (rules.length > 0) state.layers.push({ below: rel, above: "", rules });
+    const layer = compileIgnoreRules(text);
+    if (layer.rules.length > 0)
+      state.layers.push({ below: rel, above: "", layer });
   }
   // Encode each name once; a comparator that encodes allocates per comparison.
   const entries = listed
@@ -170,9 +172,10 @@ async function* walkDirectoryEntry(
   if (position === "before") return;
   if (isIgnored(state, rel, true)) {
     reach();
-    // An excluded directory at or after the start point is reported; one on
-    // the way to the resume point is before it.
-    if (position !== "ancestor") state.walk.onIgnored(rel);
+    // Only a counted exclusion is new: an entry the position cursor names was
+    // reported by the previous page, and a directory on the way to the resume
+    // point is before the start point.
+    if (counted) state.walk.onIgnored(rel);
     return;
   }
   if (scope.glob !== undefined && !scope.glob.mayDescend(rel)) {
@@ -205,7 +208,7 @@ function isIgnored(state: WalkState, rel: string, directory: boolean): boolean {
   for (let index = state.layers.length - 1; index >= 0; index -= 1) {
     const layer = state.layers[index];
     const verdict = decideIgnoreLayer(
-      layer.rules,
+      layer.layer,
       pathRelativeTo(layer, pathname),
     );
     if (verdict !== undefined) return verdict;

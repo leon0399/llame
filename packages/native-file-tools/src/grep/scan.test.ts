@@ -375,7 +375,7 @@ describe("grep walk order and ignore rules", () => {
   it("reads .ignore after .gitignore and keeps both out of the candidates", async () => {
     const port = createMemoryPort({
       ".gitignore": file("build/\n"),
-      ".ignore": file("!build/\n"),
+      ".ignore": file("!build/\nhit\n"),
       build: directory({ "app.js": hit() }),
     });
     const result = await runMemoryScan(
@@ -384,6 +384,25 @@ describe("grep walk order and ignore rules", () => {
     );
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/build/app.js:1-1",
+    ]);
+  });
+
+  it("applies an anchored rule above the prefix relative to its own directory", async () => {
+    const port = createMemoryPort(
+      {
+        "index.js": hit(),
+        lib: directory({ "a.js": hit() }),
+      },
+      false,
+      [{ above: "node_modules/react/", text: "/lib\n" }],
+    );
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/node_modules/react/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/node_modules/react/index.js:1-1",
+      "/repo/node_modules/react/lib/a.js:1-1",
     ]);
   });
 
@@ -452,7 +471,7 @@ describe("grep excluded-directory report", () => {
     const first = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
-      { budget: { entries: 3, files: null, bytes: null } },
+      { budget: { entries: 2, files: null, bytes: null } },
     );
     expect(first.ignored?.paths).toEqual(["/repo/a"]);
     const cursor = decode(first.cursor);
@@ -472,6 +491,7 @@ describe("grep excluded-directory report", () => {
       matches: [1],
     };
     const ignored = { count: 1, locators: ["/repo/a"], atLeast: false };
+    const fixedReserve = 5;
     const pageUnits =
       Math.max(
         grepContinuationUnits({ scopeIndex: 0, rel: ".gitignore" }),
@@ -479,7 +499,8 @@ describe("grep excluded-directory report", () => {
         grepContinuationUnits({ scopeIndex: 0, rel: "b.md", startLine: 1 }),
       ) +
       grepPassageUnits(undefined, expected) +
-      grepIgnoredUnits(ignored) -
+      grepIgnoredUnits(ignored) +
+      fixedReserve -
       1;
     const excluded = createMemoryPort({
       ".gitignore": file("a/\n"),
@@ -489,14 +510,14 @@ describe("grep excluded-directory report", () => {
     const reserved = await runMemoryScan(
       [memoryScope(0, "/repo/", excluded)],
       ["hit"],
-      { budget: { pageUnits } },
+      { budget: { pageUnits, fixedReserve } },
     );
     expect(reserved.ignored?.paths).toEqual(["/repo/a"]);
     expect(reserved.results).toEqual([{ ...expected, cut: true }]);
     const control = await runMemoryScan(
       [memoryScope(0, "/repo/", createMemoryPort({ "b.md": hit() }))],
       ["hit"],
-      { budget: { pageUnits } },
+      { budget: { pageUnits, fixedReserve } },
     );
     expect(control.results).toEqual([expected]);
   });
