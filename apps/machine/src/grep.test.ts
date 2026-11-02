@@ -327,6 +327,20 @@ describe("fs.grep", () => {
     expect(page.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
   });
 
+  it("searches a file larger than the bytes left and stops the next one at the byte bound", async () => {
+    await writeAt("project/a.go", "needle one\n");
+    await writeAt("project/b.go", "needle two\n");
+    const page = await grep(
+      request(join(fixture.root, "project"), {
+        budget: { ...BUDGET, bytes: 1 },
+      }),
+    );
+    expect(pathsOf(page)).toEqual(["a.go"]);
+    expect(page.complete).toBe(false);
+    expect(page.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
+    expect(page.cursor).toBeDefined();
+  });
+
   it("resumes after the entry a position cursor names", async () => {
     await writeAt("project/a.md", "nothing here\n");
     await writeAt("project/b.md", "needle\n");
