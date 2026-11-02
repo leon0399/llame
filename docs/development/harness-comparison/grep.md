@@ -95,7 +95,8 @@ configuration field as a verified operator control.
 
 llame can bound file count, directory entries, total bytes, and file size,
 but only when the operator sets `tools.grep`: an unconfigured instance walks
-until its call deadline and resumes from its cursor. The ripgrep wrappers
+until its call deadline and returns the passages it reached with the warning
+that names the stop. The ripgrep wrappers
 generally stop at a result limit without those same tool-level scan budgets. omp uses a native backend and limits both file
 diversity and per-file results. These differences can affect coverage before
 the same wall-time limit. Source inspection alone does not measure their
@@ -112,7 +113,7 @@ compares these outcomes on the same tree:
 - Time to the first relevant project match, not only time to any match.
 - Coverage with the same ignore rules and scope.
 - Files, entries, and bytes processed before the stop.
-- Progress across cursor calls, including work repeated before the resume point.
+- Progress across walks after a bound or deadline stop.
 - Behavior for dependency caches, generated files, and large files.
 
 These are proposed checks, not completed measurements. The two reported
@@ -125,8 +126,8 @@ remove the other scan budgets. A larger result limit does not necessarily
 increase coverage either. Native caps, output truncation, and per-file limits
 can still hide matches.
 
-For llame, retain explicit partial-result signals and cursor continuation if
-bounds become configurable. Evaluate the defaults against the actual workload
+For llame, retain explicit partial-result signals and the guidance to narrow
+the scope or pattern after a stop, now that no cursor continues a walk. Evaluate the defaults against the actual workload
 before selecting a replacement value. The inspected references support that
 separation, not a specific new timeout.
 

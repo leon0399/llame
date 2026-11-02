@@ -65,6 +65,20 @@ type ScanState = {
   position: { readonly scopeIndex: number; readonly rel: string } | undefined;
   /** The scope whose walk is running, for a stop before any entry was reached. */
   scopeIndex: number | undefined;
+  /**
+   * The counts as of the page's last kept passage. A page its own bound cut is
+   * walked again from that passage, so anything it counted after it (a later
+   * file, a skip, an exclusion) belongs to the next page, not to this one.
+   */
+  pageMark: PageMark | undefined;
+};
+
+/** What one call has counted up to a page's last kept passage. */
+type PageMark = {
+  readonly warnings: Map<GrepWarningKind, number>;
+  readonly consumed: { files: number; entries: number; bytes: number };
+  readonly readRefused: number;
+  readonly ignored: { paths: Array<string>; atLeast: boolean };
 };
 
 /**
@@ -129,6 +143,7 @@ function createScanState(input: GrepScanInput): ScanState {
     holdStopped: false,
     position: undefined,
     scopeIndex: undefined,
+    pageMark: undefined,
   };
 }
 
@@ -392,7 +407,36 @@ function emitPassages(
     cappedAt,
     emitted,
   });
+  // A file whose passage did not fit kept nothing: it is walked again by the
+  // next page, so it must not enter this page's counts.
+  if (emitted > 0) markPage(state);
   return emitted;
+}
+
+/** Snapshot the counts a page keeps when its own bound ends it here. */
+function markPage(state: ScanState): void {
+  state.pageMark = {
+    warnings: new Map(state.warnings),
+    consumed: { ...state.consumed },
+    readRefused: state.readRefused,
+    ignored: {
+      paths: [...state.ignored.paths],
+      atLeast: state.ignored.atLeast,
+    },
+  };
+}
+
+/** The counts one result reports: the kept ones, or none for a page cut before a passage. */
+function reportedCounts(state: ScanState): PageMark {
+  if (!state.page.full || state.stop !== undefined) return state;
+  return (
+    state.pageMark ?? {
+      warnings: new Map(),
+      consumed: { files: 0, entries: 0, bytes: 0 },
+      readRefused: 0,
+      ignored: { paths: [], atLeast: false },
+    }
+  );
 }
 
 /** Where one file's twentieth passage stands among the passages it emitted. */
@@ -466,25 +510,22 @@ function addWarning(
 function buildResult(state: ScanState): GrepScanResult {
   const complete =
     state.stop === undefined && !state.page.full && !state.holdStopped;
-  const last = state.page.last;
-  const position = state.position;
+  const counted = reportedCounts(state);
   return {
     results: state.page.results,
     complete,
     cursor: complete ? undefined : cursorOf(state),
-    warnings: [...state.warnings].map(([kind, count]) => ({ kind, count })),
-    readRefused: state.readRefused,
-    consumed: { ...state.consumed },
+    warnings: [...counted.warnings].map(([kind, count]) => ({ kind, count })),
+    readRefused: counted.readRefused,
+    consumed: { ...counted.consumed },
     progressed: state.progressed,
     ...(state.unfinished !== undefined && { unfinished: state.unfinished }),
-    ...(state.ignored.paths.length > 0 && {
+    ...(counted.ignored.paths.length > 0 && {
       ignored: {
-        paths: [...state.ignored.paths],
-        atLeast: state.ignored.atLeast,
+        paths: [...counted.ignored.paths],
+        atLeast: counted.ignored.atLeast,
       },
     }),
-    ...(last !== undefined && { last: { ...last } }),
-    ...(position !== undefined && { position: { ...position } }),
     ...(state.capped.length > 0 && {
       capped: state.capped.map((entry) => ({ ...entry })),
     }),

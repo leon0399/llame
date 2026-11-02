@@ -216,9 +216,12 @@ timeout in its context uses `tools.callTimeoutSeconds`. When a file, entry, or
 byte bound stops the walk, or the deadline does, the result carries
 `complete: false` and the warning that names the stop.
 
-One call walks every scope to its end. The engine and a Machine page their
-own walks internally, so a result never carries a `cursor`: the whole walk is
-the result, and `limit` never stops it.
+One call walks every scope to its end, unless a bound or the deadline stops
+it. The engine and a Machine page their own walks internally, so a result
+never carries a `cursor`, and `limit` never stops the walk. When a stop
+warning names `file_bound`, `entry_bound`, `byte_bound`, or `deadline`, the
+result is partial: narrow `scopes` to the directory or file needed, or narrow
+the patterns, then call again. Re-submitting the same call changes nothing.
 
 A file with more than 20 passages returns its first 20 and marks its
 twentieth `truncated`, which adds `[more passages in this file; read it to see

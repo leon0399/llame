@@ -151,8 +151,8 @@ export async function resolveScopes(
   const scopes: Array<GrepScope> = [];
   const roots: Array<string> = [];
   // A bare `kb://` or `skill://` scope expands to one scope per Space or
-  // package. Each expansion is its own scope, so it takes its own ordinal:
-  // a cursor names exactly one of them, and a page resumes after that one.
+  // package. Each expansion is its own scope, so it takes its own ordinal in
+  // the walk order.
   let ordinal = 0;
   const machines: Array<MachineGrepScope> = [];
   for (const [index, scope] of submitted.entries()) {

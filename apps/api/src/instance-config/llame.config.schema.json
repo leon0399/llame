@@ -936,19 +936,19 @@
         "grep": {
           "type": ["object", "null"],
           "additionalProperties": false,
-          "description": "Optional walk bounds for the `grep` tool, per call and across every scope. Absent or null bounds nothing: the call timeout is then the only stop, and a huge tree continues from its cursor. Each field is a positive integer, null, or a whole-value {env:}/{path:} token; zero, a negative number, a fraction, or an unknown field fails startup naming the path. Byte fields count bytes, so 33554432 is 32 MiB.",
+          "description": "Optional walk bounds for the `grep` tool, per call and across every scope. Absent or null bounds nothing: the call timeout is then the only stop. Each field is a positive integer, null, or a whole-value {env:}/{path:} token; zero, a negative number, a fraction, or an unknown field fails startup naming the path. Byte fields count bytes, so 33554432 is 32 MiB.",
           "properties": {
             "maxFilesExamined": {
               "$ref": "#/$defs/nullableNumberOrToken",
-              "description": "Files one grep call may take for a match. Omitted or null = no file bound; at the bound the walk stops with a `file_bound` warning and a cursor."
+              "description": "Files one grep call may take for a match. Omitted or null = no file bound; at the bound the walk stops with a `file_bound` warning."
             },
             "maxEntriesListed": {
               "$ref": "#/$defs/nullableNumberOrToken",
-              "description": "Directory entries one grep call may list. Omitted or null = no entry bound; at the bound the walk stops with an `entry_bound` warning and a cursor."
+              "description": "Directory entries one grep call may list. Omitted or null = no entry bound; at the bound the walk stops with an `entry_bound` warning."
             },
             "maxBytesRead": {
               "$ref": "#/$defs/nullableNumberOrToken",
-              "description": "Bytes one grep call may read from the files it takes, plus what it read so far of the file it waits on. Omitted or null = no byte bound; at the bound the walk stops with a `byte_bound` warning and a cursor."
+              "description": "Bytes one grep call may read from the files it takes, plus what it read so far of the file it waits on. Omitted or null = no byte bound; at the bound the walk stops with a `byte_bound` warning."
             },
             "maxFileBytes": {
               "$ref": "#/$defs/nullableNumberOrToken",

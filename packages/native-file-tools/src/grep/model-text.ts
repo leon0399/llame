@@ -131,14 +131,6 @@ export function grepWarningsUnits(
   return line === undefined ? 0 : line.length + 1;
 }
 
-/**
- * The width of the continuation line an engine page reserves for its own
- * cursor. The line never reaches the model: the walk pages internally.
- */
-export function grepContinuationLine(cursor: string): string {
-  return `[more results. Continue with cursor: ${cursor}]`;
-}
-
 /** The one line that names a file a bound stopped inside before any progress. */
 export function grepUnfinishedLine(locator: string): string {
   return `[not searched to the end: ${oneLine(locator)}]`;

@@ -58,15 +58,14 @@ import {
   type MachineFailureResult,
 } from './machine-call';
 import {
-  daemonStart,
   ignoredAccumulator,
   machineScopeLocator,
-  spent,
   mergePage,
   requestOf,
   type DaemonAsk,
   type IgnoredAccumulator,
 } from './grep-machine-wire';
+import { budgetAfter } from './grep-page';
 import { type ToolContext, type ToolResult } from './types';
 
 /** One Machine scope: the prefix the daemon searches and its glob suffix. */
@@ -307,12 +306,18 @@ async function runDaemonPages(
   deadlineAt: number,
 ): Promise<MachineGrepSegment> {
   const run: MachineSegmentPage = {
-    ...daemonStart(search, deadlineAt),
-    entries: [],
+    budget: budgetAfter(
+      search.budget,
+      { files: 0, entries: 0, bytes: 0 },
+      deadlineAt,
+    ),
+    passages: [],
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     ignored: ignoredAccumulator(search.scope),
     deadlineAt,
+    cursor: undefined,
+    progressed: search.progressed,
     last: undefined,
     unfinished: undefined,
   };
@@ -345,23 +350,6 @@ type MachineSegmentPage = {
   unfinished: string | undefined;
 };
 
-/** The first page's request state, with nothing accumulated yet. */
-function createPageRun(
-  search: MachineGrepSearch,
-  deadlineAt: number,
-): MachineSegmentPage {
-  return {
-    ...daemonStart(search, deadlineAt),
-    passages: [],
-    warnings: new Map(),
-    consumed: { files: 0, entries: 0, bytes: 0 },
-    ignored: ignoredAccumulator(search.scope),
-    deadlineAt,
-    last: undefined,
-    unfinished: undefined,
-  };
-}
-
 /** One page's effect on the run; `ended` says the scope has no next page. */
 type PageStep =
   | { readonly ended: boolean }
@@ -386,10 +374,10 @@ function takePage(
     // A one-file walk ignores a cursor, so a stop in it can only end the scope.
     if (search.scope.singleFile === true) return { ended: true };
   }
-  const next = keepAsking(page, run.cursor);
+  const next = nextCursor(page, run.cursor);
   if (next === undefined) return { ended: true };
   run.cursor = next;
-  run.budget = spent(run.budget, page, run.deadlineAt);
+  run.budget = budgetAfter(run.budget, page.consumed, run.deadlineAt);
   return { ended: false };
 }
 
@@ -398,20 +386,32 @@ function segmentOfPages(
   search: MachineGrepSearch,
   pages: MachineSegmentPage,
 ): MachineGrepSegment {
-  const { last, warnings } = pages;
-  // A scope whose bound was spent by an earlier segment is never asked, so
-  // no page can name the stop: the segment reports it instead, in the order
-  // the walk would have tripped it (entries while listing, then files, then
-  // bytes at a candidate).
+  // Every page whose consumed counts are zero, i.e. a scope skipped by a bound
+  // an earlier segment spent. The walk's own order is entries while listing,
+  // then files, then bytes at a candidate.
   const spent =
-    last === undefined
+    pages.last === undefined
       ? spentBound(search.budget, search.scope.singleFile === true)
       : undefined;
-  const counted =
-    spent !== undefined && !warnings.has(spent)
-      ? new Map([...warnings, [spent, 1] as const])
-      : warnings;
-  return segmentOf({ ...pages, warnings: counted });
+  if (spent !== undefined && !pages.warnings.has(spent))
+    pages.warnings.set(spent, 1);
+  return {
+    status: 'success',
+    passages: pages.passages,
+    // A skipped file leaves the walk incomplete even when a later page ended
+    // the scope: the call knows a file it could not finish.
+    complete: pages.last?.complete === true && pages.unfinished === undefined,
+    warnings: [...pages.warnings].map(([kind, count]) => ({ kind, count })),
+    consumed: pages.consumed,
+    progressed: pages.progressed,
+    ...(pages.unfinished !== undefined && { unfinished: pages.unfinished }),
+    ...(pages.ignored.paths.length > 0 && {
+      ignored: {
+        paths: pages.ignored.paths,
+        atLeast: pages.ignored.atLeast,
+      },
+    }),
+  };
 }
 
 /**
@@ -430,47 +430,15 @@ function spentBound(
 }
 
 /**
- * The next cursor to ask with, or undefined when this page ended the scope's
- * walk: the page is complete, or asking again would fetch the same page.
- */
-function keepAsking(
-  page: FsGrepSuccess,
-  cursor: string | undefined,
-): string | undefined {
-  if (page.complete) return undefined;
-  return nextCursor(page, cursor);
-}
-
-/** The segment one Machine scope's pages add up to. */
-function segmentOf(page: MachineSegmentPage): MachineGrepSegment {
-  return {
-    status: 'success',
-    passages: page.passages,
-    // A skipped file leaves the walk incomplete even when a later page ended
-    // the scope: the call knows a file it could not finish.
-    complete: page.last?.complete === true && page.unfinished === undefined,
-    warnings: [...page.warnings].map(([kind, count]) => ({ kind, count })),
-    consumed: page.consumed,
-    progressed: page.progressed,
-    ...(page.unfinished !== undefined && { unfinished: page.unfinished }),
-    ...(page.ignored.paths.length > 0 && {
-      ignored: {
-        paths: page.ignored.paths,
-        atLeast: page.ignored.atLeast,
-      },
-    }),
-  };
-}
-
-/**
- * The cursor the next page is asked with, or undefined when asking again
- * would fetch the same page: the daemon consumed nothing, or named the cursor
- * it was asked with.
+ * The cursor the next page is asked with, or undefined when this page ended
+ * the scope's walk: the page is complete, or asking again would fetch the same
+ * page (the daemon consumed nothing, or named the cursor it was asked with).
  */
 function nextCursor(
   page: FsGrepSuccess,
   cursor: string | undefined,
 ): string | undefined {
+  if (page.complete) return undefined;
   if (page.consumed.files + page.consumed.entries + page.consumed.bytes === 0)
     return undefined;
   return page.cursor === undefined || page.cursor === cursor
@@ -485,8 +453,6 @@ function nextCursor(
  */
 function canAskPage(budget: GrepBudget, singleFile: boolean): boolean {
   return (
-    budget.limit > 0 &&
-    budget.pageUnits > 0 &&
     budget.deadlineMs > 0 &&
     (budget.files === null || budget.files > 0) &&
     (singleFile || budget.entries === null || budget.entries > 0) &&
@@ -519,7 +485,6 @@ async function requestPage(
     return { result: result ?? machineUnusableResult(scope.name) };
   return { page: result };
 }
-
 
 /** The Machine failure vocabulary, as `read` maps it, plus the missing method. */
 function machineGrepFailure(

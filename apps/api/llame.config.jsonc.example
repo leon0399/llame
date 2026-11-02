@@ -890,7 +890,7 @@
     "callTimeoutSeconds": 120,
     // Optional bound on what one `grep` call searches. Unset (as here) means
     // no file, entry, byte, or file-size bound: a large tree runs until the
-    // timeout-derived grep deadline and continues from its cursor. Each field is a positive
+    // timeout-derived grep deadline. Each field is a positive
     // integer, null, or a {env:...}/{path:...} token; byte fields count bytes
     // (33554432 = 32 MiB). Zero, a negative number, or a fraction fails boot.
     // "grep": {

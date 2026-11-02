@@ -891,6 +891,92 @@ describe('operator bounds', () => {
       expect(warningsOf(result)).toEqual([{ kind: 'oversized', count: 1 }]);
     });
   });
+
+  it('keeps the passage the file bound takes last', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'miss\n');
+      await writeAt(root, 'b.md', 'miss\n');
+      await writeAt(root, 'c.md', 'needle\n');
+      await writeAt(root, 'd.md', 'needle\n');
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxFilesExamined: 3 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // The third file is the one that matches, and the bound stops the walk
+      // after it: its passage is in the result, not lost behind the stop.
+      expect(locatorsOf(result)).toEqual([`${root}/c.md:1-1`]);
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
+    });
+  });
+});
+
+/** A tree of `count` one-line matching files, in byte order. */
+async function matchingTree(root: string, count: number): Promise<void> {
+  await Promise.all(
+    Array.from({ length: count }, (_, index) =>
+      writeAt(root, `f${String(index).padStart(3, '0')}.md`, 'needle\n'),
+    ),
+  );
+}
+
+describe('host pages inside one call', () => {
+  // The host engine page is 200 files, so a walk of more than that resumes
+  // internally. Each case proves a bound that trips on the second page sees
+  // what the first page left.
+
+  it('subtracts the file bound across internal pages', async () => {
+    await withRoot(async (root) => {
+      await matchingTree(root, 251);
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxFilesExamined: 250 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // The second page starts with 50 files left, so the walk stops at the
+      // 250th and never takes the 251st.
+      // Page two re-takes the file its cursor names, so 250 examined files
+      // hold 249 passages: the bound counts the resumed file again.
+      expect(locatorsOf(result)).toHaveLength(249);
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
+    });
+  });
+
+  it('subtracts the byte bound across internal pages', async () => {
+    await withRoot(async (root) => {
+      // Each file reads seven bytes, so the bound leaves the second page one
+      // file and stops it before the next one.
+      await matchingTree(root, 251);
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxBytesRead: 200 * 7 + 7 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // Page two re-takes the cursor's file, which spends the last byte, so
+      // no new file is taken.
+      expect(locatorsOf(result)).toHaveLength(200);
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
+    });
+  });
+
+  it('carries progress into the next internal page', async () => {
+    await withRoot(async (root) => {
+      await matchingTree(root, 200);
+      // Larger than one read chunk, so the bound stops the file between its
+      // chunks on the second page.
+      await writeAt(root, 'zz-big.log', `${'x'.repeat(63)}\n`.repeat(4000));
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxBytesRead: 200 * 7 + 600 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // The call progressed on the first page, so the stop on the second must
+      // not name the file it stopped inside.
+      expect(locatorsOf(result)).toHaveLength(200);
+      expect(success(result).unfinishedFile).toBeUndefined();
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
+    });
+  });
 });
 
 describe('host scope pages', () => {
@@ -925,6 +1011,7 @@ describe('host scope pages', () => {
       // inline head arrives with the artifact.
       expect(locatorsOf(result)).toEqual([
         `${root}/a/one.md:1-1`,
+        `${root}/b/one.md:1-1`,
         `${root}/b/two.md:1-1`,
       ]);
       expect(success(result).complete).toBe(true);

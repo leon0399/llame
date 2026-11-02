@@ -60,9 +60,10 @@ export type PageState = {
   unfinished: string | undefined;
   /** The excluded directories the `read` group admitted, in canonical order. */
   ignored: {
-    paths: Array<string>;
+    readonly paths: Array<string>;
+    /** Every locator already counted, so two pages count a directory once. */
+    readonly seen: Set<string>;
     count: number;
-    recorded: number;
     atLeast: boolean;
   };
 };
@@ -75,35 +76,31 @@ export function createPageState(): PageState {
     complete: true,
     progressed: false,
     unfinished: undefined,
-    ignored: { paths: [], count: 0, recorded: 0, atLeast: false },
+    ignored: { paths: [], seen: new Set(), count: 0, atLeast: false },
   };
 }
 
 /**
- * What is left of the call's bounds for the next segment. The page shape the
- * segment walks under is the backend's own: the engine and the daemon both cut
- * their pages internally, so only the operator bounds and the deadline carry
- * from one segment to the next.
+ * What is left of the call's bounds after one walk consumed its share, with
+ * the deadline refreshed. The page shape stays the backend's own: the engine
+ * and the daemon both cut their pages internally.
  */
-export function remainingBudget(
+export function budgetAfter(
   budget: GrepBudget,
-  state: PageState,
+  consumed: { files: number; entries: number; bytes: number },
   deadlineAt: number,
 ): GrepBudget {
   return {
-    files: remainingOf(budget.files, state.consumed.files),
-    entries: remainingOf(budget.entries, state.consumed.entries),
-    bytes: remainingOf(budget.bytes, state.consumed.bytes),
-    maxFileBytes: budget.maxFileBytes,
+    ...budget,
+    files: remainingOf(budget.files, consumed.files),
+    entries: remainingOf(budget.entries, consumed.entries),
+    bytes: remainingOf(budget.bytes, consumed.bytes),
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
-    limit: budget.limit,
-    pageUnits: budget.pageUnits,
-    fixedReserve: budget.fixedReserve,
   };
 }
 
 /** What one bound has left; an unset (`null`) bound stays unset. */
-export function remainingOf(bound: number | null, used: number): number | null {
+function remainingOf(bound: number | null, used: number): number | null {
   return bound === null ? null : Math.max(0, bound - used);
 }
 
@@ -177,11 +174,14 @@ function mergeIgnored(
   if (ignored === undefined) return;
   if (ignored.atLeast) state.ignored.atLeast = true;
   for (const locator of ignored.paths) {
-    if (state.ignored.recorded >= GREP_LIMITS.ignoredReported) {
+    if (state.ignored.seen.size >= GREP_LIMITS.ignoredReported) {
       state.ignored.atLeast = true;
       break;
     }
-    state.ignored.recorded += 1;
+    // A page that resumes inside a scope lists its ancestors again, so the
+    // same excluded directory can arrive twice; the call names it once.
+    if (state.ignored.seen.has(locator)) continue;
+    state.ignored.seen.add(locator);
     // A literal clause matches text, so a reject written with the separator
     // must hide the directory written without it.
     if (!admission.allows(locator) || !admission.allows(`${locator}/`))

@@ -117,7 +117,7 @@ rejects the whole call.
 operator sets one. The call deadline is its only default stop: the tool call
 timeout (120 seconds unless `tools.callTimeoutSeconds` says otherwise), less
 the larger of 5 seconds and a tenth of it, but at most half. A bound that
-stops a walk returns `complete: false` with a warning and a cursor, never a
+stops a walk returns `complete: false` with the warning that names it, never a
 refused call, and each bound applies across every scope of the call.
 
 ```jsonc
@@ -192,8 +192,8 @@ admitted locator as a `machine://` scope.
 
 The daemon opens each candidate under its own authority. The API then applies
 the `read` group to every returned file. It drops the passages of a refused
-file and counts them for the completion audit. A position cursor can name a
-refused file as the point to resume after. It never names a passage of it.
+file and counts them for the completion audit. A refused file never reaches
+the result, and the walk keeps its own position past it.
 
 A daemon without the `fs.grep` method fails the call as Machine unusable. An
 unknown Machine returns `machine_not_found` and no other scope is searched.

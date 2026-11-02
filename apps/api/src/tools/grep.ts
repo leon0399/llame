@@ -11,14 +11,15 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   GREP_LIMITS,
-  hashGrepInputs,
   measureGrepRendering,
   runGrepScan,
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
   type GrepBudget,
+  type GrepScanInput,
   type GrepScanResult,
   type GrepScope,
+  type GrepWarningKind,
 } from '@workspace/native-file-tools';
 import { z } from 'zod';
 
@@ -28,7 +29,6 @@ import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   createGrepReadAdmission,
   grepScopeStrings,
-  projectGrepScope,
   type GrepReadAdmission,
 } from './grep-admission';
 import {
@@ -41,10 +41,9 @@ import { namedUnfinished } from './grep-machine-wire';
 import {
   addWarning,
   appendSegment,
+  budgetAfter,
   createPageState,
   pageResult,
-  remainingBudget,
-  remainingOf,
   type PageState,
   type SegmentPage,
 } from './grep-page';
@@ -106,9 +105,6 @@ async function executeGrep(
       patterns,
       admission,
       resolved,
-      projectedScopes: submitted.map(
-        (scope) => projectGrepScope(scope, root).prefix,
-      ),
       deadlineAt,
     });
   } finally {
@@ -138,7 +134,6 @@ type ScanRequest = {
   readonly patterns: CompiledGrepPatterns;
   readonly admission: GrepReadAdmission;
   readonly resolved: ResolvedScopes;
-  readonly projectedScopes: ReadonlyArray<string>;
   /** The instant the walk stops, computed at `executeGrep` entry. */
   readonly deadlineAt: number;
 };
@@ -151,13 +146,12 @@ type GrepSegment = GrepScope | MachineGrepScope;
 
 /** Walk the call's scopes in submitted order; the caller records what policy hid. */
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
-  const { input, patterns, resolved, deadlineAt } = request;
-  const inputHash = hashOf(input, request.projectedScopes, resolved.roots);
+  const { patterns, resolved, deadlineAt } = request;
   const budget = grepBudget(request.context);
   const state = createPageState();
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
-    const remaining = remainingBudget(budget, state, deadlineAt);
+    const remaining = budgetAfter(budget, state.consumed, deadlineAt);
     // An expired deadline ends the walk before another scope is opened.
     if (remaining.deadlineMs <= 0) {
       endAtDeadline(state);
@@ -166,7 +160,6 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     const outcome = await runSegment({
       request,
       patterns,
-      inputHash,
       segment,
       budget: remaining,
 
@@ -207,7 +200,6 @@ type SegmentOutcome =
 type SegmentRun = {
   readonly request: ScanRequest;
   readonly patterns: CompiledGrepPatterns;
-  readonly inputHash: string;
   readonly segment: GrepSegment;
   readonly budget: GrepBudget;
 
@@ -256,8 +248,22 @@ async function runMachineSegment(
   };
 }
 
+/**
+ * The one hash a call binds its internal engine cursors to. No cursor leaves
+ * the call, so a fixed value is all the codec needs.
+ */
+const INTERNAL_CURSOR_HASH = 'grep-walk';
+
+/**
+ * The host engine page is internal and never reaches the model, so it holds
+ * ten times the old 20-file model page: a broad walk resumes rarely, and a cut
+ * page reports its counts as of its last kept passage.
+ */
+const HOST_PAGE_FILES = GREP_LIMITS.filesPerPage * 10;
+const HOST_PAGE_UNITS = GREP_LIMITS.pageCodeUnits * 4;
+
 /** The bound or deadline that ended an engine page, when one did. */
-const PAGE_STOP_KINDS: ReadonlySet<string> = new Set([
+const PAGE_STOP_KINDS: ReadonlySet<GrepWarningKind> = new Set([
   'file_bound',
   'entry_bound',
   'byte_bound',
@@ -276,31 +282,22 @@ async function runLocalSegment(
   scope: GrepScope,
 ): Promise<SegmentOutcome> {
   const pages: Array<SegmentPage> = [];
-  let cursor: DecodedGrepCursor | undefined;
-  let budget = run.budget;
-  let progressed = run.progressed;
+  let walk: PageWalk = {
+    cursor: undefined,
+    progressed: run.progressed,
+    budget: {
+      ...run.budget,
+      limit: HOST_PAGE_FILES,
+      pageUnits: HOST_PAGE_UNITS,
+    },
+  };
   try {
     for (;;) {
-      const scan = await runGrepScan({
-        scopes: [scope],
-        patterns: run.patterns,
-        onCandidate: (locator) =>
-          Promise.resolve(run.request.admission.admit(locator)),
-        budget,
-        ...(cursor !== undefined && { cursor }),
-        inputHash: run.inputHash,
-        now: Date.now,
-        progressed,
-      });
+      const scan = await runGrepScan(engineInput(run, scope, walk));
       pages.push(localPage(scan));
-      if (scan.complete || scan.cursor === undefined) break;
-      if (scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind)))
-        break;
-      const next = decodeGrepCursor(scan.cursor, run.inputHash);
-      if ('error' in next) break;
-      cursor = next;
-      progressed = progressed || scan.progressed;
-      budget = nextPageBudget(budget, scan, run.request.deadlineAt);
+      const next = nextPage(scan, walk, run.request.deadlineAt);
+      if (next === undefined) break;
+      walk = next;
     }
     return { pages };
   } catch (error) {
@@ -309,18 +306,48 @@ async function runLocalSegment(
   }
 }
 
-/** What the next engine page walks with after one page consumed its share. */
-function nextPageBudget(
-  budget: GrepBudget,
-  scan: GrepScanResult,
-  deadlineAt: number,
-): GrepBudget {
+/** How the host engine's next internal page resumes. */
+type PageWalk = {
+  readonly cursor: DecodedGrepCursor | undefined;
+  readonly progressed: boolean;
+  readonly budget: GrepBudget;
+};
+
+/** One host engine call, resumed from the call's own previous page. */
+function engineInput(
+  run: SegmentRun,
+  scope: GrepScope,
+  walk: PageWalk,
+): GrepScanInput {
   return {
-    ...budget,
-    files: remainingOf(budget.files, scan.consumed.files),
-    entries: remainingOf(budget.entries, scan.consumed.entries),
-    bytes: remainingOf(budget.bytes, scan.consumed.bytes),
-    deadlineMs: Math.max(0, deadlineAt - Date.now()),
+    scopes: [scope],
+    patterns: run.patterns,
+    onCandidate: (locator) =>
+      Promise.resolve(run.request.admission.admit(locator)),
+    budget: walk.budget,
+    ...(walk.cursor !== undefined && { cursor: walk.cursor }),
+    inputHash: INTERNAL_CURSOR_HASH,
+    now: Date.now,
+    progressed: walk.progressed,
+  };
+}
+
+/** The next internal page's state, or undefined when the walk ends here. */
+function nextPage(
+  scan: GrepScanResult,
+  walk: PageWalk,
+  deadlineAt: number,
+): PageWalk | undefined {
+  if (scan.complete || scan.cursor === undefined) return undefined;
+  if (scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind)))
+    return undefined;
+  const cursor = decodeGrepCursor(scan.cursor, INTERNAL_CURSOR_HASH);
+  if ('error' in cursor)
+    throw new Error('The engine returned a cursor it cannot decode.');
+  return {
+    cursor,
+    progressed: walk.progressed || scan.progressed,
+    budget: budgetAfter(walk.budget, scan.consumed, deadlineAt),
   };
 }
 
@@ -368,20 +395,6 @@ function compileSubmittedPatterns(
   return compiled.ok
     ? compiled.compiled
     : invalidPatternResult(compiled.index, compiled.message);
-}
-
-function hashOf(
-  input: GrepArguments,
-  projectedScopes: ReadonlyArray<string>,
-  resolvedRoots: ReadonlyArray<string>,
-): string {
-  return hashGrepInputs({
-    patterns: input.patterns,
-    literal: input.literal === true,
-    ignoreCase: input.ignoreCase === true,
-    projectedScopes,
-    resolvedRoots,
-  });
 }
 
 /**

@@ -28,7 +28,7 @@ const passageSchema = z.object({
   locator: z.string(),
   content: z.string(),
   matches: z.array(z.number()),
-  /** The page cut the passage; its cursor continues the lines it left out. */
+  /** An internal page bound cut the passage; the tool joins its continuation. */
   cut: z.boolean().optional(),
   /** The passage is its file's twentieth, so the page shows no more of it. */
   truncated: z.boolean().optional(),

@@ -73,7 +73,7 @@ export function hostLiteralStart(
     : 0;
 }
 
-/** One scope set a call resolved, plus the roots its cursor is keyed on. */
+/** One scope set a call resolved, plus the roots it resolved to. */
 export type ResolvedScopes = {
   readonly scopes: ReadonlyArray<GrepScope>;
   readonly roots: ReadonlyArray<string>;
@@ -86,7 +86,7 @@ export type ScopeOutcome =
   | ResolvedScopes
   | {
       readonly machine: MachineGrepScope;
-      /** The Machine name, which the call's cursor is keyed on. */
+      /** The Machine name the connector resolves. */
       readonly root: string;
     }
   | { readonly result: GrepToolError };

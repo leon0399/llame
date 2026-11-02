@@ -13,7 +13,6 @@ import {
 import { GREP_LIMITS, type GrepBudget } from '@workspace/native-file-tools';
 
 import { formatMachineLocator } from '../machines/machine-locator';
-import { remainingOf } from './grep-page';
 import { type GrepReadAdmission } from './grep-admission';
 import { type MachineGrepScope, type MachineGrepSearch } from './grep-machine';
 
@@ -131,6 +130,9 @@ export function mergePage(
   consumed.files += page.consumed.files;
   consumed.entries += page.consumed.entries;
   consumed.bytes += page.consumed.bytes;
+  // The daemon's own time budget is the call's one stop however many pages it
+  // ends, so the result never reports it twice.
+  if (warnings.has('deadline')) warnings.set('deadline', 1);
   if (page.ignored === undefined) return;
   if (page.ignored.atLeast) ignored.atLeast = true;
   for (const rel of page.ignored.paths) {
@@ -144,44 +146,4 @@ export function mergePage(
     if (locator === undefined) continue;
     ignored.paths.push(locator);
   }
-}
-
-/** The loop's first request state: budget and inherited progress. */
-type DaemonStart = {
-  readonly budget: GrepBudget;
-  readonly cursor: string | undefined;
-  readonly progressed: boolean;
-};
-
-export function daemonStart(
-  search: MachineGrepSearch,
-  deadlineAt: number,
-): DaemonStart {
-  return {
-    budget: {
-      ...search.budget,
-      deadlineMs: Math.max(0, deadlineAt - Date.now()),
-    },
-    cursor: undefined,
-    progressed: search.progressed,
-  };
-}
-
-/** What the call has left after one daemon page. */
-export function spent(
-  budget: GrepBudget,
-  page: FsGrepSuccess,
-  deadlineAt: number,
-): GrepBudget {
-  const consumed = page.consumed;
-  return {
-    files: remainingOf(budget.files, consumed.files),
-    entries: remainingOf(budget.entries, consumed.entries),
-    bytes: remainingOf(budget.bytes, consumed.bytes),
-    maxFileBytes: budget.maxFileBytes,
-    limit: budget.limit,
-    pageUnits: budget.pageUnits,
-    fixedReserve: budget.fixedReserve,
-    deadlineMs: Math.max(0, deadlineAt - Date.now()),
-  };
 }

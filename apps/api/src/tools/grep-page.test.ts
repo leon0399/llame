@@ -7,10 +7,9 @@ import {
 
 import {
   appendSegment,
+  budgetAfter,
   createPageState,
   pageResult,
-  remainingBudget,
-  remainingOf,
 } from './grep-page';
 import { type GrepReadAdmission } from './grep-admission';
 
@@ -49,18 +48,9 @@ function passage(
 }
 
 describe('grep page budgets', () => {
-  it('keeps an unset bound unset and stops a set one at zero', () => {
-    expect(remainingOf(null, 10)).toBeNull();
-    expect(remainingOf(10, 4)).toBe(6);
-    expect(remainingOf(10, 12)).toBe(0);
-  });
-
-  it('hands the next segment the bounds the earlier one left', () => {
-    const state = createPageState();
-    state.consumed.files = 3;
-    state.consumed.entries = 7;
-    state.consumed.bytes = 400;
-    const remaining = remainingBudget(BUDGET, state, Date.now() + 1000);
+  it('hands the next walk the bounds the earlier one left', () => {
+    const consumed = { files: 3, entries: 7, bytes: 400 };
+    const remaining = budgetAfter(BUDGET, consumed, Date.now() + 1000);
     expect(remaining).toMatchObject({
       files: 7,
       entries: 13,
@@ -71,10 +61,22 @@ describe('grep page budgets', () => {
     expect(remaining.deadlineMs).toBeGreaterThan(0);
   });
 
+  it('keeps an unset bound unset and stops a set one at zero', () => {
+    expect(
+      budgetAfter(BUDGET, { files: 12, entries: 30, bytes: 2000 }, 0),
+    ).toMatchObject({ files: 0, entries: 0, bytes: 0 });
+    const unset = budgetAfter(
+      { ...BUDGET, files: null, entries: null, bytes: null },
+      { files: 12, entries: 30, bytes: 2000 },
+      0,
+    );
+    expect(unset).toMatchObject({ files: null, entries: null, bytes: null });
+  });
+
   it('reports an expired deadline as zero', () => {
-    const remaining = remainingBudget(
+    const remaining = budgetAfter(
       BUDGET,
-      createPageState(),
+      { files: 0, entries: 0, bytes: 0 },
       Date.now() - 1,
     );
     expect(remaining.deadlineMs).toBe(0);

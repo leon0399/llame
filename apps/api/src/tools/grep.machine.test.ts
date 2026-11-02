@@ -1339,7 +1339,7 @@ describe('Machine pages within one call', () => {
       unfinishedFile: 'machine://devl/srv/app/a.go',
     });
     expect(locatorsOf(result)).toEqual([]);
-    expect(cursorPayloadOf(result)).toMatchObject({ rel: 'a.go' });
+    expect(result).not.toHaveProperty('cursor');
     const asked = (await peer.session(0)).calls.filter(
       (call) => call.method === 'fs.grep',
     );
@@ -1384,16 +1384,42 @@ describe('Machine pages within one call', () => {
       unfinishedFile: 'machine://devl/srv/app/a.go',
     });
     expect(locatorsOf(result)).toEqual([]);
-    expect(cursorPayloadOf(result)).toEqual({
-      kind: 'position',
-      scopeIndex: 0,
-      rel: 'a.go',
-      inputHash: hashOfScopes([scope], ['devl']),
-    });
+    expect(result).not.toHaveProperty('cursor');
     const asked = (await peer.session(0)).calls.filter(
       (call) => call.method === 'fs.grep',
     );
     expect(asked).toHaveLength(2);
+  });
+
+  it('reports the daemon deadline once across its pages', async () => {
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([passage('a.go', 1, 1)], {
+                  complete: false,
+                  cursor: 'daemon-next',
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                  warnings: [{ kind: 'deadline', count: 1 }],
+                })
+              : page([passage('b.go', 1, 1)], {
+                  warnings: [{ kind: 'deadline', count: 1 }],
+                }),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    // The daemon's own time budget is one stop of the call, however many pages
+    // it ends.
+    expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
+    expect(locatorsOf(result)).toHaveLength(2);
   });
 
   it('counts a directory a second daemon page repeated once', async () => {
