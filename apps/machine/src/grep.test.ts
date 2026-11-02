@@ -356,14 +356,19 @@ describe("fs.grep", () => {
     expect(page.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
   });
 
-  it("searches a file larger than the bytes left and stops the next one at the byte bound", async () => {
+  it("searches a file whose chunk passes the byte bound and stops the next one", async () => {
     await writeAt("project/a.go", "needle one\n");
     await writeAt("project/b.go", "needle two\n");
     const prefix = join(fixture.root, "project");
     const page = await grep(
       request(prefix, { budget: { ...BUDGET, bytes: 1 } }),
     );
+    // A file of any size is searched: `a.go` is one chunk, so the 1-byte bound
+    // is crossed after its bytes and never cuts it. The bound then stops the
+    // walk before `b.go`, and the call progressed, so no file is unfinished.
     expect(pathsOf(page)).toEqual(["a.go"]);
+    expect(page.progressed).toBe(true);
+    expect(page.unfinished).toBeUndefined();
     expect(page.complete).toBe(false);
     expect(page.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
     if (page.cursor === undefined) throw new Error("the page carries a cursor");
@@ -379,6 +384,8 @@ describe("fs.grep", () => {
       ),
     ).toMatchObject({ kind: "passage", rel: "a.go" });
 
+    // The passage cursor resumes after `a.go`: the walk re-lists it, opens
+    // nothing of it, and searches `b.go`.
     const second = await grep(request(prefix, { cursor: page.cursor }));
     expect(pathsOf(second)).toEqual(["b.go"]);
     expect(second.complete).toBe(true);
