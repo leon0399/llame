@@ -192,36 +192,46 @@ async function writeSinglePart(
     return { kind: 'no-reader' };
   }
   try {
-    const written = await writeToolArtifact(
-      context.tenantDb,
-      {
-        chatId: context.chatId,
-        userId: context.userId,
-        runId,
-        toolCallId: context.toolCallId ?? toolName,
-        toolName,
-        complete: part.complete ?? true,
-        parts: [
-          {
-            contentType: part.contentType,
-            content: Buffer.from(part.content, 'utf8'),
-            ...(part.findings !== undefined && { findings: part.findings }),
-          },
-        ],
-      },
-      {
-        maxBytes: artifactMaxBytes(context),
-        hostFiles: context.artifactHostFiles === true,
-        abortSignal: context.abortSignal,
-        timeoutSignal: context.timeoutSignal,
-      },
-    );
+    const written = await writePart(context, runId, toolName, part);
     return canReadArtifacts(context, toolName, written.seq)
       ? { kind: 'written', written }
       : { kind: 'failed' };
   } catch {
     return { kind: 'failed' };
   }
+}
+
+/** The writer request of one part, host files and the call's signals included. */
+function writePart(
+  context: ToolContext,
+  runId: string,
+  toolName: string,
+  part: SinglePartArtifact,
+): Promise<WrittenArtifact> {
+  return writeToolArtifact(
+    context.tenantDb,
+    {
+      chatId: context.chatId,
+      userId: context.userId,
+      runId,
+      toolCallId: context.toolCallId ?? toolName,
+      toolName,
+      complete: part.complete ?? true,
+      parts: [
+        {
+          contentType: part.contentType,
+          content: Buffer.from(part.content, 'utf8'),
+          ...(part.findings !== undefined && { findings: part.findings }),
+        },
+      ],
+    },
+    {
+      maxBytes: artifactMaxBytes(context),
+      hostFiles: context.artifactHostFiles === true,
+      abortSignal: context.abortSignal,
+      timeoutSignal: context.timeoutSignal,
+    },
+  );
 }
 
 /**
