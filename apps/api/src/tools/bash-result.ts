@@ -20,9 +20,19 @@ import {
 
 import { type ToolResult } from './types';
 
+/**
+ * The artifact one spilled call stored: its locator and the notice line that
+ * ends the text (without brackets, as the cap's own notice is stored).
+ */
+export type BashSpill = {
+  readonly artifact: string;
+  readonly notice: string;
+};
+
 /** A failure the executor already classified; a timeout keeps its streams. */
 function typedFailureResult(
   result: BashTimedOutResult | BashUnknownResult | BashUnavailableResult,
+  spill: BashSpill | undefined,
 ): ToolResult {
   if (result.type !== 'timed_out')
     return { status: 'error', type: result.type, message: result.message };
@@ -31,21 +41,35 @@ function typedFailureResult(
     type: 'timed_out',
     // The type tells the renderer this command was stopped, not exited, so the
     // header names the measured elapsed time and no exit code.
-    message: renderBashText(result),
+    message: renderBashText({
+      ...result,
+      ...(spill !== undefined && { truncationNotice: spill.notice }),
+    }),
+    ...(spill !== undefined && { artifact: spill.artifact }),
   };
 }
 
 /** A command that ended non-zero: the same shape, with its own exit code. */
-function commandFailedResult(result: BashKnownResult): ToolResult {
+function commandFailedResult(
+  result: BashKnownResult,
+  spill: BashSpill | undefined,
+): ToolResult {
   return {
     status: 'error',
     type: 'command_failed',
-    message: renderBashText(result),
+    message: renderBashText({
+      ...result,
+      ...(spill !== undefined && { truncationNotice: spill.notice }),
+    }),
+    ...(spill !== undefined && { artifact: spill.artifact }),
   };
 }
 
 /** The observation the model reads, with the exit code and streams it holds. */
-export function toToolResult(result: BashResult): ToolResult {
+export function toToolResult(
+  result: BashResult,
+  spill?: BashSpill,
+): ToolResult {
   if (result.status === 'success') {
     return {
       status: 'success',
@@ -59,8 +83,12 @@ export function toToolResult(result: BashResult): ToolResult {
       // streams").
       ...(result.truncated && { cut: true }),
       ...(result.wallTimeMs !== undefined && { wallTimeMs: result.wallTimeMs }),
+      ...(spill !== undefined && {
+        artifact: spill.artifact,
+        truncationNotice: spill.notice,
+      }),
     };
   }
-  if ('type' in result) return typedFailureResult(result);
-  return commandFailedResult(result);
+  if ('type' in result) return typedFailureResult(result, spill);
+  return commandFailedResult(result, spill);
 }

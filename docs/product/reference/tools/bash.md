@@ -37,6 +37,16 @@ and a bracketed cap notice can end the text; a result only the global result cap
 shortened ends with its notice and no such marker. A stored result without a
 wall time renders the bare header.
 
+A stream that does not fit its inline share keeps its first lines, one
+`[lines <a>-<b> omitted; …]` line, and its last lines. When the Run can read
+artifacts, that line names the stored part
+(`read artifact://bash-<n>/stdout:<a>-<b>`) and the text ends with
+`[full result: artifact://bash-<n>/stdout (<lines> lines)]`; both streams that
+do not fit are named in one notice. A failed write, or a Run that cannot read
+artifacts, renders `[lines <a>-<b> omitted; full result not stored]` instead
+and names no locator. The global result cap never shortens a `bash` result: the
+tool's own preview is its inline bound.
+
 A failing command is a `command_failed` result whose message is the same text
 shape, with the non-zero exit code. A stopped command is a `timed_out` result
 whose message starts with `timed out` and the measured elapsed time in seconds,
@@ -92,8 +102,19 @@ through ordinary filesystem commands; that is separate from the owner-scoped
 
 ## Bounds
 
-Output is bounded by the configured bound and truncation is reported in the
-result. A call is a fresh process with no state carried into the next one, and a
+Each stream is bounded at [`tools.artifacts.maxBytes`](../../operator/native-files.md)
+UTF-8 bytes on the llame host and for an `ssh://` command, whose buffers take
+that byte count as it is. A Machine keeps the 32,000-unit stream bound of the
+Machine protocol. A cut stream is reported as `[output cut at the bound]`.
+
+A stream over its inline share is stored as one artifact part named `stdout` or
+`stderr` in one artifact, so the model reads the rest through
+`artifact://bash-<n>/<stream>`. The streams that do not fit share the inline
+budget equally, and a quarter of each share is the head. The artifact holds the
+stream as the executor returned it, after redaction, in bytes; a stream that
+parses as JSON is stored with the JSON content type.
+
+A call is a fresh process with no state carried into the next one, and a
 Machine call uses the same managed bounds. An `ssh://` command uses them too:
 one `bash -s` process per call, the shared output bound, and the call's
 remaining time.

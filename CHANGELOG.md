@@ -13,6 +13,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   [model output](docs/product/reference/tools/model-output.md) and
   [MCP tools](docs/product/reference/tools/mcp-tools.md).
 
+- `bash` now keeps a stream that does not fit inline as its head lines, one
+  `[lines <a>-<b> omitted; …]` line, and its tail lines, and stores the whole
+  stream as `artifact://bash-<n>/stdout` or `artifact://bash-<n>/stderr` when
+  the Run can read artifacts; `[full result: …]` ends the text, and a failed
+  write or a Run without `read` says `full result not stored`. The same shape
+  serves a success, a `command_failed` message, and a `timed_out` message on
+  the llame host, an `ssh://` host, and a Machine, and the stored
+  `native.result` holds only the preview and the locator. On the llame host
+  and for an `ssh://` command each stream bound is now
+  `tools.artifacts.maxBytes` counted in UTF-8 bytes, so the `ssh://` buffers
+  no longer triple it; a Machine keeps the 32,000-unit protocol bound. See
+  [bash](docs/product/reference/tools/bash.md).
+
 - Tool-result artifacts now check each `grep` and `web_search` finding again
   when `read` serves it: a `read` rule added after the artifact was stored
   withholds a refused file, result, or answer as `[withheld]` lines with

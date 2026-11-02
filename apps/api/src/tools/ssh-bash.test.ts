@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import {
   resetManagedExecutorForTests,
   reserveManagedProcessSlot,
+  streamOutputBound,
 } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
@@ -164,7 +165,7 @@ describe('ssh bash execution', () => {
       remoteCommand: ['bash', '-s'],
     });
     expect(run?.stderrTailBytes).toBe(
-      managedBashContext(context(remoteClient)).outputBound * 3,
+      streamOutputBound(managedBashContext(context(remoteClient))).limit,
     );
     const script = String(run?.input);
     expect(script).toContain("p='/tmp'");
@@ -269,17 +270,21 @@ describe('ssh bash execution', () => {
     );
   });
 
-  it('clips the command output to the local output bound', async () => {
-    const remoteClient = remote(completed('x'.repeat(40_000), '', 0));
+  it('clips the command output at the byte bound', async () => {
+    const remoteClient = remote(completed('é'.repeat(40_000), '', 0));
     stubFence();
 
-    const result = await executeSshBash(context(remoteClient), {
-      command: 'yes x | head -c 40000',
-      cwd: CWD,
-    });
+    const result = await executeSshBash(
+      context(remoteClient, { artifactMaxBytes: 31 }),
+      {
+        command: 'yes x | head -c 40000',
+        cwd: CWD,
+      },
+    );
 
     expect(result).toMatchObject({ status: 'success', cut: true });
-    expect(String(result['stdout'])).toHaveLength(32_000);
+    // Fifteen two-byte characters and no split half of one.
+    expect(String(result['stdout'])).toBe('é'.repeat(15));
   });
 
   it('reports a started command without its trailer as an unknown outcome', async () => {

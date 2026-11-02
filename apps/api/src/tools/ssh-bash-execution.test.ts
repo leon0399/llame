@@ -4,7 +4,10 @@
  */
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { resetManagedExecutorForTests } from '@workspace/bash-executor';
+import {
+  resetManagedExecutorForTests,
+  streamOutputBound,
+} from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -38,8 +41,13 @@ type Remote = {
 
 /** The local bounds this call shares with a local `bash`. */
 function localBounds() {
-  const { inputBound, outputBound } = managedBashContext(context(remote()));
-  return { inputBound, outputBound };
+  const { inputBound } = managedBashContext(context(remote()));
+  return { inputBound };
+}
+
+/** The local stream bound in bytes, which the ssh buffers take as they are. */
+function outputBoundBytes(): number {
+  return streamOutputBound(managedBashContext(context(remote()))).limit;
 }
 
 /** A client whose answer is built from the nonce the script drew. */
@@ -138,10 +146,9 @@ describe('ssh bash request bounds', () => {
       cwd: CWD,
     });
 
-    const { outputBound } = localBounds();
     const run = remoteClient.runs[0];
     expect(run?.deadlineMs).toBe(1000);
-    expect(run?.maxStdoutBytes).toBe(outputBound * 3 + SSH_READ_NOISE_BYTES);
+    expect(run?.maxStdoutBytes).toBe(outputBoundBytes() + SSH_READ_NOISE_BYTES);
     expect(run).not.toHaveProperty('signal');
   });
 

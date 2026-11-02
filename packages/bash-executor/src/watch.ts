@@ -6,6 +6,12 @@ import {
   stopProcessGroup,
   waitForProcessGroupQuiescence,
 } from "./process-tree";
+import {
+  boundedLength,
+  cutToBound,
+  streamOutputBound,
+  type StreamBound,
+} from "./output-bound";
 import { sanitizeKnownResult } from "./sanitize";
 import type { BashExecutorContext, BashKnownResult } from "./types";
 
@@ -25,12 +31,16 @@ export type WatchRequest = {
 type StreamState = {
   stdout: string;
   stderr: string;
+  /** Each stream's own measure against its bound, updated per chunk. */
+  stdoutUsed: number;
+  stderrUsed: number;
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
 };
 
 type BoundChunk = {
   readonly text: string;
+  readonly used: number;
   readonly truncated: boolean;
 };
 
@@ -71,6 +81,8 @@ export function watchManagedChild(
   const streams: StreamState = {
     stdout: "",
     stderr: "",
+    stdoutUsed: 0,
+    stderrUsed: 0,
     stdoutTruncated: false,
     stderrTruncated: false,
   };
@@ -325,35 +337,64 @@ function once(
 }
 
 function attachStreams(session: WatchSession): void {
-  const bound = session.request.context.outputBound;
+  const bound = streamOutputBound(session.request.context);
   session.child.stdout?.on("data", (chunk: Buffer) => {
-    const next = appendBound(session.streams.stdout, chunk, bound);
+    const next = appendBound(
+      session.streams.stdout,
+      session.streams.stdoutUsed,
+      chunk,
+      bound,
+    );
     session.streams.stdout = next.text;
+    session.streams.stdoutUsed = next.used;
     session.streams.stdoutTruncated ||= next.truncated;
   });
   session.child.stderr?.on("data", (chunk: Buffer) => {
-    const next = appendBound(session.streams.stderr, chunk, bound);
+    const next = appendBound(
+      session.streams.stderr,
+      session.streams.stderrUsed,
+      chunk,
+      bound,
+    );
     session.streams.stderr = next.text;
+    session.streams.stderrUsed = next.used;
     session.streams.stderrTruncated ||= next.truncated;
   });
 }
 
+/**
+ * Append one chunk under the stream's bound. A stream already at its bound
+ * keeps nothing more; a chunk that crosses it is cut on a code-point boundary,
+ * and the stream is then marked full even when the cut lands short of the
+ * bound, so no later chunk can reopen it.
+ */
 function appendBound(
   current: string,
+  used: number,
   chunk: Buffer,
-  bound: number,
+  bound: StreamBound,
 ): BoundChunk {
-  if (current.length >= bound) {
-    const truncated: BoundChunk = { text: current, truncated: true };
+  if (used >= bound.limit) {
+    const truncated: BoundChunk = { text: current, used, truncated: true };
     return truncated;
   }
-  const merged = current + chunk.toString("utf8");
-  if (merged.length <= bound) {
-    const exact: BoundChunk = { text: merged, truncated: false };
+  const text = chunk.toString("utf8");
+  const size = boundedLength(text, bound);
+  if (used + size <= bound.limit) {
+    const exact: BoundChunk = {
+      text: current + text,
+      used: used + size,
+      truncated: false,
+    };
     return exact;
   }
+  const remainder: StreamBound = {
+    kind: bound.kind,
+    limit: bound.limit - used,
+  };
   const clipped: BoundChunk = {
-    text: merged.slice(0, bound),
+    text: current + cutToBound(text, remainder),
+    used: bound.limit,
     truncated: true,
   };
   return clipped;

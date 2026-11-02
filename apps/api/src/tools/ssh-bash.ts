@@ -19,6 +19,7 @@ import {
   measureManagedInput,
   reserveManagedProcessSlot,
   sanitizeKnownResult,
+  streamOutputBound,
   unusableWorkingDirectory,
   type BashExecutorContext,
 } from '@workspace/bash-executor';
@@ -44,11 +45,9 @@ import {
 } from '../ssh/ssh-script';
 import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
+import { spillBashResult } from './bash-spill';
 import { sshUnavailableResult, sshUnsupportedHostResult } from './ssh-results';
 import { type ToolContext, type ToolResult } from './types';
-
-/** The output bound in UTF-8 bytes: three bytes per UTF-16 code unit. */
-const UTF8_BYTES_PER_CODE_UNIT = 3;
 
 const OUTCOME_UNKNOWN_MESSAGE =
   'The remote command may have executed; the connection ended without its end trailer. It will not be replayed automatically.';
@@ -104,14 +103,15 @@ function verdictResult(
 type EndedRun = Extract<SshRunOutcome, { readonly outcome: 'ended' }>;
 
 /** The finished command as the local result shape, under the local bounds. */
-function knownResult(
-  frames: SshBashFrames,
+async function knownResult(
+  request: RemoteCommand,
   outcome: EndedRun,
-  executorContext: BashExecutorContext,
+  frames: SshBashFrames,
   wallTimeMs: number,
-): ToolResult {
+): Promise<ToolResult> {
   const status = frames.status ?? 0;
-  return toToolResult(
+  return spillBashResult(
+    request.context,
     sanitizeKnownResult(
       {
         status: status === 0 ? 'success' : 'error',
@@ -121,7 +121,7 @@ function knownResult(
         truncated: outcome.stdoutOverflow || outcome.stderrOverflow,
         wallTimeMs,
       },
-      executorContext,
+      request.executorContext,
     ),
   );
 }
@@ -139,12 +139,12 @@ type RemoteCommand = {
 };
 
 /** The result one command's frames become, complete or not. */
-function commandResult(
+async function commandResult(
   request: RemoteCommand,
   outcome: SshRunOutcome,
   frames: SshBashFrames,
   wallTimeMs: number,
-): ToolResult {
+): Promise<ToolResult> {
   // Only the host can test the cwd, so the durable attempt precedes SSH and a
   // failed `cd` arrives as a refusal frame: a known result, not an attempt-free
   // refusal as a local unusable cwd is.
@@ -157,7 +157,7 @@ function commandResult(
   // The classifier reports complete only for an ended process; a failed one
   // cannot carry a trailer to trust.
   return outcome.outcome === 'ended'
-    ? knownResult(frames, outcome, request.executorContext, wallTimeMs)
+    ? knownResult(request, outcome, frames, wallTimeMs)
     : sshOutcomeUnknownResult();
 }
 
@@ -177,15 +177,16 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
       env: request.input.env ?? {},
       command: request.input.command,
     }),
+    // The bound is already in bytes (D4), so the buffer takes it as it is:
+    // one byte of stream per byte of bound, plus the framing noise the script
+    // adds around the command's own output.
     maxStdoutBytes:
-      request.executorContext.outputBound * UTF8_BYTES_PER_CODE_UNIT +
-      SSH_READ_NOISE_BYTES,
+      streamOutputBound(request.executorContext).limit + SSH_READ_NOISE_BYTES,
     deadlineMs: request.budgetMs,
     // A command's own stderr precedes the trailer, so the head alone would
     // lose it for a chatty command. The tail is the local output bound in
     // bytes, so a command that reaches the bound still keeps its trailer.
-    stderrTailBytes:
-      request.executorContext.outputBound * UTF8_BYTES_PER_CODE_UNIT,
+    stderrTailBytes: streamOutputBound(request.executorContext).limit,
     ...(context.abortSignal !== undefined && { signal: context.abortSignal }),
   });
   return commandResult(
