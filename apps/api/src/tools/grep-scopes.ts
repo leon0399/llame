@@ -183,8 +183,13 @@ async function resolveScope(
     const alias = decodeFileAlias(scope);
     if (!alias.ok) return { result: invalidPathResult(alias.message) };
     // A local alias is a host path that the Workspace rule never re-places,
-    // exactly as `read` and the grep scope projection treat it.
-    return buildHostScope(context, alias.hostPath, { index, admission });
+    // exactly as `read` and the grep scope projection treat it. Its decoder
+    // already ran, so the literal spellings must not decode a second time.
+    return buildHostScope(context, alias.hostPath, {
+      index,
+      admission,
+      literalStart: normalizeHostScope(alias.hostPath).length,
+    });
   }
   const scheme = parsePathScheme(scope);
   if (scheme === undefined) {

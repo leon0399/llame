@@ -1,4 +1,5 @@
 import {
+  lstat,
   mkdir,
   mkdtemp,
   realpath,
@@ -7,7 +8,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
+import path, { dirname } from 'node:path';
 
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi } from 'vitest';
@@ -129,6 +130,21 @@ function resultList(result: ToolResult): ReadonlyArray<unknown> {
   const list: Array<unknown> = [];
   for (const entry of results) list.push(entry);
   return list;
+}
+
+/** The nearest directory above `directory` that holds a `.git` entry. */
+async function gitAbove(directory: string): Promise<string | undefined> {
+  let current = directory;
+  for (;;) {
+    try {
+      await lstat(path.join(current, '.git'));
+      return current;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return undefined;
+      current = parent;
+    }
+  }
 }
 
 function locatorsOf(result: ToolResult): ReadonlyArray<string> {
@@ -427,6 +443,10 @@ describe('host ignore files above the scope', () => {
 
   it('does not apply a gitignore outside a repository above the scope', async () => {
     // This tree has no repository on purpose, so it cannot use the sealed root.
+    expect(
+      await gitAbove(dirname(tmpdir())),
+      'tmpdir must sit outside every git work tree',
+    ).toBeUndefined();
     const root = await temporaryRoot();
     try {
       await writeAt(root, 'Projects/.gitignore', '*.md\n');
@@ -615,7 +635,7 @@ describe('host excluded-directory report', () => {
 });
 
 describe('host scope spellings', () => {
-  it('decodes the seven literal spellings in the prefix', async () => {
+  it('decodes the literal %2A spelling in the prefix', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a*b/one.js', 'needle\n');
       const result = await run(contextOf(), {
@@ -643,6 +663,17 @@ describe('host scope spellings', () => {
       const result = await run(contextOf(), {
         patterns: ['needle'],
         scopes: [`${root}/a%252A`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/a%2A/one.js:1-1`]);
+    });
+  });
+
+  it('does not decode a file alias a second time', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a%2A/one.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`file://${root}/a%252A`],
       });
       expect(locatorsOf(result)).toEqual([`${root}/a%2A/one.js:1-1`]);
     });

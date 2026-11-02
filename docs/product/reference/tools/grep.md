@@ -81,7 +81,8 @@ scheme.
 A model reads the page as plain text — one `notice: <text>` line first when
 the result carries the Knowledge notice, then each run of consecutive passages of one file under
 one `## <file locator>` line, then one `[warnings: …]` line, then one
-`[ignored …]` line when the walk excluded directories, then the
+`[ignored …]` line when the walk excluded a directory the `read` group
+admits, then the
 `[not searched to the end: <locator>]` line when the call stopped inside a
 file, then one bracketed continuation line when more passages remain — while
 the owner's UI reads the stored object:
@@ -202,9 +203,6 @@ refused file.
 | Passages of one file | 20             |
 | Lines of one passage | 2,000          |
 | Line length          | 512 code units |
-| Files of one call    | 5,000          |
-| Directory entries    | 20,000         |
-| Bytes read           | 32 MiB         |
 | Excluded directories | 1,000          |
 | Longest line         | 4 MiB          |
 | Files read at once   | 8              |

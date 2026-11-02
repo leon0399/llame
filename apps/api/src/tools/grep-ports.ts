@@ -3,7 +3,7 @@
  * Space, and one installed skill package. Each port adapts its own trusted
  * source to the engine's `GrepWalkPort`, and each keeps its own link rule —
  * the host and Knowledge never follow a link, and a skill package follows one
- * exactly as agent-skills does. Only the host port honors ignore files.
+ * exactly as agent-skills does. The host and Machine ports honor ignore files.
  */
 
 import { type Dirent } from 'node:fs';
@@ -224,6 +224,8 @@ async function readIgnoreText(
       ? undefined
       : bytes.toString('utf8');
   } catch {
+    // A cancellation is not an absent file: let the walk end the call.
+    signal?.throwIfAborted();
     return undefined;
   } finally {
     await handle?.close();

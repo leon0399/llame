@@ -62,7 +62,8 @@ export function hostLiteralStart(
   root: string | undefined,
   placed: string,
 ): number {
-  if (root === undefined || isFileAlias(scope)) return 0;
+  if (isFileAlias(scope)) return normalizeHostScope(placed).length;
+  if (root === undefined) return 0;
   const rootText = normalizeHostScope(root);
   const placedText = normalizeHostScope(placed);
   if (isWorkspaceRelative(scope))

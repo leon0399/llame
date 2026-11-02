@@ -17,6 +17,7 @@ import {
   measureGrepRendering,
   spellGrepHostScopeLocator,
   spellGrepMachineScopeLocator,
+  type DecodedGrepCursor,
   type GrepBudget,
   type GrepIgnored,
   type GrepPageEnd,
@@ -30,6 +31,13 @@ import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice'
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { type GrepReadAdmission } from './grep-admission';
 import { type ToolResult } from './types';
+
+/** A reported exclusion in the spelling its scheme's scope uses. */
+function spellIgnoredLocator(locator: string): string {
+  return locator.startsWith('machine://')
+    ? spellGrepMachineScopeLocator(locator)
+    : spellGrepHostScopeLocator(locator);
+}
 
 /** One passage the call may emit, with the cursor point it ends at. */
 export type SegmentEntry = {
@@ -298,7 +306,7 @@ function fitsPage(
   return (
     state.units +
       grepPassageUnits(state.results.at(-1), entry.passage) +
-      endContinuationUnits(end) +
+      grepContinuationUnits(end) +
       reserve <=
     budget.pageUnits
   );
@@ -347,11 +355,14 @@ function mergeIgnored(
   state.ignoredUnits =
     state.ignored.count === 0
       ? 0
-      : grepIgnoredUnits({
-          count: state.ignored.count,
-          locators: state.ignored.paths,
-          atLeast: state.ignored.atLeast,
-        });
+      : grepIgnoredUnits(
+          {
+            count: state.ignored.count,
+            locators: state.ignored.paths,
+            atLeast: state.ignored.atLeast,
+          },
+          spellIgnoredLocator,
+        );
 }
 
 /**
@@ -424,11 +435,7 @@ export function pageResult(state: PageState, inputHash: string): ToolResult {
     ...(state.ignored.count > 0 && {
       ignored: {
         count: state.ignored.count,
-        locators: state.ignored.paths.map((locator) =>
-          locator.startsWith('machine://')
-            ? spellGrepMachineScopeLocator(locator)
-            : spellGrepHostScopeLocator(locator),
-        ),
+        locators: state.ignored.paths.map(spellIgnoredLocator),
         ...(state.ignored.atLeast && { atLeast: true }),
       },
     }),

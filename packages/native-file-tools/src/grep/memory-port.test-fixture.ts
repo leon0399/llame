@@ -1,6 +1,7 @@
 import {
   compileGrepPatterns,
   compileGlob,
+  GREP_IGNORE_FILE_NAMES,
   GREP_LIMITS,
   GrepPortError,
   runGrepScan,
@@ -195,7 +196,7 @@ export function createMemoryPort(
     ignoreFiles(rel: string): Promise<ReadonlyArray<string>> {
       const node = resolveMemoryNode(tree, rel);
       const texts: Array<string> = [];
-      for (const name of [".gitignore", ".ignore"]) {
+      for (const name of GREP_IGNORE_FILE_NAMES) {
         const text = memoryIgnoreText(node, name);
         if (text !== undefined) texts.push(text);
       }

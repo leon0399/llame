@@ -97,7 +97,8 @@ export function projectGrepScope(
     // `..` text it carried cannot be matched by policy as written.
     const normalized = normalizeHostScope(projectNativeFilePath(placed));
     // The host prefix decodes the seven literal spellings, exactly as the walk
-    // probes it, so a reject written against `app/[id]` sees `app/%5Bid%5D`.
+    // probes it, so a scope written `app/%5Bid%5D` is judged as `app/[id]`,
+    // the path it searches.
     // A Workspace root is a real path: only the text after it is decoded.
     const prefix = prefixOf(normalized);
     const start = hostLiteralStart(scope, root, placed);

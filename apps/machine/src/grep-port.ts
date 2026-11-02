@@ -206,12 +206,13 @@ async function readIgnoreText(
 ): Promise<string | undefined> {
   let handle: FileHandle | undefined;
   try {
+    walk.signal?.throwIfAborted();
     // Policy comes from a real file only, under the walk's own rule: a link is
     // never followed and a FIFO never blocks the walk.
     handle = await open(file, openFlags(false));
     const stats = await handle.stat();
     if (!stats.isFile() || stats.size > IGNORE_FILE_BYTES) return undefined;
-    const bytes = await readBounded(handle, IGNORE_FILE_BYTES, undefined);
+    const bytes = await readBounded(handle, IGNORE_FILE_BYTES, walk.signal);
     // An ignore file reached through a swapped directory or replaced by a
     // link applies no rules, exactly as a link at the address would not.
     const after = await walk.guard.resolvePath(file).catch(() => undefined);
@@ -221,6 +222,8 @@ async function readIgnoreText(
       ? undefined
       : bytes.toString("utf8");
   } catch {
+    // A cancellation is not an absent file: let the walk end the call.
+    walk.signal?.throwIfAborted();
     return undefined;
   } finally {
     await handle?.close();

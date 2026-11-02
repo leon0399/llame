@@ -489,7 +489,7 @@ function readGrepIgnored(value: JsonValue): FsGrepIgnored | undefined {
   if (!isTextList(paths) || !isFlag(atLeast)) return undefined;
   const relative: Array<string> = [];
   for (const path of paths) {
-    if (!isScopeRelativePath(path)) return undefined;
+    if (path === '' || !isScopeRelativePath(path)) return undefined;
     relative.push(path);
   }
   return { paths: relative, atLeast };

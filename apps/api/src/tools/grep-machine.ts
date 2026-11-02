@@ -19,8 +19,6 @@ import {
 } from '@workspace/machine-protocol';
 import {
   decodeGrepCursor,
-  grepIgnoredUnits,
-  grepWarningsUnits,
   normalizeHostScope,
   splitGrepScope,
   type DecodedGrepCursor,
@@ -44,7 +42,6 @@ import {
   readFsStatResult,
 } from '../machines/machine-results';
 import { type GrepReadAdmission } from './grep-admission';
-import { remainingOf } from './grep-page';
 import {
   invalidPathResult,
   machineUnsupportedResult,
@@ -67,6 +64,7 @@ import {
   daemonStart,
   ignoredAccumulator,
   machineScopeLocator,
+  spent,
   mergePage,
   requestCursorKey,
   requestOf,
@@ -465,44 +463,6 @@ function nextCursor(
   return page.cursor === undefined || page.cursor === cursor
     ? undefined
     : page.cursor;
-}
-
-/**
- * What the call has left after one daemon page. The next request must leave
- * the hub's own lines beside it — `base` plus this segment's warnings line so
- * far — or a page the hub then drops whole would come back on every resume.
- */
-function spent(
-  budget: GrepBudget,
-  page: FsGrepSuccess,
-  deadlineAt: number,
-  lines: {
-    readonly base: number;
-    readonly counts: ReadonlyMap<FsGrepWarningKind, number>;
-    readonly ignored: IgnoredAccumulator;
-  },
-): GrepBudget {
-  const consumed = page.consumed;
-  const reserve =
-    lines.base +
-    grepWarningsUnits(lines.counts) +
-    (lines.ignored.paths.length === 0 && !lines.ignored.atLeast
-      ? 0
-      : grepIgnoredUnits({
-          count: lines.ignored.paths.length,
-          locators: lines.ignored.paths,
-          atLeast: lines.ignored.atLeast,
-        }));
-  return {
-    files: remainingOf(budget.files, consumed.files),
-    entries: remainingOf(budget.entries, consumed.entries),
-    bytes: remainingOf(budget.bytes, consumed.bytes),
-    maxFileBytes: budget.maxFileBytes,
-    limit: budget.limit,
-    pageUnits: budget.pageUnits,
-    fixedReserve: reserve,
-    deadlineMs: Math.max(0, deadlineAt - Date.now()),
-  };
 }
 
 /**

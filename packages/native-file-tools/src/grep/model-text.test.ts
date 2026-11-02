@@ -1,3 +1,4 @@
+import { spellGrepHostScopeLocator } from "./scope";
 import {
   grepIgnoredUnits,
   measureGrepRendering,
@@ -317,6 +318,19 @@ describe("grep text rendering", () => {
     const ignored = { count: 2, locators: ["/r/a", "/r/b"], atLeast: false };
     const text = renderGrepText({ results: [], complete: true, ignored });
     expect(grepIgnoredUnits(ignored)).toBe(text.length + 1);
+  });
+
+  it("measures a locator in the spelling the result carries", () => {
+    const raw = { count: 1, locators: ["/r/a[b]"], atLeast: false };
+    const spelled = { ...raw, locators: ["/r/a%5Bb%5D"] };
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: spelled,
+    });
+    expect(grepIgnoredUnits(raw, spellGrepHostScopeLocator)).toBe(
+      text.length + 1,
+    );
   });
 
   it("counts the remainder of a capped locator list", () => {

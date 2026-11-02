@@ -431,6 +431,20 @@ describe('createHostWalkPort', () => {
     });
   });
 
+  it('stops an ignore-file read when the call aborts', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, '.gitignore'), 'x\n');
+      const controller = new AbortController();
+      controller.abort();
+      const port = createHostWalkPort(root, controller.signal);
+      if (port.ignoreFiles === undefined)
+        throw new Error('a host port reads ignore files');
+      await expect(port.ignoreFiles('')).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+    });
+  });
+
   it('stops the ancestor walk when the call aborts', async () => {
     await withTree(async (root) => {
       await mkdir(path.join(root, 'repo/sub'), { recursive: true });

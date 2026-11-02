@@ -211,60 +211,28 @@ function grepIgnoredLine(ignored: IgnoredView): string {
   })${tail}`;
 }
 
-/** The seven characters a reported scope writes as three code units. */
-const SPELLABLE = /[%*?[\]{}]/gu;
-
-/** One raw locator's width as the scope spelling it is reported with. */
-function spelledWidth(locator: string): number {
-  const folded = oneLine(locator);
-  return folded.length + (folded.match(SPELLABLE)?.length ?? 0) * 2;
-}
-
 /**
  * Widest the `ignored` line can render for a page that reports these raw
- * locators: at most the five it names, each measured in its scope spelling.
+ * locators: at most the five it names, in the spelling the result carries.
  * The page keeps this width and its newline back before the next passage.
  */
-export function grepIgnoredUnits(ignored: {
-  readonly count: number;
-  readonly locators: ReadonlyArray<string>;
-  readonly atLeast: boolean;
-}): number {
-  const count = ignored.atLeast
-    ? `${String(ignored.count)} or more`
-    : String(ignored.count);
-  const noun = ignored.count === 1 ? "directory" : "directories";
-  const head = `[ignored ${count} ${noun}: `;
-  const tail = "; a scope that names one searches it]";
-  let width = 0;
-  let lineWidth = 0;
-  let chosen = 0;
-  for (const locator of ignored.locators.slice(
-    0,
-    GREP_LIMITS.ignoredLocators,
-  )) {
-    const next = chosen + 1;
-    const rest = ignored.count - next;
-    const candidate =
-      head.length +
-      width +
-      (chosen === 0 ? 0 : 2) +
-      spelledWidth(locator) +
-      (rest > 0
-        ? ` (+${String(rest)}${ignored.atLeast ? " or more" : " more"})`.length
-        : 0) +
-      tail.length;
-    if (candidate > IGNORED_LINE_UNITS) break;
-    width += (chosen === 0 ? 0 : 2) + spelledWidth(locator);
-    lineWidth = candidate;
-    chosen = next;
-  }
-  if (chosen > 0) return lineWidth + 1;
-  // Not one locator fits: the remainder follows the colon.
-  const remainder = `(+${String(ignored.count)}${
-    ignored.atLeast ? " or more" : " more"
-  })`;
-  return head.length + remainder.length + tail.length + 1;
+export function grepIgnoredUnits(
+  ignored: {
+    readonly count: number;
+    readonly locators: ReadonlyArray<string>;
+    readonly atLeast: boolean;
+  },
+  spell: (locator: string) => string = (locator) => locator,
+): number {
+  return (
+    grepIgnoredLine({
+      count: ignored.count,
+      locators: ignored.locators
+        .slice(0, GREP_LIMITS.ignoredLocators)
+        .map(spell),
+      atLeast: ignored.atLeast,
+    }).length + 1
+  );
 }
 
 /**

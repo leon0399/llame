@@ -16,6 +16,7 @@ import {
   type GrepPageLimits,
 } from "./page";
 import { passageStartLine } from "./passages";
+import { spellGrepHostScopeLocator } from "./scope";
 import {
   startGrepWalk,
   type GrepCandidateEvent,
@@ -174,9 +175,11 @@ function takeRecord(
   state: ScanState,
   record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
 ): boolean {
+  // The record's entries wait behind its exclusions: a page that ends before
+  // an exclusion re-lists them, so counting them here would double the bound.
+  if (!takeIgnored(state, record)) return true;
   if (record.links > 0 && !addWarning(state, "link", record.links)) return true;
   state.consumed.entries += record.entries;
-  if (!takeIgnored(state, record)) return true;
   const { reached } = record;
   const scopeIndex = state.scopeIndex;
   if (reached === undefined || scopeIndex === undefined) return false;
@@ -214,11 +217,14 @@ function takeIgnored(
     ...state.limits,
     fixedReserve:
       state.input.budget.fixedReserve +
-      grepIgnoredUnits({
-        count: state.ignored.paths.length,
-        locators: state.ignored.paths,
-        atLeast: state.ignored.atLeast,
-      }),
+      grepIgnoredUnits(
+        {
+          count: state.ignored.paths.length,
+          locators: state.ignored.paths,
+          atLeast: state.ignored.atLeast,
+        },
+        spellGrepHostScopeLocator,
+      ),
   };
   // A line the page can no longer hold ends it before this exclusion; the
   // next call reports the directory instead.

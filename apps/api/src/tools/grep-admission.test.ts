@@ -104,13 +104,25 @@ describe('projectGrepScope', () => {
     );
   });
 
-  it('decodes the seven literal spellings in a host prefix', () => {
+  it('decodes the literal spellings in a host prefix', () => {
     expect(projectGrepScope('/home/u/repo/a%2Ab/**', undefined).prefix).toBe(
       '/home/u/repo/a*b/',
     );
     expect(
       projectGrepScope('/home/u/repo/app/%5Bid%5D/', undefined).prefix,
     ).toBe('/home/u/repo/app/[id]/');
+    expect(projectGrepScope('/w/%25%3F%7B%7D', undefined).prefix).toBe(
+      '/w/%?{}',
+    );
+  });
+
+  it('does not decode a file alias a second time', () => {
+    expect(projectGrepScope('file:///tmp/a%252A', undefined).prefix).toBe(
+      '/tmp/a%2A',
+    );
+    expect(projectGrepScope('file:///tmp/100%2525', undefined).prefix).toBe(
+      '/tmp/100%25',
+    );
   });
 
   it('decodes another percent sequence in a host prefix as written', () => {

@@ -39,6 +39,7 @@ describe("compileIgnoreRules", () => {
   it("keeps a comment line out of the rules", () => {
     // `ignore` reads `#` as a comment, but the negation instance would read
     // `!# …` as a rule for a file named `# …`; the compiler drops it first.
+    expect(compileIgnoreRules("# node_modules/\n").rules).toHaveLength(0);
     expect(decides("# node_modules/\n", "# node_modules/")).toBeUndefined();
   });
 

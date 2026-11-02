@@ -694,6 +694,7 @@ describe('readFsGrepResult', () => {
   it.each([
     [{ paths: ['../x'], atLeast: false }],
     [{ paths: ['/abs'], atLeast: false }],
+    [{ paths: [''], atLeast: false }],
     [{ paths: 'x', atLeast: false }],
     [{ paths: [], atLeast: 1 }],
   ])('refuses a malformed excluded-directory report %j', (ignored) => {

@@ -16,6 +16,7 @@ import {
 import {
   encodeGrepCursor,
   grepContinuationUnits,
+  spellGrepMachineScopeLocator,
   grepIgnoredUnits,
   grepPassageUnits,
   grepWarningsUnits,
@@ -1768,6 +1769,21 @@ describe('Machine page bounds', () => {
     expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:1-1']);
     expect(ignoredOf(result)).toBeUndefined();
     expect(success(result).complete).toBe(false);
+  });
+
+  it('pins the rendered ignored line width', () => {
+    const rendered =
+      '[ignored 1 directory: machine://devl/srv/app/m; a scope that names one searches it]';
+    expect(
+      grepIgnoredUnits(
+        {
+          count: 1,
+          locators: ['machine://devl/srv/app/m'],
+          atLeast: false,
+        },
+        spellGrepMachineScopeLocator,
+      ),
+    ).toBe(rendered.length + 1);
   });
 
   it('reserves the remainder of a capped exclusion list at the bound', async () => {

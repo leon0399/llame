@@ -564,6 +564,7 @@ describe("grep excluded-directory report", () => {
       ".gitignore": file("node_modules/\n"),
       "a.md": file(`${widths.map(line).join("\n")}\n`),
       node_modules: directory({ "dep.js": hit() }),
+      "z.md": file("plain\n"),
     });
     const first = await runMemoryScan([memoryScope(0, "/repo/", tree)], ["a"], {
       literal: true,
@@ -575,6 +576,9 @@ describe("grep excluded-directory report", () => {
     ]);
     expect(first.ignored).toBeUndefined();
     expect(first.complete).toBe(false);
+    // The rejected record's entries are walked again by the next call, so
+    // only the two entries before the page's cut are counted.
+    expect(first.consumed.entries).toBe(2);
     expect(measureGrepRendering({ ...first })).toBeLessThanOrEqual(15_000);
     const decoded = decodeGrepCursor(first.cursor ?? "", inputHash);
     if ("error" in decoded) throw new Error(decoded.error);

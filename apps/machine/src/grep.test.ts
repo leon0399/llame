@@ -304,7 +304,7 @@ describe("fs.grep", () => {
     );
   });
 
-  it("treats the registered root as the repository when none is above", async () => {
+  it("treats the registered root as the repository boundary under an outer repository", async () => {
     await writeAt(".gitignore", "dist/\n");
     // A repository above the registered root is not consulted.
     await writeFile(join(fixture.base, ".gitignore"), "dist/\n*.md\n");
@@ -338,7 +338,7 @@ describe("fs.grep", () => {
   });
 
   it("never searches a .ignore of the scope", async () => {
-    await writeAt(".ignore", "needle\n");
+    await writeAt("project/.ignore", "needle\n");
     await writeAt("project/a.go", "needle\n");
     expect(pathsOf(await grep(request(join(fixture.root, "project"))))).toEqual(
       ["a.go"],
@@ -812,6 +812,25 @@ describe("fs.grep", () => {
       throw new Error("the walk reads ignore files");
     expect(await port.ignoreFiles("sub")).toEqual([]);
     expect(await port.list("sub")).toEqual([]);
+  });
+
+  it("stops an ignore-file read when the call aborts", async () => {
+    const prefix = join(fixture.root, "project");
+    await writeAt("project/.gitignore", "x\n");
+    const guard = createRootGuard([fixture.root]);
+    const guarded = await guard.resolvePath(prefix);
+    const controller = new AbortController();
+    controller.abort();
+    const port = createGrepWalkPort(
+      guarded.canonical,
+      guard,
+      controller.signal,
+    );
+    if (port.ignoreFiles === undefined)
+      throw new Error("the walk reads ignore files");
+    await expect(port.ignoreFiles("")).rejects.toMatchObject({
+      name: "AbortError",
+    });
   });
 
   it("reads the resolved prefix when an ancestor link is repointed outside the roots", async () => {
