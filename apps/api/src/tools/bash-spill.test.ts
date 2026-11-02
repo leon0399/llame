@@ -296,12 +296,15 @@ describe('the bash artifact parts', () => {
   });
 
   it('keeps a failing command’s tail in its message and stores the whole stream', async () => {
+    // 400 lines exceed the 16,000-unit inline budget with 40 head and 120 tail
+    // lines, and stay small enough that the CI runner renders them quickly.
+    const log = longLog(400);
     const result = await spillBashResult(
       testContext(),
       success('', {
         status: 'error',
         exitCode: 1,
-        stderr: longLog(),
+        stderr: log,
       }),
     );
 
@@ -311,15 +314,15 @@ describe('the bash artifact parts', () => {
     expect(lines[0]).toBe('exit 1, 0.0 s');
     expect(lines).toContain('[stderr]');
     expect(lines).toContain(
-      '[lines 41-4880 omitted; read artifact://bash-5/stderr:41-4880]',
+      '[lines 41-280 omitted; read artifact://bash-5/stderr:41-280]',
     );
     expect(lines.at(-1)).toBe(
-      '[full result: artifact://bash-5/stderr (5000 lines)]',
+      '[full result: artifact://bash-5/stderr (400 lines)]',
     );
     expect(result.artifact).toBe('artifact://bash-5');
     expect(writtenParts()[0]).toMatchObject({
       name: 'stderr',
-      content: Buffer.from(longLog(), 'utf8'),
+      content: Buffer.from(log, 'utf8'),
     });
   });
 

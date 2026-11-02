@@ -37,8 +37,11 @@ import { createWorkspaceRootCell } from '../tools/workspace-path';
 /** The call budget: enough for the containers' first SSH handshake. */
 const CALL_TIMEOUT_SECONDS = 30;
 
-/** The output bound the local and remote `bash` share. */
-const OUTPUT_BOUND = 32_000;
+/**
+ * The configured byte bound, at the 16,000-unit inline budget so the cut
+ * stream stays whole in the model text instead of a preview of it.
+ */
+const INLINE_BUDGET = 16_000;
 
 /** The attempt ledger itself is stubbed; the context only needs a DB handle. */
 const tenantDb: TenantRunner = {
@@ -220,14 +223,15 @@ describe('ssh bash over a real sshd', () => {
 
   it('bounds the output as a local command is bounded', async () => {
     // A small artifact bound keeps this test above the bound it configures,
-    // whatever the built-in tools.artifacts.maxBytes is.
+    // and keeps the cut stream within the inline budget, so the model text is
+    // the whole bounded stream rather than a preview of it.
     const result = await bash(
       {
         command: String.raw`head -c 40000 /dev/zero | tr '\0' 'x'`,
         cwd: 'ssh://box/tmp',
       },
       client(),
-      { artifactMaxBytes: OUTPUT_BOUND },
+      { artifactMaxBytes: INLINE_BUDGET },
     );
 
     expect(result).toMatchObject({ status: 'success', cut: true });
@@ -236,7 +240,7 @@ describe('ssh bash over a real sshd', () => {
     expect(stdout.length).toBeGreaterThan(0);
     // Bounded by the managed bound and then by the runner's result cap; either
     // way the 40,000 bytes the command wrote cannot reach the model.
-    expect(stdout.length).toBeLessThanOrEqual(OUTPUT_BOUND);
+    expect(stdout.length).toBeLessThanOrEqual(INLINE_BUDGET);
     expect(stdout.length).toBeLessThan(40_000);
   });
 
