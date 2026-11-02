@@ -22,3 +22,13 @@ rows. The fork MUST NOT copy an artifact that no copied part names.
 
 - **WHEN** the source made `artifact://bash-9` in a turn after the selected prefix
 - **THEN** the fork has no `artifact://bash-9`
+
+#### Scenario: A shared fork copies no artifact
+
+- **WHEN** another user forks the source through the shared or public route
+- **THEN** the fork has no artifact, because it copies no tool part
+
+#### Scenario: A part cannot copy an artifact of another Chat
+
+- **WHEN** a copied tool part names `artifact://grep-9` and the source Chat has no such artifact
+- **THEN** the fork copies no artifact for that locator

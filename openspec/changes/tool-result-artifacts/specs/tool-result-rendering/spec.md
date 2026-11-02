@@ -168,8 +168,8 @@ A `bash` success MUST begin with `exit <code>`. When the result carries
 follow verbatim, and a non-empty stderr MUST follow under a `[stderr]` line.
 When both streams are empty, the text MUST be the header and `(no output)`.
 A stream with an artifact part MUST render its head lines, one omitted-range
-line, and its tail lines. A `command_failed` message MUST have the same shape
-with the non-zero exit code.
+line, and its tail lines. The artifact notice line MUST end the text. A
+`command_failed` or `timed_out` message MUST have the same shape.
 
 A result whose executor bound cut a stream MUST carry `[output cut at the
 bound]`. A result that only the cap shortened MUST NOT carry that line.
@@ -209,12 +209,12 @@ bound]`. A result that only the cap shortened MUST NOT carry that line.
 
 - **WHEN** the executor bound cuts stdout and the stdout does not fit inline
 - **THEN** the text carries `[output cut at the bound]`
-- **AND** it carries the artifact notice line of that stream
+- **AND** it ends with the artifact notice line
 
 #### Scenario: A long log keeps its tail
 
 - **WHEN** stdout has 5,000 lines and does not fit inline
-- **THEN** the text shows its first lines, `[lines 81-4920 omitted; read artifact://bash-<n>/stdout:81-4920]`, and its last lines
+- **THEN** the text shows its first 40 lines, `[lines 41-4880 omitted; read artifact://bash-<n>/stdout:41-4880]`, and its last 120 lines
 
 ## ADDED Requirements
 
@@ -264,21 +264,21 @@ render as stored.
 
 ### Requirement: An artifact notice is one bracketed line
 
-The artifact notice MUST be one bracketed line:
-`[full result: <locator>, <lines> lines; continue with <locator>:<next>-]`.
-When the artifact has a host file, `; host file: <path>` MUST follow the line
-count. In a Machine Workspace, `; host file on the llame host only` MUST
-replace the path.
+The artifact notice MUST be one bracketed line that names each part as
+`<locator> (<lines> lines)`, with a comma between two parts. A `grep` or
+`web_search` notice MUST add `; continue with <locator>:<next>-`. A notice for
+host files MUST add `; host files in <directory>`, or `; host files on the
+llame host only`.
 
 #### Scenario: A notice without a host file
 
 - **WHEN** `artifact://grep-7` has 4,812 lines, the inline part ends at line 200, and no file exists
-- **THEN** the notice is `[full result: artifact://grep-7, 4812 lines; continue with artifact://grep-7:201-]`
+- **THEN** the notice is `[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:201-]`
 
 #### Scenario: A notice with a host file
 
-- **WHEN** the artifact has a host file
-- **THEN** the notice names its absolute path after the line count
+- **WHEN** a `bash` artifact has two host files
+- **THEN** the notice names both parts with their line counts and then the absolute directory
 
 ### Requirement: A grep passage cut at the inline bound names the artifact
 
@@ -298,6 +298,30 @@ them]` in the next line. That notice MUST NOT appear in any other case.
 - **WHEN** a file's twentieth passage is cut to fit the inline bound
 - **THEN** the cut marker follows its last line
 - **AND** the capped-file notice follows the cut marker
+
+### Requirement: The grep remainder line names the next files
+
+The remainder line MUST read `[more: <files> files, <passages> passages; next:
+<entries>]`. Each entry MUST be `<locator> (<locator of the artifact>:<a>-<b>)`,
+with a comma between two entries. The line MUST name at most ten files. It
+MUST fit in 2,000 code units; an entry that does not fit is left out.
+
+#### Scenario: The remainder line names two files
+
+- **WHEN** two files with 12 passages follow the inline part in `artifact://grep-3`
+- **THEN** the line is `[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:201-240), /r/b.ts (artifact://grep-3:241-300)]`
+
+### Requirement: Artifact framing values render on one line
+
+A line break in a value of the remainder line, the omitted-range line, the
+artifact notice, or the `[engine: …; query: …]` line MUST render as one space.
+The rule MUST be the same as for the framing values of "Framing values render
+on one line".
+
+#### Scenario: A query with a line break stays on one line
+
+- **WHEN** a `web_search` query holds a line break
+- **THEN** the `[engine: …; query: …]` line holds a space in its place
 
 ## REMOVED Requirements
 

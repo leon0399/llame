@@ -226,18 +226,21 @@ the rules of this capability.
 The request carries the file, entry, byte, and file-size bounds that are left
 for the call. An unset bound MUST travel as `null`, and the daemon then MUST
 apply no such bound. The daemon MUST stay inside each bound that the request
-sets.
+sets. The request also carries whether the call progressed. The response
+carries whether the daemon walk progressed, as "A stop inside a file before
+progress names that file" defines progress.
 
 The request MUST give the daemon nine tenths of the time left to the call
 deadline. The daemon answer then arrives before the API stops the request. The
 API MUST stop the request at the call deadline.
 
 The daemon MUST return passages, excluded directories, and an unfinished
-file as paths relative to its display prefix only. The request also carries
-the artifact bytes that are left. The API MUST ask for the next response after
-the last passage it kept, never after a daemon passage it dropped. The API MUST
-apply the `read` group to each path that the daemon returns before the result
-names it.
+file as paths relative to its display prefix only. The request carries a page
+budget that fits one protocol message. The API MUST ask for the next response
+after the last passage it kept, never after a daemon passage it dropped. It
+MUST ask again until the scope ends, the call stops, or the artifact bound
+cuts a daemon page. The API MUST apply the `read` group to each path that the
+daemon returns before the result names it.
 
 An unreachable or unknown Machine MUST fail the call with the Machine failure
 results that `read` uses. A daemon without the method MUST fail the call as
@@ -309,6 +312,59 @@ the call as Machine unusable.
 - **WHEN** a daemon answers an `fs.grep` request with an invalid-parameters error
 - **THEN** the tool returns the Machine unusable result, not `invalid_input`
 
+### Requirement: A file is searched as a stream
+
+The walk MUST search a regular file of any size when `maxFileBytes` is not
+set. The walk MUST keep the passages of a file until it reaches the end of
+that file. The file then gives its passages to the result. A skip that the
+walk finds after a match MUST drop each passage of that file.
+
+#### Scenario: A large log is searched
+
+- **WHEN** no bound is configured and the last line of a 200 MiB text log matches
+- **THEN** the result holds a passage of that line
+
+#### Scenario: A late skip drops the passages
+
+- **WHEN** line 10 of a file matches and a later line of that file is longer than 4 MiB
+- **THEN** the file contributes no passage
+- **AND** `warnings` counts one oversized skip
+
+#### Scenario: A cut passage longer than a page loses no line
+
+- **WHEN** a passage of a 200 MiB file spans 2,000 long lines, and the inline part cuts it
+- **THEN** the artifact holds every line of that passage once
+- **AND** no line of that passage is missed or repeated
+
+### Requirement: The excluded-directory report is filtered and bounded
+
+The `read` group MUST admit a directory locator both as written and with a
+final separator before the result counts or names it. The walk MUST record at
+most 1,000 excluded directories for one call, across every scope. When it
+excludes more, `ignored.atLeast` MUST be `true`. The inline part MUST reserve
+room for the `ignored`, `unfinishedFile`, remainder, and artifact notice
+lines, so the tool loop never cuts the result.
+
+#### Scenario: A refused directory is not named
+
+- **WHEN** an ignore rule excluded `/home/u/repo/secrets` and the `read` group refuses that locator
+- **THEN** `ignored` neither counts nor names `/home/u/repo/secrets`
+
+#### Scenario: A reject with a final separator hides the directory
+
+- **WHEN** an ignore rule excluded `/home/u/.ssh` and the `read` group rejects the literal `/home/u/.ssh/`
+- **THEN** `ignored` neither counts nor names `/home/u/.ssh`
+
+#### Scenario: Only refused exclusions leave no report
+
+- **WHEN** the only excluded directory is one that the `read` group refuses
+- **THEN** the result carries no `ignored` field
+
+#### Scenario: A large exclusion count is a lower bound
+
+- **WHEN** ignore rules exclude 1,500 directories in one call and the `read` group admits each of them
+- **THEN** `ignored.count` is 1,000 and `ignored.atLeast` is `true`
+
 ## ADDED Requirements
 
 ### Requirement: Unreadable files are skipped and counted
@@ -353,6 +409,28 @@ result MUST carry `complete: false` and a `warnings` entry that names the stop.
 
 - **WHEN** the passages of a walk reach `tools.artifacts.maxBytes`
 - **THEN** the walk stops with `complete: false` and an `artifact_bound` warning
+
+#### Scenario: File bound stops the walk
+
+- **WHEN** `tools.grep.maxFilesExamined` is 5,000, a scope holds 6,000 candidate files, and the first 5,000 give no match
+- **THEN** the walk stops at 5,000 examined files
+- **AND** the result carries `complete: false` and a `warnings` entry that names the file bound
+
+#### Scenario: A bound before the first match leaves an empty result
+
+- **WHEN** the configured entry bound stops the walk before any passage
+- **THEN** the result carries `results: []`, `complete: false`, and the entry bound warning
+
+#### Scenario: Deadline returns a partial result
+
+- **WHEN** the walk reaches the call deadline after it found three passages
+- **THEN** the result carries those three passages, `complete: false`, and a `deadline` entry
+
+#### Scenario: Oversized file is skipped and counted
+
+- **WHEN** `tools.grep.maxFileBytes` is 1 MiB and a candidate is 2 MiB
+- **THEN** it contributes no hit
+- **AND** `warnings` counts one oversized skip
 
 #### Scenario: A stopped walk returns no cursor
 
@@ -437,10 +515,12 @@ line range in the artifact.
 - **THEN** the remainder line counts 140 files and 610 passages
 - **AND** it names the next ten files, each with its `artifact://grep-<n>:<a>-<b>` range
 
-### Requirement: A stop inside a file names that file
+### Requirement: A stop inside a file before progress names that file
 
-When the call deadline or a bound stops the walk inside a file, the result
-MUST name that file in `unfinishedFile`. The result MUST NOT name a file that
+A call progresses when it emits a passage, or when it finishes an entry. When
+the call deadline or a bound stops the walk inside a file before the call
+progressed, the result MUST name that file in `unfinishedFile`. After
+progress, the result MUST NOT name it. The result MUST NOT name a file that
 the `read` group refuses.
 
 #### Scenario: A file larger than the call is named
@@ -448,10 +528,25 @@ the `read` group refuses.
 - **WHEN** a scope starts with a 3 GB log and the call deadline stops the walk in it
 - **THEN** the result names that log in `unfinishedFile` with `complete: false`
 
+#### Scenario: A stop after progress names no file
+
+- **WHEN** the call finished 40 files and the call deadline stops the walk in the forty-first
+- **THEN** the result carries no `unfinishedFile`
+
 #### Scenario: A refused unfinished file is not named
 
-- **WHEN** the call deadline stops a Machine walk in a file that the `read` group refuses
+- **WHEN** the call deadline stops a Machine walk in its first file and the `read` group refuses that file
 - **THEN** the result carries no `unfinishedFile`
+
+### Requirement: A Machine response that names an unfinished file is skipped
+
+When a Machine response names an unfinished file, the API MUST ask for the
+next response after that file. It MUST NOT open that file again in the call.
+
+#### Scenario: A daemon time budget skips one file
+
+- **WHEN** the daemon time budget stops a Machine walk in its first file, before progress
+- **THEN** the next `fs.grep` request of the call starts after that file
 
 ## REMOVED Requirements
 
@@ -476,8 +571,8 @@ without a cursor.
 
 **Reason**: Progress across calls has no meaning without a cursor.
 
-**Migration**: "A stop inside a file names that file" keeps `unfinishedFile`
-for one call.
+**Migration**: "A stop inside a file before progress names that file" keeps
+`unfinishedFile` and progress within one call.
 
 ### Requirement: A stop after progress opens the file again
 

@@ -153,13 +153,157 @@ shares.
 - **WHEN** the owner publicly shares a chat that contains a `web_search` call
 - **THEN** the shared view contains no `web_search` tool part, input, output, or notes
 
+### Requirement: API and keyless engines speak their vendor wire
+
+`brave`, `exa`, and `perplexity` (Search API) use a key. `searxng` uses its
+`baseUrl`. `exa-mcp` calls the hosted Exa MCP tool `web_search_exa` from llame
+code with an optional key. `duckduckgo` posts to the HTML endpoint.
+`deepseek`, `parallel`, `parallel-mcp`, and `yandex` are also engine types.
+Each engine MUST map `recency` and the fetch size where its vendor supports
+them. Each engine MUST refuse redirects and MUST send a key only to its own
+host.
+
+#### Scenario: Keyless Exa MCP
+
+- **WHEN** an `exa-mcp` engine without a key runs a query
+- **THEN** llame calls the hosted MCP tool and returns normalized results
+- **AND** the model receives no declaration of an MCP tool from that endpoint
+
+#### Scenario: DuckDuckGo challenge
+
+- **WHEN** the DuckDuckGo endpoint answers with its bot-challenge page
+- **THEN** the engine outcome is `challenge` and the chain advances
+
+#### Scenario: A redirect never carries the key
+
+- **WHEN** the response of a `brave` engine is a redirect to another host
+- **THEN** the engine does not follow the redirect and sends no request to the other host
+- **AND** the outcome is `upstream_error`
+
+### Requirement: DeepSeek engines call the DeepSeek search API
+
+A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search`
+with its key as a bearer token. It MUST send the query, and the fetch size as
+`count`. It MUST add `recency` to the query as an `after:` date. When the date
+would put the query over its limit, the engine MUST omit the date and note
+that. The snippet MUST be `summary`, else `snippet`. HTTP 401 and 403 MUST map
+to `auth`, 429 to `rate_limited`, 408 and 504 to `timeout`, and others to
+`upstream_error`.
+
+#### Scenario: Recency becomes an after date
+
+- **WHEN** the call sets `recency: "week"` with the query `pgvector release`
+- **THEN** the query that DeepSeek receives ends with `after:` and the date seven days before the request date
+
+#### Scenario: A full query omits the date
+
+- **WHEN** the call sets `recency` and the query has 125 characters
+- **THEN** DeepSeek receives the query without a date
+- **AND** the notes state that `deepseek` did not apply `recency`
+
+#### Scenario: The summary is the snippet
+
+- **WHEN** a DeepSeek result has both `summary` and `snippet`
+- **THEN** the output snippet comes from `summary`
+
+### Requirement: Parallel engines call the Parallel search API
+
+A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its
+key in `x-api-key`. It MUST send the query as the only `search_queries` entry,
+its `mode`, the fetch size as `max_results`, and the Chat id as `session_id`.
+It MUST move `site:` hosts to included domains and `-site:` hosts to excluded
+domains, and note ignored exclusions. It MUST send `recency` as `after_date`.
+The snippet MUST be the first excerpt, without a title copy at its start.
+HTTP statuses MUST map as for `deepseek`.
+
+#### Scenario: Site operators become the source policy
+
+- **WHEN** the query is `rerank site:arxiv.org`
+- **THEN** the request has `arxiv.org` as an included domain and `rerank` as the query
+
+#### Scenario: The Chat id is the session
+
+- **WHEN** a Run in a Chat calls a `parallel` engine twice
+- **THEN** both requests send that Chat id as `session_id`
+
+### Requirement: Yandex engines call the Yandex web search API
+
+A `yandex` engine MUST post to
+`https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key`
+authorization. It MUST send its `searchType`, and its `folderId` when set. It
+MUST request flat groups with one document in each group, so that the fetch
+size counts results. It MUST decode the base64 XML response. `day` MUST map to
+one day and `month` to one month. `week` MUST map to two weeks, with a note.
+`year` MUST NOT set a period, and the engine MUST note that.
+
+#### Scenario: Flat groups keep the limit
+
+- **WHEN** the fetch size is 5 and Yandex finds two results on one host
+- **THEN** the request has flat groups with one document each, and the output contains both results
+
+#### Scenario: Week recency becomes two weeks with a note
+
+- **WHEN** the call sets `recency: "week"`
+- **THEN** the request uses the two-week period
+- **AND** the notes state that `yandex` mapped `week` to two weeks
+
+### Requirement: Removed entries can empty an engine outcome
+
+The call MUST remove entries from each engine outcome before the chain decides
+on it. An `aggregate` MUST remove them before the merge and the fetch-size cut.
+An engine with no result left is empty, and the chain advances. An answer with
+no citation left MUST fail with `ungrounded`. Answer text MUST keep the text of
+a link to a removed URL, and MUST drop its target and each bare copy.
+
+#### Scenario: A fully removed result list advances the chain
+
+- **WHEN** the chain is `["brave", "exa"]`, the `read` group rejects every result of `brave`, and `exa` returns allowed results
+- **THEN** the output has the results of `exa`
+- **AND** its notes name `brave` as empty
+
+#### Scenario: An answer without allowed citations is ungrounded
+
+- **WHEN** a `model-hosted` engine answers and the `read` group rejects each of its citations
+- **THEN** the engine fails with `ungrounded` and the chain advances
+
+#### Scenario: Answer text loses a rejected link
+
+- **WHEN** a hosted answer contains `[Grokipedia](https://grokipedia.com/x)` and an allowed citation, and the `read` group rejects `grokipedia.com`
+- **THEN** the answer contains `Grokipedia` without that URL and keeps the allowed citation
+
+### Requirement: Attached answers fit the result cap after results
+
+Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20
+citations. When the inline text is over 15,000 units, results MUST leave the
+inline text from the end first. Then citations MUST leave from the end of each
+answer, last answer first, and each answer MUST keep one. Then answer text MUST
+be cut, last answer first. Then whole answers MUST leave from the end. The
+artifact MUST hold every result, answer, and citation. Each step MUST add one
+inline note with its count.
+
+#### Scenario: Results go before answers
+
+- **WHEN** an aggregate output with 20 results and one answer of 8,000 units is over the result cap
+- **THEN** results from the end leave the inline text first, and the answer text stays complete when it then fits
+
+#### Scenario: Whole answers go last
+
+- **WHEN** eight attached answers each keep one citation with a URL of 2,048 units
+- **THEN** whole answers leave the inline text from the end until it fits, with one note
+- **AND** the artifact holds all eight answers
+
+#### Scenario: Each answer keeps a citation
+
+- **WHEN** two attached answers of 8,000 units with 20 citations each are over the result cap
+- **THEN** each answer keeps its first citation inline and the inline text fits the result cap
+
 ## ADDED Requirements
 
 ### Requirement: Results past the inline part go to an artifact
 
-When the engines return more results than the inline text holds, the system
-MUST store all results of the call as one artifact. The artifact uses the
-`web_search` text shape. The inline text MUST end with the artifact notice. A call whose results
+When the inline text leaves out a result, an answer, or a citation, the
+system MUST store the whole output as one artifact. The artifact
+uses the `web_search` text shape. The inline text MUST end with the artifact notice. A call whose results
 all fit inline MUST NOT create an artifact.
 
 #### Scenario: Twenty results with a limit of ten

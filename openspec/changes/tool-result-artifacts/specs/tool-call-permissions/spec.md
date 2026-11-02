@@ -16,3 +16,17 @@ its findings, as `tool-artifacts` defines.
 
 - **WHEN** a `read` group allows `^artifact://` and the model reads a locator that only another Chat has
 - **THEN** the read returns `not_found`
+
+### Requirement: Artifact reads evaluate each served finding
+
+The sixth named exception also covers each finding that an artifact read
+serves. The system MUST evaluate the `read` group on the recorded source
+locator of that finding. The system MUST NOT record these decisions one by
+one. They MUST NOT count toward the refused-file count of the completion
+audit. A `bypass` attempt MUST evaluate no finding.
+
+#### Scenario: Finding decisions are not recorded
+
+- **WHEN** an artifact read serves 30 findings and the `read` group refuses 2 of them
+- **THEN** `tool.requested` carries one decision for the call
+- **AND** the completion audit counts no refused file for those findings
