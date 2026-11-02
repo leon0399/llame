@@ -185,15 +185,18 @@ One rule: a `read-only` attempt passes no Workspace MCP key to anything that
 starts, holds, or reads a client.
 
 - **Attempt start.** `startWorkspaceMcp` still stops stale clients: it calls
-  `stopForChat` when the Chat is unbound and the stale-generation discard
-  otherwise. It skips `startForChat` when the mode is `read-only`.
+  `stopForChat` when the Chat is unbound. For a bound Chat it calls a new
+  public `WorkspaceMcpClients.stopStale(key)`, which runs the private
+  stale-generation discard that `startForChat` runs today. It skips
+  `startForChat` when the mode is `read-only`.
 - **Attempt.** No key goes to `composeAttemptCatalog`,
   `attemptDynamicResolver`, or `beginWorkspaceAttempt`. A cached client set
   for the key stays untouched for a later `default` attempt, and its idle
   sweep is not held.
 - **Entry.** The binding transition and the `unchanged` path branch on the
   mode before `startForChat`, `stateForKey`, `transferAttempt`, and
-  `addToAttempt`. `mcpServers` comes from the existing readers:
+  `addToAttempt`. `mcpServers` comes from a new public
+  `WorkspaceMcpClients.listUnstarted(key)`, which calls the existing readers:
   `readWorkspaceMcpConfig` (both files) for a host root and the Machine
   `mcp.servers` request for a `machine://` root. Neither starts a process.
   Each returned server is `unavailable` with reason
@@ -215,8 +218,11 @@ text that named `bypass` only, and tests cover the `read-only` cases.
 
 `PERMISSION_MODE_DETAILS` gains `read-only` with the title `Read-only` and the
 description `Reads only. Edits, commands, and MCP tools are refused.` Send and
-creation conditions become `mode !== "default"`. Regenerate already repeats
-`latestRun.permissionMode`, so only the send condition changes for it. The
+creation conditions become `mode !== "default"`. The follow-up condition in
+`followUpRunRequest` changes the same way, so Continue sends the composer's
+`read-only` and Regenerate repeats `latestRun.permissionMode`; it parses the
+body mode through `isPermissionMode`. `isPermissionMode` in the selector
+lists all three values, or the selector drops `read-only` from the menu. The
 trigger stays non-destructive for `read-only`. A reopened chat starts at
 `default`; the present `bypass` restore from usage is not extended. The web
 client and the web copy of the live protocol are regenerated.
@@ -267,3 +273,10 @@ None that changes the specs or the task breakdown.
   creation DTO enum is unchanged; restore is not extended; STE fixes.
   Rejected: an operator note about rolling upgrades, because all processes
   run one release (D2).
+- **v3 (2026-11-03):** Local review round 2 (spec 0 P0, 1 P1, 8 P2;
+  feasibility 0 P0, 0 P1, 3 P2). Fixed: the ceiling runs after argument
+  validation; the message is its own requirement; same-root precedence is
+  stated; "Run whose mode is `read-only`" replaces "read-only Run", which
+  canonical specs use for a Run with no `native.attempt`; positive admission
+  scenarios; Continue and the selector guard in D8; two public client
+  methods in D6; grilling codes in proposal.md.

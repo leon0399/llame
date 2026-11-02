@@ -54,7 +54,7 @@ From the grilling record in [#1548](https://github.com/leon0399/llame/issues/154
   workspace exceptions. The ceiling is decided before the policy.
 - Q9 A: chat creation with `worktree` is allowed under `read-only`.
 - Q10 B: a skipped Workspace MCP server reports a fixed read-only reason.
-- D7, superseded by Leo: assume all processes run the same release. So no
+- Grilling D7, superseded by Leo: assume all processes run the same release. So no
   worker can lack `read-only` support; only configuration can differ. A Run
   accepted as `read-only` stays `read-only` on every process (see
   design D2).
@@ -73,7 +73,7 @@ Assumptions that follow but were not asked:
 
 ## Deviation from the grilling record
 
-- D3 is dropped: a `read-only` turn is not recorded in `usage.permissionMode`
+- Grilling D3 is dropped (design D9): a `read-only` turn is not recorded in `usage.permissionMode`
   and gets no usage-badge segment. Recording it would modify the
   `durable-runs` and `run-usage-accounting` requirements that fix
   `permissionMode` to `bypass` only. The Run response and the context receipt
@@ -96,7 +96,8 @@ None.
   whether the policy is evaluated` (the `read-only` value and its resolution).
   ADDED `A read-only attempt admits only reads and plain Workspace
   transitions`, `A read-only rejection is recorded before the policy is
-  evaluated`, and `A read-only attempt rejects worktree entry`.
+  evaluated`, `A read-only rejection uses a fixed message`, and `A read-only
+  attempt rejects worktree entry`.
 - `instance-config`: MODIFIED `Operator configuration enables Run permission
   modes` (accepts `"read-only"`).
 - `mcp-tools`: ADDED `A read-only attempt starts and uses no Workspace MCP
@@ -112,8 +113,7 @@ Deliberately unchanged, with the reading under which each holds:
 
 - `tool-call-permissions` `Safe decision provenance and non-fatal rejection`:
   its fixed-template list is read as extended by the template that the ADDED
-  `A read-only rejection is recorded before the policy is evaluated` fixes
-  for its own reason.
+  `A read-only rejection uses a fixed message` fixes for its own reason.
 - `tool-call-permissions` `Execution policy is frozen per process and
   reevaluated after restart`: "resolved against the enabled modes of the
   process that executes it" holds under the modified resolution rule, which

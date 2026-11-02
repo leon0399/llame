@@ -2,7 +2,7 @@
 
 ### Requirement: A Run's effective permission mode selects whether the policy is evaluated
 
-Each execution attempt MUST have one effective permission mode. The system MUST resolve it once, when the attempt is claimed. The effective mode is `bypass` when the accepted mode of the Run is `bypass` and the `tools.permissionModes` of the process that executes the attempt enables `bypass`. The effective mode is `read-only` when the accepted mode of the Run is `read-only`, on every process. The effective mode is `default` in all other cases. A Run accepted with `bypass` on a process that does not enable `bypass` MUST execute in `default`.
+Each execution attempt MUST have one effective permission mode. The system MUST resolve it once, when the attempt is claimed. The effective mode is `bypass` when the Run has the accepted mode `bypass` and the executing process enables `bypass` in `tools.permissionModes`. The effective mode is `read-only` when the accepted mode of the Run is `read-only`, on every process. The effective mode is `default` in all other cases. A Run accepted with `bypass` on a process that does not enable `bypass` MUST execute in `default`.
 
 In `default`, each requirement of this capability MUST apply without change.
 
@@ -93,6 +93,16 @@ A `read-only` attempt MUST admit a tool call only in three cases. The tool has t
 - **WHEN** a `read-only` attempt calls `grep`, and the `grep` group of the operator policy has no allow
 - **THEN** the call gets `permission_denied` with reason `no_allow`
 
+#### Scenario: A read call that the policy allows executes
+
+- **WHEN** a `read-only` attempt calls `read` for a path that the `read` group allows
+- **THEN** the call executes and records `allow` with reason `matched_allow`
+
+#### Scenario: Workspace exit is admitted
+
+- **WHEN** a `read-only` attempt of a bound Chat calls `exit_workspace`, and the `exit_workspace` group allows the call
+- **THEN** the system clears the binding
+
 #### Scenario: Plain Workspace entry is admitted
 
 - **WHEN** a `read-only` attempt calls `enter_workspace` for a directory that exists, without `worktree`, and the operator policy allows both paths
@@ -100,7 +110,7 @@ A `read-only` attempt MUST admit a tool call only in three cases. The tool has t
 
 ### Requirement: A read-only rejection is recorded before the policy is evaluated
 
-The system MUST decide the read-only ceiling before any other admission step for the call. Thus no SSH host resolution and no permission group occur for a rejected call. A rejected call MUST get the static reason `permission_mode_read_only`. The decision MUST carry the policy-instance ID of the process and no clause reference. The system MUST record it where it records a `default` call decision.
+After the system validates the call arguments, it MUST decide the read-only ceiling before any other admission step. Thus no SSH host resolution and no permission group occur for a rejected call. A rejected call MUST get the static reason `permission_mode_read_only`. The decision MUST carry the policy-instance ID of the process and no clause reference. The system MUST record it where it records a `default` call decision.
 
 #### Scenario: The ceiling reason wins over a policy reject
 
@@ -114,17 +124,26 @@ The system MUST decide the read-only ceiling before any other admission step for
 - **THEN** the call gets `permission_denied` with reason `permission_mode_read_only`
 - **AND** the system resolves no SSH host configuration for the call
 
-#### Scenario: The rejection text is fixed
-
-- **WHEN** a `read-only` attempt receives a `permission_mode_read_only` rejection
-- **THEN** the result message is exactly `Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, disguise the same action through different commands or tools, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.`
-- **AND** the message names no permission mode and no setting
-
 #### Scenario: The decision survives a reload privately
 
 - **WHEN** the owner reloads a chat that contains a call that the ceiling rejected
 - **THEN** the stored tool part keeps the `permission_mode_read_only` decision
 - **AND** model replay, public shares, exports, and search receive no decision metadata
+
+### Requirement: A read-only rejection uses a fixed message
+
+A `permission_mode_read_only` rejection MUST return a `permission_denied` result with exactly this message: `Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, disguise the same action through different commands or tools, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.`
+
+#### Scenario: The rejection text is fixed
+
+- **WHEN** a `read-only` attempt receives a `permission_mode_read_only` rejection
+- **THEN** the result message is exactly the message of this requirement
+- **AND** the message names no permission mode and no setting
+
+#### Scenario: Invalid arguments are refused before the ceiling
+
+- **WHEN** a `read-only` attempt calls `bash` with an argument that the `bash` schema rejects
+- **THEN** the call gets the invalid-arguments refusal, not `permission_mode_read_only`
 
 ### Requirement: A read-only attempt rejects worktree entry
 

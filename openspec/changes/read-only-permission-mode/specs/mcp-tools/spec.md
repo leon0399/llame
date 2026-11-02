@@ -6,14 +6,14 @@ A `read-only` attempt MUST NOT start a Workspace MCP server, at attempt start or
 
 #### Scenario: A bound Workspace starts no server process
 
-- **WHEN** a Chat is bound to a Workspace whose `.mcp.json` declares a stdio server, and a `read-only` Run of that Chat starts
+- **WHEN** a Chat is bound to a Workspace whose `.mcp.json` declares a stdio server, and a Run whose mode is `read-only` of that Chat starts
 - **THEN** the system starts no process for that server
 - **AND** the attempt declares no tool of that server
 
 #### Scenario: A client that a default Run started is not used
 
 - **WHEN** a `default` Run started the Workspace MCP clients of a Chat in a worker
-- **AND** the next `read-only` Run of the Chat executes in the same worker
+- **AND** the next Run whose mode is `read-only` of the Chat executes in the same worker
 - **THEN** the `read-only` attempt declares no Workspace MCP tool
 - **AND** the declarations of the attempt are the same as in a worker that never started those clients
 
@@ -24,12 +24,12 @@ A `read-only` attempt MUST NOT start a Workspace MCP server, at attempt start or
 
 #### Scenario: The next default Run starts the clients again
 
-- **WHEN** a `read-only` Run of a bound Chat ends, and the owner then sends a `default` turn
+- **WHEN** a Run whose mode is `read-only` of a bound Chat ends, and the owner then sends a `default` turn
 - **THEN** the `default` attempt starts the Workspace MCP clients of the binding before it composes its tools
 
 ### Requirement: Workspace entry reports a server that read-only did not start
 
-When a `read-only` attempt enters a Workspace, the entry result MUST list each server that the Workspace MCP configuration declares as `unavailable`. The reason MUST be `not started in a read-only Run`. A server or a file that the configuration reports as unavailable MUST keep its own reason. This rule applies to a same-root re-entry, which then reads the configuration again. The listing MUST start no process.
+When a `read-only` attempt enters a Workspace, the entry result MUST list each server that the Workspace MCP configuration declares as `unavailable`. The reason MUST be `not started in a read-only Run`. A server or a file that the configuration reports as unavailable MUST keep its own reason. This rule applies to a same-root re-entry, which then reads the configuration again, against the rule for other modes. The listing MUST start no process.
 
 #### Scenario: The entry result names the reason
 
