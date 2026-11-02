@@ -153,7 +153,7 @@ assessment.
 28. [goose](./goose.md) — ACP peer integration and tool approval boundaries
 29. [Rowboat](./rowboat.md) — Per-person local agent behind a thin shared Space server, agent-authored Markdown memory, ACP peer executors, and classifier-based auto-approval
 30. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
-31. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
+31. [T3 Code](./t3-code.md) — MIT Effect environment that owns peer coding agents, a v2 SQLite event log, and WebSocket Effect RPC clients
 32. [DeepSeek Harness](./deepseek-harness.md) — Local Cordis harness with browser and stdio clients, append-only session projection, and fail-closed approvals
 33. [Hermes Agent](./hermes-agent.md) — Recall framing, memory-provider lifecycle, and TUI gateway transport and workspace cwd
 34. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
@@ -232,7 +232,8 @@ even with a single laptop UI):
 
 **Single remote only** (optional one SSH/daemon host, not a multi-box registry):
 [super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
-[T3 Code](./t3-code.md), [CodeBuddy Code](./codebuddy.md) (daemon `--host`,
+[T3 Code](./t3-code.md) (one environment per connection; peer-link MCP
+forwarding stays off unless `linkedEnvironmentsEnabled` is on), [CodeBuddy Code](./codebuddy.md) (daemon `--host`,
 docs only), [DeepSeek Harness](./deepseek-harness.md) (optional POSIX SSH
 providers; shipped profiles leave them unmounted).
 
